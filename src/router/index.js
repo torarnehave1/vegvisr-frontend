@@ -17,6 +17,15 @@ const router = createRouter({
       // which is lazy-loaded when the route is visited.
       component: () => import('../views/AboutView.vue'),
     },
+
+    // This is a catch-all route in case the user enters a route that doesn't exist
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue'),
+    },
+
+    // Redirect to the 404 page if no other routes are matched
   ],
 })
 
