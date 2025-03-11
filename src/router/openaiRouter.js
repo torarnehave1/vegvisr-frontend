@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import OpenAIView from '../views/OpenAIView.vue'
+import OpenAIView from '@/views/OpenAIView.vue' // Updated import path
 
 const openaiRouter = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
