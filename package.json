@@ -16,6 +16,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
+    "@jridgewell/sourcemap-codec": "^1.5.0",
+    "@rollup/plugin-inject": "^5.0.5",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/eslint-config-prettier": "^10.2.0",
     "eslint": "^9.21.0",

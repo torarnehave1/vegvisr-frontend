@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
+import openaiRouter from './openaiRouter'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -26,6 +27,7 @@ const router = createRouter({
     },
 
     // Redirect to the 404 page if no other routes are matched
+    ...openaiRouter.options.routes, // Add OpenAI routes
   ],
 })
 
