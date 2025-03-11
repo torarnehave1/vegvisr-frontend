@@ -1,4 +1,4 @@
-name = "vegvisr-worker"          # Change this to your desired worker name
+name = "vegvisr-frontend"          # Change this to your desired worker name
 
 main = "index.js"                # Path relative to the wrangler.toml file (here, same folder)
 compatibility_date = "2025-02-14"
