@@ -1568,6 +1568,9 @@ app.get("/greet", (c) => {
 app.get("/default", (c) => {
   return c.json({ message: "This is the default endpoint." });
 });
+app.get("/error", (c) => {
+  return c.error("This is an error message.", 500);
+});
 app.all("*", (c) => {
   return c.text("Not Found", 404);
 });
