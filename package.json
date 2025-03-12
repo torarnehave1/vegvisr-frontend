@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev:vue": "vite",
-    "dev:worker": "wrangler dev --config worker/wrangler.toml",
+    "dev:worker": "wrangler dev",
     "dev": "concurrently \"npm run dev:vue\" \"npm run dev:worker\"",
     "build": "vite build",
     "preview": "vite preview",
