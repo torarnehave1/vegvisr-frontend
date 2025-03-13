@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev:vue": "vite",
-    "dev:worker": "wrangler dev",
-    "dev": "concurrently \"npm run dev:vue\" \"npm run dev:worker\"",
+    "dev:m-worker": "wrangler dev --config main-worker/wrangler.toml --port=8787",
+    "dev:d-worker": "wrangler dev --config dev-worker/wrangler.toml --port=8788",
+    "dev": "concurrently \"npm run dev:vue\" \"npm run dev:m-worker\" \"npm run dev:d-worker\"",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --fix",

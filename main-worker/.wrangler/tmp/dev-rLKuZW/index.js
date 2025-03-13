@@ -1574,7 +1574,7 @@ app.get("/error", (c) => {
 app.all("*", (c) => {
   return c.text("Not Found", 404);
 });
-var worker_default = {
+var main_worker_default = {
   async fetch(request, env, ctx) {
     return app.fetch(request, env, ctx);
   }
@@ -1621,12 +1621,12 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-8bip7u/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-L94HXz/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
 ];
-var middleware_insertion_facade_default = worker_default;
+var middleware_insertion_facade_default = main_worker_default;
 
 // ../../../AppData/Roaming/npm/node_modules/wrangler/templates/middleware/common.ts
 var __facade_middleware__ = [];
@@ -1653,7 +1653,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-8bip7u/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-L94HXz/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
