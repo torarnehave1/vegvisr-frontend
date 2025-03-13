@@ -4,7 +4,20 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 // index.js
 var dev_worker_default = {
   async fetch() {
-    return new Response("Hello World Hei!");
+    try {
+      const data = { message: "Hello World Hei!" };
+      const response = new Response(JSON.stringify(data), {
+        headers: {
+          "Content-Type": "application/json",
+          // Set Content-Type to JSON
+          "Access-Control-Allow-Origin": "*"
+          // Allow CORS
+        }
+      });
+      return response;
+    } catch (error) {
+      return new Response("Error: " + error.message, { status: 500 });
+    }
   }
 };
 

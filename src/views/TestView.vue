@@ -34,8 +34,18 @@ export default {
 
         this.data = response.data // Store the fetched data
       } catch (error) {
-        this.error =
-          error.message === 'Network Error' ? 'Network error: Failed to fetch' : error.message // Capture any errors
+        console.error('Error details:', error) // Log the error details
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          // that falls out of the range of 2xx
+          this.error = `Server responded with status ${error.response.status}: ${error.response.data}`
+        } else if (error.request) {
+          // The request was made but no response was received
+          this.error = 'No response received from the server'
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          this.error = `Error in setting up request: ${error.message}`
+        }
       } finally {
         this.loading = false // Hide loading spinner when done
       }
