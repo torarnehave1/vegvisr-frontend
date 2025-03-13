@@ -14,6 +14,8 @@
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
   data() {
     return {
@@ -28,17 +30,12 @@ export default {
       this.error = null // Reset the error before each fetch
 
       try {
-        const response = await fetch('https://dev.vegvisr.org')
+        const response = await axios.get('https://dev.vegvisr.org')
 
-        if (!response.ok) {
-          throw new Error('Network response was not ok')
-        }
-
-        const jsonData = await response.json()
-        this.data = jsonData // Store the fetched data
+        this.data = response.data // Store the fetched data
       } catch (error) {
         this.error =
-          error.message === 'Failed to fetch' ? 'Network error: Failed to fetch' : error.message // Capture any errors
+          error.message === 'Network Error' ? 'Network error: Failed to fetch' : error.message // Capture any errors
       } finally {
         this.loading = false // Hide loading spinner when done
       }
