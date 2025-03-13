@@ -1,0 +1,10 @@
+name = "vegvisr-api-worker"
+
+main = "index.js"
+account_id = "5d9b2060ef095c777711a8649c24914e"
+workers_dev = true
+compatibility_date = "2025-03-13"
+
+[env.production]
+route = "https://api.vegvisr.org/*"
+zone_id = "9178eccd3a7e3d71d8ae09defb09422a"

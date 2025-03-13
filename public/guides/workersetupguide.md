@@ -175,19 +175,27 @@ In your Cloudflare Worker directory (`dev-worker` in this case), you should have
 Example `wrangler.toml`:
 
 ```toml
-name = "vegvisr-worker"
-type = "javascript"
+name = "vegvisr-api-worker"
 
-account_id = "your-cloudflare-account-id"
+main = "index.js"
+account_id = ""
 workers_dev = true
 compatibility_date = "2025-03-13"
 
 [env.production]
-route = "https://dev.vegvisr.org/*"
-zone_id = "your-cloudflare-zone-id"
+route = "https://api.vegvisr.org/*"
+zone_id = ""
 ```
 
 Ensure that the `account_id` and `zone_id` are correctly filled in with your Cloudflare account information.
+
+## Screnshot for where you can find accountid
+
+![alt text](../images/accountid.png)
+
+## Screnshot for where you can find zoneid
+
+![alt text](../images/zoneid.png)
 
 ## Step 3: Cloudflare Worker Code
 
