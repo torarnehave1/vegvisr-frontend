@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import openaiRouter from './openaiRouter'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -18,7 +17,11 @@ const router = createRouter({
       // which is lazy-loaded when the route is visited.
       component: () => import('../views/AboutView.vue'),
     },
-
+    {
+      path: '/test',
+      name: 'test',
+      component: () => import('../views/TestView.vue'),
+    },
     // This is a catch-all route in case the user enters a route that doesn't exist
     {
       path: '/:pathMatch(.*)*',
@@ -27,7 +30,6 @@ const router = createRouter({
     },
 
     // Redirect to the 404 page if no other routes are matched
-    ...openaiRouter.options.routes, // Add OpenAI routes
   ],
 })
 
