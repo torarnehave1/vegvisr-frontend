@@ -22,6 +22,12 @@ const router = createRouter({
       name: 'test',
       component: () => import('../views/TestView.vue'),
     },
+
+    {
+      path: '/openAI',
+      name: 'openAI',
+      component: () => import('../views/OpenAIView.vue'),
+    },
     // This is a catch-all route in case the user enters a route that doesn't exist
     {
       path: '/:pathMatch(.*)*',

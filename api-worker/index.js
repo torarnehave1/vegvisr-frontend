@@ -18,8 +18,17 @@ app.get('/question', (c) => {
 
 // Endpoint: /default
 // Returns a fixed default message.
-app.get('/summary', (c) => {
-  return c.json({ message: 'This is the default endpoint.' })
+app.get('/summary', () => {
+  const data = { message: 'Hello World summary!' }
+
+  const response = new Response(JSON.stringify(data), {
+    headers: {
+      'Content-Type': 'application/json', // Set Content-Type to JSON
+      'Access-Control-Allow-Origin': '*', // Allow CORS
+    },
+  })
+
+  return response
 })
 
 // Endpoint: /error
