@@ -8,7 +8,165 @@ First, make sure that **Wrangler** is installed and up-to-date. If you're seeing
 
 ```bash
 npm install --save-dev wrangler@latest
+
 ```
+
+Here is a step to explain the necessary **NPM packages** and what they do in the context of your project:
+
+---
+
+## Step 11: NPM Packages and Their Functions
+
+In order to set up your project, the following NPM packages are installed. Below is a breakdown of each package and its purpose:
+
+### **1. `@eslint/js@9.22.0`**
+
+- **Purpose**: This is the core ESLint package for linting JavaScript. It provides the rules and environment for linting your JavaScript code to ensure it adheres to best practices and style guidelines.
+
+### **2. `@jridgewell/sourcemap-codec@1.5.0`**
+
+- **Purpose**: This package is a utility to handle sourcemaps, which are used for debugging purposes. It helps decode and encode sourcemaps, ensuring that errors in your code are correctly mapped back to their source.
+
+### **3. `@rollup/plugin-inject@5.0.5`**
+
+- **Purpose**: This Rollup plugin automatically injects modules into your code when bundling. It is useful for injecting commonly used modules (like `Vue` or `React`) into your bundle without needing to import them explicitly in every file.
+
+### **4. `@vitejs/plugin-vue@5.2.1`**
+
+- **Purpose**: This plugin enables Vue.js support in Vite, a build tool that provides fast and optimized development and production environments for modern web projects. This plugin allows Vite to handle `.vue` single-file components.
+
+### **5. `@vue/eslint-config-prettier@10.2.0`**
+
+- **Purpose**: This is an ESLint configuration package that integrates with Prettier, a code formatter. It ensures that ESLint rules don’t conflict with Prettier formatting rules.
+
+### **6. `axios@1.8.3`**
+
+- **Purpose**: Axios is a promise-based HTTP client for making requests from the browser or Node.js. It simplifies the process of making API calls and handling responses, and supports features like interceptors, cancellation, and more.
+
+```bash
+import axios from 'axios'
+
+export default {
+  data() {
+    return {
+      data: null,
+      loading: false,
+      error: null,
+    }
+  },
+  methods: {
+    async fetchData() {
+      this.loading = true
+      this.error = null // Reset the error before each fetch
+
+      try {
+        const response = await axios.get('https://dev.vegvisr.org')
+
+
+```
+
+### **7. `concurrently@9.1.2`**
+
+- **Purpose**: This package allows you to run multiple NPM scripts concurrently. It’s useful for running tasks like building your app and running the development server simultaneously.
+
+```bash
+"scripts": {
+  "dev:vue": "vite",
+  "dev:m-worker": "wrangler dev --config main-worker/wrangler.toml --port=8787",
+  "dev:d-worker": "wrangler dev --config dev-worker/wrangler.toml --port=8788",
+  "dev": "concurrently \"npm run dev:vue\" \"npm run dev:m-worker\" \"npm run dev:d-worker\"",
+  "build": "vite build",
+  "preview": "vite preview",
+  "lint": "eslint . --fix",
+  "format": "prettier --write src/"
+},
+
+```
+
+### **8. `eslint-plugin-vue@10.0.0`**
+
+- **Purpose**: This is an ESLint plugin that provides linting rules specifically for Vue.js applications. It ensures your Vue components and files follow best practices and adhere to a consistent style.
+
+### **9. `eslint@9.22.0`**
+
+- **Purpose**: ESLint is a popular linting tool for JavaScript. It helps identify and fix problems in your JavaScript code, enforcing style rules and ensuring code quality.
+
+### **10. `globals@16.0.0`**
+
+- **Purpose**: This package defines global variables for the environment (e.g., `window`, `document`, etc.) in JavaScript. It is often used by linting tools like ESLint to avoid warning about undefined variables that are global.
+
+### **11. `hono@4.7.4`**
+
+```bash
+import { Hono } from 'hono'
+
+const app = new Hono()
+
+// Endpoint: /hello
+// Returns the value of the "prompt" query parameter, or a default message.
+app.get('/hello', (c) => {
+  const prompt = c.req.query('prompt') || 'Hello from Worker!'
+  return c.json({ message: prompt })
+})
+
+// Endpoint: /greet
+// Returns a personalized greeting based on the "name" query parameter.
+app.get('/greet', (c) => {
+  const name = c.req.query('name') || 'Guest'
+  return c.json({ greeting: `Greetings, ${name}!` })
+})
+
+// Endpoint: /default
+// Returns a fixed default message.
+app.get('/default', (c) => {
+  return c.json({ message: 'This is the default endpoint.' })
+})
+
+```
+
+- **Purpose**: Hono is a minimalistic web framework for building fast and efficient APIs. It is lightweight and works well with Cloudflare Workers and other edge environments.
+
+### **12. `prettier@3.5.3`**
+
+- **Purpose**: Prettier is a code formatter that automatically formats your code to ensure consistent style. It
+
+ensures your code follows a consistent style without having to manually format it. Prettier can automatically format JavaScript, CSS, HTML, JSON, and more.
+
+### **13. `vite-plugin-vue-devtools@7.7.2`**
+
+- **Purpose**: This Vite plugin integrates Vue.js Devtools into your Vite development environment. It allows you to inspect and debug your Vue components easily during development.
+
+### **14. `vite@6.2.1`**
+
+- **Purpose**: Vite is a modern build tool that provides fast development and optimized production builds. It significantly improves the development experience with features like hot module replacement (HMR) and fast build times.
+
+### **15. `vue-router@4.5.0`**
+
+- **Purpose**: Vue Router is the official routing library for Vue.js. It allows you to manage navigation and page state in your Vue.js app, enabling features like dynamic routing, lazy loading, and more.
+
+### **16. `vue@3.5.13`**
+
+- **Purpose**: Vue.js is the JavaScript framework used for building user interfaces. Version 3 introduces the Composition API, providing more flexibility and better organization of your Vue components.
+
+### **17. `wrangler@4.0.0`**
+
+- **Purpose**: Wrangler is the CLI tool for interacting with Cloudflare Workers. It helps you manage and deploy Cloudflare Workers and associated resources like routes, secrets, and KV storage. With Wrangler, you can push your worker code to Cloudflare and manage deployments.
+
+```bash
+npx wrangler deploy --config dev-worker/wrangler.toml
+
+```
+
+---
+
+By installing and using these packages, you ensure that your project has the necessary tools for:
+
+- **Linting and formatting**: `eslint`, `prettier`, and the associated plugins keep your code clean and consistent.
+- **Vue development**: `vue`, `vue-router`, `@vitejs/plugin-vue`, and `vite` provide a powerful development and build environment for your Vue.js app.
+- **API calls**: `axios` makes it easy to communicate with external APIs, like your Cloudflare Worker.
+- **Cloudflare Worker deployment**: `wrangler` is the tool used to deploy and manage your Cloudflare Worker.
+
+These dependencies help to streamline development and ensure that your code adheres to best practices. Let me know if you need any further clarification!
 
 ## Step 2: Create or Edit `wrangler.toml` File
 
@@ -137,13 +295,9 @@ export default {
 </style>
 ```
 
-## Step 7: Test the Vue.js App
+## Step 7: Set Up DNS Records for Cloudflare Worker
 
-After deploying your worker, you should be able to call the worker's endpoint from your Vue.js app. The `Fetch Data` button will trigger the `fetchData` method, which calls your worker at `https://dev.vegvisr.org` and displays the data in your Vue.js component.
-
-## Step 8: Set Up DNS Records for Cloudflare Worker
-
-![alt text](../images/dnsetup.png)
+![alt text](../images/dns.png)
 
 To point `dev.vegvisr.org` to `vegvisr-frontend.pages.dev` (the target for your worker), you’ll need to configure a CNAME record for the subdomain `dev` in your Cloudflare DNS settings.
 
@@ -167,9 +321,9 @@ To point `dev.vegvisr.org` to `vegvisr-frontend.pages.dev` (the target for your 
 3. **Save the Record**: After configuring the record, save it.
 4. **Test DNS Propagation**: DNS changes may take a few minutes to propagate.
 
-## Step 9: Configure Worker Routes in Cloudflare
+## Step 8: Configure Worker Routes in Cloudflare
 
-![alt text](../images/routsetup.png)
+![alt text](../images/customroute.png)
 
 To ensure that the correct subdomains are routed to your Cloudflare Worker, you need to configure worker routes for the relevant paths (e.g., `dev.vegvisr.org`).
 
@@ -182,7 +336,7 @@ To ensure that the correct subdomains are routed to your Cloudflare Worker, you 
 3. **Verify the Routes**: Ensure the routes are correctly mapped to the respective workers, like `dev.vegvisr.org/*` -> `vegvisr-frontend`.
 4. **Save the Route**: After configuring the routes, save your changes.
 
-## Step 10: Test Everything
+## Step 9: Test Everything
 
 Once you've configured your DNS records, worker routes, and deployed the worker:
 
@@ -190,6 +344,10 @@ Once you've configured your DNS records, worker routes, and deployed the worker:
 2. **Verify Using Developer Tools**: You can open the browser’s developer tools (usually by pressing `F12`), go to the **Network** tab, and refresh the page to see the details of the request and response.
 
 ---
+
+## Step 10: Test the Vue.js App
+
+After deploying your worker, you should be able to call the worker's endpoint from your Vue.js app. The `Fetch Data` button will trigger the `fetchData` method, which calls your worker at `https://dev.vegvisr.org` and displays the data in your Vue.js component.
 
 ### **Final Notes**
 
