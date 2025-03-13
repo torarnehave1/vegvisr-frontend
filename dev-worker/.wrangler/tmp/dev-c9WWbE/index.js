@@ -5,7 +5,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 var dev_worker_default = {
   async fetch() {
     try {
-      const data = { message: "Hello World Hei!" };
+      const data = { message: "Hello World XXXX!" };
       const response = new Response(JSON.stringify(data), {
         headers: {
           "Content-Type": "application/json",

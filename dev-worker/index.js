@@ -2,7 +2,7 @@ export default {
   async fetch() {
     try {
       // Create a JSON object to send back
-      const data = { message: 'Hello World Hei!' }
+      const data = { message: 'Hello World XXXX!' }
 
       // Return a JSON response with CORS header and proper content type
       const response = new Response(JSON.stringify(data), {
