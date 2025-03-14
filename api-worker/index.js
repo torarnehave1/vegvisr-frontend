@@ -25,6 +25,11 @@ The researchers believe that physical activity may help reduce the risk of demen
 
   const apiKey = c.env.OPENAI_API_KEY
 
+  if (!apiKey) {
+    console.error('OPENAI_API_KEY is not set in environment variables')
+    return c.text('Internal Server Error: API key missing', 500)
+  }
+
   try {
     const response = await fetch('https://api.openai.com/v1/completions', {
       method: 'POST',
@@ -33,14 +38,16 @@ The researchers believe that physical activity may help reduce the risk of demen
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'text-davinci-003', // Replace with 'gpt-3.5-turbo' if needed
+        model: 'text-davinci-003', // Try 'gpt-3.5-turbo' if this fails
         prompt: prompt,
         max_tokens: 50,
       }),
     })
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`)
+      const errorText = await response.text()
+      console.error(`OpenAI API error: ${response.status} - ${errorText}`)
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
     }
 
     const data = await response.json()
