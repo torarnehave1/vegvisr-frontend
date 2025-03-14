@@ -27,6 +27,10 @@ import { RouterLink, RouterView } from 'vue-router'
       <!-- Main Content -->
       <main class="content">
         <RouterView />
+        <div class="container">
+          <h1 class="text-primary">Hello Bootstrap!</h1>
+          <button class="btn btn-success">Click Me</button>
+        </div>
       </main>
     </div>
   </div>
