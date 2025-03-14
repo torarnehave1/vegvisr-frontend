@@ -29,3 +29,4 @@ coverage
 
 *.tsbuildinfo
 /api-worker/wrangler.toml
+/api-worker/tsconfig.json
