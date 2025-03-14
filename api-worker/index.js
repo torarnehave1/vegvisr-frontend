@@ -41,7 +41,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         model: 'gpt-4', // Updated to GPT-4
         temperature: 0.7,
         messages: [
-          { role: 'system', content: 'You are a helpful summary assistant.' },
+          { role: 'system', content: 'You are a helpful summary-assistant.' },
           { role: 'user', content: prompt },
         ],
       }),
