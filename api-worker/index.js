@@ -3,22 +3,24 @@ import openai from 'openai'
 
 const app = new Hono()
 
-// Endpoint: /hello
-// Returns the value of the "prompt" query parameter, or a default message.
-app.get('/image', (c) => {
-  const prompt = c.req.query('prompt') || 'Hello from AI Image Worker!'
-  return c.json({ message: prompt })
+// Middleware to add CORS headers to all responses
+app.use('*', async (c, next) => {
+  await next()
+  c.res.headers.set('Access-Control-Allow-Origin', '*')
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type')
 })
 
-// Endpoint: /greet
-// Returns a personalized greeting based on the "name" query parameter.
-app.get('/question', (c) => {
-  const name = c.req.query('name') || 'Guest'
-  return c.json({ greeting: `Greetings, ${name}!` })
+// Handle preflight OPTIONS requests
+app.options('*', (c) => {
+  return c.text('', 204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  })
 })
 
-// Endpoint: /default
-// Returns a fixed default message.
+// Endpoint: /summary
 app.get('/summary', async (c) => {
   const prompt = `Create a summary of this text: How older adults can reduce their risk of dementia by 60% with this one simple trick:
 
@@ -37,25 +39,10 @@ The researchers believe that physical activity may help reduce the risk of demen
 
   const summary = response.choices[0].text.trim()
 
-  return c.json(
-    { summary: summary },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    },
-  )
+  return c.json({ summary: summary })
 })
 
-// Endpoint: /error
-// Returns an error response with a custom message.
-
-app.get('/error', (c) => {
-  return c.error('This is an error message.', 500)
-})
-
-// Catch-all route for any unmatched paths.
+// Catch-all route for unmatched paths
 app.all('*', (c) => {
   return c.text('Not Found', 404)
 })
