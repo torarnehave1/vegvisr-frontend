@@ -8,5 +8,3 @@ compatibility_date = "2025-03-13"
 [env.production]
 route = "https://api.vegvisr.org/*"
 zone_id = "9178eccd3a7e3d71d8ae09defb09422a"
-
-dfsdfsa
