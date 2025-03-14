@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "axios": "^1.8.3",
+    "bootstrap": "^5.3.3",
     "dotenv": "^16.4.7",
     "hono": "^4.7.4",
     "openai": "^4.87.3",
