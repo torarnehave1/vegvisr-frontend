@@ -31,3 +31,4 @@ coverage
 /api-worker/wrangler.toml
 /api-worker/tsconfig.json
 wrangler.toml
+*.toml
