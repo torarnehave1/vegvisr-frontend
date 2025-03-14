@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import openai from 'openai'
 
 const app = new Hono()
 
@@ -31,23 +32,17 @@ The researchers believe that physical activity may help reduce the risk of demen
   }
 
   try {
-    const response = await fetch('https://api.openai.com/v1/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'text-davinci-003', // Try 'gpt-3.5-turbo' if this fails
-        prompt: prompt,
-        max_tokens: 50,
-      }),
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4',
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: 'You are a helpful summary assistant.' },
+        { role: 'user', content: prompt },
+      ],
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`OpenAI API error: ${response.status} - ${errorText}`)
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+    if (!response) {
+      throw new Error('OpenAI API error: No response received')
     }
 
     const data = await response.json()
