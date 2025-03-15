@@ -6,18 +6,46 @@
 
     <div class="text-container">
       <h1>Hagala: The Ancient Sound Code Behind the Vegvísir Mystery</h1>
-      <p class="intro-text">
-        Explore the lost vibrational key hidden within the Vegvísir. Could "Hagala" be the forgotten
-        sound of the Wayfinder? This open-source project investigates the ancient phonetics, sacred
-        sound structures, and interconnected wisdom of Norse, Taoist, and Sumerian traditions.
-      </p>
+      <textarea v-model="introText" class="intro-textarea"></textarea>
+      <button @click="saveIntroText" class="btn btn-primary">Save</button>
     </div>
   </div>
 </template>
 
 <script>
+import { ref } from 'vue'
+import axios from 'axios'
+
 export default {
   name: 'BookView',
+  setup() {
+    const introText = ref('')
+
+    const loadIntroText = async () => {
+      try {
+        const response = await axios.get('/json/book.json')
+        introText.value = response.data.introText
+      } catch (error) {
+        console.error('Error loading intro text:', error)
+      }
+    }
+
+    const saveIntroText = async () => {
+      try {
+        await axios.put('/json/book.json', { introText: introText.value })
+        alert('Intro text saved successfully!')
+      } catch (error) {
+        console.error('Error saving intro text:', error)
+      }
+    }
+
+    loadIntroText()
+
+    return {
+      introText,
+      saveIntroText,
+    }
+  },
 }
 </script>
 
@@ -37,6 +65,7 @@ export default {
   display: flex;
   justify-content: center;
   background-color: #e0e0e0; /* Added background color for visibility */
+  padding: 20px;
 }
 
 .book-cover {
@@ -55,9 +84,21 @@ h1 {
   margin-bottom: 15px;
 }
 
-.intro-text {
+.intro-textarea {
+  width: 100%;
+  height: 150px;
   font-size: 18px;
   line-height: 1.6;
   color: #333;
+  margin-bottom: 15px;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+.btn {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
 }
 </style>
