@@ -1,16 +1,81 @@
 <script setup>
+import { ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
+
+const theme = ref('light')
+
+const setTheme = (newTheme) => {
+  theme.value = newTheme
+  document.body.classList.remove('bg-dark', 'text-white')
+  if (newTheme === 'dark') {
+    document.body.classList.add('bg-dark', 'text-white')
+  }
+}
 </script>
 
 <template>
-  <div class="app-container">
+  <div :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]">
     <!-- Top Menu (Header) -->
     <header class="top-menu">
-      <nav class="top-nav">
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/test">Test</RouterLink>
-        <RouterLink to="/openAi">OpenAI</RouterLink>
-        <RouterLink to="/about">About</RouterLink>
+      <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+          <RouterLink class="navbar-brand" to="/">MyApp</RouterLink>
+          <button
+            class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#navbarNav"
+            aria-controls="navbarNav"
+            aria-expanded="false"
+            aria-label="Toggle navigation"
+          >
+            <span class="navbar-toggler-icon"></span>
+          </button>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/">Home</RouterLink>
+              </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/test">Test</RouterLink>
+              </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/openAi">OpenAI</RouterLink>
+              </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/about">About</RouterLink>
+              </li>
+            </ul>
+            <div class="dropdown">
+              <button
+                class="btn btn-outline-secondary dropdown-toggle"
+                type="button"
+                id="themeDropdown"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
+                Theme
+              </button>
+              <ul class="dropdown-menu" aria-labelledby="themeDropdown">
+                <li>
+                  <a class="dropdown-item" href="#" @click.prevent="setTheme('light')">
+                    <i class="bi bi-sun"></i> Light
+                  </a>
+                </li>
+                <li>
+                  <a class="dropdown-item" href="#" @click.prevent="setTheme('dark')">
+                    <i class="bi bi-moon"></i> Dark
+                  </a>
+                </li>
+                <li>
+                  <a class="dropdown-item" href="#" @click.prevent="setTheme('auto')">
+                    <i class="bi bi-circle-half"></i> Auto
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </nav>
     </header>
 
@@ -36,4 +101,11 @@ import { RouterLink, RouterView } from 'vue-router'
   </div>
 </template>
 
-<style></style>
+<style>
+.bg-dark {
+  background-color: #343a40 !important;
+}
+.text-white {
+  color: #fff !important;
+}
+</style>
