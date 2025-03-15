@@ -42,8 +42,9 @@ const setTheme = (newTheme) => {
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/openAi">OpenAI</RouterLink>
               </li>
+
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/about">About</RouterLink>
+                <RouterLink class="nav-link" to="/book">Book</RouterLink>
               </li>
             </ul>
             <div class="dropdown">

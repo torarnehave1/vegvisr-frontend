@@ -35,6 +35,12 @@ const router = createRouter({
       component: () => import('../views/NotFoundView.vue'),
     },
 
+    {
+      path: '/book',
+      name: 'Book',
+      component: () => import('../views/book.vue'),
+    },
+
     // Redirect to the 404 page if no other routes are matched
   ],
 })
