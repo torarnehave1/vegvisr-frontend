@@ -74,6 +74,9 @@ const setTheme = (newTheme) => {
                 </li>
               </ul>
             </div>
+            <RouterLink class="navbar-brand ms-auto" to="/">
+              <img src="@/assets/logo.svg" alt="Logo" height="80" />
+            </RouterLink>
           </div>
         </div>
       </nav>
@@ -92,10 +95,6 @@ const setTheme = (newTheme) => {
       <!-- Main Content -->
       <main class="content">
         <RouterView />
-        <div class="container">
-          <h1 class="text-primary">Hello Bootstrap!</h1>
-          <button class="btn btn-success">Click Me</button>
-        </div>
       </main>
     </div>
   </div>

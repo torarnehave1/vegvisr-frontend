@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1>API Data</h1>
-    <button @click="fetchData">Fetch Data</button>
+    <button class="btn btn-success" @click="fetchData">Fetch Data</button>
 
     <div v-if="loading">Loading...</div>
     <div v-if="error" class="error">
