@@ -5,6 +5,12 @@ import { fileURLToPath } from 'url'
 
 const app = new Hono()
 
+// Add nodejs_compat compatibility flag
+app.use(async (c, next) => {
+  c.compatibilityFlags = ['nodejs_compat']
+  await next()
+})
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const filePath = path.resolve(__dirname, '..', '..', 'json')
