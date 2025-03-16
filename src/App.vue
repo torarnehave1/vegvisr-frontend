@@ -48,7 +48,7 @@ const setTheme = (newTheme) => {
               </li>
 
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/user">User</RouterLink>
+                <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
             </ul>
 
