@@ -1,7 +1,7 @@
 <template>
   <div :class="['book-view', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]">
     <div class="cover-container">
-      <img src="src/assets/bookcover.svg" alt="Hagala Book Cover" class="book-cover" />
+      <img src="@/assets/bookcover.svg" alt="Hagala Book Cover" class="book-cover" />
     </div>
 
     <div class="text-container">
