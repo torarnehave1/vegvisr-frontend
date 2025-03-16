@@ -46,7 +46,12 @@ const setTheme = (newTheme) => {
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/book">Book</RouterLink>
               </li>
+
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/user">User</RouterLink>
+              </li>
             </ul>
+
             <div class="dropdown">
               <button
                 class="btn btn-outline-secondary dropdown-toggle"
@@ -95,7 +100,7 @@ const setTheme = (newTheme) => {
 
       <!-- Main Content -->
       <main class="content">
-        <RouterView />
+        <RouterView :theme="theme" />
       </main>
     </div>
   </div>

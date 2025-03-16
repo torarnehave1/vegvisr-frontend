@@ -1,5 +1,5 @@
 <template>
-  <div class="book-view">
+  <div :class="['book-view', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]">
     <div class="cover-container">
       <img src="../assets/bookcover.svg" alt="Hagala Book Cover" class="book-cover" />
     </div>
@@ -18,6 +18,12 @@ import axios from 'axios'
 
 export default {
   name: 'BookView',
+  props: {
+    theme: {
+      type: String,
+      default: 'light',
+    },
+  },
   setup() {
     const introText = ref('')
 
@@ -57,6 +63,14 @@ export default {
   text-align: center;
   padding: 40px;
   background-color: #f8f8f8;
+}
+
+.bg-dark {
+  background-color: #343a40 !important;
+}
+
+.text-white {
+  color: #fff !important;
 }
 
 .cover-container {

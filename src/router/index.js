@@ -41,6 +41,11 @@ const router = createRouter({
       component: () => import('../views/book.vue'),
     },
 
+    {
+      path: '/user',
+      name: 'User',
+      component: () => import('../views/UserDashboard.vue'),
+    },
     // Redirect to the 404 page if no other routes are matched
   ],
 })
