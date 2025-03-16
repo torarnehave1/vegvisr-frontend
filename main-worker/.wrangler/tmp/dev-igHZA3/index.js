@@ -1674,6 +1674,39 @@ app.post("/config", async (c) => {
     return c.json({ error: error.message }, 500);
   }
 });
+app.get("/get-settings", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const user_id = c.req.query("user_id");
+    if (!user_id) {
+      return c.json({ error: "Missing user_id parameter" }, 400);
+    }
+    const query = `SELECT setting_key, setting_value FROM config WHERE user_id = ?;`;
+    const { results } = await db.prepare(query).bind(user_id).all();
+    return c.json({ settings: results });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+app.post("/set-settings", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const body = await c.req.json();
+    const { user_id, settings } = body;
+    if (!user_id || !settings) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    const queries = settings.map(({ key, value }) => {
+      return db.prepare(
+        `INSERT INTO config (user_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(user_id, setting_key) DO UPDATE SET setting_value = ?;`
+      ).bind(user_id, key, value, value);
+    });
+    await Promise.all(queries.map((query) => query.run()));
+    return c.json({ success: true, message: "Settings updated successfully" });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
 app.all("*", (c) => {
   return c.text("Not Found", 404);
 });
@@ -1724,7 +1757,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-s1CQBX/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-Nx3nH1/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1756,7 +1789,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-s1CQBX/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-Nx3nH1/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

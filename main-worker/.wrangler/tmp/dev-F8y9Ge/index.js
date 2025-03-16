@@ -1674,6 +1674,39 @@ app.post("/config", async (c) => {
     return c.json({ error: error.message }, 500);
   }
 });
+app.get("/get-settings", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const user_id = c.req.query("user_id");
+    if (!user_id) {
+      return c.json({ error: "Missing user_id parameter" }, 400);
+    }
+    const query = `SELECT setting_key, setting_value FROM config WHERE user_id = ?;`;
+    const { results } = await db.prepare(query).bind(user_id).all();
+    return c.json({ settings: results });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+app.post("/set-settings", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const body = await c.req.json();
+    const { user_id, settings } = body;
+    if (!user_id || !settings) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    const queries = settings.map(({ key, value }) => {
+      return db.prepare(
+        `INSERT INTO config (user_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(user_id, setting_key) DO UPDATE SET setting_value = ?;`
+      ).bind(user_id, key, value, value);
+    });
+    await Promise.all(queries.map((query) => query.run()));
+    return c.json({ success: true, message: "Settings updated successfully" });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
 app.all("*", (c) => {
   return c.text("Not Found", 404);
 });

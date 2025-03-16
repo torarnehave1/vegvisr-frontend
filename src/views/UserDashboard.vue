@@ -67,16 +67,54 @@ export default {
         darkMode: false,
         notifications: true,
       },
+      userId: 'tah12have', // Hardcoded user_id for testing
     }
+  },
+  mounted() {
+    this.fetchSettings()
   },
   methods: {
     saveProfile() {
       console.log('Profile saved', this.user)
       alert('Profile updated successfully!')
     },
-    saveSettings() {
-      console.log('Settings saved', this.settings)
-      alert('Settings updated successfully!')
+    async fetchSettings() {
+      try {
+        const response = await fetch(`https://test.vegvisr.org/get-settings?user_id=${this.userId}`)
+        const data = await response.json()
+        if (data.settings) {
+          data.settings.forEach((setting) => {
+            this.settings[setting.setting_key] = setting.setting_value
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching settings:', error)
+      }
+    },
+    async saveSettings() {
+      try {
+        const response = await fetch('https://test.vegvisr.org/set-settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: this.userId,
+            settings: Object.keys(this.settings).map((key) => ({
+              key,
+              value: this.settings[key],
+            })),
+          }),
+        })
+        const data = await response.json()
+        if (data.success) {
+          alert('Settings updated successfully!')
+        } else {
+          alert('Error updating settings')
+        }
+      } catch (error) {
+        console.error('Error saving settings:', error)
+      }
     },
   },
 }
