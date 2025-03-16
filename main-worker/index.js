@@ -24,6 +24,75 @@ app.get('/error', (c) => {
   return c.json({ error: 'This is an error message.' }, 500)
 })
 
+app.put('/config', async (c) => {
+  try {
+    const db = c.env.vegvisr_org
+    const body = await c.req.json()
+    const { user_id, setting_key, setting_value } = body
+
+    if (!user_id || !setting_key || setting_value === undefined) {
+      return c.json({ error: 'Missing required fields' }, 400)
+    }
+
+    const query = `UPDATE config SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND setting_key = ?;`
+    const { changes } = await db.prepare(query).bind(setting_value, user_id, setting_key).run()
+
+    if (changes === 0) {
+      return c.json({ error: 'Setting not found' }, 404)
+    }
+
+    return c.json({ success: true, message: 'Setting updated successfully' })
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+// ✅ DELETE /config - Remove a user setting
+app.delete('/config', async (c) => {
+  try {
+    const db = c.env.vegvisr_org
+    const body = await c.req.json()
+    const { user_id, setting_key } = body
+
+    if (!user_id || !setting_key) {
+      return c.json({ error: 'Missing required fields' }, 400)
+    }
+
+    const query = `DELETE FROM config WHERE user_id = ? AND setting_key = ?;`
+    const { changes } = await db.prepare(query).bind(user_id, setting_key).run()
+
+    if (changes === 0) {
+      return c.json({ error: 'Setting not found' }, 404)
+    }
+
+    return c.json({ success: true, message: 'Setting deleted successfully' })
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+app.get('/config', async (c) => {
+  try {
+    const db = c.env.vegvisr_org
+    const user_id = c.req.query('user_id')
+
+    // Validate input
+    if (!user_id) {
+      return c.json({ error: 'Missing user_id parameter' }, 400)
+    }
+
+    // Fetch settings for the given user_id
+    const query = `
+      SELECT setting_key, setting_value FROM config WHERE user_id = ?;
+    `
+    const { results } = await db.prepare(query).bind(user_id).all()
+
+    return c.json({ user_id, settings: results })
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+
 // ✅ New Endpoint: /config (POST) - Add a setting
 app.post('/config', async (c) => {
   try {
