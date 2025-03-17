@@ -101,7 +101,7 @@ app.post('/upload', async (c) => {
     const fileName = `${user_id}/${file.name}`
     await MY_R2_BUCKET.put(fileName, file.stream())
 
-    const fileUrl = `https://<your-r2-bucket-url>/${fileName}`
+    const fileUrl = `https://vegvisr.org/${fileName}`
 
     // Update the user profile image URL in the database
     const query = `
