@@ -80,7 +80,7 @@ export default {
     },
     async fetchSettings() {
       try {
-        const response = await fetch(`https://test.vegvisr.org/get-settings?user_id=${this.userId}`)
+        const response = await fetch(`https://test.vegvisr.org/config?user_id=${this.userId}`)
         const data = await response.json()
         if (data.settings) {
           data.settings.forEach((setting) => {
@@ -106,6 +106,9 @@ export default {
             })),
           }),
         })
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
         const data = await response.json()
         if (data.success) {
           alert('Settings updated successfully!')
@@ -114,6 +117,7 @@ export default {
         }
       } catch (error) {
         console.error('Error saving settings:', error)
+        alert(`Error saving settings: ${error.message}`)
       }
     },
   },

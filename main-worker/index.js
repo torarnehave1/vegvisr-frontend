@@ -2,6 +2,14 @@ import { Hono } from 'hono'
 
 const app = new Hono()
 
+// Middleware to add CORS headers
+app.use('*', (c, next) => {
+  c.res.headers.append('Access-Control-Allow-Origin', '*')
+  c.res.headers.append('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  c.res.headers.append('Access-Control-Allow-Headers', 'Content-Type')
+  return next()
+})
+
 // Endpoint: /hello
 app.get('/hello', (c) => {
   const prompt = c.req.query('prompt') || 'Hello from Worker!'
