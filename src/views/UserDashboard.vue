@@ -121,11 +121,15 @@ export default {
           this.data = result.data
           // Fetch profile image from R2 storage if it exists
           if (this.data.profile.profileImage) {
-            const imageResponse = await fetch(this.data.profile.profileImage)
+            const imageResponse = await fetch(this.data.profile.profileImage, { mode: 'no-cors' })
             if (imageResponse.ok) {
               this.data.profile.profileImage = imageResponse.url
             } else {
-              console.error('Error fetching profile image:', imageResponse.statusText)
+              console.log(
+                'Error fetching profile image:',
+                imageResponse.status,
+                imageResponse.statusText,
+              )
             }
           }
         }

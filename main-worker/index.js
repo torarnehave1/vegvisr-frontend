@@ -111,6 +111,11 @@ app.post('/upload', async (c) => {
     `
     await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run()
 
+    // Add CORS headers to the response
+    c.res.headers.set('Access-Control-Allow-Origin', '*')
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
     return c.json({ success: true, fileUrl })
   } catch (error) {
     console.error('Error in POST /upload:', error)

@@ -1677,6 +1677,9 @@ app.post("/upload", async (c) => {
       ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
     `;
     await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run();
+    c.res.headers.set("Access-Control-Allow-Origin", "*");
+    c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     return c.json({ success: true, fileUrl });
   } catch (error) {
     console.error("Error in POST /upload:", error);
