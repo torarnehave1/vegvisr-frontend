@@ -1,6 +1,6 @@
 name = "vegvisr-frontend"          # Change this to your desired worker name
 
-main = "index.js"                # Path relative to the wrangler.toml file (here, same folder)
+main = "index.js"                 # Path relative to the wrangler.toml file (here, same folder)
 compatibility_date = "2025-02-14"
 
 # Optionally, if you plan to deploy to Workers.dev:
@@ -15,4 +15,7 @@ binding = "vegvisr_org"
 database_name = "vegvisr_org"
 database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
 
-
+[[r2_buckets]]
+binding = "MY_R2_BUCKET"
+bucket_name = "profile-pictures"
+preview_bucket_name = "profile-pictures"
