@@ -86,6 +86,29 @@ app.delete('/userdata', async (c) => {
   }
 })
 
+// POST /upload - Upload a file to R2 bucket
+app.post('/upload', async (c) => {
+  try {
+    const { MY_R2_BUCKET } = c.env
+    const formData = await c.req.formData()
+    const file = formData.get('file')
+    const user_id = formData.get('user_id')
+
+    if (!file || !user_id) {
+      return c.json({ error: 'Missing file or user_id' }, 400)
+    }
+
+    const fileName = `${user_id}/${file.name}`
+    await MY_R2_BUCKET.put(fileName, file.stream())
+
+    const fileUrl = `https://<your-r2-bucket-url>/${fileName}`
+    return c.json({ success: true, fileUrl })
+  } catch (error) {
+    console.error('Error in POST /upload:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
+
 app.all('*', (c) => {
   return c.text('Not Found', 404)
 })

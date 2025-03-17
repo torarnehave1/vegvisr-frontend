@@ -29,6 +29,11 @@
           <label class="form-label">Bio:</label>
           <textarea class="form-control" v-model="data.profile.bio"></textarea>
         </div>
+        <!-- Profile Image Upload -->
+        <div class="mb-3">
+          <label class="form-label">Profile Image:</label>
+          <input type="file" class="form-control" @change="onFileChange" />
+        </div>
       </div>
     </div>
 
@@ -83,6 +88,7 @@ export default {
           username: '',
           email: '',
           bio: '',
+          profileImage: '', // Add profileImage to the profile data
         },
         settings: {
           darkMode: false,
@@ -91,6 +97,7 @@ export default {
         },
       },
       userId: 'tah12have', // Hardcoded for testing; typically comes from auth
+      selectedFile: null, // Add selectedFile to handle file input
     }
   },
   mounted() {
@@ -108,8 +115,34 @@ export default {
         console.error('Error fetching user data:', error)
       }
     },
+    onFileChange(event) {
+      this.selectedFile = event.target.files[0]
+    },
     async saveAllData() {
       try {
+        if (this.selectedFile) {
+          const formData = new FormData()
+          formData.append('file', this.selectedFile)
+          formData.append('user_id', this.userId)
+
+          const uploadResponse = await fetch('https://test.vegvisr.org/upload', {
+            method: 'POST',
+            body: formData,
+          })
+
+          if (!uploadResponse.ok) {
+            throw new Error(`HTTP error! status: ${uploadResponse.status}`)
+          }
+
+          const uploadResult = await uploadResponse.json()
+          if (uploadResult.success) {
+            this.data.profile.profileImage = uploadResult.fileUrl
+          } else {
+            alert('Error uploading profile image')
+            return
+          }
+        }
+
         const payload = {
           user_id: this.userId,
           data: this.data,
