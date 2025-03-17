@@ -93,16 +93,16 @@ export default {
     },
     async saveSettings() {
       try {
-        const response = await fetch('https://test.vegvisr.org/set-settings', {
-          method: 'POST',
+        const response = await fetch('https://test.vegvisr.org/config', {
+          method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             user_id: this.userId,
             settings: Object.keys(this.settings).map((key) => ({
-              key,
-              value: this.settings[key],
+              setting_key: key,
+              setting_value: this.settings[key],
             })),
           }),
         })
