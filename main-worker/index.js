@@ -3,179 +3,89 @@ import { Hono } from 'hono'
 const app = new Hono()
 
 // Middleware to add CORS headers
-app.use('*', (c, next) => {
-  c.res.headers.append('Access-Control-Allow-Origin', '*')
-  c.res.headers.append('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.res.headers.append('Access-Control-Allow-Headers', 'Content-Type')
-  return next()
+app.use('*', async (c, next) => {
+  await next()
+  c.res.headers.set('Access-Control-Allow-Origin', '*')
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 })
 
-// Endpoint: /hello
-app.get('/hello', (c) => {
-  const prompt = c.req.query('prompt') || 'Hello from Worker!'
-  return c.json({ message: prompt })
+// Handle OPTIONS requests
+app.options('*', (c) => {
+  c.res.headers.set('Access-Control-Allow-Origin', '*')
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  return c.text('', 204)
 })
 
-// Endpoint: /greet
-app.get('/greet', (c) => {
-  const name = c.req.query('name') || 'Guest'
-  return c.json({ greeting: `Greetings, ${name}!` })
-})
-
-// Endpoint: /default
-app.get('/default', (c) => {
-  return c.json({ message: 'This is the default endpoint.' })
-})
-
-// Endpoint: /error
-app.get('/error', (c) => {
-  return c.json({ error: 'This is an error message.' }, 500)
-})
-
-app.put('/config', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const body = await c.req.json()
-    const { user_id, setting_key, setting_value } = body
-
-    if (!user_id || !setting_key || setting_value === undefined) {
-      return c.json({ error: 'Missing required fields' }, 400)
-    }
-
-    const query = `UPDATE config SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND setting_key = ?;`
-    const { changes } = await db.prepare(query).bind(setting_value, user_id, setting_key).run()
-
-    if (changes === 0) {
-      return c.json({ error: 'Setting not found' }, 404)
-    }
-
-    return c.json({ success: true, message: 'Setting updated successfully' })
-  } catch (error) {
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// ✅ DELETE /config - Remove a user setting
-app.delete('/config', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const body = await c.req.json()
-    const { user_id, setting_key } = body
-
-    if (!user_id || !setting_key) {
-      return c.json({ error: 'Missing required fields' }, 400)
-    }
-
-    const query = `DELETE FROM config WHERE user_id = ? AND setting_key = ?;`
-    const { changes } = await db.prepare(query).bind(user_id, setting_key).run()
-
-    if (changes === 0) {
-      return c.json({ error: 'Setting not found' }, 404)
-    }
-
-    return c.json({ success: true, message: 'Setting deleted successfully' })
-  } catch (error) {
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-app.get('/config', async (c) => {
+// GET /userdata - Retrieve full user data blob
+app.get('/userdata', async (c) => {
   try {
     const db = c.env.vegvisr_org
     const user_id = c.req.query('user_id')
-
-    // Validate input
     if (!user_id) {
       return c.json({ error: 'Missing user_id parameter' }, 400)
     }
-
-    // Fetch settings for the given user_id
-    const query = `
-      SELECT setting_key, setting_value FROM config WHERE user_id = ?;
-    `
-    const { results } = await db.prepare(query).bind(user_id).all()
-
-    return c.json({ user_id, settings: results })
+    const query = `SELECT data FROM config WHERE user_id = ?;`
+    const row = await db.prepare(query).bind(user_id).first()
+    if (!row) {
+      // If no data exists, return a default structure
+      return c.json({ user_id, data: { profile: {}, settings: {} } })
+    }
+    return c.json({ user_id, data: JSON.parse(row.data) })
   } catch (error) {
     return c.json({ error: error.message }, 500)
   }
 })
 
-// ✅ New Endpoint: /config (POST) - Add a setting
-app.post('/config', async (c) => {
+// PUT /userdata - Update or insert full user data blob
+app.put('/userdata', async (c) => {
   try {
-    // Get the D1 database from the environment
     const db = c.env.vegvisr_org
-
-    // Parse JSON request body
     const body = await c.req.json()
-    const { user_id, setting_key, setting_value } = body
+    console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
+    const { user_id, data } = body
 
-    // Validate input
-    if (!user_id || !setting_key || setting_value === undefined) {
+    if (!user_id || data === undefined) {
       return c.json({ error: 'Missing required fields' }, 400)
     }
 
-    // Insert the setting into the D1 database
+    const dataJson = JSON.stringify(data)
     const query = `
-      INSERT INTO config (user_id, setting_key, setting_value)
-      VALUES (?, ?, ?);
+      INSERT INTO config (user_id, data)
+      VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET data = ?, updated_at = CURRENT_TIMESTAMP;
     `
-    await db.prepare(query).bind(user_id, setting_key, setting_value).run()
-
-    return c.json({ success: true, message: 'Setting saved successfully' })
+    await db.prepare(query).bind(user_id, dataJson, dataJson).run()
+    return c.json({ success: true, message: 'User data updated successfully' })
   } catch (error) {
+    console.error('Error in PUT /userdata:', error)
     return c.json({ error: error.message }, 500)
   }
 })
 
-// Endpoint: /get-settings
-app.get('/get-settings', async (c) => {
+// DELETE /userdata - Delete user data blob (if needed)
+app.delete('/userdata', async (c) => {
   try {
     const db = c.env.vegvisr_org
-    const user_id = c.req.query('user_id')
+    const body = await c.req.json()
+    const { user_id } = body
 
     if (!user_id) {
       return c.json({ error: 'Missing user_id parameter' }, 400)
     }
 
-    const query = `SELECT setting_key, setting_value FROM config WHERE user_id = ?;`
-    const { results } = await db.prepare(query).bind(user_id).all()
-
-    return c.json({ settings: results })
-  } catch (error) {
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// Endpoint: /set-settings
-app.post('/set-settings', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const body = await c.req.json()
-    const { user_id, settings } = body
-
-    if (!user_id || !settings) {
-      return c.json({ error: 'Missing required fields' }, 400)
+    const query = `DELETE FROM config WHERE user_id = ?;`
+    const { changes } = await db.prepare(query).bind(user_id).run()
+    if (changes === 0) {
+      return c.json({ error: 'User data not found' }, 404)
     }
-
-    const queries = settings.map(({ key, value }) => {
-      return db
-        .prepare(
-          `INSERT INTO config (user_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(user_id, setting_key) DO UPDATE SET setting_value = ?;`,
-        )
-        .bind(user_id, key, value, value)
-    })
-
-    await Promise.all(queries.map((query) => query.run()))
-
-    return c.json({ success: true, message: 'Settings updated successfully' })
+    return c.json({ success: true, message: 'User data deleted successfully' })
   } catch (error) {
     return c.json({ error: error.message }, 500)
   }
 })
 
-// Catch-all route
 app.all('*', (c) => {
   return c.text('Not Found', 404)
 })

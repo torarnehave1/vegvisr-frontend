@@ -1593,50 +1593,103 @@ var app = new Hono2();
 app.use("*", async (c, next) => {
   await next();
   c.res.headers.set("Access-Control-Allow-Origin", "*");
-  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type");
+  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 });
 app.options("*", (c) => {
+  c.res.headers.set("Access-Control-Allow-Origin", "*");
+  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return c.text("", 204);
 });
-app.get("/summary", async (c) => {
-  const prompt = `Create a summary of this text: How older adults can reduce their risk of dementia by 60% with this one simple trick:
-
-A new study published in the journal Neurology found that older adults who engaged in regular physical activity were 60% less likely to develop dementia than those who did not. The study followed over 1,600 adults with an average age of 79 for an average of 5 years. The participants were asked to report their physical activity levels, which included walking, swimming, and other forms of exercise. The researchers found that those who engaged in physical activity at least three times a week were significantly less likely to develop dementia than those who did not. The study also found that the protective effect of physical activity was independent of other factors such as age.
-
-The researchers believe that physical activity may help reduce the risk of dementia by improving blood flow to the brain, reducing inflammation, and promoting the growth of new brain cells. They also note that physical activity has been shown to improve mood, sleep, and overall quality of life, which may also contribute to a lower risk of dementia. The researchers recommend that older adults engage in regular physical activity to reduce their risk of dementia and maintain their cognitive health.`;
-  const apiKey = c.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.error("OPENAI_API_KEY is not set in environment variables");
-    return c.text("Internal Server Error: API key missing", 500);
-  }
+app.get("/hello", (c) => {
+  const prompt = c.req.query("prompt") || "Hello from Worker!";
+  return c.json({ message: prompt });
+});
+app.get("/greet", (c) => {
+  const name = c.req.query("name") || "Guest";
+  return c.json({ greeting: `Greetings, ${name}!` });
+});
+app.get("/default", (c) => {
+  return c.json({ message: "This is the default endpoint." });
+});
+app.get("/error", (c) => {
+  return c.json({ error: "This is an error message." }, 500);
+});
+app.get("/config", async (c) => {
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4",
-        // Updated to GPT-4
-        temperature: 0.7,
-        messages: [
-          { role: "system", content: "You are a helpful summary-assistant." },
-          { role: "user", content: prompt }
-        ]
-      })
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+    const db = c.env.vegvisr_org;
+    const user_id = c.req.query("user_id");
+    if (!user_id) {
+      return c.json({ error: "Missing user_id parameter" }, 400);
     }
-    const data = await response.json();
-    const summary = data.choices[0].message.content.trim();
-    return c.json({ summary });
+    const query = `SELECT settings FROM config WHERE user_id = ?;`;
+    const row = await db.prepare(query).bind(user_id).first();
+    if (!row) {
+      return c.json({ user_id, settings: {} });
+    }
+    return c.json({ user_id, settings: JSON.parse(row.settings) });
   } catch (error) {
-    console.error("Error in /summary:", error);
-    return c.text(`Internal Server Error: ${error.message}`, 500);
+    return c.json({ error: error.message }, 500);
+  }
+});
+app.put("/config", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const body = await c.req.json();
+    console.log("Received PUT /config request:", JSON.stringify(body, null, 2));
+    const { user_id, settings } = body;
+    if (!user_id || settings === void 0) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    const settingsJson = JSON.stringify(settings);
+    const query = `
+      INSERT INTO config (user_id, settings)
+      VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET settings = ?, updated_at = CURRENT_TIMESTAMP;
+    `;
+    await db.prepare(query).bind(user_id, settingsJson, settingsJson).run();
+    return c.json({ success: true, message: "Settings updated successfully" });
+  } catch (error) {
+    console.error("Error in PUT /config:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+app.post("/config", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const body = await c.req.json();
+    const { user_id, settings } = body;
+    if (!user_id || settings === void 0) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    const settingsJson = JSON.stringify(settings);
+    const query = `
+      INSERT INTO config (user_id, settings)
+      VALUES (?, ?);
+    `;
+    await db.prepare(query).bind(user_id, settingsJson).run();
+    return c.json({ success: true, message: "Setting saved successfully" });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+app.delete("/config", async (c) => {
+  try {
+    const db = c.env.vegvisr_org;
+    const body = await c.req.json();
+    const { user_id } = body;
+    if (!user_id) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    const query = `DELETE FROM config WHERE user_id = ?;`;
+    const { changes } = await db.prepare(query).bind(user_id).run();
+    if (changes === 0) {
+      return c.json({ error: "Setting not found" }, 404);
+    }
+    return c.json({ success: true, message: "Setting deleted successfully" });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
   }
 });
 app.all("*", (c) => {
@@ -1689,7 +1742,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-DI0y9S/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-hO9sXW/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1721,7 +1774,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-DI0y9S/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-hO9sXW/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
