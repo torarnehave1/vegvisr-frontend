@@ -10,54 +10,15 @@
 
     <div class="text-container">
       <h1>Hagala: The Ancient Sound Code Behind the Vegvísir Mystery</h1>
-      <textarea v-model="introText" class="intro-textarea"></textarea>
-      <button @click="saveIntroText" class="btn btn-primary">Save</button>
+      <textarea class="intro-textarea">
+          Explore the lost vibrational key hidden within the Vegvísir. Could \"Hagala\" be the forgotten sound of the Wayfinder? This open-source project investigates the ancient phonetics, sacred sound structures, and interconnected wisdom of Norse, Taoist, and Sumerian traditions.
+
+
+
+      </textarea>
     </div>
   </div>
 </template>
-
-<script>
-import { ref } from 'vue'
-import axios from 'axios'
-
-export default {
-  name: 'BookView',
-  props: {
-    theme: {
-      type: String,
-      default: 'light',
-    },
-  },
-  setup() {
-    const introText = ref('')
-
-    const loadIntroText = async () => {
-      try {
-        const response = await axios.get('/json/book.json')
-        introText.value = response.data.introText
-      } catch (error) {
-        console.error('Error loading intro text:', error)
-      }
-    }
-
-    const saveIntroText = async () => {
-      try {
-        await axios.put('/json/book.json', { introText: introText.value })
-        alert('Intro text saved successfully!')
-      } catch (error) {
-        console.error('Error saving intro text:', error)
-      }
-    }
-
-    loadIntroText()
-
-    return {
-      introText,
-      saveIntroText,
-    }
-  },
-}
-</script>
 
 <style>
 .book-view {
