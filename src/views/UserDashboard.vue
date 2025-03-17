@@ -34,6 +34,15 @@
           <label class="form-label">Profile Image:</label>
           <input type="file" class="form-control" @change="onFileChange" />
         </div>
+        <!-- Display Profile Image -->
+        <div v-if="data.profile.profileImage" class="mb-3 text-center">
+          <img
+            :src="data.profile.profileImage"
+            alt="Profile Image"
+            class="rounded-circle"
+            style="width: 150px; height: 150px; object-fit: cover"
+          />
+        </div>
       </div>
     </div>
 
@@ -110,6 +119,15 @@ export default {
         const result = await response.json()
         if (result.data) {
           this.data = result.data
+          // Fetch profile image from R2 storage if it exists
+          if (this.data.profile.profileImage) {
+            const imageResponse = await fetch(this.data.profile.profileImage)
+            if (imageResponse.ok) {
+              this.data.profile.profileImage = imageResponse.url
+            } else {
+              console.error('Error fetching profile image:', imageResponse.statusText)
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching user data:', error)

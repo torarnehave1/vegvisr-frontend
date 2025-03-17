@@ -1661,7 +1661,7 @@ app.delete("/userdata", async (c) => {
 });
 app.post("/upload", async (c) => {
   try {
-    const { MY_R2_BUCKET } = c.env;
+    const { MY_R2_BUCKET, vegvisr_org } = c.env;
     const formData = await c.req.formData();
     const file = formData.get("file");
     const user_id = formData.get("user_id");
@@ -1671,6 +1671,12 @@ app.post("/upload", async (c) => {
     const fileName = `${user_id}/${file.name}`;
     await MY_R2_BUCKET.put(fileName, file.stream());
     const fileUrl = `https://<your-r2-bucket-url>/${fileName}`;
+    const query = `
+      INSERT INTO config (user_id, data)
+      VALUES (?, json_set(coalesce(data, '{}'), '$.profile.profileImage', ?))
+      ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
+    `;
+    await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run();
     return c.json({ success: true, fileUrl });
   } catch (error) {
     console.error("Error in POST /upload:", error);
