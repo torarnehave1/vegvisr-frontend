@@ -10,12 +10,12 @@
 
     <div class="text-container">
       <h1>Hagala: The Ancient Sound Code Behind the Vegvísir Mystery</h1>
-      <textarea class="intro-textarea">
-          Explore the lost vibrational key hidden within the Vegvísir. Could \"Hagala\" be the forgotten sound of the Wayfinder? This open-source project investigates the ancient phonetics, sacred sound structures, and interconnected wisdom of Norse, Taoist, and Sumerian traditions.
-
-
-
-      </textarea>
+      <div class="intro-textarea">
+        Explore the lost vibrational key hidden within the Vegvísir. Could \"Hagala\" be the
+        forgotten sound of the Wayfinder? This open-source project investigates the ancient
+        phonetics, sacred sound structures, and interconnected wisdom of Norse, Taoist, and Sumerian
+        traditions.
+      </div>
     </div>
   </div>
 </template>
