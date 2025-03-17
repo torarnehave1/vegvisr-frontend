@@ -1,11 +1,7 @@
 <template>
   <div :class="['book-view', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]">
     <div class="cover-container">
-      <img
-        src="https://vegvisr.org/Artboard%20351-100.jpg"
-        alt="Hagala Book Cover"
-        class="book-cover"
-      />
+      <img src="https://vegvisr.org/bookcover.svg" alt="Hagala Book Cover" class="book-cover" />
     </div>
 
     <div class="text-container">
@@ -19,6 +15,12 @@
     </div>
   </div>
 </template>
+
+<script>
+export default {
+  name: 'BookView',
+}
+</script>
 
 <style>
 .book-view {
