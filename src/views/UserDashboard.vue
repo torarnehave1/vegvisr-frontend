@@ -35,9 +35,9 @@
           <input type="file" class="form-control" @change="onFileChange" />
         </div>
         <!-- Display Profile Image -->
-        <div v-if="data.profile.profileImage" class="mb-3 text-center">
+        <div v-if="profileImage" class="mb-3 text-center">
           <img
-            :src="data.profile.profileImage"
+            :src="profileImage"
             alt="Profile Image"
             class="rounded-circle"
             style="width: 150px; height: 150px; object-fit: cover"
@@ -97,7 +97,6 @@ export default {
           username: '',
           email: '',
           bio: '',
-          profileImage: '', // Add profileImage to the profile data
         },
         settings: {
           darkMode: false,
@@ -105,6 +104,7 @@ export default {
           theme: 'light',
         },
       },
+      profileImage: '', // Move profileImage outside of data
       userId: 'tah12have', // Hardcoded for testing; typically comes from auth
       selectedFile: null, // Add selectedFile to handle file input
     }
@@ -117,21 +117,8 @@ export default {
       try {
         const response = await fetch(`https://test.vegvisr.org/userdata?user_id=${this.userId}`)
         const result = await response.json()
-        if (result.data) {
-          this.data = result.data
-          // Fetch profile image from R2 storage if it exists
-          if (this.data.profile.profileImage) {
-            const imageResponse = await fetch(this.data.profile.profileImage, { mode: 'no-cors' })
-            if (imageResponse.ok) {
-              this.data.profile.profileImage = imageResponse.url
-            } else {
-              console.log(
-                'Error fetching profile image:',
-                imageResponse.status,
-                imageResponse.statusText,
-              )
-            }
-          }
+        if (result.profileimage) {
+          this.profileImage = result.profileimage // Update profileImage
         }
       } catch (error) {
         console.error('Error fetching user data:', error)
@@ -158,7 +145,7 @@ export default {
 
           const uploadResult = await uploadResponse.json()
           if (uploadResult.success) {
-            this.data.profile.profileImage = uploadResult.fileUrl
+            this.profileImage = uploadResult.fileUrl // Update profileImage
           } else {
             alert('Error uploading profile image')
             return
@@ -168,6 +155,7 @@ export default {
         const payload = {
           user_id: this.userId,
           data: this.data,
+          profileimage: this.profileImage, // Include profileImage in payload
         }
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
         const response = await fetch('https://test.vegvisr.org/userdata', {

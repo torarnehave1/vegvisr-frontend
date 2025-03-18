@@ -18,13 +18,15 @@ app.options('*', (c) => {
   return c.text('', 204)
 })
 
-// Ensure the config table has the data column
+// Ensure the config table has the necessary columns
 app.use('*', async (c, next) => {
   const db = c.env.vegvisr_org
   const query = `
     CREATE TABLE IF NOT EXISTS config (
       user_id TEXT PRIMARY KEY,
-      data TEXT
+      data TEXT,
+      profileimage TEXT,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `
   await db.prepare(query).run()
@@ -39,14 +41,15 @@ app.get('/userdata', async (c) => {
     if (!user_id) {
       return c.json({ error: 'Missing user_id parameter' }, 400)
     }
-    const query = `SELECT data FROM config WHERE user_id = ?;`
+    const query = `SELECT data, profileimage FROM config WHERE user_id = ?;`
     const row = await db.prepare(query).bind(user_id).first()
     if (!row) {
       // If no data exists, return a default structure
-      return c.json({ user_id, data: { profile: {}, settings: {} } })
+      return c.json({ user_id, data: { profile: {}, settings: {} }, profileimage: '' })
     }
-    return c.json({ user_id, data: JSON.parse(row.data) })
+    return c.json({ user_id, data: JSON.parse(row.data), profileimage: row.profileimage })
   } catch (error) {
+    console.error('Error in GET /userdata:', error)
     return c.json({ error: error.message }, 500)
   }
 })
@@ -57,19 +60,19 @@ app.put('/userdata', async (c) => {
     const db = c.env.vegvisr_org
     const body = await c.req.json()
     console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
-    const { user_id, data } = body
+    const { user_id, data, profileimage } = body
 
-    if (!user_id || data === undefined) {
+    if (!user_id || data === undefined || profileimage === undefined) {
       return c.json({ error: 'Missing required fields' }, 400)
     }
 
     const dataJson = JSON.stringify(data)
     const query = `
-      INSERT INTO config (user_id, data)
-      VALUES (?, json_set(coalesce(data, '{}'), '$.profile', json_set(coalesce(data->'$.profile', '{}'), 'profileImage', ?)))
-      ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
+      INSERT INTO config (user_id, data, profileimage)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET data = ?, profileimage = ?;
     `
-    await db.prepare(query).bind(user_id, dataJson, dataJson).run()
+    await db.prepare(query).bind(user_id, dataJson, profileimage, dataJson, profileimage).run()
     return c.json({ success: true, message: 'User data updated successfully' })
   } catch (error) {
     console.error('Error in PUT /userdata:', error)
@@ -95,6 +98,7 @@ app.delete('/userdata', async (c) => {
     }
     return c.json({ success: true, message: 'User data deleted successfully' })
   } catch (error) {
+    console.error('Error in DELETE /userdata:', error)
     return c.json({ error: error.message }, 500)
   }
 })
@@ -125,10 +129,12 @@ app.post('/upload', async (c) => {
 
     // Update the user profile image URL in the database
     const query = `
-      INSERT INTO config (user_id, data)
-      VALUES (?, json_set(coalesce(data, '{}'), '$.profile', json_set(coalesce(data->'$.profile', '{}'), 'profileImage', ?)))
-      ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
+      INSERT INTO config (user_id, profileimage)
+      VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET profileimage = ?;
     `
+    console.log('Query:', query)
+
     console.log('Updating database with profile image URL')
     await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run()
 
