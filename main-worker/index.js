@@ -18,6 +18,19 @@ app.options('*', (c) => {
   return c.text('', 204)
 })
 
+// Ensure the config table has the data column
+app.use('*', async (c, next) => {
+  const db = c.env.vegvisr_org
+  const query = `
+    CREATE TABLE IF NOT EXISTS config (
+      user_id TEXT PRIMARY KEY,
+      data TEXT
+    );
+  `
+  await db.prepare(query).run()
+  await next()
+})
+
 // GET /userdata - Retrieve full user data blob
 app.get('/userdata', async (c) => {
   try {
@@ -98,7 +111,8 @@ app.post('/upload', async (c) => {
       return c.json({ error: 'Missing file or user_id' }, 400)
     }
 
-    const fileName = `${user_id}/${file.name}`
+    const fileExtension = file.name.split('.').pop()
+    const fileName = `${user_id}/profileimage.${fileExtension}`
     await MY_R2_BUCKET.put(fileName, file.stream())
 
     const fileUrl = `https://vegvisr.org/${fileName}`
@@ -119,6 +133,7 @@ app.post('/upload', async (c) => {
     return c.json({ success: true, fileUrl })
   } catch (error) {
     console.error('Error in POST /upload:', error)
+    console.error('Error details:', error)
     return c.json({ error: error.message }, 500)
   }
 })
