@@ -1690,7 +1690,7 @@ app.post("/upload", async (c) => {
     const fileName = `${user_id}/profileimage.${fileExtension}`;
     console.log("Uploading file to R2:", fileName);
     await MY_R2_BUCKET.put(fileName, file.stream());
-    const fileUrl = `https://test.vegvisr.org/${fileName}`;
+    const fileUrl = `https://vegvisr.org/${fileName}`;
     console.log("File uploaded to R2:", fileUrl);
     const query = `
       INSERT INTO config (user_id, profileimage)
@@ -1761,7 +1761,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-emiui5/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-n7TY48/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1793,7 +1793,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-emiui5/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-n7TY48/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

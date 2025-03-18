@@ -161,7 +161,9 @@ export default {
         const response = await fetch('https://test.vegvisr.org/userdata', {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': this.profileImage.endsWith('.svg')
+              ? 'image/svg+xml'
+              : 'application/json',
           },
           body: JSON.stringify(payload),
         })

@@ -1593,122 +1593,50 @@ var app = new Hono2();
 app.use("*", async (c, next) => {
   await next();
   c.res.headers.set("Access-Control-Allow-Origin", "*");
-  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type");
 });
 app.options("*", (c) => {
-  c.res.headers.set("Access-Control-Allow-Origin", "*");
-  c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return c.text("", 204);
 });
-app.use("*", async (c, next) => {
-  const db = c.env.vegvisr_org;
-  const query = `
-    CREATE TABLE IF NOT EXISTS config (
-      user_id TEXT PRIMARY KEY,
-      data TEXT,
-      profileimage TEXT,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `;
-  await db.prepare(query).run();
-  await next();
-});
-app.get("/userdata", async (c) => {
-  try {
-    const db = c.env.vegvisr_org;
-    const user_id = c.req.query("user_id");
-    if (!user_id) {
-      return c.json({ error: "Missing user_id parameter" }, 400);
-    }
-    const query = `SELECT data, profileimage FROM config WHERE user_id = ?;`;
-    const row = await db.prepare(query).bind(user_id).first();
-    if (!row) {
-      return c.json({ user_id, data: { profile: {}, settings: {} }, profileimage: "" });
-    }
-    return c.json({ user_id, data: JSON.parse(row.data), profileimage: row.profileimage });
-  } catch (error) {
-    console.error("Error in GET /userdata:", error);
-    return c.json({ error: error.message }, 500);
+app.get("/summary", async (c) => {
+  const prompt = `Create a summary of this text: How older adults can reduce their risk of dementia by 60% with this one simple trick:
+
+A new study published in the journal Neurology found that older adults who engaged in regular physical activity were 60% less likely to develop dementia than those who did not. The study followed over 1,600 adults with an average age of 79 for an average of 5 years. The participants were asked to report their physical activity levels, which included walking, swimming, and other forms of exercise. The researchers found that those who engaged in physical activity at least three times a week were significantly less likely to develop dementia than those who did not. The study also found that the protective effect of physical activity was independent of other factors such as age.
+
+The researchers believe that physical activity may help reduce the risk of dementia by improving blood flow to the brain, reducing inflammation, and promoting the growth of new brain cells. They also note that physical activity has been shown to improve mood, sleep, and overall quality of life, which may also contribute to a lower risk of dementia. The researchers recommend that older adults engage in regular physical activity to reduce their risk of dementia and maintain their cognitive health.`;
+  const apiKey = c.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.error("OPENAI_API_KEY is not set in environment variables");
+    return c.text("Internal Server Error: API key missing", 500);
   }
-});
-app.put("/userdata", async (c) => {
   try {
-    const db = c.env.vegvisr_org;
-    const body = await c.req.json();
-    console.log("Received PUT /userdata request:", JSON.stringify(body, null, 2));
-    const { user_id, data, profileimage } = body;
-    if (!user_id || data === void 0 || profileimage === void 0) {
-      return c.json({ error: "Missing required fields" }, 400);
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4",
+        // Updated to GPT-4
+        temperature: 0.7,
+        messages: [
+          { role: "system", content: "You are a helpful summary-assistant." },
+          { role: "user", content: prompt }
+        ]
+      })
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
-    const dataJson = JSON.stringify(data);
-    const query = `
-      INSERT INTO config (user_id, data, profileimage)
-      VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET data = ?, profileimage = ?;
-    `;
-    await db.prepare(query).bind(user_id, dataJson, profileimage, dataJson, profileimage).run();
-    return c.json({ success: true, message: "User data updated successfully" });
+    const data = await response.json();
+    const summary = data.choices[0].message.content.trim();
+    return c.json({ summary });
   } catch (error) {
-    console.error("Error in PUT /userdata:", error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-app.delete("/userdata", async (c) => {
-  try {
-    const db = c.env.vegvisr_org;
-    const body = await c.req.json();
-    const { user_id } = body;
-    if (!user_id) {
-      return c.json({ error: "Missing user_id parameter" }, 400);
-    }
-    const query = `DELETE FROM config WHERE user_id = ?;`;
-    const { changes } = await db.prepare(query).bind(user_id).run();
-    if (changes === 0) {
-      return c.json({ error: "User data not found" }, 404);
-    }
-    return c.json({ success: true, message: "User data deleted successfully" });
-  } catch (error) {
-    console.error("Error in DELETE /userdata:", error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-app.post("/upload", async (c) => {
-  try {
-    console.log("Received POST /upload request");
-    const { MY_R2_BUCKET, vegvisr_org } = c.env;
-    const formData = await c.req.formData();
-    const file = formData.get("file");
-    const user_id = formData.get("user_id");
-    console.log("Form data:", { file, user_id });
-    if (!file || !user_id) {
-      console.error("Missing file or user_id");
-      return c.json({ error: "Missing file or user_id" }, 400);
-    }
-    const fileExtension = file.name.split(".").pop();
-    const fileName = `${user_id}/profileimage.${fileExtension}`;
-    console.log("Uploading file to R2:", fileName);
-    await MY_R2_BUCKET.put(fileName, file.stream());
-    const fileUrl = `https://test.vegvisr.org/${fileName}`;
-    console.log("File uploaded to R2:", fileUrl);
-    const query = `
-      INSERT INTO config (user_id, profileimage)
-      VALUES (?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET profileimage = ?;
-    `;
-    console.log("Query:", query);
-    console.log("Updating database with profile image URL");
-    await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run();
-    c.res.headers.set("Access-Control-Allow-Origin", "*");
-    c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    console.log("Returning success response");
-    return c.json({ success: true, fileUrl });
-  } catch (error) {
-    console.error("Error in POST /upload:", error);
-    console.error("Error details:", error);
-    return c.json({ error: error.message }, 500);
+    console.error("Error in /summary:", error);
+    return c.text(`Internal Server Error: ${error.message}`, 500);
   }
 });
 app.all("*", (c) => {
@@ -1761,7 +1689,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-emiui5/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-XtCm4K/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1793,7 +1721,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-emiui5/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-XtCm4K/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

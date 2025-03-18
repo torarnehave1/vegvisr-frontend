@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { v4 as uuidv4 } from 'uuid' // Import UUID library
 
 const app = new Hono()
 
@@ -32,6 +33,12 @@ app.use('*', async (c, next) => {
   await db.prepare(query).run()
   await next()
 })
+
+// Function to generate a unique file name
+function generateUniqueFileName(user_id, fileExtension) {
+  const uniqueId = uuidv4()
+  return `${user_id}/profileimage_${uniqueId}.${fileExtension}`
+}
 
 // GET /userdata - Retrieve full user data blob
 app.get('/userdata', async (c) => {
@@ -120,9 +127,17 @@ app.post('/upload', async (c) => {
     }
 
     const fileExtension = file.name.split('.').pop()
-    const fileName = `${user_id}/profileimage.${fileExtension}`
+    const fileName = generateUniqueFileName(user_id, fileExtension) // Use the unique file name generator
     console.log('Uploading file to R2:', fileName)
-    await MY_R2_BUCKET.put(fileName, file.stream())
+
+    // Set the correct Content-Type for SVG files
+    const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
+
+    await MY_R2_BUCKET.put(fileName, file.stream(), {
+      httpMetadata: {
+        contentType: contentType,
+      },
+    })
 
     const fileUrl = `https://vegvisr.org/${fileName}`
     console.log('File uploaded to R2:', fileUrl)
