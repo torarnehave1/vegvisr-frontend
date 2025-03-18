@@ -66,8 +66,8 @@ app.put('/userdata', async (c) => {
     const dataJson = JSON.stringify(data)
     const query = `
       INSERT INTO config (user_id, data)
-      VALUES (?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET data = ?, updated_at = CURRENT_TIMESTAMP;
+      VALUES (?, json_set(coalesce(data, '{}'), '$.profile', json_set(coalesce(data->'$.profile', '{}'), 'profileImage', ?)))
+      ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
     `
     await db.prepare(query).bind(user_id, dataJson, dataJson).run()
     return c.json({ success: true, message: 'User data updated successfully' })
@@ -102,27 +102,34 @@ app.delete('/userdata', async (c) => {
 // POST /upload - Upload a file to R2 bucket
 app.post('/upload', async (c) => {
   try {
+    console.log('Received POST /upload request')
     const { MY_R2_BUCKET, vegvisr_org } = c.env
     const formData = await c.req.formData()
     const file = formData.get('file')
     const user_id = formData.get('user_id')
 
+    console.log('Form data:', { file, user_id })
+
     if (!file || !user_id) {
+      console.error('Missing file or user_id')
       return c.json({ error: 'Missing file or user_id' }, 400)
     }
 
     const fileExtension = file.name.split('.').pop()
     const fileName = `${user_id}/profileimage.${fileExtension}`
+    console.log('Uploading file to R2:', fileName)
     await MY_R2_BUCKET.put(fileName, file.stream())
 
     const fileUrl = `https://vegvisr.org/${fileName}`
+    console.log('File uploaded to R2:', fileUrl)
 
     // Update the user profile image URL in the database
     const query = `
       INSERT INTO config (user_id, data)
-      VALUES (?, json_set(coalesce(data, '{}'), '$.profile.profileImage', ?))
+      VALUES (?, json_set(coalesce(data, '{}'), '$.profile', json_set(coalesce(data->'$.profile', '{}'), 'profileImage', ?)))
       ON CONFLICT(user_id) DO UPDATE SET data = json_set(data, '$.profile.profileImage', ?), updated_at = CURRENT_TIMESTAMP;
     `
+    console.log('Updating database with profile image URL')
     await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run()
 
     // Add CORS headers to the response
@@ -130,6 +137,7 @@ app.post('/upload', async (c) => {
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
+    console.log('Returning success response')
     return c.json({ success: true, fileUrl })
   } catch (error) {
     console.error('Error in POST /upload:', error)
