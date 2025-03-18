@@ -8,6 +8,15 @@
     <h1 class="text-center">User Dashboard</h1>
 
     <!-- Profile Section -->
+    <!-- Display Profile Image -->
+    <div v-if="profileImage" class="mb-3 text-center">
+      <img
+        :src="profileImage"
+        alt="Profile Image"
+        class="rounded-circle"
+        style="width: 150px; height: 150px; object-fit: cover"
+      />
+    </div>
     <div
       class="card my-4"
       :class="{
@@ -34,15 +43,6 @@
           <label class="form-label">Profile Image:</label>
           <input type="file" class="form-control" @change="onFileChange" />
         </div>
-        <!-- Display Profile Image -->
-        <div v-if="profileImage" class="mb-3 text-center">
-          <img
-            :src="profileImage"
-            alt="Profile Image"
-            class="rounded-circle"
-            style="width: 150px; height: 150px; object-fit: cover"
-          />
-        </div>
       </div>
     </div>
 
@@ -56,15 +56,7 @@
     >
       <div class="card-body">
         <h2 class="card-title">Preferences</h2>
-        <div class="form-check mb-3">
-          <input
-            type="checkbox"
-            class="form-check-input"
-            id="darkMode"
-            v-model="data.settings.darkMode"
-          />
-          <label class="form-check-label" for="darkMode">Dark Mode</label>
-        </div>
+
         <div class="form-check mb-3">
           <input
             type="checkbox"
@@ -110,7 +102,9 @@ export default {
     }
   },
   mounted() {
-    this.fetchUserData()
+    if (this.userId) {
+      this.fetchUserData()
+    }
   },
   methods: {
     async fetchUserData() {
@@ -120,6 +114,8 @@ export default {
         if (result.profileimage) {
           this.profileImage = result.profileimage // Update profileImage
         }
+        this.data = result.data // Update data
+        this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
         console.error('Error fetching user data:', error)
       }
@@ -172,13 +168,23 @@ export default {
         }
         const result = await response.json()
         if (result.success) {
-          alert('User data updated successfully!')
+          // Scroll to the top of the page after saving
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+          //refresh the page after saving
+          location.reload()
         } else {
           alert('Error updating user data')
         }
       } catch (error) {
         console.error('Error saving user data:', error)
         alert(`Error saving user data: ${error.message}`)
+      }
+    },
+    applyTheme() {
+      if (this.data.settings.theme === 'dark') {
+        document.body.classList.add('bg-dark', 'text-white')
+      } else {
+        document.body.classList.remove('bg-dark', 'text-white')
       }
     },
   },
