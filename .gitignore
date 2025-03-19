@@ -30,11 +30,7 @@ coverage
 *.tsbuildinfo
 /api-worker/wrangler.toml
 /api-worker/tsconfig.json
-/main-worker/wrangler.toml
+
 *.toml
 /main-worker/wrangler.toml
-main-worker/wrangler.toml
-main-worker/wrangler.toml
-main-worker/wrangler.toml
-main-worker/wrangler.toml
-main-worker/wrangler.toml
+
