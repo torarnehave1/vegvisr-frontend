@@ -80,38 +80,65 @@ app.get('/sve', async (c) => {
 })
 
 // New endpoint to handle GET /sve2 requests
-app.get('/sve2', async (c) => {
+app.post('/sve2', async (c) => {
+  // Changed to POST to match the log
   try {
-    console.log('Received GET /sve2 request')
+    console.log('Received POST /sve2 request')
     const email = c.req.query('email')
-    const token = c.env.token // Use the stored token variable
+    const token = c.env.token
+
+    console.log('Raw token value:', token)
 
     if (!email) {
-      console.error('Error in GET /sve2: Missing email parameter')
+      console.error('Error in POST /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
 
-    console.log('Sending request to external API with email:', email)
-    console.log('Using token:', token)
-    const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', {
+    if (!token) {
+      console.error('Error in POST /sve2: Token is missing in environment variables')
+      return c.json({ error: 'Server configuration error: Missing token' }, 500)
+    }
+
+    const requestOptions = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ email }),
-    })
+    }
+
+    console.log('Sending POST request to external API:')
+    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
+    console.log('Method:', requestOptions.method)
+    console.log('Headers:', requestOptions.headers)
+    console.log('Body:', requestOptions.body)
+
+    const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
+
+    // Log the status and raw body
+    const responseBody = await response.text() // Use .text() to avoid JSON parsing
+    console.log('Response status:', response.status)
+    console.log('Raw response body:', responseBody)
 
     if (!response.ok) {
-      console.error(`Error in GET /sve2: HTTP error! status: ${response.status}`)
+      console.error(
+        `Error in POST /sve2: HTTP error! status: ${response.status}, body: ${responseBody}`,
+      )
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    const result = await response.json()
-    console.log('Received response from external API:', result)
+    // Only parse as JSON if the response is successful and has content
+    const result = responseBody ? JSON.parse(responseBody) : {}
+    console.log('Parsed response from external API:', result)
+
+    c.res.headers.set('Access-Control-Allow-Origin', '*')
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
     return c.json(result)
   } catch (error) {
-    console.error('Error in GET /sve2:', error)
+    console.error('Error in POST /sve2:', error)
     return c.json({ error: error.message }, 500)
   }
 })
