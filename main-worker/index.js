@@ -61,8 +61,26 @@ app.get('/userdata', async (c) => {
   }
 })
 
-// New endpoint to handle GET /sve requests
+//New sve enpoint to test if it is there
 app.get('/sve', async (c) => {
+  try {
+    const email = c.req.query('email')
+    //const token = c.env.token // Use the stored token variable
+
+    if (!email) {
+      return c.json({ error: 'Missing email parameter' }, 400)
+    }
+
+    //Just returen endpoin found
+    return c.json({ endpoint: 'found' })
+  } catch (error) {
+    console.error('Error in GET /sve:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+// New endpoint to handle GET /sve requests
+app.get('/sve2', async (c) => {
   try {
     const email = c.req.query('email')
     const token = c.env.token // Use the stored token variable
