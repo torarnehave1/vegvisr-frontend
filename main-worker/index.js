@@ -92,6 +92,7 @@ app.get('/sve2', async (c) => {
     }
 
     console.log('Sending request to external API with email:', email)
+    console.log('Using token:', token)
     const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', {
       method: 'POST',
       headers: {
