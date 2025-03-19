@@ -61,6 +61,38 @@ app.get('/userdata', async (c) => {
   }
 })
 
+// New endpoint to send verification email
+//send-verification-email sve
+app.post('/sve', async (c) => {
+  try {
+    const { email } = await c.req.json()
+    const token = c.env.token // Use the stored token variable
+
+    if (!email) {
+      return c.json({ error: 'Missing email parameter' }, 400)
+    }
+
+    const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ email }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+    return c.json(result)
+  } catch (error) {
+    console.error('Error in POST /send-verification-email:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
+
 // PUT /userdata - Update or insert full user data blob
 app.put('/userdata', async (c) => {
   try {

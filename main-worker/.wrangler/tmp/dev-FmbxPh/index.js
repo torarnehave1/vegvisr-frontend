@@ -1693,6 +1693,31 @@ app.get("/userdata", async (c) => {
     return c.json({ error: error.message }, 500);
   }
 });
+app.post("/sve", async (c) => {
+  try {
+    const { email } = await c.req.json();
+    const token = c.env.token;
+    if (!email) {
+      return c.json({ error: "Missing email parameter" }, 400);
+    }
+    const response = await fetch("https://slowyou.io/api/reg-user-vegvisr", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ email })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const result = await response.json();
+    return c.json(result);
+  } catch (error) {
+    console.error("Error in POST /send-verification-email:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
 app.put("/userdata", async (c) => {
   try {
     const db = c.env.vegvisr_org;
@@ -1826,7 +1851,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-VdaCbZ/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-TvEDVI/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1858,7 +1883,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-VdaCbZ/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-TvEDVI/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
