@@ -79,16 +79,19 @@ app.get('/sve', async (c) => {
   }
 })
 
-// New endpoint to handle GET /sve requests
+// New endpoint to handle GET /sve2 requests
 app.get('/sve2', async (c) => {
   try {
+    console.log('Received GET /sve2 request')
     const email = c.req.query('email')
     const token = c.env.token // Use the stored token variable
 
     if (!email) {
+      console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
 
+    console.log('Sending request to external API with email:', email)
     const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', {
       method: 'POST',
       headers: {
@@ -99,13 +102,15 @@ app.get('/sve2', async (c) => {
     })
 
     if (!response.ok) {
+      console.error(`Error in GET /sve2: HTTP error! status: ${response.status}`)
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
     const result = await response.json()
+    console.log('Received response from external API:', result)
     return c.json(result)
   } catch (error) {
-    console.error('Error in GET /sve:', error)
+    console.error('Error in GET /sve2:', error)
     return c.json({ error: error.message }, 500)
   }
 })
