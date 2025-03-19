@@ -118,7 +118,7 @@ app.get('/sve', async (c) => {
     const result = await response.json()
     return c.json(result)
   } catch (error) {
-    console.error('Error in GET /send-verification-email:', error)
+    console.error('Error in GET /sve:', error)
     return c.json({ error: error.message }, 500)
   }
 })
