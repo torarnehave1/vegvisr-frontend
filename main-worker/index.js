@@ -80,22 +80,21 @@ app.get('/sve', async (c) => {
 })
 
 // New endpoint to handle GET /sve2 requests
-app.post('/sve2', async (c) => {
-  // Changed to POST to match the log
+app.get('/sve2', async (c) => {
   try {
-    console.log('Received POST /sve2 request')
+    console.log('Received GET /sve2 request')
     const email = c.req.query('email')
     const token = c.env.token
 
     console.log('Raw token value:', token)
 
     if (!email) {
-      console.error('Error in POST /sve2: Missing email parameter')
+      console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
 
     if (!token) {
-      console.error('Error in POST /sve2: Token is missing in environment variables')
+      console.error('Error in GET /sve2: Token is missing in environment variables')
       return c.json({ error: 'Server configuration error: Missing token' }, 500)
     }
 
@@ -123,7 +122,7 @@ app.post('/sve2', async (c) => {
 
     if (!response.ok) {
       console.error(
-        `Error in POST /sve2: HTTP error! status: ${response.status}, body: ${responseBody}`,
+        `Error in GET /sve2: HTTP error! status: ${response.status}, body: ${responseBody}`,
       )
       throw new Error(`HTTP error! status: ${response.status}`)
     }
@@ -138,7 +137,7 @@ app.post('/sve2', async (c) => {
 
     return c.json(result)
   } catch (error) {
-    console.error('Error in POST /sve2:', error)
+    console.error('Error in GET /sve2:', error)
     return c.json({ error: error.message }, 500)
   }
 })
