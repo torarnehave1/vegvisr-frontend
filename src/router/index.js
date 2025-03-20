@@ -52,6 +52,11 @@ const router = createRouter({
       name: 'UserRegistration',
       component: UserRegistration,
     },
+    {
+      path: '/lpage',
+      name: 'LandingPage',
+      component: () => import('../views/LandingPageView.vue'),
+    },
     // Redirect to the 404 page if no other routes are matched
   ],
 })

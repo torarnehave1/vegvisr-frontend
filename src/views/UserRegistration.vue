@@ -14,6 +14,7 @@
 
 <script>
 export default {
+  name: 'UserRegistration', // Add a name to the component
   data() {
     return {
       email: '',
