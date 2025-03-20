@@ -19,7 +19,7 @@ const setTheme = (newTheme) => {
     <header class="top-menu">
       <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
-          <RouterLink class="navbar-brand" to="/">MyApp</RouterLink>
+          <RouterLink class="navbar-brand" to="/">Vegvisr.org</RouterLink>
           <button
             class="navbar-toggler"
             type="button"
