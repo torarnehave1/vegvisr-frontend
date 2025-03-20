@@ -24,7 +24,7 @@ export default {
         const response = await fetch(
           `https://test.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
           {
-            method: 'POST',
+            method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             },
