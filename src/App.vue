@@ -90,13 +90,6 @@ const setTheme = (newTheme) => {
 
     <div class="main-layout">
       <!-- Sidebar (Hidden on About Page) -->
-      <aside class="sidebar">
-        <nav>
-          <RouterLink to="/dashboard">Dashboard</RouterLink>
-          <RouterLink to="/profile">Profile</RouterLink>
-          <RouterLink to="/settings">Settings</RouterLink>
-        </nav>
-      </aside>
 
       <!-- Main Content -->
       <main class="content">
