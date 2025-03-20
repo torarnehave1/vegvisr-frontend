@@ -21,7 +21,7 @@ export default {
   methods: {
     async registerUser() {
       try {
-        const response = await fetch('/sve', {
+        const response = await fetch('/sve2', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
