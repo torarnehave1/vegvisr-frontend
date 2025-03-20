@@ -8,6 +8,7 @@
       </div>
       <button type="submit">Register</button>
     </form>
+    <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
   </div>
 </template>
 
@@ -16,6 +17,7 @@ export default {
   data() {
     return {
       email: '',
+      successMessage: '',
     }
   },
   methods: {
@@ -35,6 +37,8 @@ export default {
         }
         const data = await response.json()
         console.log('User registered:', data)
+        this.successMessage =
+          'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
       } catch (error) {
         console.error('There was a problem with the registration:', error)
       }
@@ -83,5 +87,11 @@ export default {
 
 .user-registration button:hover {
   background-color: #0056b3;
+}
+
+.success-message {
+  margin-top: 1em;
+  color: green;
+  text-align: center;
 }
 </style>
