@@ -21,13 +21,16 @@ export default {
   methods: {
     async registerUser() {
       try {
-        const response = await fetch('/sve2', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          `https://test.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email: this.email }),
           },
-          body: JSON.stringify({ email: this.email }),
-        })
+        )
         if (!response.ok) {
           throw new Error('Network response was not ok')
         }
