@@ -72,6 +72,7 @@ app.get('/verify-email', async (c) => {
 
     const response = await fetch('https://slowyou.io/api/verify-email?token=' + token)
     const responseBody = await response.text()
+    console.log('Response body:', responseBody)
     const result = responseBody ? JSON.parse(responseBody) : {}
     console.log('Parsed response from external API:', result)
 
