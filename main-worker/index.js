@@ -62,19 +62,27 @@ app.get('/userdata', async (c) => {
 })
 
 //New sve enpoint to test if it is there
-app.get('/sve', async (c) => {
+app.get('/verify-email', async (c) => {
   try {
-    const email = c.req.query('email')
-    //const token = c.env.token // Use the stored token variable
+    const token = c.req.query('token')
 
-    if (!email) {
-      return c.json({ error: 'Missing email parameter' }, 400)
+    if (!token) {
+      return c.json({ error: 'Missing token parameter' }, 400)
     }
 
-    //Just returen endpoin found
-    return c.json({ endpoint: 'found' })
+    const response = await fetch('https://slowyou.io/api/verify-email?token=' + token)
+    const responseBody = await response.text()
+    const result = responseBody ? JSON.parse(responseBody) : {}
+    console.log('Parsed response from external API:', result)
+
+    // Add CORS headers to the response
+    c.res.headers.set('Access-Control-Allow-Origin', '*')
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+    return c.json(result)
   } catch (error) {
-    console.error('Error in GET /sve:', error)
+    console.error('Error in GET /verify-email:', error)
     return c.json({ error: error.message }, 500)
   }
 })
@@ -107,18 +115,18 @@ app.get('/sve2', async (c) => {
       body: JSON.stringify({ email }),
     }
 
-    console.log('Sending POST request to external API:')
-    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
-    console.log('Method:', requestOptions.method)
-    console.log('Headers:', requestOptions.headers)
-    console.log('Body:', requestOptions.body)
+    // console.log('Sending POST request to external API:')
+    // console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
+    // console.log('Method:', requestOptions.method)
+    // console.log('Headers:', requestOptions.headers)
+    // console.log('Body:', requestOptions.body)
 
     const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
 
     // Log the status and raw body
     const responseBody = await response.text() // Use .text() to avoid JSON parsing
-    console.log('Response status:', response.status)
-    console.log('Raw response body:', responseBody)
+    // console.log('Response status:', response.status)
+    // console.log('Raw response body:', responseBody)
 
     if (!response.ok) {
       console.error(
