@@ -116,11 +116,11 @@ app.get('/sve2', async (c) => {
       body: JSON.stringify({ email }),
     }
 
-    // console.log('Sending POST request to external API:')
-    // console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
-    // console.log('Method:', requestOptions.method)
-    // console.log('Headers:', requestOptions.headers)
-    // console.log('Body:', requestOptions.body)
+    console.log('Sending POST request to external API:')
+    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
+    console.log('Method:', requestOptions.method)
+    console.log('Headers:', requestOptions.headers)
+    console.log('Body:', requestOptions.body)
 
     const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
 
