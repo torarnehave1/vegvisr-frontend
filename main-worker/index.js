@@ -127,7 +127,7 @@ app.get('/sve2', async (c) => {
     // Log the status and raw body
     const responseBody = await response.text() // Use .text() to avoid JSON parsing
     // console.log('Response status:', response.status)
-    // console.log('Raw response body:', responseBody)
+    console.log('Raw response body:', responseBody)
 
     if (!response.ok) {
       console.error(
