@@ -14,7 +14,7 @@ export default {
           theme: 'light',
         },
       },
-      profileImage: '', // Move profileImage outside of data
+      profileImage: '', // Default profile image
       email: 'torarnehave@gmail.com', // Hardcoded email for testing
       selectedFile: null, // Add selectedFile to handle file input
     }
@@ -28,20 +28,25 @@ export default {
     async fetchUserData() {
       try {
         const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
         const result = await response.json()
-        if (result.profileimage) {
-          this.profileImage = result.profileimage // Update profileImage
-        }
+
+        // Handle empty data object
         this.data = {
-          ...this.data,
-          ...result.data,
-          settings: result.data?.settings || this.data.settings, // Ensure settings has default values
+          profile: result.data?.profile || this.data.profile,
+          settings: result.data?.settings || this.data.settings,
         }
+
+        // Handle null profile image
+        this.profileImage = result.profileimage || 'default-profile-image.png'
+
         this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
         console.error('Error fetching user data:', error)
-        // Ensure the page loads even if fetching user data fails
-        this.applyTheme()
+        alert('Failed to fetch user data. Please try again later.')
+        this.applyTheme() // Ensure theme is applied even if fetching fails
       }
     },
     onFileChange(event) {
