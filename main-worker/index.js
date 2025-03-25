@@ -103,13 +103,13 @@ app.get('/verify-email', async (c) => {
 
     try {
       const query = `
-      INSERT INTO config (user_id, email, emailVerificationToken)
-      VALUES (?, ?, ?)
+      INSERT INTO config (user_id, email, emailVerificationToken, data)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(email) DO NOTHING;
       `
       const { changes } = await db
         .prepare(query)
-        .bind(user_id, data.email, data.emailVerificationToken)
+        .bind(user_id, data.email, data.emailVerificationToken, JSON.stringify({}))
         .run()
 
       if (changes === 0) {
