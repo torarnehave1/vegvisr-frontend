@@ -9,20 +9,24 @@
       <button type="submit">Register</button>
     </form>
     <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
+    <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
   </div>
 </template>
 
 <script>
 export default {
-  name: 'UserRegistration', // Add a name to the component
+  name: 'UserRegistration',
   data() {
     return {
       email: '',
       successMessage: '',
+      errorMessage: '', // Add errorMessage property
     }
   },
   methods: {
     async registerUser() {
+      this.successMessage = ''
+      this.errorMessage = '' // Clear error message before submission
       try {
         const response = await fetch(
           `https://test.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
@@ -40,8 +44,13 @@ export default {
         console.log('User registered:', data)
         this.successMessage =
           'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
+        //scroll to bottom
+        window.scrollTo(0, document.body.scrollHeight)
       } catch (error) {
         console.error('There was a problem with the registration:', error)
+        this.errorMessage = 'There was a problem with the registration. Please try again later.'
+
+        window.scrollTo(0, document.body.scrollHeight)
       }
     },
   },
@@ -93,6 +102,12 @@ export default {
 .success-message {
   margin-top: 1em;
   color: green;
+  text-align: center;
+}
+
+.error-message {
+  margin-top: 1em;
+  color: red;
   text-align: center;
 }
 </style>
