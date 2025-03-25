@@ -40,6 +40,12 @@ function generateUniqueFileName(user_id, fileExtension) {
   return `${user_id}/profileimage_${uniqueId}.${fileExtension}`
 }
 
+//Funtion to generate a unique username in 8 letters and numbers and speciac characters
+function generateUniqueUsername() {
+  const uniqueId = uuidv4()
+  return `${uniqueId}`
+}
+
 // GET /userdata - Retrieve full user data blob
 app.get('/userdata', async (c) => {
   try {
@@ -80,6 +86,26 @@ app.get('/verify-email', async (c) => {
     c.res.headers.set('Access-Control-Allow-Origin', '*')
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+    //Creat create record in the database
+    const db = c.env.vegvisr_org
+    const user_id = generateUniqueUsername()
+
+    //Get the data from this {"message":"Email verified successfully.","email":"torarnehave@gmail.com","emailVerificationToken":"28f907da0a60357ab73d46f9c0cc5916df07f1af"}
+
+    const data = {
+      email: result.email,
+      emailVerificationToken: result.emailVerificationToken,
+      emailVerified: true,
+    }
+
+    const dataJson = JSON.stringify(data)
+    //Instert the email and token in the database into it own fields email and emailVerificationToken
+    const query = `
+      INSERT INTO config (user_id, data)
+      VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET data = ?;
+    `
 
     return c.json(result)
   } catch (error) {
