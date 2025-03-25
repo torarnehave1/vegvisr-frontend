@@ -201,19 +201,32 @@ app.put('/userdata', async (c) => {
     const db = c.env.vegvisr_org
     const body = await c.req.json()
     console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
-    const { user_id, data, profileimage } = body
 
-    if (!user_id || data === undefined || profileimage === undefined) {
-      return c.json({ error: 'Missing required fields' }, 400)
+    const { email, data, profileimage } = body
+
+    // Validate required fields
+    if (!email || !data || !profileimage) {
+      return c.json({ error: 'Missing required fields: email, data, or profileimage' }, 400)
+    }
+
+    // Ensure `data` contains valid structure
+    if (
+      typeof data !== 'object' ||
+      !data.profile ||
+      !data.settings ||
+      typeof data.profile !== 'object' ||
+      typeof data.settings !== 'object'
+    ) {
+      return c.json({ error: 'Invalid data structure' }, 400)
     }
 
     const dataJson = JSON.stringify(data)
     const query = `
-      INSERT INTO config (user_id, data, profileimage)
+      INSERT INTO config (email, data, profileimage)
       VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET data = ?, profileimage = ?;
+      ON CONFLICT(email) DO UPDATE SET data = ?, profileimage = ?;
     `
-    await db.prepare(query).bind(user_id, dataJson, profileimage, dataJson, profileimage).run()
+    await db.prepare(query).bind(email, dataJson, profileimage, dataJson, profileimage).run()
     return c.json({ success: true, message: 'User data updated successfully' })
   } catch (error) {
     console.error('Error in PUT /userdata:', error)
