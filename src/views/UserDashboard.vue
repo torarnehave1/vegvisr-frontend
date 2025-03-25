@@ -1,85 +1,3 @@
-<template>
-  <div
-    :class="[
-      'container mt-5',
-      { 'bg-dark': data.settings.theme === 'dark', 'text-white': data.settings.theme === 'dark' },
-    ]"
-  >
-    <h1 class="text-center">User Dashboard</h1>
-
-    <!-- Profile Section -->
-    <!-- Display Profile Image -->
-    <div v-if="profileImage" class="mb-3 text-center">
-      <img
-        :src="profileImage"
-        alt="Profile Image"
-        class="rounded-circle"
-        style="width: 150px; height: 150px; object-fit: cover"
-      />
-    </div>
-    <div
-      class="card my-4"
-      :class="{
-        'bg-dark': data.settings.theme === 'dark',
-        'text-white': data.settings.theme === 'dark',
-      }"
-    >
-      <div class="card-body">
-        <h2 class="card-title">Profile Settings</h2>
-        <div class="mb-3">
-          <label class="form-label">Username:</label>
-          <input type="text" class="form-control" v-model="data.profile.username" />
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Email:</label>
-          <input type="email" class="form-control" v-model="data.profile.email" />
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Bio:</label>
-          <textarea class="form-control" v-model="data.profile.bio"></textarea>
-        </div>
-        <!-- Profile Image Upload -->
-        <div class="mb-3">
-          <label class="form-label">Profile Image:</label>
-          <input type="file" class="form-control" @change="onFileChange" />
-        </div>
-      </div>
-    </div>
-
-    <!-- Settings Section -->
-    <div
-      class="card my-4"
-      :class="{
-        'bg-dark': data.settings.theme === 'dark',
-        'text-white': data.settings.theme === 'dark',
-      }"
-    >
-      <div class="card-body">
-        <h2 class="card-title">Preferences</h2>
-
-        <div class="form-check mb-3">
-          <input
-            type="checkbox"
-            class="form-check-input"
-            id="notifications"
-            v-model="data.settings.notifications"
-          />
-          <label class="form-check-label" for="notifications">Notification Emails</label>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Theme:</label>
-          <select class="form-select" v-model="data.settings.theme">
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </div>
-        <!-- Single Save Button for Everything -->
-        <button class="btn btn-primary w-100" @click="saveAllData">Save All Data</button>
-      </div>
-    </div>
-  </div>
-</template>
-
 <script>
 export default {
   data() {
@@ -97,19 +15,19 @@ export default {
         },
       },
       profileImage: '', // Move profileImage outside of data
-      userId: 'tah12have', // Hardcoded for testing; typically comes from auth
+      email: 'torarnehave@gmail.com', // Hardcoded email for testing
       selectedFile: null, // Add selectedFile to handle file input
     }
   },
   mounted() {
-    if (this.userId) {
+    if (this.email) {
       this.fetchUserData()
     }
   },
   methods: {
     async fetchUserData() {
       try {
-        const response = await fetch(`https://test.vegvisr.org/userdata?user_id=${this.userId}`)
+        const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
         const result = await response.json()
         if (result.profileimage) {
           this.profileImage = result.profileimage // Update profileImage
@@ -128,7 +46,7 @@ export default {
         if (this.selectedFile) {
           const formData = new FormData()
           formData.append('file', this.selectedFile)
-          formData.append('user_id', this.userId)
+          formData.append('email', this.email)
 
           const uploadResponse = await fetch('https://test.vegvisr.org/upload', {
             method: 'POST',
@@ -149,7 +67,7 @@ export default {
         }
 
         const payload = {
-          user_id: this.userId,
+          email: this.email,
           data: this.data,
           profileimage: this.profileImage, // Include profileImage in payload
         }
@@ -170,7 +88,7 @@ export default {
         if (result.success) {
           // Scroll to the top of the page after saving
           window.scrollTo({ top: 0, behavior: 'smooth' })
-          //refresh the page after saving
+          // Refresh the page after saving
           location.reload()
         } else {
           alert('Error updating user data')
@@ -190,7 +108,3 @@ export default {
   },
 }
 </script>
-
-<style scoped>
-/* No custom styles needed as Bootstrap is used */
-</style>

@@ -50,17 +50,22 @@ function generateUniqueUsername() {
 app.get('/userdata', async (c) => {
   try {
     const db = c.env.vegvisr_org
-    const user_id = c.req.query('user_id')
-    if (!user_id) {
-      return c.json({ error: 'Missing user_id parameter' }, 400)
+    const email = c.req.query('email')
+    if (!email) {
+      return c.json({ error: 'Missing email parameter' }, 400)
     }
-    const query = `SELECT data, profileimage FROM config WHERE user_id = ?;`
-    const row = await db.prepare(query).bind(user_id).first()
+    const query = `SELECT user_id, data, profileimage FROM config WHERE email = ?;`
+    const row = await db.prepare(query).bind(email).first()
     if (!row) {
       // If no data exists, return a default structure
-      return c.json({ user_id, data: { profile: {}, settings: {} }, profileimage: '' })
+      return c.json({ email, user_id: null, data: { profile: {}, settings: {} }, profileimage: '' })
     }
-    return c.json({ user_id, data: JSON.parse(row.data), profileimage: row.profileimage })
+    return c.json({
+      email,
+      user_id: row.user_id,
+      data: JSON.parse(row.data),
+      profileimage: row.profileimage,
+    })
   } catch (error) {
     console.error('Error in GET /userdata:', error)
     return c.json({ error: error.message }, 500)
@@ -246,17 +251,17 @@ app.post('/upload', async (c) => {
     const { MY_R2_BUCKET, vegvisr_org } = c.env
     const formData = await c.req.formData()
     const file = formData.get('file')
-    const user_id = formData.get('user_id')
+    const email = formData.get('email')
 
-    console.log('Form data:', { file, user_id })
+    console.log('Form data:', { file, email })
 
-    if (!file || !user_id) {
-      console.error('Missing file or user_id')
-      return c.json({ error: 'Missing file or user_id' }, 400)
+    if (!file || !email) {
+      console.error('Missing file or email')
+      return c.json({ error: 'Missing file or email' }, 400)
     }
 
     const fileExtension = file.name.split('.').pop()
-    const fileName = generateUniqueFileName(user_id, fileExtension) // Use the unique file name generator
+    const fileName = generateUniqueFileName(email, fileExtension) // Use the unique file name generator
     console.log('Uploading file to R2:', fileName)
 
     // Set the correct Content-Type for SVG files
@@ -273,14 +278,14 @@ app.post('/upload', async (c) => {
 
     // Update the user profile image URL in the database
     const query = `
-      INSERT INTO config (user_id, profileimage)
+      INSERT INTO config (email, profileimage)
       VALUES (?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET profileimage = ?;
+      ON CONFLICT(email) DO UPDATE SET profileimage = ?;
     `
     console.log('Query:', query)
 
     console.log('Updating database with profile image URL')
-    await vegvisr_org.prepare(query).bind(user_id, fileUrl, fileUrl).run()
+    await vegvisr_org.prepare(query).bind(email, fileUrl, fileUrl).run()
 
     // Add CORS headers to the response
     c.res.headers.set('Access-Control-Allow-Origin', '*')
