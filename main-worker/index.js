@@ -291,14 +291,14 @@ app.post('/upload', async (c) => {
 
     // Update the user profile image URL in the database
     const query = `
-      INSERT INTO config (email, profileimage)
-      VALUES (?, ?)
-      ON CONFLICT(email) DO UPDATE SET profileimage = ?;
+      INSERT INTO config (email, profileimage, data)
+      VALUES (?, ?, COALESCE((SELECT data FROM config WHERE email = ?), '{}'))
+      ON CONFLICT(email) DO UPDATE SET profileimage = ?, data = COALESCE(data, '{}');
     `
     console.log('Query:', query)
 
     console.log('Updating database with profile image URL')
-    await vegvisr_org.prepare(query).bind(email, fileUrl, fileUrl).run()
+    await vegvisr_org.prepare(query).bind(email, fileUrl, email, fileUrl).run()
 
     // Add CORS headers to the response
     c.res.headers.set('Access-Control-Allow-Origin', '*')

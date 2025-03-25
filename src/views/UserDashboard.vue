@@ -99,7 +99,7 @@ export default {
         this.applyTheme() // Ensure theme is applied even if fetching fails
       }
     },
-    onFileChange(event) {
+    async onFileChange(event) {
       this.selectedFile = event.target.files[0]
     },
     async saveAllData() {
@@ -136,9 +136,7 @@ export default {
         const response = await fetch('https://test.vegvisr.org/userdata', {
           method: 'PUT',
           headers: {
-            'Content-Type': this.profileImage.endsWith('.svg')
-              ? 'image/svg+xml'
-              : 'application/json',
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
         })
