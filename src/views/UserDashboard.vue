@@ -40,7 +40,9 @@ export default {
         }
 
         // Handle null profile image
-        this.profileImage = result.profileimage || 'default-profile-image.png'
+        this.profileImage =
+          result.profileimage ||
+          'https://5d9b2060ef095c777711a8649c24914e.r2.cloudflarestorage.com/images/logo.svg'
 
         this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
