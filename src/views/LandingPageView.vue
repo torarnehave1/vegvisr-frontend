@@ -3,6 +3,7 @@
     <div class="row align-items-center">
       <!-- Left Column: Image -->
       <div class="col-md-6 text-center mb-4 mb-md-0">
+        <h1 class="display-5 fw-bold">Phonetics, Energy & Ritual in the Vegvisr Framework</h1>
         <img
           src="https://cdn.midjourney.com/9a31e3f1-fef6-42b1-8adf-fa23b84f2ccf/0_3.png"
           alt="Hero Image"
@@ -12,7 +13,6 @@
 
       <!-- Right Column: Content -->
       <div class="col-md-6">
-        <h1 class="display-5 fw-bold">Phonetics, Energy & Ritual in the Vegvisr Framework</h1>
         <p class="lead">
           Explore the vibrational essence of sacred phonetics and how sound influences energy and
           ritual practices.
