@@ -3,13 +3,17 @@
     <h1>User Registration</h1>
     <form @submit.prevent="registerUser">
       <div>
+        <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
+        <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
+        <!-- Display error message -->
+      </div>
+      <p></p>
+      <div>
         <label for="email">Email:</label>
         <input type="email" v-model="email" required />
       </div>
       <button type="submit">Register</button>
     </form>
-    <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
-    <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
   </div>
 </template>
 
