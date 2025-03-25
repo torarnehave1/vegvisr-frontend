@@ -12,6 +12,6 @@ npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM config;" --json --
 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='config';" --json
 
-npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "INSERT INTO config (user_id, data, profileimage, email, emailVerificationToken) VALUES ('tah12have', '{\"profile\":{\"username\":\"tah12have\",\"email\":\"torarnehave@gmail.com\",\"bio\":\"Bio\"},\"settings\":{\"darkMode\":false,\"notifications\":true,\"theme\":\"dark\"}}', 'https://vegvisr.org/tah12have/profileimage_413942ce-c942-4c15-91f7-cf997ee49326.png', NULL, NULL);"
+npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "INSERT INTO config (user_id, data, profileimage, email, emailVerificationToken) VALUES ('tah12have', '{""profile"":{""username"":""tah12have"",""email"":""torarnehave@gmail.com"",""bio"":""Bio""},""settings"":{""darkMode"":false,""notifications"":true,""theme"":""dark""}}', 'https://vegvisr.org/tah12have/profileimage_413942ce-c942-4c15-91f7-cf997ee49326.png', 'torarnehave@gmail.com', '28f907da0a60357ab73d46f9c0cc5916df07f1af');"
 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "CREATE TABLE config (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, profileimage TEXT, email TEXT, emailVerificationToken TEXT);"

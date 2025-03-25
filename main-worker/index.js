@@ -99,13 +99,26 @@ app.get('/verify-email', async (c) => {
       emailVerified: true,
     }
 
-    const dataJson = JSON.stringify(data)
     //Instert the email and token in the database into it own fields email and emailVerificationToken
-    const query = `
-      INSERT INTO config (user_id, data)
-      VALUES (?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET data = ?;
-    `
+
+    try {
+      const query = `
+      INSERT INTO config (user_id, email, emailVerificationToken)
+      VALUES (?, ?, ?)
+      ON CONFLICT(email) DO NOTHING;
+      `
+      const { changes } = await db
+        .prepare(query)
+        .bind(user_id, data.email, data.emailVerificationToken)
+        .run()
+
+      if (changes === 0) {
+        return c.json({ error: 'Email is already registered' }, 409)
+      }
+    } catch (error) {
+      console.error('Error inserting into database:', error)
+      return c.json({ error: 'An unexpected error occurred' }, 500)
+    }
 
     return c.json(result)
   } catch (error) {
