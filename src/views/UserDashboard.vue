@@ -1,3 +1,51 @@
+<template>
+  <div class="container my-5">
+    <h1 class="mb-4">User Dashboard</h1>
+    <div class="row">
+      <!-- Profile Section -->
+      <div class="col-md-4 text-center">
+        <img
+          :src="profileImage"
+          alt="Profile Image"
+          class="img-fluid rounded-circle mb-3"
+          style="max-width: 150px"
+        />
+        <h3>{{ data.profile.username || 'Guest' }}</h3>
+        <p>{{ data.profile.email || email }}</p>
+        <p>{{ data.profile.bio || 'No bio available' }}</p>
+      </div>
+
+      <!-- Settings Section -->
+      <div class="col-md-8">
+        <h4>Settings</h4>
+        <p><strong>Dark Mode:</strong> {{ data.settings.darkMode ? 'Enabled' : 'Disabled' }}</p>
+        <p><strong>Notifications:</strong> {{ data.settings.notifications ? 'On' : 'Off' }}</p>
+        <div class="mt-3">
+          <label for="themeSelect" class="form-label"><strong>Theme:</strong></label>
+          <select
+            id="themeSelect"
+            class="form-select"
+            v-model="data.settings.theme"
+            @change="applyTheme"
+          >
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+
+        <!-- File Upload -->
+        <div class="mt-4">
+          <label for="fileInput" class="form-label">Upload Profile Image</label>
+          <input type="file" id="fileInput" class="form-control" @change="onFileChange" />
+        </div>
+
+        <!-- Save Button -->
+        <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</template>
+
 <script>
 export default {
   data() {
@@ -121,3 +169,7 @@ export default {
   },
 }
 </script>
+
+<style scoped>
+/* Optional custom styling */
+</style>
