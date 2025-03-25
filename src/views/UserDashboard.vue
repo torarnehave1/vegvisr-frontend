@@ -32,10 +32,16 @@ export default {
         if (result.profileimage) {
           this.profileImage = result.profileimage // Update profileImage
         }
-        this.data = result.data // Update data
+        this.data = {
+          ...this.data,
+          ...result.data,
+          settings: result.data?.settings || this.data.settings, // Ensure settings has default values
+        }
         this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
         console.error('Error fetching user data:', error)
+        // Ensure the page loads even if fetching user data fails
+        this.applyTheme()
       }
     },
     onFileChange(event) {
@@ -99,7 +105,7 @@ export default {
       }
     },
     applyTheme() {
-      if (this.data.settings.theme === 'dark') {
+      if (this.data.settings?.theme === 'dark') {
         document.body.classList.add('bg-dark', 'text-white')
       } else {
         document.body.classList.remove('bg-dark', 'text-white')
