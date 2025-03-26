@@ -181,8 +181,6 @@ app.get('/sve2', async (c) => {
     const userEmail = c.req.query('email')
     const apiToken = c.env.token
 
-    console.log('Raw token value:', apiToken)
-
     if (!userEmail) {
       console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
