@@ -126,108 +126,24 @@ app.get('/verify-email', async (c) => {
 app.get('/sve2', async (c) => {
   try {
     console.log('Received GET /sve2 request')
-    const userEmail = c.req.query('email')
-    const apiToken = c.env.token
-    if (!userEmail) {
-      console.error('Error in GET /sve2: Missing email parameter')
-      return c.json({ error: 'Missing email parameter' }, 400)
-    }
-    if (!apiToken) {
-      console.error('Error in GET /sve2: Token is missing in environment variables')
-      return c.json({ error: 'Server configuration error: Missing token' }, 500)
-    }
-    const requestOptions = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiToken}`,
-      },
-      body: JSON.stringify({ email: userEmail }),
-    }
-    console.log('Sending POST request to external API:')
-    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
-    console.log('Method:', requestOptions.method)
-    console.log('Headers:', requestOptions.headers)
-    console.log('Body:', requestOptions.body)
-    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
-    const sveResponseBody = await sveResponse.text()
-    console.log('Raw response body:', sveResponseBody)
-    if (!sveResponse.ok) {
-      console.error(
-        `Error in GET /sve2: HTTP error! status: ${sveResponse.status}, body: ${sveResponseBody}`,
-      )
-      throw new Error(`HTTP error! status: ${sveResponse.status}`)
-    }
-    console.log('Parsed response from external API:', sveResponseBody)
-    return c.json({ success: true, message: 'User registered successfully' })
-  } catch (error) {
-    console.error('Error in GET /sve2:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
 
-app.get('/sve3', async (c) => {
-  try {
-    console.log('Received GET /sve2 request')
+    // Get the email parameter from the query string
     const userEmail = c.req.query('email')
-    const apiToken = c.env.token
+    //const apiToken = c.env.token
 
+    // Validate the email parameter
     if (!userEmail) {
       console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
 
-    if (!apiToken) {
-      console.error('Error in GET /sve2: Token is missing in environment variables')
-      return c.json({ error: 'Server configuration error: Missing token' }, 500)
-    }
+    // Validate the token from environment variables
 
-    const requestOptions = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiToken}`,
-      },
-      body: JSON.stringify({ email: userEmail }),
-    }
+    // Log the valid request details
+    console.log(`Valid request received with email: ${userEmail}`)
 
-    console.log('Sending POST request to external API:')
-    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
-    console.log('Method:', requestOptions.method)
-    console.log('Headers:', requestOptions.headers)
-    console.log('Body:', requestOptions.body)
-
-    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
-    const sveResponseBody = await sveResponse.text()
-    console.log('Raw response body:', sveResponseBody)
-
-    if (!sveResponse.ok) {
-      console.error(
-        `Error in GET /sve2: HTTP error! status: ${sveResponse.status}, body: ${sveResponseBody}`,
-      )
-      throw new Error(`HTTP error! status: ${sveResponse.status}`)
-    }
-
-    let sveResult
-    try {
-      sveResult = JSON.parse(sveResponseBody)
-    } catch (parseError) {
-      console.error('Error parsing response body:', parseError)
-      return c.json({ error: 'Invalid response from external API' }, 500)
-    }
-
-    if (!sveResult || typeof sveResult !== 'object') {
-      console.error('Invalid response structure:', sveResult)
-      return c.json({ error: 'Unexpected response structure from external API' }, 500)
-    }
-
-    console.log('Parsed response from external API:', sveResult)
-
-    c.res.headers.set('Access-Control-Allow-Origin', '*')
-    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-    return c.json(sveResult)
+    // Return a success response without calling the external POST endpoint
+    return c.json({ success: true, message: `Email ${userEmail} validated` })
   } catch (error) {
     console.error('Error in GET /sve2:', error)
     return c.json({ error: error.message }, 500)
