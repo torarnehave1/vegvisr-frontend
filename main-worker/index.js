@@ -104,17 +104,17 @@ app.get('/userdata', async (c) => {
 //New sve enpoint to test if it is there
 app.get('/verify-email', async (c) => {
   try {
-    const token = c.req.query('token')
+    const emailToken = c.req.query('token') // Renamed to emailToken
 
-    if (!token) {
+    if (!emailToken) {
       return c.json({ error: 'Missing token parameter' }, 400)
     }
 
-    const response = await fetch('https://slowyou.io/api/verify-email?token=' + token)
-    const responseBody = await response.text()
-    console.log('Response body:', responseBody)
-    const result = responseBody ? JSON.parse(responseBody) : {}
-    console.log('Parsed response from external API:', result)
+    const verifyResponse = await fetch('https://slowyou.io/api/verify-email?token=' + emailToken) // Renamed to verifyResponse
+    const verifyResponseBody = await verifyResponse.text() // Renamed to verifyResponseBody
+    console.log('Response body:', verifyResponseBody)
+    const verifyResult = verifyResponseBody ? JSON.parse(verifyResponseBody) : {} // Renamed to verifyResult
+    console.log('Parsed response from external API:', verifyResult)
 
     // Add CORS headers to the response
     c.res.headers.set('Access-Control-Allow-Origin', '*')
@@ -126,8 +126,8 @@ app.get('/verify-email', async (c) => {
     const user_id = generateUniqueUsername()
 
     const data = {
-      email: result.email,
-      emailVerificationToken: result.emailVerificationToken,
+      email: verifyResult.email,
+      emailVerificationToken: verifyResult.emailVerificationToken,
       emailVerified: true,
     }
 
@@ -153,21 +153,42 @@ app.get('/verify-email', async (c) => {
     // Generate a JWT token using the Web Crypto API
     const jwtSecret = c.env.JWT_SECRET // Use a secret key from environment variables
     const jwtToken = await generateJWT(
-      { email: result.email, user_id, emailVerificationToken: result.emailVerificationToken },
+      {
+        email: verifyResult.email,
+        user_id,
+        emailVerificationToken: verifyResult.emailVerificationToken,
+      },
       jwtSecret,
     )
 
     // Redirect the user to the login view with the email pre-filled
-    const token = c.env.token
+    const loginUrl = `/login?email=${encodeURIComponent(verifyResult.email)}`
+    return c.json({
+      success: true,
+      message: 'Email verified successfully',
+      token: jwtToken,
+      redirect: loginUrl,
+    })
+  } catch (error) {
+    console.error('Error in GET /verify-email:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
 
-    console.log('Raw token value:', token)
+app.get('/sve2', async (c) => {
+  try {
+    console.log('Received GET /sve2 request')
+    const userEmail = c.req.query('email') // Renamed to userEmail
+    const apiToken = c.env.token // Renamed to apiToken
 
-    if (!email) {
+    console.log('Raw token value:', apiToken)
+
+    if (!userEmail) {
       console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
 
-    if (!token) {
+    if (!apiToken) {
       console.error('Error in GET /sve2: Token is missing in environment variables')
       return c.json({ error: 'Server configuration error: Missing token' }, 500)
     }
@@ -176,9 +197,9 @@ app.get('/verify-email', async (c) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${apiToken}`,
       },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email: userEmail }),
     }
 
     console.log('Sending POST request to external API:')
@@ -187,29 +208,25 @@ app.get('/verify-email', async (c) => {
     console.log('Headers:', requestOptions.headers)
     console.log('Body:', requestOptions.body)
 
-    const response = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
+    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions) // Renamed to sveResponse
+    const sveResponseBody = await sveResponse.text() // Renamed to sveResponseBody
+    console.log('Raw response body:', sveResponseBody)
 
-    // Log the status and raw body
-    const responseBody = await response.text() // Use .text() to avoid JSON parsing
-    // console.log('Response status:', response.status)
-    console.log('Raw response body:', responseBody)
-
-    if (!response.ok) {
+    if (!sveResponse.ok) {
       console.error(
-        `Error in GET /sve2: HTTP error! status: ${response.status}, body: ${responseBody}`,
+        `Error in GET /sve2: HTTP error! status: ${sveResponse.status}, body: ${sveResponseBody}`,
       )
-      throw new Error(`HTTP error! status: ${response.status}`)
+      throw new Error(`HTTP error! status: ${sveResponse.status}`)
     }
 
-    // Only parse as JSON if the response is successful and has content
-    const result = responseBody ? JSON.parse(responseBody) : {}
-    console.log('Parsed response from external API:', result)
+    const sveResult = sveResponseBody ? JSON.parse(sveResponseBody) : {} // Renamed to sveResult
+    console.log('Parsed response from external API:', sveResult)
 
     c.res.headers.set('Access-Control-Allow-Origin', '*')
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-    return c.json(result)
+    return c.json(sveResult)
   } catch (error) {
     console.error('Error in GET /sve2:', error)
     return c.json({ error: error.message }, 500)
@@ -222,7 +239,6 @@ app.put('/userdata', async (c) => {
     const db = c.env.vegvisr_org
     const body = await c.req.json()
     console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
-
     const { email, data, profileimage } = body
 
     // Validate required fields
@@ -367,8 +383,8 @@ app.all('*', (c) => {
   return c.text('Not Found', 404)
 })
 
-export default {
-  async fetch(request, env, ctx) {
-    return app.fetch(request, env, ctx)
-  },
+export default app
+
+export async function fetch(request, env, ctx) {
+  return app.fetch(request, env, ctx)
 }
