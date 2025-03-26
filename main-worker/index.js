@@ -46,6 +46,28 @@ function generateUniqueUsername() {
   return `${uniqueId}`
 }
 
+// Function to generate a JWT using the Web Crypto API
+async function generateJWT(payload, secret, expiresIn = '1h') {
+  const header = { alg: 'HS256', typ: 'JWT' }
+  const encodedHeader = btoa(JSON.stringify(header))
+  const encodedPayload = btoa(
+    JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 }),
+  )
+  const data = `${encodedHeader}.${encodedPayload}`
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+
+  return `${data}.${encodedSignature}`
+}
+
 // GET /userdata - Retrieve full user data blob
 app.get('/userdata', async (c) => {
   try {
@@ -99,19 +121,15 @@ app.get('/verify-email', async (c) => {
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-    //Creat create record in the database
+    // Create record in the database
     const db = c.env.vegvisr_org
     const user_id = generateUniqueUsername()
-
-    //Get the data from this {"message":"Email verified successfully.","email":"torarnehave@gmail.com","emailVerificationToken":"28f907da0a60357ab73d46f9c0cc5916df07f1af"}
 
     const data = {
       email: result.email,
       emailVerificationToken: result.emailVerificationToken,
       emailVerified: true,
     }
-
-    //Instert the email and token in the database into it own fields email and emailVerificationToken
 
     try {
       const query = `
@@ -132,18 +150,14 @@ app.get('/verify-email', async (c) => {
       return c.json({ error: 'An unexpected error occurred' }, 500)
     }
 
-    return c.json(result)
-  } catch (error) {
-    console.error('Error in GET /verify-email:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
+    // Generate a JWT token using the Web Crypto API
+    const jwtSecret = c.env.JWT_SECRET // Use a secret key from environment variables
+    const jwtToken = await generateJWT(
+      { email: result.email, user_id, emailVerificationToken: result.emailVerificationToken },
+      jwtSecret,
+    )
 
-// New endpoint to handle GET /sve2 requests
-app.get('/sve2', async (c) => {
-  try {
-    console.log('Received GET /sve2 request')
-    const email = c.req.query('email')
+    // Redirect the user to the login view with the email pre-filled
     const token = c.env.token
 
     console.log('Raw token value:', token)
@@ -317,6 +331,34 @@ app.post('/upload', async (c) => {
   } catch (error) {
     console.error('Error in POST /upload:', error)
     console.error('Error details:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+// POST /login - Validate email and token
+app.post('/login', async (c) => {
+  try {
+    const db = c.env.vegvisr_org
+    const { email, token } = await c.req.json()
+
+    if (!email || !token) {
+      return c.json({ error: 'Missing email or token parameter' }, 400)
+    }
+
+    const query = `SELECT emailVerificationToken FROM config WHERE email = ?;`
+    const row = await db.prepare(query).bind(email).first()
+
+    if (!row) {
+      return c.json({ error: 'Email not found' }, 404)
+    }
+
+    if (row.emailVerificationToken !== token) {
+      return c.json({ error: 'Invalid token' }, 401)
+    }
+
+    return c.json({ success: true, message: 'Login successful' })
+  } catch (error) {
+    console.error('Error in POST /login:', error)
     return c.json({ error: error.message }, 500)
   }
 })

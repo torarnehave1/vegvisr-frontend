@@ -42,17 +42,15 @@ const setTheme = (newTheme) => {
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/openAi">OpenAI</RouterLink>
               </li>
-
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/book">Book</RouterLink>
               </li>
-
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
             </ul>
 
-            <div class="dropdown">
+            <div class="dropdown me-3">
               <button
                 class="btn btn-outline-secondary dropdown-toggle"
                 type="button"
@@ -80,7 +78,11 @@ const setTheme = (newTheme) => {
                 </li>
               </ul>
             </div>
-            <RouterLink class="navbar-brand ms-auto" to="/">
+
+            <!-- Login Button -->
+            <RouterLink class="btn btn-outline-primary" to="/login">Login</RouterLink>
+
+            <RouterLink class="navbar-brand ms-3" to="/">
               <img src="@/assets/logo.svg" alt="Logo" height="80" />
             </RouterLink>
           </div>
