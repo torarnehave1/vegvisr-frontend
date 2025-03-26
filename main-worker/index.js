@@ -54,17 +54,24 @@ app.get('/userdata', async (c) => {
     if (!email) {
       return c.json({ error: 'Missing email parameter' }, 400)
     }
-    const query = `SELECT user_id, data, profileimage FROM config WHERE email = ?;`
+    const query = `SELECT user_id, data, profileimage, emailVerificationToken FROM config WHERE email = ?;`
     const row = await db.prepare(query).bind(email).first()
     if (!row) {
       // If no data exists, return a default structure
-      return c.json({ email, user_id: null, data: { profile: {}, settings: {} }, profileimage: '' })
+      return c.json({
+        email,
+        user_id: null,
+        data: { profile: {}, settings: {} },
+        profileimage: '',
+        emailVerificationToken: null,
+      })
     }
     return c.json({
       email,
       user_id: row.user_id,
       data: JSON.parse(row.data),
       profileimage: row.profileimage,
+      emailVerificationToken: row.emailVerificationToken,
     })
   } catch (error) {
     console.error('Error in GET /userdata:', error)

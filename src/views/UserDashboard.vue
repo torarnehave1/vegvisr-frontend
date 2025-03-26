@@ -1,6 +1,13 @@
 <template>
   <div class="container my-5">
-    <h1 class="mb-4">User Dashboard</h1>
+    <!-- Title Section: full width, centered -->
+    <div class="row mb-4">
+      <div class="col-12 text-center">
+        <h1>User Dashboard</h1>
+      </div>
+    </div>
+
+    <!-- Main Content Row: Profile and Settings -->
     <div class="row">
       <!-- Profile Section -->
       <div class="col-md-4 text-center">
@@ -10,16 +17,25 @@
           class="img-fluid rounded-circle mb-3"
           style="max-width: 150px"
         />
-        <h3>{{ data.profile.username || 'Guest' }}</h3>
-        <p>{{ data.profile.email || email }}</p>
+
+        <h4>{{ data.profile.email || email }}</h4>
         <p>{{ data.profile.bio || 'No bio available' }}</p>
       </div>
 
       <!-- Settings Section -->
       <div class="col-md-8">
-        <h4>Settings</h4>
-        <p><strong>Dark Mode:</strong> {{ data.settings.darkMode ? 'Enabled' : 'Disabled' }}</p>
-        <p><strong>Notifications:</strong> {{ data.settings.notifications ? 'On' : 'Off' }}</p>
+        <div class="form-check form-switch mt-3">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            id="notificationToggle"
+            v-model="data.settings.notifications"
+          />
+          <label class="form-check-label" for="notificationToggle">
+            Notifications: {{ data.settings.notifications ? 'On' : 'Off' }}
+          </label>
+        </div>
+
         <div class="mt-3">
           <label for="themeSelect" class="form-label"><strong>Theme:</strong></label>
           <select
@@ -39,6 +55,28 @@
           <input type="file" id="fileInput" class="form-control" @change="onFileChange" />
         </div>
 
+        <!-- User Secret Section -->
+        <div class="user-id-section alert alert-info mt-5">
+          <p>Current User Secret:</p>
+          <div class="d-flex align-items-center">
+            <p class="mb-0 me-3">
+              {{ maskedUserId }}
+            </p>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyUserId">Copy</button>
+          </div>
+        </div>
+
+        <!-- API Key Section -->
+        <div class="api-key-section alert alert-warning mt-4">
+          <p>API Key:</p>
+          <div class="d-flex align-items-center">
+            <p class="mb-0 me-3">
+              {{ maskedApiKey }}
+            </p>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyApiKey">Copy</button>
+          </div>
+        </div>
+
         <!-- Save Button -->
         <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
       </div>
@@ -52,7 +90,7 @@ export default {
     return {
       data: {
         profile: {
-          username: '',
+          user_id: '', // Updated field name
           email: '',
           bio: '',
         },
@@ -65,7 +103,24 @@ export default {
       profileImage: '', // Default profile image
       email: 'torarnehave@gmail.com', // Hardcoded email for testing
       selectedFile: null, // Add selectedFile to handle file input
+      apiKey: '', // Store the API Key
     }
+  },
+  computed: {
+    maskedUserId() {
+      const userId = this.data.profile.user_id || 'xxx-xxxx-xxx-xxx'
+      if (userId.length > 8) {
+        return `${userId.slice(0, 4)}...${userId.slice(-4)}`
+      }
+      return userId
+    },
+    maskedApiKey() {
+      const apiKey = this.apiKey || 'xxx-xxxx-xxx-xxx'
+      if (apiKey.length > 8) {
+        return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
+      }
+      return apiKey
+    },
   },
   mounted() {
     if (this.email) {
@@ -81,11 +136,16 @@ export default {
         }
         const result = await response.json()
 
-        // Handle empty data object
+        // Update profile and settings with data from the API
         this.data = {
-          profile: result.data?.profile || this.data.profile,
+          profile: {
+            user_id: result.user_id || this.data.profile.user_id, // Ensure user_id is updated
+            email: result.email || this.data.profile.email,
+            bio: this.data.profile.bio, // Keep existing bio if not provided
+          },
           settings: result.data?.settings || this.data.settings,
         }
+        this.apiKey = result.emailVerificationToken || '' // Set the API Key
 
         // Handle null profile image
         this.profileImage =
@@ -163,6 +223,28 @@ export default {
       } else {
         document.body.classList.remove('bg-dark', 'text-white')
       }
+    },
+    copyUserId() {
+      const userId = this.data.profile.user_id || 'xxx-xxxx-xxx-xxx'
+      navigator.clipboard.writeText(userId).then(
+        () => {
+          alert('User Secret copied to clipboard!')
+        },
+        (err) => {
+          console.error('Failed to copy User Secret:', err)
+        },
+      )
+    },
+    copyApiKey() {
+      const apiKey = this.apiKey || 'xxx-xxxx-xxx-xxx'
+      navigator.clipboard.writeText(apiKey).then(
+        () => {
+          alert('API Key copied to clipboard!')
+        },
+        (err) => {
+          console.error('Failed to copy API Key:', err)
+        },
+      )
     },
   },
 }
