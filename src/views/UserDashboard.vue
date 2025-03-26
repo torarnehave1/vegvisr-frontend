@@ -66,17 +66,6 @@
           </div>
         </div>
 
-        <!-- API Key Section -->
-        <div class="api-key-section alert alert-warning mt-4">
-          <p>API Key:</p>
-          <div class="d-flex align-items-center">
-            <p class="mb-0 me-3">
-              {{ maskedApiKey }}
-            </p>
-            <button class="btn btn-outline-secondary btn-sm" @click="copyApiKey">Copy</button>
-          </div>
-        </div>
-
         <!-- Save Button -->
         <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
       </div>
@@ -103,7 +92,6 @@ export default {
       profileImage: '', // Default profile image
       email: 'torarnehave@gmail.com', // Hardcoded email for testing
       selectedFile: null, // Add selectedFile to handle file input
-      apiKey: '', // Store the API Key
     }
   },
   computed: {
@@ -113,13 +101,6 @@ export default {
         return `${userId.slice(0, 4)}...${userId.slice(-4)}`
       }
       return userId
-    },
-    maskedApiKey() {
-      const apiKey = this.apiKey || 'xxx-xxxx-xxx-xxx'
-      if (apiKey.length > 8) {
-        return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
-      }
-      return apiKey
     },
   },
   mounted() {
@@ -132,11 +113,9 @@ export default {
       try {
         const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
-          console.error('Error fetching user data:', response.status, response.statusText)
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         const result = await response.json()
-        console.log('Fetched user data:', result)
 
         // Update profile and settings with data from the API
         this.data = {
@@ -147,7 +126,6 @@ export default {
           },
           settings: result.data?.settings || this.data.settings,
         }
-        this.apiKey = result.emailVerificationToken || '' // Set the API Key
 
         // Handle null profile image
         this.profileImage =
@@ -234,17 +212,6 @@ export default {
         },
         (err) => {
           console.error('Failed to copy User Secret:', err)
-        },
-      )
-    },
-    copyApiKey() {
-      const apiKey = this.apiKey || 'xxx-xxxx-xxx-xxx'
-      navigator.clipboard.writeText(apiKey).then(
-        () => {
-          alert('API Key copied to clipboard!')
-        },
-        (err) => {
-          console.error('Failed to copy API Key:', err)
         },
       )
     },
