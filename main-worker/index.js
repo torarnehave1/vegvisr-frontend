@@ -41,32 +41,12 @@ function generateUniqueFileName(user_id, fileExtension) {
 }
 
 //Funtion to generate a unique username in 8 letters and numbers and speciac characters
-function generateUniqueUsername() {
-  const uniqueId = uuidv4()
-  return `${uniqueId}`
-}
+//function generateUniqueUsername() {
+// const uniqueId = uuidv4()
+// return `${uniqueId}`
+//}
 
 // Function to generate a JWT using the Web Crypto API
-async function generateJWT(payload, secret, expiresIn = '1h') {
-  const header = { alg: 'HS256', typ: 'JWT' }
-  const encodedHeader = btoa(JSON.stringify(header))
-  const encodedPayload = btoa(
-    JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 }),
-  )
-  const data = `${encodedHeader}.${encodedPayload}`
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  )
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
-  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
-
-  return `${data}.${encodedSignature}`
-}
 
 // GET /userdata - Retrieve full user data blob
 app.get('/userdata', async (c) => {
@@ -103,75 +83,43 @@ app.get('/userdata', async (c) => {
 
 //New sve enpoint to test if it is there
 app.get('/verify-email', async (c) => {
+  c.res.headers.set('Access-Control-Allow-Origin', '*')
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  const emailToken = c.req.query('token')
+  if (!emailToken) {
+    return c.json({ error: 'Missing token parameter' }, 400)
+  }
   try {
-    const emailToken = c.req.query('token') // Renamed to emailToken
-
-    if (!emailToken) {
-      return c.json({ error: 'Missing token parameter' }, 400)
-    }
-
-    const verifyResponse = await fetch('https://slowyou.io/api/verify-email?token=' + emailToken) // Renamed to verifyResponse
-    const verifyResponseBody = await verifyResponse.text() // Renamed to verifyResponseBody
-    console.log('Response body:', verifyResponseBody)
-    const verifyResult = verifyResponseBody ? JSON.parse(verifyResponseBody) : {} // Renamed to verifyResult
-    console.log('Parsed response from external API:', verifyResult)
-
-    // Add CORS headers to the response
-    c.res.headers.set('Access-Control-Allow-Origin', '*')
-    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-    // Create record in the database
-    const db = c.env.vegvisr_org
-    const user_id = generateUniqueUsername()
-
-    const data = {
-      email: verifyResult.email,
-      emailVerificationToken: verifyResult.emailVerificationToken,
-      emailVerified: true,
-    }
-
-    try {
-      const query = `
-      INSERT INTO config (user_id, email, emailVerificationToken, data)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(email) DO NOTHING;
-      `
-      const { changes } = await db
-        .prepare(query)
-        .bind(user_id, data.email, data.emailVerificationToken, JSON.stringify({}))
-        .run()
-
-      if (changes === 0) {
-        return c.json({ error: 'Email is already registered' }, 409)
-      }
-    } catch (error) {
-      console.error('Error inserting into database:', error)
-      return c.json({ error: 'An unexpected error occurred' }, 500)
-    }
-
-    // Generate a JWT token using the Web Crypto API
-    const jwtSecret = c.env.JWT_SECRET // Use a secret key from environment variables
-    const jwtToken = await generateJWT(
-      {
-        email: verifyResult.email,
-        user_id,
-        emailVerificationToken: verifyResult.emailVerificationToken,
+    console.log('Sending request to external verification API with token:', emailToken)
+    const verifyResponse = await fetch(`https://slowyou.io/api/verify-email?token=${emailToken}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
       },
-      jwtSecret,
-    )
-
-    // Redirect the user to the login view with the email pre-filled
-    const loginUrl = `/login?email=${encodeURIComponent(verifyResult.email)}`
+    })
+    console.log('External API response status:', verifyResponse.status)
+    if (!verifyResponse.ok) {
+      console.error(
+        `Error from external API: ${verifyResponse.status} ${verifyResponse.statusText}`,
+      )
+      return c.json(
+        {
+          error: `Failed to verify email. External API returned status ${verifyResponse.status}.`,
+        },
+        500,
+      )
+    }
+    const body = await verifyResponse.text()
+    console.log('Response body from external API:', body)
     return c.json({
-      success: true,
-      message: 'Email verified successfully',
-      token: jwtToken,
-      redirect: loginUrl,
+      status: verifyResponse.status,
+      ok: verifyResponse.ok,
+      body,
     })
   } catch (error) {
-    console.error('Error in GET /verify-email:', error)
-    return c.json({ error: error.message }, 500)
+    console.error('Error fetching from external API:', error)
+    return c.json({ error: 'Failed to contact verification API. Please try again later.' }, 500)
   }
 })
 
@@ -180,17 +128,14 @@ app.get('/sve2', async (c) => {
     console.log('Received GET /sve2 request')
     const userEmail = c.req.query('email')
     const apiToken = c.env.token
-
     if (!userEmail) {
       console.error('Error in GET /sve2: Missing email parameter')
       return c.json({ error: 'Missing email parameter' }, 400)
     }
-
     if (!apiToken) {
       console.error('Error in GET /sve2: Token is missing in environment variables')
       return c.json({ error: 'Server configuration error: Missing token' }, 500)
     }
-
     const requestOptions = {
       method: 'POST',
       headers: {
@@ -199,23 +144,22 @@ app.get('/sve2', async (c) => {
       },
       body: JSON.stringify({ email: userEmail }),
     }
-
     console.log('Sending POST request to external API:')
     console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
     console.log('Method:', requestOptions.method)
     console.log('Headers:', requestOptions.headers)
     console.log('Body:', requestOptions.body)
-
     const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
     const sveResponseBody = await sveResponse.text()
     console.log('Raw response body:', sveResponseBody)
-
     if (!sveResponse.ok) {
       console.error(
         `Error in GET /sve2: HTTP error! status: ${sveResponse.status}, body: ${sveResponseBody}`,
       )
       throw new Error(`HTTP error! status: ${sveResponse.status}`)
     }
+    console.log('Parsed response from external API:', sveResponseBody)
+    return c.json({ success: true, message: 'User registered successfully' })
   } catch (error) {
     console.error('Error in GET /sve2:', error)
     return c.json({ error: error.message }, 500)
