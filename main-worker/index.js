@@ -178,8 +178,8 @@ app.get('/verify-email', async (c) => {
 app.get('/sve2', async (c) => {
   try {
     console.log('Received GET /sve2 request')
-    const userEmail = c.req.query('email') // Renamed to userEmail
-    const apiToken = c.env.token // Renamed to apiToken
+    const userEmail = c.req.query('email')
+    const apiToken = c.env.token
 
     console.log('Raw token value:', apiToken)
 
@@ -208,8 +208,8 @@ app.get('/sve2', async (c) => {
     console.log('Headers:', requestOptions.headers)
     console.log('Body:', requestOptions.body)
 
-    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions) // Renamed to sveResponse
-    const sveResponseBody = await sveResponse.text() // Renamed to sveResponseBody
+    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
+    const sveResponseBody = await sveResponse.text()
     console.log('Raw response body:', sveResponseBody)
 
     if (!sveResponse.ok) {
@@ -219,7 +219,30 @@ app.get('/sve2', async (c) => {
       throw new Error(`HTTP error! status: ${sveResponse.status}`)
     }
 
-    const sveResult = sveResponseBody ? JSON.parse(sveResponseBody) : {} // Renamed to sveResult
+    let sveResult
+    try {
+      sveResult = JSON.parse(sveResponseBody)
+    } catch (parseError) {
+      console.error('Error parsing response body:', parseError)
+      return c.json({ error: 'Invalid response from external API' }, 500)
+    }
+
+    if (!sveResult || typeof sveResult !== 'object') {
+      console.error('Invalid response structure:', sveResult)
+      return c.json({ error: 'Unexpected response structure from external API' }, 500)
+    }
+
+    // Example: Validate property before calling indexOf
+    if (typeof sveResult.someProperty === 'string') {
+      if (sveResult.someProperty.indexOf('something') !== -1) {
+        console.log('Property contains "something"')
+      } else {
+        console.log('Property does not contain "something"')
+      }
+    } else {
+      console.log('someProperty is not a string or is undefined')
+    }
+
     console.log('Parsed response from external API:', sveResult)
 
     c.res.headers.set('Access-Control-Allow-Origin', '*')
