@@ -129,7 +129,12 @@ app.get('/sve2', async (c) => {
 
     // Get the email parameter from the query string
     const userEmail = c.req.query('email')
-    //const apiToken = c.env.token
+    const apiToken = c.env.token
+
+    if (!apiToken) {
+      console.error('Error in GET /sve2: Missing API token')
+      return c.json({ error: 'Missing API token' }, 500)
+    }
 
     // Validate the email parameter
     if (!userEmail) {
