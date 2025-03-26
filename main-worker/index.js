@@ -216,6 +216,53 @@ app.get('/sve2', async (c) => {
       )
       throw new Error(`HTTP error! status: ${sveResponse.status}`)
     }
+  } catch (error) {
+    console.error('Error in GET /sve2:', error)
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+app.get('/sve3', async (c) => {
+  try {
+    console.log('Received GET /sve2 request')
+    const userEmail = c.req.query('email')
+    const apiToken = c.env.token
+
+    if (!userEmail) {
+      console.error('Error in GET /sve2: Missing email parameter')
+      return c.json({ error: 'Missing email parameter' }, 400)
+    }
+
+    if (!apiToken) {
+      console.error('Error in GET /sve2: Token is missing in environment variables')
+      return c.json({ error: 'Server configuration error: Missing token' }, 500)
+    }
+
+    const requestOptions = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ email: userEmail }),
+    }
+
+    console.log('Sending POST request to external API:')
+    console.log('URL:', 'https://slowyou.io/api/reg-user-vegvisr')
+    console.log('Method:', requestOptions.method)
+    console.log('Headers:', requestOptions.headers)
+    console.log('Body:', requestOptions.body)
+
+    const sveResponse = await fetch('https://slowyou.io/api/reg-user-vegvisr', requestOptions)
+    const sveResponseBody = await sveResponse.text()
+    console.log('Raw response body:', sveResponseBody)
+
+    if (!sveResponse.ok) {
+      console.error(
+        `Error in GET /sve2: HTTP error! status: ${sveResponse.status}, body: ${sveResponseBody}`,
+      )
+      throw new Error(`HTTP error! status: ${sveResponse.status}`)
+    }
 
     let sveResult
     try {
