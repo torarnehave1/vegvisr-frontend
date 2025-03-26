@@ -232,17 +232,6 @@ app.get('/sve2', async (c) => {
       return c.json({ error: 'Unexpected response structure from external API' }, 500)
     }
 
-    // Example: Validate property before calling indexOf
-    if (typeof sveResult.someProperty === 'string') {
-      if (sveResult.someProperty.indexOf('something') !== -1) {
-        console.log('Property contains "something"')
-      } else {
-        console.log('Property does not contain "something"')
-      }
-    } else {
-      console.log('someProperty is not a string or is undefined')
-    }
-
     console.log('Parsed response from external API:', sveResult)
 
     c.res.headers.set('Access-Control-Allow-Origin', '*')

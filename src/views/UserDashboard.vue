@@ -132,9 +132,11 @@ export default {
       try {
         const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
+          console.error('Error fetching user data:', response.status, response.statusText)
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         const result = await response.json()
+        console.log('Fetched user data:', result)
 
         // Update profile and settings with data from the API
         this.data = {
