@@ -44,9 +44,15 @@ export default {
 
         const data = await response.json()
         console.log('User registered:', data)
-        this.successMessage =
-          'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
-        //scroll to bottom
+
+        if (data.message === 'User with this email already exists.') {
+          this.errorMessage = 'User with this email already exists.'
+        } else {
+          this.successMessage =
+            'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
+        }
+
+        // Scroll to bottom
         window.scrollTo(0, document.body.scrollHeight)
       } catch (error) {
         console.error('There was a problem with the registration:', error)

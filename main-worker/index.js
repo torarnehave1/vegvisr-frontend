@@ -1,38 +1,12 @@
-import { Hono } from 'hono'
 import { v4 as uuidv4 } from 'uuid' // Import UUID library
 
-const app = new Hono()
-
 // Middleware to add CORS headers
-app.use('*', async (c, next) => {
-  await next()
-  c.res.headers.set('Access-Control-Allow-Origin', '*')
-  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-})
-
-// Handle OPTIONS requests
-app.options('*', (c) => {
-  c.res.headers.set('Access-Control-Allow-Origin', '*')
-  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  return c.text('', 204)
-})
-
-// Ensure the config table has the necessary columns
-app.use('*', async (c, next) => {
-  const db = c.env.vegvisr_org
-  const query = `
-    CREATE TABLE IF NOT EXISTS config (
-      user_id TEXT PRIMARY KEY,
-      data TEXT,
-      profileimage TEXT,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `
-  await db.prepare(query).run()
-  await next()
-})
+function addCorsHeaders(response) {
+  response.headers.set('Access-Control-Allow-Origin', '*')
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  return response
+}
 
 // Function to generate a unique file name
 function generateUniqueFileName(user_id, fileExtension) {
@@ -40,273 +14,143 @@ function generateUniqueFileName(user_id, fileExtension) {
   return `${user_id}/profileimage_${uniqueId}.${fileExtension}`
 }
 
-//Funtion to generate a unique username in 8 letters and numbers and speciac characters
-//function generateUniqueUsername() {
-// const uniqueId = uuidv4()
-// return `${uniqueId}`
-//}
+// Cloudflare Worker fetch handler
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url)
+    const path = url.pathname
+    const method = request.method
 
-// Function to generate a JWT using the Web Crypto API
-
-// GET /userdata - Retrieve full user data blob
-app.get('/userdata', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const email = c.req.query('email')
-    if (!email) {
-      return c.json({ error: 'Missing email parameter' }, 400)
-    }
-    const query = `SELECT user_id, data, profileimage, emailVerificationToken FROM config WHERE email = ?;`
-    const row = await db.prepare(query).bind(email).first()
-    if (!row) {
-      // If no data exists, return a default structure
-      return c.json({
-        email,
-        user_id: null,
-        data: { profile: {}, settings: {} },
-        profileimage: '',
-        emailVerificationToken: null,
-      })
-    }
-    return c.json({
-      email,
-      user_id: row.user_id,
-      data: JSON.parse(row.data),
-      profileimage: row.profileimage,
-      emailVerificationToken: row.emailVerificationToken,
-    })
-  } catch (error) {
-    console.error('Error in GET /userdata:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-//New sve enpoint to test if it is there
-app.get('/verify-email', async (c) => {
-  c.res.headers.set('Access-Control-Allow-Origin', '*')
-  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  const emailToken = c.req.query('token')
-  if (!emailToken) {
-    return c.json({ error: 'Missing token parameter' }, 400)
-  }
-  try {
-    console.log('Sending request to external verification API with token:', emailToken)
-    const verifyResponse = await fetch(`https://slowyou.io/api/verify-email?token=${emailToken}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-    console.log('External API response status:', verifyResponse.status)
-    if (!verifyResponse.ok) {
-      console.error(
-        `Error from external API: ${verifyResponse.status} ${verifyResponse.statusText}`,
-      )
-      return c.json(
-        {
-          error: `Failed to verify email. External API returned status ${verifyResponse.status}.`,
-        },
-        500,
-      )
-    }
-    const body = await verifyResponse.text()
-    console.log('Response body from external API:', body)
-    return c.json({
-      status: verifyResponse.status,
-      ok: verifyResponse.ok,
-      body,
-    })
-  } catch (error) {
-    console.error('Error fetching from external API:', error)
-    return c.json({ error: 'Failed to contact verification API. Please try again later.' }, 500)
-  }
-})
-
-app.get('/sve2', async (c) => {
-  try {
-    console.log('Received GET /sve2 request')
-
-    // Get the email parameter from the query string
-    const userEmail = c.req.query('email')
-    const apiToken = c.env.token
-
-    if (!apiToken) {
-      console.error('Error in GET /sve2: Missing API token')
-      return c.json({ error: 'Missing API token' }, 500)
+    // Handle CORS preflight requests
+    if (method === 'OPTIONS') {
+      return addCorsHeaders(new Response(null, { status: 204 }))
     }
 
-    // Validate the email parameter
-    if (!userEmail) {
-      console.error('Error in GET /sve2: Missing email parameter')
-      return c.json({ error: 'Missing email parameter' }, 400)
+    try {
+      if (path === '/sve2' && method === 'GET') {
+        console.log('Received GET /sve2 request')
+
+        const userEmail = url.searchParams.get('email')
+        const apiToken = env.API_TOKEN // Retrieve the token from the environment variable
+
+        if (!apiToken) {
+          console.error('Error in GET /sve2: Missing API token')
+          return new Response(JSON.stringify({ error: 'Missing API token' }), { status: 500 })
+        }
+
+        if (!userEmail) {
+          console.error('Error in GET /sve2: Missing email parameter')
+          return new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 })
+        }
+
+        const db = env.vegvisr_org // Access the D1 database binding
+
+        // Check if the user already exists in the database by checking if the email is already present
+        try {
+          const query = `
+            SELECT user_id
+            FROM config
+            WHERE email = ?;
+          `
+          const existingUser = await db.prepare(query).bind(userEmail).first()
+          if (existingUser) {
+            console.log(`User with email ${userEmail} already exists in the database`)
+            return new Response(
+              JSON.stringify({ message: 'User with this email already exists.' }),
+              {
+                status: 200,
+              },
+            )
+          }
+        } catch (dbError) {
+          console.error('Error checking for existing user in database:', dbError)
+          return new Response(
+            JSON.stringify({ error: 'Failed to check database for existing user.' }),
+            {
+              status: 500,
+            },
+          )
+        }
+
+        // Call the external API to register the user
+        const apiUrl = `https://slowyou.io/api/reg-user-vegvisr?email=${encodeURIComponent(userEmail)}`
+        console.log('API URL:', apiUrl)
+        console.log('Authorization Header:', `Bearer ${apiToken}`)
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiToken}`,
+          },
+        })
+
+        console.log('Response status:', response.status)
+        const rawBody = await response.text()
+        console.log('Raw response body:', rawBody)
+
+        if (!response.ok) {
+          console.error(`Error from external API: ${response.status} ${response.statusText}`)
+          return new Response(
+            JSON.stringify({
+              error: `Failed to register user. External API returned status ${response.status}.`,
+            }),
+            { status: 500 },
+          )
+        }
+
+        let responseBody
+        try {
+          responseBody = JSON.parse(rawBody)
+        } catch (parseError) {
+          console.error('Error parsing response body:', parseError)
+          return new Response(
+            JSON.stringify({ error: 'Failed to parse response from external API.' }),
+            { status: 500 },
+          )
+        }
+
+        // Insert the new user into the database
+        try {
+          const userId = uuidv4() // Generate a unique user ID
+          const defaultData =
+            '{"profile":{"username":"","email":"","bio":""},"settings":{"darkMode":false,"notifications":true,"theme":"dark"}}'
+          const insertQuery = `
+            INSERT INTO config (email, user_id, data)
+            VALUES (?, ?, ?)
+            ON CONFLICT(email) DO NOTHING;
+          `
+          console.log(
+            'Executing query:',
+            insertQuery,
+            'with parameters:',
+            userEmail,
+            userId,
+            defaultData,
+          )
+          await db.prepare(insertQuery).bind(userEmail, userId, defaultData).run()
+          console.log(
+            `Inserted record into database: email=${userEmail}, user_id=${userId}, data=${defaultData}`,
+          )
+        } catch (dbError) {
+          console.error('Error inserting record into database:', dbError)
+          return new Response(JSON.stringify({ error: 'Failed to insert record into database.' }), {
+            status: 500,
+          })
+        }
+
+        return addCorsHeaders(
+          new Response(JSON.stringify({ status: response.status, body: responseBody }), {
+            status: 200,
+          }),
+        )
+      }
+
+      // Handle other routes
+      return new Response('Not Found', { status: 404 })
+    } catch (error) {
+      console.error('Error in fetch handler:', error)
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 })
     }
-
-    // Validate the token from environment variables
-
-    // Log the valid request details
-    console.log(`Valid request received with email: ${userEmail}`)
-
-    // Return a success response without calling the external POST endpoint
-    return c.json({ success: true, message: `Email ${userEmail} validated` })
-  } catch (error) {
-    console.error('Error in GET /sve2:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// PUT /userdata - Update or insert full user data blob
-app.put('/userdata', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const body = await c.req.json()
-    console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
-    const { email, data, profileimage } = body
-
-    // Validate required fields
-    if (!email || !data || !profileimage) {
-      return c.json({ error: 'Missing required fields: email, data, or profileimage' }, 400)
-    }
-
-    // Ensure `data` contains valid structure
-    if (
-      typeof data !== 'object' ||
-      !data.profile ||
-      !data.settings ||
-      typeof data.profile !== 'object' ||
-      typeof data.settings !== 'object'
-    ) {
-      return c.json({ error: 'Invalid data structure' }, 400)
-    }
-
-    const dataJson = JSON.stringify(data)
-    const query = `
-      INSERT INTO config (email, data, profileimage)
-      VALUES (?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET data = ?, profileimage = ?;
-    `
-    await db.prepare(query).bind(email, dataJson, profileimage, dataJson, profileimage).run()
-    return c.json({ success: true, message: 'User data updated successfully' })
-  } catch (error) {
-    console.error('Error in PUT /userdata:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// DELETE /userdata - Delete user data blob (if needed)
-app.delete('/userdata', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const body = await c.req.json()
-    const { user_id } = body
-
-    if (!user_id) {
-      return c.json({ error: 'Missing user_id parameter' }, 400)
-    }
-
-    const query = `DELETE FROM config WHERE user_id = ?;`
-    const { changes } = await db.prepare(query).bind(user_id).run()
-    if (changes === 0) {
-      return c.json({ error: 'User data not found' }, 404)
-    }
-    return c.json({ success: true, message: 'User data deleted successfully' })
-  } catch (error) {
-    console.error('Error in DELETE /userdata:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// POST /upload - Upload a file to R2 bucket
-app.post('/upload', async (c) => {
-  try {
-    console.log('Received POST /upload request')
-    const { MY_R2_BUCKET, vegvisr_org } = c.env
-    const formData = await c.req.formData()
-    const file = formData.get('file')
-    const email = formData.get('email')
-
-    console.log('Form data:', { file, email })
-
-    if (!file || !email) {
-      console.error('Missing file or email')
-      return c.json({ error: 'Missing file or email' }, 400)
-    }
-
-    const fileExtension = file.name.split('.').pop()
-    const fileName = generateUniqueFileName(email, fileExtension) // Use the unique file name generator
-    console.log('Uploading file to R2:', fileName)
-
-    // Set the correct Content-Type for SVG files
-    const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
-
-    await MY_R2_BUCKET.put(fileName, file.stream(), {
-      httpMetadata: {
-        contentType: contentType,
-      },
-    })
-
-    const fileUrl = `https://vegvisr.org/${fileName}`
-    console.log('File uploaded to R2:', fileUrl)
-
-    // Update the user profile image URL in the database
-    const query = `
-      INSERT INTO config (email, profileimage, data)
-      VALUES (?, ?, COALESCE((SELECT data FROM config WHERE email = ?), '{}'))
-      ON CONFLICT(email) DO UPDATE SET profileimage = ?, data = COALESCE(data, '{}');
-    `
-    console.log('Query:', query)
-
-    console.log('Updating database with profile image URL')
-    await vegvisr_org.prepare(query).bind(email, fileUrl, email, fileUrl).run()
-
-    // Add CORS headers to the response
-    c.res.headers.set('Access-Control-Allow-Origin', '*')
-    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-    console.log('Returning success response')
-    return c.json({ success: true, fileUrl })
-  } catch (error) {
-    console.error('Error in POST /upload:', error)
-    console.error('Error details:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-// POST /login - Validate email and token
-app.post('/login', async (c) => {
-  try {
-    const db = c.env.vegvisr_org
-    const { email, token } = await c.req.json()
-
-    if (!email || !token) {
-      return c.json({ error: 'Missing email or token parameter' }, 400)
-    }
-
-    const query = `SELECT emailVerificationToken FROM config WHERE email = ?;`
-    const row = await db.prepare(query).bind(email).first()
-
-    if (!row) {
-      return c.json({ error: 'Email not found' }, 404)
-    }
-
-    if (row.emailVerificationToken !== token) {
-      return c.json({ error: 'Invalid token' }, 401)
-    }
-
-    return c.json({ success: true, message: 'Login successful' })
-  } catch (error) {
-    console.error('Error in POST /login:', error)
-    return c.json({ error: error.message }, 500)
-  }
-})
-
-app.all('*', (c) => {
-  return c.text('Not Found', 404)
-})
-
-export default app
-
-export async function fetch(request, env, ctx) {
-  return app.fetch(request, env, ctx)
+  },
 }
