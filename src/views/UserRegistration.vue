@@ -4,7 +4,7 @@
     <form v-if="!emailExists" @submit.prevent="registerUser">
       <div>
         <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
-        <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
+
         <!-- Display error message -->
       </div>
       <p></p>
@@ -14,6 +14,7 @@
       </div>
       <button type="submit">Register</button>
     </form>
+    <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
     <button v-if="emailExists" @click="resendVerificationLink" type="button">
       Resend Verification Link
     </button>
