@@ -35,12 +35,16 @@ export default {
 
         if (!apiToken) {
           console.error('Error in GET /sve2: Missing API token')
-          return new Response(JSON.stringify({ error: 'Missing API token' }), { status: 500 })
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing API token' }), { status: 500 }),
+          )
         }
 
         if (!userEmail) {
           console.error('Error in GET /sve2: Missing email parameter')
-          return new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 })
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
         }
 
         const db = env.vegvisr_org // Access the D1 database binding
@@ -55,20 +59,18 @@ export default {
           const existingUser = await db.prepare(query).bind(userEmail).first()
           if (existingUser) {
             console.log(`User with email ${userEmail} already exists in the database`)
-            return new Response(
-              JSON.stringify({ message: 'User with this email already exists.' }),
-              {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ message: 'User with this email already exists.' }), {
                 status: 200,
-              },
+              }),
             )
           }
         } catch (dbError) {
           console.error('Error checking for existing user in database:', dbError)
-          return new Response(
-            JSON.stringify({ error: 'Failed to check database for existing user.' }),
-            {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to check database for existing user.' }), {
               status: 500,
-            },
+            }),
           )
         }
 
@@ -91,11 +93,13 @@ export default {
 
         if (!response.ok) {
           console.error(`Error from external API: ${response.status} ${response.statusText}`)
-          return new Response(
-            JSON.stringify({
-              error: `Failed to register user. External API returned status ${response.status}.`,
-            }),
-            { status: 500 },
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: `Failed to register user. External API returned status ${response.status}.`,
+              }),
+              { status: 500 },
+            ),
           )
         }
 
@@ -104,9 +108,10 @@ export default {
           responseBody = JSON.parse(rawBody)
         } catch (parseError) {
           console.error('Error parsing response body:', parseError)
-          return new Response(
-            JSON.stringify({ error: 'Failed to parse response from external API.' }),
-            { status: 500 },
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to parse response from external API.' }), {
+              status: 500,
+            }),
           )
         }
 
@@ -134,9 +139,11 @@ export default {
           )
         } catch (dbError) {
           console.error('Error inserting record into database:', dbError)
-          return new Response(JSON.stringify({ error: 'Failed to insert record into database.' }), {
-            status: 500,
-          })
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to insert record into database.' }), {
+              status: 500,
+            }),
+          )
         }
 
         return addCorsHeaders(
