@@ -221,6 +221,119 @@ export default {
         }
       }
 
+      if (path === '/verify-email' && method === 'GET') {
+        console.log('Received GET /verify-email request')
+
+        const emailToken = url.searchParams.get('token')
+        if (!emailToken) {
+          console.error('Error in GET /verify-email: Missing token parameter')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing token parameter' }), { status: 400 }),
+          )
+        }
+
+        try {
+          console.log('Sending request to external verification API with token:', emailToken)
+          const verifyResponse = await fetch(
+            `https://slowyou.io/api/verify-email?token=${emailToken}`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            },
+          )
+
+          console.log('External API response status:', verifyResponse.status)
+          if (!verifyResponse.ok) {
+            console.error(
+              `Error from external API: ${verifyResponse.status} ${verifyResponse.statusText}`,
+            )
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Failed to verify email. External API returned status ${verifyResponse.status}.`,
+                }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          const rawBody = await verifyResponse.text()
+          console.log('Response body from external API:', rawBody)
+
+          let parsedBody
+          try {
+            parsedBody = JSON.parse(rawBody)
+          } catch (parseError) {
+            console.error('Error parsing response body:', parseError)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Failed to parse response from external API.' }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          if (
+            parsedBody.message === 'Email verified successfully.' &&
+            parsedBody.emailVerificationToken
+          ) {
+            const db = env.vegvisr_org // Access the D1 database binding
+            try {
+              const updateQuery = `
+                UPDATE config
+                SET emailVerificationToken = ?
+                WHERE email = ?;
+              `
+              console.log(
+                'Executing query:',
+                updateQuery,
+                'with parameters:',
+                parsedBody.emailVerificationToken,
+                parsedBody.email,
+              )
+              await db
+                .prepare(updateQuery)
+                .bind(parsedBody.emailVerificationToken, parsedBody.email)
+                .run()
+              console.log(
+                `Updated emailVerificationToken for email=${parsedBody.email} in the database.`,
+              )
+            } catch (dbError) {
+              console.error('Error updating emailVerificationToken in database:', dbError)
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({ error: 'Failed to update emailVerificationToken in database.' }),
+                  { status: 500 },
+                ),
+              )
+            }
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                status: verifyResponse.status,
+                ok: verifyResponse.ok,
+                body: parsedBody,
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('Error fetching from external API:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to contact verification API. Please try again later.',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {

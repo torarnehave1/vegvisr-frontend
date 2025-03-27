@@ -108,6 +108,7 @@ export default {
 .user-registration {
   max-width: 400px;
   margin: 0 auto;
+  margin-top: 10%;
   padding: 1em;
   border: 1px solid #ccc;
   border-radius: 4px;
