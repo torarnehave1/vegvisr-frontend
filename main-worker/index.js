@@ -153,6 +153,74 @@ export default {
         )
       }
 
+      if (path === '/resend-verification' && method === 'POST') {
+        console.log('Received POST /resend-verification request')
+
+        const requestBody = await request.json()
+        const userEmail = requestBody.email
+        const apiToken = env.API_TOKEN // Retrieve the token from the environment variable
+
+        if (!apiToken) {
+          console.error('Error in POST /resend-verification: Missing API token')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing API token' }), { status: 500 }),
+          )
+        }
+
+        if (!userEmail) {
+          console.error('Error in POST /resend-verification: Missing email parameter')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+
+        // Call the external API to resend the verification email
+        const apiUrl = `https://slowyou.io/api/resend-verification-email?email=${encodeURIComponent(
+          userEmail,
+        )}`
+        console.log('API URL:', apiUrl)
+        console.log('Authorization Header:', `Bearer ${apiToken}`)
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiToken}`,
+            },
+          })
+
+          console.log('Response status:', response.status)
+          const rawBody = await response.text()
+          console.log('Raw response body:', rawBody)
+
+          if (!response.ok) {
+            console.error(`Error from external API: ${response.status} ${response.statusText}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Failed to resend verification email. External API returned status ${response.status}.`,
+                }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ message: 'Verification email resent successfully.' }), {
+              status: 200,
+            }),
+          )
+        } catch (error) {
+          console.error('Error calling external API:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to resend verification email.' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {

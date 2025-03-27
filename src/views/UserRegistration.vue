@@ -1,7 +1,7 @@
 <template>
   <div class="user-registration">
     <h1>User Registration</h1>
-    <form @submit.prevent="registerUser">
+    <form v-if="!emailExists" @submit.prevent="registerUser">
       <div>
         <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -14,6 +14,9 @@
       </div>
       <button type="submit">Register</button>
     </form>
+    <button v-if="emailExists" @click="resendVerificationLink" type="button">
+      Resend Verification Link
+    </button>
   </div>
 </template>
 
@@ -24,7 +27,8 @@ export default {
     return {
       email: '',
       successMessage: '',
-      errorMessage: '', // Add errorMessage property
+      errorMessage: '',
+      emailExists: false, // Track if the email exists in the database
     }
   },
   methods: {
@@ -43,13 +47,15 @@ export default {
         )
 
         const data = await response.json()
-        console.log('User registered:', data)
+        console.log('User registration response:', data)
 
         if (data.message === 'User with this email already exists.') {
           this.errorMessage = 'User with this email already exists.'
+          this.emailExists = true // Set emailExists to true
         } else {
           this.successMessage =
             'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
+          this.emailExists = false // Ensure emailExists is false for new registrations
         }
 
         // Scroll to bottom
@@ -57,6 +63,38 @@ export default {
       } catch (error) {
         console.error('There was a problem with the registration:', error)
         this.errorMessage = 'There was a problem with the registration. Please try again later.'
+        this.emailExists = false // Reset emailExists on error
+
+        window.scrollTo(0, document.body.scrollHeight)
+      }
+    },
+    async resendVerificationLink() {
+      this.successMessage = ''
+      this.errorMessage = '' // Clear messages before submission
+      try {
+        const response = await fetch('https://test.vegvisr.org/resend-verification', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: this.email }),
+        })
+
+        const data = await response.json()
+        console.log('Resend verification response:', data)
+
+        if (response.ok) {
+          this.successMessage = 'Verification email resent successfully. Please check your inbox.'
+        } else {
+          this.errorMessage = data.error || 'Failed to resend verification email.'
+        }
+
+        // Scroll to bottom
+        window.scrollTo(0, document.body.scrollHeight)
+      } catch (error) {
+        console.error('Error resending verification email:', error)
+        this.errorMessage =
+          'There was a problem resending the verification email. Please try again later.'
 
         window.scrollTo(0, document.body.scrollHeight)
       }
