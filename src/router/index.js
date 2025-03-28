@@ -79,11 +79,12 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
-    if (token) {
-      // Token exists, allow access
+    const userEmail = localStorage.getItem('UserEmail') // Retrieve the UserEmail from Local Storage
+    if (token && userEmail) {
+      // Token and UserEmail exist, allow access
       next()
     } else {
-      // Token is missing, redirect to login
+      // Token or UserEmail is missing, redirect to login
       next({ path: '/login' })
     }
   } else {
