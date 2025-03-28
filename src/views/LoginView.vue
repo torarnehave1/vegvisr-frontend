@@ -29,7 +29,7 @@ onMounted(() => {
 
   // Store the JWT token in Local Storage if provided
   if (queryToken) {
-    localStorage.setItem('jwt', queryToken)
+    localStorage.setItem('jwt-vegvisr.org', queryToken)
     console.log('JWT token stored in Local Storage:', queryToken)
   }
 })
