@@ -16,16 +16,20 @@ const setTheme = (newTheme) => {
 }
 
 onMounted(() => {
-  // Initialize userState.email from sessionStorage
-  userState.email = sessionStorage.getItem('UserEmail') || ''
+  // Initialize userState.email from localStorage
+  userState.email = localStorage.getItem('UserEmail') || ''
   window.UserEmail = userState.email
 })
 
 function handleLogout() {
-  // Clear UserEmail from sessionStorage and global variable
-  sessionStorage.removeItem('UserEmail')
+  // Clear UserEmail from localStorage and global variable
+  localStorage.removeItem('UserEmail')
   window.UserEmail = ''
   userState.email = ''
+}
+
+function handleUserLoggedIn(email) {
+  userState.email = email
 }
 </script>
 
@@ -114,7 +118,7 @@ function handleLogout() {
 
       <!-- Main Content -->
       <main class="content">
-        <RouterView :theme="theme" />
+        <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
       </main>
     </div>
   </div>

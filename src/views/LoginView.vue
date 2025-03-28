@@ -14,10 +14,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useEmit } from 'vue'
 
 const email = ref('')
 const route = useRoute()
 const router = useRouter()
+const emit = useEmit()
 
 onMounted(() => {
   // Pre-fill the email field if provided in the query parameters
@@ -36,10 +38,13 @@ onMounted(() => {
 })
 
 function handleLogin() {
-  // Set the global variable UserEmail and store it in sessionStorage
+  // Set the global variable UserEmail and store it in localStorage
   window.UserEmail = email.value
   localStorage.setItem('UserEmail', email.value)
-  console.log('UserEmail set in sessionStorage:', email.value)
+  console.log('UserEmail set in localStorage:', email.value)
+
+  // Emit an event to notify the app about the login state change
+  emit('user-logged-in', email.value)
 
   // Simulate successful login and redirect to the protected path
   router.push('/protected')
