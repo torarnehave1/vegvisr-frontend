@@ -36,6 +36,9 @@ onMounted(() => {
 })
 
 function handleLogin() {
+  // Set the global variable UserEmail
+  window.UserEmail = email.value
+
   // Simulate successful login and redirect to the protected path
   router.push('/protected')
 }

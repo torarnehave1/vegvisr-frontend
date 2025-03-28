@@ -1,8 +1,11 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 
 const theme = ref('light')
+const userState = reactive({
+  email: '',
+})
 
 const setTheme = (newTheme) => {
   theme.value = newTheme
@@ -10,6 +13,15 @@ const setTheme = (newTheme) => {
   if (newTheme === 'dark') {
     document.body.classList.add('bg-dark', 'text-white')
   }
+}
+
+onMounted(() => {
+  userState.email = window.UserEmail || ''
+})
+
+function handleLogout() {
+  window.UserEmail = ''
+  userState.email = ''
 }
 </script>
 
@@ -79,8 +91,11 @@ const setTheme = (newTheme) => {
               </ul>
             </div>
 
-            <!-- Login Button -->
-            <RouterLink class="btn btn-outline-primary" to="/login">Login</RouterLink>
+            <!-- Login/Logout Button -->
+            <button v-if="userState.email" class="btn btn-outline-danger" @click="handleLogout">
+              Logout
+            </button>
+            <RouterLink v-else class="btn btn-outline-primary" to="/login"> Login </RouterLink>
 
             <RouterLink class="navbar-brand ms-3" to="/">
               <img src="@/assets/logo.svg" alt="Logo" height="80" />
