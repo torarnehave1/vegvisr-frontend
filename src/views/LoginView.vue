@@ -39,6 +39,7 @@ function handleLogin() {
   // Set the global variable UserEmail and store it in sessionStorage
   window.UserEmail = email.value
   sessionStorage.setItem('UserEmail', email.value)
+  console.log('UserEmail set in sessionStorage:', email.value)
 
   // Simulate successful login and redirect to the protected path
   router.push('/protected')
