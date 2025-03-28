@@ -1,11 +1,12 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRouter } from 'vue-router'
 
 const theme = ref('light')
 const userState = reactive({
   email: '',
 })
+const router = useRouter()
 
 const setTheme = (newTheme) => {
   theme.value = newTheme
@@ -26,6 +27,9 @@ function handleLogout() {
   localStorage.removeItem('UserEmail')
   window.UserEmail = ''
   userState.email = ''
+
+  // Redirect to the login page
+  router.push('/login')
 }
 
 function handleUserLoggedIn(email) {
