@@ -14,12 +14,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useEmit } from 'vue'
+
+// Declare the emit function at the top level
+const emit = defineEmits(['user-logged-in'])
 
 const email = ref('')
 const route = useRoute()
 const router = useRouter()
-const emit = useEmit()
 
 onMounted(() => {
   // Pre-fill the email field if provided in the query parameters
