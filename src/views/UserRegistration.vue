@@ -32,6 +32,12 @@ export default {
       emailExists: false, // Track if the email exists in the database
     }
   },
+  created() {
+    // Pre-fill the email field if provided in the query parameters
+    if (this.$route && this.$route.query && this.$route.query.email) {
+      this.email = this.$route.query.email
+    }
+  },
   methods: {
     async registerUser() {
       this.successMessage = ''
