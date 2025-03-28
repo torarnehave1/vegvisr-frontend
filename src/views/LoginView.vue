@@ -36,8 +36,9 @@ onMounted(() => {
 })
 
 function handleLogin() {
-  // Set the global variable UserEmail
+  // Set the global variable UserEmail and store it in sessionStorage
   window.UserEmail = email.value
+  sessionStorage.setItem('UserEmail', email.value)
 
   // Simulate successful login and redirect to the protected path
   router.push('/protected')

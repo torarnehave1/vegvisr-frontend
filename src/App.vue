@@ -16,10 +16,14 @@ const setTheme = (newTheme) => {
 }
 
 onMounted(() => {
-  userState.email = window.UserEmail || ''
+  // Initialize userState.email from sessionStorage
+  userState.email = sessionStorage.getItem('UserEmail') || ''
+  window.UserEmail = userState.email
 })
 
 function handleLogout() {
+  // Clear UserEmail from sessionStorage and global variable
+  sessionStorage.removeItem('UserEmail')
   window.UserEmail = ''
   userState.email = ''
 }
