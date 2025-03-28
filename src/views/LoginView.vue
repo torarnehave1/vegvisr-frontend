@@ -16,73 +16,23 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 
 const email = ref('')
-const token = localStorage.getItem('jwtToken') // Retrieve JWT token from browser storage
 const route = useRoute()
 
 onMounted(() => {
   // Pre-fill the email field if provided in the query parameters
   const queryEmail = route.query.email
+  const queryToken = route.query.token
+
   if (queryEmail) {
     email.value = queryEmail
   }
+
+  // Store the JWT token in Local Storage if provided
+  if (queryToken) {
+    localStorage.setItem('jwt', queryToken)
+    console.log('JWT token stored in Local Storage:', queryToken)
+  }
 })
-
-const handleLogin = async () => {
-  try {
-    const payload = { email: email.value, token }
-    console.log('Sending POST /login request:', JSON.stringify(payload, null, 2))
-
-    const response = await fetch('https://test.vegvisr.org/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('Login response:', result)
-
-    if (result.success) {
-      alert('Login successful!')
-    } else {
-      alert('Login failed: ' + result.error)
-    }
-  } catch (error) {
-    console.error('Error during login:', error)
-    alert('An error occurred during login.')
-  }
-}
-
-// Example function to verify email and store JWT token
-const verifyEmail = async (emailVerificationToken) => {
-  try {
-    const response = await fetch(
-      `https://test.vegvisr.org/verify-email?token=${emailVerificationToken}`,
-    )
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('Verify email response:', result)
-
-    if (result.success) {
-      // Store the JWT token in localStorage
-      localStorage.setItem('jwtToken', result.token)
-      alert('Email verified successfully!')
-    } else {
-      alert('Email verification failed: ' + result.error)
-    }
-  } catch (error) {
-    console.error('Error during email verification:', error)
-    alert('An error occurred during email verification.')
-  }
-}
 </script>
 
 <style>

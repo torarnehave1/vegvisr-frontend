@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid' // Import UUID library
+import { SignJWT } from 'jose' // Import jose for JWT handling
 
 // Middleware to add CORS headers
 function addCorsHeaders(response) {
@@ -281,30 +282,85 @@ export default {
           ) {
             const db = env.vegvisr_org // Access the D1 database binding
             try {
-              const updateQuery = `
-                UPDATE config
-                SET emailVerificationToken = ?
+              const existingUserQuery = `
+                SELECT emailVerificationToken
+                FROM config
                 WHERE email = ?;
               `
-              console.log(
-                'Executing query:',
-                updateQuery,
-                'with parameters:',
-                parsedBody.emailVerificationToken,
-                parsedBody.email,
-              )
-              await db
-                .prepare(updateQuery)
-                .bind(parsedBody.emailVerificationToken, parsedBody.email)
-                .run()
-              console.log(
-                `Updated emailVerificationToken for email=${parsedBody.email} in the database.`,
+              console.log('Checking if user exists in the database with query:', existingUserQuery)
+              const existingUser = await db
+                .prepare(existingUserQuery)
+                .bind(parsedBody.email)
+                .first()
+
+              if (existingUser) {
+                console.log(`User with email=${parsedBody.email} already exists in the database.`)
+
+                // Update the emailVerificationToken if it already exists
+                const updateQuery = `
+                  UPDATE config
+                  SET emailVerificationToken = ?
+                  WHERE email = ?;
+                `
+                console.log(
+                  'Executing update query:',
+                  updateQuery,
+                  'with parameters:',
+                  parsedBody.emailVerificationToken,
+                  parsedBody.email,
+                )
+                const updateResult = await db
+                  .prepare(updateQuery)
+                  .bind(parsedBody.emailVerificationToken, parsedBody.email)
+                  .run()
+
+                console.log('Update result:', updateResult)
+                if (updateResult.changes === 0) {
+                  console.warn(
+                    `No rows were updated for email=${parsedBody.email}. This might indicate an issue.`,
+                  )
+                }
+
+                console.log(
+                  `Successfully updated emailVerificationToken for email=${parsedBody.email} in the database.`,
+                )
+              } else {
+                console.error(`No user found with email=${parsedBody.email}.`)
+                return addCorsHeaders(
+                  new Response(JSON.stringify({ error: 'User not found in the database.' }), {
+                    status: 404,
+                  }),
+                )
+              }
+
+              // Set a JWT token for the user = the emailVerificationToken
+              const jwtSecret = new TextEncoder().encode(env.JWT_SECRET) // Convert secret to Uint8Array
+              const jwtToken = await new SignJWT({
+                emailVerificationToken: parsedBody.emailVerificationToken,
+              })
+                .setProtectedHeader({ alg: 'HS256' })
+                .setExpirationTime('730d') // Set expiration time to 2 years
+                .sign(jwtSecret)
+
+              console.log('Generated JWT Token:', jwtToken)
+
+              // Redirect to login page with email and token in query parameters
+              return addCorsHeaders(
+                new Response(null, {
+                  status: 302,
+                  headers: {
+                    Location: `https://www.vegvisr.org/login?email=${encodeURIComponent(parsedBody.email)}&token=${encodeURIComponent(jwtToken)}`, // Redirect to login page
+                  },
+                }),
               )
             } catch (dbError) {
               console.error('Error updating emailVerificationToken in database:', dbError)
               return addCorsHeaders(
                 new Response(
-                  JSON.stringify({ error: 'Failed to update emailVerificationToken in database.' }),
+                  JSON.stringify({
+                    error: 'Failed to update emailVerificationToken in database.',
+                    details: dbError.message,
+                  }),
                   { status: 500 },
                 ),
               )
