@@ -13,10 +13,11 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const email = ref('')
 const route = useRoute()
+const router = useRouter()
 
 onMounted(() => {
   // Pre-fill the email field if provided in the query parameters
@@ -33,6 +34,11 @@ onMounted(() => {
     console.log('JWT token stored in Local Storage:', queryToken)
   }
 })
+
+function handleLogin() {
+  // Simulate successful login and redirect to the protected path
+  router.push('/protected')
+}
 </script>
 
 <style>
