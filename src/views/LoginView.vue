@@ -48,7 +48,10 @@ function handleLogin() {
   emit('user-logged-in', email.value)
 
   // Simulate successful login and redirect to the protected path
-  router.push('/protected')
+  router.push('/protected').then(() => {
+    // Force a page reload to ensure App.vue updates
+    window.location.reload()
+  })
 }
 </script>
 
