@@ -390,6 +390,71 @@ export default {
         }
       }
 
+      if (path === '/check-email' && method === 'GET') {
+        console.log('Received GET /check-email request')
+
+        const userEmail = url.searchParams.get('email')
+        if (!userEmail) {
+          console.error('Error in GET /check-email: Missing email parameter')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+
+        const db = env.vegvisr_org // Access the D1 database binding
+
+        try {
+          // Case 1: User is registered and verified
+          const queryVerified = `
+        SELECT user_id
+        FROM config
+        WHERE email = ? AND emailVerificationToken IS NOT NULL;
+          `
+          const verifiedUser = await db.prepare(queryVerified).bind(userEmail).first()
+
+          if (verifiedUser) {
+            console.log(`User with email ${userEmail} is registered and verified`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ exists: true, verified: true, user_id: verifiedUser.user_id }),
+                { status: 200 },
+              ),
+            )
+          }
+
+          // Case 2: User is registered but not verified
+          const queryNotVerified = `
+        SELECT user_id
+        FROM config
+        WHERE email = ? AND emailVerificationToken IS NULL;
+          `
+          const notVerifiedUser = await db.prepare(queryNotVerified).bind(userEmail).first()
+
+          if (notVerifiedUser) {
+            console.log(`User with email ${userEmail} is registered but not verified`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ exists: true, verified: false, user_id: notVerifiedUser.user_id }),
+                { status: 200 },
+              ),
+            )
+          }
+
+          // Case 3: User is not found
+          console.log(`User with email ${userEmail} does not exist in the database`)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ exists: false, verified: false }), { status: 200 }),
+          )
+        } catch (dbError) {
+          console.error('Error checking for existing user in database:', dbError)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to check database for existing user.' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {

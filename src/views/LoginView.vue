@@ -39,19 +39,31 @@ onMounted(() => {
 })
 
 function handleLogin() {
-  // Set the global variable UserEmail and store it in localStorage
-  window.UserEmail = email.value
-  localStorage.setItem('UserEmail', email.value)
-  console.log('UserEmail set in localStorage:', email.value)
-
-  // Emit an event to notify the app about the login state change
-  emit('user-logged-in', email.value)
-
-  // Simulate successful login and redirect to the protected path
-  router.push('/protected').then(() => {
-    // Force a page reload to ensure App.vue updates
-    window.location.reload()
-  })
+  // Call the check-email endpoint before logging in
+  ;(async () => {
+    try {
+      const res = await fetch(
+        `https://test.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
+      )
+      const data = await res.json()
+      if (data.exists && data.verified) {
+        // Allowed to login
+        window.UserEmail = email.value
+        localStorage.setItem('UserEmail', email.value)
+        console.log('UserEmail set in localStorage:', email.value)
+        emit('user-logged-in', email.value)
+        router.push('/protected').then(() => {
+          window.location.reload()
+        })
+      } else {
+        // Redirect to register endpoint; prefill email if applicable
+        router.push(`/register?email=${encodeURIComponent(email.value)}`)
+      }
+    } catch (error) {
+      console.error('Error checking email:', error)
+      // Optionally handle error (e.g. notify user)
+    }
+  })()
 }
 </script>
 
