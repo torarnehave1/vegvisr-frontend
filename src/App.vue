@@ -103,12 +103,12 @@ function handleUserLoggedIn(email) {
               </ul>
             </div>
 
-            <!-- Login/Logout and Sign Up Buttons -->
+            <!-- Login and Sign Up Buttons -->
             <button v-if="userState.email" class="btn btn-outline-danger" @click="handleLogout">
               Logout
             </button>
-            <RouterLink v-else class="btn btn-outline-primary me-2" to="/login"> Login </RouterLink>
-            <RouterLink v-else class="btn btn-outline-success" to="/register"> Sign Up </RouterLink>
+            <RouterLink class="btn btn-outline-primary me-2" to="/login"> Login </RouterLink>
+            <RouterLink class="btn btn-outline-success" to="/register"> Sign Up </RouterLink>
 
             <RouterLink class="navbar-brand ms-3" to="/">
               <img src="@/assets/logo.svg" alt="Logo" height="80" />
