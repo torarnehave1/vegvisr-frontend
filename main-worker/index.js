@@ -455,6 +455,55 @@ export default {
         }
       }
 
+      if (path === '/reset-registration' && method === 'POST') {
+        console.log('Received POST /reset-registration request')
+
+        const requestBody = await request.json()
+        const userEmail = requestBody.email
+
+        if (!userEmail) {
+          console.error('Error in POST /reset-registration: Missing email parameter')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+
+        const db = env.vegvisr_org // Access the D1 database binding
+
+        try {
+          const deleteQuery = `
+            DELETE FROM config
+            WHERE email = ?;
+          `
+          const deleteResult = await db.prepare(deleteQuery).bind(userEmail).run()
+
+          console.log('Delete result:', deleteResult)
+
+          if (deleteResult.changes > 0) {
+            console.log(`User with email ${userEmail} deleted from the database`)
+            return addCorsHeaders(
+              new Response(JSON.stringify({ message: 'User registration reset successfully.' }), {
+                status: 200,
+              }),
+            )
+          } else {
+            console.log(`User with email ${userEmail} not found in the database`)
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'User not found in the database.' }), {
+                status: 404,
+              }),
+            )
+          }
+        } catch (dbError) {
+          console.error('Error deleting user from database:', dbError)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to delete user from database.' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {

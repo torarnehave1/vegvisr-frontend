@@ -15,8 +15,8 @@
       <button type="submit">Register</button>
     </form>
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
-    <button v-if="emailExists" @click="resendVerificationLink" type="button">
-      Resend Verification Link
+    <button v-if="emailExists" @click="resetRegistration" type="button">
+      Reset my registration process
     </button>
   </div>
 </template>
@@ -30,6 +30,7 @@ export default {
       successMessage: '',
       errorMessage: '',
       emailExists: false, // Track if the email exists in the database
+      resetAvailable: false, // Track if reset action should be offered
     }
   },
   created() {
@@ -103,6 +104,37 @@ export default {
         this.errorMessage =
           'There was a problem resending the verification email. Please try again later.'
 
+        window.scrollTo(0, document.body.scrollHeight)
+      }
+    },
+    async resetRegistration() {
+      this.successMessage = ''
+      this.errorMessage = ''
+      try {
+        const response = await fetch('https://test.vegvisr.org/reset-registration', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: this.email }),
+        })
+
+        const data = await response.json()
+        console.log('Reset registration response:', data)
+
+        if (response.ok) {
+          this.successMessage = 'Registration process reset successfully. You can register again.'
+          this.emailExists = false
+          this.email = '' // Clear the email field
+        } else {
+          this.errorMessage = data.error || 'Failed to reset registration process.'
+        }
+
+        window.scrollTo(0, document.body.scrollHeight)
+      } catch (error) {
+        console.error('Error resetting registration:', error)
+        this.errorMessage =
+          'There was a problem resetting the registration. Please try again later.'
         window.scrollTo(0, document.body.scrollHeight)
       }
     },
