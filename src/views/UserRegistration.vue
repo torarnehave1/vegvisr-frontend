@@ -15,7 +15,7 @@
       <button type="submit">Register</button>
     </form>
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
-    <button v-if="emailExists && resetAvailable" @click="resetRegistration" type="button">
+    <button v-if="emailExists" @click="resetRegistration" type="button">
       Reset my registration process
     </button>
   </div>
@@ -93,15 +93,8 @@ export default {
 
         if (response.ok) {
           this.successMessage = 'Verification email resent successfully. Please check your inbox.'
-          this.resetAvailable = false // Reset resetAvailable if successful
         } else {
           this.errorMessage = data.error || 'Failed to resend verification email.'
-          // Check for the specific error message to enable the reset button
-          if (this.errorMessage.includes('External API returned status 404')) {
-            this.resetAvailable = true
-          } else {
-            this.resetAvailable = false // Ensure it's false for other errors
-          }
         }
 
         // Scroll to bottom
@@ -110,7 +103,6 @@ export default {
         console.error('Error resending verification email:', error)
         this.errorMessage =
           'There was a problem resending the verification email. Please try again later.'
-        this.resetAvailable = false // Ensure it's false on general errors
 
         window.scrollTo(0, document.body.scrollHeight)
       }
@@ -134,7 +126,6 @@ export default {
           this.successMessage = 'Registration process reset successfully. You can register again.'
           this.emailExists = false
           this.email = '' // Clear the email field
-          this.resetAvailable = false // Reset after successful reset
         } else {
           this.errorMessage = data.error || 'Failed to reset registration process.'
         }
