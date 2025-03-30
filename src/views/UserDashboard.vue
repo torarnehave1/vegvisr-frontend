@@ -149,7 +149,7 @@ export default {
           formData.append('file', this.selectedFile)
           formData.append('email', this.email)
 
-          const uploadResponse = await fetch('https://test.vegvisr.org/upload', {
+          const uploadResponse = await fetch('https://dashboard.vegvisr.org/upload', {
             method: 'POST',
             body: formData,
           })
