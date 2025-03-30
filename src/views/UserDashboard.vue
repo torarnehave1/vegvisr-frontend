@@ -208,7 +208,15 @@ export default {
       const userId = this.data.profile.user_id || 'xxx-xxxx-xxx-xxx'
       navigator.clipboard.writeText(userId).then(
         () => {
-          alert('User Secret copied to clipboard!')
+          const infoElement = document.createElement('div')
+          infoElement.className = 'alert alert-success position-fixed top-0 end-0 m-3'
+          infoElement.style.zIndex = '1050'
+          infoElement.textContent = 'User Secret copied to clipboard!'
+          document.body.appendChild(infoElement)
+
+          setTimeout(() => {
+            document.body.removeChild(infoElement)
+          }, 2000)
         },
         (err) => {
           console.error('Failed to copy User Secret:', err)
