@@ -65,7 +65,7 @@ function changePage(page) {
 
 // Navigate to the full post view
 function viewPost(id) {
-  window.location.href = `https://api.vegvisr.org/view/${id}` // Use the correct base URL
+  window.open(`https://api.vegvisr.org/view/${id}`, '_blank') // Open in a new tab or window
 }
 
 onMounted(fetchPosts)
