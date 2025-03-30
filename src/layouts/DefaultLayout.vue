@@ -27,6 +27,9 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
               </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/blog">Blog</RouterLink>
+              </li>
             </ul>
 
             <div class="dropdown me-3">
