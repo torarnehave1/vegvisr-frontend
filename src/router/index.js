@@ -5,6 +5,7 @@ import LoginView from '../views/LoginView.vue'
 import ProtectedView from '../views/ProtectedView.vue' // Example protected view
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue' // Import DefaultLayout
+import BlogView from '../views/BlogView.vue' // Import BlogView
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -88,6 +89,11 @@ const router = createRouter({
         to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
         next()
       }, // Dynamically set the layout
+    },
+    {
+      path: '/blog',
+      name: 'Blog',
+      component: BlogView, // Add BlogView route
     },
     // Redirect to the 404 page if no other routes are matched
   ],
