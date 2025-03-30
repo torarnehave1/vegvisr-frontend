@@ -27,14 +27,38 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
 
-const router = useRouter()
 const posts = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
 const postsPerPage = 5
+
+// Props
+defineProps({
+  theme: {
+    type: String,
+    default: 'light',
+  },
+})
+
+// Watch for theme changes and apply them
+watch(
+  () => theme,
+  (newTheme) => {
+    applyTheme(newTheme)
+  },
+  { immediate: true },
+)
+
+// Apply the theme to the body
+function applyTheme(newTheme) {
+  if (newTheme === 'dark') {
+    document.body.classList.add('bg-dark', 'text-white')
+  } else {
+    document.body.classList.remove('bg-dark', 'text-white')
+  }
+}
 
 // Fetch blog posts from the KV store
 async function fetchPosts() {
