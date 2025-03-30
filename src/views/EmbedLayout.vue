@@ -1,6 +1,7 @@
 <template>
   <div class="embed-layout">
-    <RouterView />
+    <h1>User Registration</h1>
+    <slot />
   </div>
 </template>
 
@@ -12,5 +13,7 @@
 .embed-layout {
   width: 100%;
   height: 100%;
+  padding: 1rem;
+  box-sizing: border-box;
 }
 </style>
