@@ -35,7 +35,8 @@ const currentPage = ref(1)
 const postsPerPage = 5
 
 // Props
-defineProps({
+// Props
+const props = defineProps({
   theme: {
     type: String,
     default: 'light',
@@ -43,6 +44,8 @@ defineProps({
 })
 
 // Watch for theme changes and apply them
+const { theme } = props
+
 watch(
   () => theme,
   (newTheme) => {
