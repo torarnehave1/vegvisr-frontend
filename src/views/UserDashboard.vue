@@ -90,7 +90,7 @@ export default {
         },
       },
       profileImage: '', // Default profile image
-      email: 'torarnehave@gmail.com', // Hardcoded email for testing
+      email: '', // Hardcoded email for testing
       selectedFile: null, // Add selectedFile to handle file input
     }
   },
@@ -111,7 +111,7 @@ export default {
   methods: {
     async fetchUserData() {
       try {
-        const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
+        const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
         }
