@@ -110,14 +110,19 @@ app.get('/blog-posts', async (c) => {
     for (const key of keys.keys) {
       const markdown = await c.env.BINDING_NAME.get(key.name)
       if (markdown) {
+        // Extract the first valid title line (ignoring image lines)
+        const lines = markdown.split('\n')
+        const titleLine = lines.find((line) => line.startsWith('#') && !line.includes('!['))
+        const title = titleLine ? titleLine.replace(/^#\s*/, '') : 'Untitled'
+
         // Extract the first image URL from the markdown
         const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/)
         const imageUrl = imageMatch ? imageMatch[1] : null
 
         posts.push({
           id: key.name,
-          title: markdown.split('\n')[0].replace(/^#\s*/, ''), // Extract title from the first line
-          snippet: markdown.split('\n').slice(1, 3).join(' '), // Extract a snippet from the next lines
+          title: title, // Use the extracted title
+          snippet: lines.slice(1, 3).join(' '), // Extract a snippet from the next lines
           image: imageUrl || 'https://via.placeholder.com/150', // Use extracted image or a placeholder
         })
       }
