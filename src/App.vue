@@ -7,6 +7,7 @@ const theme = ref('light')
 const userState = reactive({ email: '' })
 const route = useRoute()
 
+// Resolve the layout component from the route's meta.layout
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
 onMounted(() => {

@@ -58,7 +58,10 @@ const router = createRouter({
       name: 'UserRegistration',
       component: UserRegistration,
       props: (route) => ({ embed: route.query?.embed === 'true' }), // Safely access route.query
-      meta: { layout: (route) => (route.query?.embed === 'true' ? EmbedLayout : DefaultLayout) }, // Safely access route.query
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      }, // Dynamically set the layout
     },
     {
       path: '/lpage',
@@ -81,7 +84,7 @@ const router = createRouter({
       name: 'Editor',
       component: () => import('../views/EditorView.vue'),
       props: (route) => ({ embed: route.query?.embed === 'true' }), // Safely access route.query
-      meta: { layout: (route) => (route.query?.embed === 'true' ? EmbedLayout : DefaultLayout) }, // Safely access route.query
+      meta: { layout: route.query?.embed === 'true' ? EmbedLayout : DefaultLayout }, // Directly reference the layout
     },
     // Redirect to the 404 page if no other routes are matched
   ],
