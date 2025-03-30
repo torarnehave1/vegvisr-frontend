@@ -45,7 +45,7 @@ export default {
 
         const response = {
           email,
-          user_id: row.user_id,
+          user_id: row.user_id, // Ensure user_id is included
           data: JSON.parse(row.data),
           profileimage: row.profileimage,
           emailVerificationToken: row.emailVerificationToken,

@@ -79,7 +79,7 @@ export default {
     return {
       data: {
         profile: {
-          user_id: '', // Updated field name
+          user_id: '', // Ensure user_id is initialized
           email: '',
           bio: '',
         },
@@ -90,7 +90,7 @@ export default {
         },
       },
       profileImage: '', // Default profile image
-      email: '', // Hardcoded email for testing
+      email: localStorage.getItem('UserEmail') || '', // Fetch email from localStorage
       selectedFile: null, // Add selectedFile to handle file input
     }
   },
