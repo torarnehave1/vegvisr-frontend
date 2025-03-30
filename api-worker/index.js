@@ -101,6 +101,35 @@ app.get('/view/:id', async (c) => {
   }
 })
 
+// Endpoint: /blog-posts to fetch all blog posts
+app.get('/blog-posts', async (c) => {
+  try {
+    const keys = await c.env.BINDING_NAME.list()
+    const posts = []
+
+    for (const key of keys.keys) {
+      const markdown = await c.env.BINDING_NAME.get(key.name)
+      if (markdown) {
+        // Extract the first image URL from the markdown
+        const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/)
+        const imageUrl = imageMatch ? imageMatch[1] : null
+
+        posts.push({
+          id: key.name,
+          title: markdown.split('\n')[0].replace(/^#\s*/, ''), // Extract title from the first line
+          snippet: markdown.split('\n').slice(1, 3).join(' '), // Extract a snippet from the next lines
+          image: imageUrl || 'https://via.placeholder.com/150', // Use extracted image or a placeholder
+        })
+      }
+    }
+
+    return c.json(posts)
+  } catch (error) {
+    console.error('Error in /blog-posts:', error)
+    return c.text('Internal Server Error', 500)
+  }
+})
+
 // Catch-all route
 app.all('*', (c) => {
   return c.text('Not Found', 404)

@@ -1,0 +1,154 @@
+<template>
+  <div class="blog-view">
+    <h1>Blog</h1>
+    <div class="search-bar">
+      <input v-model="searchQuery" placeholder="Search blog posts..." />
+    </div>
+    <div class="blog-cards">
+      <div
+        v-for="post in filteredPosts"
+        :key="post.id"
+        class="blog-card"
+        @click="viewPost(post.id)"
+      >
+        <img v-if="post.image" :src="post.image" alt="Post Image" />
+        <h2>{{ post.title }}</h2>
+        <p>{{ post.snippet }}</p>
+      </div>
+    </div>
+    <div class="pagination">
+      <button :disabled="currentPage === 1" @click="changePage(currentPage - 1)">Previous</button>
+      <span>Page {{ currentPage }} of {{ totalPages }}</span>
+      <button :disabled="currentPage === totalPages" @click="changePage(currentPage + 1)">
+        Next
+      </button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const posts = ref([])
+const searchQuery = ref('')
+const currentPage = ref(1)
+const postsPerPage = 5
+
+// Fetch blog posts from the KV store
+async function fetchPosts() {
+  try {
+    const response = await fetch('https://api.vegvisr.org/blog-posts') // Replace with your API endpoint
+    if (!response.ok) throw new Error('Failed to fetch posts')
+    posts.value = await response.json()
+  } catch (error) {
+    console.error('Error fetching posts:', error)
+  }
+}
+
+// Filter posts based on the search query
+const filteredPosts = computed(() => {
+  const query = searchQuery.value.toLowerCase()
+  return posts.value
+    .filter((post) => post.title.toLowerCase().includes(query))
+    .slice((currentPage.value - 1) * postsPerPage, currentPage.value * postsPerPage)
+})
+
+// Calculate total pages
+const totalPages = computed(() => Math.ceil(posts.value.length / postsPerPage))
+
+// Change the current page
+function changePage(page) {
+  currentPage.value = page
+}
+
+// Navigate to the full post view
+function viewPost(id) {
+  router.push(`/view/${id}`)
+}
+
+onMounted(fetchPosts)
+</script>
+
+<style scoped>
+.blog-view {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.search-bar {
+  margin-bottom: 1rem;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.blog-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.blog-card {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.blog-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.blog-card img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.blog-card h2 {
+  font-size: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.blog-card p {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.pagination button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.pagination button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.pagination button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+</style>
