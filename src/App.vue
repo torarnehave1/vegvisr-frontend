@@ -19,6 +19,11 @@ onMounted(() => {
 function handleUserLoggedIn(email) {
   userState.email = email
 }
+
+function setTheme(newTheme) {
+  theme.value = newTheme
+  localStorage.setItem('theme', newTheme)
+}
 </script>
 
 <template>
@@ -31,7 +36,7 @@ function handleUserLoggedIn(email) {
         <!-- Removed Blog link -->
       </ul>
     </nav>
-    <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
+    <RouterView :theme="theme" @set-theme="setTheme" @user-logged-in="handleUserLoggedIn" />
   </component>
 </template>
 

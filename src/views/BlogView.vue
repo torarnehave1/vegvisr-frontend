@@ -35,7 +35,6 @@ const currentPage = ref(1)
 const postsPerPage = 5
 
 // Props
-// Props
 const props = defineProps({
   theme: {
     type: String,
@@ -43,11 +42,12 @@ const props = defineProps({
   },
 })
 
-// Watch for theme changes and apply them
-const { theme } = props
+// Emit events
+// Removed unused emit declaration
 
+// Watch for theme changes and apply them
 watch(
-  () => theme,
+  () => props.theme,
   (newTheme) => {
     applyTheme(newTheme)
   },
