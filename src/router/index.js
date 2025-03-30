@@ -42,6 +42,7 @@ const router = createRouter({
       path: '/book',
       name: 'Book',
       component: () => import('../views/BookView.vue'),
+      props: (route) => ({ theme: route.query.theme || 'light' }), // Pass theme as a prop
     },
 
     {

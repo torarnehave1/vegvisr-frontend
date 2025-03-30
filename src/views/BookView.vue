@@ -19,6 +19,12 @@
 <script>
 export default {
   name: 'BookView',
+  props: {
+    theme: {
+      type: String,
+      default: 'light', // Default value for theme
+    },
+  },
 }
 </script>
 
