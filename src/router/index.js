@@ -3,6 +3,7 @@ import HomeView from '../views/HomeView.vue'
 import UserRegistration from '../views/UserRegistration.vue'
 import LoginView from '../views/LoginView.vue'
 import ProtectedView from '../views/ProtectedView.vue' // Example protected view
+import EmbedLayout from '../views/EmbedLayout.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -56,6 +57,7 @@ const router = createRouter({
       name: 'UserRegistration',
       component: UserRegistration,
       props: (route) => ({ embed: route.query.embed === 'true' }), // Pass embed as a prop
+      meta: { layout: (route) => (route.query.embed === 'true' ? EmbedLayout : null) }, // Use EmbedLayout for embed=true
     },
     {
       path: '/lpage',
