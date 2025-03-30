@@ -74,9 +74,8 @@ app.post('/save', async (c) => {
     const id = crypto.randomUUID()
     // Store the markdown in KV using the unique ID as key, ensuring UTF-8 encoding
     await c.env.BINDING_NAME.put(id, markdown, { metadata: { encoding: 'utf-8' } })
-    // Create a shareable link using the current request origin
-    const url = new URL(c.req.url)
-    const shareableLink = `${url.origin}/view/${id}`
+    // Use the worker route base URL for the shareable link
+    const shareableLink = `https://api.vegvisr.org/view/${id}`
     return c.json({ link: shareableLink })
   } catch (error) {
     console.error('Error in /save:', error)
