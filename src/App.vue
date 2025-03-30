@@ -30,13 +30,11 @@ function setTheme(newTheme) {
   <component
     :is="currentLayout"
     :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]"
+    :theme="theme"
+    @set-theme="setTheme"
+    @user-logged-in="handleUserLoggedIn"
   >
-    <nav>
-      <ul>
-        <!-- Removed Blog link -->
-      </ul>
-    </nav>
-    <RouterView :theme="theme" @set-theme="setTheme" @user-logged-in="handleUserLoggedIn" />
+    <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
   </component>
 </template>
 

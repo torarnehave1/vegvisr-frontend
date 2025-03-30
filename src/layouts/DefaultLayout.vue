@@ -93,6 +93,13 @@
 
 <script setup>
 import { RouterLink } from 'vue-router'
+defineProps({
+  theme: {
+    type: String,
+    default: 'light',
+  },
+})
+defineEmits(['set-theme'])
 </script>
 
 <style scoped>

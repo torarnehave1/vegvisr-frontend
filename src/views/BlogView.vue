@@ -42,9 +42,6 @@ const props = defineProps({
   },
 })
 
-// Emit events
-// Removed unused emit declaration
-
 // Watch for theme changes and apply them
 watch(
   () => props.theme,
@@ -95,7 +92,10 @@ function viewPost(id) {
   window.open(`https://api.vegvisr.org/view/${id}`, '_blank') // Open in a new tab or window
 }
 
-onMounted(fetchPosts)
+onMounted(() => {
+  applyTheme(props.theme) // Apply the initial theme
+  fetchPosts()
+})
 </script>
 
 <style scoped>
