@@ -48,7 +48,8 @@ function setMode(newMode) {
 // Save markdown content and display shareable link
 async function saveContent() {
   try {
-    const response = await fetch('/save', {
+    const response = await fetch('https://api.vegvisr.org/save', {
+      // Ensure the URL matches your backend
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
