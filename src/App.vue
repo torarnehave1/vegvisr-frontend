@@ -72,6 +72,9 @@ function handleUserLoggedIn(email) {
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
+              </li>
             </ul>
 
             <div class="dropdown me-3">
