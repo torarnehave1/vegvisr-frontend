@@ -4,6 +4,7 @@ import UserRegistration from '../views/UserRegistration.vue'
 import LoginView from '../views/LoginView.vue'
 import ProtectedView from '../views/ProtectedView.vue' // Example protected view
 import EmbedLayout from '../views/EmbedLayout.vue'
+import DefaultLayout from '../layouts/DefaultLayout.vue' // Import DefaultLayout
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
