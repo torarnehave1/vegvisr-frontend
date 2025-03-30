@@ -57,7 +57,7 @@ function handleUserLoggedIn(email) {
           </button>
           <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
-              <li class="nav-item">
+              <!-- <li class="nav-item">
                 <RouterLink class="nav-link" to="/">Home</RouterLink>
               </li>
               <li class="nav-item">
@@ -65,7 +65,7 @@ function handleUserLoggedIn(email) {
               </li>
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/openAi">OpenAI</RouterLink>
-              </li>
+              </li> -->
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/book">Book</RouterLink>
               </li>
