@@ -65,30 +65,40 @@ The researchers believe that physical activity may help reduce the risk of demen
 
 // Endpoint: /save for saving markdown content
 app.post('/save', async (c) => {
-  const { markdown } = await c.req.json()
-  if (!markdown) {
-    return c.text('Markdown content is missing', 400)
+  try {
+    const { markdown } = await c.req.json()
+    if (!markdown) {
+      return c.text('Markdown content is missing', 400)
+    }
+    // Generate a unique ID
+    const id = crypto.randomUUID()
+    // Store the markdown in KV using the unique ID as key, ensuring UTF-8 encoding
+    await c.env.BINDING_NAME.put(id, markdown, { metadata: { encoding: 'utf-8' } })
+    // Create a shareable link using the current request origin
+    const url = new URL(c.req.url)
+    const shareableLink = `${url.origin}/view/${id}`
+    return c.json({ link: shareableLink })
+  } catch (error) {
+    console.error('Error in /save:', error)
+    return c.text('Internal Server Error', 500)
   }
-  // Generate a unique ID
-  const id = crypto.randomUUID()
-  // Store the markdown in KV using the unique ID as key
-  await c.env.BINDING_NAME.put(id, markdown)
-  // Create a shareable link using the current request origin
-  const url = new URL(c.req.url)
-  const shareableLink = `${url.origin}/view/${id}`
-  return c.json({ link: shareableLink })
 })
 
 // Endpoint: /view/:id for viewing markdown content
 app.get('/view/:id', async (c) => {
-  const id = c.req.param('id')
-  const markdown = await c.env.BINDING_NAME.get(id)
-  if (!markdown) {
-    return c.text('Not Found', 404)
+  try {
+    const id = c.req.param('id')
+    const markdown = await c.env.BINDING_NAME.get(id)
+    if (!markdown) {
+      return c.text('Not Found', 404)
+    }
+    // Ensure the markdown content is treated as UTF-8
+    const htmlContent = marked.parse(markdown)
+    return c.html(htmlContent, 200)
+  } catch (error) {
+    console.error('Error in /view/:id:', error)
+    return c.text('Internal Server Error', 500)
   }
-  // Render the markdown content to HTML
-  const htmlContent = marked.parse(markdown)
-  return c.html(htmlContent, 200)
 })
 
 // Catch-all route
