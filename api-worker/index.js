@@ -62,6 +62,33 @@ The researchers believe that physical activity may help reduce the risk of demen
   }
 })
 
+// Endpoint: /save for saving markdown content
+app.post('/save', async (c) => {
+  const { markdown } = await c.req.json()
+  if (!markdown) {
+    return c.text('Markdown content is missing', 400)
+  }
+  // Generate a unique ID
+  const id = crypto.randomUUID()
+  // Store the markdown in KV using the unique ID as key
+  await c.env.BINDING_NAME.put(id, markdown)
+  // Create a shareable link using the current request origin
+  const url = new URL(c.req.url)
+  const shareableLink = `${url.origin}/view/${id}`
+  return c.json({ link: shareableLink })
+})
+
+// Endpoint: /view/:id for viewing markdown content
+app.get('/view/:id', async (c) => {
+  const id = c.req.param('id')
+  const markdown = await c.env.BINDING_NAME.get(id)
+  if (!markdown) {
+    return c.text('Not Found', 404)
+  }
+  // Return the markdown content as plain text
+  return c.text(markdown, 200, { 'Content-Type': 'text/plain' })
+})
+
 // Catch-all route
 app.all('*', (c) => {
   return c.text('Not Found', 404)

@@ -14,6 +14,9 @@
     <div v-else class="preview" v-html="renderedMarkdown"></div>
 
     <button v-if="!isEmbedded" class="save-button" @click="saveContent">Save</button>
+    <div v-if="shareableLink" class="info">
+      Shareable Link: <a :href="shareableLink" target="_blank">{{ shareableLink }}</a>
+    </div>
   </div>
 </template>
 
@@ -27,6 +30,7 @@ const isEmbedded = ref(false)
 
 const mode = ref('edit')
 const markdown = ref('')
+const shareableLink = ref('')
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -41,9 +45,27 @@ function setMode(newMode) {
   mode.value = newMode
 }
 
-// Placeholder function for saving content
-function saveContent() {
-  console.log('Saving content:', markdown.value)
+// Save markdown content and display shareable link
+async function saveContent() {
+  try {
+    const response = await fetch('https:/api.vegvisr.org/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ markdown: markdown.value }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save content')
+    }
+
+    const data = await response.json()
+    shareableLink.value = data.link
+  } catch (error) {
+    console.error('Error saving content:', error)
+    alert('Failed to save content. Please try again.')
+  }
 }
 </script>
 
@@ -111,5 +133,22 @@ textarea {
 
 .save-button:hover {
   background-color: #218838;
+}
+
+.info {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background-color: #e9ecef;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+}
+
+.info a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.info a:hover {
+  text-decoration: underline;
 }
 </style>
