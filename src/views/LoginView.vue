@@ -80,4 +80,12 @@ function handleLogin() {
   border-radius: 8px;
   background-color: #f9f9f9;
 }
+
+.login-container h1 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+.login-container .form-label {
+  font-weight: bold;
+}
 </style>
