@@ -75,7 +75,7 @@ function handleLogin() {
 .login-container {
   max-width: 400px;
   margin: 50px auto;
-  padding: 20px;
+  margin-top: 10%;
   border: 1px solid #ddd;
   border-radius: 8px;
   background-color: #f9f9f9;
