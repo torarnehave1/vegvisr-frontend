@@ -65,7 +65,7 @@ function changePage(page) {
 
 // Navigate to the full post view
 function viewPost(id) {
-  router.push(`/view/${id}`)
+  window.location.href = `https://api.vegvisr.org/view/${id}` // Use the correct base URL
 }
 
 onMounted(fetchPosts)
