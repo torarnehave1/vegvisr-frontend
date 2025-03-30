@@ -79,7 +79,8 @@ const router = createRouter({
       path: '/editor',
       name: 'Editor',
       component: () => import('../views/EditorView.vue'),
-      // Mark this route as requiring authentication
+      props: (route) => ({ embed: route.query.embed === 'true' }), // Pass embed as a prop
+      meta: { layout: (route) => (route.query.embed === 'true' ? EmbedLayout : null) }, // Use EmbedLayout for embed=true
     },
     // Redirect to the 404 page if no other routes are matched
   ],

@@ -1,6 +1,6 @@
 <template>
-  <div class="markdown-editor">
-    <div class="mode-toggle">
+  <div class="markdown-editor" :class="{ embedded: isEmbedded }">
+    <div v-if="!isEmbedded" class="mode-toggle">
       <button :class="{ active: mode === 'edit' }" @click="setMode('edit')">Edit</button>
       <button :class="{ active: mode === 'preview' }" @click="setMode('preview')">Preview</button>
     </div>
@@ -13,16 +13,23 @@
     <!-- Preview Mode -->
     <div v-else class="preview" v-html="renderedMarkdown"></div>
 
-    <button class="save-button" @click="saveContent">Save</button>
+    <button v-if="!isEmbedded" class="save-button" @click="saveContent">Save</button>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
+
+const route = useRoute()
+const isEmbedded = ref(false)
 
 const mode = ref('edit')
 const markdown = ref('')
+
+// Check if the embed query parameter is set to true
+isEmbedded.value = route.query.embed === 'true'
 
 // Render markdown to HTML using the marked library
 const renderedMarkdown = computed(() => {
@@ -36,7 +43,6 @@ function setMode(newMode) {
 
 // Placeholder function for saving content
 function saveContent() {
-  // Later, you can replace this with an API call to your Cloudflare Worker endpoint
   console.log('Saving content:', markdown.value)
 }
 </script>
@@ -46,6 +52,12 @@ function saveContent() {
   max-width: 800px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+.markdown-editor.embedded {
+  margin: 0;
+  padding: 0;
+  border: none;
 }
 
 .mode-toggle {
