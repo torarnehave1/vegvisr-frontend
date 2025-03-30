@@ -40,7 +40,7 @@ function handleUserLoggedIn(email) {
 <template>
   <div :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]">
     <!-- Top Menu (Header) -->
-    <header class="top-menu">
+    <header class="top-menu w-100">
       <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
           <RouterLink class="navbar-brand" to="/">Vegvisr.org</RouterLink>
@@ -141,5 +141,9 @@ function handleUserLoggedIn(email) {
 }
 .text-white {
   color: #fff !important;
+}
+/* Ensure the header spans the full width of the page */
+.top-menu {
+  width: 100%;
 }
 </style>
