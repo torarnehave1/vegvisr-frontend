@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 
 const app = new Hono()
 
@@ -85,8 +86,9 @@ app.get('/view/:id', async (c) => {
   if (!markdown) {
     return c.text('Not Found', 404)
   }
-  // Return the markdown content as plain text
-  return c.text(markdown, 200, { 'Content-Type': 'text/plain' })
+  // Render the markdown content to HTML
+  const htmlContent = marked.parse(markdown)
+  return c.html(htmlContent, 200)
 })
 
 // Catch-all route
