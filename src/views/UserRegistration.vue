@@ -62,7 +62,7 @@ export default {
           this.emailExists = true // Set emailExists to true
         } else {
           this.successMessage =
-            'Please check your email to complete your registration. Also, check your SPAM folder. The email is sent from vegvisr.org@gmail.com.'
+            'IMPORTANT: Please check your email to finalize your registration. Remember to check your SPAM folder as well. The email will be sent from vegvisr.org@gmail.com. NOTE: To log in from a different device, you must click the registration link on that device again.'
           this.emailExists = false // Ensure emailExists is false for new registrations
         }
 
