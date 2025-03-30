@@ -55,6 +55,7 @@ const router = createRouter({
       path: '/register',
       name: 'UserRegistration',
       component: UserRegistration,
+      props: (route) => ({ embed: route.query.embed === 'true' }), // Pass embed as a prop
     },
     {
       path: '/lpage',

@@ -1,13 +1,10 @@
 <template>
-  <div class="user-registration">
-    <h1>User Registration</h1>
+  <div class="user-registration" :class="{ embedded: isEmbedded }">
+    <h1 v-if="!isEmbedded">User Registration</h1>
     <form v-if="!emailExists" @submit.prevent="registerUser">
       <div>
         <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
-
-        <!-- Display error message -->
       </div>
-      <p></p>
       <div>
         <label for="email">Email:</label>
         <input type="email" v-model="email" required />
@@ -15,7 +12,7 @@
       <button type="submit">Register</button>
     </form>
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
-    <button v-if="emailExists" @click="resetRegistration" type="button">
+    <button v-if="emailExists && !isEmbedded" @click="resetRegistration" type="button">
       Reset my registration process
     </button>
   </div>
@@ -29,13 +26,16 @@ export default {
       email: '',
       successMessage: '',
       errorMessage: '',
-      emailExists: false, // Track if the email exists in the database
-      resetAvailable: false, // Track if reset action should be offered
+      emailExists: false,
+      isEmbedded: false, // Track if the component is embedded
     }
   },
   created() {
+    // Detect if the component is embedded via query parameter
+    this.isEmbedded = this.$route.query.embed === 'true'
+
     // Pre-fill the email field if provided in the query parameters
-    if (this.$route && this.$route.query && this.$route.query.email) {
+    if (this.$route.query.email) {
       this.email = this.$route.query.email
     }
   },
@@ -150,6 +150,11 @@ export default {
   padding: 1em;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+
+.user-registration.embedded {
+  margin-top: 0; /* Remove top margin for embedded mode */
+  border: none; /* Remove border for embedded mode */
 }
 
 .user-registration h1 {
