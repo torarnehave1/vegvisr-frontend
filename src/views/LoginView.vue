@@ -1,6 +1,6 @@
 <template>
   <div class="login-container">
-    <h1>Login</h1>
+    <h1 :style="{ color: theme === 'dark' ? 'black' : 'inherit' }">Login</h1>
     <form @submit.prevent="handleLogin">
       <div class="mb-3">
         <label for="email" class="form-label">Email address</label>
@@ -12,13 +12,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 // Declare the emit function at the top level
 const emit = defineEmits(['user-logged-in'])
 
 const email = ref('')
+const theme = ref('light') // Default theme is light
 const route = useRoute()
 const router = useRouter()
 
@@ -36,6 +37,9 @@ onMounted(() => {
     localStorage.setItem('jwt-vegvisr.org', queryToken)
     console.log('JWT token stored in Local Storage:', queryToken)
   }
+
+  // Detect and set the theme
+  theme.value = localStorage.getItem('theme') || 'light'
 })
 
 function handleLogin() {
