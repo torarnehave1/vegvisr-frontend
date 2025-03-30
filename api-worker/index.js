@@ -119,10 +119,17 @@ app.get('/blog-posts', async (c) => {
         const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/)
         const imageUrl = imageMatch ? imageMatch[1] : null
 
+        // Extract the first valid paragraph for the abstract
+        const abstractLine = lines.find(
+          (line) => line.trim() && !line.startsWith('#') && !line.includes('!['),
+        )
+        const abstract = abstractLine ? abstractLine.slice(0, 100) + '...' : ''
+
         posts.push({
           id: key.name,
           title: title, // Use the extracted title
           snippet: lines.slice(1, 3).join(' '), // Extract a snippet from the next lines
+          abstract: abstract, // Add the abstract
           image: imageUrl || 'https://via.placeholder.com/150', // Use extracted image or a placeholder
         })
       }
