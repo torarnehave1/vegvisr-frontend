@@ -28,7 +28,7 @@ function handleUserLoggedIn(email) {
   >
     <nav>
       <ul>
-        <li><router-link to="/blog">Blog</router-link></li>
+        <!-- Removed Blog link -->
       </ul>
     </nav>
     <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
