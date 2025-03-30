@@ -76,7 +76,7 @@ const router = createRouter({
       path: '/editor',
       name: 'Editor',
       component: () => import('../views/EditorView.vue'),
-      meta: { requiresAuth: true }, // Mark this route as requiring authentication
+      // Mark this route as requiring authentication
     },
     // Redirect to the 404 page if no other routes are matched
   ],
