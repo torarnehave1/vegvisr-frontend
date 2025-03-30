@@ -26,11 +26,6 @@ function handleUserLoggedIn(email) {
     :is="currentLayout"
     :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]"
   >
-    <nav>
-      <ul>
-        <li><router-link to="/blog">Blog</router-link></li>
-      </ul>
-    </nav>
     <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
   </component>
 </template>
