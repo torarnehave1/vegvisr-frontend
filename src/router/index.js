@@ -84,7 +84,10 @@ const router = createRouter({
       name: 'Editor',
       component: () => import('../views/EditorView.vue'),
       props: (route) => ({ embed: route.query?.embed === 'true' }), // Safely access route.query
-      meta: { layout: route.query?.embed === 'true' ? EmbedLayout : DefaultLayout }, // Directly reference the layout
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      }, // Dynamically set the layout
     },
     // Redirect to the 404 page if no other routes are matched
   ],
