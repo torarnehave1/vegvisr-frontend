@@ -13,7 +13,7 @@
     <!-- Edit Mode -->
     <div v-if="mode === 'edit'">
       <textarea
-        ref="textarea"
+        ref="textareaRef"
         v-model="markdown"
         placeholder="Enter your markdown here..."
         @click="closeContextMenu"
