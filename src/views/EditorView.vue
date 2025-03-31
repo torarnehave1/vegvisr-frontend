@@ -3,6 +3,7 @@
     class="markdown-editor"
     :class="{ embedded: isEmbedded }"
     @contextmenu.prevent="showContextMenu($event)"
+    @click="closeContextMenu"
   >
     <div v-if="!isEmbedded" class="mode-toggle">
       <button :class="{ active: mode === 'edit' }" @click="setMode('edit')">Edit</button>
@@ -15,6 +16,7 @@
         ref="textarea"
         v-model="markdown"
         placeholder="Enter your markdown here..."
+        @click="closeContextMenu"
       ></textarea>
     </div>
 
@@ -33,7 +35,14 @@
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
     >
       <button @click="addSnippet">Add Snippet</button>
-      <button @click="insertSnippet">Insert Snippet</button>
+      <div class="submenu">
+        <button @click="loadSnippetKeys">Insert Snippet</button>
+        <div class="submenu-items" v-if="snippetKeys.length > 0">
+          <button v-for="key in snippetKeys" :key="key" @click="insertSnippet(key)">
+            {{ key }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -50,6 +59,7 @@ const mode = ref('edit')
 const markdown = ref('')
 const shareableLink = ref('')
 const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
+const snippetKeys = ref([])
 const textareaRef = ref(null)
 
 // Check if the embed query parameter is set to true
@@ -100,9 +110,18 @@ function showContextMenu(event) {
   }
 }
 
+// Close context menu
+function closeContextMenu() {
+  contextMenu.value.visible = false
+}
+
 // Add snippet to KV namespace
 async function addSnippet() {
-  const snippetContent = contextMenu.value.selectedText
+  const textarea = textareaRef.value
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const snippetContent = markdown.value.slice(start, end)
+
   if (!snippetContent) {
     alert('No text selected to add as a snippet.')
     return
@@ -132,26 +151,55 @@ async function addSnippet() {
     console.error('Error adding snippet:', error)
     alert('Failed to add snippet. Please try again.')
   } finally {
-    contextMenu.value.visible = false
+    closeContextMenu()
+  }
+}
+
+// Load snippet keys from KV namespace
+async function loadSnippetKeys() {
+  try {
+    const response = await fetch('https://api.vegvisr.org/snippets/list', {
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to load snippet keys')
+    }
+
+    const data = await response.json()
+    snippetKeys.value = data.keys.map((key) => key.name)
+  } catch (error) {
+    console.error('Error loading snippet keys:', error)
+    alert('Failed to load snippet keys. Please try again.')
   }
 }
 
 // Insert snippet into textarea
-function insertSnippet() {
-  const snippetContent = contextMenu.value.selectedText
-  if (!snippetContent) {
-    alert('No text selected to insert as a snippet.')
-    return
+async function insertSnippet(key) {
+  try {
+    const response = await fetch(`https://api.vegvisr.org/snippets/${key}`, {
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch snippet content')
+    }
+
+    const data = await response.json()
+    const snippetContent = data.content
+
+    const textarea = textareaRef.value
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const before = markdown.value.slice(0, start)
+    const after = markdown.value.slice(end)
+    markdown.value = before + snippetContent + after
+  } catch (error) {
+    console.error('Error inserting snippet:', error)
+    alert('Failed to insert snippet. Please try again.')
+  } finally {
+    closeContextMenu()
   }
-
-  const textarea = textareaRef.value
-  const start = textarea.selectionStart
-  const end = textarea.selectionEnd
-  const before = markdown.value.slice(0, start)
-  const after = markdown.value.slice(end)
-  markdown.value = before + snippetContent + after
-
-  contextMenu.value.visible = false
 }
 </script>
 
@@ -259,6 +307,35 @@ textarea {
 }
 
 .context-menu button:hover {
+  background-color: #f1f1f1;
+}
+
+.submenu {
+  position: relative;
+}
+
+.submenu-items {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 100%;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.submenu:hover .submenu-items {
+  display: block;
+}
+
+.submenu-items button {
+  padding: 0.5rem 1rem;
+  width: 100%;
+}
+
+.submenu-items button:hover {
   background-color: #f1f1f1;
 }
 </style>
