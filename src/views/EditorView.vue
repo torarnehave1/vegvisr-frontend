@@ -208,8 +208,11 @@ async function insertSnippet(key) {
 
       // Move the cursor to the end of the inserted snippet
       setTimeout(() => {
-        textarea.focus()
-        textarea.setSelectionRange(start + snippetContent.length, start + snippetContent.length)
+        textareaRef.value.focus()
+        textareaRef.value.setSelectionRange(
+          start + snippetContent.length,
+          start + snippetContent.length,
+        )
       }, 0)
     }
   } catch (error) {
