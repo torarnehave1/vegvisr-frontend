@@ -34,14 +34,13 @@
       class="context-menu"
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
     >
-      <button @click="addSnippet">Add Snippet</button>
-      <div class="submenu">
-        <button @click="loadSnippetKeys">Insert Snippet</button>
-        <div class="submenu-items" v-if="snippetKeys.length > 0">
-          <button v-for="key in snippetKeys" :key="key" @click="insertSnippet(key)">
-            {{ key }}
-          </button>
-        </div>
+      <div v-if="snippetKeys.length > 0">
+        <button v-for="key in snippetKeys" :key="key" @click="insertSnippet(key)">
+          Insert Snippet: {{ key }}
+        </button>
+      </div>
+      <div v-else>
+        <p>No snippets available</p>
       </div>
     </div>
   </div>
@@ -62,6 +61,7 @@ const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
 const snippetKeys = ref([])
 const textareaRef = ref(null)
 const cursorPosition = ref(0) // Track the cursor position
+const pendingSnippet = ref(null) // Temporary variable to store the snippet
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -74,6 +74,16 @@ const renderedMarkdown = computed(() => {
 // Toggle between "edit" and "preview" modes
 function setMode(newMode) {
   mode.value = newMode
+
+  // If switching to "edit" mode and a snippet is pending, insert it
+  if (newMode === 'edit' && pendingSnippet.value) {
+    const textarea = textareaRef.value
+    if (textarea) {
+      insertSnippetIntoTextarea(pendingSnippet.value, textarea)
+      markdown.value = textarea.value // Update markdown value
+      pendingSnippet.value = null // Clear the pending snippet
+    }
+  }
 }
 
 // Save markdown content and display shareable link
@@ -99,20 +109,34 @@ async function saveContent() {
   }
 }
 
-// Show context menu and track cursor position
-function showContextMenu(event) {
+// Show context menu and load snippet keys
+async function showContextMenu(event) {
   const textarea = textareaRef.value
   if (textarea) {
     cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
   }
 
-  const selection = window.getSelection()
-  const selectedText = selection.toString()
+  // Load snippet keys when the context menu is opened
+  try {
+    const response = await fetch('https://api.vegvisr.org/snippetlist', {
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to load snippet keys')
+    }
+
+    const data = await response.json()
+    snippetKeys.value = data.keys.map((key) => key.name)
+  } catch (error) {
+    console.error('Error loading snippet keys:', error)
+    alert('Failed to load snippet keys. Please try again.')
+  }
+
   contextMenu.value = {
     visible: true,
     x: event.clientX,
     y: event.clientY,
-    selectedText: selectedText,
   }
 }
 
@@ -161,25 +185,6 @@ async function addSnippet() {
   }
 }
 
-// Load snippet keys from KV namespace
-async function loadSnippetKeys() {
-  try {
-    const response = await fetch('https://api.vegvisr.org/snippetlist', {
-      method: 'GET',
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to load snippet keys')
-    }
-
-    const data = await response.json()
-    snippetKeys.value = data.keys.map((key) => key.name)
-  } catch (error) {
-    console.error('Error loading snippet keys:', error)
-    alert('Failed to load snippet keys. Please try again.')
-  }
-}
-
 // Function to insert snippet into the textarea
 function insertSnippetIntoTextarea(snippetContent, textarea) {
   const start = textarea.selectionStart
@@ -210,7 +215,8 @@ async function insertSnippet(key) {
 
     // Ensure the textarea is available and the mode is 'edit'
     if (mode.value !== 'edit') {
-      alert('Textarea is not available. Please switch to Edit mode.')
+      alert('Textarea is not available. The snippet will be inserted when you switch to Edit mode.')
+      pendingSnippet.value = snippetContent // Store the snippet temporarily
       return
     }
 
