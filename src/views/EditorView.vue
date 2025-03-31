@@ -194,23 +194,24 @@ async function insertSnippet(key) {
     const data = await response.json()
     const snippetContent = data.content
 
-    const textarea = textareaRef.value
-    if (!textarea) {
-      alert('Textarea is not available.')
-      return
+    // Check if the textarea is empty
+    if (!markdown.value) {
+      // If empty, set the snippet as the only value
+      markdown.value = snippetContent
+    } else {
+      // If not empty, insert the snippet at the saved cursor position
+      const start = cursorPosition.value || 0 // Use the saved cursor position
+      const end = textareaRef.value.selectionEnd || 0
+      const before = markdown.value.slice(0, start)
+      const after = markdown.value.slice(end)
+      markdown.value = before + snippetContent + after
+
+      // Move the cursor to the end of the inserted snippet
+      setTimeout(() => {
+        textarea.focus()
+        textarea.setSelectionRange(start + snippetContent.length, start + snippetContent.length)
+      }, 0)
     }
-
-    const start = cursorPosition.value || 0 // Use the saved cursor position
-    const end = textarea.selectionEnd || 0
-    const before = markdown.value.slice(0, start)
-    const after = markdown.value.slice(end)
-    markdown.value = before + snippetContent + after
-
-    // Move the cursor to the end of the inserted snippet
-    setTimeout(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + snippetContent.length, start + snippetContent.length)
-    }, 0)
   } catch (error) {
     console.error('Error inserting snippet:', error)
     alert('Failed to insert snippet. Please try again.')
