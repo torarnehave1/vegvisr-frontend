@@ -291,8 +291,7 @@ async function uploadImage() {
 
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('email', 'user@example.com') // Replace with the actual email if available
-
+  formData.append('type', 'image')
   try {
     const response = await fetch('https://api.vegvisr.org/upload', {
       method: 'POST',
