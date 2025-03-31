@@ -61,6 +61,7 @@ const shareableLink = ref('')
 const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
 const snippetKeys = ref([])
 const textareaRef = ref(null)
+const cursorPosition = ref(0) // Track the cursor position
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -98,8 +99,13 @@ async function saveContent() {
   }
 }
 
-// Show context menu
+// Show context menu and track cursor position
 function showContextMenu(event) {
+  const textarea = textareaRef.value
+  if (textarea) {
+    cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
+  }
+
   const selection = window.getSelection()
   const selectedText = selection.toString()
   contextMenu.value = {
@@ -189,11 +195,22 @@ async function insertSnippet(key) {
     const snippetContent = data.content
 
     const textarea = textareaRef.value
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
+    if (!textarea) {
+      alert('Textarea is not available.')
+      return
+    }
+
+    const start = cursorPosition.value || 0 // Use the saved cursor position
+    const end = textarea.selectionEnd || 0
     const before = markdown.value.slice(0, start)
     const after = markdown.value.slice(end)
     markdown.value = before + snippetContent + after
+
+    // Move the cursor to the end of the inserted snippet
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + snippetContent.length, start + snippetContent.length)
+    }, 0)
   } catch (error) {
     console.error('Error inserting snippet:', error)
     alert('Failed to insert snippet. Please try again.')
