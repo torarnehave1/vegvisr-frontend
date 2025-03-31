@@ -156,7 +156,17 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/snippets/list' && request.method === 'GET') {
-        return new Response('Not Implemented', { status: 501, headers: corsHeaders })
+        const keys = await env.snippets.list() // Ensure it uses the "snippets" KV namespace
+        if (!keys.keys || keys.keys.length === 0) {
+          return new Response(JSON.stringify({ keys: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          })
+        }
+        return new Response(JSON.stringify({ keys: keys.keys }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        })
       }
 
       return new Response('Not Found', { status: 404, headers: corsHeaders })
