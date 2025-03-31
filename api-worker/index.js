@@ -59,7 +59,7 @@ export default {
             },
           })
 
-          const fileUrl = `https://vegvisr.org/${fileName}`
+          const fileUrl = `https://www.vegvisr.org/${fileName}`
           console.log('File uploaded to R2:', fileUrl)
 
           return new Response(JSON.stringify({ url: fileUrl }), {
