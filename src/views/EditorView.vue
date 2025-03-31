@@ -134,7 +134,7 @@ async function addSnippet() {
   }
 
   try {
-    const response = await fetch('https://api.vegvisr.org/snippets/add', {
+    const response = await fetch('https://api.vegvisr.org/snippetsadd', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -158,7 +158,7 @@ async function addSnippet() {
 // Load snippet keys from KV namespace
 async function loadSnippetKeys() {
   try {
-    const response = await fetch('https://api.vegvisr.org/snippets/list', {
+    const response = await fetch('https://api.vegvisr.org/snippetslist', {
       method: 'GET',
     })
 
