@@ -208,6 +208,12 @@ async function insertSnippet(key) {
     const data = await response.json()
     const snippetContent = data.content
 
+    // Ensure the textarea is available and the mode is 'edit'
+    if (mode.value !== 'edit') {
+      alert('Textarea is not available. Please switch to Edit mode.')
+      return
+    }
+
     const textarea = textareaRef.value
     if (!textarea) {
       alert('Textarea element is not available.')
