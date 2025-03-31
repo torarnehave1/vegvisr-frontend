@@ -199,37 +199,49 @@ The researchers believe that physical activity may help reduce the risk of demen
         try {
           console.log('Received POST /upload request')
           const { MY_R2_BUCKET } = env
-          const formData = await request.formData()
-          const file = formData.get('file')
-          const email = await env.UserEmail.get('email')
 
-          console.log('Form data:', { file, email })
-
-          if (!file || !email) {
-            console.error('Missing file or email')
-            return new Response(JSON.stringify({ error: 'Missing file or email' }), {
+          // Parse the multipart form data manually
+          const contentType = request.headers.get('Content-Type') || ''
+          if (!contentType.includes('multipart/form-data')) {
+            return new Response(JSON.stringify({ error: 'Invalid Content-Type' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             })
           }
 
-          const fileExtension = file.name ? file.name.split('.').pop() : ''
+          const boundary = contentType.split('boundary=')[1]
+          if (!boundary) {
+            return new Response(JSON.stringify({ error: 'Missing boundary in Content-Type' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
+          const body = await request.arrayBuffer()
+          const parts = parseMultipartFormData(body, boundary)
+
+          const filePart = parts.find((part) => part.name === 'file')
+          if (!filePart) {
+            return new Response(JSON.stringify({ error: 'Missing file' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
+          const fileExtension = filePart.filename.split('.').pop()
           if (!fileExtension) {
-            console.error('Invalid file name or extension')
             return new Response(JSON.stringify({ error: 'Invalid file name or extension' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             })
           }
 
-          const fileName = `${email}-${Date.now()}.${fileExtension}`
+          const fileName = `${Date.now()}.${fileExtension}`
           console.log('Uploading file to R2:', fileName)
 
-          const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
-
-          await MY_R2_BUCKET.put(fileName, file.stream(), {
+          await MY_R2_BUCKET.put(fileName, filePart.data, {
             httpMetadata: {
-              contentType: contentType,
+              contentType: filePart.contentType || 'application/octet-stream',
             },
           })
 
@@ -255,4 +267,27 @@ The researchers believe that physical activity may help reduce the risk of demen
       return new Response('Internal Server Error', { status: 500, headers: corsHeaders })
     }
   },
+}
+
+// Helper function to parse multipart form data
+function parseMultipartFormData(body, boundary) {
+  const decoder = new TextDecoder()
+  const text = decoder.decode(body)
+  const parts = text.split(`--${boundary}`).filter((part) => part.trim() && !part.includes('--'))
+
+  return parts.map((part) => {
+    const [headers, ...rest] = part.split('\r\n\r\n')
+    const headerLines = headers.split('\r\n')
+    const contentDisposition = headerLines.find((line) => line.startsWith('Content-Disposition'))
+    const contentType = headerLines.find((line) => line.startsWith('Content-Type'))?.split(': ')[1]
+
+    const nameMatch = contentDisposition.match(/name="([^"]+)"/)
+    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
+
+    const name = nameMatch ? nameMatch[1] : null
+    const filename = filenameMatch ? filenameMatch[1] : null
+    const data = new TextEncoder().encode(rest.join('\r\n\r\n').trim())
+
+    return { name, filename, contentType, data }
+  })
 }
