@@ -112,8 +112,12 @@ async function saveContent() {
 // Show context menu and load snippet keys
 async function showContextMenu(event) {
   const textarea = textareaRef.value
+  console.log('showContextMenu: textareaRef.value:', textarea) // Debugging statement
   if (textarea) {
     cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
+    console.log('showContextMenu: cursorPosition:', cursorPosition.value) // Debugging statement
+  } else {
+    console.warn('showContextMenu: Textarea is not available.') // Debugging statement
   }
 
   // Load snippet keys when the context menu is opened
@@ -128,6 +132,7 @@ async function showContextMenu(event) {
 
     const data = await response.json()
     snippetKeys.value = data.keys.map((key) => key.name)
+    console.log('showContextMenu: snippetKeys:', snippetKeys.value) // Debugging statement
   } catch (error) {
     console.error('Error loading snippet keys:', error)
     alert('Failed to load snippet keys. Please try again.')
@@ -138,6 +143,7 @@ async function showContextMenu(event) {
     x: event.clientX,
     y: event.clientY,
   }
+  console.log('showContextMenu: contextMenu:', contextMenu.value) // Debugging statement
 }
 
 // Close context menu
@@ -201,6 +207,7 @@ function insertSnippetIntoTextarea(snippetContent, textarea) {
 
 // Insert snippet into textarea
 async function insertSnippet(key) {
+  console.log('insertSnippet: key:', key) // Debugging statement
   try {
     const response = await fetch(`https://api.vegvisr.org/snippets/${key}`, {
       method: 'GET',
@@ -212,8 +219,10 @@ async function insertSnippet(key) {
 
     const data = await response.json()
     const snippetContent = data.content
+    console.log('insertSnippet: snippetContent:', snippetContent) // Debugging statement
 
     // Ensure the textarea is available and the mode is 'edit'
+    console.log('insertSnippet: mode.value:', mode.value) // Debugging statement
     if (mode.value !== 'edit') {
       alert('Textarea is not available. The snippet will be inserted when you switch to Edit mode.')
       pendingSnippet.value = snippetContent // Store the snippet temporarily
@@ -221,6 +230,7 @@ async function insertSnippet(key) {
     }
 
     const textarea = textareaRef.value
+    console.log('insertSnippet: textareaRef.value:', textarea) // Debugging statement
     if (!textarea) {
       alert('Textarea element is not available.')
       return
@@ -231,6 +241,7 @@ async function insertSnippet(key) {
 
     // Update the markdown value to reflect the new content in the textarea
     markdown.value = textarea.value
+    console.log('insertSnippet: markdown.value:', markdown.value) // Debugging statement
   } catch (error) {
     console.error('Error inserting snippet:', error)
     alert('Failed to insert snippet. Please try again.')
