@@ -121,14 +121,21 @@ async function showContextMenu(event) {
 
   // Wait for the DOM to update before accessing textareaRef
   await nextTick()
-  const textarea = textareaRef.value
-  console.log('showContextMenu: textareaRef.value:', textarea) // Debugging statement
+  let textarea = textareaRef.value
+  if (!textarea) {
+    console.warn('showContextMenu: Textarea is not available. Retrying...') // Debugging statement
+    await new Promise((resolve) => setTimeout(resolve, 50)) // Wait 50ms
+    textarea = textareaRef.value
+  }
+
+  console.log('showContextMenu: textareaRef.value after retry:', textarea) // Debugging statement
 
   if (textarea) {
     cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
     console.log('showContextMenu: cursorPosition:', cursorPosition.value) // Debugging statement
   } else {
-    console.warn('showContextMenu: Textarea is not available.') // Debugging statement
+    console.error('showContextMenu: Textarea is still not available after retry.') // Debugging statement
+    return
   }
 
   // Load snippet keys when the context menu is opened
