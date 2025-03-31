@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 
@@ -111,6 +111,7 @@ async function saveContent() {
 
 // Show context menu and load snippet keys
 async function showContextMenu(event) {
+  await nextTick() // Ensure DOM updates before accessing textareaRef
   const textarea = textareaRef.value
   console.log('showContextMenu: textareaRef.value:', textarea) // Debugging statement
   if (textarea) {
@@ -229,6 +230,7 @@ async function insertSnippet(key) {
       return
     }
 
+    await nextTick() // Ensure DOM updates before accessing textareaRef
     const textarea = textareaRef.value
     console.log('insertSnippet: textareaRef.value:', textarea) // Debugging statement
     if (!textarea) {
