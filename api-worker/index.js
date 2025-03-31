@@ -126,7 +126,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
-      if (pathname === '/snippetsadd' && request.method === 'POST') {
+      if (pathname === '/snippetadd' && request.method === 'POST') {
         const { id, content } = await request.json()
         if (!id || !content) {
           return new Response('ID and content are required', { status: 400 })
@@ -149,7 +149,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
-      if (pathname.startsWith('/snippetsdelete') && request.method === 'DELETE') {
+      if (pathname.startsWith('/snippetdelete') && request.method === 'DELETE') {
         const id = pathname.split('/').pop()
         await env.snippets.delete(id)
         return new Response('Snippet deleted successfully', { status: 200, headers: corsHeaders })
