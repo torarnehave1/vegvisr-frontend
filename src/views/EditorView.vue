@@ -18,6 +18,11 @@
         placeholder="Enter your markdown here..."
         @click="closeContextMenu"
       ></textarea>
+      <!-- File Upload Form -->
+      <form @submit.prevent="uploadImage" class="upload-form">
+        <input type="file" ref="fileInput" accept="image/*" />
+        <button type="submit">Upload Image</button>
+      </form>
     </div>
 
     <!-- Preview Mode -->
@@ -62,6 +67,7 @@ const snippetKeys = ref([])
 const textareaRef = ref(null)
 const cursorPosition = ref(0) // Track the cursor position
 const pendingSnippet = ref(null) // Temporary variable to store the snippet
+const fileInput = ref(null) // Reference to the file input
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -268,6 +274,48 @@ async function insertSnippet(key) {
     closeContextMenu()
   }
 }
+
+// Upload image and insert markdown into textarea
+async function uploadImage() {
+  const file = fileInput.value?.files[0]
+  if (!file) {
+    alert('Please select an image to upload.')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('email', 'user@example.com') // Replace with the actual email if available
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to upload image')
+    }
+
+    const data = await response.json()
+    const imageUrl = data.url
+    const markdownImage = `![Image](${imageUrl})`
+
+    console.log('Image uploaded successfully:', imageUrl)
+
+    // Insert the markdown for the image into the textarea
+    const textarea = textareaRef.value
+    if (textarea) {
+      insertSnippetIntoTextarea(markdownImage, textarea)
+      markdown.value = textarea.value // Update markdown value
+    } else {
+      console.error('Textarea is not available.')
+    }
+  } catch (error) {
+    console.error('Error uploading image:', error)
+    alert('Failed to upload image. Please try again.')
+  }
+}
 </script>
 
 <style scoped>
@@ -404,5 +452,29 @@ textarea {
 
 .submenu-items button:hover {
   background-color: #f1f1f1;
+}
+
+.upload-form {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.upload-form input[type='file'] {
+  flex: 1;
+}
+
+.upload-form button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.upload-form button:hover {
+  background-color: #0056b3;
 }
 </style>

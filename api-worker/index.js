@@ -195,6 +195,60 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
+      if (pathname === '/upload' && request.method === 'POST') {
+        try {
+          console.log('Received POST /upload request')
+          const { MY_R2_BUCKET } = env
+          const formData = await request.formData()
+          const file = formData.get('file')
+          const email = await env.UserEmail.get('email')
+
+          console.log('Form data:', { file, email })
+
+          if (!file || !email) {
+            console.error('Missing file or email')
+            return new Response(JSON.stringify({ error: 'Missing file or email' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
+          const fileExtension = file.name ? file.name.split('.').pop() : ''
+          if (!fileExtension) {
+            console.error('Invalid file name or extension')
+            return new Response(JSON.stringify({ error: 'Invalid file name or extension' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
+          const fileName = `${email}-${Date.now()}.${fileExtension}`
+          console.log('Uploading file to R2:', fileName)
+
+          const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
+
+          await MY_R2_BUCKET.put(fileName, file.stream(), {
+            httpMetadata: {
+              contentType: contentType,
+            },
+          })
+
+          const fileUrl = `https://vegvisr.org/${fileName}`
+          console.log('File uploaded to R2:', fileUrl)
+
+          return new Response(JSON.stringify({ url: fileUrl }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('Error in /upload:', error)
+          return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      }
+
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {
       console.error('Error:', error)
