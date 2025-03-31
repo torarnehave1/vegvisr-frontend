@@ -186,7 +186,10 @@ app.delete('/snippets/delete/:id', async (c) => {
 // Endpoint: /snippets/list to list all snippet keys
 app.get('/snippets/list', async (c) => {
   try {
-    const keys = await c.env.snippets.list()
+    const keys = await c.env.snippets.list() // Ensure it uses the "snippets" KV namespace
+    if (!keys.keys || keys.keys.length === 0) {
+      return c.json({ keys: [] }) // Return an empty list if no keys are found
+    }
     return c.json({ keys: keys.keys })
   } catch (error) {
     console.error('Error in /snippets/list:', error)
