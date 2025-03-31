@@ -141,6 +141,48 @@ app.get('/blog-posts', async (c) => {
   }
 })
 
+// Endpoint: /snippets/add to add a snippet
+app.post('/snippets/add', async (c) => {
+  try {
+    const { id, content } = await c.req.json()
+    if (!id || !content) {
+      return c.text('ID and content are required', 400)
+    }
+    await c.env.snippets.put(id, content)
+    return c.text('Snippet added successfully', 200)
+  } catch (error) {
+    console.error('Error in /snippets/add:', error)
+    return c.text('Internal Server Error', 500)
+  }
+})
+
+// Endpoint: /snippets/:id to get a snippet
+app.get('/snippets/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const snippet = await c.env.snippets.get(id)
+    if (!snippet) {
+      return c.text('Snippet not found', 404)
+    }
+    return c.json({ id, content: snippet })
+  } catch (error) {
+    console.error('Error in /snippets/:id:', error)
+    return c.text('Internal Server Error', 500)
+  }
+})
+
+// Endpoint: /snippets/delete/:id to delete a snippet
+app.delete('/snippets/delete/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    await c.env.snippets.delete(id)
+    return c.text('Snippet deleted successfully', 200)
+  } catch (error) {
+    console.error('Error in /snippets/delete/:id:', error)
+    return c.text('Internal Server Error', 500)
+  }
+})
+
 // Catch-all route
 app.all('*', (c) => {
   return c.text('Not Found', 404)

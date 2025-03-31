@@ -1,5 +1,9 @@
 <template>
-  <div class="markdown-editor" :class="{ embedded: isEmbedded }">
+  <div
+    class="markdown-editor"
+    :class="{ embedded: isEmbedded }"
+    @contextmenu.prevent="showContextMenu($event)"
+  >
     <div v-if="!isEmbedded" class="mode-toggle">
       <button :class="{ active: mode === 'edit' }" @click="setMode('edit')">Edit</button>
       <button :class="{ active: mode === 'preview' }" @click="setMode('preview')">Preview</button>
@@ -7,7 +11,11 @@
 
     <!-- Edit Mode -->
     <div v-if="mode === 'edit'">
-      <textarea v-model="markdown" placeholder="Enter your markdown here..."></textarea>
+      <textarea
+        ref="textarea"
+        v-model="markdown"
+        placeholder="Enter your markdown here..."
+      ></textarea>
     </div>
 
     <!-- Preview Mode -->
@@ -16,6 +24,16 @@
     <button v-if="!isEmbedded" class="save-button" @click="saveContent">Save</button>
     <div v-if="shareableLink" class="info">
       Shareable Link: <a :href="shareableLink" target="_blank">{{ shareableLink }}</a>
+    </div>
+
+    <!-- Context Menu -->
+    <div
+      v-if="contextMenu.visible"
+      class="context-menu"
+      :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+    >
+      <button @click="addSnippet">Add Snippet</button>
+      <button @click="insertSnippet">Insert Snippet</button>
     </div>
   </div>
 </template>
@@ -31,6 +49,8 @@ const isEmbedded = ref(false)
 const mode = ref('edit')
 const markdown = ref('')
 const shareableLink = ref('')
+const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
+const textareaRef = ref(null)
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -49,7 +69,6 @@ function setMode(newMode) {
 async function saveContent() {
   try {
     const response = await fetch('https://api.vegvisr.org/save', {
-      // Ensure the URL matches your backend
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -68,6 +87,72 @@ async function saveContent() {
     alert('Failed to save content. Please try again.')
   }
 }
+
+// Show context menu
+function showContextMenu(event) {
+  const selection = window.getSelection()
+  const selectedText = selection.toString()
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    selectedText: selectedText,
+  }
+}
+
+// Add snippet to KV namespace
+async function addSnippet() {
+  const snippetContent = contextMenu.value.selectedText
+  if (!snippetContent) {
+    alert('No text selected to add as a snippet.')
+    return
+  }
+
+  const snippetId = prompt('Enter a unique ID for the snippet:')
+  if (!snippetId) {
+    alert('Snippet ID is required.')
+    return
+  }
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/snippets/add', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id: snippetId, content: snippetContent }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to add snippet')
+    }
+
+    alert('Snippet added successfully.')
+  } catch (error) {
+    console.error('Error adding snippet:', error)
+    alert('Failed to add snippet. Please try again.')
+  } finally {
+    contextMenu.value.visible = false
+  }
+}
+
+// Insert snippet into textarea
+function insertSnippet() {
+  const snippetContent = contextMenu.value.selectedText
+  if (!snippetContent) {
+    alert('No text selected to insert as a snippet.')
+    return
+  }
+
+  const textarea = textareaRef.value
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const before = markdown.value.slice(0, start)
+  const after = markdown.value.slice(end)
+  markdown.value = before + snippetContent + after
+
+  contextMenu.value.visible = false
+}
 </script>
 
 <style scoped>
@@ -75,6 +160,7 @@ async function saveContent() {
   max-width: 800px;
   margin: 0 auto;
   padding: 1rem;
+  position: relative;
 }
 
 .markdown-editor.embedded {
@@ -151,5 +237,28 @@ textarea {
 
 .info a:hover {
   text-decoration: underline;
+}
+
+.context-menu {
+  position: absolute;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background-color: #f1f1f1;
 }
 </style>
