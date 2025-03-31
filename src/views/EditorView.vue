@@ -180,6 +180,20 @@ async function loadSnippetKeys() {
   }
 }
 
+// Function to insert snippet into the textarea
+function insertSnippetIntoTextarea(snippetContent, textarea) {
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const currentText = textarea.value
+
+  const before = currentText.substring(0, start)
+  const after = currentText.substring(end)
+
+  textarea.value = before + snippetContent + after
+  textarea.selectionStart = textarea.selectionEnd = start + snippetContent.length
+  textarea.focus()
+}
+
 // Insert snippet into textarea
 async function insertSnippet(key) {
   try {
@@ -194,27 +208,17 @@ async function insertSnippet(key) {
     const data = await response.json()
     const snippetContent = data.content
 
-    // Check if the textarea is empty
-    if (!markdown.value) {
-      // If empty, set the snippet as the only value
-      markdown.value = snippetContent
-    } else {
-      // If not empty, insert the snippet at the saved cursor position
-      const start = cursorPosition.value || 0 // Use the saved cursor position
-      const end = textareaRef.value.selectionEnd || 0
-      const before = markdown.value.slice(0, start)
-      const after = markdown.value.slice(end)
-      markdown.value = before + snippetContent + after
-
-      // Move the cursor to the end of the inserted snippet
-      setTimeout(() => {
-        textareaRef.value.focus()
-        textareaRef.value.setSelectionRange(
-          start + snippetContent.length,
-          start + snippetContent.length,
-        )
-      }, 0)
+    const textarea = textareaRef.value
+    if (!textarea) {
+      alert('Textarea element is not available.')
+      return
     }
+
+    // Use the provided logic to insert the snippet into the textarea
+    insertSnippetIntoTextarea(snippetContent, textarea)
+
+    // Update the markdown value to reflect the new content in the textarea
+    markdown.value = textarea.value
   } catch (error) {
     console.error('Error inserting snippet:', error)
     alert('Failed to insert snippet. Please try again.')
