@@ -84,7 +84,20 @@ The researchers believe that physical activity may help reduce the risk of demen
           return new Response('Not Found', { status: 404 })
         }
 
-        const htmlContent = marked.parse(markdown)
+        const fullUrl = `https://api.vegvisr.org/view/${id}`
+
+        const shareButton = `
+          <div style="text-align: center; margin-top: 20px;">
+            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(fullUrl)}" target="_blank" class="btn btn-primary">
+              Share on Facebook
+            </a>
+          </div>
+        `
+
+        const updatedMarkdown = markdown + `\n\n${shareButton}`
+
+        const htmlContent = marked.parse(updatedMarkdown)
+
         return new Response(htmlContent, {
           status: 200,
           headers: { 'Content-Type': 'text/html', ...corsHeaders },
