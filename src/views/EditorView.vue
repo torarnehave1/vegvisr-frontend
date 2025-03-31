@@ -283,6 +283,12 @@ async function uploadImage() {
     return
   }
 
+  // Validate file type
+  if (!file.type.startsWith('image/')) {
+    alert('Only image files are allowed.')
+    return
+  }
+
   const formData = new FormData()
   formData.append('file', file)
   formData.append('email', 'user@example.com') // Replace with the actual email if available

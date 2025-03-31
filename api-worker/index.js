@@ -202,7 +202,10 @@ The researchers believe that physical activity may help reduce the risk of demen
 
           // Parse the multipart form data manually
           const contentType = request.headers.get('Content-Type') || ''
+          console.log('Content-Type:', contentType)
+
           if (!contentType.includes('multipart/form-data')) {
+            console.error('Invalid Content-Type')
             return new Response(JSON.stringify({ error: 'Invalid Content-Type' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -211,6 +214,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
           const boundary = contentType.split('boundary=')[1]
           if (!boundary) {
+            console.error('Missing boundary in Content-Type')
             return new Response(JSON.stringify({ error: 'Missing boundary in Content-Type' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -218,11 +222,24 @@ The researchers believe that physical activity may help reduce the risk of demen
           }
 
           const body = await request.arrayBuffer()
+          console.log('Body length:', body.byteLength)
+
           const parts = parseMultipartFormData(body, boundary)
+          console.log('Parsed parts:', parts)
 
           const filePart = parts.find((part) => part.name === 'file')
           if (!filePart) {
+            console.error('Missing file part in form data')
             return new Response(JSON.stringify({ error: 'Missing file' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
+          // Validate file type
+          if (!filePart.contentType.startsWith('image/')) {
+            console.error('Invalid file type:', filePart.contentType)
+            return new Response(JSON.stringify({ error: 'Only image files are allowed' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             })
@@ -230,6 +247,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
           const fileExtension = filePart.filename.split('.').pop()
           if (!fileExtension) {
+            console.error('Invalid file name or extension:', filePart.filename)
             return new Response(JSON.stringify({ error: 'Invalid file name or extension' }), {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -272,7 +290,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 // Helper function to parse multipart form data
 function parseMultipartFormData(body, boundary) {
   const decoder = new TextDecoder()
-  const text = decoder.decode(body)
+  const text = decoder.decode(body) // Convert ArrayBuffer to string
   const parts = text.split(`--${boundary}`).filter((part) => part.trim() && !part.includes('--'))
 
   return parts.map((part) => {
@@ -281,13 +299,20 @@ function parseMultipartFormData(body, boundary) {
     const contentDisposition = headerLines.find((line) => line.startsWith('Content-Disposition'))
     const contentType = headerLines.find((line) => line.startsWith('Content-Type'))?.split(': ')[1]
 
-    const nameMatch = contentDisposition.match(/name="([^"]+)"/)
-    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
+    const nameMatch = contentDisposition?.match(/name="([^"]+)"/)
+    const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/)
 
     const name = nameMatch ? nameMatch[1] : null
     const filename = filenameMatch ? filenameMatch[1] : null
-    const data = new TextEncoder().encode(rest.join('\r\n\r\n').trim())
+    const data = rest.join('\r\n\r\n').trim()
 
-    return { name, filename, contentType, data }
+    console.log('Parsed part:', { name, filename, contentType })
+
+    return {
+      name,
+      filename,
+      contentType,
+      data: new Uint8Array(Buffer.from(data, 'binary')), // Convert data to Uint8Array
+    }
   })
 }
