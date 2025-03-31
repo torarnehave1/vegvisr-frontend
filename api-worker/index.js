@@ -183,6 +183,17 @@ app.delete('/snippets/delete/:id', async (c) => {
   }
 })
 
+// Endpoint: /snippets/list to list all snippet keys
+app.get('/snippets/list', async (c) => {
+  try {
+    const keys = await c.env.snippets.list()
+    return c.json({ keys: keys.keys })
+  } catch (error) {
+    console.error('Error in /snippets/list:', error)
+    return c.text('Internal Server Error', 500)
+  }
+})
+
 // Catch-all route
 app.all('*', (c) => {
   return c.text('Not Found', 404)
