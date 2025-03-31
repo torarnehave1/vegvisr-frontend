@@ -111,9 +111,19 @@ async function saveContent() {
 
 // Show context menu and load snippet keys
 async function showContextMenu(event) {
-  await nextTick() // Ensure DOM updates before accessing textareaRef
+  console.log('showContextMenu: mode.value:', mode.value) // Debugging statement
+
+  // Ensure the editor is in "Edit" mode
+  if (mode.value !== 'edit') {
+    console.warn('showContextMenu: Not in Edit mode.') // Debugging statement
+    return
+  }
+
+  // Wait for the DOM to update before accessing textareaRef
+  await nextTick()
   const textarea = textareaRef.value
   console.log('showContextMenu: textareaRef.value:', textarea) // Debugging statement
+
   if (textarea) {
     cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
     console.log('showContextMenu: cursorPosition:', cursorPosition.value) // Debugging statement
