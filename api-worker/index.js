@@ -86,19 +86,32 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         const fullUrl = `https://api.vegvisr.org/view/${id}`
 
+        const htmlContent = marked.parse(markdown)
+
         const shareButton = `
           <div style="text-align: center; margin-top: 20px;">
-            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(fullUrl)}" target="_blank" class="btn btn-primary">
-              Share on Facebook
-            </a>
+        <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(fullUrl)}" target="_blank" class="btn btn-primary">
+          Share on Facebook
+        </a>
           </div>
         `
 
-        const updatedMarkdown = markdown + `\n\n${shareButton}`
+        const finalHtml = `
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>View Markdown</title>
+          </head>
+          <body>
+        ${htmlContent}
+        ${shareButton}
+          </body>
+          </html>
+        `
 
-        const htmlContent = marked.parse(updatedMarkdown)
-
-        return new Response(htmlContent, {
+        return new Response(finalHtml, {
           status: 200,
           headers: { 'Content-Type': 'text/html', ...corsHeaders },
         })
