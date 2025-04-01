@@ -76,9 +76,6 @@
             <!-- Register Button -->
             <RouterLink class="btn btn-outline-success me-3" to="/register"> Sign Up </RouterLink>
             <!-- Logo -->
-            <RouterLink class="navbar-brand" to="/">
-              <img src="@/assets/logo.svg" alt="Logo" height="40" />
-            </RouterLink>
           </div>
         </div>
       </nav>
