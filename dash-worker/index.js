@@ -25,7 +25,7 @@ export default {
         }
 
         const db = env.vegvisr_org
-        const query = `SELECT user_id, data, profileimage, emailVerificationToken FROM config WHERE email = ?;`
+        const query = `SELECT user_id, data, profileimage, emailVerificationToken, role FROM config WHERE email = ?;`
         const row = await db.prepare(query).bind(email).first()
 
         if (!row) {
@@ -36,6 +36,7 @@ export default {
             data: { profile: {}, settings: {} },
             profileimage: '',
             emailVerificationToken: null,
+            role: null,
           }
           return new Response(JSON.stringify(response), {
             status: 200,
@@ -49,6 +50,7 @@ export default {
           data: JSON.parse(row.data),
           profileimage: row.profileimage,
           emailVerificationToken: row.emailVerificationToken,
+          role: row.role, // Include role in the response
         }
         return new Response(JSON.stringify(response), {
           status: 200,

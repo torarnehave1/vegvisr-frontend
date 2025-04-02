@@ -20,6 +20,7 @@
 
         <h4>{{ data.profile.email || email }}</h4>
         <p>{{ data.profile.bio || 'No bio available' }}</p>
+        <p><strong>Role:</strong> {{ data.profile.role || 'N/A' }}</p>
       </div>
 
       <!-- Settings Section -->
@@ -82,6 +83,7 @@ export default {
           user_id: '', // Ensure user_id is initialized
           email: '',
           bio: '',
+          role: '', // Add role field
         },
         settings: {
           darkMode: false,
@@ -123,6 +125,7 @@ export default {
             user_id: result.user_id || this.data.profile.user_id, // Ensure user_id is updated
             email: result.email || this.data.profile.email,
             bio: this.data.profile.bio, // Keep existing bio if not provided
+            role: result.role || this.data.profile.role, // Map role field
           },
           settings: result.data?.settings || this.data.settings,
         }

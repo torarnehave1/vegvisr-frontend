@@ -14,14 +14,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex' // Import Vuex store
 
-// Declare the emit function at the top level
 const emit = defineEmits(['user-logged-in'])
-
 const email = ref('')
 const theme = ref('light') // Default theme is light
 const route = useRoute()
 const router = useRouter()
+const store = useStore() // Access Vuex store
 
 onMounted(() => {
   // Pre-fill the email field if provided in the query parameters
@@ -51,10 +51,9 @@ function handleLogin() {
       )
       const data = await res.json()
       if (data.exists && data.verified) {
-        // Allowed to login
-        window.UserEmail = email.value
-        localStorage.setItem('UserEmail', email.value)
-        console.log('UserEmail set in localStorage:', email.value)
+        // Use Vuex store to set UserEmail
+        store.commit('setUser', { email: email.value, role: null }) // Role will be fetched later
+        console.log('UserEmail set in Vuex store:', email.value)
         emit('user-logged-in', email.value)
         router.push('/protected').then(() => {
           window.location.reload()
