@@ -52,7 +52,7 @@ function handleLogin() {
       const data = await res.json()
 
       if (data && data.exists && data.verified) {
-        // Fetch user role from the server
+        // Fetch the user's role after verifying their email
         const roleRes = await fetch(
           `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(email.value)}`,
         )
