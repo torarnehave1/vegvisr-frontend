@@ -22,6 +22,9 @@
                 <RouterLink class="nav-link" to="/book">Book</RouterLink>
               </li>
               <li class="nav-item">
+                <RouterLink class="nav-link" to="/soundstudio">Sound Studio</RouterLink>
+              </li>
+              <li class="nav-item">
                 <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
               <li class="nav-item">

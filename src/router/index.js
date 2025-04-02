@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import UserRegistration from '../views/UserRegistration.vue'
 import LoginView from '../views/LoginView.vue'
-import ProtectedView from '../views/ProtectedView.vue' // Example protected view
+import SoundStudioView from '../views/SoundStudioView.vue' // Example protected view
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue' // Import DefaultLayout
 import BlogView from '../views/BlogView.vue' // Import BlogView
@@ -75,9 +75,16 @@ const router = createRouter({
       component: LoginView,
     },
     {
-      path: '/protected',
-      name: 'Protected',
-      component: ProtectedView,
+      path: '/soundstudio',
+      name: 'Soudstudio',
+      component: SoundStudioView,
+      props: (route) => ({ theme: route.query.theme || 'light' }), // Pass theme as a prop
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      },
+    },
+    {
       meta: { requiresAuth: true }, // Mark this route as requiring authentication
     },
     {

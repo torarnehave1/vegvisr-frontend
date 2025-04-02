@@ -1,7 +1,7 @@
 <template>
   <div class="protected-container">
-    <h1>Protected View</h1>
-    <p>You have access to this view because you are authenticated.</p>
+    <h1>Sound Studio View</h1>
+    <p>You have access because you are authenticated.</p>
   </div>
 </template>
 
