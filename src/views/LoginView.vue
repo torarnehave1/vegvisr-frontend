@@ -14,7 +14,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useStore } from 'vuex' // Import Vuex store
+import { useStore } from '@/store' // Correctly import Vuex store
 
 const emit = defineEmits(['user-logged-in'])
 const email = ref('')
