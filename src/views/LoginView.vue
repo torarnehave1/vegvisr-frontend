@@ -51,9 +51,13 @@ function handleLogin() {
       )
       const data = await res.json()
       if (data.exists && data.verified) {
-        // Use Vuex store to set UserEmail
-        store.commit('setUser', { email: email.value, role: null }) // Role will be fetched later
-        console.log('UserEmail set in Vuex store:', email.value)
+        // Fetch user role from the server
+        const roleRes = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
+        const roleData = await roleRes.json()
+
+        // Use Vuex store to set UserEmail and Role
+        store.commit('setUser', { email: email.value, role: roleData.role })
+        console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
         emit('user-logged-in', email.value)
         router.push('/protected').then(() => {
           window.location.reload()
@@ -63,7 +67,7 @@ function handleLogin() {
         router.push(`/register?email=${encodeURIComponent(email.value)}`)
       }
     } catch (error) {
-      console.error('Error checking email:', error)
+      console.error('Error checking email or fetching role:', error)
       // Optionally handle error (e.g. notify user)
     }
   })()
