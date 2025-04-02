@@ -58,16 +58,19 @@ function handleLogin() {
         )
         const roleData = await roleRes.json()
 
+        console.log('Role data response:', roleData) // Log the role data for debugging
+
         if (roleData && roleData.role) {
           // Use Vuex store to set UserEmail and Role
           store.commit('setUser', { email: email.value, role: roleData.role })
           console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
           emit('user-logged-in', email.value)
-          router.push('/protected').then(() => {
+          router.push('/user').then(() => {
             window.location.reload()
           })
         } else {
-          console.error('Error: Role data is missing or invalid.')
+          console.error('Error: Role data is missing or invalid. Response:', roleData)
+          alert('Unable to retrieve user role. Please contact support.') // Notify the user
         }
       } else {
         // Redirect to register endpoint; prefill email if applicable
@@ -75,7 +78,7 @@ function handleLogin() {
       }
     } catch (error) {
       console.error('Error checking email or fetching role:', error)
-      // Optionally handle error (e.g. notify user)
+      alert('An error occurred during login. Please try again later.') // Notify the user
     }
   })()
 }
