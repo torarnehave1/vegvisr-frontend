@@ -32,7 +32,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 const posts = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
-const postsPerPage = 5
+const postsPerPage = 9
 
 // Props
 const props = defineProps({
@@ -119,7 +119,7 @@ onMounted(() => {
 
 .blog-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr); /* Set to 3 columns */
   gap: 1rem;
 }
 
