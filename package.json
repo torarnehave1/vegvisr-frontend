@@ -27,7 +27,8 @@
     "openai": "^4.87.3",
     "uuid": "^11.1.0",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "vue-router": "^4.5.0",
+    "vuex": "^4.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
