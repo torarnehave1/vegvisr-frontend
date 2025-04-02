@@ -196,17 +196,19 @@ export default {
         }
 
         const db = env.vegvisr_org
-        const query = `SELECT role FROM config WHERE email = ?;`
+        const query = `SELECT Role FROM config WHERE email = ?;` // Ensure column name matches database schema
         const row = await db.prepare(query).bind(email).first()
 
-        if (!row || !row.role) {
+        if (!row || !row.Role) {
+          // Use the correct case for the column name
           return new Response(JSON.stringify({ error: 'Role not found for the given email' }), {
             status: 404,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         }
 
-        return new Response(JSON.stringify({ email, role: row.role }), {
+        return new Response(JSON.stringify({ email, role: row.Role }), {
+          // Use the correct case here as well
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
