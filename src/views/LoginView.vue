@@ -52,7 +52,9 @@ function handleLogin() {
       const data = await res.json()
       if (data.exists && data.verified) {
         // Fetch user role from the server
-        const roleRes = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
+        const roleRes = await fetch(
+          `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(email.value)}`,
+        )
         const roleData = await roleRes.json()
 
         // Use Vuex store to set UserEmail and Role
