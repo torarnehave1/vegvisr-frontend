@@ -14,6 +14,7 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
+        <button @click="deletePost(post.id)" class="delete-button">Delete</button>
       </div>
     </div>
     <div class="pagination">
@@ -90,6 +91,21 @@ function changePage(page) {
 // Navigate to the full post view
 function viewPost(id) {
   window.open(`https://api.vegvisr.org/view/${id}`, '_blank') // Open in a new tab or window
+}
+
+// Delete a blog post
+async function deletePost(id) {
+  if (confirm('Are you sure you want to delete this post?')) {
+    try {
+      const response = await fetch(`https://api.vegvisr.org/blogpostdelete/${id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error('Failed to delete post')
+      posts.value = posts.value.filter((post) => post.id !== id)
+    } catch (error) {
+      console.error('Error deleting post:', error)
+    }
+  }
 }
 
 onMounted(() => {
@@ -178,5 +194,20 @@ onMounted(() => {
 
 .pagination button:hover:not(:disabled) {
   background-color: #0056b3;
+}
+
+.delete-button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #dc3545;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.delete-button:hover {
+  background-color: #c82333;
 }
 </style>

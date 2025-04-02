@@ -152,6 +152,16 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
+      if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
+        const id = pathname.split('/').pop()
+        if (!id) {
+          return new Response('Blog post ID is required', { status: 400, headers: corsHeaders })
+        }
+
+        await env.BINDING_NAME.delete(id)
+        return new Response('Blog post deleted successfully', { status: 200, headers: corsHeaders })
+      }
+
       if (pathname === '/snippetadd' && request.method === 'POST') {
         const { id, content } = await request.json()
         if (!id || !content) {
