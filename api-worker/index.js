@@ -8,7 +8,7 @@ export default {
     // Middleware for CORS
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
       'Access-Control-Allow-Headers': 'Content-Type',
     }
 
