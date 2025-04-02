@@ -108,6 +108,7 @@ export default {
   mounted() {
     if (this.email) {
       this.fetchUserData()
+      this.fetchUserRole() // Fetch role after fetching user data
     }
   },
   methods: {
@@ -140,6 +141,20 @@ export default {
         console.error('Error fetching user data:', error)
         alert('Failed to fetch user data. Please try again later.')
         this.applyTheme() // Ensure theme is applied even if fetching fails
+      }
+    },
+    async fetchUserRole() {
+      try {
+        const response = await fetch(`https://dashboard.vegvisr.org/get-role?email=${this.email}`)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        const result = await response.json()
+        if (result.role) {
+          this.data.profile.role = result.role // Update role in profile
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error)
       }
     },
     async onFileChange(event) {
