@@ -120,6 +120,7 @@ onMounted(() => {
 .blog-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr); /* Set to 3 columns */
+  grid-auto-rows: 1fr; /* Ensure rows are of equal height */
   gap: 1rem;
 }
 
