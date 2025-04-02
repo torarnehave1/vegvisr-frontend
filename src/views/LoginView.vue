@@ -50,20 +50,25 @@ function handleLogin() {
         `https://test.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
       )
       const data = await res.json()
-      if (data.exists && data.verified) {
+
+      if (data && data.exists && data.verified) {
         // Fetch user role from the server
         const roleRes = await fetch(
           `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(email.value)}`,
         )
         const roleData = await roleRes.json()
 
-        // Use Vuex store to set UserEmail and Role
-        store.commit('setUser', { email: email.value, role: roleData.role })
-        console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
-        emit('user-logged-in', email.value)
-        router.push('/protected').then(() => {
-          window.location.reload()
-        })
+        if (roleData && roleData.role) {
+          // Use Vuex store to set UserEmail and Role
+          store.commit('setUser', { email: email.value, role: roleData.role })
+          console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
+          emit('user-logged-in', email.value)
+          router.push('/protected').then(() => {
+            window.location.reload()
+          })
+        } else {
+          console.error('Error: Role data is missing or invalid.')
+        }
       } else {
         // Redirect to register endpoint; prefill email if applicable
         router.push(`/register?email=${encodeURIComponent(email.value)}`)
