@@ -15,4 +15,10 @@ const store = createStore({
   },
 })
 
+// Export the store instance
 export default store
+
+// Export a useStore function for accessing the store
+export function useStore() {
+  return store
+}
