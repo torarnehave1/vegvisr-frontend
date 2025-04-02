@@ -185,6 +185,40 @@ export default {
       }
     }
 
+    if (pathname === '/get-role' && request.method === 'GET') {
+      try {
+        const email = url.searchParams.get('email')
+        if (!email) {
+          return new Response(JSON.stringify({ error: 'Missing email parameter' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const db = env.vegvisr_org
+        const query = `SELECT role FROM config WHERE email = ?;`
+        const row = await db.prepare(query).bind(email).first()
+
+        if (!row || !row.role) {
+          return new Response(JSON.stringify({ error: 'Role not found for the given email' }), {
+            status: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        return new Response(JSON.stringify({ email, role: row.role }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error in GET /get-role:', error)
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     // Default route for unmatched paths
     return new Response('Not Found', { status: 404, headers: corsHeaders })
   },
