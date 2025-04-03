@@ -123,11 +123,16 @@ export default {
   },
   methods: {
     async waitForStore() {
-      // Wait for Vuex store to be initialized
+      const timeout = 5000 // Maximum wait time in milliseconds
+      const startTime = Date.now()
+
       const checkInterval = setInterval(() => {
         if (this.email && this.userRole) {
           this.isStoreReady = true
           console.log('Store is ready: Email:', this.email, 'Role:', this.userRole)
+          clearInterval(checkInterval)
+        } else if (Date.now() - startTime > timeout) {
+          console.error('Timeout waiting for store to initialize')
           clearInterval(checkInterval)
         } else {
           console.warn(
