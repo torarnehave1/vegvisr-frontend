@@ -79,34 +79,44 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
-        const markdown = await env.BINDING_NAME.get(id)
+        const markdown = await env.BINDING_NAME.get(id) // Fetch Markdown content from KV namespace // Fetch Markdown content from KV namespace
         if (!markdown) {
           return new Response('Not Found', { status: 404 })
         }
 
+        const url = new URL(request.url)
+        const raw = url.searchParams.get('raw') === 'true' // Check if raw content is requested
+        // Convert Markdown to HTML
+        if (raw) {
+          // Return raw Markdown content
+          return new Response(markdown, {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+          })
+        }
+
         const fullUrl = `https://api.vegvisr.org/view/${id}`
 
-        const htmlContent = marked.parse(markdown)
+        const htmlContent = marked.parse(markdown) // Convert Markdown to HTML
 
         const shareButton = `
           <div style="text-align: center; margin-top: 20px;">
-        <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(fullUrl)}" target="_blank" class="btn btn-primary">
-          Share on Facebook
-        </a>
+            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(fullUrl)}" target="_blank" class="btn btn-primary">
+              Share on Facebook
+            </a>
           </div>
-        `
-
+`
         const finalHtml = `
           <!DOCTYPE html>
           <html lang="en">
           <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>View Markdown</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>View Markdown</title>
           </head>
           <body>
-        ${htmlContent}
-        ${shareButton}
+            ${htmlContent}
+            ${shareButton}
           </body>
           </html>
         `

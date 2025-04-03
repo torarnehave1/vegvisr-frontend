@@ -100,9 +100,9 @@ function viewPost(id) {
 // Open the blog post in the editor view
 async function openInEditor(id) {
   try {
-    const response = await fetch(`https://api.vegvisr.org/view/${id}`) // Fetch content from KV namespace
+    const response = await fetch(`https://api.vegvisr.org/view/${id}?raw=true`) // Fetch raw Markdown content
     if (!response.ok) throw new Error('Failed to fetch post content')
-    const content = await response.text() // Get the content from the KV namespace
+    const content = await response.text() // Get the raw Markdown content
     console.log('Opening post in editor with content:', content) // Debugging log
     router.push({ name: 'EditorView', query: { content } }) // Pass content to EditorView
   } catch (error) {
