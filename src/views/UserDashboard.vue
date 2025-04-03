@@ -1,5 +1,5 @@
 <template>
-  <div class="container my-5">
+  <div v-if="isStoreReady" class="container my-5">
     <!-- Title Section: full width, centered -->
     <div class="row mb-4">
       <div class="col-12 text-center">
@@ -93,6 +93,7 @@ export default {
       },
       profileImage: '', // Default profile image
       selectedFile: null, // Add selectedFile to handle file input
+      isStoreReady: false, // Track if the Vuex store is ready
     }
   },
   computed: {
@@ -118,17 +119,25 @@ export default {
     }
   },
   mounted() {
-    console.log('Mounted: Email:', this.email, 'Role:', this.userRole)
+    this.checkStoreReady()
   },
   watch: {
     email(newEmail) {
       console.log('Email updated:', newEmail)
+      this.checkStoreReady()
     },
     userRole(newRole) {
       console.log('Role updated:', newRole)
+      this.checkStoreReady()
     },
   },
   methods: {
+    checkStoreReady() {
+      if (this.email && this.userRole) {
+        this.isStoreReady = true
+        console.log('Store is ready: Email:', this.email, 'Role:', this.userRole)
+      }
+    },
     async onFileChange(event) {
       this.selectedFile = event.target.files[0]
     },
