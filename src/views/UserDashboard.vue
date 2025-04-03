@@ -93,7 +93,6 @@ export default {
         },
       },
       profileImage: '', // Default profile image
-      email: localStorage.getItem('UserEmail') || '', // Fetch email from localStorage
       selectedFile: null, // Add selectedFile to handle file input
     }
   },
@@ -105,64 +104,22 @@ export default {
       }
       return userId
     },
+    email() {
+      return this.store.state.user.email // Fetch email from Vuex store
+    },
   },
   setup() {
     const store = useStore()
 
     return {
+      store,
       userRole: store.state.user.role, // Access role from Vuex store
     }
   },
   mounted() {
-    if (this.email) {
-      this.fetchUserData()
-    }
+    // Removed fetchUserData functionality
   },
   methods: {
-    async fetchUserData() {
-      try {
-        console.log('Fetching user data for email:', this.email)
-        const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
-        if (!response.ok) {
-          console.error(`Failed to fetch user data. HTTP status: ${response.status}`)
-          throw new Error(`HTTP error! status: ${response.status}`)
-        }
-        const result = await response.json()
-        console.log('Fetched user data:', result)
-
-        // Validate the response structure
-        if (!result.data || !result.data.profile || !result.data.settings) {
-          console.error('Invalid response structure:', result)
-          throw new Error('Invalid response structure')
-        }
-
-        // Update profile and settings with data from the API
-        this.data = {
-          profile: {
-            user_id: result.user_id || this.data.profile.user_id,
-            email: result.email || this.data.profile.email,
-            bio: result.data.profile.bio || this.data.profile.bio,
-          },
-          settings: result.data.settings || this.data.settings,
-        }
-
-        // Handle null profile image
-        this.profileImage =
-          result.profileimage ||
-          'https://5d9b2060ef095c777711a8649c24914e.r2.cloudflarestorage.com/images/logo.svg'
-
-        this.applyTheme() // Apply theme after fetching user data
-      } catch (error) {
-        if (error.name === 'TypeError') {
-          console.error('Network error or invalid API endpoint:', error.message)
-        } else {
-          console.error('Error fetching user data:', error.message)
-        }
-        console.error('Stack trace:', error.stack)
-        alert('Failed to fetch user data. Please check your network connection or try again later.')
-        this.applyTheme() // Ensure theme is applied even if fetching fails
-      }
-    },
     async onFileChange(event) {
       this.selectedFile = event.target.files[0]
     },
