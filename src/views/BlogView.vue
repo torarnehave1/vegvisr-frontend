@@ -100,11 +100,11 @@ function viewPost(id) {
 // Open the blog post in the editor view
 async function openInEditor(id) {
   try {
-    const response = await fetch(`https://api.vegvisr.org/view/${id}`)
+    const response = await fetch(`https://api.vegvisr.org/view/${id}`) // Fetch content from KV namespace
     if (!response.ok) throw new Error('Failed to fetch post content')
-    const content = await response.text()
+    const content = await response.text() // Get the content from the KV namespace
     console.log('Opening post in editor with content:', content) // Debugging log
-    router.push({ name: 'EditorView', query: { content } })
+    router.push({ name: 'EditorView', query: { content } }) // Pass content to EditorView
   } catch (error) {
     console.error('Error opening post in editor:', error)
     alert('Failed to open post in editor. Please try again.')
