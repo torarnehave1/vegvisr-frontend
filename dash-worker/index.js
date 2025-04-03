@@ -16,8 +16,10 @@ export default {
 
     if (pathname === '/userdata' && request.method === 'GET') {
       try {
+        console.log('Received GET /userdata request with query:', url.searchParams.toString())
         const email = url.searchParams.get('email')
         if (!email) {
+          console.error('Missing email parameter in GET /userdata request')
           return new Response(JSON.stringify({ error: 'Missing email parameter' }), {
             status: 400,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -26,9 +28,11 @@ export default {
 
         const db = env.vegvisr_org
         const query = `SELECT user_id, data, profileimage, emailVerificationToken, role FROM config WHERE email = ?;`
+        console.log('Executing database query:', query, 'with email:', email)
         const row = await db.prepare(query).bind(email).first()
 
         if (!row) {
+          console.warn('No data found for email:', email)
           // If no data exists, return a default structure
           const response = {
             email,
@@ -52,12 +56,14 @@ export default {
           emailVerificationToken: row.emailVerificationToken,
           role: row.role, // Include role in the response
         }
+        console.log('Returning response for GET /userdata:', JSON.stringify(response, null, 2))
         return new Response(JSON.stringify(response), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       } catch (error) {
-        console.error('Error in GET /userdata:', error)
+        console.error('Error in GET /userdata:', error.message)
+        console.error('Stack trace:', error.stack)
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

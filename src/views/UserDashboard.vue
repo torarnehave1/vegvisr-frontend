@@ -145,7 +145,11 @@ export default {
 
         this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
-        console.error('Error fetching user data:', error.message)
+        if (error.name === 'TypeError') {
+          console.error('Network error or invalid API endpoint:', error.message)
+        } else {
+          console.error('Error fetching user data:', error.message)
+        }
         console.error('Stack trace:', error.stack)
         alert('Failed to fetch user data. Please check your network connection or try again later.')
         this.applyTheme() // Ensure theme is applied even if fetching fails
