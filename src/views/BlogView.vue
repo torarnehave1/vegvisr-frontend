@@ -31,6 +31,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useStore } from '@/store'
 
 const posts = ref([])
 const searchQuery = ref('')
@@ -38,6 +39,7 @@ const currentPage = ref(1)
 const postsPerPage = 9
 
 const router = useRouter()
+const store = useStore() // Access the Vuex store
 
 // Props
 const props = defineProps({
@@ -104,6 +106,8 @@ async function openInEditor(id) {
     if (!response.ok) throw new Error('Failed to fetch post content')
     const content = await response.text() // Get the raw Markdown content
     console.log('Opening post in editor with content:', content) // Debugging log
+
+    store.commit('setCurrentBlogId', id) // Set the current blog ID in the Vuex store
     router.push({ name: 'EditorView', query: { content } }) // Pass content to EditorView
   } catch (error) {
     console.error('Error opening post in editor:', error)

@@ -62,14 +62,14 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
-        const { markdown } = await request.json()
+        const { id, markdown } = await request.json()
         if (!markdown) {
           return new Response('Markdown content is missing', { status: 400 })
         }
 
-        const id = crypto.randomUUID()
-        await env.BINDING_NAME.put(id, markdown, { metadata: { encoding: 'utf-8' } })
-        const shareableLink = `https://api.vegvisr.org/view/${id}`
+        const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
+        await env.BINDING_NAME.put(blogId, markdown, { metadata: { encoding: 'utf-8' } })
+        const shareableLink = `https://api.vegvisr.org/view/${blogId}`
 
         return new Response(JSON.stringify({ link: shareableLink }), {
           status: 200,

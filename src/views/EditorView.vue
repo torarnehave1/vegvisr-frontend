@@ -55,8 +55,10 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
+import { useStore } from '@/store'
 
 const route = useRoute()
+const store = useStore() // Access the Vuex store
 const isEmbedded = ref(false)
 
 const mode = ref('edit')
@@ -106,12 +108,18 @@ function setMode(newMode) {
 // Save markdown content and display shareable link
 async function saveContent() {
   try {
+    const blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
+    if (!blogId) {
+      alert('No blog ID found. Please open a blog post before saving.')
+      return
+    }
+
     const response = await fetch('https://api.vegvisr.org/save', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ markdown: markdown.value }),
+      body: JSON.stringify({ id: blogId, markdown: markdown.value }), // Include the blog ID
     })
 
     if (!response.ok) {
@@ -120,6 +128,7 @@ async function saveContent() {
 
     const data = await response.json()
     shareableLink.value = data.link
+    alert('Content saved successfully.')
   } catch (error) {
     console.error('Error saving content:', error)
     alert('Failed to save content. Please try again.')
