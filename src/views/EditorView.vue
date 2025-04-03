@@ -108,28 +108,46 @@ function setMode(newMode) {
 // Save markdown content and display shareable link
 async function saveContent() {
   try {
-    const blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
+    let blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
+
+    // If no blog ID is found, generate a new one (new blog post)
     if (!blogId) {
-      console.warn('No blog ID found. Please open a blog post before saving.')
-      return
+      console.warn('No blog ID found. Creating a new blog post.')
+      const response = await fetch('https://api.vegvisr.org/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ markdown: markdown.value }), // Save without an ID to generate a new one
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save new blog post')
+      }
+
+      const data = await response.json()
+      blogId = data.link.split('/').pop() // Extract the new blog ID from the returned link
+      store.commit('setCurrentBlogId', blogId) // Update the Vuex store with the new blog ID
+      shareableLink.value = data.link
+    } else {
+      // Save existing blog post
+      const response = await fetch('https://api.vegvisr.org/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: blogId, markdown: markdown.value }), // Include the blog ID
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save content')
+      }
+
+      const data = await response.json()
+      shareableLink.value = data.link
     }
 
-    const response = await fetch('https://api.vegvisr.org/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ id: blogId, markdown: markdown.value }), // Include the blog ID
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to save content')
-    }
-
-    const data = await response.json()
-    shareableLink.value = data.link
-
-    // Display a message element for 3 seconds
+    // Display a success message
     const messageElement = document.createElement('div')
     messageElement.textContent = 'Content saved successfully.'
     messageElement.style.position = 'fixed'
