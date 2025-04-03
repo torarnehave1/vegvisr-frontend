@@ -20,6 +20,12 @@ function handleUserLoggedIn(email) {
   userState.email = email
 }
 
+function handleLogout() {
+  userState.email = ''
+  localStorage.removeItem('UserEmail')
+  localStorage.removeItem('jwt-vegvisr.org')
+}
+
 function setTheme(newTheme) {
   theme.value = newTheme
   localStorage.setItem('theme', newTheme)
@@ -31,8 +37,10 @@ function setTheme(newTheme) {
     :is="currentLayout"
     :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]"
     :theme="theme"
+    :user-email="userState.email"
     @set-theme="setTheme"
     @user-logged-in="handleUserLoggedIn"
+    @logout="handleLogout"
   >
     <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
   </component>

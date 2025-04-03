@@ -67,18 +67,13 @@
             </div>
 
             <!-- Logout Button -->
-            <button
-              v-if="$emit('user-email')"
-              class="btn btn-outline-danger me-2"
-              @click="$emit('logout')"
-            >
+            <button v-if="userEmail" class="btn btn-outline-danger me-2" @click="$emit('logout')">
               Logout
             </button>
             <!-- Login Button -->
             <RouterLink v-else class="btn btn-outline-primary me-2" to="/login"> Login </RouterLink>
             <!-- Register Button -->
             <RouterLink class="btn btn-outline-success me-3" to="/register"> Sign Up </RouterLink>
-            <!-- Logo -->
           </div>
         </div>
       </nav>
@@ -98,8 +93,12 @@ defineProps({
     type: String,
     default: 'light',
   },
+  userEmail: {
+    type: String,
+    default: '',
+  },
 })
-defineEmits(['set-theme'])
+defineEmits(['set-theme', 'logout'])
 </script>
 
 <style scoped>
