@@ -105,10 +105,10 @@ export default {
       return userId
     },
     email() {
-      return this.store.state.user.email // Fetch email from Vuex store
+      return this.store.state.user?.email || null // Fetch email from Vuex store
     },
     userRole() {
-      return this.store.state.user.role // Fetch role from Vuex store
+      return this.store.state.user?.role || null // Fetch role from Vuex store
     },
   },
   setup() {
@@ -119,26 +119,25 @@ export default {
     }
   },
   mounted() {
-    this.checkStoreReady()
-  },
-  watch: {
-    email(newEmail) {
-      console.log('Email updated:', newEmail)
-      this.checkStoreReady()
-    },
-    userRole(newRole) {
-      console.log('Role updated:', newRole)
-      this.checkStoreReady()
-    },
+    this.waitForStore()
   },
   methods: {
-    checkStoreReady() {
-      if (!this.isStoreReady && this.email && this.userRole) {
-        this.isStoreReady = true
-        console.log('Store is ready: Email:', this.email, 'Role:', this.userRole)
-      } else if (!this.email || !this.userRole) {
-        console.warn('Store is not ready: Email:', this.email, 'Role:', this.userRole)
-      }
+    async waitForStore() {
+      // Wait for Vuex store to be initialized
+      const checkInterval = setInterval(() => {
+        if (this.email && this.userRole) {
+          this.isStoreReady = true
+          console.log('Store is ready: Email:', this.email, 'Role:', this.userRole)
+          clearInterval(checkInterval)
+        } else {
+          console.warn(
+            'Waiting for store to initialize: Email:',
+            this.email,
+            'Role:',
+            this.userRole,
+          )
+        }
+      }, 100) // Check every 100ms
     },
     async onFileChange(event) {
       this.selectedFile = event.target.files[0]
