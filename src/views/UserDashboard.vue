@@ -121,21 +121,29 @@ export default {
   methods: {
     async fetchUserData() {
       try {
+        console.log('Fetching user data for email:', this.email)
         const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
           console.error(`Failed to fetch user data. HTTP status: ${response.status}`)
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         const result = await response.json()
+        console.log('Fetched user data:', result)
+
+        // Validate the response structure
+        if (!result.data || !result.data.profile || !result.data.settings) {
+          console.error('Invalid response structure:', result)
+          throw new Error('Invalid response structure')
+        }
 
         // Update profile and settings with data from the API
         this.data = {
           profile: {
             user_id: result.user_id || this.data.profile.user_id,
             email: result.email || this.data.profile.email,
-            bio: this.data.profile.bio,
+            bio: result.data.profile.bio || this.data.profile.bio,
           },
-          settings: result.data?.settings || this.data.settings,
+          settings: result.data.settings || this.data.settings,
         }
 
         // Handle null profile image
