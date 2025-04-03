@@ -120,6 +120,7 @@ export default {
   },
   mounted() {
     this.waitForStore()
+    this.fetchUserData() // Fetch user data on mount
   },
   methods: {
     async waitForStore() {
@@ -143,6 +144,25 @@ export default {
           )
         }
       }, 100) // Check every 100ms
+    },
+    async fetchUserData() {
+      try {
+        const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        const result = await response.json()
+        if (result) {
+          console.log('Fetched user data:', result)
+          this.data.profile = result.data.profile || {}
+          this.data.settings = result.data.settings || {}
+          this.profileImage = result.profileimage || ''
+        } else {
+          console.warn('No user data found')
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error)
+      }
     },
     async onFileChange(event) {
       this.selectedFile = event.target.files[0]
