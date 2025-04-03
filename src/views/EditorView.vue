@@ -35,6 +35,13 @@
       <span v-else>New</span>
     </div>
 
+    <div class="visibility-toggle">
+      <label>
+        <input type="checkbox" v-model="isVisible" />
+        Visible in Blog Listing
+      </label>
+    </div>
+
     <!-- Context Menu -->
     <div
       v-if="contextMenu.visible"
@@ -72,6 +79,7 @@ const textareaRef = ref(null)
 const cursorPosition = ref(0) // Track the cursor position
 const pendingSnippet = ref(null) // Temporary variable to store the snippet
 const fileInput = ref(null) // Reference to the file input
+const isVisible = ref(true) // Default visibility is true
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -120,7 +128,7 @@ async function saveContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ markdown: markdown.value }), // Save without an ID to generate a new one
+        body: JSON.stringify({ markdown: markdown.value, isVisible: isVisible.value }), // Include visibility
       })
 
       if (!response.ok) {
@@ -138,7 +146,7 @@ async function saveContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id: blogId, markdown: markdown.value }), // Include the blog ID
+        body: JSON.stringify({ id: blogId, markdown: markdown.value, isVisible: isVisible.value }), // Include visibility
       })
 
       if (!response.ok) {
@@ -560,5 +568,21 @@ textarea {
 
 .upload-form button:hover {
   background-color: #0056b3;
+}
+
+.visibility-toggle {
+  margin-top: 1rem;
+  font-size: 1rem;
+}
+
+.visibility-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.visibility-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
 }
 </style>

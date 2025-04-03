@@ -62,13 +62,17 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
-        const { id, markdown } = await request.json()
+        const { id, markdown, isVisible } = await request.json()
         if (!markdown) {
           return new Response('Markdown content is missing', { status: 400 })
         }
 
+        // Determine the key prefix based on visibility
+        const prefix = isVisible ? 'vis:' : 'hid:'
         const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
-        await env.BINDING_NAME.put(blogId, markdown, { metadata: { encoding: 'utf-8' } })
+        const key = `${prefix}${blogId}` // Add the prefix to the key
+
+        await env.BINDING_NAME.put(key, markdown, { metadata: { encoding: 'utf-8' } })
         const shareableLink = `https://api.vegvisr.org/view/${blogId}`
 
         return new Response(JSON.stringify({ link: shareableLink }), {
@@ -79,16 +83,22 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
-        const markdown = await env.BINDING_NAME.get(id) // Fetch Markdown content from KV namespace // Fetch Markdown content from KV namespace
+        const key = `vis:${id}` // Assume visible by default
+        let markdown = await env.BINDING_NAME.get(key)
+
+        if (!markdown) {
+          // Check if the post is hidden
+          const hiddenKey = `hid:${id}`
+          markdown = await env.BINDING_NAME.get(hiddenKey)
+        }
+
         if (!markdown) {
           return new Response('Not Found', { status: 404 })
         }
 
         const url = new URL(request.url)
         const raw = url.searchParams.get('raw') === 'true' // Check if raw content is requested
-        // Convert Markdown to HTML
         if (raw) {
-          // Return raw Markdown content
           return new Response(markdown, {
             status: 200,
             headers: { 'Content-Type': 'text/plain', ...corsHeaders },
@@ -96,8 +106,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         }
 
         const fullUrl = `https://api.vegvisr.org/view/${id}`
-
-        const htmlContent = marked.parse(markdown) // Convert Markdown to HTML
+        const htmlContent = marked.parse(markdown)
 
         const shareButton = `
           <div style="text-align: center; margin-top: 20px;">
@@ -105,7 +114,7 @@ The researchers believe that physical activity may help reduce the risk of demen
               Share on Facebook
             </a>
           </div>
-`
+        `
         const finalHtml = `
           <!DOCTYPE html>
           <html lang="en">
@@ -132,6 +141,8 @@ The researchers believe that physical activity may help reduce the risk of demen
         const posts = []
 
         for (const key of keys.keys) {
+          if (!key.name.startsWith('vis:')) continue // Only include visible posts
+
           const markdown = await env.BINDING_NAME.get(key.name)
           if (markdown) {
             const lines = markdown.split('\n')
@@ -147,7 +158,7 @@ The researchers believe that physical activity may help reduce the risk of demen
             const abstract = abstractLine ? abstractLine.slice(0, 100) + '...' : ''
 
             posts.push({
-              id: key.name,
+              id: key.name.replace(/^vis:/, ''), // Remove the prefix for the ID
               title,
               snippet: lines.slice(1, 3).join(' '),
               abstract,
