@@ -67,12 +67,22 @@ The researchers believe that physical activity may help reduce the risk of demen
           return new Response('Markdown content is missing', { status: 400 })
         }
 
-        // Determine the key prefix based on visibility
-        const prefix = isVisible ? 'vis:' : 'hid:'
+        const newPrefix = isVisible ? 'vis:' : 'hid:'
         const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
-        const key = `${prefix}${blogId}` // Add the prefix to the key
+        const newKey = `${newPrefix}${blogId}` // Add the new prefix to the key
 
-        await env.BINDING_NAME.put(key, markdown, { metadata: { encoding: 'utf-8' } })
+        if (id) {
+          // If an ID is provided, check if the key needs to be updated
+          const currentVisibleKey = `vis:${id}`
+          const currentHiddenKey = `hid:${id}`
+
+          // Delete the old key if it exists
+          await env.BINDING_NAME.delete(currentVisibleKey)
+          await env.BINDING_NAME.delete(currentHiddenKey)
+        }
+
+        // Save the new key with the updated visibility
+        await env.BINDING_NAME.put(newKey, markdown, { metadata: { encoding: 'utf-8' } })
         const shareableLink = `https://api.vegvisr.org/view/${blogId}`
 
         return new Response(JSON.stringify({ link: shareableLink }), {
