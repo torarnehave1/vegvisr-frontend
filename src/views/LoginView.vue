@@ -65,9 +65,7 @@ function handleLogin() {
           store.commit('setUser', { email: email.value, role: roleData.role })
           console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
           emit('user-logged-in', email.value)
-          router.push('/user').then(() => {
-            window.location.reload()
-          })
+          router.push('/user') // Removed window.location.reload()
         } else {
           console.error('Error: Role data is missing or invalid. Response:', roleData)
           alert('Unable to retrieve user role. Please contact support.') // Notify the user
