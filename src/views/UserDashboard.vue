@@ -20,7 +20,7 @@
 
         <h4>{{ data.profile.email || email }}</h4>
         <p>{{ data.profile.bio || 'No bio available' }}</p>
-        <p><strong>Role:</strong> {{ data.profile.role || 'N/A' }}</p>
+        <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
 
       <!-- Settings Section -->
@@ -75,6 +75,8 @@
 </template>
 
 <script>
+import { useStore } from '@/store'
+
 export default {
   data() {
     return {
@@ -83,7 +85,6 @@ export default {
           user_id: '', // Ensure user_id is initialized
           email: '',
           bio: '',
-          role: '', // Add role field
         },
         settings: {
           darkMode: false,
@@ -105,10 +106,16 @@ export default {
       return userId
     },
   },
+  setup() {
+    const store = useStore()
+
+    return {
+      userRole: store.state.user.role, // Access role from Vuex store
+    }
+  },
   mounted() {
     if (this.email) {
       this.fetchUserData()
-      this.fetchUserRole() // Fetch role after fetching user data
     }
   },
   methods: {
@@ -126,7 +133,6 @@ export default {
             user_id: result.user_id || this.data.profile.user_id, // Ensure user_id is updated
             email: result.email || this.data.profile.email,
             bio: this.data.profile.bio, // Keep existing bio if not provided
-            role: result.role || this.data.profile.role, // Map role field
           },
           settings: result.data?.settings || this.data.settings,
         }
@@ -141,20 +147,6 @@ export default {
         console.error('Error fetching user data:', error)
         alert('Failed to fetch user data. Please try again later.')
         this.applyTheme() // Ensure theme is applied even if fetching fails
-      }
-    },
-    async fetchUserRole() {
-      try {
-        const response = await fetch(`https://dashboard.vegvisr.org/get-role?email=${this.email}`)
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
-        }
-        const result = await response.json()
-        if (result.role) {
-          this.data.profile.role = result.role // Update role in profile
-        }
-      } catch (error) {
-        console.error('Error fetching user role:', error)
       }
     },
     async onFileChange(event) {
