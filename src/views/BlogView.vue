@@ -4,6 +4,11 @@
     <div class="search-bar">
       <input v-model="searchQuery" placeholder="Search blog posts..." />
     </div>
+    <div v-if="isAdminOrSuperadmin" class="toggle-visibility">
+      <button @click="toggleHiddenPosts">
+        {{ showHiddenPosts ? 'Show Visible Blog Posts' : 'Show Hidden Blog Posts' }}
+      </button>
+    </div>
     <div class="blog-cards">
       <div
         v-for="post in filteredPosts"
@@ -37,6 +42,7 @@ const posts = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
 const postsPerPage = 9
+const showHiddenPosts = ref(false) // Toggle for showing hidden posts
 
 const router = useRouter()
 const store = useStore() // Access the Vuex store
@@ -67,10 +73,18 @@ function applyTheme(newTheme) {
   }
 }
 
+// Check if the user is an Admin or Superadmin
+const isAdminOrSuperadmin = computed(() => {
+  return store.state.user.role === 'Admin' || store.state.user.role === 'Superadmin'
+})
+
 // Fetch blog posts from the KV store
 async function fetchPosts() {
   try {
-    const response = await fetch('https://api.vegvisr.org/blog-posts') // Replace with your API endpoint
+    const endpoint = showHiddenPosts.value
+      ? 'https://api.vegvisr.org/hidden-blog-posts' // Endpoint for hidden posts
+      : 'https://api.vegvisr.org/blog-posts' // Endpoint for visible posts
+    const response = await fetch(endpoint)
     if (!response.ok) throw new Error('Failed to fetch posts')
     posts.value = await response.json()
   } catch (error) {
@@ -128,6 +142,12 @@ async function deletePost(id) {
       console.error('Error deleting post:', error)
     }
   }
+}
+
+// Toggle between showing visible and hidden posts
+function toggleHiddenPosts() {
+  showHiddenPosts.value = !showHiddenPosts.value
+  fetchPosts() // Refetch posts based on the toggle
 }
 
 onMounted(() => {
@@ -245,6 +265,24 @@ onMounted(() => {
 }
 
 .open-button:hover {
+  background-color: #0056b3;
+}
+
+.toggle-visibility {
+  margin-bottom: 1rem;
+}
+
+.toggle-visibility button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.toggle-visibility button:hover {
   background-color: #0056b3;
 }
 </style>

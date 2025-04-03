@@ -183,6 +183,43 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
+      if (pathname === '/hidden-blog-posts' && request.method === 'GET') {
+        const keys = await env.BINDING_NAME.list()
+        const posts = []
+
+        for (const key of keys.keys) {
+          if (!key.name.startsWith('hid:')) continue // Only include hidden posts
+
+          const markdown = await env.BINDING_NAME.get(key.name)
+          if (markdown) {
+            const lines = markdown.split('\n')
+            const titleLine = lines.find((line) => line.startsWith('#') && !line.includes('!['))
+            const title = titleLine ? titleLine.replace(/^#\s*/, '') : 'Untitled'
+
+            const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/)
+            const imageUrl = imageMatch ? imageMatch[1] : null
+
+            const abstractLine = lines.find(
+              (line) => line.trim() && !line.startsWith('#') && !line.includes('!['),
+            )
+            const abstract = abstractLine ? abstractLine.slice(0, 100) + '...' : ''
+
+            posts.push({
+              id: key.name.replace(/^hid:/, ''), // Remove the prefix for the ID
+              title,
+              snippet: lines.slice(1, 3).join(' '),
+              abstract,
+              image: imageUrl || 'https://via.placeholder.com/150',
+            })
+          }
+        }
+
+        return new Response(JSON.stringify(posts), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        })
+      }
+
       if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
         const id = pathname.split('/').pop()
         if (!id) {
