@@ -326,6 +326,46 @@ The researchers believe that physical activity may help reduce the risk of demen
         }
       }
 
+      if (pathname === '/search' && request.method === 'GET') {
+        const query = url.searchParams.get('query')?.toLowerCase() || '' // Get the search query
+        if (!query) {
+          return new Response('Search query is missing', { status: 400 })
+        }
+
+        const keys = await env.BINDING_NAME.list()
+        const results = []
+
+        for (const key of keys.keys) {
+          const markdown = await env.BINDING_NAME.get(key.name)
+          if (markdown && markdown.toLowerCase().includes(query)) {
+            const lines = markdown.split('\n')
+            const titleLine = lines.find((line) => line.startsWith('#') && !line.includes('!['))
+            const title = titleLine ? titleLine.replace(/^#\s*/, '') : 'Untitled'
+
+            const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/)
+            const imageUrl = imageMatch ? imageMatch[1] : null
+
+            const abstractLine = lines.find(
+              (line) => line.trim() && !line.startsWith('#') && !line.includes('!['),
+            )
+            const abstract = abstractLine ? abstractLine.slice(0, 100) + '...' : ''
+
+            results.push({
+              id: key.name.replace(/^(vis:|hid:)/, ''), // Remove the prefix for the ID
+              title,
+              snippet: lines.slice(1, 3).join(' '),
+              abstract,
+              image: imageUrl || 'https://via.placeholder.com/150',
+            })
+          }
+        }
+
+        return new Response(JSON.stringify(results), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        })
+      }
+
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {
       console.error('Error:', error)

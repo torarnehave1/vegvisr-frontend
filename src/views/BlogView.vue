@@ -78,12 +78,15 @@ const isAdminOrSuperadmin = computed(() => {
   return store.state.user.role === 'Admin' || store.state.user.role === 'Superadmin'
 })
 
-// Fetch blog posts from the KV store
+// Fetch blog posts or search results from the KV store
 async function fetchPosts() {
   try {
-    const endpoint = showHiddenPosts.value
-      ? 'https://api.vegvisr.org/hidden-blog-posts' // Endpoint for hidden posts
-      : 'https://api.vegvisr.org/blog-posts' // Endpoint for visible posts
+    const endpoint = searchQuery.value
+      ? `https://api.vegvisr.org/search?query=${encodeURIComponent(searchQuery.value)}` // Search endpoint
+      : showHiddenPosts.value
+        ? 'https://api.vegvisr.org/hidden-blog-posts' // Endpoint for hidden posts
+        : 'https://api.vegvisr.org/blog-posts' // Endpoint for visible posts
+
     const response = await fetch(endpoint)
     if (!response.ok) throw new Error('Failed to fetch posts')
     posts.value = await response.json()
@@ -91,6 +94,11 @@ async function fetchPosts() {
     console.error('Error fetching posts:', error)
   }
 }
+
+// Watch for changes in the search query and refetch posts
+watch(searchQuery, () => {
+  fetchPosts()
+})
 
 // Filter posts based on the search query
 const filteredPosts = computed(() => {
