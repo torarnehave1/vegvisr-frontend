@@ -18,7 +18,7 @@
           style="max-width: 150px"
         />
 
-        <h4>{{ data.profile.email || email }}</h4>
+        <h4>{{ email }}</h4>
         <p>{{ data.profile.bio || 'No bio available' }}</p>
         <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
@@ -83,7 +83,6 @@ export default {
       data: {
         profile: {
           user_id: '', // Ensure user_id is initialized
-          email: '',
           bio: '',
         },
         settings: {
@@ -107,17 +106,27 @@ export default {
     email() {
       return this.store.state.user.email // Fetch email from Vuex store
     },
+    userRole() {
+      return this.store.state.user.role // Fetch role from Vuex store
+    },
   },
   setup() {
     const store = useStore()
 
     return {
       store,
-      userRole: store.state.user.role, // Access role from Vuex store
     }
   },
   mounted() {
-    // Removed fetchUserData functionality
+    console.log('Mounted: Email:', this.email, 'Role:', this.userRole)
+  },
+  watch: {
+    email(newEmail) {
+      console.log('Email updated:', newEmail)
+    },
+    userRole(newRole) {
+      console.log('Role updated:', newRole)
+    },
   },
   methods: {
     async onFileChange(event) {
