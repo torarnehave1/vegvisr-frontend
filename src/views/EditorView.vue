@@ -29,8 +29,10 @@
     <div v-else class="preview" v-html="renderedMarkdown"></div>
 
     <button v-if="!isEmbedded" class="save-button" @click="saveContent">Save</button>
+    <button v-if="!isEmbedded" class="reset-button" @click="clearContent">New</button>
     <div v-if="shareableLink" class="info">
-      Shareable Link: <a :href="shareableLink" target="_blank">{{ shareableLink }}</a>
+      Shareable Link: <span v-if="store.state.currentBlogId">{{ shareableLink }}</span>
+      <span v-else>New</span>
     </div>
 
     <!-- Context Menu -->
@@ -374,6 +376,14 @@ async function uploadImage() {
     alert('Failed to upload image. Please try again.')
   }
 }
+
+// Clear the content of the textarea and reset the blog ID
+function clearContent() {
+  markdown.value = '' // Clear the textarea content
+  store.commit('setCurrentBlogId', null) // Reset the blog ID in the Vuex store
+  shareableLink.value = '' // Clear the shareable link
+  console.log('Content reset. Blog ID set to null, and shareable link cleared.') // Debugging log
+}
 </script>
 
 <style scoped>
@@ -441,6 +451,22 @@ textarea {
 
 .save-button:hover {
   background-color: #218838;
+}
+
+.reset-button {
+  margin-top: 1rem;
+  margin-left: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #ffc107; /* Yellow to indicate a reset action */
+  color: black;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reset-button:hover {
+  background-color: #e0a800;
 }
 
 .info {
