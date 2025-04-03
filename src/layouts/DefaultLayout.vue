@@ -31,9 +31,7 @@
                 <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
               </li>
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/blog" target="_blank" rel="noopener noreferrer">
-                  Blog
-                </RouterLink>
+                <RouterLink class="nav-link" to="/blog">Blog</RouterLink>
               </li>
             </ul>
 

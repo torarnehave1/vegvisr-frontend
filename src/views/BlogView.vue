@@ -19,7 +19,7 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
-        <button @click.stop="openInEditor(post.id)" class="open-button">Open</button>
+        <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
         <button @click="deletePost(post.id)" class="delete-button">Delete</button>
       </div>
     </div>
