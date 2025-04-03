@@ -133,9 +133,11 @@ export default {
   },
   methods: {
     checkStoreReady() {
-      if (this.email && this.userRole) {
+      if (!this.isStoreReady && this.email && this.userRole) {
         this.isStoreReady = true
         console.log('Store is ready: Email:', this.email, 'Role:', this.userRole)
+      } else if (!this.email || !this.userRole) {
+        console.warn('Store is not ready: Email:', this.email, 'Role:', this.userRole)
       }
     },
     async onFileChange(event) {
