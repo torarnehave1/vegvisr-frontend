@@ -110,7 +110,7 @@ async function saveContent() {
   try {
     const blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
     if (!blogId) {
-      alert('No blog ID found. Please open a blog post before saving.')
+      console.warn('No blog ID found. Please open a blog post before saving.')
       return
     }
 
@@ -128,10 +128,25 @@ async function saveContent() {
 
     const data = await response.json()
     shareableLink.value = data.link
-    alert('Content saved successfully.')
+
+    // Display a message element for 3 seconds
+    const messageElement = document.createElement('div')
+    messageElement.textContent = 'Content saved successfully.'
+    messageElement.style.position = 'fixed'
+    messageElement.style.bottom = '20px'
+    messageElement.style.right = '20px'
+    messageElement.style.backgroundColor = '#28a745'
+    messageElement.style.color = 'white'
+    messageElement.style.padding = '10px 20px'
+    messageElement.style.borderRadius = '5px'
+    messageElement.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.2)'
+    document.body.appendChild(messageElement)
+
+    setTimeout(() => {
+      document.body.removeChild(messageElement)
+    }, 3000)
   } catch (error) {
     console.error('Error saving content:', error)
-    alert('Failed to save content. Please try again.')
   }
 }
 
