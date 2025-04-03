@@ -81,7 +81,10 @@ const renderedMarkdown = computed(() => {
 onMounted(() => {
   const content = route.query.content
   if (content) {
+    console.log('Setting content in editor:', content) // Debugging log
     markdown.value = content
+  } else {
+    console.warn('No content provided in query parameters.') // Debugging log
   }
 })
 

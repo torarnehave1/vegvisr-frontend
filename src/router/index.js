@@ -89,14 +89,8 @@ const router = createRouter({
     },
     {
       path: '/editor',
-      name: 'Editor',
+      name: 'EditorView',
       component: () => import('../views/EditorView.vue'),
-      meta: { requiresAuth: true }, // Mark this route as requiring authentication
-      props: (route) => ({ embed: route.query?.embed === 'true' }), // Safely access route.query
-      beforeEnter: (to, from, next) => {
-        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
-        next()
-      }, // Dynamically set the layout
     },
     {
       path: '/blog',

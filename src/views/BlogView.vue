@@ -103,9 +103,11 @@ async function openInEditor(id) {
     const response = await fetch(`https://api.vegvisr.org/view/${id}`)
     if (!response.ok) throw new Error('Failed to fetch post content')
     const content = await response.text()
+    console.log('Opening post in editor with content:', content) // Debugging log
     router.push({ name: 'EditorView', query: { content } })
   } catch (error) {
     console.error('Error opening post in editor:', error)
+    alert('Failed to open post in editor. Please try again.')
   }
 }
 
