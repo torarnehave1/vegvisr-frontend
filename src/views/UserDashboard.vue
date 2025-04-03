@@ -123,6 +123,7 @@ export default {
       try {
         const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
+          console.error(`Failed to fetch user data. HTTP status: ${response.status}`)
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         const result = await response.json()
@@ -130,9 +131,9 @@ export default {
         // Update profile and settings with data from the API
         this.data = {
           profile: {
-            user_id: result.user_id || this.data.profile.user_id, // Ensure user_id is updated
+            user_id: result.user_id || this.data.profile.user_id,
             email: result.email || this.data.profile.email,
-            bio: this.data.profile.bio, // Keep existing bio if not provided
+            bio: this.data.profile.bio,
           },
           settings: result.data?.settings || this.data.settings,
         }
@@ -144,8 +145,9 @@ export default {
 
         this.applyTheme() // Apply theme after fetching user data
       } catch (error) {
-        console.error('Error fetching user data:', error)
-        alert('Failed to fetch user data. Please try again later.')
+        console.error('Error fetching user data:', error.message)
+        console.error('Stack trace:', error.stack)
+        alert('Failed to fetch user data. Please check your network connection or try again later.')
         this.applyTheme() // Ensure theme is applied even if fetching fails
       }
     },

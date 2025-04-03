@@ -1,35 +1,80 @@
-# vegvisr-frontend
+# Vegvisr Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+This project is a Cloudflare Worker-based application designed to handle user registration, email verification, and database interactions. It integrates with external APIs and Cloudflare's D1 database and R2 storage for managing user data and profile pictures.
 
-## Recommended IDE Setup
+## Features
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- User registration with email verification.
+- Resend email verification functionality.
+- Check user existence and verification status.
+- Reset user registration.
+- Secure JWT token generation for user authentication.
+- Integration with external APIs for user management.
 
-## Customize configuration
+## Project Structure
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+- **`wrangler.toml`**: Configuration file for the Cloudflare Worker, including bindings for D1 database, R2 bucket, and environment variables.
+- **`index.js`**: Main worker script implementing API endpoints and business logic.
 
-## Project Setup
+## Setup Instructions
 
-```sh
-npm install
-```
+1. **Install Wrangler CLI**:
+   Install the Cloudflare Wrangler CLI by following the [official documentation](https://developers.cloudflare.com/workers/wrangler/).
 
-### Compile and Hot-Reload for Development
+2. **Configure Environment Variables**:
+   Update the `wrangler.toml` file with your API keys, secrets, and database bindings.
 
-```sh
-npm run dev
-```
+3. **Deploy the Worker**:
+   Use the following command to deploy the worker:
 
-### Compile and Minify for Production
+   ```bash
+   wrangler publish
+   ```
 
-```sh
-npm run build
-```
+4. **Test Locally**:
+   Run the worker locally using:
+   ```bash
+   wrangler dev
+   ```
 
-### Lint with [ESLint](https://eslint.org/)
+## API Endpoints
 
-```sh
-npm run lint
-```
+### `/sve2` (GET)
+
+- **Description**: Registers a user by email.
+- **Query Parameters**: `email`
+- **Response**: Checks if the user exists and registers them if not.
+
+### `/resend-verification` (POST)
+
+- **Description**: Resends the email verification link.
+- **Request Body**: `{ "email": "user@example.com" }`
+
+### `/verify-email` (GET)
+
+- **Description**: Verifies the user's email using a token.
+- **Query Parameters**: `token`
+
+### `/check-email` (GET)
+
+- **Description**: Checks if a user exists and their verification status.
+- **Query Parameters**: `email`
+
+### `/reset-registration` (POST)
+
+- **Description**: Resets a user's registration by deleting their record.
+- **Request Body**: `{ "email": "user@example.com" }`
+
+## Dependencies
+
+- **UUID**: For generating unique identifiers.
+- **Jose**: For handling JWT tokens.
+
+## Notes
+
+- Ensure that the `OPENAI_API_KEY`, `API_TOKEN`, and `JWT_SECRET` environment variables are securely stored and not exposed publicly.
+- The database schema must include a `config` table with columns for `email`, `user_id`, `data`, and `emailVerificationToken`.
+
+## License
+
+This project is licensed under the MIT License.
