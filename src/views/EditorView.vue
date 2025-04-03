@@ -52,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 
@@ -75,6 +75,14 @@ isEmbedded.value = route.query.embed === 'true'
 // Render markdown to HTML using the marked library
 const renderedMarkdown = computed(() => {
   return marked.parse(markdown.value)
+})
+
+// Set the content from query parameters if available
+onMounted(() => {
+  const content = route.query.content
+  if (content) {
+    markdown.value = content
+  }
 })
 
 // Toggle between "edit" and "preview" modes

@@ -14,6 +14,7 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
+        <button @click.stop="openInEditor(post.id)" class="open-button">Open</button>
         <button @click="deletePost(post.id)" class="delete-button">Delete</button>
       </div>
     </div>
@@ -29,11 +30,14 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 const posts = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
 const postsPerPage = 9
+
+const router = useRouter()
 
 // Props
 const props = defineProps({
@@ -91,6 +95,18 @@ function changePage(page) {
 // Navigate to the full post view
 function viewPost(id) {
   window.open(`https://api.vegvisr.org/view/${id}`, '_blank') // Open in a new tab or window
+}
+
+// Open the blog post in the editor view
+async function openInEditor(id) {
+  try {
+    const response = await fetch(`https://api.vegvisr.org/view/${id}`)
+    if (!response.ok) throw new Error('Failed to fetch post content')
+    const content = await response.text()
+    router.push({ name: 'EditorView', query: { content } })
+  } catch (error) {
+    console.error('Error opening post in editor:', error)
+  }
 }
 
 // Delete a blog post
@@ -209,5 +225,20 @@ onMounted(() => {
 
 .delete-button:hover {
   background-color: #c82333;
+}
+
+.open-button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.open-button:hover {
+  background-color: #0056b3;
 }
 </style>
