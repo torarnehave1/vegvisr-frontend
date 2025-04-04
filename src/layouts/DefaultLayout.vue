@@ -4,7 +4,9 @@
     <header class="top-menu w-100">
       <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
-          <RouterLink class="navbar-brand" to="/">Vegvisr.org</RouterLink>
+          <RouterLink class="navbar-brand" to="/">
+            <img src="../assets/logo.svg" alt="Vegvisr Logo" width="200" />
+          </RouterLink>
           <button
             class="navbar-toggler"
             type="button"
@@ -100,8 +102,17 @@ defineEmits(['set-theme', 'logout'])
 </script>
 
 <style scoped>
+.navbar-brand {
+  display: flex;
+  align-items: center;
+}
+.top-menu nav {
+  background-color: #2c3e50;
+}
+
 .top-menu {
   width: 100%;
+  background-color: #958380;
 }
 .content {
   padding: 1rem;
