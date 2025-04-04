@@ -19,8 +19,8 @@
         />
 
         <h4>{{ email }}</h4>
-        <p>{{ bio || 'No bio available' }}</p>
-        <!-- Use bio field directly -->
+        <div v-html="renderedBio"></div>
+        <!-- Render bio as HTML -->
         <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
 
@@ -77,6 +77,7 @@
 
 <script>
 import { useStore } from '@/store'
+import { marked } from 'marked' // Import marked.js
 
 export default {
   data() {
@@ -95,6 +96,9 @@ export default {
     }
   },
   computed: {
+    renderedBio() {
+      return marked(this.bio || '') // Convert bio Markdown to HTML
+    },
     maskedUserId() {
       const userId = this.store.state.user?.user_id || 'xxx-xxxx-xxx-xxx'
       if (userId.length > 8) {
