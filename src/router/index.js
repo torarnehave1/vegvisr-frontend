@@ -98,10 +98,10 @@ const router = createRouter({
 })
 
 // Navigation guard to check for JWT in Local Storage
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
-    const { useStore } = require('@/store') // Dynamically import the store
+    const { useStore } = await import('@/store') // Dynamically import the store
     const store = useStore() // Access the Vuex store
     const userEmail = store.state.user?.email // Retrieve the UserEmail from Vuex store
     if (token && userEmail) {
