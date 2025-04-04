@@ -62,39 +62,41 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
-        const { id, markdown, isVisible } = await request.json()
+        const { id, markdown, isVisible, email } = await request.json()
 
         // Log the incoming payload for debugging
-        console.log('Incoming /save request payload:', { id, markdown, isVisible })
+        console.log('Incoming /save request payload:', { id, markdown, isVisible, email })
 
-        if (!markdown) {
-          return new Response('Markdown content is missing', {
+        if (!markdown || !email) {
+          return new Response('Markdown content or email is missing', {
             status: 400,
-            headers: corsHeaders, // Include CORS headers
+            headers: corsHeaders,
           })
         }
 
         const newPrefix = isVisible ? 'vis:' : 'hid:'
         const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
-        const newKey = `${newPrefix}${blogId}` // Add the new prefix to the key
+        const newKey = `${newPrefix}${blogId}:${email}` // Add the email to the end of the key
 
         if (id) {
           // If an ID is provided, check if the key needs to be updated
-          const currentVisibleKey = `vis:${id}`
-          const currentHiddenKey = `hid:${id}`
+          const currentVisibleKey = `vis:${id}:${email}`
+          const currentHiddenKey = `hid:${id}:${email}`
 
           // Delete the old key if it exists
           await env.BINDING_NAME.delete(currentVisibleKey)
           await env.BINDING_NAME.delete(currentHiddenKey)
         }
 
-        // Save the new key with the updated visibility
-        await env.BINDING_NAME.put(newKey, markdown, { metadata: { encoding: 'utf-8' } })
+        // Save the new key with the updated visibility and email metadata
+        await env.BINDING_NAME.put(newKey, markdown, {
+          metadata: { encoding: 'utf-8', email },
+        })
         const shareableLink = `https://api.vegvisr.org/view/${blogId}`
 
         return new Response(JSON.stringify({ link: shareableLink }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }, // Include CORS headers
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
         })
       }
 

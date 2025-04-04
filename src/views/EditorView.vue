@@ -119,6 +119,11 @@ function setMode(newMode) {
 async function saveContent() {
   try {
     let blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
+    const email = store.state.user.email // Get the current user's email from the Vuex store
+
+    if (!email) {
+      throw new Error('User email is missing. Please log in.')
+    }
 
     // If no blog ID is found, generate a new one (new blog post)
     if (!blogId) {
@@ -128,7 +133,7 @@ async function saveContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ markdown: markdown.value, isVisible: isVisible.value }), // Include visibility
+        body: JSON.stringify({ markdown: markdown.value, isVisible: isVisible.value, email }), // Include email
       })
 
       if (!response.ok) {
@@ -146,7 +151,12 @@ async function saveContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id: blogId, markdown: markdown.value, isVisible: isVisible.value }), // Include visibility
+        body: JSON.stringify({
+          id: blogId,
+          markdown: markdown.value,
+          isVisible: isVisible.value,
+          email,
+        }), // Include email
       })
 
       if (!response.ok) {
