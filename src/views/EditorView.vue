@@ -133,10 +133,16 @@ async function saveContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ markdown: markdown.value, isVisible: isVisible.value, email }), // Include email
+        body: JSON.stringify({
+          markdown: markdown.value,
+          isVisible: isVisible.value,
+          email, // Include email in the payload
+        }),
       })
 
       if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response from server:', errorText)
         throw new Error('Failed to save new blog post')
       }
 
@@ -155,11 +161,13 @@ async function saveContent() {
           id: blogId,
           markdown: markdown.value,
           isVisible: isVisible.value,
-          email,
-        }), // Include email
+          email, // Include email in the payload
+        }),
       })
 
       if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response from server:', errorText)
         throw new Error('Failed to save content')
       }
 
@@ -185,6 +193,7 @@ async function saveContent() {
     }, 3000)
   } catch (error) {
     console.error('Error saving content:', error)
+    alert('Failed to save content. Please try again.')
   }
 }
 

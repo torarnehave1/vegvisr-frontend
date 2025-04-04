@@ -68,6 +68,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         console.log('Incoming /save request payload:', { id, markdown, isVisible, email })
 
         if (!markdown || !email) {
+          console.error('Missing required fields:', { markdown, email })
           return new Response('Markdown content or email is missing', {
             status: 400,
             headers: corsHeaders,
