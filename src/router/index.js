@@ -80,6 +80,7 @@ const router = createRouter({
     {
       path: '/soundstudio',
       name: 'Soudstudio',
+      meta: { requiresAuth: true }, // Mark this route as requiring authentication
       component: SoundStudioView,
       props: (route) => ({ theme: route.query.theme || 'light' }), // Pass theme as a prop
       beforeEnter: (to, from, next) => {
@@ -87,13 +88,17 @@ const router = createRouter({
         next()
       },
     },
-    {
-      meta: { requiresAuth: true }, // Mark this route as requiring authentication
-    },
+
     {
       path: '/editor',
       name: 'EditorView',
+      meta: { requiresAuth: true },
       component: () => import('../views/EditorView.vue'),
+      props: (route) => ({ theme: route.query.theme || 'light' }), // Pass theme as a prop
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      }, // Dynamically set the layout
     },
     {
       path: '/blog',
