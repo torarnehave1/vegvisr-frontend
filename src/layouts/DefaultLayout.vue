@@ -67,7 +67,7 @@
             </div>
 
             <!-- Logout Button -->
-            <button v-if="userEmail" class="btn btn-outline-danger me-2" @click="$emit('logout')">
+            <button v-if="userEmail" class="btn btn-outline-danger me-2" @click="handleLogout">
               Logout
             </button>
             <!-- Login Button -->
@@ -88,6 +88,10 @@
 
 <script setup>
 import { RouterLink } from 'vue-router'
+import { useStore } from '../store/index.js'
+
+const store = useStore()
+
 defineProps({
   theme: {
     type: String,
@@ -98,7 +102,13 @@ defineProps({
     default: '',
   },
 })
-defineEmits(['set-theme', 'logout'])
+
+const emit = defineEmits(['set-theme', 'logout'])
+
+function handleLogout() {
+  store.commit('logout') // Reset Vuex store and localStorage
+  emit('logout') // Emit logout event
+}
 </script>
 
 <style scoped>

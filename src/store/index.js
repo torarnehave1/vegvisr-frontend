@@ -14,6 +14,10 @@ const store = createStore({
     setCurrentBlogId(state, blogId) {
       state.currentBlogId = blogId // Set the current blog ID
     },
+    logout(state) {
+      state.user = { email: null, role: null } // Reset user state
+      localStorage.removeItem('user') // Clear user data from localStorage
+    },
   },
 })
 
