@@ -104,7 +104,7 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.requiresAuth) {
     console.log('[Router] This route requires authentication.')
 
-    const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
+    const token = localStorage.getItem('jwt') // Retrieve the JWT from Local Storage
     console.log(`[Router] JWT token found: ${token ? 'Yes' : 'No'}`)
 
     const { useStore } = await import('@/store') // Dynamically import the store
