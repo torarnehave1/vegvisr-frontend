@@ -63,9 +63,10 @@ function handleLogin() {
         if (roleData && roleData.role) {
           // Use Vuex store to set UserEmail and Role
           store.commit('setUser', { email: email.value, role: roleData.role })
+          localStorage.setItem('UserEmail', email.value) // Ensure UserEmail is stored
           console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
           emit('user-logged-in', email.value)
-          router.push('/user') // Redirect to the dashboard view
+          router.push('/') // Redirect to the main App.vue
         } else {
           console.error('Error: Role data is missing or invalid. Response:', roleData)
           alert('Unable to retrieve user role. Please contact support.') // Notify the user
