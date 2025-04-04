@@ -64,7 +64,10 @@ The researchers believe that physical activity may help reduce the risk of demen
       if (pathname === '/save' && request.method === 'POST') {
         const { id, markdown, isVisible } = await request.json()
         if (!markdown) {
-          return new Response('Markdown content is missing', { status: 400 })
+          return new Response('Markdown content is missing', {
+            status: 400,
+            headers: corsHeaders, // Include CORS headers
+          })
         }
 
         const newPrefix = isVisible ? 'vis:' : 'hid:'
@@ -87,7 +90,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         return new Response(JSON.stringify({ link: shareableLink }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }, // Include CORS headers
         })
       }
 
