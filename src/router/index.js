@@ -55,7 +55,7 @@ const router = createRouter({
       path: '/user',
       name: 'User',
       component: () => import('../views/UserDashboard.vue'),
-      //meta: { requiresAuth: true }, // Mark this route as requiring authentication
+      meta: { requiresAuth: true }, // Mark this route as requiring authentication
     },
     {
       path: '/register',
