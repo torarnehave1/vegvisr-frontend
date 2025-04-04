@@ -99,20 +99,28 @@ const router = createRouter({
 
 // Navigation guard to check for JWT in Local Storage
 router.beforeEach(async (to, from, next) => {
+  console.log(`[Router] Navigating to: ${to.path}`)
+
   if (to.meta.requiresAuth) {
+    console.log('[Router] This route requires authentication.')
+
     const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
+    console.log(`[Router] JWT token found: ${token ? 'Yes' : 'No'}`)
+
     const { useStore } = await import('@/store') // Dynamically import the store
     const store = useStore() // Access the Vuex store
     const userEmail = store.state.user?.email // Retrieve the UserEmail from Vuex store
+    console.log(`[Router] User email in Vuex store: ${userEmail || 'None'}`)
+
     if (token && userEmail) {
-      // Token and UserEmail exist, allow access
+      console.log('[Router] Authentication successful. Proceeding to the route.')
       next()
     } else {
-      // Token or UserEmail is missing, redirect to login
+      console.warn('[Router] Authentication failed. Redirecting to login.')
       next({ path: '/login' })
     }
   } else {
-    // Route does not require authentication, allow access
+    console.log('[Router] This route does not require authentication. Proceeding.')
     next()
   }
 })
