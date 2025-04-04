@@ -19,7 +19,7 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
-        <div class="button-group">
+        <div v-if="isLoggedIn" class="button-group">
           <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
           <button
             @click.stop="toggleVisibility(post.id, showHiddenPosts)"
@@ -84,6 +84,11 @@ function applyTheme(newTheme) {
 // Check if the user is an Admin or Superadmin
 const isAdminOrSuperadmin = computed(() => {
   return store.state.user.role === 'Admin' || store.state.user.role === 'Superadmin'
+})
+
+// Check if the user is logged in
+const isLoggedIn = computed(() => {
+  return !!store.state.user.email // Assuming email indicates login status
 })
 
 // Fetch blog posts or search results from the KV store
