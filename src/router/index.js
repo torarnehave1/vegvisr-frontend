@@ -113,6 +113,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
+    const store = useStore() // Access the Vuex store inside the navigation guard
     const userEmail = store.state.user?.email // Retrieve the UserEmail from Vuex store
     if (token && userEmail) {
       // Token and UserEmail exist, allow access
