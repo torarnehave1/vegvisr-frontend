@@ -10,7 +10,7 @@
     <!-- Main Content Row: Profile and Settings -->
     <div class="row">
       <!-- Profile Section -->
-      <div class="col-md-4 text-center">
+      <div class="col-md-7 text-center">
         <img
           :src="profileImage"
           alt="Profile Image"
@@ -25,7 +25,7 @@
       </div>
 
       <!-- Settings Section -->
-      <div class="col-md-8">
+      <div class="col-md-5">
         <div class="form-check form-switch mt-3">
           <input
             class="form-check-input"
