@@ -379,11 +379,11 @@ The researchers believe that physical activity may help reduce the risk of demen
         })
       }
 
-      if (pathname === '/hide' && request.method === 'POST') {
-        const { id } = await request.json()
+      if (pathname === '/hid_vis' && request.method === 'POST') {
+        const { id, isVisible } = await request.json()
 
         // Log the incoming payload for debugging
-        console.log('Incoming /hide request payload:', { id })
+        console.log('Incoming /hid_vis request payload:', { id, isVisible })
 
         if (!id) {
           return new Response('Blog post ID is missing', {
@@ -392,23 +392,23 @@ The researchers believe that physical activity may help reduce the risk of demen
           })
         }
 
-        const currentVisibleKey = `vis:${id}`
-        const hiddenKey = `hid:${id}`
+        const currentKey = isVisible ? `hid:${id}` : `vis:${id}`
+        const newKey = isVisible ? `vis:${id}` : `hid:${id}`
 
-        // Check if the visible key exists
-        const markdown = await env.BINDING_NAME.get(currentVisibleKey)
+        // Check if the current key exists
+        const markdown = await env.BINDING_NAME.get(currentKey)
         if (!markdown) {
-          return new Response('Blog post not found or already hidden', {
+          return new Response('Blog post not found or already in the desired state', {
             status: 404,
             headers: corsHeaders,
           })
         }
 
-        // Move the key from visible to hidden
-        await env.BINDING_NAME.put(hiddenKey, markdown, { metadata: { encoding: 'utf-8' } })
-        await env.BINDING_NAME.delete(currentVisibleKey)
+        // Move the key to the new state
+        await env.BINDING_NAME.put(newKey, markdown, { metadata: { encoding: 'utf-8' } })
+        await env.BINDING_NAME.delete(currentKey)
 
-        return new Response('Blog post hidden successfully', {
+        return new Response(`Blog post ${isVisible ? 'shown' : 'hidden'} successfully`, {
           status: 200,
           headers: corsHeaders,
         })

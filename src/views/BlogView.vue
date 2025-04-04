@@ -21,7 +21,12 @@
         <p>{{ post.snippet }}</p>
         <div class="button-group">
           <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
-          <button @click.stop="hidePost(post.id)" class="hide-button">Hide</button>
+          <button
+            @click.stop="toggleVisibility(post.id, showHiddenPosts)"
+            class="toggle-visibility-button"
+          >
+            {{ showHiddenPosts ? 'Show' : 'Hide' }}
+          </button>
           <button @click="deletePost(post.id)" class="delete-button">Delete</button>
         </div>
       </div>
@@ -155,21 +160,22 @@ async function deletePost(id) {
   }
 }
 
-// Hide a blog post by setting its key to start with "hid:"
-async function hidePost(id) {
-  if (confirm('Are you sure you want to hide this post?')) {
+// Toggle visibility of a blog post (hide or show)
+async function toggleVisibility(id, isCurrentlyHidden) {
+  const action = isCurrentlyHidden ? 'show' : 'hide'
+  if (confirm(`Are you sure you want to ${action} this post?`)) {
     try {
-      const response = await fetch('https://api.vegvisr.org/hide', {
+      const response = await fetch('https://api.vegvisr.org/hid_vis', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id }), // Only send the blog ID
+        body: JSON.stringify({ id, isVisible: isCurrentlyHidden }), // Toggle visibility
       })
-      if (!response.ok) throw new Error('Failed to hide post')
+      if (!response.ok) throw new Error(`Failed to ${action} post`)
       posts.value = posts.value.filter((post) => post.id !== id) // Remove the post from the current list
     } catch (error) {
-      console.error('Error hiding post:', error)
+      console.error(`Error trying to ${action} post:`, error)
     }
   }
 }
@@ -333,6 +339,21 @@ onMounted(() => {
 }
 
 .hide-button:hover {
+  background-color: #e0a800;
+}
+
+.toggle-visibility-button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #ffc107; /* Yellow for toggle action */
+  color: black;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.toggle-visibility-button:hover {
   background-color: #e0a800;
 }
 </style>
