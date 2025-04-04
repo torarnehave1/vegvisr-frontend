@@ -6,6 +6,9 @@ import SoundStudioView from '../views/SoundStudioView.vue' // Example protected 
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue' // Import DefaultLayout
 import BlogView from '../views/BlogView.vue' // Import BlogView
+import { useStore } from '@/store' // Import the Vuex store
+
+const store = useStore() // Access the Vuex store
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -105,7 +108,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('jwt-vegvisr.org') // Retrieve the JWT from Local Storage
-    const userEmail = localStorage.getItem('UserEmail') // Retrieve the UserEmail from Local Storage
+    const userEmail = store.state.user?.email // Retrieve the UserEmail from Vuex store
     if (token && userEmail) {
       // Token and UserEmail exist, allow access
       next()
