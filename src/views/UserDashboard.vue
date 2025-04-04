@@ -17,11 +17,11 @@
           class="img-fluid rounded-circle mb-3"
           style="max-width: 150px"
         />
+        <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
 
         <h4>{{ email }}</h4>
         <div v-html="renderedBio" class="text-start"></div>
         <!-- Render bio as HTML -->
-        <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
 
       <!-- Settings Section -->
