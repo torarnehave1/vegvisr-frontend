@@ -19,7 +19,8 @@
         />
 
         <h4>{{ email }}</h4>
-        <p>{{ data.profile.bio || 'No bio available' }}</p>
+        <p>{{ bio || 'No bio available' }}</p>
+        <!-- Use bio field directly -->
         <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
 
@@ -80,11 +81,8 @@ import { useStore } from '@/store'
 export default {
   data() {
     return {
+      bio: '', // Add bio field
       data: {
-        profile: {
-          user_id: '', // Ensure user_id is initialized
-          bio: '',
-        },
         settings: {
           darkMode: false,
           notifications: true,
@@ -98,7 +96,7 @@ export default {
   },
   computed: {
     maskedUserId() {
-      const userId = this.data.profile.user_id || 'xxx-xxxx-xxx-xxx'
+      const userId = this.store.state.user?.user_id || 'xxx-xxxx-xxx-xxx'
       if (userId.length > 8) {
         return `${userId.slice(0, 4)}...${userId.slice(-4)}`
       }
@@ -154,8 +152,7 @@ export default {
         const result = await response.json()
         if (result) {
           console.log('Fetched user data:', result)
-          this.data.profile = result.data.profile || {}
-          this.data.settings = result.data.settings || {}
+          this.bio = result.bio || '' // Assign bio field
           this.profileImage = result.profileimage || ''
         } else {
           console.warn('No user data found')
@@ -194,7 +191,7 @@ export default {
 
         const payload = {
           email: this.email,
-          data: this.data,
+          bio: this.bio, // Include bio in payload
           profileimage: this.profileImage, // Include profileImage in payload
         }
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
@@ -230,7 +227,7 @@ export default {
       }
     },
     copyUserId() {
-      const userId = this.data.profile.user_id || 'xxx-xxxx-xxx-xxx'
+      const userId = this.store.state.user?.user_id || 'xxx-xxxx-xxx-xxx'
       navigator.clipboard.writeText(userId).then(
         () => {
           const infoElement = document.createElement('div')
