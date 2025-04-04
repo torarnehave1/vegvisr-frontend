@@ -132,6 +132,12 @@ The researchers believe that physical activity may help reduce the risk of demen
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>View Markdown</title>
+            <style>
+              img {
+          max-width: 100%;
+          height: auto;
+              }
+            </style>
           </head>
           <body>
             ${htmlContent}

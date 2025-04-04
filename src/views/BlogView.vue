@@ -19,8 +19,11 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
-        <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
-        <button @click="deletePost(post.id)" class="delete-button">Delete</button>
+        <div class="button-group">
+          <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
+          <button @click.stop="hidePost(post.id)" class="hide-button">Hide</button>
+          <button @click="deletePost(post.id)" class="delete-button">Delete</button>
+        </div>
       </div>
     </div>
     <div class="pagination">
@@ -82,10 +85,10 @@ const isAdminOrSuperadmin = computed(() => {
 async function fetchPosts() {
   try {
     const endpoint = searchQuery.value
-      ? `https://api.vegvisr.org/search?query=${encodeURIComponent(searchQuery.value)}` // Search endpoint
+      ? `https://api.vegvisr.org/search?query=${encodeURIComponent(searchQuery.value)}`
       : showHiddenPosts.value
-        ? 'https://api.vegvisr.org/hidden-blog-posts' // Endpoint for hidden posts
-        : 'https://api.vegvisr.org/blog-posts' // Endpoint for visible posts
+        ? 'https://api.vegvisr.org/hidden-blog-posts'
+        : 'https://api.vegvisr.org/blog-posts'
 
     const response = await fetch(endpoint)
     if (!response.ok) throw new Error('Failed to fetch posts')
@@ -118,19 +121,19 @@ function changePage(page) {
 
 // Navigate to the full post view
 function viewPost(id) {
-  window.open(`https://api.vegvisr.org/view/${id}`, '_blank') // Open in a new tab or window
+  window.open(`https://api.vegvisr.org/view/${id}`, '_blank')
 }
 
 // Open the blog post in the editor view
 async function openInEditor(id) {
   try {
-    const response = await fetch(`https://api.vegvisr.org/view/${id}?raw=true`) // Fetch raw Markdown content
+    const response = await fetch(`https://api.vegvisr.org/view/${id}?raw=true`)
     if (!response.ok) throw new Error('Failed to fetch post content')
-    const content = await response.text() // Get the raw Markdown content
-    console.log('Opening post in editor with content:', content) // Debugging log
+    const content = await response.text()
+    console.log('Opening post in editor with content:', content)
 
-    store.commit('setCurrentBlogId', id) // Set the current blog ID in the Vuex store
-    router.push({ name: 'EditorView', query: { content } }) // Pass content to EditorView
+    store.commit('setCurrentBlogId', id)
+    router.push({ name: 'EditorView', query: { content } })
   } catch (error) {
     console.error('Error opening post in editor:', error)
     alert('Failed to open post in editor. Please try again.')
@@ -152,14 +155,33 @@ async function deletePost(id) {
   }
 }
 
+// Hide a blog post by setting its key to start with "hid:"
+async function hidePost(id) {
+  if (confirm('Are you sure you want to hide this post?')) {
+    try {
+      const response = await fetch('https://api.vegvisr.org/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id, isVisible: false }),
+      })
+      if (!response.ok) throw new Error('Failed to hide post')
+      posts.value = posts.value.filter((post) => post.id !== id)
+    } catch (error) {
+      console.error('Error hiding post:', error)
+    }
+  }
+}
+
 // Toggle between showing visible and hidden posts
 function toggleHiddenPosts() {
   showHiddenPosts.value = !showHiddenPosts.value
-  fetchPosts() // Refetch posts based on the toggle
+  fetchPosts()
 }
 
 onMounted(() => {
-  applyTheme(props.theme) // Apply the initial theme
+  applyTheme(props.theme)
   fetchPosts()
 })
 </script>
@@ -185,8 +207,8 @@ onMounted(() => {
 
 .blog-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* Set to 3 columns */
-  grid-auto-rows: 1fr; /* Ensure rows are of equal height */
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
   gap: 1rem;
 }
 
@@ -292,5 +314,25 @@ onMounted(() => {
 
 .toggle-visibility button:hover {
   background-color: #0056b3;
+}
+
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hide-button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #ffc107;
+  color: black;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.hide-button:hover {
+  background-color: #e0a800;
 }
 </style>
