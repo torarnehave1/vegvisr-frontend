@@ -173,7 +173,9 @@ async function toggleVisibility(id, isCurrentlyHidden) {
         body: JSON.stringify({ id, isVisible: isCurrentlyHidden }), // Toggle visibility
       })
       if (!response.ok) throw new Error(`Failed to ${action} post`)
-      posts.value = posts.value.filter((post) => post.id !== id) // Remove the post from the current list
+
+      // Refresh the blog post list after toggling visibility
+      await fetchPosts()
     } catch (error) {
       console.error(`Error trying to ${action} post:`, error)
     }
