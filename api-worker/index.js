@@ -63,6 +63,10 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname === '/save' && request.method === 'POST') {
         const { id, markdown, isVisible } = await request.json()
+
+        // Log the incoming payload for debugging
+        console.log('Incoming /save request payload:', { id, markdown, isVisible })
+
         if (!markdown) {
           return new Response('Markdown content is missing', {
             status: 400,
@@ -372,6 +376,41 @@ The researchers believe that physical activity may help reduce the risk of demen
         return new Response(JSON.stringify(results), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        })
+      }
+
+      if (pathname === '/hide' && request.method === 'POST') {
+        const { id } = await request.json()
+
+        // Log the incoming payload for debugging
+        console.log('Incoming /hide request payload:', { id })
+
+        if (!id) {
+          return new Response('Blog post ID is missing', {
+            status: 400,
+            headers: corsHeaders,
+          })
+        }
+
+        const currentVisibleKey = `vis:${id}`
+        const hiddenKey = `hid:${id}`
+
+        // Check if the visible key exists
+        const markdown = await env.BINDING_NAME.get(currentVisibleKey)
+        if (!markdown) {
+          return new Response('Blog post not found or already hidden', {
+            status: 404,
+            headers: corsHeaders,
+          })
+        }
+
+        // Move the key from visible to hidden
+        await env.BINDING_NAME.put(hiddenKey, markdown, { metadata: { encoding: 'utf-8' } })
+        await env.BINDING_NAME.delete(currentVisibleKey)
+
+        return new Response('Blog post hidden successfully', {
+          status: 200,
+          headers: corsHeaders,
         })
       }
 

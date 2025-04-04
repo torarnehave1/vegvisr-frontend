@@ -159,15 +159,15 @@ async function deletePost(id) {
 async function hidePost(id) {
   if (confirm('Are you sure you want to hide this post?')) {
     try {
-      const response = await fetch('https://api.vegvisr.org/save', {
+      const response = await fetch('https://api.vegvisr.org/hide', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id, isVisible: false }),
+        body: JSON.stringify({ id }), // Only send the blog ID
       })
       if (!response.ok) throw new Error('Failed to hide post')
-      posts.value = posts.value.filter((post) => post.id !== id)
+      posts.value = posts.value.filter((post) => post.id !== id) // Remove the post from the current list
     } catch (error) {
       console.error('Error hiding post:', error)
     }
