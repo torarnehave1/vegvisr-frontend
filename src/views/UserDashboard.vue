@@ -19,7 +19,7 @@
         />
 
         <h4>{{ email }}</h4>
-        <div v-html="renderedBio"></div>
+        <div v-html="renderedBio" class="text-start"></div>
         <!-- Render bio as HTML -->
         <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
       </div>
