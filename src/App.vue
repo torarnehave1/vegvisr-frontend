@@ -23,7 +23,7 @@ function handleUserLoggedIn(email) {
 function handleLogout() {
   userState.email = ''
   localStorage.removeItem('UserEmail')
-  localStorage.removeItem('jwt-vegvisr.org')
+  localStorage.removeItem('jwt')
 }
 
 function setTheme(newTheme) {
