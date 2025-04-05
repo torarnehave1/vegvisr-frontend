@@ -61,9 +61,12 @@ function handleUserLoggedIn(email, jwt) {
 }
 
 function handleLogout() {
+  console.log('Logout initiated.')
   userState.email = ''
-  store.commit('logout') // Clear JWT and user data from Vuex store
+  store.commit('logout') // Clear user data from Vuex store
+  console.log('Vuex store after logout:', store.state.user)
   localStorage.removeItem('UserEmail')
+  console.log('UserEmail removed from localStorage.')
   window.location.href = '/' // Redirect to the home route
   console.log('User logged out and redirected to home page.')
 }

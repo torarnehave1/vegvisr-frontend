@@ -25,9 +25,9 @@ const store = createStore({
       state.currentBlogId = blogId // Set the current blog ID
     },
     logout(state) {
-      console.log('Logout mutation triggered. Clearing user state.');
-      state.user = { email: null, role: null }; // Reset user state
-      console.log('User state after logout:', state.user);
+      console.log('Logout mutation triggered. Clearing user state.')
+      state.user = { email: null, role: null } // Reset user state
+      console.log('User state after logout:', state.user)
       console.log('User logged out. Vuex store cleared.') // Debugging log
     },
   },
