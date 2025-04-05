@@ -119,6 +119,13 @@ router.beforeEach(async (to, from, next) => {
       console.warn('[Router] Authentication failed. Redirecting to login.')
       next({ path: '/login' })
     }
+
+    store.subscribe((mutation) => {
+      if (mutation.type === 'logout') {
+        console.log('[Router] User logged out. Redirecting to home route.')
+        router.push('/')
+      }
+    })
   } else {
     console.log('[Router] This route does not require authentication. Proceeding.')
     next()
