@@ -144,6 +144,9 @@ async function openInEditor(id) {
     console.log('Opening post in editor with content:', content)
 
     store.commit('setCurrentBlogId', id)
+
+    console.log('id', id)
+
     router.push({ name: 'EditorView', query: { content } })
   } catch (error) {
     console.error('Error opening post in editor:', error)
