@@ -6,6 +6,7 @@ import SoundStudioView from '../views/SoundStudioView.vue'
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
 import BlogView from '../views/BlogView.vue'
+import store from '@/store'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -105,15 +106,10 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.requiresAuth) {
     console.log('[Router] This route requires authentication.')
 
-    const token = localStorage.getItem('jwt') // Retrieve the JWT from Local Storage
-    console.log(`[Router] JWT token found: ${token ? 'Yes' : 'No'}`)
+    const { email, role } = store.state.user // Check user state in Vuex
+    console.log(`[Router] User email: ${email}, role: ${role}`)
 
-    const { useStore } = await import('@/store') // Dynamically import the store
-    const store = useStore() // Access the Vuex store
-    const userEmail = store.state.user?.email // Retrieve the UserEmail from Vuex store
-    console.log(`[Router] User email in Vuex store: ${userEmail || 'None'}`)
-
-    if (token && userEmail) {
+    if (email && role) {
       console.log('[Router] Authentication successful. Proceeding to the route.')
       next()
     } else {
