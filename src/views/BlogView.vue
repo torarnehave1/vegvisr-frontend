@@ -131,6 +131,7 @@ function changePage(page) {
 
 // Open the blog post view without exposing the email address
 function viewPost(id) {
+  console.log('Opening post with ID:', id)
   window.open(`https://api.vegvisr.org/view/${id}`, '_blank')
 }
 
