@@ -14,10 +14,10 @@ const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
 onMounted(() => {
   const storedJwt = localStorage.getItem('jwt')
-  const queryEmail = localStorage.getItem('UserEmail') // Retrieve email from localStorage
+  const queryEmail = localStorage.getItem('UserEmail')
 
   if (storedJwt) {
-    console.log('JWT token retrieved from localStorage:', storedJwt)
+    console.log('JWT token found in Vuex store:', storedJwt)
     store.commit('setJwt', storedJwt)
   } else if (queryEmail) {
     console.log('No JWT token found. Attempting to create one using email:', queryEmail)
@@ -31,15 +31,15 @@ onMounted(() => {
       })
       .then((data) => {
         if (data.jwt) {
-          console.log('JWT token created and retrieved:', data.jwt)
           store.commit('setJwt', data.jwt)
           localStorage.setItem('jwt', data.jwt)
+          console.log('JWT token fetched and stored in Vuex store and localStorage:', data.jwt)
         } else {
           console.warn('No JWT token found in the response:', data)
         }
       })
       .catch((error) => {
-        console.error('Error creating JWT token:', error)
+        console.error('Error fetching JWT token:', error)
       })
   } else {
     console.warn('No JWT token or email found. Cannot create JWT.')
