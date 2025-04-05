@@ -21,7 +21,7 @@ onMounted(() => {
     return
   }
 
-  if (storedJwt && queryEmail) {
+  if (storedJwt && queryEmail && !store.state.loggedIn) {
     console.log('JWT token and email found. Initializing user state.')
     store.commit('setUser', { email: queryEmail, role: 'User' }) // Example role
     store.commit('setJwt', storedJwt)
