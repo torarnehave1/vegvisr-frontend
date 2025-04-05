@@ -1,5 +1,4 @@
 import { createStore } from 'vuex'
-import { useRouter } from 'vue-router'
 
 const store = createStore({
   state: {
