@@ -64,6 +64,7 @@ function handleLogout() {
   userState.email = ''
   store.commit('logout') // Clear JWT and user data from Vuex store
   localStorage.removeItem('UserEmail')
+  window.location.href = '/' // Redirect to the home route
 }
 
 function setTheme(newTheme) {
