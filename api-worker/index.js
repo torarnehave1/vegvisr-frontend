@@ -104,24 +104,29 @@ The researchers believe that physical activity may help reduce the risk of demen
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
 
+        console.log('Received request to view blog post with ID:', id)
+
         // Search for the blog post by iterating through keys
         const keys = await env.BINDING_NAME.list()
+        console.log('Retrieved keys from KV store:', keys)
+
         const matchingKey = keys.keys.find((key) => key.name.includes(`:${id}:`))
 
-        console.log('Matching key:', matchingKey)
-        console.log('Blog post ID:', id)
+        console.log('Matching key found:', matchingKey)
 
         if (!matchingKey) {
-          console.error('matchingKey not found:', matchingKey)
-
+          console.error('No matching key found for ID:', id)
           return new Response('Not Found', { status: 404 })
         }
 
         const markdown = await env.BINDING_NAME.get(matchingKey.name)
 
         if (!markdown) {
+          console.error('No markdown content found for key:', matchingKey.name)
           return new Response('Not Found', { status: 404 })
         }
+
+        console.log('Retrieved markdown content:', markdown)
 
         const url = new URL(request.url)
         const raw = url.searchParams.get('raw') === 'true' // Check if raw content is requested
