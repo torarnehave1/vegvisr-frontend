@@ -2,10 +2,12 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import DefaultLayout from './layouts/DefaultLayout.vue'
+import { useStore } from '@/store'
 
 const theme = ref('light')
 const userState = reactive({ email: '' })
 const route = useRoute()
+const store = useStore()
 
 // Resolve the layout component from the route's meta.layout
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
@@ -13,15 +15,18 @@ const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 onMounted(() => {
   theme.value = localStorage.getItem('theme') || 'light'
   userState.email = localStorage.getItem('UserEmail') || ''
+  store.commit('setJwt', localStorage.getItem('jwt')) // Sync JWT from localStorage to Vuex store
   window.UserEmail = userState.email
 })
 
-function handleUserLoggedIn(email) {
+function handleUserLoggedIn(email, jwt) {
   userState.email = email
+  store.commit('setJwt', jwt) // Set JWT in Vuex store
 }
 
 function handleLogout() {
   userState.email = ''
+  store.commit('logout') // Clear JWT and user data from Vuex store
   localStorage.removeItem('UserEmail')
   localStorage.removeItem('jwt')
 }
