@@ -62,14 +62,14 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
-        const { id, markdown, isVisible, email } = await request.json()
+        const { id, markdown, isVisible } = await request.json()
 
         // Log the incoming payload for debugging
-        console.log('Incoming /save request payload:', { id, markdown, isVisible, email })
+        console.log('Incoming /save request payload:', { id, markdown, isVisible })
 
-        if (!markdown || !email) {
-          console.error('Missing required fields:', { markdown, email })
-          return new Response('Markdown content or email is missing', {
+        if (!markdown) {
+          console.error('Missing required fields:', { markdown })
+          return new Response('Markdown content is missing', {
             status: 400,
             headers: corsHeaders,
           })
@@ -77,21 +77,21 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         const newPrefix = isVisible ? 'vis:' : 'hid:'
         const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
-        const newKey = `${newPrefix}${blogId}:${email}` // Add the email to the end of the key
+        const newKey = `${newPrefix}${blogId}` // Exclude email from the key
 
         if (id) {
           // If an ID is provided, check if the key needs to be updated
-          const currentVisibleKey = `vis:${id}:${email}`
-          const currentHiddenKey = `hid:${id}:${email}`
+          const currentVisibleKey = `vis:${id}`
+          const currentHiddenKey = `hid:${id}`
 
           // Delete the old key if it exists
           await env.BINDING_NAME.delete(currentVisibleKey)
           await env.BINDING_NAME.delete(currentHiddenKey)
         }
 
-        // Save the new key with the updated visibility and email metadata
+        // Save the new key with the updated visibility
         await env.BINDING_NAME.put(newKey, markdown, {
-          metadata: { encoding: 'utf-8', email },
+          metadata: { encoding: 'utf-8' },
         })
         const shareableLink = `https://api.vegvisr.org/view/${blogId}`
 
@@ -103,8 +103,8 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
-        const key = `vis:${id}` // Assume visible by default
-        let markdown = await env.BINDING_NAME.get(key)
+        const visibleKey = `vis:${id}` // Assume visible by default
+        let markdown = await env.BINDING_NAME.get(visibleKey)
 
         if (!markdown) {
           // Check if the post is hidden
@@ -144,8 +144,8 @@ The researchers believe that physical activity may help reduce the risk of demen
             <title>View Markdown</title>
             <style>
               img {
-          max-width: 100%;
-          height: auto;
+                max-width: 100%;
+                height: auto;
               }
             </style>
           </head>
