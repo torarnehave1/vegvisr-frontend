@@ -13,15 +13,51 @@ const store = useStore()
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
 onMounted(() => {
+  const storedJwt = localStorage.getItem('jwt')
+  const queryEmail = localStorage.getItem('UserEmail') // Retrieve email from localStorage
+
+  if (storedJwt) {
+    console.log('JWT token retrieved from localStorage:', storedJwt)
+    store.commit('setJwt', storedJwt)
+  } else if (queryEmail) {
+    console.log('No JWT token found. Attempting to create one using email:', queryEmail)
+    fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
+      .then((response) => {
+        if (!response.ok) {
+          console.error('Failed to fetch JWT token:', response.status, response.statusText)
+          throw new Error('Failed to fetch JWT token')
+        }
+        return response.json()
+      })
+      .then((data) => {
+        if (data.jwt) {
+          console.log('JWT token created and retrieved:', data.jwt)
+          store.commit('setJwt', data.jwt)
+          localStorage.setItem('jwt', data.jwt)
+        } else {
+          console.warn('No JWT token found in the response:', data)
+        }
+      })
+      .catch((error) => {
+        console.error('Error creating JWT token:', error)
+      })
+  } else {
+    console.warn('No JWT token or email found. Cannot create JWT.')
+  }
+
   theme.value = localStorage.getItem('theme') || 'light'
-  userState.email = localStorage.getItem('UserEmail') || ''
-  store.commit('setJwt', localStorage.getItem('jwt')) // Sync JWT from localStorage to Vuex store
+  userState.email = queryEmail || ''
   window.UserEmail = userState.email
 })
 
 function handleUserLoggedIn(email, jwt) {
   userState.email = email
-  store.commit('setJwt', jwt) // Set JWT in Vuex store
+  if (jwt) {
+    console.log('Setting JWT token in Vuex store and localStorage:', jwt)
+    store.commit('setJwt', jwt)
+  } else {
+    console.error('Attempted to set an undefined JWT token.')
+  }
 }
 
 function handleLogout() {
