@@ -15,6 +15,7 @@ const store = createStore({
     setJwt(state, jwt) {
       state.jwt = jwt // Set the JWT in state
       localStorage.setItem('jwt', jwt) // Persist JWT in localStorage
+      console.log('JWT token set in Vuex store and localStorage:', jwt) // Debugging log
     },
     setCurrentBlogId(state, blogId) {
       state.currentBlogId = blogId // Set the current blog ID
@@ -24,6 +25,7 @@ const store = createStore({
       state.jwt = null // Clear JWT from state
       localStorage.removeItem('user') // Clear user data from localStorage
       localStorage.removeItem('jwt') // Clear JWT from localStorage
+      console.log('User logged out. Vuex store and localStorage cleared.') // Debugging log
     },
   },
 })
