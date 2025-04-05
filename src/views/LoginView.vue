@@ -14,46 +14,20 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from '@/store' // Correctly import useStore function
 
 const emit = defineEmits(['user-logged-in'])
 const email = ref('')
 const theme = ref('light') // Default theme is light
+const userState = ref({ email: '', role: '', loggedIn: false })
 
 const router = useRouter()
-const store = useStore() // Access Vuex store
 
 onMounted(() => {
-  const storedJwt = localStorage.getItem('jwt')
-  const queryEmail = localStorage.getItem('UserEmail')
-
-  if (storedJwt) {
-    console.log('JWT token found in Vuex store:', storedJwt)
-    store.commit('setJwt', storedJwt)
-  } else if (queryEmail) {
-    console.log('No JWT token found. Attempting to create one using email:', queryEmail)
-    fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
-      .then((response) => {
-        if (!response.ok) {
-          console.error('Failed to fetch JWT token:', response.status, response.statusText)
-          throw new Error('Failed to fetch JWT token')
-        }
-        return response.json()
-      })
-      .then((data) => {
-        if (data.jwt) {
-          store.commit('setJwt', data.jwt)
-          localStorage.setItem('jwt', data.jwt) // Ensure JWT is stored in localStorage
-          console.log('JWT token fetched and stored in Vuex store and localStorage:', data.jwt)
-        } else {
-          console.warn('No JWT token found in the response:', data)
-        }
-      })
-      .catch((error) => {
-        console.error('Error fetching JWT token:', error)
-      })
+  const storedUser = JSON.parse(localStorage.getItem('user'))
+  if (storedUser && storedUser.email) {
+    userState.value = storedUser
   } else {
-    console.warn('No JWT token or email found. Cannot create JWT.')
+    userState.value = { email: '', role: '', loggedIn: false }
   }
 
   theme.value = localStorage.getItem('theme') || 'light'
@@ -78,10 +52,10 @@ function handleLogin() {
         console.log('Role data response:', roleData) // Log the role data for debugging
 
         if (roleData && roleData.role) {
-          // Use Vuex store to set UserEmail and Role
-          store.commit('setUser', { email: email.value, role: roleData.role })
-          localStorage.setItem('UserEmail', email.value) // Ensure UserEmail is stored
-          console.log('UserEmail and Role set in Vuex store:', email.value, roleData.role)
+          // Set UserEmail and Role in local state and localStorage
+          userState.value = { email: email.value, role: roleData.role, loggedIn: true }
+          localStorage.setItem('user', JSON.stringify(userState.value))
+          console.log('UserEmail and Role set in local state:', email.value, roleData.role)
           emit('user-logged-in', email.value)
           router.push('/') // Redirect to the main App.vue
         } else {
