@@ -36,6 +36,30 @@ onMounted(() => {
   if (queryToken) {
     localStorage.setItem('jwt', queryToken)
     console.log('JWT token stored in Local Storage:', queryToken)
+  } else if (queryEmail) {
+    // If JWT is missing, call the /set-jwt endpoint
+    fetch('https://test.vegvisr.org/set-jwt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: queryEmail }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch JWT token')
+        }
+        return response.json()
+      })
+      .then((data) => {
+        if (data.jwt) {
+          localStorage.setItem('jwt', data.jwt)
+          console.log('JWT token fetched and stored in Local Storage:', data.jwt)
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching JWT token:', error)
+      })
   }
 
   // Detect and set the theme

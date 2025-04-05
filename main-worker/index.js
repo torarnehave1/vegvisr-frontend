@@ -504,6 +504,69 @@ export default {
         }
       }
 
+      if (path === '/set-jwt' && method === 'POST') {
+        console.log('Received POST /set-jwt request')
+
+        const requestBody = await request.json()
+        const userEmail = requestBody.email
+
+        if (!userEmail) {
+          console.error('Error in POST /set-jwt: Missing email parameter')
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+
+        const db = env.vegvisr_org // Access the D1 database binding
+
+        try {
+          // Retrieve the emailVerificationToken for the given email
+          const query = `
+            SELECT emailVerificationToken
+            FROM config
+            WHERE email = ?;
+          `
+          const userRecord = await db.prepare(query).bind(userEmail).first()
+
+          if (!userRecord || !userRecord.emailVerificationToken) {
+            console.error(`No valid emailVerificationToken found for email=${userEmail}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'No valid emailVerificationToken found for this email.' }),
+                { status: 404 },
+              ),
+            )
+          }
+
+          // Generate a JWT token using the emailVerificationToken
+          const jwtSecret = new TextEncoder().encode(env.JWT_SECRET) // Convert secret to Uint8Array
+          const jwtToken = await new SignJWT({
+            emailVerificationToken: userRecord.emailVerificationToken,
+          })
+            .setProtectedHeader({ alg: 'HS256' })
+            .setExpirationTime('730d') // Set expiration time to 2 years
+            .sign(jwtSecret)
+
+          console.log('Generated JWT Token:', jwtToken)
+
+          // Return the JWT token to the client
+          return addCorsHeaders(
+            new Response(JSON.stringify({ jwt: jwtToken }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (dbError) {
+          console.error('Error retrieving emailVerificationToken from database:', dbError)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ error: 'Failed to retrieve emailVerificationToken from database.' }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {

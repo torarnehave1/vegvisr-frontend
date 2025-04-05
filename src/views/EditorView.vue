@@ -69,6 +69,7 @@ import { useStore } from '@/store'
 const route = useRoute()
 const store = useStore() // Access the Vuex store
 const isEmbedded = ref(false)
+const email = ref('') // Declare email as a ref variable
 
 const mode = ref('edit')
 const markdown = ref('')
@@ -80,6 +81,7 @@ const cursorPosition = ref(0) // Track the cursor position
 const pendingSnippet = ref(null) // Temporary variable to store the snippet
 const fileInput = ref(null) // Reference to the file input
 const isVisible = ref(true) // Default visibility is true
+const theme = ref('light') // Declare theme as a ref variable
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -98,6 +100,46 @@ onMounted(() => {
   } else {
     console.warn('No content provided in query parameters.') // Debugging log
   }
+})
+
+onMounted(() => {
+  const queryEmail = route.query.email
+  const queryToken = route.query.token
+
+  if (queryEmail) {
+    email.value = queryEmail
+  }
+
+  if (queryToken) {
+    localStorage.setItem('jwt', queryToken)
+    console.log('JWT token stored in Local Storage:', queryToken)
+  } else if (queryEmail) {
+    fetch('https://api.vegvisr.org/set-jwt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: queryEmail }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch JWT token')
+        }
+        return response.json()
+      })
+      .then((data) => {
+        if (data.jwt) {
+          localStorage.setItem('jwt', data.jwt)
+          console.log('JWT token fetched and stored in Local Storage:', data.jwt)
+          alert('Your session has been reset. Please try logging in again.')
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching JWT token:', error)
+      })
+  }
+
+  theme.value = localStorage.getItem('theme') || 'light'
 })
 
 // Toggle between "edit" and "preview" modes
