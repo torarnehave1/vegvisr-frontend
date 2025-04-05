@@ -24,12 +24,12 @@ const router = useRouter()
 const store = useStore() // Access Vuex store
 
 onMounted(() => {
-  const storedJwt = store.state.jwt
+  const storedJwt = localStorage.getItem('jwt')
   const queryEmail = localStorage.getItem('UserEmail')
 
   if (storedJwt) {
     console.log('JWT token found in Vuex store:', storedJwt)
-    // Optionally validate the JWT token here if needed
+    store.commit('setJwt', storedJwt)
   } else if (queryEmail) {
     console.log('No JWT token found. Attempting to create one using email:', queryEmail)
     fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
@@ -43,7 +43,8 @@ onMounted(() => {
       .then((data) => {
         if (data.jwt) {
           store.commit('setJwt', data.jwt)
-          console.log('JWT token fetched and stored in Vuex store:', data.jwt)
+          localStorage.setItem('jwt', data.jwt) // Ensure JWT is stored in localStorage
+          console.log('JWT token fetched and stored in Vuex store and localStorage:', data.jwt)
         } else {
           console.warn('No JWT token found in the response:', data)
         }
