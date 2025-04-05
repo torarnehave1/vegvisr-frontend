@@ -16,7 +16,7 @@ onMounted(() => {
   const storedJwt = localStorage.getItem('jwt')
   const queryEmail = localStorage.getItem('UserEmail')
 
-  if (storedJwt) {
+  if (storedJwt && store.state.user.email && store.state.user.role) {
     console.log('JWT token found in Vuex store:', storedJwt)
     store.commit('setJwt', storedJwt)
   } else if (queryEmail) {
@@ -46,7 +46,7 @@ onMounted(() => {
   }
 
   theme.value = localStorage.getItem('theme') || 'light'
-  userState.email = queryEmail || ''
+  userState.email = store.state.user.email || queryEmail || ''
   window.UserEmail = userState.email
 })
 
