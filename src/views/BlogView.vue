@@ -129,7 +129,7 @@ function changePage(page) {
   currentPage.value = page
 }
 
-// Navigate to the full post view
+// Open the blog post view without exposing the email address
 function viewPost(id) {
   window.open(`https://api.vegvisr.org/view/${id}`, '_blank')
 }
