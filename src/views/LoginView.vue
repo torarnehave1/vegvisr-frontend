@@ -57,7 +57,7 @@ function handleLogin() {
           localStorage.setItem('user', JSON.stringify(userState.value))
           console.log('UserEmail and Role set in local state:', email.value, roleData.role)
           emit('user-logged-in', email.value)
-          router.push('/') // Redirect to the main App.vue
+          router.push('/') // Redirect to the home page
         } else {
           console.error('Error: Role data is missing or invalid. Response:', roleData)
           alert('Unable to retrieve user role. Please contact support.') // Notify the user
