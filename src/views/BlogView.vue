@@ -132,7 +132,8 @@ function changePage(page) {
 // Open the blog post view without exposing the email address
 function viewPost(id) {
   console.log('Opening post with ID:', id)
-  window.open(`https://api.vegvisr.org/view/${id}`, '_blank')
+  const key = id.split(':')[1] || id // Extract the key part (middle section) from the ID
+  window.open(`https://api.vegvisr.org/view/${key}`, '_blank')
 }
 
 // Open the blog post in the editor view
