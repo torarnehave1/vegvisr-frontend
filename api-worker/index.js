@@ -8,6 +8,7 @@ import { marked } from 'marked' // Ensure you have installed marked (npm install
 
 export default {
   async fetch(request, env) {
+    console.log('Request received:', { method: request.method, url: request.url })
     const url = new URL(request.url)
     const { pathname } = url
 
@@ -24,6 +25,7 @@ export default {
 
     try {
       if (pathname === '/summary' && request.method === 'GET') {
+        console.log('Processing /summary endpoint')
         const prompt = `Create a summary of this text: How older adults can reduce their risk of dementia by 60% with this one simple trick:
 
 A new study published in the journal Neurology found that older adults who engaged in regular physical activity were 60% less likely to develop dementia than those who did not. The study followed over 1,600 adults with an average age of 79 for an average of 5 years. The participants were asked to report their physical activity levels, which included walking, swimming, and other forms of exercise. The researchers found that those who engaged in physical activity at least three times a week were significantly less likely to develop dementia than those who did not. The study also found that the protective effect of physical activity was independent of other factors such as age.
@@ -60,6 +62,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         const data = await response.json()
         const summary = data.choices[0].message.content.trim()
+        console.log('OpenAI API response received:', { status: response.status, data })
 
         return new Response(JSON.stringify({ summary }), {
           status: 200,
@@ -68,7 +71,9 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
+        console.log('Processing /save endpoint')
         const { id, markdown, isVisible, email } = await request.json()
+        console.log('Request payload:', { id, markdown, isVisible, email })
 
         if (!markdown || !email) {
           console.error('Missing required fields:', { markdown, email })
@@ -100,6 +105,8 @@ The researchers believe that physical activity may help reduce the risk of demen
           metadata: { encoding: 'utf-8' },
         })
         const shareableLink = `https://api.vegvisr.org/view/${blogId}`
+        console.log('New key created:', newKey)
+        console.log('Shareable link generated:', shareableLink)
 
         return new Response(JSON.stringify({ link: shareableLink }), {
           status: 200,
@@ -109,6 +116,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
+        console.log('Processing /view/ endpoint for ID:', id)
 
         console.log('Received request to view blog post with ID:', id)
 
@@ -176,6 +184,7 @@ The researchers believe that physical activity may help reduce the risk of demen
           </body>
           </html>
         `
+        console.log('Final HTML content generated for /view/:', finalHtml)
 
         return new Response(finalHtml, {
           status: 200,
@@ -184,6 +193,7 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/blog-posts' && request.method === 'GET') {
+        console.log('Processing /blog-posts endpoint')
         const keys = await env.BINDING_NAME.list()
         const posts = []
 
@@ -213,6 +223,7 @@ The researchers believe that physical activity may help reduce the risk of demen
             })
           }
         }
+        console.log('Retrieved posts:', posts)
 
         return new Response(JSON.stringify(posts), {
           status: 200,
@@ -221,6 +232,7 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/hidden-blog-posts' && request.method === 'GET') {
+        console.log('Processing /hidden-blog-posts endpoint')
         const keys = await env.BINDING_NAME.list()
         const posts = []
 
@@ -250,6 +262,7 @@ The researchers believe that physical activity may help reduce the risk of demen
             })
           }
         }
+        console.log('Retrieved hidden posts:', posts)
 
         return new Response(JSON.stringify(posts), {
           status: 200,
@@ -259,6 +272,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
         const id = pathname.split('/').pop()
+        console.log('Processing /blogpostdelete/ endpoint for ID:', id)
         if (!id) {
           return new Response('Blog post ID is required', { status: 400, headers: corsHeaders })
         }
@@ -311,6 +325,7 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/upload' && request.method === 'POST') {
+        console.log('Processing /upload endpoint')
         try {
           console.log('Received POST /upload request')
           const { MY_R2_BUCKET } = env
@@ -349,6 +364,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
           const fileUrl = `https://blog.vegvisr.org/${fileName}`
           console.log('File uploaded to R2:', fileUrl)
+          console.log('File uploaded successfully:', fileUrl)
 
           return new Response(JSON.stringify({ url: fileUrl }), {
             status: 200,
@@ -364,6 +380,7 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/search' && request.method === 'GET') {
+        console.log('Processing /search endpoint with query:', query)
         const query = url.searchParams.get('query')?.toLowerCase() || '' // Get the search query
         if (!query) {
           return new Response('Search query is missing', { status: 400 })
@@ -396,6 +413,7 @@ The researchers believe that physical activity may help reduce the risk of demen
             })
           }
         }
+        console.log('Search results:', results)
 
         return new Response(JSON.stringify(results), {
           status: 200,
@@ -404,7 +422,9 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/hid_vis' && request.method === 'POST') {
+        console.log('Processing /hid_vis endpoint')
         const { id, isVisible } = await request.json()
+        console.log('Payload:', { id, isVisible })
 
         // Log the incoming payload for debugging
         console.log('Incoming /hid_vis request payload:', { id, isVisible })
@@ -431,6 +451,7 @@ The researchers believe that physical activity may help reduce the risk of demen
         // Move the key to the new state
         await env.BINDING_NAME.put(newKey, markdown, { metadata: { encoding: 'utf-8' } })
         await env.BINDING_NAME.delete(currentKey)
+        console.log('Key moved from:', currentKey, 'to:', newKey)
 
         return new Response(`Blog post ${isVisible ? 'shown' : 'hidden'} successfully`, {
           status: 200,
