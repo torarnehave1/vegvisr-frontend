@@ -1,3 +1,9 @@
+// @name api-worker
+// @description A Cloudflare Worker script to handle various API endpoints for a blog application.
+// @version 1.0
+// @author Tor Arne Håve
+// @license MIT
+
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 
 export default {
