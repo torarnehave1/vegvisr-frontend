@@ -33,6 +33,9 @@ const store = createStore({
       console.log('User state after logout:', state.user)
       console.log('User logged out. Vuex store cleared.') // Debugging log
     },
+    setLoggedIn(state, status) {
+      state.loggedIn = status // Explicitly set loggedIn state
+    },
   },
 })
 

@@ -41,6 +41,7 @@ function handleUserLoggedIn(email, jwt) {
   if (jwt) {
     console.log('Setting JWT token in Vuex store and localStorage:', jwt)
     store.commit('setJwt', jwt)
+    store.commit('setLoggedIn', true) // Explicitly set loggedIn to true
   } else {
     console.error('Attempted to set an undefined JWT token.')
   }
@@ -50,6 +51,7 @@ function handleLogout() {
   console.log('Logout initiated.')
   userState.email = ''
   store.commit('logout') // Clear user data from Vuex store
+  store.commit('setLoggedIn', false) // Explicitly set loggedIn to false
   console.log('Vuex store after logout:', store.state.user)
   localStorage.removeItem('UserEmail')
   console.log('UserEmail removed from localStorage.')
