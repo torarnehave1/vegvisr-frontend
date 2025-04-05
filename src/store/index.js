@@ -11,8 +11,8 @@ const store = createStore({
     setUser(state, user) {
       state.user.email = user.email
       state.user.role = user.role
-      state.loggedIn = true // Set loggedIn to true when user is set
-      localStorage.setItem('user', JSON.stringify(state.user)) // Persist state
+      state.loggedIn = true
+      localStorage.setItem('user', JSON.stringify(state.user)) // Persist user state in localStorage
     },
     setJwt(state, jwt) {
       if (!jwt) {
@@ -27,11 +27,9 @@ const store = createStore({
       state.currentBlogId = blogId // Set the current blog ID
     },
     logout(state) {
-      console.log('Logout mutation triggered. Clearing user state.')
-      state.user = { email: null, role: null } // Reset user state
-      state.loggedIn = false // Set loggedIn to false on logout
-      console.log('User state after logout:', state.user)
-      console.log('User logged out. Vuex store cleared.') // Debugging log
+      state.user = { email: null, role: null }
+      state.loggedIn = false
+      localStorage.removeItem('user') // Clear user state from localStorage
     },
     setLoggedIn(state, status) {
       state.loggedIn = status // Explicitly set loggedIn state
