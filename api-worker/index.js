@@ -62,14 +62,11 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/save' && request.method === 'POST') {
-        const { id, markdown, isVisible } = await request.json()
+        const { id, markdown, isVisible, email } = await request.json()
 
-        // Log the incoming payload for debugging
-        console.log('Incoming /save request payload:', { id, markdown, isVisible })
-
-        if (!markdown) {
-          console.error('Missing required fields:', { markdown })
-          return new Response('Markdown content is missing', {
+        if (!markdown || !email) {
+          console.error('Missing required fields:', { markdown, email })
+          return new Response('Markdown content or email is missing', {
             status: 400,
             headers: corsHeaders,
           })
@@ -77,7 +74,10 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         const newPrefix = isVisible ? 'vis:' : 'hid:'
         const blogId = id || crypto.randomUUID() // Use the provided ID or generate a new one
-        const newKey = `${newPrefix}${blogId}` // Exclude email from the key
+
+        // Ensure the email is not duplicated in the key
+        const newKey =
+          id && id.includes(`:${email}`) ? `${newPrefix}${id}` : `${newPrefix}${blogId}:${email}`
 
         if (id) {
           // If an ID is provided, check if the key needs to be updated
@@ -103,14 +103,16 @@ The researchers believe that physical activity may help reduce the risk of demen
 
       if (pathname.startsWith('/view/') && request.method === 'GET') {
         const id = pathname.split('/').pop()
-        const visibleKey = `vis:${id}` // Assume visible by default
-        let markdown = await env.BINDING_NAME.get(visibleKey)
 
-        if (!markdown) {
-          // Check if the post is hidden
-          const hiddenKey = `hid:${id}`
-          markdown = await env.BINDING_NAME.get(hiddenKey)
+        // Search for the blog post by iterating through keys
+        const keys = await env.BINDING_NAME.list()
+        const matchingKey = keys.keys.find((key) => key.name.includes(`:${id}:`))
+
+        if (!matchingKey) {
+          return new Response('Not Found', { status: 404 })
         }
+
+        const markdown = await env.BINDING_NAME.get(matchingKey.name)
 
         if (!markdown) {
           return new Response('Not Found', { status: 404 })
