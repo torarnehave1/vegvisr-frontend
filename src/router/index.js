@@ -98,8 +98,6 @@ const router = createRouter({
   ],
 })
 
-// Removed redundant subscription to Vuex store mutations for logout handling.
-// The Vuex store already handles logout and redirection to the home route.
 router.beforeEach(async (to, from, next) => {
   console.log(`[Router] Navigating to: ${to.path}`)
 
