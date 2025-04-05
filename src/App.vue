@@ -16,33 +16,17 @@ onMounted(() => {
   const storedJwt = localStorage.getItem('jwt')
   const queryEmail = localStorage.getItem('UserEmail')
 
-  if (storedJwt && store.state.user.email && store.state.user.role) {
-    console.log('JWT token found in Vuex store:', storedJwt)
+  if (store.state.loggedIn) {
+    console.log('User is already logged in. Skipping reinitialization.')
+    return
+  }
+
+  if (storedJwt && queryEmail) {
+    console.log('JWT token and email found. Initializing user state.')
+    store.commit('setUser', { email: queryEmail, role: 'User' }) // Example role
     store.commit('setJwt', storedJwt)
-  } else if (queryEmail && store.state.user.email === null && store.state.user.role === null) {
-    console.log('No JWT token found. Attempting to create one using email:', queryEmail)
-    fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
-      .then((response) => {
-        if (!response.ok) {
-          console.error('Failed to fetch JWT token:', response.status, response.statusText)
-          throw new Error('Failed to fetch JWT token')
-        }
-        return response.json()
-      })
-      .then((data) => {
-        if (data.jwt) {
-          store.commit('setJwt', data.jwt)
-          localStorage.setItem('jwt', data.jwt)
-          console.log('JWT token fetched and stored in Vuex store and localStorage:', data.jwt)
-        } else {
-          console.warn('No JWT token found in the response:', data)
-        }
-      })
-      .catch((error) => {
-        console.error('Error fetching JWT token:', error)
-      })
   } else {
-    console.warn('No JWT token or email found. Cannot create JWT.')
+    console.warn('No valid user session found.')
   }
 
   theme.value = localStorage.getItem('theme') || 'light'

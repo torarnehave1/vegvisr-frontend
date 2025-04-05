@@ -98,24 +98,18 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
   console.log(`[Router] Navigating to: ${to.path}`)
 
   if (to.meta.requiresAuth) {
-    console.log('[Router] This route requires authentication.')
-
-    const { email, role } = store.state.user // Check user state in Vuex
-    console.log(`[Router] User email: ${email}, role: ${role}`)
-
-    if (email && role) {
-      console.log('[Router] Authentication successful. Proceeding to the route.')
+    if (store.state.loggedIn) {
+      console.log('[Router] User is authenticated. Proceeding.')
       next()
     } else {
-      console.warn('[Router] Authentication failed. Redirecting to login.')
+      console.warn('[Router] User is not authenticated. Redirecting to login.')
       next({ path: '/login' })
     }
   } else {
-    console.log('[Router] This route does not require authentication. Proceeding.')
     next()
   }
 })
