@@ -19,7 +19,7 @@ onMounted(() => {
   if (storedJwt && store.state.user.email && store.state.user.role) {
     console.log('JWT token found in Vuex store:', storedJwt)
     store.commit('setJwt', storedJwt)
-  } else if (queryEmail) {
+  } else if (queryEmail && store.state.user.email === null && store.state.user.role === null) {
     console.log('No JWT token found. Attempting to create one using email:', queryEmail)
     fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
       .then((response) => {
