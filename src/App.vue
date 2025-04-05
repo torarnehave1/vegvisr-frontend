@@ -21,12 +21,14 @@ onMounted(() => {
     return
   }
 
-  if (storedJwt && queryEmail && !store.state.loggedIn) {
+  if (storedJwt && queryEmail) {
     console.log('JWT token and email found. Initializing user state.')
     store.commit('setUser', { email: queryEmail, role: 'User' }) // Example role
     store.commit('setJwt', storedJwt)
+    store.state.loggedIn = true // Explicitly set loggedIn to true
   } else {
-    console.warn('No valid user session found.')
+    console.warn('No valid user session found. Ensuring loggedIn is false.')
+    store.state.loggedIn = false // Explicitly set loggedIn to false
   }
 
   theme.value = localStorage.getItem('theme') || 'light'
