@@ -41,22 +41,22 @@ onMounted(() => {
     fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
       .then((response) => {
         if (!response.ok) {
-          console.error('Failed to fetch JWT token:', response.status, response.statusText);
-          throw new Error('Failed to fetch JWT token');
+          console.error('Failed to fetch JWT token:', response.status, response.statusText)
+          throw new Error('Failed to fetch JWT token')
         }
-        return response.json();
+        return response.json()
       })
       .then((data) => {
         if (data.jwt) {
-          localStorage.setItem('jwt', data.jwt);
-          console.log('JWT token fetched and stored in Local Storage:', data.jwt);
+          localStorage.setItem('jwt', data.jwt)
+          console.log('JWT token fetched and stored in Local Storage:', data.jwt)
         } else {
-          console.warn('No JWT token found in the response:', data);
+          console.warn('No JWT token found in the response:', data)
         }
       })
       .catch((error) => {
-        console.error('Error fetching JWT token:', error);
-      });
+        console.error('Error fetching JWT token:', error)
+      })
   }
 
   // Detect and set the theme
