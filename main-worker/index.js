@@ -9,18 +9,12 @@ function addCorsHeaders(response) {
   return response
 }
 
-// Function to generate a unique file name
-function generateUniqueFileName(user_id, fileExtension) {
-  const uniqueId = uuidv4()
-  return `${user_id}/profileimage_${uniqueId}.${fileExtension}`
-}
-
 // Cloudflare Worker fetch handler
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
     const path = url.pathname
-    const method = request.method
+    const method = request.method // Added declaration for request method
 
     // Handle CORS preflight requests
     if (method === 'OPTIONS') {
@@ -294,7 +288,7 @@ export default {
                 .first()
 
               if (existingUser) {
-                console.log(`User with email=${parsedBody.email} already exists in the database.`)
+                console.log(`User with email=${parsedBody.email} already exists in the database`)
 
                 // Update the emailVerificationToken if it already exists
                 const updateQuery = `
@@ -333,7 +327,7 @@ export default {
                 )
               }
 
-              // Set a JWT token for the user = the emailVerificationToken
+              // Set a JWT token for the user using the emailVerificationToken
               const jwtSecret = new TextEncoder().encode(env.JWT_SECRET) // Convert secret to Uint8Array
               const jwtToken = await new SignJWT({
                 emailVerificationToken: parsedBody.emailVerificationToken,
@@ -349,7 +343,9 @@ export default {
                 new Response(null, {
                   status: 302,
                   headers: {
-                    Location: `https://www.vegvisr.org/login?email=${encodeURIComponent(parsedBody.email)}&token=${encodeURIComponent(jwtToken)}`, // Redirect to login page
+                    Location: `https://www.vegvisr.org/login?email=${encodeURIComponent(
+                      parsedBody.email,
+                    )}&token=${encodeURIComponent(jwtToken)}`,
                   },
                 }),
               )
@@ -406,9 +402,9 @@ export default {
         try {
           // Case 1: User is registered and verified
           const queryVerified = `
-        SELECT user_id
-        FROM config
-        WHERE email = ? AND emailVerificationToken IS NOT NULL;
+            SELECT user_id
+            FROM config
+            WHERE email = ? AND emailVerificationToken IS NOT NULL;
           `
           const verifiedUser = await db.prepare(queryVerified).bind(userEmail).first()
 
@@ -416,7 +412,11 @@ export default {
             console.log(`User with email ${userEmail} is registered and verified`)
             return addCorsHeaders(
               new Response(
-                JSON.stringify({ exists: true, verified: true, user_id: verifiedUser.user_id }),
+                JSON.stringify({
+                  exists: true,
+                  verified: true,
+                  user_id: verifiedUser.user_id,
+                }),
                 { status: 200 },
               ),
             )
@@ -424,9 +424,9 @@ export default {
 
           // Case 2: User is registered but not verified
           const queryNotVerified = `
-        SELECT user_id
-        FROM config
-        WHERE email = ? AND emailVerificationToken IS NULL;
+            SELECT user_id
+            FROM config
+            WHERE email = ? AND emailVerificationToken IS NULL;
           `
           const notVerifiedUser = await db.prepare(queryNotVerified).bind(userEmail).first()
 
@@ -434,7 +434,11 @@ export default {
             console.log(`User with email ${userEmail} is registered but not verified`)
             return addCorsHeaders(
               new Response(
-                JSON.stringify({ exists: true, verified: false, user_id: notVerifiedUser.user_id }),
+                JSON.stringify({
+                  exists: true,
+                  verified: false,
+                  user_id: notVerifiedUser.user_id,
+                }),
                 { status: 200 },
               ),
             )
@@ -504,14 +508,12 @@ export default {
         }
       }
 
-      if (path === '/set-jwt' && method === 'POST') {
-        console.log('Received POST /set-jwt request')
+      if (path === '/set-jwt' && method === 'GET') {
+        console.log('Received GET /set-jwt request')
 
-        const requestBody = await request.json()
-        const userEmail = requestBody.email
-
+        const userEmail = url.searchParams.get('email')
         if (!userEmail) {
-          console.error('Error in POST /set-jwt: Missing email parameter')
+          console.error('Error in GET /set-jwt: Missing email parameter')
           return addCorsHeaders(
             new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
           )
@@ -522,9 +524,9 @@ export default {
         try {
           // Retrieve the emailVerificationToken for the given email
           const query = `
-            SELECT emailVerificationToken
-            FROM config
-            WHERE email = ?;
+        SELECT emailVerificationToken
+        FROM config
+        WHERE email = ?;
           `
           const userRecord = await db.prepare(query).bind(userEmail).first()
 
