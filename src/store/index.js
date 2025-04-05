@@ -3,6 +3,7 @@ import { createStore } from 'vuex'
 const store = createStore({
   state: {
     user: JSON.parse(localStorage.getItem('user')) || { email: null, role: null }, // Restore state
+    jwt: localStorage.getItem('jwt') || null, // Add JWT to state
     currentBlogId: null, // Add currentBlogId to store the current blog ID
   },
   mutations: {
@@ -11,12 +12,18 @@ const store = createStore({
       state.user.role = user.role
       localStorage.setItem('user', JSON.stringify(state.user)) // Persist state
     },
+    setJwt(state, jwt) {
+      state.jwt = jwt // Set the JWT in state
+      localStorage.setItem('jwt', jwt) // Persist JWT in localStorage
+    },
     setCurrentBlogId(state, blogId) {
       state.currentBlogId = blogId // Set the current blog ID
     },
     logout(state) {
       state.user = { email: null, role: null } // Reset user state
+      state.jwt = null // Clear JWT from state
       localStorage.removeItem('user') // Clear user data from localStorage
+      localStorage.removeItem('jwt') // Clear JWT from localStorage
     },
   },
 })

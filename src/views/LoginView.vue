@@ -24,18 +24,12 @@ const router = useRouter()
 const store = useStore() // Access Vuex store
 
 onMounted(() => {
-  // Pre-fill the email field if provided in the query parameters
+  const storedJwt = store.state.jwt // Get JWT from Vuex store
   const queryEmail = route.query.email
-  const queryToken = route.query.token
 
-  if (queryEmail) {
-    email.value = queryEmail
-  }
-
-  // Store the JWT token in Local Storage if provided
-  if (queryToken) {
-    localStorage.setItem('jwt', queryToken)
-    console.log('JWT token stored in Local Storage:', queryToken)
+  if (storedJwt) {
+    console.log('JWT token found in Vuex store:', storedJwt)
+    // Optionally, validate the JWT token here if needed
   } else if (queryEmail) {
     // If JWT is missing, call the /set-jwt endpoint using GET method
     fetch(`https://test.vegvisr.org/set-jwt?email=${encodeURIComponent(queryEmail)}`)
@@ -48,8 +42,8 @@ onMounted(() => {
       })
       .then((data) => {
         if (data.jwt) {
-          localStorage.setItem('jwt', data.jwt)
-          console.log('JWT token fetched and stored in Local Storage:', data.jwt)
+          store.commit('setJwt', data.jwt)
+          console.log('JWT token fetched and stored in Vuex store:', data.jwt)
         } else {
           console.warn('No JWT token found in the response:', data)
         }
@@ -57,9 +51,10 @@ onMounted(() => {
       .catch((error) => {
         console.error('Error fetching JWT token:', error)
       })
+  } else {
+    console.warn('No JWT token or email query parameter found.')
   }
 
-  // Detect and set the theme
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
