@@ -110,7 +110,10 @@ The researchers believe that physical activity may help reduce the risk of demen
         const keys = await env.BINDING_NAME.list()
         console.log('Retrieved keys from KV store:', keys)
 
-        const matchingKey = keys.keys.find((key) => key.name.includes(`:${id}:`))
+        const matchingKey = keys.keys.find(
+          (key) =>
+            key.name.endsWith(id) && (key.name.startsWith('vis:') || key.name.startsWith('hid:')),
+        )
 
         console.log('Matching key found:', matchingKey)
 
