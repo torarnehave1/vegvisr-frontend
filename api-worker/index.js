@@ -112,6 +112,8 @@ The researchers believe that physical activity may help reduce the risk of demen
         console.log('Blog post ID:', id)
 
         if (!matchingKey) {
+          console.error('matchingKey not found:', matchingKey)
+
           return new Response('Not Found', { status: 404 })
         }
 
