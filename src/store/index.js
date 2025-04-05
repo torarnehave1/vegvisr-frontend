@@ -22,8 +22,7 @@ const store = createStore({
     },
     logout(state) {
       state.user = { email: null, role: null } // Reset user state
-      state.jwt = null // Clear JWT from state
-      localStorage.removeItem('user') // Clear user data from localStorage
+
       console.log('User logged out. Vuex store cleared, but JWT remains in localStorage.') // Debugging log
     },
   },
