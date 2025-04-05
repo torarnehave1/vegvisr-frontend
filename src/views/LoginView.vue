@@ -13,13 +13,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useStore } from '@/store' // Correctly import useStore function
 
 const emit = defineEmits(['user-logged-in'])
 const email = ref('')
 const theme = ref('light') // Default theme is light
-const route = useRoute()
+
 const router = useRouter()
 const store = useStore() // Access Vuex store
 
