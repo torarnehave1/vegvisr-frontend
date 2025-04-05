@@ -1,4 +1,5 @@
 import { createStore } from 'vuex'
+import { useRouter } from 'vue-router'
 
 const store = createStore({
   state: {
@@ -22,8 +23,11 @@ const store = createStore({
     },
     logout(state) {
       state.user = { email: null, role: null } // Reset user state
-
       console.log('User logged out. Vuex store cleared, but JWT remains in localStorage.') // Debugging log
+
+      // Redirect to home route
+      const router = useRouter()
+      router.push('/')
     },
   },
 })
