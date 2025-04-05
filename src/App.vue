@@ -72,6 +72,9 @@ function setTheme(newTheme) {
     @logout="handleLogout"
   >
     <RouterView :theme="theme" @user-logged-in="handleUserLoggedIn" />
+    <button @click="store.state.loggedIn ? handleLogout() : $router.push('/login')">
+      {{ store.state.loggedIn ? 'Logout' : 'Login' }}
+    </button>
   </component>
 </template>
 
