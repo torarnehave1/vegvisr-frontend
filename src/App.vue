@@ -1,11 +1,12 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import DefaultLayout from './layouts/DefaultLayout.vue'
 
 const theme = ref('light')
 const userState = reactive({ email: '', role: '', loggedIn: false })
 const route = useRoute()
+const router = useRouter()
 
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
@@ -24,12 +25,19 @@ onMounted(() => {
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
+function handleLogin(email, role) {
+  userState.email = email
+  userState.role = role
+  userState.loggedIn = true
+  localStorage.setItem('user', JSON.stringify({ email, role }))
+}
+
 function handleLogout() {
   userState.email = ''
   userState.role = ''
   userState.loggedIn = false
   localStorage.removeItem('user')
-  window.location.href = '/' // Redirect to home
+  router.push('/') // Redirect to home page
 }
 </script>
 
