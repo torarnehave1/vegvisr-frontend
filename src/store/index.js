@@ -14,6 +14,10 @@ const store = createStore({
       localStorage.setItem('user', JSON.stringify(state.user)) // Persist state
     },
     setJwt(state, jwt) {
+      if (!jwt) {
+        console.error('Attempted to set an undefined or null JWT token')
+        return
+      }
       state.jwt = jwt // Set the JWT in state
       localStorage.setItem('jwt', jwt) // Persist JWT in localStorage
       console.log('JWT token set in Vuex store and localStorage:', jwt) // Debugging log
