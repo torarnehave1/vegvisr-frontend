@@ -11,7 +11,7 @@ export const useUserStore = defineStore('user', {
       this.email = user.email
       this.role = user.role
       this.loggedIn = true
-      localStorage.setItem('user', JSON.stringify(user))
+      localStorage.setItem('user', JSON.stringify({ email: user.email, role: user.role }))
     },
     logout() {
       this.email = null
@@ -25,6 +25,10 @@ export const useUserStore = defineStore('user', {
         this.email = storedUser.email
         this.role = storedUser.role
         this.loggedIn = true
+      } else {
+        this.email = null
+        this.role = null
+        this.loggedIn = false
       }
     },
   },

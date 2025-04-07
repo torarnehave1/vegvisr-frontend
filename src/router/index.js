@@ -102,6 +102,7 @@ router.beforeEach((to, from, next) => {
   console.log(`[Router] Navigating to: ${to.path}`)
 
   const userStore = useUserStore() // Access the Pinia store
+  userStore.loadUserFromStorage() // Ensure user state is loaded
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {

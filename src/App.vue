@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import DefaultLayout from './layouts/DefaultLayout.vue'
 import { useUserStore } from './stores/userStore'
 import { onMounted } from 'vue'
@@ -8,6 +8,7 @@ import { onMounted } from 'vue'
 const theme = ref('light')
 const userStore = useUserStore()
 const route = useRoute()
+const router = useRouter()
 
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
@@ -18,7 +19,7 @@ onMounted(() => {
 
 function handleLogout() {
   userStore.logout()
-  window.location.href = '/' // Redirect to home page
+  router.push('/') // Redirect to home page
 }
 </script>
 
