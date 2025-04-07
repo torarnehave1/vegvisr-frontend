@@ -44,7 +44,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from '@/store'
+import { useUserStore } from '@/stores/userStore'
 
 const posts = ref([])
 const searchQuery = ref('')
@@ -53,7 +53,7 @@ const postsPerPage = 9
 const showHiddenPosts = ref(false) // Toggle for showing hidden posts
 
 const router = useRouter()
-const store = useStore() // Access the Vuex store
+const userStore = useUserStore() // Access the Pinia store
 
 // Props
 const props = defineProps({
@@ -83,12 +83,12 @@ function applyTheme(newTheme) {
 
 // Check if the user is an Admin or Superadmin
 const isAdminOrSuperadmin = computed(() => {
-  return store.state.user.role === 'Admin' || store.state.user.role === 'Superadmin'
+  return userStore.role === 'Admin' || userStore.role === 'Superadmin'
 })
 
 // Check if the user is logged in
 const isLoggedIn = computed(() => {
-  return !!store.state.user.email // Assuming email indicates login status
+  return !!userStore.email // Assuming email indicates login status
 })
 
 // Fetch blog posts or search results from the KV store
@@ -144,7 +144,7 @@ async function openInEditor(id) {
     const content = await response.text()
     console.log('Opening post in editor with content:', content)
 
-    store.commit('setCurrentBlogId', id)
+    userStore.setCurrentBlogId(id) // Use Pinia store action
 
     console.log('id', id)
 
