@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useUserStore } from '@/stores/userStore' // Import the Pinia store
 import HomeView from '../views/HomeView.vue'
 import UserRegistration from '../views/UserRegistration.vue'
 import LoginView from '../views/LoginView.vue'
@@ -6,7 +7,6 @@ import SoundStudioView from '../views/SoundStudioView.vue'
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
 import BlogView from '../views/BlogView.vue'
-import store from '@/store'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -101,8 +101,10 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   console.log(`[Router] Navigating to: ${to.path}`)
 
+  const userStore = useUserStore() // Access the Pinia store
+
   if (to.meta.requiresAuth) {
-    if (store.state.loggedIn) {
+    if (userStore.loggedIn) {
       console.log('[Router] User is authenticated. Proceeding.')
       next()
     } else {
