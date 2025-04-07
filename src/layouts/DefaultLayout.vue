@@ -88,9 +88,9 @@
 
 <script setup>
 import { RouterLink } from 'vue-router'
-import { useStore } from '../store/index.js'
+import { useUserStore } from '@/stores/userStore' // Import Pinia store
 
-const store = useStore()
+const userStore = useUserStore() // Access Pinia store
 
 defineProps({
   theme: {
@@ -106,7 +106,7 @@ defineProps({
 const emit = defineEmits(['set-theme', 'logout'])
 
 function handleLogout() {
-  store.commit('logout') // Reset Vuex store and localStorage
+  userStore.logout() // Call Pinia store logout action
   emit('logout') // Emit logout event
 }
 </script>
