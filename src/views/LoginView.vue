@@ -5,8 +5,8 @@
       <div class="mb-3">
         <label for="email" class="form-label">Email address</label>
         <input type="email" class="form-control" id="email" v-model="email" required />
+        <button type="submit" class="btn btn-primary">Login</button>
       </div>
-      <button type="submit" class="btn btn-primary">Login</button>
     </form>
   </div>
 </template>
