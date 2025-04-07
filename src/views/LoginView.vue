@@ -6,7 +6,6 @@
         <label for="email" class="form-label">Email address</label>
         <input type="email" class="form-control" id="email" v-model="email" required />
       </div>
-      <button type="submit" class="btn btn-primary">Login</button>
     </form>
   </div>
 </template>
@@ -55,7 +54,7 @@ async function handleLogin() {
     } else {
       router.push(`/register?email=${encodeURIComponent(email.value)}`)
     }
-  } catch (error) {
+  } catch {
     alert('An error occurred during login. Please try again later.')
   }
 }
