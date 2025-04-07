@@ -273,12 +273,37 @@ The researchers believe that physical activity may help reduce the risk of demen
       if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
         const id = pathname.split('/').pop()
         console.log('Processing /blogpostdelete/ endpoint for ID:', id)
+
         if (!id) {
           return new Response('Blog post ID is required', { status: 400, headers: corsHeaders })
         }
 
-        await env.BINDING_NAME.delete(id)
-        return new Response('Blog post deleted successfully', { status: 200, headers: corsHeaders })
+        // Search for the blog post by iterating through keys
+        const keys = await env.BINDING_NAME.list()
+        console.log('Retrieved keys from KV store:', keys)
+
+        const matchingKey = keys.keys.find(
+          (key) =>
+            key.name.includes(id) &&
+            (key.name.startsWith('vis:') || key.name.startsWith('hid:')) &&
+            key.name.match(/:[^:]+@[^:]+\.[^:]+$/), // Ensure it ends with an email address
+        )
+
+        console.log('Matching key found for deletion:', matchingKey)
+
+        if (!matchingKey) {
+          console.error('No matching key found for ID:', id)
+          return new Response('Not Found', { status: 404 })
+        }
+
+        // Delete the matching key
+        await env.BINDING_NAME.delete(matchingKey.name)
+        console.log('Deleted key:', matchingKey.name)
+
+        return new Response('Blog post deleted successfully', {
+          status: 200,
+          headers: corsHeaders,
+        })
       }
 
       if (pathname === '/snippetadd' && request.method === 'POST') {
