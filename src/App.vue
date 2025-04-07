@@ -1,43 +1,24 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import DefaultLayout from './layouts/DefaultLayout.vue'
+import { useUserStore } from './stores/userStore'
+import { onMounted } from 'vue'
 
 const theme = ref('light')
-const userState = reactive({ email: '', role: '', loggedIn: false })
+const userStore = useUserStore()
 const route = useRoute()
-const router = useRouter()
 
 const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
 onMounted(() => {
-  const storedUser = JSON.parse(localStorage.getItem('user'))
-  if (storedUser && storedUser.email) {
-    userState.email = storedUser.email
-    userState.role = storedUser.role
-    userState.loggedIn = true
-  } else {
-    userState.email = ''
-    userState.role = ''
-    userState.loggedIn = false
-  }
-
+  userStore.loadUserFromStorage()
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
-function handleLogin(email, role) {
-  userState.email = email
-  userState.role = role
-  userState.loggedIn = true
-  localStorage.setItem('user', JSON.stringify({ email, role }))
-}
-
 function handleLogout() {
-  userState.email = ''
-  userState.role = ''
-  userState.loggedIn = false
-  localStorage.removeItem('user')
-  router.push('/') // Redirect to home page
+  userStore.logout()
+  window.location.href = '/' // Redirect to home page
 }
 </script>
 
@@ -46,12 +27,12 @@ function handleLogout() {
     :is="currentLayout"
     :class="['app-container', { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }]"
     :theme="theme"
-    :user-email="userState.email"
+    :user-email="userStore.email"
     @set-theme="setTheme"
   >
     <RouterView :theme="theme" />
-    <button @click="userState.loggedIn ? handleLogout() : $router.push('/login')">
-      {{ userState.loggedIn ? 'Logout' : 'Login' }}
+    <button @click="userStore.loggedIn ? handleLogout() : $router.push('/login')">
+      {{ userStore.loggedIn ? 'Logout' : 'Login' }}
     </button>
   </component>
 </template>

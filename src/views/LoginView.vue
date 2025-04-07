@@ -14,12 +14,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/userStore'
 
-const emit = defineEmits(['user-logged-in'])
 const email = ref('')
 const theme = ref('light') // Default theme is light
-const userState = ref({ email: '', role: '', loggedIn: false })
-
+const userState = ref({ email: '', role: '', loggedIn: false }) // Define userState
+const userStore = useUserStore()
 const router = useRouter()
 
 onMounted(() => {
@@ -33,44 +33,31 @@ onMounted(() => {
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
-function handleLogin() {
-  // Call the check-email endpoint before logging in
-  ;(async () => {
-    try {
-      const res = await fetch(
-        `https://test.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
+async function handleLogin() {
+  try {
+    const res = await fetch(
+      `https://test.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
+    )
+    const data = await res.json()
+
+    if (data && data.exists && data.verified) {
+      const roleRes = await fetch(
+        `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(email.value)}`,
       )
-      const data = await res.json()
+      const roleData = await roleRes.json()
 
-      if (data && data.exists && data.verified) {
-        // Fetch the user's role after verifying their email
-        const roleRes = await fetch(
-          `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(email.value)}`,
-        )
-        const roleData = await roleRes.json()
-
-        console.log('Role data response:', roleData) // Log the role data for debugging
-
-        if (roleData && roleData.role) {
-          // Set UserEmail and Role in local state and localStorage
-          userState.value = { email: email.value, role: roleData.role, loggedIn: true }
-          localStorage.setItem('user', JSON.stringify(userState.value))
-          console.log('UserEmail and Role set in local state:', email.value, roleData.role)
-          emit('user-logged-in', email.value)
-          router.push('/') // Redirect to the home page
-        } else {
-          console.error('Error: Role data is missing or invalid. Response:', roleData)
-          alert('Unable to retrieve user role. Please contact support.') // Notify the user
-        }
+      if (roleData && roleData.role) {
+        userStore.setUser({ email: email.value, role: roleData.role })
+        router.push('/') // Redirect to home page
       } else {
-        // Redirect to register endpoint; prefill email if applicable
-        router.push(`/register?email=${encodeURIComponent(email.value)}`)
+        alert('Unable to retrieve user role. Please contact support.')
       }
-    } catch (error) {
-      console.error('Error checking email or fetching role:', error)
-      alert('An error occurred during login. Please try again later.') // Notify the user
+    } else {
+      router.push(`/register?email=${encodeURIComponent(email.value)}`)
     }
-  })()
+  } catch (error) {
+    alert('An error occurred during login. Please try again later.')
+  }
 }
 </script>
 

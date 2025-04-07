@@ -4,13 +4,14 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
-import store from './store' // Import Vuex store
 
 const app = createApp(App)
+const pinia = createPinia()
 
+app.use(pinia)
 app.use(router)
-app.use(store) // Register Vuex store
 
 app.mount('#app')
