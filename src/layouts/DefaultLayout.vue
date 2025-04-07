@@ -67,13 +67,21 @@
             </div>
 
             <!-- Logout Button -->
-            <button v-if="userEmail" class="btn btn-outline-danger me-2" @click="handleLogout">
+            <button
+              v-if="userEmail"
+              class="btn btn-outline-danger me-2 btn-lg"
+              @click="handleLogout"
+            >
               Logout
             </button>
             <!-- Login Button -->
-            <RouterLink v-else class="btn btn-outline-primary me-2" to="/login"> Login </RouterLink>
+            <RouterLink v-else class="btn btn-outline-primary me-2 btn-lg" to="/login">
+              Login
+            </RouterLink>
             <!-- Register Button -->
-            <RouterLink class="btn btn-outline-success me-3" to="/register"> Sign Up </RouterLink>
+            <RouterLink class="btn btn-outline-success me-3 btn-lg" to="/register">
+              Sign Up
+            </RouterLink>
           </div>
         </div>
       </nav>
