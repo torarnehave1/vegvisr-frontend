@@ -76,7 +76,7 @@
 </template>
 
 <script>
-import { useStore } from '@/store'
+import { useUserStore } from '@/stores/userStore' // Import Pinia store
 import { marked } from 'marked' // Import marked.js
 
 export default {
@@ -100,24 +100,24 @@ export default {
       return marked(this.bio || '') // Convert bio Markdown to HTML
     },
     maskedUserId() {
-      const userId = this.store.state.user?.user_id || 'xxx-xxxx-xxx-xxx'
+      const userId = this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
       if (userId.length > 8) {
         return `${userId.slice(0, 4)}...${userId.slice(-4)}`
       }
       return userId
     },
     email() {
-      return this.store.state.user?.email || null // Fetch email from Vuex store
+      return this.userStore.email || null // Fetch email from Vuex store
     },
     userRole() {
-      return this.store.state.user?.role || null // Fetch role from Vuex store
+      return this.userStore.role || null // Fetch role from Vuex store
     },
   },
   setup() {
-    const store = useStore()
+    const userStore = useUserStore() // Use Pinia store
 
     return {
-      store,
+      userStore,
     }
   },
   mounted() {
@@ -231,7 +231,7 @@ export default {
       }
     },
     copyUserId() {
-      const userId = this.store.state.user?.user_id || 'xxx-xxxx-xxx-xxx'
+      const userId = this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
       navigator.clipboard.writeText(userId).then(
         () => {
           const infoElement = document.createElement('div')

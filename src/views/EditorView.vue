@@ -64,12 +64,12 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
-import { useStore } from '@/store'
+import { useUserStore } from '@/stores/userStore'
 
 const route = useRoute()
-const store = useStore() // Access the Vuex store
+const userStore = useUserStore() // Access the Pinia store
 const isEmbedded = ref(false)
-const email = ref('') // Declare email as a ref variable
+const email = ref(userStore.email) // Declare email as a ref variable
 
 const mode = ref('edit')
 const markdown = ref('')
@@ -160,8 +160,8 @@ function setMode(newMode) {
 // Save markdown content and display shareable link
 async function saveContent() {
   try {
-    let blogId = store.state.currentBlogId // Get the current blog ID from the Vuex store
-    const email = store.state.user.email // Get the current user's email from the Vuex store
+    let blogId = userStore.currentBlogId // Get the current blog ID from the Pinia store
+    const email = userStore.email // Get the current user's email from the Pinia store
 
     if (!email) {
       throw new Error('User email is missing. Please log in.')
@@ -190,7 +190,7 @@ async function saveContent() {
 
       const data = await response.json()
       blogId = data.link.split('/').pop() // Extract the new blog ID from the returned link
-      store.commit('setCurrentBlogId', blogId) // Update the Vuex store with the new blog ID
+      userStore.currentBlogId = blogId // Update the Pinia store with the new blog ID
       shareableLink.value = data.link
     } else {
       // Save existing blog post
@@ -449,7 +449,7 @@ async function uploadImage() {
 // Clear the content of the textarea and reset the blog ID
 function clearContent() {
   markdown.value = '' // Clear the textarea content
-  store.commit('setCurrentBlogId', null) // Reset the blog ID in the Vuex store
+  userStore.currentBlogId = null // Reset the blog ID in the Pinia store
   shareableLink.value = '' // Clear the shareable link
   console.log('Content reset. Blog ID set to null, and shareable link cleared.') // Debugging log
 }
