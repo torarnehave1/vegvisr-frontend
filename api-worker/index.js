@@ -284,9 +284,7 @@ The researchers believe that physical activity may help reduce the risk of demen
 
         const matchingKey = keys.keys.find(
           (key) =>
-            key.name.includes(id) &&
-            (key.name.startsWith('vis:') || key.name.startsWith('hid:')) &&
-            key.name.match(/:[^:]+@[^:]+\.[^:]+$/), // Ensure it ends with an email address
+            key.name.includes(id) && (key.name.startsWith('vis:') || key.name.startsWith('hid:')), // Removed overly restrictive email regex
         )
 
         console.log('Matching key found for deletion:', matchingKey)
