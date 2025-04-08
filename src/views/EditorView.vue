@@ -166,6 +166,16 @@ async function saveContent() {
     if (!email) {
       throw new Error('User email is missing. Please log in.')
     }
+
+    if (blogStore.currentBlogId) {
+      const overwrite = confirm(
+        'This document already exists. Do you want to overwrite it? Click Cancel to save as a new document.',
+      )
+      if (!overwrite) {
+        blogStore.currentBlogId = null // Clear the currentBlogId to save as a new document
+      }
+    }
+
     await blogStore.saveBlog(email) // Use blogStore's saveBlog action
 
     // Display a success message
