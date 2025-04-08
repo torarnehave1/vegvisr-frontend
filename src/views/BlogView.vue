@@ -45,8 +45,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
+import { useBlogStore } from '@/stores/blogStore'
 
-const posts = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
 const postsPerPage = 9
@@ -54,6 +54,10 @@ const showHiddenPosts = ref(false) // Toggle for showing hidden posts
 
 const router = useRouter()
 const userStore = useUserStore() // Access the Pinia store
+const blogStore = useBlogStore() // Access the Pinia blog store
+
+// Replace posts and fetchPosts with blogStore
+const posts = computed(() => blogStore.blogPosts)
 
 // Props
 const props = defineProps({
@@ -94,15 +98,7 @@ const isLoggedIn = computed(() => {
 // Fetch blog posts or search results from the KV store
 async function fetchPosts() {
   try {
-    const endpoint = searchQuery.value
-      ? `https://api.vegvisr.org/search?query=${encodeURIComponent(searchQuery.value)}`
-      : showHiddenPosts.value
-        ? 'https://api.vegvisr.org/hidden-blog-posts'
-        : 'https://api.vegvisr.org/blog-posts'
-
-    const response = await fetch(endpoint)
-    if (!response.ok) throw new Error('Failed to fetch posts')
-    posts.value = await response.json()
+    await blogStore.fetchBlogPosts() // Use blogStore's fetchBlogPosts action
   } catch (error) {
     console.error('Error fetching posts:', error)
   }
@@ -144,9 +140,7 @@ async function openInEditor(id) {
     const content = await response.text()
     console.log('Opening post in editor with content:', content)
 
-    userStore.setCurrentBlogId(id) // Use Pinia store action
-
-    console.log('id', id)
+    blogStore.currentBlogId = id // Update blogStore's currentBlogId
 
     router.push({ name: 'EditorView', query: { content } })
   } catch (error) {

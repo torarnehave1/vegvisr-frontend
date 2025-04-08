@@ -65,22 +65,24 @@ import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 import { useUserStore } from '@/stores/userStore'
+import { useBlogStore } from '@/stores/blogStore'
 
 const route = useRoute()
 const userStore = useUserStore() // Access the Pinia store
+const blogStore = useBlogStore() // Access the Pinia blog store
 const isEmbedded = ref(false)
 const email = ref(userStore.email) // Declare email as a ref variable
 
 const mode = ref('edit')
-const markdown = ref('')
-const shareableLink = ref('')
+const markdown = computed(() => blogStore.markdown)
+const isVisible = computed(() => blogStore.isVisible)
+const shareableLink = computed(() => blogStore.shareableLink)
 const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
 const snippetKeys = ref([])
 const textareaRef = ref(null)
 const cursorPosition = ref(0) // Track the cursor position
 const pendingSnippet = ref(null) // Temporary variable to store the snippet
 const fileInput = ref(null) // Reference to the file input
-const isVisible = ref(true) // Default visibility is true
 const theme = ref('light') // Declare theme as a ref variable
 
 // Check if the embed query parameter is set to true
@@ -160,62 +162,11 @@ function setMode(newMode) {
 // Save markdown content and display shareable link
 async function saveContent() {
   try {
-    let blogId = userStore.currentBlogId // Get the current blog ID from the Pinia store
-    const email = userStore.email // Get the current user's email from the Pinia store
-
+    const email = userStore.email // Get the current user's email from the user store
     if (!email) {
       throw new Error('User email is missing. Please log in.')
     }
-
-    // If no blog ID is found, generate a new one (new blog post)
-    if (!blogId) {
-      console.warn('No blog ID found. Creating a new blog post.')
-      const response = await fetch('https://api.vegvisr.org/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          markdown: markdown.value,
-          isVisible: isVisible.value,
-          email, // Include email in the payload
-        }),
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Error response from server:', errorText)
-        throw new Error('Failed to save new blog post')
-      }
-
-      const data = await response.json()
-      blogId = data.link.split('/').pop() // Extract the new blog ID from the returned link
-      userStore.currentBlogId = blogId // Update the Pinia store with the new blog ID
-      shareableLink.value = data.link
-    } else {
-      // Save existing blog post
-      const response = await fetch('https://api.vegvisr.org/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: blogId,
-          markdown: markdown.value,
-          isVisible: isVisible.value,
-          email, // Include email in the payload
-        }),
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Error response from server:', errorText)
-        throw new Error('Failed to save content')
-      }
-
-      const data = await response.json()
-      shareableLink.value = data.link
-    }
+    await blogStore.saveBlog(email) // Use blogStore's saveBlog action
 
     // Display a success message
     const messageElement = document.createElement('div')
@@ -448,10 +399,8 @@ async function uploadImage() {
 
 // Clear the content of the textarea and reset the blog ID
 function clearContent() {
-  markdown.value = '' // Clear the textarea content
-  userStore.currentBlogId = null // Reset the blog ID in the Pinia store
-  shareableLink.value = '' // Clear the shareable link
-  console.log('Content reset. Blog ID set to null, and shareable link cleared.') // Debugging log
+  blogStore.clearBlog()
+  console.log('Content reset. Blog ID set to null, and shareable link cleared.')
 }
 </script>
 
