@@ -195,7 +195,9 @@ async function toggleVisibility(id, isCurrentlyHidden) {
 
 // Toggle between showing visible and hidden posts
 function toggleHiddenPosts() {
+  console.log('Toggling hidden posts. Current state:', showHiddenPosts.value)
   showHiddenPosts.value = !showHiddenPosts.value
+  console.log('New state after toggle:', showHiddenPosts.value)
   fetchPosts(showHiddenPosts.value) // Pass the state to fetchPosts
 }
 
