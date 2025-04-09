@@ -193,12 +193,13 @@ The researchers believe that physical activity may help reduce the risk of demen
       }
 
       if (pathname === '/blog-posts' && request.method === 'GET') {
-        console.log('Processing /blog-posts endpoint')
+        const showHidden = url.searchParams.get('hidden') === 'true'
         const keys = await env.BINDING_NAME.list()
         const posts = []
 
         for (const key of keys.keys) {
-          if (!key.name.startsWith('vis:')) continue // Only include visible posts
+          if (showHidden && !key.name.startsWith('hid:')) continue
+          if (!showHidden && !key.name.startsWith('vis:')) continue
 
           const markdown = await env.BINDING_NAME.get(key.name)
           if (markdown) {
@@ -215,7 +216,7 @@ The researchers believe that physical activity may help reduce the risk of demen
             const abstract = abstractLine ? abstractLine.slice(0, 100) + '...' : ''
 
             posts.push({
-              id: key.name.replace(/^vis:/, ''), // Remove the prefix for the ID
+              id: key.name.replace(/^(vis:|hid:)/, ''),
               title,
               snippet: lines.slice(1, 3).join(' '),
               abstract,
@@ -223,7 +224,6 @@ The researchers believe that physical activity may help reduce the risk of demen
             })
           }
         }
-        console.log('Retrieved posts:', posts)
 
         return new Response(JSON.stringify(posts), {
           status: 200,
