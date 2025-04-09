@@ -37,9 +37,12 @@ export const useBlogStore = defineStore('blog', {
         throw error
       }
     },
-    async fetchBlogPosts() {
+    async fetchBlogPosts(showHidden = false) {
       try {
-        const response = await fetch('https://api.vegvisr.org/blog-posts')
+        const endpoint = showHidden
+          ? 'https://api.vegvisr.org/blog-posts?hidden=true'
+          : 'https://api.vegvisr.org/blog-posts'
+        const response = await fetch(endpoint)
         if (!response.ok) {
           throw new Error('Failed to fetch blog posts')
         }

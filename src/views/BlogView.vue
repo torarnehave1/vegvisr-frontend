@@ -96,9 +96,16 @@ const isLoggedIn = computed(() => {
 })
 
 // Fetch blog posts or search results from the KV store
-async function fetchPosts() {
+async function fetchPosts(showHidden = false) {
   try {
-    await blogStore.fetchBlogPosts() // Use blogStore's fetchBlogPosts action
+    const endpoint = showHidden
+      ? 'https://api.vegvisr.org/blog-posts?hidden=true'
+      : 'https://api.vegvisr.org/blog-posts'
+    const response = await fetch(endpoint)
+    if (!response.ok) {
+      throw new Error('Failed to fetch blog posts')
+    }
+    blogStore.blogPosts = await response.json()
   } catch (error) {
     console.error('Error fetching posts:', error)
   }
@@ -189,7 +196,7 @@ async function toggleVisibility(id, isCurrentlyHidden) {
 // Toggle between showing visible and hidden posts
 function toggleHiddenPosts() {
   showHiddenPosts.value = !showHiddenPosts.value
-  fetchPosts()
+  fetchPosts(showHiddenPosts.value) // Pass the state to fetchPosts
 }
 
 onMounted(() => {
