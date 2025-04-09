@@ -457,8 +457,9 @@ The researchers believe that physical activity may help reduce the risk of demen
         }
 
         const currentKey = isVisible ? `hid:${id}` : `vis:${id}`
+        const newKey = isVisible ? `vis:${id}` : `hid:${id}`
 
-        // Check if the current key exists
+        // Retrieve the markdown content from the current key
         const markdown = await env.BINDING_NAME.get(currentKey)
         if (!markdown) {
           return new Response('Blog post not found or already in the desired state', {
@@ -467,7 +468,13 @@ The researchers believe that physical activity may help reduce the risk of demen
           })
         }
 
-        console.log('Key verified:', currentKey)
+        // Delete the old key and save the content under the new key
+        await env.BINDING_NAME.delete(currentKey)
+        await env.BINDING_NAME.put(newKey, markdown, {
+          metadata: { encoding: 'utf-8' },
+        })
+
+        console.log(`Visibility toggled from ${currentKey} to ${newKey}`)
 
         return new Response(`Blog post visibility toggled successfully`, {
           status: 200,

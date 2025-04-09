@@ -25,7 +25,7 @@
             @click.stop="toggleVisibility(post.id, showHiddenPosts)"
             class="toggle-visibility-button"
           >
-            {{ showHiddenPosts ? 'Show' : 'Hide' }}
+            {{ showHiddenPosts ? 'Publish' : 'Draft' }}
           </button>
           <button @click="deletePost(post.id)" class="delete-button">Delete</button>
         </div>
