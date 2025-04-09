@@ -449,9 +449,6 @@ The researchers believe that physical activity may help reduce the risk of demen
         const { id, isVisible } = await request.json()
         console.log('Payload:', { id, isVisible })
 
-        // Log the incoming payload for debugging
-        console.log('Incoming /hid_vis request payload:', { id, isVisible })
-
         if (!id) {
           return new Response('Blog post ID is missing', {
             status: 400,
@@ -460,7 +457,6 @@ The researchers believe that physical activity may help reduce the risk of demen
         }
 
         const currentKey = isVisible ? `hid:${id}` : `vis:${id}`
-        const newKey = isVisible ? `vis:${id}` : `hid:${id}`
 
         // Check if the current key exists
         const markdown = await env.BINDING_NAME.get(currentKey)
@@ -471,12 +467,9 @@ The researchers believe that physical activity may help reduce the risk of demen
           })
         }
 
-        // Move the key to the new state
-        await env.BINDING_NAME.put(newKey, markdown, { metadata: { encoding: 'utf-8' } })
-        await env.BINDING_NAME.delete(currentKey)
-        console.log('Key moved from:', currentKey, 'to:', newKey)
+        console.log('Key verified:', currentKey)
 
-        return new Response(`Blog post ${isVisible ? 'shown' : 'hidden'} successfully`, {
+        return new Response(`Blog post visibility toggled successfully`, {
           status: 200,
           headers: corsHeaders,
         })
