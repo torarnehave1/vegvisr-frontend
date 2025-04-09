@@ -362,4 +362,15 @@ onMounted(() => {
 .toggle-visibility-button:hover {
   background-color: #e0a800;
 }
+
+@media (max-width: 768px) {
+  .blog-cards {
+    grid-template-columns: 1fr; /* Single column */
+    grid-auto-rows: auto; /* Adjust row height automatically */
+  }
+
+  .blog-card {
+    margin-bottom: 1rem; /* Add spacing between rows */
+  }
+}
 </style>
