@@ -61,46 +61,62 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked' // Ensure you have installed marked (npm install marked)
 import { useUserStore } from '@/stores/userStore'
 import { useBlogStore } from '@/stores/blogStore'
 
 const route = useRoute()
-const userStore = useUserStore() // Access the Pinia store
-const blogStore = useBlogStore() // Access the Pinia blog store
-const isEmbedded = ref(false)
-const email = ref(userStore.email) // Declare email as a ref variable
+const userStore = useUserStore()
+const blogStore = useBlogStore()
 
+const isEmbedded = ref(false)
+const email = ref(userStore.email)
 const mode = ref('edit')
-const markdown = computed(() => blogStore.markdown)
+
+// ✅ Refactored to allow v-model two-way binding
+const markdown = computed({
+  get: () => blogStore.markdown,
+  set: (value) => (blogStore.markdown = value),
+})
+
 const isVisible = computed(() => blogStore.isVisible)
 const shareableLink = computed(() => blogStore.shareableLink)
+
 const contextMenu = ref({ visible: false, x: 0, y: 0, selectedText: '' })
 const snippetKeys = ref([])
 const textareaRef = ref(null)
-const cursorPosition = ref(0) // Track the cursor position
-const pendingSnippet = ref(null) // Temporary variable to store the snippet
-const fileInput = ref(null) // Reference to the file input
-const theme = ref('light') // Declare theme as a ref variable
+const cursorPosition = ref(0)
+const pendingSnippet = ref(null)
+const fileInput = ref(null)
+const theme = ref('light')
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
 
-// Render markdown to HTML using the marked library
+// ✅ Render markdown to HTML using the marked library
 const renderedMarkdown = computed(() => {
   return marked.parse(markdown.value)
 })
 
-// Set the content from query parameters if available
+// ✅ Debugging: log changes in markdown and rendered content
+watchEffect(() => {
+  console.log('markdown.value:', markdown.value)
+})
+
+watchEffect(() => {
+  console.log('renderedMarkdown:', renderedMarkdown.value)
+})
+
+// Set content from query if available
 onMounted(() => {
   const content = route.query.content
   if (content) {
-    console.log('Setting content in editor:', content) // Debugging log
+    console.log('Setting content in editor:', content)
     markdown.value = content
   } else {
-    console.warn('No content provided in query parameters.') // Debugging log
+    console.warn('No content provided in query parameters.')
   }
 })
 
@@ -108,9 +124,7 @@ onMounted(() => {
   const queryEmail = route.query.email
   const queryToken = route.query.token
 
-  if (queryEmail) {
-    email.value = queryEmail
-  }
+  if (queryEmail) email.value = queryEmail
 
   if (queryToken) {
     localStorage.setItem('jwt', queryToken)
@@ -118,15 +132,11 @@ onMounted(() => {
   } else if (queryEmail) {
     fetch('https://api.vegvisr.org/set-jwt', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: queryEmail }),
     })
       .then((response) => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch JWT token')
-        }
+        if (!response.ok) throw new Error('Failed to fetch JWT token')
         return response.json()
       })
       .then((data) => {
@@ -136,112 +146,75 @@ onMounted(() => {
           alert('Your session has been reset. Please try logging in again.')
         }
       })
-      .catch((error) => {
-        console.error('Error fetching JWT token:', error)
-      })
+      .catch((error) => console.error('Error fetching JWT token:', error))
   }
 
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
-// Toggle between "edit" and "preview" modes
+// Toggle mode
 function setMode(newMode) {
   mode.value = newMode
-
-  // If switching to "edit" mode and a snippet is pending, insert it
   if (newMode === 'edit' && pendingSnippet.value) {
     const textarea = textareaRef.value
     if (textarea) {
       insertSnippetIntoTextarea(pendingSnippet.value, textarea)
-      markdown.value = textarea.value // Update markdown value
-      pendingSnippet.value = null // Clear the pending snippet
+      markdown.value = textarea.value
+      pendingSnippet.value = null
     }
   }
 }
 
-// Save markdown content and display shareable link
 async function saveContent() {
   try {
-    const email = userStore.email // Get the current user's email from the user store
-    if (!email) {
-      throw new Error('User email is missing. Please log in.')
-    }
+    const email = userStore.email
+    if (!email) throw new Error('User email is missing. Please log in.')
 
     if (blogStore.currentBlogId) {
-      const overwrite = confirm(
-        'This document already exists. Do you want to overwrite it? Click Cancel to save as a new document.',
-      )
-      if (!overwrite) {
-        blogStore.currentBlogId = null // Clear the currentBlogId to save as a new document
-      }
+      const overwrite = confirm('This document already exists. Do you want to overwrite it?')
+      if (!overwrite) blogStore.currentBlogId = null
     }
 
-    await blogStore.saveBlog(email) // Use blogStore's saveBlog action
+    await blogStore.saveBlog(email)
 
-    // Display a success message
     const messageElement = document.createElement('div')
     messageElement.textContent = 'Content saved successfully.'
-    messageElement.style.position = 'fixed'
-    messageElement.style.bottom = '20px'
-    messageElement.style.right = '20px'
-    messageElement.style.backgroundColor = '#28a745'
-    messageElement.style.color = 'white'
-    messageElement.style.padding = '10px 20px'
-    messageElement.style.borderRadius = '5px'
-    messageElement.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.2)'
+    Object.assign(messageElement.style, {
+      position: 'fixed',
+      bottom: '20px',
+      right: '20px',
+      backgroundColor: '#28a745',
+      color: 'white',
+      padding: '10px 20px',
+      borderRadius: '5px',
+      boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
+    })
     document.body.appendChild(messageElement)
-
-    setTimeout(() => {
-      document.body.removeChild(messageElement)
-    }, 3000)
+    setTimeout(() => document.body.removeChild(messageElement), 3000)
   } catch (error) {
     console.error('Error saving content:', error)
     alert('Failed to save content. Please try again.')
   }
 }
 
-// Show context menu and load snippet keys
 async function showContextMenu(event) {
-  console.log('showContextMenu: mode.value:', mode.value) // Debugging statement
+  if (mode.value !== 'edit') return
 
-  // Ensure the editor is in "Edit" mode
-  if (mode.value !== 'edit') {
-    console.warn('showContextMenu: Not in Edit mode.') // Debugging statement
-    return
-  }
-
-  // Wait for the DOM to update before accessing textareaRef
   await nextTick()
   let textarea = textareaRef.value
   if (!textarea) {
-    console.warn('showContextMenu: Textarea is not available. Retrying...') // Debugging statement
-    await new Promise((resolve) => setTimeout(resolve, 50)) // Wait 50ms
+    await new Promise((resolve) => setTimeout(resolve, 50))
     textarea = textareaRef.value
   }
+  if (!textarea) return
 
-  console.log('showContextMenu: textareaRef.value after retry:', textarea) // Debugging statement
+  cursorPosition.value = textarea.selectionStart || 0
 
-  if (textarea) {
-    cursorPosition.value = textarea.selectionStart || 0 // Save the cursor position
-    console.log('showContextMenu: cursorPosition:', cursorPosition.value) // Debugging statement
-  } else {
-    console.error('showContextMenu: Textarea is still not available after retry.') // Debugging statement
-    return
-  }
-
-  // Load snippet keys when the context menu is opened
   try {
-    const response = await fetch('https://api.vegvisr.org/snippetlist', {
-      method: 'GET',
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to load snippet keys')
-    }
-
+    const response = await fetch('https://api.vegvisr.org/snippetlist', { method: 'GET' })
+    if (!response.ok) throw new Error('Failed to load snippet keys')
     const data = await response.json()
     snippetKeys.value = data.keys.map((key) => key.name)
-    console.log('showContextMenu: snippetKeys:', snippetKeys.value) // Debugging statement
   } catch (error) {
     console.error('Error loading snippet keys:', error)
     alert('Failed to load snippet keys. Please try again.')
@@ -252,15 +225,12 @@ async function showContextMenu(event) {
     x: event.clientX,
     y: event.clientY,
   }
-  console.log('showContextMenu: contextMenu:', contextMenu.value) // Debugging statement
 }
 
-// Close context menu
 function closeContextMenu() {
   contextMenu.value.visible = false
 }
 
-// Add snippet to KV namespace
 async function addSnippet() {
   const textarea = textareaRef.value
   const start = textarea.selectionStart
@@ -273,24 +243,15 @@ async function addSnippet() {
   }
 
   const snippetId = prompt('Enter a unique ID for the snippet:')
-  if (!snippetId) {
-    alert('Snippet ID is required.')
-    return
-  }
+  if (!snippetId) return alert('Snippet ID is required.')
 
   try {
     const response = await fetch('https://api.vegvisr.org/snippetadd', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: snippetId, content: snippetContent }),
     })
-
-    if (!response.ok) {
-      throw new Error('Failed to add snippet')
-    }
-
+    if (!response.ok) throw new Error('Failed to add snippet')
     alert('Snippet added successfully.')
   } catch (error) {
     console.error('Error adding snippet:', error)
@@ -300,58 +261,35 @@ async function addSnippet() {
   }
 }
 
-// Function to insert snippet into the textarea
 function insertSnippetIntoTextarea(snippetContent, textarea) {
   const start = textarea.selectionStart
   const end = textarea.selectionEnd
-  const currentText = textarea.value
-
-  const before = currentText.substring(0, start)
-  const after = currentText.substring(end)
-
+  const before = textarea.value.substring(0, start)
+  const after = textarea.value.substring(end)
   textarea.value = before + snippetContent + after
   textarea.selectionStart = textarea.selectionEnd = start + snippetContent.length
   textarea.focus()
 }
 
-// Insert snippet into textarea
 async function insertSnippet(key) {
-  console.log('insertSnippet: key:', key) // Debugging statement
   try {
-    const response = await fetch(`https://api.vegvisr.org/snippets/${key}`, {
-      method: 'GET',
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch snippet content')
-    }
-
+    const response = await fetch(`https://api.vegvisr.org/snippets/${key}`, { method: 'GET' })
+    if (!response.ok) throw new Error('Failed to fetch snippet content')
     const data = await response.json()
     const snippetContent = data.content
-    console.log('insertSnippet: snippetContent:', snippetContent) // Debugging statement
 
-    // Ensure the textarea is available and the mode is 'edit'
-    console.log('insertSnippet: mode.value:', mode.value) // Debugging statement
     if (mode.value !== 'edit') {
       alert('Textarea is not available. The snippet will be inserted when you switch to Edit mode.')
-      pendingSnippet.value = snippetContent // Store the snippet temporarily
+      pendingSnippet.value = snippetContent
       return
     }
 
-    await nextTick() // Ensure DOM updates before accessing textareaRef
+    await nextTick()
     const textarea = textareaRef.value
-    console.log('insertSnippet: textareaRef.value:', textarea) // Debugging statement
-    if (!textarea) {
-      alert('Textarea element is not available.')
-      return
-    }
+    if (!textarea) return alert('Textarea element is not available.')
 
-    // Use the provided logic to insert the snippet into the textarea
     insertSnippetIntoTextarea(snippetContent, textarea)
-
-    // Update the markdown value to reflect the new content in the textarea
     markdown.value = textarea.value
-    console.log('insertSnippet: markdown.value:', markdown.value) // Debugging statement
   } catch (error) {
     console.error('Error inserting snippet:', error)
     alert('Failed to insert snippet. Please try again.')
@@ -360,46 +298,32 @@ async function insertSnippet(key) {
   }
 }
 
-// Upload image and insert markdown into textarea
 async function uploadImage() {
   const file = fileInput.value?.files[0]
-  if (!file) {
-    alert('Please select an image to upload.')
-    return
-  }
-
-  // Validate file type
-  if (!file.type.startsWith('image/')) {
-    alert('Only image files are allowed.')
+  if (!file || !file.type.startsWith('image/')) {
+    alert('Please select a valid image file.')
     return
   }
 
   const formData = new FormData()
   formData.append('file', file)
   formData.append('type', 'image')
+
   try {
     const response = await fetch('https://api.vegvisr.org/upload', {
       method: 'POST',
       body: formData,
     })
-
-    if (!response.ok) {
-      throw new Error('Failed to upload image')
-    }
+    if (!response.ok) throw new Error('Failed to upload image')
 
     const data = await response.json()
     const imageUrl = data.url
     const markdownImage = `![Image](${imageUrl})`
 
-    console.log('Image uploaded successfully:', imageUrl)
-
-    // Insert the markdown for the image into the textarea
     const textarea = textareaRef.value
     if (textarea) {
       insertSnippetIntoTextarea(markdownImage, textarea)
-      markdown.value = textarea.value // Update markdown value
-    } else {
-      console.error('Textarea is not available.')
+      markdown.value = textarea.value
     }
   } catch (error) {
     console.error('Error uploading image:', error)
@@ -407,7 +331,6 @@ async function uploadImage() {
   }
 }
 
-// Clear the content of the textarea and reset the blog ID
 function clearContent() {
   blogStore.clearBlog()
   console.log('Content reset. Blog ID set to null, and shareable link cleared.')
