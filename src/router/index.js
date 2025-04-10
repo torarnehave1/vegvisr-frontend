@@ -95,6 +95,11 @@ const router = createRouter({
       name: 'Blog',
       component: BlogView,
     },
+    {
+      path: '/graph-editor',
+      name: 'GraphEditor',
+      component: () => import('../views/GraphEditor.vue'),
+    },
   ],
 })
 
