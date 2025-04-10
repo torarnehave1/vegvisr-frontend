@@ -51,117 +51,117 @@ const yggdrasilSubgraph = {
     { id: 'Saraswati', label: 'Saraswati', color: 'lightcoral' },
     { id: 'Lakshmi', label: 'Lakshmi', color: 'lightcoral' },
     { id: 'Parvati', label: 'Parvati', color: 'lightcoral' },
-    // add a node with the syllable AUM and label 'AUM' with the sanscrit letter 'अ'
     {
       id: 'AUM',
       label: 'AUM (ॐ)',
       color: 'orangered',
       type: 'infonode',
-      info: 'AUM (अ - ॐ) is a sacred syllable in Hinduism, Buddhism, and Jainism, representing the essence of the ultimate reality or consciousness. It is composed of three phonetic components: "A" (creation), "U" (preservation), and "M" (dissolution). These correspond to the three states of consciousness: waking (A), dreaming (U), and deep sleep (M). Beyond these is "Turia," the fourth state, which signifies pure consciousness or transcendence, the ultimate goal of spiritual practice. AUM encapsulates the entire universe and the journey toward self-realization.',
+      info: 'AUM (अ - ॐ) is a sacred syllable representing ultimate reality and consciousness.',
     },
     {
       id: 'HA',
       label: 'HA (ሐ)',
       color: 'indigo',
       type: 'infonode',
-      info: 'The symbol "HA (ሐ)" represents a profound connection between phonetics, spirituality, and metaphysical concepts. In Ethiopian Ge\'ez script, "ሐ" is a sacred character often associated with divine breath and life force. It resonates with the Sanskrit "ह" (HA), symbolizing cosmic energy and the primordial sound. This convergence highlights the universal nature of sacred syllables across cultures, embodying creation, transformation, and unity.',
+      info: 'The symbol "HA (ሐ)" is a sacred syllable, resonant in Ge\'ez and Sanskrit traditions.',
     },
     {
       id: 'Haymanot',
       label: 'ሐይማኖት (Haymanot - Faith)',
       color: 'orangered',
       type: 'infonode',
-      info: 'Haymanot represents faith, a central concept in Ethiopian Orthodox Christianity and other spiritual traditions.',
+      info: 'Faith in Ethiopian Orthodox and spiritual traditions.',
     },
     {
       id: 'Hawariyat',
       label: 'Hawariyat (Disciples)',
       color: 'orangered',
       type: 'infonode',
-      info: 'Hawariyat refers to the disciples or apostles, often associated with spreading spiritual teachings.',
+      info: 'Disciples or apostles spreading teachings.',
     },
-    //add a node with the sanscrit letter 'ह' and label 'HA'
     {
       id: 'Sanskrit_HA',
       label: 'ह',
       color: 'orangered',
       type: 'infonode',
-      info: 'This is the Sanskrit letter HA (ह), representing the divine breath and cosmic energy.',
+      info: 'Sanskrit HA representing divine breath and energy.',
     },
-    //Sanscrit mahamantra
     { id: 'MahaMantra', label: 'महामंत्र', color: 'orangered' },
-
-    //add nodes about the tree brother odin , ve and villi from the Norse mythology
     { id: 'Odin', label: 'Odin', color: 'orangered' },
     { id: 'Vili', label: 'Vili', color: 'orangered' },
     { id: 'Ve', label: 'Ve', color: 'orangered' },
-
-    //add nodes with the tre wells of wisdom
-
-    //add nodes with the tre wells in yggdrasil Urd, mimir and Hvergelmir
-    { id: 'Urd', label: 'Urd', color: 'orangered' },
     { id: 'Mimir', label: 'Mimir', color: 'orangered' },
     {
       id: 'Hvergelmir',
       label: 'Hvergelmir',
       color: 'orangered',
       type: 'infonode',
-      info: 'Hvergelmir is one of the three primary wells in Norse mythology, located in Niflheim. It is described as the source of numerous rivers, including Elivaagar, which played a role in the creation of the world. Hvergelmir is also associated with the roots of Yggdrasil, the World Tree, and is guarded by the dragon Nidhoeggr, who gnaws at its roots. This well symbolizes the primordial chaos and the cyclical nature of creation and destruction in Norse cosmology. Sources: Prose Edda by Snorri Sturluson and Poetic Edda.',
+      info: 'Primordial well in Niflheim associated with chaos and rebirth.',
     },
-
-    // add a node about udgitha
     {
       id: 'Udgitha',
       label: 'Udgitha',
       color: 'orangered',
       type: 'infonode',
-      info: 'Udgitha is a sacred sound in Hinduism, representing the cosmic vibration of the universe. It is associated with the syllable "AUM" and is often used in meditation and chanting practices to connect with the divine and attain spiritual enlightenment.',
+      info: 'Sacred sound representing the cosmic vibration in Hinduism.',
     },
-
-    // add a node about Bahvagth
     {
       id: 'Bhagavad Gita',
       label: 'Bhagavad Gita',
       color: 'goldenrod',
       type: 'infonode',
-      info: 'The Bhagavad Gita is a 700-verse Hindu scripture that is part of the Indian epic Mahabharata. It is a conversation between Prince Arjuna and the god Krishna, who serves as his charioteer. The Gita addresses the moral and philosophical dilemmas faced by Arjuna on the battlefield and presents key concepts of Hindu philosophy, including dharma (duty), yoga (the path to realization), and devotion.',
+      info: 'Philosophical Hindu scripture from the Mahabharata.',
     },
-
-    //add a infonode with the symbol Yaz in tifiagh script
     {
       id: 'Yaz',
       label: 'Yaz (ⵣ)',
       color: 'orangered',
       type: 'infonode',
-      info: 'The letter "Yaz" (ⵣ) in Tifinagh script represents the sound "z" and is associated with the Amazigh (Berber) culture. It symbolizes identity, heritage, and the connection to the land. The Tifinagh script is an ancient writing system used by the Amazigh people in North Africa.',
+      info: 'Tifinagh symbol of Amazigh identity and cultural roots.',
     },
-
     {
       id: 'Hávamál',
       label: 'Hávamál',
       color: 'orangered',
       type: 'infonode',
-      info: 'Hávamál, meaning The Sayings of the High One, is a collection of Old Norse poems from the Viking Age. It is part of the Poetic Edda and contains wisdom, advice, and moral teachings attributed to Odin, the chief god in Norse mythology. The text covers various topics, including friendship, hospitality, and the nature of wisdom.',
+      info: 'Wisdom poems attributed to Odin in Norse tradition.',
+    },
+    // Added referenced but previously undefined nodes
+    { id: 'Tree', label: 'Sacred Tree', color: 'green' },
+    { id: 'DNA', label: 'DNA', color: 'green' },
+    { id: 'Roots', label: 'Roots', color: 'brown' },
+    { id: 'Branches', label: 'Branches', color: 'forestgreen' },
+    { id: 'Ouroboros', label: 'Ouroboros', color: 'darkslateblue' },
+    { id: 'HolyTrinity', label: 'Holy Trinity', color: 'lightgoldenrodyellow' },
+    { id: 'Father', label: 'Father', color: 'lightgoldenrodyellow' },
+    { id: 'Son', label: 'Son', color: 'lightgoldenrodyellow' },
+    { id: 'HolySpirit', label: 'Holy Spirit', color: 'lightgoldenrodyellow' },
+    { id: 'Hayl', label: 'Hayl', color: 'indigo' },
+    { id: 'Niflheim', label: 'Niflheim', color: 'gray' },
+    {
+      id: 'Turiya',
+      label: 'Turīya (Fourth State)',
+      color: 'lavender',
+      type: 'infonode',
+      info: 'Pure consciousness beyond waking, dreaming, and sleep.',
     },
   ],
   edges: [
     { source: 'Norns', target: 'Urd' },
     { source: 'Norns', target: 'Verdandi' },
     { source: 'Norns', target: 'Skuld' },
-
     { source: 'Norns', target: 'Yggdrasil' },
     { source: 'Urd', target: 'Yggdrasil' },
     { source: 'Verdandi', target: 'Yggdrasil' },
     { source: 'Skuld', target: 'Yggdrasil' },
 
-    // Tridevi edges
     { source: 'Tridevi', target: 'Saraswati' },
     { source: 'Tridevi', target: 'Lakshmi' },
     { source: 'Tridevi', target: 'Parvati' },
+    { source: 'Tridevi', target: 'Yggdrasil' },
     { source: 'Saraswati', target: 'Urd' },
     { source: 'Lakshmi', target: 'Verdandi' },
     { source: 'Parvati', target: 'Skuld' },
-    { source: 'Tridevi', target: 'Yggdrasil' },
     { source: 'Saraswati', target: 'Tree' },
     { source: 'Lakshmi', target: 'Tree' },
     { source: 'Parvati', target: 'Tree' },
@@ -170,23 +170,16 @@ const yggdrasilSubgraph = {
     { source: 'Tridevi', target: 'Roots' },
     { source: 'Tridevi', target: 'Branches' },
 
-    // Trinity structure
     { source: 'HolyTrinity', target: 'Father' },
     { source: 'HolyTrinity', target: 'Son' },
     { source: 'HolyTrinity', target: 'HolySpirit' },
-
-    // Convergence into HA
     { source: 'Father', target: 'HA' },
     { source: 'Son', target: 'HA' },
     { source: 'HolySpirit', target: 'HA' },
 
-    // HA giving rise to sacred qualities
     { source: 'HA', target: 'Hayl' },
     { source: 'HA', target: 'Haymanot' },
-
-    // Linking into core metaphysical system
     { source: 'HA', target: 'Yggdrasil' },
-
     { source: 'Haymanot', target: 'Yggdrasil' },
 
     { source: 'Sanskrit_HA', target: 'HA' },
@@ -195,53 +188,56 @@ const yggdrasilSubgraph = {
     { source: 'Sanskrit_HA', target: 'DNA' },
     { source: 'Sanskrit_HA', target: 'Roots' },
 
-    // AUM connections
     { source: 'AUM', target: 'Sanskrit_HA' },
     { source: 'AUM', target: 'HA' },
     { source: 'AUM', target: 'Yggdrasil' },
     { source: 'AUM', target: 'Tree' },
     { source: 'AUM', target: 'DNA' },
     { source: 'AUM', target: 'Roots' },
-    //edges to udgitha
     { source: 'AUM', target: 'Udgitha' },
     { source: 'Udgitha', target: 'Yggdrasil' },
+    { source: 'AUM', target: 'Turiya' },
 
-    //Connect the Holy Trinity to The Norns
-
-    //connect the tree wells of wisdom to the Yggdrasil
     { source: 'Yggdrasil', target: 'Mimir' },
     { source: 'Yggdrasil', target: 'Hvergelmir' },
     { source: 'Yggdrasil', target: 'Niflheim' },
 
-    //urd wellir
-
-    // add edges for the node Bhagavad Gita that is relevant to the hindu traditon
     { source: 'Bhagavad Gita', target: 'Sanskrit_HA' },
-
-    //add edges for Hávamál node
+    {
+      source: 'Bhagavad Gita',
+      target: 'Tree',
+      type: 'info',
+      info: 'Describes the cosmic ashvattha tree.',
+    },
 
     {
       source: 'Hávamál',
       target: 'Bhagavad Gita',
       type: 'info',
-      info: 'Both are in verse form (versemaal), sharing cosmic wisdom through poetic language',
+      info: 'Both contain verse wisdom.',
     },
     {
       source: 'Hávamál',
       target: 'Yggdrasil',
       type: 'info',
-      info: 'Contains cosmological wisdom of the Norse world tree',
+      info: 'Contains Norse cosmological knowledge.',
     },
-    {
-      source: 'Bhagavad Gita',
-      target: 'Tree',
-      type: 'info',
-      info: 'Describes the cosmic ashvattha tree with roots above and branches below, like Yggdrasil',
-    },
+    { source: 'Odin', target: 'Hávamál' },
 
-    //add edges for the node Yaz
+    { source: 'Odin', target: 'Yggdrasil' },
+    { source: 'Vili', target: 'Yggdrasil' },
+    { source: 'Ve', target: 'Yggdrasil' },
+    { source: 'Odin', target: 'Vili' },
+    { source: 'Odin', target: 'Ve' },
+    { source: 'Vili', target: 'Ve' },
+
     { source: 'Yaz', target: 'Sanskrit_HA' },
-    { source: 'Yaz', target: 'HA' },
+    {
+      source: 'Yaz',
+      target: 'HA',
+      type: 'info',
+      info: 'The connection between Yaz (ⵣ) and HA represents a symbolic link between Amazigh identity and the sacred syllable HA, bridging cultural and spiritual traditions.',
+    },
     { source: 'Yaz', target: 'Yggdrasil' },
     { source: 'Yaz', target: 'Tree' },
     { source: 'Yaz', target: 'DNA' },
