@@ -26,6 +26,7 @@
       <div id="cy" style="width: 100%; height: 500px; border: 1px solid #ddd"></div>
       <button @click="addNode">Add Node</button>
       <button @click="addEdge">Add Edge</button>
+      <button @click="centerAndZoom">Center and Zoom</button>
     </div>
   </div>
 </template>
@@ -108,6 +109,12 @@ const saveGraph = async () => {
     alert('Knowledge Graph saved successfully!')
   } else {
     alert('Failed to save the Knowledge Graph.')
+  }
+}
+
+const centerAndZoom = () => {
+  if (cyInstance.value) {
+    cyInstance.value.fit() // Centers and zooms to fit all nodes
   }
 }
 </script>
