@@ -100,6 +100,11 @@ const router = createRouter({
       name: 'GraphEditor',
       component: () => import('../views/GraphEditor.vue'),
     },
+    {
+      path: '/graph',
+      name: 'GraphAdmin',
+      component: () => import('../views/GraphAdmin.vue'),
+    },
   ],
 })
 

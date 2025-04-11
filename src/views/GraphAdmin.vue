@@ -6,15 +6,15 @@
       <form @submit.prevent="saveGraph">
         <label>
           Title:
-          <input v-model="graphMetadata.title" type="text" required />
+          <input v-model="graphStore.graphMetadata.title" type="text" required />
         </label>
         <label>
           Description:
-          <textarea v-model="graphMetadata.description"></textarea>
+          <textarea v-model="graphStore.graphMetadata.description"></textarea>
         </label>
         <label>
           Created By:
-          <input v-model="graphMetadata.createdBy" type="text" required />
+          <input v-model="graphStore.graphMetadata.createdBy" type="text" required />
         </label>
         <button type="submit">Save Knowledge Graph</button>
       </form>
@@ -33,15 +33,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import cytoscape from 'cytoscape'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
 const cyInstance = ref(null)
-const graphMetadata = ref({
-  title: '',
-  description: '',
-  createdBy: '',
-})
-const nodes = ref([])
-const edges = ref([])
+const graphStore = useKnowledgeGraphStore()
 
 onMounted(() => {
   cyInstance.value = cytoscape({
@@ -76,30 +71,30 @@ onMounted(() => {
 })
 
 const addNode = () => {
-  const id = `node${nodes.value.length + 1}`
-  const label = `Node ${nodes.value.length + 1}`
+  const id = `node${graphStore.nodes.length + 1}`
+  const label = `Node ${graphStore.nodes.length + 1}`
   const newNode = { data: { id, label } }
-  nodes.value.push(newNode)
+  graphStore.addNode(newNode)
   cyInstance.value.add(newNode)
 }
 
 const addEdge = () => {
-  if (nodes.value.length < 2) {
+  if (graphStore.nodes.length < 2) {
     alert('You need at least two nodes to create an edge.')
     return
   }
-  const source = nodes.value[nodes.value.length - 2].data.id
-  const target = nodes.value[nodes.value.length - 1].data.id
+  const source = graphStore.nodes[graphStore.nodes.length - 2].data.id
+  const target = graphStore.nodes[graphStore.nodes.length - 1].data.id
   const newEdge = { data: { id: `${source}_${target}`, source, target } }
-  edges.value.push(newEdge)
+  graphStore.addEdge(newEdge)
   cyInstance.value.add(newEdge)
 }
 
 const saveGraph = async () => {
   const graphData = {
-    metadata: graphMetadata.value,
-    nodes: nodes.value,
-    edges: edges.value,
+    metadata: graphStore.graphMetadata,
+    nodes: graphStore.nodes,
+    edges: graphStore.edges,
   }
 
   // Save to D1 database using Wrangler
