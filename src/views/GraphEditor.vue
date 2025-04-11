@@ -232,12 +232,14 @@ const yggdrasilSubgraph = {
     { source: 'Vili', target: 'Ve' },
 
     { source: 'Yaz', target: 'Sanskrit_HA' },
+
     {
       source: 'Yaz',
       target: 'HA',
       type: 'info',
-      info: 'The connection between Yaz (ⵣ) and HA represents a symbolic link between Amazigh identity and the sacred syllable HA, bridging cultural and spiritual traditions.',
+      info: 'Both symbols (ⵣ) and HA (ሐ)signify vital life essence (free human spirit vs. divine breath) in Afroasiatic cultures. Some modern thinkers in Afro-Asiatic studies have speculated on such parallels as evidence of a shared outlook among ancient African cultures for example, the emphasis on breath and freedom as sacred. Whether by cultural diffusion or pure coincidence, Yaz and HA both serve as reminders of the sacred life force - one grounded in ethnic-cultural freedom, the other in spiritual-divine vitality.',
     },
+
     { source: 'Yaz', target: 'Yggdrasil' },
     { source: 'Yaz', target: 'Tree' },
     { source: 'Yaz', target: 'DNA' },
