@@ -133,21 +133,30 @@ const searchNodes = () => {
   if (matchingNodes.length > 0) {
     cyInstance.value.fit(matchingNodes, 50) // Zoom to the matching nodes
 
-    // Scroll to the first matching node in the JSON editor
-    const jsonEditor = document.querySelector('textarea[v-model="graphStore.graphJson"]')
+    // Scroll to and select the first matching node in the JSON editor
+    const jsonEditor = document.querySelector('textarea') // Target the textarea directly
     if (jsonEditor) {
       const jsonText = jsonEditor.value
       const searchText = matchingNodes[0].data('id') // Use the node's ID for searching
       const index = jsonText.indexOf(`"id": "${searchText}"`)
 
       if (index !== -1) {
-        // Calculate the line number of the matching node
-        const lines = jsonText.substring(0, index).split('\n')
-        const lineNumber = lines.length
+        // Calculate the start and end positions of the matching text
+        const start = index
+        const end =
+          jsonText.indexOf('\n', start) !== -1 ? jsonText.indexOf('\n', start) : jsonText.length
 
-        // Scroll to the matching line
+        // Scroll to the matching text
+        const beforeMatch = jsonText.substring(0, start)
         const lineHeight = 18 // Approximate line height in pixels
-        jsonEditor.scrollTop = (lineNumber - 1) * lineHeight
+        const lines = beforeMatch.split('\n').length
+        jsonEditor.scrollTop = (lines - 1) * lineHeight
+
+        // Select the matching text
+        nextTick(() => {
+          jsonEditor.focus()
+          jsonEditor.setSelectionRange(start, end)
+        })
       }
     }
   }
@@ -261,6 +270,39 @@ onMounted(() => {
     selectedElement.value = {
       label: data.label || `${data.source} → ${data.target}`,
       info: data.info || null,
+    }
+  })
+
+  cyInstance.value.on('tap', 'node', (event) => {
+    const element = event.target
+    const data = element.data()
+
+    // Update the selected element details
+    selectedElement.value = {
+      label: data.label || data.id,
+      info: data.info || null,
+    }
+
+    // Scroll the JSON editor to the clicked node
+    const jsonEditor = document.querySelector('textarea[v-model="graphStore.graphJson"]')
+    if (jsonEditor) {
+      const jsonText = jsonEditor.value
+      const searchText = `"id": "${data.id}"` // Search for the node's ID in the JSON
+      const index = jsonText.indexOf(searchText)
+
+      if (index !== -1) {
+        // Calculate the line number and scroll position
+        const beforeMatch = jsonText.substring(0, index)
+        const lineHeight = 18 // Approximate line height in pixels
+        const lines = beforeMatch.split('\n').length
+        jsonEditor.scrollTop = (lines - 1) * lineHeight
+
+        // Optionally, highlight the matching text
+        nextTick(() => {
+          jsonEditor.focus()
+          jsonEditor.setSelectionRange(index, index + searchText.length)
+        })
+      }
     }
   })
 
