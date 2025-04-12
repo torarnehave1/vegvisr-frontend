@@ -43,6 +43,19 @@
       <div class="row">
         <!-- Graph Editor Section -->
         <div class="col-md-8" style="height: 100vh; padding: 20px">
+          <!-- Search Field -->
+          <div style="margin-bottom: 10px">
+            <label for="searchField"><strong>Search Nodes:</strong></label>
+            <input
+              id="searchField"
+              v-model="searchQuery"
+              @input="searchNodes"
+              type="text"
+              placeholder="Search by node name..."
+              style="width: 100%; padding: 5px; margin-bottom: 10px"
+            />
+          </div>
+
           <textarea
             v-model="graphStore.graphJson"
             @input="updateGraphFromJson"
@@ -99,6 +112,28 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 const cyInstance = ref(null)
 const graphStore = useKnowledgeGraphStore()
 const selectedElement = ref(null) // Add selectedElement for displaying node info
+const searchQuery = ref('') // Search query for nodes
+
+// Function to search and highlight nodes
+const searchNodes = () => {
+  if (!cyInstance.value) return
+
+  // Clear previous highlights
+  cyInstance.value.elements().removeClass('highlighted')
+
+  if (searchQuery.value.trim() === '') return
+
+  // Find and highlight matching nodes
+  const matchingNodes = cyInstance.value
+    .nodes()
+    .filter((node) => node.data('label').toLowerCase().includes(searchQuery.value.toLowerCase()))
+
+  matchingNodes.addClass('highlighted')
+
+  if (matchingNodes.length > 0) {
+    cyInstance.value.fit(matchingNodes, 50) // Zoom to the matching nodes
+  }
+}
 
 const initializeStandardGraph = () => {
   const standardGraph = {
@@ -186,6 +221,13 @@ onMounted(() => {
           'target-arrow-shape': 'triangle',
           'target-arrow-color': '#999',
           'curve-style': 'bezier',
+        },
+      },
+      {
+        selector: '.highlighted', // Style for highlighted nodes
+        style: {
+          'border-width': 4,
+          'border-color': 'yellow',
         },
       },
     ],
