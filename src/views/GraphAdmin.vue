@@ -283,26 +283,41 @@ onMounted(() => {
       info: data.info || null,
     }
 
+    console.log('Node clicked:', data) // Log the clicked node's data
+
     // Scroll the JSON editor to the clicked node
     const jsonEditor = document.querySelector('textarea[v-model="graphStore.graphJson"]')
+    console.log('JSON Editor:', jsonEditor) // Log the JSON editor element
+
     if (jsonEditor) {
       const jsonText = jsonEditor.value
       const searchText = `"id": "${data.id}"` // Search for the node's ID in the JSON
+      console.log('Search Text:', searchText) // Log the search text
+
       const index = jsonText.indexOf(searchText)
+      console.log('Index of Search Text:', index) // Log the index of the search text
 
       if (index !== -1) {
         // Calculate the line number and scroll position
         const beforeMatch = jsonText.substring(0, index)
         const lineHeight = 18 // Approximate line height in pixels
         const lines = beforeMatch.split('\n').length
+        console.log('Line Number:', lines) // Log the line number
+
         jsonEditor.scrollTop = (lines - 1) * lineHeight
+        console.log('Updated scrollTop:', jsonEditor.scrollTop) // Log the updated scrollTop value
 
         // Optionally, highlight the matching text
         nextTick(() => {
           jsonEditor.focus()
           jsonEditor.setSelectionRange(index, index + searchText.length)
+          console.log('Text selected from', index, 'to', index + searchText.length) // Log the selection range
         })
+      } else {
+        console.warn('Search text not found in JSON editor') // Log a warning if the text is not found
       }
+    } else {
+      console.error('JSON editor not found') // Log an error if the JSON editor is not found
     }
   })
 
