@@ -114,6 +114,94 @@ export default {
         }
       }
 
+      if (pathname === '/updateknowgraph' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { id, graphData } = requestBody
+
+          if (!id || !graphData) {
+            return new Response(
+              JSON.stringify({ error: 'Graph ID and graph data are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Updating graph with ID: ${id}`)
+
+          const query = `UPDATE knowledge_graphs SET data = ? WHERE id = ?`
+          await env.vegvisr_org.prepare(query).bind(JSON.stringify(graphData), id).run()
+
+          console.log('[Worker] Graph updated successfully')
+          return new Response(JSON.stringify({ message: 'Graph updated successfully', id }), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] Error processing /updateknowgraph request:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getknowgraphs' && request.method === 'GET') {
+        try {
+          console.log('[Worker] Fetching list of knowledge graphs')
+
+          const query = `SELECT id, title FROM knowledge_graphs`
+          const results = await env.vegvisr_org.prepare(query).all()
+
+          console.log('[Worker] Knowledge graphs fetched successfully')
+          return new Response(JSON.stringify(results), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching knowledge graphs:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getknowgraph' && request.method === 'GET') {
+        try {
+          const id = url.searchParams.get('id')
+          if (!id) {
+            return new Response(JSON.stringify({ error: 'Graph ID is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Fetching graph with ID: ${id}`)
+
+          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
+          const result = await env.vegvisr_org.prepare(query).bind(id).first()
+
+          if (!result) {
+            return new Response(JSON.stringify({ error: 'Graph not found.' }), {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log('[Worker] Graph fetched successfully')
+          return new Response(result.data, {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching graph:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {

@@ -9,6 +9,8 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   })
   const nodes = ref([])
   const edges = ref([])
+  const graphJson = ref('{}') // Initialize with an empty JSON structure
+  const currentGraphId = ref(null) // Track the current graph ID
 
   const addNode = (node) => {
     nodes.value.push(node)
@@ -22,12 +24,16 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     graphMetadata.value = { title: '', description: '', createdBy: '' }
     nodes.value = []
     edges.value = []
+    graphJson.value = '' // Reset graphJson
+    currentGraphId.value = null // Reset currentGraphId
   }
 
   return {
     graphMetadata,
     nodes,
     edges,
+    graphJson, // Expose graphJson
+    currentGraphId, // Expose currentGraphId
     addNode,
     addEdge,
     resetGraph,
