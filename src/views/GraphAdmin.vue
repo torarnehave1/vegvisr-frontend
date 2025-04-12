@@ -444,7 +444,12 @@ const loadSelectedGraph = async () => {
       `https://knowledge.vegvisr.org/getknowgraph?id=${selectedGraphId.value}`,
     )
     if (response.ok) {
-      const graphData = await response.json()
+      let graphData = await response.json()
+
+      // Handle double-quoted JSON response
+      if (typeof graphData === 'string') {
+        graphData = JSON.parse(graphData)
+      }
 
       // Validate the response structure
       if (!graphData.metadata || !graphData.nodes || !graphData.edges) {
@@ -458,17 +463,17 @@ const loadSelectedGraph = async () => {
       graphStore.graphMetadata = graphData.metadata
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
-          id: node.id,
-          label: node.label,
-          color: parseColor(node.color || 'blue'), // Validate color or default to 'blue'
-          type: node.type || null,
-          info: node.info || null,
+          id: node.data.id,
+          label: node.data.label,
+          color: parseColor(node.data.color || 'blue'), // Validate color or default to 'blue'
+          type: node.data.type || null,
+          info: node.data.info || null,
         },
       }))
       graphStore.edges = graphData.edges.map((edge) => ({
         data: {
-          source: edge.source,
-          target: edge.target,
+          source: edge.data.source,
+          target: edge.data.target,
         },
       }))
       graphStore.graphJson = JSON.stringify(graphData, null, 2)
