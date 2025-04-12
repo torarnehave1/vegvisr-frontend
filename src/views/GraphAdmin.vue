@@ -424,7 +424,9 @@ const fetchKnowledgeGraphs = async () => {
   try {
     const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
     if (response.ok) {
-      knowledgeGraphs.value = await response.json()
+      const data = await response.json()
+      knowledgeGraphs.value = data.results // Extract the `results` field
+      console.log('Fetched knowledge graphs:', knowledgeGraphs.value)
     } else {
       console.error('Failed to fetch knowledge graphs')
     }
