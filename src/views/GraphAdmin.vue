@@ -331,10 +331,7 @@ const parseColor = (color) => {
 
 const updateGraphFromJson = () => {
   try {
-    const textarea = document.querySelector('textarea[v-model="graphStore.graphJson"]')
-    const cursorPosition = textarea ? textarea.selectionStart : null // Safely get cursor position
-
-    const parsedGraph = eval(`(${graphStore.graphJson})`) // Parse JSON with single quotes
+    const parsedGraph = JSON.parse(graphStore.graphJson) // Parse JSON from the editor
     if (parsedGraph.nodes && parsedGraph.edges) {
       graphStore.nodes = parsedGraph.nodes.map((node) => ({
         data: {
@@ -354,12 +351,6 @@ const updateGraphFromJson = () => {
       cyInstance.value.elements().remove()
       cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
       cyInstance.value.layout({ name: 'grid' }).run()
-    }
-
-    if (textarea && cursorPosition !== null) {
-      nextTick(() => {
-        textarea.setSelectionRange(cursorPosition, cursorPosition) // Restore cursor position
-      })
     }
   } catch (error) {
     console.error('Invalid JSON format:', error)
@@ -397,21 +388,14 @@ const updateGraphView = () => {
 watch(
   () => [graphStore.nodes, graphStore.edges],
   () => {
-    graphJson.value = `{
-  nodes: [
-    ${graphStore.nodes
-      .map(
-        (node) =>
-          `{ id: '${node.data.id}', label: '${node.data.label}', color: '${node.data.color}', type: '${node.data.type}', info: '${node.data.info}' }`,
-      )
-      .join(',\n    ')}
-  ],
-  edges: [
-    ${graphStore.edges
-      .map((edge) => `{ source: '${edge.data.source}', target: '${edge.data.target}' }`)
-      .join(',\n    ')}
-  ]
-}`
+    graphJson.value = JSON.stringify(
+      {
+        nodes: graphStore.nodes.map((node) => node.data),
+        edges: graphStore.edges.map((edge) => edge.data),
+      },
+      null,
+      2,
+    )
   },
   { deep: true },
 )
@@ -451,16 +435,20 @@ const loadSelectedGraph = async () => {
         graphData = JSON.parse(graphData)
       }
 
+      // Log the returned graph data for debugging
+      console.log('Graph Data from API:', graphData)
+
       // Validate the response structure
-      if (!graphData.metadata || !graphData.nodes || !graphData.edges) {
+      if (!graphData.nodes || !graphData.edges) {
         console.error('Invalid graph data structure:', graphData)
         alert('Failed to load the selected graph. Invalid data structure.')
+        graphStore.graphJson = JSON.stringify(graphData, null, 2) // Load raw data into JSON editor
         return
       }
 
       // Update the Pinia store
       graphStore.currentGraphId = selectedGraphId.value
-      graphStore.graphMetadata = graphData.metadata
+      graphStore.graphMetadata = graphData.metadata || { title: '', description: '', createdBy: '' } // Default metadata if missing
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
           id: node.data.id,
@@ -476,7 +464,16 @@ const loadSelectedGraph = async () => {
           target: edge.data.target,
         },
       }))
-      graphStore.graphJson = JSON.stringify(graphData, null, 2)
+
+      // Update the JSON editor with only nodes and edges
+      graphStore.graphJson = JSON.stringify(
+        {
+          nodes: graphStore.nodes.map((node) => node.data),
+          edges: graphStore.edges.map((edge) => edge.data),
+        },
+        null,
+        2,
+      )
 
       // Update the graph view
       if (cyInstance.value) {
