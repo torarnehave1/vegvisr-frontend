@@ -446,11 +446,31 @@ const loadSelectedGraph = async () => {
     if (response.ok) {
       const graphData = await response.json()
 
+      // Validate the response structure
+      if (!graphData.metadata || !graphData.nodes || !graphData.edges) {
+        console.error('Invalid graph data structure:', graphData)
+        alert('Failed to load the selected graph. Invalid data structure.')
+        return
+      }
+
       // Update the Pinia store
       graphStore.currentGraphId = selectedGraphId.value
       graphStore.graphMetadata = graphData.metadata
-      graphStore.nodes = graphData.nodes
-      graphStore.edges = graphData.edges
+      graphStore.nodes = graphData.nodes.map((node) => ({
+        data: {
+          id: node.id,
+          label: node.label,
+          color: parseColor(node.color || 'blue'), // Validate color or default to 'blue'
+          type: node.type || null,
+          info: node.info || null,
+        },
+      }))
+      graphStore.edges = graphData.edges.map((edge) => ({
+        data: {
+          source: edge.source,
+          target: edge.target,
+        },
+      }))
       graphStore.graphJson = JSON.stringify(graphData, null, 2)
 
       // Update the graph view
@@ -460,10 +480,12 @@ const loadSelectedGraph = async () => {
         cyInstance.value.layout({ name: 'grid' }).run()
       }
     } else {
-      console.error('Failed to load the selected graph')
+      console.error('Failed to load the selected graph:', response.statusText)
+      alert('Failed to load the selected graph.')
     }
   } catch (error) {
     console.error('Error loading the selected graph:', error)
+    alert('An error occurred while loading the selected graph.')
   }
 }
 
