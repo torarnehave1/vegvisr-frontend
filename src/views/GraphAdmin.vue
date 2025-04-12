@@ -132,6 +132,24 @@ const searchNodes = () => {
 
   if (matchingNodes.length > 0) {
     cyInstance.value.fit(matchingNodes, 50) // Zoom to the matching nodes
+
+    // Scroll to the first matching node in the JSON editor
+    const jsonEditor = document.querySelector('textarea[v-model="graphStore.graphJson"]')
+    if (jsonEditor) {
+      const jsonText = jsonEditor.value
+      const searchText = matchingNodes[0].data('id') // Use the node's ID for searching
+      const index = jsonText.indexOf(`"id": "${searchText}"`)
+
+      if (index !== -1) {
+        // Calculate the line number of the matching node
+        const lines = jsonText.substring(0, index).split('\n')
+        const lineNumber = lines.length
+
+        // Scroll to the matching line
+        const lineHeight = 18 // Approximate line height in pixels
+        jsonEditor.scrollTop = (lineNumber - 1) * lineHeight
+      }
+    }
   }
 }
 
