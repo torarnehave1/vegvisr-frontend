@@ -57,6 +57,7 @@
           </div>
 
           <textarea
+            id="JsonEditor"
             v-model="graphStore.graphJson"
             @input="updateGraphFromJson"
             style="width: 100%; height: 150px; margin-bottom: 10px; font-family: monospace"
@@ -286,7 +287,7 @@ onMounted(() => {
     console.log('Node clicked:', data) // Log the clicked node's data
 
     // Scroll the JSON editor to the clicked node
-    const jsonEditor = document.querySelector('textarea[v-model="graphStore.graphJson"]')
+    const jsonEditor = document.getElementById('JsonEditor')
     console.log('JSON Editor:', jsonEditor) // Log the JSON editor element
 
     if (jsonEditor) {
