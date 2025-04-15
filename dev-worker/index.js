@@ -277,6 +277,50 @@ export default {
         }
       }
 
+      if (pathname === '/getknowgraphhistory' && request.method === 'GET') {
+        try {
+          const graphId = url.searchParams.get('id')
+          if (!graphId) {
+            return new Response(JSON.stringify({ error: 'Graph ID is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Fetching history for graph ID: ${graphId}`)
+
+          const query = `
+            SELECT version, data
+            FROM knowledge_graph_history
+            WHERE graph_id = ?
+            ORDER BY version DESC
+          `
+          const results = await env.vegvisr_org.prepare(query).bind(graphId).all()
+
+          if (!results || results.length === 0) {
+            return new Response(
+              JSON.stringify({ error: 'No history found for the given graph ID.' }),
+              {
+                status: 404,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          console.log('[Worker] History fetched successfully')
+          return new Response(JSON.stringify({ history: results }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching graph history:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {

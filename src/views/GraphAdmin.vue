@@ -51,17 +51,41 @@
       <div class="row">
         <!-- Graph Editor Section -->
         <div class="col-md-8" style="height: 100vh; padding: 20px">
-          <!-- Search Field -->
-          <div style="margin-bottom: 10px">
-            <label for="searchField"><strong>Search Nodes:</strong></label>
-            <input
-              id="searchField"
-              v-model="searchQuery"
-              @input="searchNodes"
-              type="text"
-              placeholder="Search by node name..."
-              style="width: 100%; padding: 5px; margin-bottom: 10px"
-            />
+          <div class="row">
+            <!-- Search Field -->
+            <div class="col-md-6" style="margin-bottom: 10px">
+              <label for="searchField"><strong>Search Nodes:</strong></label>
+              <input
+                id="searchField"
+                v-model="searchQuery"
+                @input="searchNodes"
+                type="text"
+                placeholder="Search by node name..."
+                style="width: 100%; padding: 5px; margin-bottom: 10px"
+              />
+            </div>
+
+            <!-- History List -->
+            <div class="col-md-6" style="margin-bottom: 10px">
+              <label for="historyList"><strong>Graph History:</strong></label>
+              <div
+                id="historyList"
+                style="border: 1px solid #ddd; padding: 10px; max-height: 150px; overflow-y: auto"
+              >
+                <ul v-if="graphHistory.length > 0">
+                  <li
+                    v-for="(history, index) in graphHistory"
+                    :key="index"
+                    @click="loadGraphVersion(history.version)"
+                    style="cursor: pointer; display: flex; align-items: center; margin-bottom: 5px"
+                  >
+                    <span style="margin-right: 10px; font-size: 18px">📜</span>
+                    <span>Version {{ history.version }}</span>
+                  </li>
+                </ul>
+                <p v-else>No history found for the current graph ID.</p>
+              </div>
+            </div>
           </div>
           <textarea
             id="JsonEditor"
@@ -139,6 +163,8 @@ const searchQuery = ref('') // Search query for nodes
 const validationErrors = ref([]) // Store validation errors
 const saveMessage = ref('') // Message to display after saving
 
+const graphHistory = ref([]) // Store the history of the current graph
+
 // Function to search and highlight nodes
 const searchNodes = () => {
   if (!cyInstance.value) return
@@ -179,7 +205,6 @@ const searchNodes = () => {
 
         // Select the matching text
         nextTick(() => {
-          jsonEditor.focus()
           jsonEditor.setSelectionRange(start, end)
         })
       }
@@ -250,6 +275,8 @@ const initializeStandardGraph = () => {
 }
 
 onMounted(() => {
+  console.log('Component mounted. Checking for currentGraphId...')
+
   cyInstance.value = cytoscape({
     container: document.getElementById('cy'),
     elements: [],
@@ -311,13 +338,8 @@ onMounted(() => {
     const element = event.target
     const data = element.data()
 
-    // Debugging log for bibliographic data
-    console.log('Node data:', data)
-    console.log('Bibliographic data:', data.bibl)
-
     // Ensure bibl is an array and handle multiple entries
     const biblArray = Array.isArray(data.bibl) ? data.bibl : []
-    console.log('Processed Bibliographic Array:', biblArray)
 
     // Update the selected element details
     selectedElement.value = {
@@ -325,8 +347,6 @@ onMounted(() => {
       info: data.info || null,
       bibl: biblArray, // Assign the processed array
     }
-
-    console.log('Node clicked:', data) // Log the clicked node's data
 
     // Scroll the JSON editor to the clicked node
     const jsonEditor = document.getElementById('JsonEditor')
@@ -372,7 +392,16 @@ onMounted(() => {
     node.removeClass('selected') // Remove the CSS class when unselected
   })
 
-  initializeStandardGraph()
+  if (graphStore.currentGraphId) {
+    console.log(
+      `currentGraphId found: ${graphStore.currentGraphId}. Loading graph from database...`,
+    )
+    selectedGraphId.value = graphStore.currentGraphId // Set selectedGraphId to currentGraphId
+    loadSelectedGraph() // Load the graph
+  } else {
+    console.log('No currentGraphId found. Initializing standard preset graph...')
+    initializeStandardGraph()
+  }
 
   // Ensure textarea is updated with the initial graph JSON
   graphJson.value = `{
@@ -392,6 +421,7 @@ onMounted(() => {
 }`
 
   fetchKnowledgeGraphs()
+  fetchGraphHistory() // Fetch the history of the current graph
 })
 
 const addNode = () => {
@@ -483,6 +513,7 @@ const saveCurrentGraph = async () => {
       color: node.color || 'blue',
       type: node.type || null,
       info: node.info || null,
+      bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is an array
       position: graphStore.nodes.find((n) => n.data.id === node.id)?.position || { x: 0, y: 0 },
     }))
 
@@ -517,6 +548,9 @@ const saveCurrentGraph = async () => {
       const result = await response.json()
       saveMessage.value = 'Graph saved successfully with history!'
       console.log('Graph saved with history:', result)
+
+      // Refresh the entire page
+      window.location.reload()
     } else {
       const errorText = await response.text()
       console.error('Failed to save the graph with history:', errorText)
@@ -662,12 +696,14 @@ const fetchKnowledgeGraphs = async () => {
 
 // Load the selected graph and update the graph view
 const loadSelectedGraph = async () => {
-  if (!selectedGraphId.value) return
+  const graphIdToLoad = selectedGraphId.value // Use the selected graph ID
+  if (!graphIdToLoad) {
+    console.warn('No graph ID selected.')
+    return
+  }
 
   try {
-    const response = await fetch(
-      `https://knowledge.vegvisr.org/getknowgraph?id=${selectedGraphId.value}`,
-    )
+    const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
       let graphData = await response.json()
 
@@ -675,9 +711,6 @@ const loadSelectedGraph = async () => {
       if (typeof graphData === 'string') {
         graphData = JSON.parse(graphData)
       }
-
-      // Log the returned graph data for debugging
-      console.log('Graph Data from API:', graphData)
 
       // Validate the response structure
       if (!graphData.nodes || !graphData.edges) {
@@ -687,7 +720,7 @@ const loadSelectedGraph = async () => {
       }
 
       // Update the Pinia store
-      graphStore.currentGraphId = selectedGraphId.value
+      graphStore.setCurrentGraphId(graphIdToLoad) // Persist the current graph ID
       graphStore.graphMetadata = graphData.metadata || { title: '', description: '', createdBy: '' } // Default metadata if missing
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
@@ -707,6 +740,9 @@ const loadSelectedGraph = async () => {
         },
       }))
 
+      //Udate the current graph ID in the store
+      graphStore.currentGraphId = graphIdToLoad
+
       // Update the JSON editor with only nodes and edges
       graphStore.graphJson = JSON.stringify(
         {
@@ -725,6 +761,7 @@ const loadSelectedGraph = async () => {
         cyInstance.value.elements().remove()
         cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
         cyInstance.value.layout({ name: 'preset' }).run() // Use 'preset' layout to apply positions
+        cyInstance.value.fit() // Fit the graph to the viewport
       }
     } else {
       console.error('Failed to load the selected graph:', response.statusText)
@@ -734,9 +771,87 @@ const loadSelectedGraph = async () => {
   }
 }
 
-// Fetch the list of graphs on component mount
+// Fetch the history of the current graph
+const fetchGraphHistory = async () => {
+  if (!graphStore.currentGraphId) {
+    console.warn('No currentGraphId found. Cannot fetch history.')
+    return
+  }
+
+  try {
+    const response = await fetch(
+      `https://knowledge.vegvisr.org/getknowgraphhistory?id=${graphStore.currentGraphId}`,
+    )
+    if (response.ok) {
+      const data = await response.json()
+      graphHistory.value = data.history || [] // Populate the history list
+      console.log('Fetched graph history:', graphHistory.value)
+    } else {
+      console.error('Failed to fetch graph history:', response.statusText)
+      graphHistory.value = [] // Clear the history list if the request fails
+    }
+  } catch (error) {
+    console.error('Error fetching graph history:', error)
+    graphHistory.value = [] // Clear the history list on error
+  }
+}
+
+// Load a specific version of the graph from history
+const loadGraphVersion = async (version) => {
+  if (!graphStore.currentGraphId) {
+    console.warn('No currentGraphId found. Cannot load version.')
+    return
+  }
+
+  try {
+    const response = await fetch(
+      `https://knowledge.vegvisr.org/getknowgraphversion?id=${graphStore.currentGraphId}&version=${version}`,
+    )
+    if (response.ok) {
+      const graphData = await response.json()
+
+      // Update the graph view with the selected version
+      graphStore.nodes = graphData.nodes.map((node) => ({
+        data: {
+          id: node.id,
+          label: node.label,
+          color: parseColor(node.color || 'blue'),
+          type: node.type || null,
+          info: node.info || null,
+        },
+        position: node.position || { x: 0, y: 0 },
+      }))
+      graphStore.edges = graphData.edges.map((edge) => ({
+        data: {
+          source: edge.source,
+          target: edge.target,
+        },
+      }))
+      graphStore.graphJson = JSON.stringify(graphData, null, 2)
+
+      if (cyInstance.value) {
+        cyInstance.value.elements().remove()
+        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+        cyInstance.value.layout({ name: 'preset' }).run()
+        cyInstance.value.fit()
+      }
+
+      console.log(`Loaded graph version ${version} successfully.`)
+    } else {
+      console.error('Failed to load graph version:', response.statusText)
+    }
+  } catch (error) {
+    console.error('Error loading graph version:', error)
+  }
+}
+
+// Fetch the list of graphs on component mount and load the current graph if available
 onMounted(() => {
   fetchKnowledgeGraphs()
+  if (graphStore.currentGraphId) {
+    loadSelectedGraph()
+    fetchGraphHistory() // Fetch the history of the current graph
+  }
 })
 </script>
 
