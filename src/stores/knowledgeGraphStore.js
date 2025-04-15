@@ -28,6 +28,11 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     currentGraphId.value = null // Reset currentGraphId
   }
 
+  const updateGraph = (newNodes, newEdges) => {
+    nodes.value = newNodes
+    edges.value = newEdges
+  }
+
   return {
     graphMetadata,
     nodes,
@@ -37,5 +42,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     addNode,
     addEdge,
     resetGraph,
+    updateGraph, // Expose updateGraph
   }
 })

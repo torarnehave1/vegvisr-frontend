@@ -202,6 +202,81 @@ export default {
         }
       }
 
+      if (pathname === '/saveGraphWithHistory' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { id, graphData } = requestBody
+
+          if (!id || !graphData) {
+            return new Response(
+              JSON.stringify({ error: 'Graph ID and graph data are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Saving graph with history for ID: ${id}`)
+
+          // Fetch the current version of the graph
+          const currentVersionQuery = `SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?`
+          const currentVersionResult = await env.vegvisr_org
+            .prepare(currentVersionQuery)
+            .bind(id)
+            .first()
+          const newVersion = (currentVersionResult?.version || 0) + 1
+
+          // Insert the new version into the history table
+          const insertHistoryQuery = `
+            INSERT INTO knowledge_graph_history (id, graph_id, version, data)
+            VALUES (?, ?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(insertHistoryQuery)
+            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(graphData)) // Use crypto.randomUUID()
+            .run()
+
+          // Ensure no more than 20 versions are stored
+          const countHistoryQuery = `SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?`
+          const historyCountResult = await env.vegvisr_org
+            .prepare(countHistoryQuery)
+            .bind(id)
+            .first()
+
+          if (historyCountResult?.count > 20) {
+            const deleteOldestQuery = `
+              DELETE FROM knowledge_graph_history
+              WHERE graph_id = ?
+              AND version = (
+                SELECT MIN(version)
+                FROM knowledge_graph_history
+                WHERE graph_id = ?
+              )
+            `
+            await env.vegvisr_org.prepare(deleteOldestQuery).bind(id, id).run()
+            console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
+          }
+
+          // Update the main graph table
+          const updateGraphQuery = `
+            UPDATE knowledge_graphs
+            SET data = ?
+            WHERE id = ?
+          `
+          await env.vegvisr_org.prepare(updateGraphQuery).bind(JSON.stringify(graphData), id).run()
+
+          console.log('[Worker] Graph with history saved successfully')
+          return new Response(
+            JSON.stringify({ message: 'Graph with history saved successfully', id }),
+            { status: 200, headers: corsHeaders },
+          )
+        } catch (error) {
+          console.error('[Worker] Error processing /saveGraphWithHistory request:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {

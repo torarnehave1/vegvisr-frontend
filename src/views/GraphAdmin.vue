@@ -19,6 +19,14 @@
       </p>
     </div>
 
+    <!-- Validation Error Info Box -->
+    <div v-if="validationErrors.length" class="alert alert-danger" role="alert">
+      <strong>Graph Validation Errors:</strong>
+      <ul>
+        <li v-for="(error, index) in validationErrors" :key="index">{{ error }}</li>
+      </ul>
+    </div>
+
     <!-- Form Section -->
     <div class="form-section">
       <h2>Create New Knowledge Graph</h2>
@@ -55,7 +63,6 @@
               style="width: 100%; padding: 5px; margin-bottom: 10px"
             />
           </div>
-
           <textarea
             id="JsonEditor"
             v-model="graphStore.graphJson"
@@ -63,16 +70,18 @@
             style="width: 100%; height: 150px; margin-bottom: 10px; font-family: monospace"
           ></textarea>
           <button @click="updateGraphView" style="margin-bottom: 10px">Update Graph</button>
+          <button @click="saveCurrentGraph">Save Current Graph</button>
+          <button @click="centerAndZoom">Center and Zoom</button>
+          <!-- Save Success Info Box -->
+          <div v-if="saveMessage" class="alert alert-info" role="alert">
+            {{ saveMessage }}
+          </div>
           <div
             id="cy"
             style="width: 100%; height: calc(100% - 210px); border: 1px solid #ddd"
           ></div>
-          <div style="margin-top: 10px">
-            <button @click="addNode">Add Node</button>
-            <button @click="addEdge">Add Edge</button>
-            <button @click="centerAndZoom">Center and Zoom</button>
-            <button @click="saveCurrentGraph">Save Current Graph</button>
-          </div>
+
+          <div style="margin-top: 10px"></div>
         </div>
 
         <!-- Info Section -->
@@ -95,6 +104,19 @@
               v-model="selectedElement.info"
             ></textarea>
             <p v-else>No additional information available.</p>
+
+            <!-- Bibliographic References -->
+            <div
+              v-if="selectedElement.bibl && selectedElement.bibl.length"
+              style="margin-top: 20px"
+            >
+              <h4>Bibliographic References:</h4>
+              <ul>
+                <li v-for="(reference, index) in selectedElement.bibl" :key="index">
+                  {{ reference }}
+                </li>
+              </ul>
+            </div>
           </div>
           <div v-else>
             <p>Select a node or connection to see details.</p>
@@ -114,6 +136,8 @@ const cyInstance = ref(null)
 const graphStore = useKnowledgeGraphStore()
 const selectedElement = ref(null) // Add selectedElement for displaying node info
 const searchQuery = ref('') // Search query for nodes
+const validationErrors = ref([]) // Store validation errors
+const saveMessage = ref('') // Message to display after saving
 
 // Function to search and highlight nodes
 const searchNodes = () => {
@@ -135,7 +159,7 @@ const searchNodes = () => {
     cyInstance.value.fit(matchingNodes, 50) // Zoom to the matching nodes
 
     // Scroll to and select the first matching node in the JSON editor
-    const jsonEditor = document.querySelector('textarea') // Target the textarea directly
+    const jsonEditor = document.getElementById('JsonEditor') // Select the textarea by its ID
     if (jsonEditor) {
       const jsonText = jsonEditor.value
       const searchText = matchingNodes[0].data('id') // Use the node's ID for searching
@@ -234,7 +258,7 @@ onMounted(() => {
         selector: 'node',
         style: {
           label: (ele) =>
-            ele.data('type') === 'infonode' ? ele.data('label') + ' ℹ️' : ele.data('label'),
+            ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label'),
           'background-color': 'data(color)', // Use the color from node data
           color: '#000', // Text color
           'text-valign': 'center',
@@ -258,10 +282,19 @@ onMounted(() => {
           'border-color': 'yellow',
         },
       },
+      {
+        selector: 'node:selected', // Add this block for selected nodes
+        style: {
+          'border-width': 4,
+          'border-color': 'blue',
+          'background-color': 'lightblue',
+        },
+      },
     ],
     layout: {
-      name: 'grid',
+      name: 'cose',
     },
+    boxSelectionEnabled: true,
   })
 
   cyInstance.value.on('tap', 'node, edge', (event) => {
@@ -278,48 +311,65 @@ onMounted(() => {
     const element = event.target
     const data = element.data()
 
+    // Debugging log for bibliographic data
+    console.log('Node data:', data)
+    console.log('Bibliographic data:', data.bibl)
+
+    // Ensure bibl is an array and handle multiple entries
+    const biblArray = Array.isArray(data.bibl) ? data.bibl : []
+    console.log('Processed Bibliographic Array:', biblArray)
+
     // Update the selected element details
     selectedElement.value = {
       label: data.label || data.id,
       info: data.info || null,
+      bibl: biblArray, // Assign the processed array
     }
 
     console.log('Node clicked:', data) // Log the clicked node's data
 
     // Scroll the JSON editor to the clicked node
     const jsonEditor = document.getElementById('JsonEditor')
-    console.log('JSON Editor:', jsonEditor) // Log the JSON editor element
-
     if (jsonEditor) {
       const jsonText = jsonEditor.value
       const searchText = `"id": "${data.id}"` // Search for the node's ID in the JSON
-      console.log('Search Text:', searchText) // Log the search text
-
       const index = jsonText.indexOf(searchText)
-      console.log('Index of Search Text:', index) // Log the index of the search text
 
       if (index !== -1) {
         // Calculate the line number and scroll position
         const beforeMatch = jsonText.substring(0, index)
         const lineHeight = 18 // Approximate line height in pixels
         const lines = beforeMatch.split('\n').length
-        console.log('Line Number:', lines) // Log the line number
 
         jsonEditor.scrollTop = (lines - 1) * lineHeight
-        console.log('Updated scrollTop:', jsonEditor.scrollTop) // Log the updated scrollTop value
 
         // Optionally, highlight the matching text
         nextTick(() => {
           jsonEditor.focus()
           jsonEditor.setSelectionRange(index, index + searchText.length)
-          console.log('Text selected from', index, 'to', index + searchText.length) // Log the selection range
         })
-      } else {
-        console.warn('Search text not found in JSON editor') // Log a warning if the text is not found
       }
-    } else {
-      console.error('JSON editor not found') // Log an error if the JSON editor is not found
     }
+  })
+
+  cyInstance.value.on('dragfree', 'node', (event) => {
+    const node = event.target
+    const updatedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+    if (updatedNode) {
+      updatedNode.position = node.position() // Update the node's position in the store
+    }
+    //  const originalColor = node.data('originalColor') || 'blue' // Default to blue if no original color
+    // node.style('background-color', originalColor) // Restore the original color after moving
+  })
+
+  cyInstance.value.on('select', 'node', (event) => {
+    const node = event.target
+    node.addClass('selected') // Add a CSS class for selected nodes
+  })
+
+  cyInstance.value.on('unselect', 'node', (event) => {
+    const node = event.target
+    node.removeClass('selected') // Remove the CSS class when unselected
   })
 
   initializeStandardGraph()
@@ -393,30 +443,92 @@ const saveGraph = async () => {
   }
 }
 
+const generateUUID = () => {
+  // Fallback for generating unique IDs
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 const saveCurrentGraph = async () => {
   if (!graphStore.currentGraphId) {
     alert('No graph ID is set. Please save the graph first.')
     return
   }
 
-  const graphData = {
-    nodes: graphStore.nodes,
-    edges: graphStore.edges,
-  }
+  try {
+    // Update positions in the graph store before saving
+    cyInstance.value.nodes().forEach((node) => {
+      const updatedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (updatedNode) {
+        updatedNode.position = node.position() // Save the latest position
+      }
+    })
 
-  const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: graphStore.currentGraphId,
-      graphData,
-    }),
-  })
+    // Parse the JSON from the textarea
+    const parsedGraph = JSON.parse(graphStore.graphJson)
 
-  if (response.ok) {
-    alert('Graph updated successfully!')
-  } else {
-    alert('Failed to update the graph.')
+    // Validate the parsed data
+    if (!parsedGraph.nodes || !parsedGraph.edges) {
+      alert('Invalid graph data. Please ensure the JSON contains "nodes" and "edges".')
+      return
+    }
+
+    // Map nodes and edges from the parsed JSON
+    const nodesWithPositions = parsedGraph.nodes.map((node) => ({
+      id: node.id || generateUUID(), // Ensure each node has a unique ID
+      label: node.label,
+      color: node.color || 'blue',
+      type: node.type || null,
+      info: node.info || null,
+      position: graphStore.nodes.find((n) => n.data.id === node.id)?.position || { x: 0, y: 0 },
+    }))
+
+    const edgesWithData = parsedGraph.edges.map((edge) => ({
+      id: edge.id || `${edge.source}_${edge.target}`, // Generate unique ID if missing
+      source: edge.source,
+      target: edge.target,
+      label: edge.label || null,
+      info: edge.info || null,
+    }))
+
+    const graphData = {
+      metadata: graphStore.graphMetadata,
+      nodes: nodesWithPositions,
+      edges: edgesWithData,
+    }
+
+    // Log the data being sent for debugging
+    console.log('Graph data being sent:', JSON.stringify(graphData, null, 2))
+
+    // Call the saveGraphWithHistory endpoint
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: graphStore.currentGraphId,
+        graphData,
+      }),
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      saveMessage.value = 'Graph saved successfully with history!'
+      console.log('Graph saved with history:', result)
+    } else {
+      const errorText = await response.text()
+      console.error('Failed to save the graph with history:', errorText)
+      saveMessage.value = 'Failed to save the graph with history.'
+    }
+
+    setTimeout(() => {
+      saveMessage.value = '' // Clear the message after 3 seconds
+    }, 3000)
+  } catch (error) {
+    console.error('Error saving the graph with history:', error)
+    alert('An error occurred while saving the graph. Please check the JSON format.')
   }
 }
 
@@ -450,15 +562,17 @@ const parseColor = (color) => {
 const updateGraphFromJson = () => {
   try {
     const parsedGraph = JSON.parse(graphStore.graphJson) // Parse JSON from the editor
+
     if (parsedGraph.nodes && parsedGraph.edges) {
       graphStore.nodes = parsedGraph.nodes.map((node) => ({
         data: {
           id: node.id,
           label: node.label,
-          color: parseColor(node.color || 'blue'), // Validate color or default to 'blue'
+          color: parseColor(node.color || 'blue'),
           type: node.type || null,
           info: node.info || null,
         },
+        position: node.position || { x: 0, y: 0 }, // Apply saved position or default
       }))
       graphStore.edges = parsedGraph.edges.map((edge) => ({
         data: {
@@ -468,7 +582,7 @@ const updateGraphFromJson = () => {
       }))
       cyInstance.value.elements().remove()
       cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-      cyInstance.value.layout({ name: 'grid' }).run()
+      cyInstance.value.layout({ name: 'preset' }).run() // Use 'preset' layout to apply positions
     }
   } catch (error) {
     console.error('Invalid JSON format:', error)
@@ -496,7 +610,16 @@ const updateGraphView = () => {
       }))
       cyInstance.value.elements().remove()
       cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-      cyInstance.value.layout({ name: 'grid' }).run()
+      cyInstance.value
+        .layout({
+          name: 'cose',
+          animate: true,
+          animationDuration: 1000,
+          fit: true,
+          nodeRepulsion: 10000, // Higher value increases spacing between nodes
+          idealEdgeLength: 100,
+        })
+        .run()
     }
   } catch (error) {
     console.error('Invalid JSON format:', error)
@@ -558,8 +681,7 @@ const loadSelectedGraph = async () => {
 
       // Validate the response structure
       if (!graphData.nodes || !graphData.edges) {
-        console.error('Invalid graph data structure:', graphData)
-        alert('Failed to load the selected graph. Invalid data structure.')
+        console.warn('Invalid graph data structure:', graphData)
         graphStore.graphJson = JSON.stringify(graphData, null, 2) // Load raw data into JSON editor
         return
       }
@@ -569,24 +691,29 @@ const loadSelectedGraph = async () => {
       graphStore.graphMetadata = graphData.metadata || { title: '', description: '', createdBy: '' } // Default metadata if missing
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
-          id: node.data.id,
-          label: node.data.label,
-          color: parseColor(node.data.color || 'blue'), // Validate color or default to 'blue'
-          type: node.data.type || null,
-          info: node.data.info || null,
+          id: node.id,
+          label: node.label,
+          color: parseColor(node.color || 'blue'), // Validate color or default to 'blue'
+          type: node.type || null,
+          info: node.info || null,
+          bibl: Array.isArray(node.bibl) ? node.bibl : [], // Deserialize bibl as an array
         },
+        position: node.position || { x: 0, y: 0 }, // Apply saved position or default
       }))
       graphStore.edges = graphData.edges.map((edge) => ({
         data: {
-          source: edge.data.source,
-          target: edge.data.target,
+          source: edge.source,
+          target: edge.target,
         },
       }))
 
       // Update the JSON editor with only nodes and edges
       graphStore.graphJson = JSON.stringify(
         {
-          nodes: graphStore.nodes.map((node) => node.data),
+          nodes: graphStore.nodes.map((node) => ({
+            ...node.data,
+            position: node.position, // Include position in JSON
+          })),
           edges: graphStore.edges.map((edge) => edge.data),
         },
         null,
@@ -597,15 +724,13 @@ const loadSelectedGraph = async () => {
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
         cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-        cyInstance.value.layout({ name: 'grid' }).run()
+        cyInstance.value.layout({ name: 'preset' }).run() // Use 'preset' layout to apply positions
       }
     } else {
       console.error('Failed to load the selected graph:', response.statusText)
-      alert('Failed to load the selected graph.')
     }
   } catch (error) {
     console.error('Error loading the selected graph:', error)
-    alert('An error occurred while loading the selected graph.')
   }
 }
 
@@ -656,5 +781,8 @@ onMounted(() => {
 .graph-selector select {
   padding: 5px;
   font-size: 16px;
+}
+.alert {
+  margin-bottom: 20px;
 }
 </style>
