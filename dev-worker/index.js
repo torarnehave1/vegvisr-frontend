@@ -290,7 +290,7 @@ export default {
           console.log(`[Worker] Fetching history for graph ID: ${graphId}`)
 
           const query = `
-            SELECT version, data
+            SELECT version, timestamp
             FROM knowledge_graph_history
             WHERE graph_id = ?
             ORDER BY version DESC
@@ -299,7 +299,7 @@ export default {
 
           if (!results || results.length === 0) {
             return new Response(
-              JSON.stringify({ error: 'No history found for the given graph ID.' }),
+              JSON.stringify({ error: `No history found for the given graph ID: ${graphId}.` }),
               {
                 status: 404,
                 headers: corsHeaders,
@@ -308,7 +308,7 @@ export default {
           }
 
           console.log('[Worker] History fetched successfully')
-          return new Response(JSON.stringify({ history: results }), {
+          return new Response(JSON.stringify({ graphId, history: results }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })

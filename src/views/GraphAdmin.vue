@@ -80,7 +80,7 @@
                     style="cursor: pointer; display: flex; align-items: center; margin-bottom: 5px"
                   >
                     <span style="margin-right: 10px; font-size: 18px">📜</span>
-                    <span>Version {{ history.version }}</span>
+                    <span>Version {{ history.version }} - {{ history.timestamp }}</span>
                   </li>
                 </ul>
                 <p v-else>No history found for the current graph ID.</p>
@@ -784,8 +784,18 @@ const fetchGraphHistory = async () => {
     )
     if (response.ok) {
       const data = await response.json()
-      graphHistory.value = data.history || [] // Populate the history list
-      console.log('Fetched graph history:', graphHistory.value)
+
+      // Extract the results array from the history object
+      if (data.history && data.history.results) {
+        graphHistory.value = data.history.results.map((item) => ({
+          version: item.version,
+          timestamp: item.timestamp,
+        }))
+        console.log('Fetched graph history:', graphHistory.value)
+      } else {
+        console.warn('No valid history data found in the response.')
+        graphHistory.value = [] // Clear the history list if no valid data
+      }
     } else {
       console.error('Failed to fetch graph history:', response.statusText)
       graphHistory.value = [] // Clear the history list if the request fails
