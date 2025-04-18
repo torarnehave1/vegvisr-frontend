@@ -1012,6 +1012,8 @@ onMounted(() => {
             'text-halign': 'left', // Center the text horizontally
             'font-size': '16px', // Adjust font size
             color: '#333', // Darker text color for readability
+            width: 'label', // Dynamically adjust width based on the label
+            height: 'label',
           },
         },
         {
