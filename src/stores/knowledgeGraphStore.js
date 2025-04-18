@@ -64,8 +64,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     graphJson, // Expose graphJson
     currentGraphId, // Expose currentGraphId
     currentVersion, // Expose currentVersion
-    addNode,
-    addEdge,
+
     resetGraph,
     updateGraph, // Expose updateGraph
     setCurrentGraphId, // Expose setCurrentGraphId

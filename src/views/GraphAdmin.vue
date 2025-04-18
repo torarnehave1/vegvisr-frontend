@@ -549,12 +549,11 @@ const updateGraphFromJson = (parsedJson) => {
     position: node.position || null,
   }))
 
-  graphStore.edges = parsedJson.edges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
-    label: edge.label ?? null, // Preserve "label" if provided
-    type: edge.type ?? null, // Preserve "type" if provided
-    info: edge.info ?? null, // Preserve "info" if provided
+  graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
+    source,
+    target,
+    type,
+    info,
   }))
 }
 
@@ -609,17 +608,12 @@ const verifyJson = () => {
     })
 
     // Update edges in the store, preserving all fields
-    graphStore.edges = parsedJson.edges.map((edge) => {
-      return {
-        data: {
-          source: edge.source,
-          target: edge.target,
-          label: edge.label !== undefined ? edge.label : null,
-          type: edge.type !== undefined ? edge.type : null, // Preserve type
-          info: edge.info !== undefined ? edge.info : null, // Preserve info
-        },
-      }
-    })
+    graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
+      source,
+      target,
+      type,
+      info,
+    }))
 
     console.log('Graph store edges after verification:', graphStore.edges) // Debug the updated edges
 
@@ -627,7 +621,12 @@ const verifyJson = () => {
     graphStore.graphJson = JSON.stringify(
       {
         nodes: graphStore.nodes.map((node) => node.data),
-        edges: graphStore.edges.map((edge) => edge.data),
+        edges: graphStore.edges.map(({ source, target, type, info }) => ({
+          source,
+          target,
+          type,
+          info,
+        })),
       },
       null,
       2,
@@ -638,13 +637,13 @@ const verifyJson = () => {
       cyInstance.value.elements().remove()
       cyInstance.value.add([
         ...graphStore.nodes,
-        ...graphStore.edges.map((edge) => ({
+        ...graphStore.edges.map(({ source, target, label, type, info }) => ({
           data: {
-            source: edge.source,
-            target: edge.target,
-            label: edge.label || null,
-            type: edge.type || null,
-            info: edge.info || null,
+            source,
+            target,
+            label: label || null,
+            type: type || null,
+            info: info || null,
           },
         })),
       ])
@@ -756,12 +755,12 @@ const loadSelectedGraph = async () => {
         position: node.position || null, // Ensure position is passed
       }))
 
-      graphStore.edges = graphData.edges.map((edge) => ({
-        source: edge.source,
-        target: edge.target,
-        label: edge.label || null,
-        type: edge.type || null, // Add support for "type"
-        info: edge.info || null, // Add support for "info"
+      graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
+        source,
+        target,
+        label: label || null,
+        type: type || null, // Add support for "type"
+        info: info || null, // Add support for "info"
       }))
 
       // Update Cytoscape view
@@ -769,13 +768,13 @@ const loadSelectedGraph = async () => {
         cyInstance.value.elements().remove()
         cyInstance.value.add([
           ...graphStore.nodes,
-          ...graphStore.edges.map((edge) => ({
+          ...graphStore.edges.map(({ source, target, label, type, info }) => ({
             data: {
-              source: edge.source,
-              target: edge.target,
-              label: edge.label || null,
-              type: edge.type || null,
-              info: edge.info || null,
+              source,
+              target,
+              label: label || null,
+              type: type || null,
+              info: info || null,
             },
           })),
         ])
@@ -863,12 +862,12 @@ const loadGraphVersion = async (version) => {
         },
         position: node.position || { x: 0, y: 0 },
       }))
-      graphStore.edges = graphData.edges.map((edge) => ({
-        source: edge.source,
-        target: edge.target,
-        label: edge.label || null,
-        type: edge.type || null, // Add support for "type"
-        info: edge.info || null, // Add support for "info"
+      graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
+        source,
+        target,
+        label: label || null,
+        type: type || null, // Add support for "type"
+        info: info || null, // Add support for "info"
       }))
 
       // Update the JSON Editor
@@ -878,10 +877,11 @@ const loadGraphVersion = async (version) => {
             ...node.data,
             position: node.position,
           })),
-          edges: graphStore.edges.map((edge) => ({
-            ...edge.data,
-            type: edge.type || null, // Add support for "type"
-            info: edge.info || null, // Add support for "info"
+          edges: graphStore.edges.map(({ source, target, type, info }) => ({
+            source,
+            target,
+            type,
+            info,
           })),
         },
         null,
@@ -893,13 +893,13 @@ const loadGraphVersion = async (version) => {
         cyInstance.value.elements().remove()
         cyInstance.value.add([
           ...graphStore.nodes,
-          ...graphStore.edges.map((edge) => ({
+          ...graphStore.edges.map(({ source, target, label, type, info }) => ({
             data: {
-              source: edge.source,
-              target: edge.target,
-              label: edge.label || null,
-              type: edge.type || null,
-              info: edge.info || null,
+              source,
+              target,
+              label: label || null,
+              type: type || null,
+              info: info || null,
             },
           })),
         ])
@@ -1146,10 +1146,11 @@ watch(
           imageWidth: node.data.imageWidth || null, // Ensure imageWidth is included
           imageHeight: node.data.imageHeight || null, // Ensure imageHeight is included
         })),
-        edges: graphStore.edges.map((edge) => ({
-          ...edge.data,
-          type: edge.type !== undefined ? edge.data.type : null,
-          info: edge.info !== undefined ? edge.data.info : null,
+        edges: graphStore.edges.map(({ source, target, type, info }) => ({
+          source,
+          target,
+          type,
+          info,
         })),
       },
       null,
