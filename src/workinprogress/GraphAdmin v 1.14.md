@@ -1,3 +1,5 @@
+implemented notes node
+
 <template>
   <div class="admin-page">
     <!-- Top Bar -->
@@ -200,9 +202,6 @@
                   <button @click="centerAndZoom" class="btn btn-outline-secondary me-2">
                     Center and Zoom
                   </button>
-                  <button @click="exportGraphToMarkdown" class="btn btn-secondary">
-                    Export to Markdown
-                  </button>
                 </div>
               </div>
             </div>
@@ -252,6 +251,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -956,42 +956,6 @@ const selectHistoryVersion = (index) => {
 const onHistoryItemClick = (index) => {
   selectedHistoryIndex.value = index
   selectHistoryVersion(index)
-}
-
-// Export graph to Markdown
-const exportGraphToMarkdown = () => {
-  if (!cyInstance.value) return
-
-  // Extract nodes and edges
-  const nodes = cyInstance.value.nodes()
-  const edges = cyInstance.value.edges()
-
-  // Generate Markdown content
-  let markdownContent = `# Knowledge Graph Export\n\n`
-
-  // Add nodes as headers with their info
-  markdownContent += `## Nodes\n\n`
-  nodes.forEach((node) => {
-    const label = node.data('label') || 'Unnamed Node'
-    const info = node.data('info') || 'No additional information available.'
-    markdownContent += `### ${label}\n\n${info}\n\n`
-  })
-
-  // Add edges as a separate chapter
-  markdownContent += `## Edges\n\n`
-  edges.forEach((edge) => {
-    const source = edge.data('source')
-    const target = edge.data('target')
-    const label = edge.data('label') || 'No label'
-    markdownContent += `- **${source} → ${target}**: ${label}\n`
-  })
-
-  // Download the Markdown file
-  const blob = new Blob([markdownContent], { type: 'text/markdown' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = 'graph.md'
-  link.click()
 }
 
 // Cytoscape initialization and lifecycle
