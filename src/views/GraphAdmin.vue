@@ -1005,11 +1005,11 @@ onMounted(() => {
             'background-color': '#f9f9f9', // Light background color for contrast
             'border-width': 1, // Add a thin border
             'border-color': '#ccc', // Light gray border color
-            label: (ele) => `${ele.data('label')}\n${ele.data('info')}`, // Display label and info on separate lines
+            label: (ele) => `<b>${ele.data('label')}</b>\n${ele.data('info')}`, // Display label and info on separate lines
             'text-wrap': 'wrap', // Enable text wrapping
             'text-max-width': '250px', // Limit the width of the text block
             'text-valign': 'center', // Center the text vertically
-            'text-halign': 'center', // Center the text horizontally
+            'text-halign': 'left', // Center the text horizontally
             'font-size': '16px', // Adjust font size
             color: '#333', // Darker text color for readability
           },
