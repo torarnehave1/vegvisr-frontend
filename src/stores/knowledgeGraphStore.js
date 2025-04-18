@@ -11,6 +11,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const edges = ref([])
   const graphJson = ref('{}') // Initialize with an empty JSON structure
   const currentGraphId = ref(localStorage.getItem('currentGraphId') || null) // Retrieve from local storage
+  const currentVersion = ref(null) // Track the currently loaded version
 
   const addNode = (node) => {
     nodes.value.push(node)
@@ -26,16 +27,28 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     edges.value = []
     graphJson.value = '' // Reset graphJson
     currentGraphId.value = null // Reset currentGraphId
+    currentVersion.value = null // Reset currentVersion
     localStorage.removeItem('currentGraphId') // Clear from local storage
   }
 
   const updateGraph = (newNodes, newEdges) => {
-    nodes.value = newNodes
+    nodes.value = newNodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        imageWidth: node.imageWidth || null, // Include image-width
+        imageHeight: node.imageHeight || null, // Include image-height
+      },
+    }))
     edges.value = newEdges
   }
 
   const setCurrentGraphId = (id) => {
     currentGraphId.value = id
+  }
+
+  const setCurrentVersion = (version) => {
+    currentVersion.value = version
   }
 
   // Watch for changes to currentGraphId and persist to localStorage
@@ -53,10 +66,12 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     edges,
     graphJson, // Expose graphJson
     currentGraphId, // Expose currentGraphId
+    currentVersion, // Expose currentVersion
     addNode,
     addEdge,
     resetGraph,
     updateGraph, // Expose updateGraph
     setCurrentGraphId, // Expose setCurrentGraphId
+    setCurrentVersion, // Expose setCurrentVersion
   }
 })

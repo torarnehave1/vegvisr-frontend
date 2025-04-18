@@ -1,3 +1,5 @@
+Version Check
+
 <template>
   <div class="admin-page">
     <!-- Top Bar -->
@@ -118,7 +120,7 @@
               </div>
               <!-- Graph History -->
               <div v-if="activeTab === 'json'" class="form-section">
-                <h3>Development Story</h3>
+                <h3>Graph History</h3>
                 <div
                   id="historyList"
                   tabindex="0"
@@ -207,7 +209,6 @@
             <!-- Graph Editor -->
             <div class="col-12 graph-content">
               <div class="row">
-                <h2 class="graph-title text-center">Knowledge Story Graph</h2>
                 <div class="col-md-12 graph-editor p-3">
                   <div
                     id="cy"
@@ -243,12 +244,14 @@
                 v-model="graphJson"
                 class="form-control"
                 style="height: 300px; font-family: monospace; white-space: pre-wrap"
+                @input="onJsonEditorInput"
               ></textarea>
             </div>
           </div>
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -388,29 +391,10 @@ const addEdge = () => {
 
 // Save graph
 const saveGraph = async () => {
-  // Update node positions from Cytoscape
-  if (cyInstance.value) {
-    cyInstance.value.nodes().forEach((node) => {
-      const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-      if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
-      }
-    })
-  }
-
   const graphData = {
     metadata: graphStore.graphMetadata,
-    nodes: graphStore.nodes.map((node) => ({
-      ...node.data,
-      position: node.position, // Include updated position
-      type: node.data.type || null, // Ensure type is included
-      info: node.data.info || null, // Ensure info is included
-    })),
-    edges: graphStore.edges.map((edge) => ({
-      ...edge.data,
-      type: edge.data.type || null, // Ensure type is included
-      info: edge.data.info || null, // Ensure info is included
-    })),
+    nodes: graphStore.nodes,
+    edges: graphStore.edges,
   }
 
   try {
@@ -439,16 +423,6 @@ const saveCurrentGraph = async () => {
   if (!graphStore.currentGraphId) {
     alert('No graph ID is set. Please save the graph first.')
     return
-  }
-
-  // Update node positions from Cytoscape
-  if (cyInstance.value) {
-    cyInstance.value.nodes().forEach((node) => {
-      const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-      if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
-      }
-    })
   }
 
   try {
@@ -492,15 +466,9 @@ const saveCurrentGraph = async () => {
       },
       nodes: graphStore.nodes.map((node) => ({
         ...node.data,
-        position: node.position, // Include updated position
-        type: node.data.type || null, // Ensure type is included
-        info: node.data.info || null, // Ensure info is included
+        position: node.position,
       })),
-      edges: graphStore.edges.map((edge) => ({
-        ...edge.data,
-        type: edge.data.type || null, // Ensure type is included
-        info: edge.data.info || null, // Ensure info is included
-      })),
+      edges: graphStore.edges.map((edge) => edge.data),
     }
 
     // Save the graph to the backend
@@ -538,21 +506,11 @@ const centerAndZoom = () => {
   }
 }
 
-// Zoom in small steps
-const zoomInSmallSteps = () => {
-  if (cyInstance.value) {
-    const currentZoom = cyInstance.value.zoom()
-    cyInstance.value.zoom({
-      level: currentZoom + 0.1, // Increment zoom level by 0.1
-      renderedPosition: { x: cyInstance.value.width() / 2, y: cyInstance.value.height() / 2 },
-    })
-  }
-}
-
 // Parse color (updated to preserve valid colors)
 
 // Update graph from JSON
 const updateGraphFromJson = (parsedJson) => {
+  // Update the graph store
   graphStore.nodes = parsedJson.nodes.map((node) => ({
     data: {
       id: node.id,
@@ -562,7 +520,7 @@ const updateGraphFromJson = (parsedJson) => {
       info: node.info || null,
       bibl: Array.isArray(node.bibl) ? node.bibl : [],
     },
-    position: node.position || null,
+    position: node.position || null, // Keep existing position if available
   }))
 
   graphStore.edges = parsedJson.edges.map((edge) => ({
@@ -570,11 +528,46 @@ const updateGraphFromJson = (parsedJson) => {
       id: edge.id || `${edge.source}_${edge.target}`,
       source: edge.source,
       target: edge.target,
-      label: edge.label ?? null, // Preserve "label" if provided
-      type: edge.type ?? null, // Preserve "type" if provided
-      info: edge.info ?? null, // Preserve "info" if provided
+      label: edge.label || null,
+      info: edge.info || null,
     },
   }))
+
+  // Update Cytoscape view
+  if (cyInstance.value) {
+    cyInstance.value.elements().remove()
+    cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+
+    // Lock nodes with existing positions
+    cyInstance.value.nodes().forEach((node) => {
+      const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (storedNode && storedNode.position) {
+        console.log(`Locking node ${node.data('id')} at position`, storedNode.position)
+        node.position(storedNode.position) // Set the position
+        node.lock() // Lock the node to prevent layout changes
+      }
+    })
+
+    // Apply the 'cose' layout to spread out only unlocked nodes
+    cyInstance.value
+      .layout({
+        name: 'cose',
+        animate: true,
+        fit: true,
+        padding: 30,
+      })
+      .run()
+
+    // Restore positions of locked nodes
+    cyInstance.value.nodes().forEach((node) => {
+      const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (storedNode && storedNode.position) {
+        console.log(`Restoring position for node ${node.data('id')}`, storedNode.position)
+        node.position(storedNode.position) // Restore the position
+      }
+      node.unlock() // Unlock the node for future interactions
+    })
+  }
 }
 
 // Handle JSON Editor Input
@@ -596,20 +589,33 @@ const onJsonEditorInput = () => {
 const verifyJson = () => {
   try {
     const parsedJson = JSON.parse(graphJson.value)
-    console.log('Parsed JSON edges:', parsedJson.edges) // Debug the parsed edges
+    console.log('Parsed JSON:', parsedJson) // Log the parsed JSON
 
     // Validate structure
     if (!parsedJson.nodes || !parsedJson.edges) {
       validationMessage.value = 'Invalid graph data. Ensure JSON contains "nodes" and "edges".'
       validationMessageClass.value = 'alert-danger'
+
+      // Clear the message after 2 seconds
       setTimeout(() => {
         validationMessage.value = ''
         validationMessageClass.value = ''
       }, 2000)
+
       return
     }
 
-    // Update nodes in the store
+    // Update the graph
+    validationMessage.value = 'JSON is valid!'
+    validationMessageClass.value = 'alert-success'
+
+    // Clear the message after 2 seconds
+    setTimeout(() => {
+      validationMessage.value = ''
+      validationMessageClass.value = ''
+    }, 2000)
+
+    // Process nodes and edges
     graphStore.nodes = parsedJson.nodes.map((node) => {
       const existingNode = graphStore.nodes.find((n) => n.data.id === node.id)
       return {
@@ -620,38 +626,23 @@ const verifyJson = () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Include image-width
-          imageHeight: node.imageHeight || null, // Include image-height
         },
-        position: existingNode?.position || null, // Preserve existing position
+        position: existingNode?.position || null, // Preserve existing position if available
       }
     })
 
-    // Update edges in the store, preserving all fields
-    graphStore.edges = parsedJson.edges.map((edge) => {
-      return {
-        data: {
-          id: edge.id || `${edge.source}_${edge.target}`,
-          source: edge.source,
-          target: edge.target,
-          label: edge.label !== undefined ? edge.label : null,
-          type: edge.type !== undefined ? edge.type : null, // Preserve type
-          info: edge.info !== undefined ? edge.info : null, // Preserve info
-        },
-      }
-    })
-
-    console.log('Graph store edges after verification:', graphStore.edges) // Debug the updated edges
-
-    // Update the graphJson in the store to reflect the processed JSON
-    graphStore.graphJson = JSON.stringify(
-      {
-        nodes: graphStore.nodes.map((node) => node.data),
-        edges: graphStore.edges.map((edge) => edge.data),
+    graphStore.edges = parsedJson.edges.map((edge) => ({
+      data: {
+        id: edge.id || `${edge.source}_${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        info: edge.info || null,
       },
-      null,
-      2,
-    )
+    }))
+
+    console.log('Graph store nodes after verification:', graphStore.nodes)
+    console.log('Graph store edges after verification:', graphStore.edges)
 
     // Update Cytoscape view
     if (cyInstance.value) {
@@ -663,8 +654,8 @@ const verifyJson = () => {
         const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
         if (storedNode?.position) {
           console.log(`Locking node ${node.data('id')} at position`, storedNode.position)
-          node.position(storedNode.position)
-          node.lock()
+          node.position(storedNode.position) // Set the position
+          node.lock() // Lock the node to prevent layout changes
         }
       })
 
@@ -683,9 +674,9 @@ const verifyJson = () => {
         const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
         if (storedNode?.position) {
           console.log(`Restoring position for node ${node.data('id')}`, storedNode.position)
-          node.position(storedNode.position)
+          node.position(storedNode.position) // Restore the position
         }
-        node.unlock()
+        node.unlock() // Unlock the node for future interactions
       })
 
       // Log final positions
@@ -693,22 +684,17 @@ const verifyJson = () => {
         console.log(`Final position of node ${node.data('id')}:`, node.position())
       })
     }
-
-    // Update validation message
-    validationMessage.value = 'JSON is valid!'
-    validationMessageClass.value = 'alert-success'
-    setTimeout(() => {
-      validationMessage.value = ''
-      validationMessageClass.value = ''
-    }, 2000)
   } catch (error) {
     validationMessage.value = `Invalid JSON: ${error.message}`
     validationMessageClass.value = 'alert-danger'
+
+    // Clear the message after 2 seconds
     setTimeout(() => {
       validationMessage.value = ''
       validationMessageClass.value = ''
     }, 2000)
-    console.error('Error parsing JSON:', error)
+
+    console.error('Error parsing JSON:', error) // Log the error
   }
 }
 
@@ -759,8 +745,6 @@ const loadSelectedGraph = async () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
         },
         position: node.position || null, // Ensure position is passed
       }))
@@ -770,8 +754,7 @@ const loadSelectedGraph = async () => {
           source: edge.source,
           target: edge.target,
           label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
+          info: edge.info || null,
         },
       }))
 
@@ -866,8 +849,7 @@ const loadGraphVersion = async (version) => {
           source: edge.source,
           target: edge.target,
           label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
+          info: edge.info || null,
         },
       }))
 
@@ -878,11 +860,7 @@ const loadGraphVersion = async (version) => {
             ...node.data,
             position: node.position,
           })),
-          edges: graphStore.edges.map((edge) => ({
-            ...edge.data,
-            type: edge.type || null, // Add support for "type"
-            info: edge.info || null, // Add support for "info"
-          })),
+          edges: graphStore.edges.map((edge) => edge.data),
         },
         null,
         2,
@@ -981,7 +959,6 @@ onMounted(() => {
         {
           selector: 'edge',
           style: {
-            label: (ele) => (ele.data('type') === 'info' ? 'ℹ️' : ''),
             width: 2,
             'line-color': '#999',
             'target-arrow-shape': 'triangle',
@@ -997,40 +974,6 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="background"]', // Custom style for background nodes
-          style: {
-            shape: 'rectangle', // Use a rectangle shape
-            'background-image': (ele) => ele.data('label'), // Dynamically set the background image
-            'background-fit': 'cover', // Ensure the image covers the node
-            'background-opacity': 1, // Make the background fully visible
-            'border-width': 0, // Remove the border
-            width: (ele) => ele.data('imageWidth'), // Set a fixed width for the node
-            height: (ele) => ele.data('imageHeight'), // Set a fixed height for the node
-            label: 'data(label)', // Display the label
-            'text-valign': 'bottom', // Position the text at the bottom
-            'text-halign': 'center', // Center the text horizontally
-            'font-size': '0px', // Adjust font size
-            color: '#000', // Set text color
-            'background-image-crossorigin': 'anonymous', // Allow cross-origin images
-          },
-        },
-        {
-          selector: 'node[type="title"]', // Custom style for title nodes
-          style: {
-            shape: 'rectangle', // Change the shape to rectangle
-            'background-opacity': 0, // Make the background fully transparent
-            'border-width': 1, // Remove the border
-
-            'font-size': '24px', // Larger font size
-            'font-weight': 'bold', // Bold text
-            color: 'black', // White text color
-            'text-valign': 'center',
-            'text-halign': 'center',
-            width: 'label', // Dynamically adjust width based on the label
-            height: 'label', // Dynamically adjust height based on the label
-          },
-        },
-        {
           selector: 'node:selected',
           style: {
             'border-width': 4,
@@ -1043,7 +986,6 @@ onMounted(() => {
         name: 'preset',
       },
       boxSelectionEnabled: true,
-      wheelSensitivity: 0.2,
     })
 
     const debounce = (func, delay) => {
@@ -1065,7 +1007,7 @@ onMounted(() => {
       const data = element.data()
       selectedElement.value = {
         label: data.label || `${data.source} → ${data.target}`,
-        info: data.info || null, // Display "info" field if available
+        info: data.info || null,
         bibl: Array.isArray(data.bibl) ? data.bibl : [],
       }
     })
@@ -1111,16 +1053,8 @@ watch(
   () => {
     graphJson.value = JSON.stringify(
       {
-        nodes: graphStore.nodes.map((node) => ({
-          ...node.data,
-          imageWidth: node.data.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.data.imageHeight || null, // Ensure imageHeight is included
-        })),
-        edges: graphStore.edges.map((edge) => ({
-          ...edge.data,
-          type: edge.type !== undefined ? edge.data.type : null,
-          info: edge.info !== undefined ? edge.data.info : null,
-        })),
+        nodes: graphStore.nodes.map((node) => node.data),
+        edges: graphStore.edges.map((edge) => edge.data),
       },
       null,
       2,
@@ -1231,13 +1165,6 @@ watch(
 
   .main-panel {
     width: 100%;
-  }
-
-  .graph-title {
-    text-align: center;
-    margin-bottom: 10px;
-    font-size: 1.5rem;
-    color: #333;
   }
 }
 </style>

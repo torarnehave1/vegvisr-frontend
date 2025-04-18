@@ -104,6 +104,7 @@ const router = createRouter({
       path: '/graph',
       name: 'GraphAdmin',
       component: () => import('../views/GraphAdmin.vue'),
+      meta: { layout: null }, // Ensure no default layout is applied
     },
   ],
 })

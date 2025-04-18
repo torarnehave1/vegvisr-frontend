@@ -205,7 +205,7 @@ export default {
       if (pathname === '/saveGraphWithHistory' && request.method === 'POST') {
         try {
           const requestBody = await request.json()
-          const { id, graphData } = requestBody
+          const { id, graphData, override } = requestBody
 
           if (!id || !graphData) {
             return new Response(
@@ -222,7 +222,41 @@ export default {
             .prepare(currentVersionQuery)
             .bind(id)
             .first()
-          const newVersion = (currentVersionResult?.version || 0) + 1
+          const currentVersion = currentVersionResult?.version || 0
+
+          // Check for version mismatch only if override is false
+          if (!override && graphData.metadata.version !== currentVersion) {
+            return new Response(
+              JSON.stringify({
+                error: 'Version mismatch. Please reload the latest version of the graph.',
+                currentVersion,
+              }),
+              { status: 409, headers: corsHeaders },
+            )
+          }
+
+          // Increment the version
+          const newVersion = currentVersion + 1
+          graphData.metadata.version = newVersion // Update the version in metadata
+
+          // Ensure nodes include the bibl field
+          const enrichedGraphData = {
+            ...graphData,
+            nodes: graphData.nodes.map((node) => ({
+              ...node,
+              bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is included
+              type: node.type || null, // Ensure type is included
+              info: node.info || null, // Ensure info is included
+              position: node.position || { x: 0, y: 0 }, // Ensure position is included
+              imageWidth: node.imageWidth || null, // Include image-width
+              imageHeight: node.imageHeight || null, // Include image-height
+            })),
+            edges: graphData.edges.map((edge) => ({
+              ...edge,
+              type: edge.type || null, // Ensure type is included
+              info: edge.info || null, // Ensure info is included
+            })),
+          }
 
           // Insert the new version into the history table
           const insertHistoryQuery = `
@@ -231,7 +265,7 @@ export default {
           `
           await env.vegvisr_org
             .prepare(insertHistoryQuery)
-            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(graphData)) // Use crypto.randomUUID()
+            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(enrichedGraphData)) // Use crypto.randomUUID()
             .run()
 
           // Ensure no more than 20 versions are stored
@@ -261,11 +295,14 @@ export default {
             SET data = ?
             WHERE id = ?
           `
-          await env.vegvisr_org.prepare(updateGraphQuery).bind(JSON.stringify(graphData), id).run()
+          await env.vegvisr_org
+            .prepare(updateGraphQuery)
+            .bind(JSON.stringify(enrichedGraphData), id)
+            .run()
 
           console.log('[Worker] Graph with history saved successfully')
           return new Response(
-            JSON.stringify({ message: 'Graph with history saved successfully', id }),
+            JSON.stringify({ message: 'Graph with history saved successfully', id, newVersion }),
             { status: 200, headers: corsHeaders },
           )
         } catch (error) {
@@ -314,6 +351,50 @@ export default {
           })
         } catch (error) {
           console.error('[Worker] Error fetching graph history:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getknowgraphversion' && request.method === 'GET') {
+        try {
+          const graphId = url.searchParams.get('id')
+          const version = url.searchParams.get('version')
+
+          if (!graphId || !version) {
+            return new Response(JSON.stringify({ error: 'Graph ID and version are required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Fetching version ${version} for graph ID: ${graphId}`)
+
+          const query = `
+            SELECT data
+            FROM knowledge_graph_history
+            WHERE graph_id = ? AND version = ?
+          `
+          const result = await env.vegvisr_org.prepare(query).bind(graphId, version).first()
+
+          if (!result) {
+            return new Response(
+              JSON.stringify({
+                error: `No data found for graph ID: ${graphId} and version: ${version}.`,
+              }),
+              { status: 404, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Version ${version} for graph ID: ${graphId} fetched successfully`)
+          return new Response(result.data, {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching graph version:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,

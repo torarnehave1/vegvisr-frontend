@@ -1,3 +1,11 @@
+Explanation of Changes
+Reset graphHistory:
+
+Clear the graphHistory and reset selectedHistoryIndex to -1 when a new graph is selected.
+Fetch History for the New Graph:
+
+Call fetchGraphHistory() after successfully loading the new graph to populate the history list with the correct versions for the selected graph.
+
 <template>
   <div class="admin-page">
     <!-- Top Bar -->
@@ -118,7 +126,7 @@
               </div>
               <!-- Graph History -->
               <div v-if="activeTab === 'json'" class="form-section">
-                <h3>Development Story</h3>
+                <h3>Graph History</h3>
                 <div
                   id="historyList"
                   tabindex="0"
@@ -207,7 +215,6 @@
             <!-- Graph Editor -->
             <div class="col-12 graph-content">
               <div class="row">
-                <h2 class="graph-title text-center">Knowledge Story Graph</h2>
                 <div class="col-md-12 graph-editor p-3">
                   <div
                     id="cy"
@@ -221,21 +228,7 @@
               <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
                 {{ saveMessage }}
               </div>
-              <div
-                v-if="validationMessage"
-                class="alert text-center"
-                :class="validationMessageClass"
-                role="alert"
-              >
-                {{ validationMessage }}
-              </div>
-
-              <div class="d-flex justify-content-between mb-3">
-                <button @click="verifyJson" class="btn btn-secondary">Verify JSON</button>
-                <button @click="saveCurrentGraph" class="btn btn-primary">
-                  Save Current Graph
-                </button>
-              </div>
+              <button @click="saveCurrentGraph" class="btn btn-primary">Save Current Graph</button>
 
               <label for="jsoneditor" class="form-label"><strong>Graph Json Editor:</strong></label>
               <textarea
@@ -249,6 +242,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -281,8 +275,6 @@ const graphJson = ref(`{
 }`)
 const sidebarCollapsed = ref(false)
 const activeTab = ref('form')
-const validationMessage = ref('')
-const validationMessageClass = ref('alert-danger') // Default to error styling
 
 // Toggle sidebar
 const toggleSidebar = () => {
@@ -388,29 +380,10 @@ const addEdge = () => {
 
 // Save graph
 const saveGraph = async () => {
-  // Update node positions from Cytoscape
-  if (cyInstance.value) {
-    cyInstance.value.nodes().forEach((node) => {
-      const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-      if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
-      }
-    })
-  }
-
   const graphData = {
     metadata: graphStore.graphMetadata,
-    nodes: graphStore.nodes.map((node) => ({
-      ...node.data,
-      position: node.position, // Include updated position
-      type: node.data.type || null, // Ensure type is included
-      info: node.data.info || null, // Ensure info is included
-    })),
-    edges: graphStore.edges.map((edge) => ({
-      ...edge.data,
-      type: edge.data.type || null, // Ensure type is included
-      info: edge.data.info || null, // Ensure info is included
-    })),
+    nodes: graphStore.nodes,
+    edges: graphStore.edges,
   }
 
   try {
@@ -441,16 +414,6 @@ const saveCurrentGraph = async () => {
     return
   }
 
-  // Update node positions from Cytoscape
-  if (cyInstance.value) {
-    cyInstance.value.nodes().forEach((node) => {
-      const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-      if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
-      }
-    })
-  }
-
   try {
     // Parse the JSON Editor content and update the graphStore
     const parsedGraph = JSON.parse(graphJson.value)
@@ -460,73 +423,70 @@ const saveCurrentGraph = async () => {
       return
     }
 
-    // Check for version mismatch
-    const response = await fetch(
-      `https://knowledge.vegvisr.org/getknowgraph?id=${graphStore.currentGraphId}`,
-    )
-    if (response.ok) {
-      const latestGraph = await response.json()
-      const latestVersion = latestGraph.metadata.version
-
-      if (graphStore.currentVersion !== latestVersion) {
-        const userConfirmed = confirm(
-          `Version mismatch detected. The current version is ${latestVersion}, but you are working on version ${graphStore.currentVersion}. Do you want to overwrite it?`,
-        )
-
-        if (!userConfirmed) {
-          return // Abort save if the user does not confirm
-        }
-
-        // Update the current version to the latest version
-        graphStore.setCurrentVersion(latestVersion)
-      }
-    }
-
-    // Prepare the graph data with metadata
-    const graphData = {
-      metadata: {
-        title: graphStore.graphMetadata.title || 'Untitled Graph',
-        description: graphStore.graphMetadata.description || '',
-        createdBy: graphStore.graphMetadata.createdBy || 'Unknown',
-        version: graphStore.currentVersion || 1, // Use the updated version
+    graphStore.nodes = parsedGraph.nodes.map((node) => ({
+      data: {
+        id: node.id,
+        label: node.label,
+        color: node.color || 'gray', // Default to gray if no color is provided
+        type: node.type || null,
+        info: node.info || null,
+        bibl: Array.isArray(node.bibl) ? node.bibl : [],
       },
+      position: node.position || { x: 0, y: 0 },
+    }))
+
+    graphStore.edges = parsedGraph.edges.map((edge) => ({
+      data: {
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        info: edge.info || null,
+      },
+    }))
+
+    // Update node positions from Cytoscape
+    cyInstance.value.nodes().forEach((node) => {
+      const updatedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (updatedNode) {
+        updatedNode.position = node.position()
+      }
+    })
+
+    const graphData = {
+      metadata: graphStore.graphMetadata,
       nodes: graphStore.nodes.map((node) => ({
         ...node.data,
-        position: node.position, // Include updated position
-        type: node.data.type || null, // Ensure type is included
-        info: node.data.info || null, // Ensure info is included
+        position: node.position,
       })),
-      edges: graphStore.edges.map((edge) => ({
-        ...edge.data,
-        type: edge.data.type || null, // Ensure type is included
-        info: edge.data.info || null, // Ensure info is included
-      })),
+      edges: graphStore.edges.map((edge) => edge.data),
     }
 
-    // Save the graph to the backend
-    const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+    // Save the graph to the database
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: graphStore.currentGraphId,
         graphData,
-        override: true, // Include the override flag
       }),
     })
 
-    if (saveResponse.ok) {
-      const result = await saveResponse.json()
+    if (response.ok) {
       saveMessage.value = 'Saved successfully!'
-      graphStore.setCurrentVersion(result.newVersion) // Update the version
       setTimeout(() => {
         saveMessage.value = ''
       }, 2000) // Show the message for 2 seconds
-      fetchGraphHistory() // Refresh the graph history
+      fetchGraphHistory()
     } else {
-      alert('Failed to save the graph.')
+      console.error('Failed to save the graph with history:', await response.text())
+      saveMessage.value = 'Failed to save the graph with history.'
     }
+
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 3000)
   } catch (error) {
-    console.error('Error saving the graph:', error)
+    console.error('Error saving the graph with history:', error)
     alert('An error occurred while saving the graph. Please check the JSON format.')
   }
 }
@@ -538,179 +498,9 @@ const centerAndZoom = () => {
   }
 }
 
-// Zoom in small steps
-const zoomInSmallSteps = () => {
-  if (cyInstance.value) {
-    const currentZoom = cyInstance.value.zoom()
-    cyInstance.value.zoom({
-      level: currentZoom + 0.1, // Increment zoom level by 0.1
-      renderedPosition: { x: cyInstance.value.width() / 2, y: cyInstance.value.height() / 2 },
-    })
-  }
-}
-
 // Parse color (updated to preserve valid colors)
 
 // Update graph from JSON
-const updateGraphFromJson = (parsedJson) => {
-  graphStore.nodes = parsedJson.nodes.map((node) => ({
-    data: {
-      id: node.id,
-      label: node.label,
-      color: node.color || 'gray',
-      type: node.type || null,
-      info: node.info || null,
-      bibl: Array.isArray(node.bibl) ? node.bibl : [],
-    },
-    position: node.position || null,
-  }))
-
-  graphStore.edges = parsedJson.edges.map((edge) => ({
-    data: {
-      id: edge.id || `${edge.source}_${edge.target}`,
-      source: edge.source,
-      target: edge.target,
-      label: edge.label ?? null, // Preserve "label" if provided
-      type: edge.type ?? null, // Preserve "type" if provided
-      info: edge.info ?? null, // Preserve "info" if provided
-    },
-  }))
-}
-
-// Handle JSON Editor Input
-const onJsonEditorInput = () => {
-  try {
-    const parsedJson = JSON.parse(graphJson.value)
-
-    // If valid, update the graph
-    validationMessage.value = 'JSON is valid!'
-    validationMessageClass.value = 'alert-success'
-    updateGraphFromJson(parsedJson)
-  } catch (error) {
-    validationMessage.value = `Invalid JSON: ${error.message}`
-    validationMessageClass.value = 'alert-danger'
-  }
-}
-
-// Verify JSON
-const verifyJson = () => {
-  try {
-    const parsedJson = JSON.parse(graphJson.value)
-    console.log('Parsed JSON edges:', parsedJson.edges) // Debug the parsed edges
-
-    // Validate structure
-    if (!parsedJson.nodes || !parsedJson.edges) {
-      validationMessage.value = 'Invalid graph data. Ensure JSON contains "nodes" and "edges".'
-      validationMessageClass.value = 'alert-danger'
-      setTimeout(() => {
-        validationMessage.value = ''
-        validationMessageClass.value = ''
-      }, 2000)
-      return
-    }
-
-    // Update nodes in the store
-    graphStore.nodes = parsedJson.nodes.map((node) => {
-      const existingNode = graphStore.nodes.find((n) => n.data.id === node.id)
-      return {
-        data: {
-          id: node.id,
-          label: node.label,
-          color: node.color || 'gray',
-          type: node.type || null,
-          info: node.info || null,
-          bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Include image-width
-          imageHeight: node.imageHeight || null, // Include image-height
-        },
-        position: existingNode?.position || null, // Preserve existing position
-      }
-    })
-
-    // Update edges in the store, preserving all fields
-    graphStore.edges = parsedJson.edges.map((edge) => {
-      return {
-        data: {
-          id: edge.id || `${edge.source}_${edge.target}`,
-          source: edge.source,
-          target: edge.target,
-          label: edge.label !== undefined ? edge.label : null,
-          type: edge.type !== undefined ? edge.type : null, // Preserve type
-          info: edge.info !== undefined ? edge.info : null, // Preserve info
-        },
-      }
-    })
-
-    console.log('Graph store edges after verification:', graphStore.edges) // Debug the updated edges
-
-    // Update the graphJson in the store to reflect the processed JSON
-    graphStore.graphJson = JSON.stringify(
-      {
-        nodes: graphStore.nodes.map((node) => node.data),
-        edges: graphStore.edges.map((edge) => edge.data),
-      },
-      null,
-      2,
-    )
-
-    // Update Cytoscape view
-    if (cyInstance.value) {
-      cyInstance.value.elements().remove()
-      cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-
-      // Lock nodes with existing positions
-      cyInstance.value.nodes().forEach((node) => {
-        const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-        if (storedNode?.position) {
-          console.log(`Locking node ${node.data('id')} at position`, storedNode.position)
-          node.position(storedNode.position)
-          node.lock()
-        }
-      })
-
-      // Apply the 'cose' layout to dynamically arrange only unlocked nodes
-      cyInstance.value
-        .layout({
-          name: 'cose',
-          animate: true,
-          fit: true,
-          padding: 30,
-        })
-        .run()
-
-      // Unlock all nodes after layout
-      cyInstance.value.nodes().forEach((node) => {
-        const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
-        if (storedNode?.position) {
-          console.log(`Restoring position for node ${node.data('id')}`, storedNode.position)
-          node.position(storedNode.position)
-        }
-        node.unlock()
-      })
-
-      // Log final positions
-      cyInstance.value.nodes().forEach((node) => {
-        console.log(`Final position of node ${node.data('id')}:`, node.position())
-      })
-    }
-
-    // Update validation message
-    validationMessage.value = 'JSON is valid!'
-    validationMessageClass.value = 'alert-success'
-    setTimeout(() => {
-      validationMessage.value = ''
-      validationMessageClass.value = ''
-    }, 2000)
-  } catch (error) {
-    validationMessage.value = `Invalid JSON: ${error.message}`
-    validationMessageClass.value = 'alert-danger'
-    setTimeout(() => {
-      validationMessage.value = ''
-      validationMessageClass.value = ''
-    }, 2000)
-    console.error('Error parsing JSON:', error)
-  }
-}
 
 // Fetch knowledge graphs
 const fetchKnowledgeGraphs = async () => {
@@ -737,6 +527,10 @@ const loadSelectedGraph = async () => {
   }
 
   try {
+    // Reset the graph history
+    graphHistory.value = []
+    selectedHistoryIndex.value = -1
+
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
       let graphData = await response.json()
@@ -747,54 +541,51 @@ const loadSelectedGraph = async () => {
 
       if (!graphData.nodes || !graphData.edges) {
         console.warn('Invalid graph data structure:', graphData)
+        graphStore.graphJson = JSON.stringify(graphData, null, 2)
         return
       }
 
-      // Update the graph store
+      graphStore.setCurrentGraphId(graphIdToLoad)
+      graphStore.graphMetadata = graphData.metadata || { title: '', description: '', createdBy: '' }
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
           id: node.id,
           label: node.label,
-          color: node.color || 'gray',
+          color: node.color, // Use color from database
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
         },
-        position: node.position || null, // Ensure position is passed
+        position: node.position || { x: 0, y: 0 },
       }))
-
       graphStore.edges = graphData.edges.map((edge) => ({
         data: {
           source: edge.source,
           target: edge.target,
-          label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
         },
       }))
 
-      // Update Cytoscape view
+      graphStore.graphJson = JSON.stringify(
+        {
+          nodes: graphStore.nodes.map((node) => ({
+            ...node.data,
+            position: node.position,
+          })),
+          edges: graphStore.edges.map((edge) => edge.data),
+        },
+        null,
+        2,
+      )
+
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
         cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-
-        // Apply the 'preset' layout to use existing positions
         cyInstance.value.layout({ name: 'preset' }).run()
         cyInstance.value.fit()
       }
 
-      // Update the current graph ID and version
-      graphStore.setCurrentGraphId(graphIdToLoad)
-      graphStore.setCurrentVersion(graphData.metadata.version) // Set the current version
-
-      // Fetch the history for the newly loaded graph
-      await fetchGraphHistory()
-
-      console.log('Graph loaded successfully:', graphStore.nodes, graphStore.edges)
-      console.log('Current Graph ID updated to:', graphStore.currentGraphId)
-      console.log('Current Version updated to:', graphStore.currentVersion)
+      // Fetch the history for the newly selected graph
+      fetchGraphHistory()
     } else {
       console.error('Failed to load the selected graph:', response.statusText)
     }
@@ -866,8 +657,7 @@ const loadGraphVersion = async (version) => {
           source: edge.source,
           target: edge.target,
           label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
+          info: edge.info || null,
         },
       }))
 
@@ -878,11 +668,7 @@ const loadGraphVersion = async (version) => {
             ...node.data,
             position: node.position,
           })),
-          edges: graphStore.edges.map((edge) => ({
-            ...edge.data,
-            type: edge.type || null, // Add support for "type"
-            info: edge.info || null, // Add support for "info"
-          })),
+          edges: graphStore.edges.map((edge) => edge.data),
         },
         null,
         2,
@@ -895,10 +681,6 @@ const loadGraphVersion = async (version) => {
         cyInstance.value.layout({ name: 'preset' }).run()
         cyInstance.value.fit()
       }
-
-      // Update the current version in the store
-      graphStore.setCurrentVersion(version)
-      console.log(`Loaded version ${version} for graph ID: ${graphStore.currentGraphId}`)
     } else {
       console.error('Failed to load graph version:', response.statusText)
     }
@@ -942,7 +724,6 @@ const ensureHistoryItemVisible = (index) => {
 const selectHistoryVersion = (index) => {
   const selectedVersion = graphHistory.value[index]
   if (selectedVersion) {
-    selectedElement.value = null // Reset the Info tab
     loadGraphVersion(selectedVersion.version) // Load the selected version
   }
 }
@@ -981,7 +762,6 @@ onMounted(() => {
         {
           selector: 'edge',
           style: {
-            label: (ele) => (ele.data('type') === 'info' ? 'ℹ️' : ''),
             width: 2,
             'line-color': '#999',
             'target-arrow-shape': 'triangle',
@@ -997,40 +777,6 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="background"]', // Custom style for background nodes
-          style: {
-            shape: 'rectangle', // Use a rectangle shape
-            'background-image': (ele) => ele.data('label'), // Dynamically set the background image
-            'background-fit': 'cover', // Ensure the image covers the node
-            'background-opacity': 1, // Make the background fully visible
-            'border-width': 0, // Remove the border
-            width: (ele) => ele.data('imageWidth'), // Set a fixed width for the node
-            height: (ele) => ele.data('imageHeight'), // Set a fixed height for the node
-            label: 'data(label)', // Display the label
-            'text-valign': 'bottom', // Position the text at the bottom
-            'text-halign': 'center', // Center the text horizontally
-            'font-size': '0px', // Adjust font size
-            color: '#000', // Set text color
-            'background-image-crossorigin': 'anonymous', // Allow cross-origin images
-          },
-        },
-        {
-          selector: 'node[type="title"]', // Custom style for title nodes
-          style: {
-            shape: 'rectangle', // Change the shape to rectangle
-            'background-opacity': 0, // Make the background fully transparent
-            'border-width': 1, // Remove the border
-
-            'font-size': '24px', // Larger font size
-            'font-weight': 'bold', // Bold text
-            color: 'black', // White text color
-            'text-valign': 'center',
-            'text-halign': 'center',
-            width: 'label', // Dynamically adjust width based on the label
-            height: 'label', // Dynamically adjust height based on the label
-          },
-        },
-        {
           selector: 'node:selected',
           style: {
             'border-width': 4,
@@ -1043,7 +789,6 @@ onMounted(() => {
         name: 'preset',
       },
       boxSelectionEnabled: true,
-      wheelSensitivity: 0.2,
     })
 
     const debounce = (func, delay) => {
@@ -1065,7 +810,7 @@ onMounted(() => {
       const data = element.data()
       selectedElement.value = {
         label: data.label || `${data.source} → ${data.target}`,
-        info: data.info || null, // Display "info" field if available
+        info: data.info || null,
         bibl: Array.isArray(data.bibl) ? data.bibl : [],
       }
     })
@@ -1111,16 +856,8 @@ watch(
   () => {
     graphJson.value = JSON.stringify(
       {
-        nodes: graphStore.nodes.map((node) => ({
-          ...node.data,
-          imageWidth: node.data.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.data.imageHeight || null, // Ensure imageHeight is included
-        })),
-        edges: graphStore.edges.map((edge) => ({
-          ...edge.data,
-          type: edge.type !== undefined ? edge.data.type : null,
-          info: edge.info !== undefined ? edge.data.info : null,
-        })),
+        nodes: graphStore.nodes.map((node) => node.data),
+        edges: graphStore.edges.map((edge) => edge.data),
       },
       null,
       2,
@@ -1231,13 +968,6 @@ watch(
 
   .main-panel {
     width: 100%;
-  }
-
-  .graph-title {
-    text-align: center;
-    margin-bottom: 10px;
-    font-size: 1.5rem;
-    color: #333;
   }
 }
 </style>

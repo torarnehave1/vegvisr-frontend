@@ -1,3 +1,5 @@
+Image and title
+
 <template>
   <div class="admin-page">
     <!-- Top Bar -->
@@ -249,6 +251,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -620,8 +623,6 @@ const verifyJson = () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Include image-width
-          imageHeight: node.imageHeight || null, // Include image-height
         },
         position: existingNode?.position || null, // Preserve existing position
       }
@@ -759,8 +760,6 @@ const loadSelectedGraph = async () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
         },
         position: node.position || null, // Ensure position is passed
       }))
@@ -1004,14 +1003,13 @@ onMounted(() => {
             'background-fit': 'cover', // Ensure the image covers the node
             'background-opacity': 1, // Make the background fully visible
             'border-width': 0, // Remove the border
-            width: (ele) => ele.data('imageWidth'), // Set a fixed width for the node
-            height: (ele) => ele.data('imageHeight'), // Set a fixed height for the node
+            width: '200px', // Set a fixed width for the node
+            height: '200px', // Set a fixed height for the node
             label: 'data(label)', // Display the label
             'text-valign': 'bottom', // Position the text at the bottom
             'text-halign': 'center', // Center the text horizontally
             'font-size': '0px', // Adjust font size
             color: '#000', // Set text color
-            'background-image-crossorigin': 'anonymous', // Allow cross-origin images
           },
         },
         {
@@ -1111,15 +1109,11 @@ watch(
   () => {
     graphJson.value = JSON.stringify(
       {
-        nodes: graphStore.nodes.map((node) => ({
-          ...node.data,
-          imageWidth: node.data.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.data.imageHeight || null, // Ensure imageHeight is included
-        })),
+        nodes: graphStore.nodes.map((node) => node.data),
         edges: graphStore.edges.map((edge) => ({
           ...edge.data,
-          type: edge.type !== undefined ? edge.data.type : null,
-          info: edge.info !== undefined ? edge.data.info : null,
+          type: edge.data.type !== undefined ? edge.data.type : null,
+          info: edge.data.info !== undefined ? edge.data.info : null,
         })),
       },
       null,
