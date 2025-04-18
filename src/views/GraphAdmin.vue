@@ -999,21 +999,22 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="notes"]', // Custom style for notes nodes
+          selector: 'node[type="notes"]',
           style: {
-            shape: 'round-rectangle', // Use a rounded rectangle shape for better aesthetics
-            'background-color': '#f9f9f9', // Light background color for contrast
-            'border-width': 1, // Add a thin border
-            'border-color': '#ccc', // Light gray border color
-            label: (ele) => `${ele.data('label')}\n${ele.data('info')}`, // Display label and info on separate lines
-            'text-wrap': 'wrap', // Enable text wrapping
-            'text-max-width': '250px', // Limit the width of the text block
-            'text-valign': 'center', // Center the text vertically
-            'text-halign': 'right', // Center the text horizontally
-            'font-size': '16px', // Adjust font size
-            color: '#333', // Darker text color for readability
-            width: 'label', // Dynamically adjust width based on the label
-            height: 'label',
+            shape: 'round-rectangle',
+            'background-color': '#f9f9f9',
+            'border-width': 1,
+            'border-color': '#ccc',
+            label: (ele) => `${ele.data('label')}\n${ele.data('info')}`,
+            'text-wrap': 'wrap',
+            'text-max-width': '250px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '16px',
+            color: '#333',
+            padding: '10px',
+            width: '280px', // Fixed width slightly larger than text-max-width
+            height: 'label', // Fixed height to accommodate multiple lines
           },
         },
         {
