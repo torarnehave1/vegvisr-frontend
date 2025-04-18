@@ -539,13 +539,11 @@ const updateGraphFromJson = (parsedJson) => {
     position: node.position || null,
   }))
 
-  graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
+  graphStore.edges = parsedJson.edges.map(({ source, target }) => ({
     data: {
       id: `${source}_${target}`, // Ensure edge ID is set
       source,
       target,
-      type,
-      info,
     },
   }))
 }
@@ -586,13 +584,11 @@ const verifyJson = () => {
     })
 
     // Update edges in the store
-    graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
+    graphStore.edges = parsedJson.edges.map(({ source, target }) => ({
       data: {
         id: `${source}_${target}`, // Ensure edge ID is set
         source,
         target,
-        type,
-        info,
       },
     }))
 

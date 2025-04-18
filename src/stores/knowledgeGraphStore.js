@@ -25,21 +25,12 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
 
   // In knowledgeGraphStore.js, update the updateGraph function
   const updateGraph = (newNodes, newEdges) => {
-    nodes.value = newNodes.map((node) => ({
-      ...node,
-      data: {
-        ...node.data,
-        imageWidth: node.data.imageWidth || null,
-        imageHeight: node.data.imageHeight || null,
-      },
-    }))
+    nodes.value = newNodes
     edges.value = newEdges.map((edge) => ({
       data: {
         id: `${edge.source}_${edge.target}`, // Ensure ID is set correctly
         source: edge.source,
         target: edge.target,
-        type: edge.type || null,
-        info: edge.info || null,
       },
     }))
   }

@@ -194,12 +194,10 @@ export default {
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
-          graphData.edges = graphData.edges.map((edge) => ({
-            id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
-            source: edge.source,
-            target: edge.target,
-            type: edge.type || null, // Ensure type is included
-            info: edge.info || null, // Ensure info is included
+          graphData.edges = graphData.edges.map(({ source, target }) => ({
+            id: `${source}_${target}`, // Ensure edge ID is set
+            source,
+            target,
           }))
 
           console.log('[Worker] Graph fetched successfully')
@@ -265,12 +263,10 @@ export default {
               imageWidth: node.imageWidth || null, // Include image-width
               imageHeight: node.imageHeight || null, // Include image-height
             })),
-            edges: graphData.edges.map((edge) => ({
-              id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
-              source: edge.source,
-              target: edge.target,
-              type: edge.type || null, // Ensure type is included
-              info: edge.info || null, // Ensure info is included
+            edges: graphData.edges.map(({ source, target }) => ({
+              id: `${source}_${target}`, // Ensure edge ID is set
+              source,
+              target,
             })),
           }
 
@@ -410,13 +406,10 @@ export default {
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
-          graphData.edges = graphData.edges.map((edge) => ({
-            id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
-            source: edge.source,
-            target: edge.target,
-            label: edge.label || null,
-            type: edge.type || null, // Add support for "type"
-            info: edge.info || null, // Add support for "info"
+          graphData.edges = graphData.edges.map(({ source, target }) => ({
+            id: `${source}_${target}`, // Ensure edge ID is set
+            source,
+            target,
           }))
 
           console.log(`[Worker] Version ${version} for graph ID: ${graphId} fetched successfully`)
