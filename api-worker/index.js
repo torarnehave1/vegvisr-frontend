@@ -381,7 +381,28 @@ const handleToggleVisibility = async (request, env) => {
   return createResponse('Blog post visibility toggled successfully')
 }
 
-// Main export
+const handleGetImage = async (request, env) => {
+  const url = new URL(request.url)
+  const imageName = url.searchParams.get('name')
+
+  if (!imageName) {
+    return createErrorResponse('Image name is missing', 400)
+  }
+
+  const image = await env.MY_R2_BUCKET.get(imageName)
+
+  if (!image) {
+    return createErrorResponse('Image not found', 404)
+  }
+
+  const headers = {
+    'Content-Type': image.httpMetadata?.contentType || 'application/octet-stream',
+    ...corsHeaders,
+  }
+
+  return new Response(image.body, { status: 200, headers })
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -431,6 +452,9 @@ export default {
       }
       if (pathname === '/hid_vis' && request.method === 'POST') {
         return await handleToggleVisibility(request, env)
+      }
+      if (pathname === '/getimage' && request.method === 'GET') {
+        return await handleGetImage(request, env)
       }
 
       return createErrorResponse('Not Found', 404)
