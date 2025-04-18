@@ -1002,7 +1002,7 @@ onMounted(() => {
           selector: 'node[type="notes"]',
           style: {
             shape: 'round-rectangle',
-            'background-color': '#f9f9f9',
+            'background-color': (ele) => ele.data('color') || '#f9f9f9',
             'border-width': 1,
             'border-color': '#ccc',
             label: (ele) => `${ele.data('label')}\n${ele.data('info')}`,
@@ -1011,7 +1011,7 @@ onMounted(() => {
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '16px',
-            color: '#333',
+
             padding: '10px',
             width: '280px', // Fixed width slightly larger than text-max-width
             height: 'label', // Fixed height to accommodate multiple lines
