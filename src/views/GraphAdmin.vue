@@ -1010,7 +1010,7 @@ onMounted(() => {
             'text-max-width': '150px', // Limit the width of the text block
             'text-valign': 'center', // Center the text vertically
             'text-halign': 'center', // Center the text horizontally
-            'font-size': '12px', // Adjust font size
+            'font-size': '16px', // Adjust font size
             color: '#333', // Darker text color for readability
           },
         },
