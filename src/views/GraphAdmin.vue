@@ -387,9 +387,11 @@ const saveGraph = async () => {
       info: node.data.info || null, // Ensure info is included
     })),
     edges: graphStore.edges.map((edge) => ({
-      ...edge.data,
-      type: edge.data.type || null, // Ensure type is included
-      info: edge.data.info || null, // Ensure info is included
+      source: edge.source,
+      target: edge.target,
+      label: edge.label || null,
+      type: edge.type || null, // Ensure type is included
+      info: edge.info || null, // Ensure info is included
     })),
   }
 
@@ -477,9 +479,11 @@ const saveCurrentGraph = async () => {
         info: node.data.info || null, // Ensure info is included
       })),
       edges: graphStore.edges.map((edge) => ({
-        ...edge.data,
-        type: edge.data.type || null, // Ensure type is included
-        info: edge.data.info || null, // Ensure info is included
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        type: edge.type || null, // Ensure type is included
+        info: edge.info || null, // Ensure info is included
       })),
     }
 
@@ -546,14 +550,11 @@ const updateGraphFromJson = (parsedJson) => {
   }))
 
   graphStore.edges = parsedJson.edges.map((edge) => ({
-    data: {
-      id: edge.id || `${edge.source}_${edge.target}`,
-      source: edge.source,
-      target: edge.target,
-      label: edge.label ?? null, // Preserve "label" if provided
-      type: edge.type ?? null, // Preserve "type" if provided
-      info: edge.info ?? null, // Preserve "info" if provided
-    },
+    source: edge.source,
+    target: edge.target,
+    label: edge.label ?? null, // Preserve "label" if provided
+    type: edge.type ?? null, // Preserve "type" if provided
+    info: edge.info ?? null, // Preserve "info" if provided
   }))
 }
 
@@ -611,7 +612,6 @@ const verifyJson = () => {
     graphStore.edges = parsedJson.edges.map((edge) => {
       return {
         data: {
-          id: edge.id || `${edge.source}_${edge.target}`,
           source: edge.source,
           target: edge.target,
           label: edge.label !== undefined ? edge.label : null,
@@ -636,7 +636,18 @@ const verifyJson = () => {
     // Update Cytoscape view
     if (cyInstance.value) {
       cyInstance.value.elements().remove()
-      cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+      cyInstance.value.add([
+        ...graphStore.nodes,
+        ...graphStore.edges.map((edge) => ({
+          data: {
+            source: edge.source,
+            target: edge.target,
+            label: edge.label || null,
+            type: edge.type || null,
+            info: edge.info || null,
+          },
+        })),
+      ])
 
       // Lock nodes with existing positions
       cyInstance.value.nodes().forEach((node) => {
@@ -746,19 +757,28 @@ const loadSelectedGraph = async () => {
       }))
 
       graphStore.edges = graphData.edges.map((edge) => ({
-        data: {
-          source: edge.source,
-          target: edge.target,
-          label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
-        },
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        type: edge.type || null, // Add support for "type"
+        info: edge.info || null, // Add support for "info"
       }))
 
       // Update Cytoscape view
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
-        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+        cyInstance.value.add([
+          ...graphStore.nodes,
+          ...graphStore.edges.map((edge) => ({
+            data: {
+              source: edge.source,
+              target: edge.target,
+              label: edge.label || null,
+              type: edge.type || null,
+              info: edge.info || null,
+            },
+          })),
+        ])
 
         // Apply the 'preset' layout to use existing positions
         cyInstance.value.layout({ name: 'preset' }).run()
@@ -844,13 +864,11 @@ const loadGraphVersion = async (version) => {
         position: node.position || { x: 0, y: 0 },
       }))
       graphStore.edges = graphData.edges.map((edge) => ({
-        data: {
-          source: edge.source,
-          target: edge.target,
-          label: edge.label || null,
-          type: edge.type || null, // Add support for "type"
-          info: edge.info || null, // Add support for "info"
-        },
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        type: edge.type || null, // Add support for "type"
+        info: edge.info || null, // Add support for "info"
       }))
 
       // Update the JSON Editor
@@ -873,7 +891,18 @@ const loadGraphVersion = async (version) => {
       // Update Cytoscape view
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
-        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+        cyInstance.value.add([
+          ...graphStore.nodes,
+          ...graphStore.edges.map((edge) => ({
+            data: {
+              source: edge.source,
+              target: edge.target,
+              label: edge.label || null,
+              type: edge.type || null,
+              info: edge.info || null,
+            },
+          })),
+        ])
         cyInstance.value.layout({ name: 'preset' }).run()
         cyInstance.value.fit()
       }

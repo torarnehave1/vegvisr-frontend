@@ -32,7 +32,12 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         imageHeight: node.imageHeight || null, // Include image-height
       },
     }))
-    edges.value = newEdges
+    edges.value = newEdges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      type: edge.type || null, // Ensure type is included
+      info: edge.info || null, // Ensure info is included
+    }))
   }
 
   const setCurrentGraphId = (id) => {

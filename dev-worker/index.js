@@ -43,7 +43,7 @@ export default {
                 { data: { id: 'main', label: 'Main Node' } },
                 { data: { id: 'first', label: 'First Node' } },
               ],
-              edges: [{ data: { id: 'main_first', source: 'main', target: 'first' } }],
+              edges: [{ data: { source: 'main', target: 'first' } }],
             }
           }
 
@@ -57,7 +57,7 @@ export default {
           }
           if (!graphData.edges || graphData.edges.length === 0) {
             console.log('[Worker] Adding default edge between "Main" and "First".')
-            graphData.edges = [{ data: { id: 'main_first', source: 'main', target: 'first' } }]
+            graphData.edges = [{ data: { source: 'main', target: 'first' } }]
           }
 
           // Ensure metadata fields are included
@@ -194,6 +194,12 @@ export default {
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
+          graphData.edges = graphData.edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+            type: edge.type || null, // Ensure type is included
+            info: edge.info || null, // Ensure info is included
+          }))
 
           console.log('[Worker] Graph fetched successfully')
           return new Response(JSON.stringify(graphData), {
@@ -259,7 +265,8 @@ export default {
               imageHeight: node.imageHeight || null, // Include image-height
             })),
             edges: graphData.edges.map((edge) => ({
-              ...edge,
+              source: edge.source,
+              target: edge.target,
               type: edge.type || null, // Ensure type is included
               info: edge.info || null, // Ensure info is included
             })),
@@ -400,6 +407,13 @@ export default {
             ...node,
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+          }))
+          graphData.edges = graphData.edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+            label: edge.label || null,
+            type: edge.type || null, // Add support for "type"
+            info: edge.info || null, // Add support for "info"
           }))
 
           console.log(`[Worker] Version ${version} for graph ID: ${graphId} fetched successfully`)
