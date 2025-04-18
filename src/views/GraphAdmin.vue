@@ -858,6 +858,8 @@ const loadGraphVersion = async (version) => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is included
+          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
+          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
         },
         position: node.position || { x: 0, y: 0 },
       }))

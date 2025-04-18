@@ -188,8 +188,15 @@ export default {
             })
           }
 
+          const graphData = JSON.parse(result.data)
+          graphData.nodes = graphData.nodes.map((node) => ({
+            ...node,
+            imageWidth: node.imageWidth || null, // Ensure imageWidth is included
+            imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+          }))
+
           console.log('[Worker] Graph fetched successfully')
-          return new Response(result.data, {
+          return new Response(JSON.stringify(graphData), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -388,8 +395,15 @@ export default {
             )
           }
 
+          const graphData = JSON.parse(result.data)
+          graphData.nodes = graphData.nodes.map((node) => ({
+            ...node,
+            imageWidth: node.imageWidth || null, // Ensure imageWidth is included
+            imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+          }))
+
           console.log(`[Worker] Version ${version} for graph ID: ${graphId} fetched successfully`)
-          return new Response(result.data, {
+          return new Response(JSON.stringify(graphData), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
