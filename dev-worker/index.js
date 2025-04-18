@@ -195,6 +195,7 @@ export default {
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
           graphData.edges = graphData.edges.map((edge) => ({
+            id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
             source: edge.source,
             target: edge.target,
             type: edge.type || null, // Ensure type is included
@@ -265,6 +266,7 @@ export default {
               imageHeight: node.imageHeight || null, // Include image-height
             })),
             edges: graphData.edges.map((edge) => ({
+              id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
               source: edge.source,
               target: edge.target,
               type: edge.type || null, // Ensure type is included
@@ -409,6 +411,7 @@ export default {
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
           graphData.edges = graphData.edges.map((edge) => ({
+            id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
             source: edge.source,
             target: edge.target,
             label: edge.label || null,

@@ -33,6 +33,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
       },
     }))
     edges.value = newEdges.map((edge) => ({
+      id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
       source: edge.source,
       target: edge.target,
       type: edge.type || null, // Ensure type is included

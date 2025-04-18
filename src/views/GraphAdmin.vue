@@ -849,6 +849,7 @@ const loadGraphVersion = async (version) => {
         position: node.position || { x: 0, y: 0 },
       }))
       graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
+        id: `${source}_${target}`,
         source,
         target,
         label: label || null,
