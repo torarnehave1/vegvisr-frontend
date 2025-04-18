@@ -999,6 +999,21 @@ onMounted(() => {
           },
         },
         {
+          selector: 'node[type="notes"]', // Custom style for notes nodes
+          style: {
+            shape: 'rectangle', // Use a rectangle shape
+            'background-fit': 'cover', // Ensure the image covers the node
+            'background-opacity': 1, // Make the background fully visible
+            'border-width': 0, // Remove the border
+            label: (ele) => `<b>${ele.data('label')}</b><br><i>${ele.data('info')}</i>`, // Display the label as bold and info as cursive
+            'text-valign': 'center', // Position the text at the center
+            'text-halign': 'center', // Center the text horizontally
+            'font-size': '12px', // Adjust font size
+            color: '#000', // Set text color
+            'background-image-crossorigin': 'anonymous', // Allow cross-origin images
+          },
+        },
+        {
           selector: 'node[type="background"]', // Custom style for background nodes
           style: {
             shape: 'rectangle', // Use a rectangle shape
