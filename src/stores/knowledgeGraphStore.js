@@ -23,21 +23,24 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     localStorage.removeItem('currentGraphId') // Clear from local storage
   }
 
+  // In knowledgeGraphStore.js, update the updateGraph function
   const updateGraph = (newNodes, newEdges) => {
     nodes.value = newNodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
-        imageWidth: node.imageWidth || null, // Include image-width
-        imageHeight: node.imageHeight || null, // Include image-height
+        imageWidth: node.data.imageWidth || null,
+        imageHeight: node.data.imageHeight || null,
       },
     }))
     edges.value = newEdges.map((edge) => ({
-      id: `${edge.source}_${edge.target}`, // Ensure the ID is set as `${source}_${target}`
-      source: edge.source,
-      target: edge.target,
-      type: edge.type || null, // Ensure type is included
-      info: edge.info || null, // Ensure info is included
+      data: {
+        id: `${edge.source}_${edge.target}`, // Ensure ID is set correctly
+        source: edge.source,
+        target: edge.target,
+        type: edge.type || null,
+        info: edge.info || null,
+      },
     }))
   }
 

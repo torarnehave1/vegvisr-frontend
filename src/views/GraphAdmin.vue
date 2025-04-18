@@ -1,5 +1,3 @@
-implemented notes node
-
 <template>
   <div class="admin-page">
     <!-- Top Bar -->
@@ -30,7 +28,7 @@ implemented notes node
               <span>{{ graphStore.currentGraphId || 'Not saved yet' }}</span>
             </p>
           </div>
-          <!-- golValidation Errors -->
+          <!-- Validation Errors -->
           <div class="col-md-4 col-sm-12">
             <div v-if="validationErrors.length" class="alert alert-danger mb-0" role="alert">
               <strong>Graph Validation Errors:</strong>
@@ -316,13 +314,14 @@ const initializeStandardGraph = () => {
     data: {
       id: node.id,
       label: node.label,
-      color: node.color, // Preserve color from standardGraph
+      color: node.color,
       type: node.type || null,
       info: node.info || null,
     },
   }))
   graphStore.edges = standardGraph.edges.map((edge) => ({
     data: {
+      id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
       source: edge.source,
       target: edge.target,
     },
@@ -373,7 +372,7 @@ const saveGraph = async () => {
     cyInstance.value.nodes().forEach((node) => {
       const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
       if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
+        graphNode.position = node.position()
       }
     })
   }
@@ -382,16 +381,17 @@ const saveGraph = async () => {
     metadata: graphStore.graphMetadata,
     nodes: graphStore.nodes.map((node) => ({
       ...node.data,
-      position: node.position, // Include updated position
-      type: node.data.type || null, // Ensure type is included
-      info: node.data.info || null, // Ensure info is included
+      position: node.position,
+      type: node.data.type || null,
+      info: node.data.info || null,
     })),
     edges: graphStore.edges.map((edge) => ({
-      source: edge.source,
-      target: edge.target,
-      label: edge.label || null,
-      type: edge.type || null, // Ensure type is included
-      info: edge.info || null, // Ensure info is included
+      id: edge.data.id, // Preserve edge ID
+      source: edge.data.source,
+      target: edge.data.target,
+      label: edge.data.label || null,
+      type: edge.data.type || null,
+      info: edge.data.info || null,
     })),
   }
 
@@ -428,7 +428,7 @@ const saveCurrentGraph = async () => {
     cyInstance.value.nodes().forEach((node) => {
       const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
       if (graphNode) {
-        graphNode.position = node.position() // Update position with actual values
+        graphNode.position = node.position()
       }
     })
   }
@@ -470,20 +470,21 @@ const saveCurrentGraph = async () => {
         title: graphStore.graphMetadata.title || 'Untitled Graph',
         description: graphStore.graphMetadata.description || '',
         createdBy: graphStore.graphMetadata.createdBy || 'Unknown',
-        version: graphStore.currentVersion || 1, // Use the updated version
+        version: graphStore.currentVersion || 1,
       },
       nodes: graphStore.nodes.map((node) => ({
         ...node.data,
-        position: node.position, // Include updated position
-        type: node.data.type || null, // Ensure type is included
-        info: node.data.info || null, // Ensure info is included
+        position: node.position,
+        type: node.data.type || null,
+        info: node.data.info || null,
       })),
       edges: graphStore.edges.map((edge) => ({
-        source: edge.source,
-        target: edge.target,
-        label: edge.label || null,
-        type: edge.type || null, // Ensure type is included
-        info: edge.info || null, // Ensure info is included
+        id: edge.data.id, // Preserve edge ID
+        source: edge.data.source,
+        target: edge.data.target,
+        label: edge.data.label || null,
+        type: edge.data.type || null,
+        info: edge.data.info || null,
       })),
     }
 
@@ -494,18 +495,18 @@ const saveCurrentGraph = async () => {
       body: JSON.stringify({
         id: graphStore.currentGraphId,
         graphData,
-        override: true, // Include the override flag
+        override: true,
       }),
     })
 
     if (saveResponse.ok) {
       const result = await saveResponse.json()
       saveMessage.value = 'Saved successfully!'
-      graphStore.setCurrentVersion(result.newVersion) // Update the version
+      graphStore.setCurrentVersion(result.newVersion)
       setTimeout(() => {
         saveMessage.value = ''
-      }, 2000) // Show the message for 2 seconds
-      fetchGraphHistory() // Refresh the graph history
+      }, 2000)
+      fetchGraphHistory()
     } else {
       alert('Failed to save the graph.')
     }
@@ -522,19 +523,6 @@ const centerAndZoom = () => {
   }
 }
 
-// Zoom in small steps
-const zoomInSmallSteps = () => {
-  if (cyInstance.value) {
-    const currentZoom = cyInstance.value.zoom()
-    cyInstance.value.zoom({
-      level: currentZoom + 0.1, // Increment zoom level by 0.1
-      renderedPosition: { x: cyInstance.value.width() / 2, y: cyInstance.value.height() / 2 },
-    })
-  }
-}
-
-// Parse color (updated to preserve valid colors)
-
 // Update graph from JSON
 const updateGraphFromJson = (parsedJson) => {
   graphStore.nodes = parsedJson.nodes.map((node) => ({
@@ -545,16 +533,20 @@ const updateGraphFromJson = (parsedJson) => {
       type: node.type || null,
       info: node.info || null,
       bibl: Array.isArray(node.bibl) ? node.bibl : [],
+      imageWidth: node.imageWidth || null,
+      imageHeight: node.imageHeight || null,
     },
     position: node.position || null,
   }))
 
   graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
-    id: `${source}_${target}`,
-    source,
-    target,
-    type,
-    info,
+    data: {
+      id: `${source}_${target}`, // Ensure edge ID is set
+      source,
+      target,
+      type,
+      info,
+    },
   }))
 }
 
@@ -562,7 +554,7 @@ const updateGraphFromJson = (parsedJson) => {
 const verifyJson = () => {
   try {
     const parsedJson = JSON.parse(graphJson.value)
-    console.log('Parsed JSON edges:', parsedJson.edges) // Debug the parsed edges
+    console.log('Parsed JSON edges:', parsedJson.edges)
 
     // Validate structure
     if (!parsedJson.nodes || !parsedJson.edges) {
@@ -586,33 +578,31 @@ const verifyJson = () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Include image-width
-          imageHeight: node.imageHeight || null, // Include image-height
+          imageWidth: node.imageWidth || null,
+          imageHeight: node.imageHeight || null,
         },
-        position: existingNode?.position || null, // Preserve existing position
+        position: existingNode?.position || null,
       }
     })
 
-    // Update edges in the store, preserving all fields
+    // Update edges in the store
     graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
-      source,
-      target,
-      type,
-      info,
+      data: {
+        id: `${source}_${target}`, // Ensure edge ID is set
+        source,
+        target,
+        type,
+        info,
+      },
     }))
 
-    console.log('Graph store edges after verification:', graphStore.edges) // Debug the updated edges
+    console.log('Graph store edges after verification:', graphStore.edges)
 
-    // Update the graphJson in the store to reflect the processed JSON
+    // Update the graphJson in the store
     graphStore.graphJson = JSON.stringify(
       {
         nodes: graphStore.nodes.map((node) => node.data),
-        edges: graphStore.edges.map(({ source, target, type, info }) => ({
-          source,
-          target,
-          type,
-          info,
-        })),
+        edges: graphStore.edges.map((edge) => edge.data),
       },
       null,
       2,
@@ -621,18 +611,7 @@ const verifyJson = () => {
     // Update Cytoscape view
     if (cyInstance.value) {
       cyInstance.value.elements().remove()
-      cyInstance.value.add([
-        ...graphStore.nodes,
-        ...graphStore.edges.map(({ source, target, label, type, info }) => ({
-          data: {
-            source,
-            target,
-            label: label || null,
-            type: type || null,
-            info: info || null,
-          },
-        })),
-      ])
+      cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
 
       // Lock nodes with existing positions
       cyInstance.value.nodes().forEach((node) => {
@@ -644,7 +623,7 @@ const verifyJson = () => {
         }
       })
 
-      // Apply the 'cose' layout to dynamically arrange only unlocked nodes
+      // Apply the 'cose' layout
       cyInstance.value
         .layout({
           name: 'cose',
@@ -735,44 +714,48 @@ const loadSelectedGraph = async () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+          imageWidth: node.imageWidth || null,
+          imageHeight: node.imageHeight || null,
         },
-        position: node.position || null, // Ensure position is passed
+        position: node.position || null,
       }))
 
+      // Explicitly set edge IDs to ${source}_${target}
       graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
-        source,
-        target,
-        label: label || null,
-        type: type || null, // Add support for "type"
-        info: info || null, // Add support for "info"
+        data: {
+          id: `${source}_${target}`,
+          source,
+          target,
+          label: label || null,
+          type: type || null,
+          info: info || null,
+        },
       }))
 
       // Update Cytoscape view
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
-        cyInstance.value.add([
-          ...graphStore.nodes,
-          ...graphStore.edges.map(({ source, target, label, type, info }) => ({
-            data: {
-              source,
-              target,
-              label: label || null,
-              type: type || null,
-              info: info || null,
-            },
-          })),
-        ])
-
-        // Apply the 'preset' layout to use existing positions
+        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
         cyInstance.value.layout({ name: 'preset' }).run()
         cyInstance.value.fit()
       }
 
       // Update the current graph ID and version
       graphStore.setCurrentGraphId(graphIdToLoad)
-      graphStore.setCurrentVersion(graphData.metadata.version) // Set the current version
+      graphStore.setCurrentVersion(graphData.metadata.version)
+
+      // Update the JSON Editor
+      graphJson.value = JSON.stringify(
+        {
+          nodes: graphStore.nodes.map((node) => ({
+            ...node.data,
+            position: node.position,
+          })),
+          edges: graphStore.edges.map((edge) => edge.data),
+        },
+        null,
+        2,
+      )
 
       // Fetch the history for the newly loaded graph
       await fetchGraphHistory()
@@ -834,27 +817,31 @@ const loadGraphVersion = async (version) => {
     if (response.ok) {
       const graphData = await response.json()
 
-      // Update nodes and edges in the store, ensuring imageWidth and imageHeight are included
+      // Update nodes and edges in the store
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
           id: node.id,
           label: node.label,
-          color: node.color || 'gray', // Default to gray if no color is provided
+          color: node.color || 'gray',
           type: node.type || null,
           info: node.info || null,
-          bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is included
-          imageWidth: node.imageWidth || 'auto', // Ensure imageWidth is included
-          imageHeight: node.imageHeight || 'auto', // Ensure imageHeight is included
+          bibl: Array.isArray(node.bibl) ? node.bibl : [],
+          imageWidth: node.imageWidth || 'auto',
+          imageHeight: node.imageHeight || 'auto',
         },
         position: node.position || { x: 0, y: 0 },
       }))
+
+      // Explicitly set edge IDs to ${source}_${target}
       graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
-        id: `${source}_${target}`,
-        source,
-        target,
-        label: label || null,
-        type: type || null, // Add support for "type"
-        info: info || null, // Add support for "info"
+        data: {
+          id: `${source}_${target}`,
+          source,
+          target,
+          label: label || null,
+          type: type || null,
+          info: info || null,
+        },
       }))
 
       // Update the JSON Editor
@@ -864,12 +851,7 @@ const loadGraphVersion = async (version) => {
             ...node.data,
             position: node.position,
           })),
-          edges: graphStore.edges.map(({ source, target, type, info }) => ({
-            source,
-            target,
-            type,
-            info,
-          })),
+          edges: graphStore.edges.map((edge) => edge.data),
         },
         null,
         2,
@@ -878,18 +860,7 @@ const loadGraphVersion = async (version) => {
       // Update Cytoscape view
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
-        cyInstance.value.add([
-          ...graphStore.nodes,
-          ...graphStore.edges.map(({ source, target, label, type, info }) => ({
-            data: {
-              source,
-              target,
-              label: label || null,
-              type: type || null,
-              info: info || null,
-            },
-          })),
-        ])
+        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
         cyInstance.value.layout({ name: 'preset' }).run()
         cyInstance.value.fit()
       }
@@ -941,7 +912,7 @@ const selectHistoryVersion = (index) => {
   const selectedVersion = graphHistory.value[index]
   if (selectedVersion) {
     selectedElement.value = null // Reset the Info tab
-    loadGraphVersion(selectedVersion.version) // Load the selected version
+    loadGraphVersion(selectedVersion.version)
   }
 }
 
@@ -1007,44 +978,42 @@ onMounted(() => {
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '16px',
-
             padding: '10px',
-            width: '280px', // Fixed width slightly larger than text-max-width
-            height: 'label', // Fixed height to accommodate multiple lines
+            width: '280px',
+            height: 'label',
           },
         },
         {
-          selector: 'node[type="background"]', // Custom style for background nodes
+          selector: 'node[type="background"]',
           style: {
-            shape: 'rectangle', // Use a rectangle shape
-            'background-image': (ele) => ele.data('label'), // Dynamically set the background image
-            'background-fit': 'cover', // Ensure the image covers the node
-            'background-opacity': 1, // Make the background fully visible
-            'border-width': 0, // Remove the border
-            width: (ele) => ele.data('imageWidth'), // Set a fixed width for the node
-            height: (ele) => ele.data('imageHeight'), // Set a fixed height for the node
-            label: 'data(label)', // Display the label
-            'text-valign': 'bottom', // Position the text at the bottom
-            'text-halign': 'center', // Center the text horizontally
-            'font-size': '0px', // Adjust font size
-            color: '#000', // Set text color
-            'background-image-crossorigin': 'anonymous', // Allow cross-origin images
+            shape: 'rectangle',
+            'background-image': (ele) => ele.data('label'),
+            'background-fit': 'cover',
+            'background-opacity': 1,
+            'border-width': 0,
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
+            label: 'data(label)',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'font-size': '0px',
+            color: '#000',
+            'background-image-crossorigin': 'anonymous',
           },
         },
         {
-          selector: 'node[type="title"]', // Custom style for title nodes
+          selector: 'node[type="title"]',
           style: {
-            shape: 'rectangle', // Change the shape to rectangle
-            'background-opacity': 0, // Make the background fully transparent
-            'border-width': 1, // Remove the border
-
-            'font-size': '24px', // Larger font size
-            'font-weight': 'bold', // Bold text
-            color: 'black', // White text color
+            shape: 'rectangle',
+            'background-opacity': 0,
+            'border-width': 1,
+            'font-size': '24px',
+            'font-weight': 'bold',
+            color: 'black',
             'text-valign': 'center',
             'text-halign': 'center',
-            width: 'label', // Dynamically adjust width based on the label
-            height: 'label', // Dynamically adjust height based on the label
+            width: 'label',
+            height: 'label',
           },
         },
         {
@@ -1082,7 +1051,7 @@ onMounted(() => {
       const data = element.data()
       selectedElement.value = {
         label: data.label || `${data.source} → ${data.target}`,
-        info: data.info || null, // Display "info" field if available
+        info: data.info || null,
         bibl: Array.isArray(data.bibl) ? data.bibl : [],
       }
     })
@@ -1130,15 +1099,10 @@ watch(
       {
         nodes: graphStore.nodes.map((node) => ({
           ...node.data,
-          imageWidth: node.data.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.data.imageHeight || null, // Ensure imageHeight is included
+          imageWidth: node.data.imageWidth || null,
+          imageHeight: node.data.imageHeight || null,
         })),
-        edges: graphStore.edges.map(({ source, target, type, info }) => ({
-          source,
-          target,
-          type,
-          info,
-        })),
+        edges: graphStore.edges.map((edge) => edge.data),
       },
       null,
       2,
@@ -1149,7 +1113,6 @@ watch(
 </script>
 
 <style scoped>
-/* Bootstrap CDN included in index.html or main app */
 .admin-page {
   height: 100vh;
   display: flex;
