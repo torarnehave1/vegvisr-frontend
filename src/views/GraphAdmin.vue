@@ -849,7 +849,7 @@ const loadGraphVersion = async (version) => {
     if (response.ok) {
       const graphData = await response.json()
 
-      // Update nodes and edges in the store, including the bibl field
+      // Update nodes and edges in the store, ensuring imageWidth and imageHeight are included
       graphStore.nodes = graphData.nodes.map((node) => ({
         data: {
           id: node.id,
@@ -858,8 +858,8 @@ const loadGraphVersion = async (version) => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is included
-          imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-          imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+          imageWidth: node.imageWidth || 'auto', // Ensure imageWidth is included
+          imageHeight: node.imageHeight || 'auto', // Ensure imageHeight is included
         },
         position: node.position || { x: 0, y: 0 },
       }))
