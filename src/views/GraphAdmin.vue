@@ -366,28 +366,6 @@ const searchNodes = () => {
   }
 }
 
-// Add node
-const addNode = () => {
-  const id = `node${graphStore.nodes.length + 1}`
-  const label = `Node ${graphStore.nodes.length + 1}`
-  const newNode = { data: { id, label, color: 'gray' } } // Default to gray for new nodes
-  graphStore.addNode(newNode)
-  cyInstance.value.add(newNode)
-}
-
-// Add edge
-const addEdge = () => {
-  if (graphStore.nodes.length < 2) {
-    alert('You need at least two nodes to create an edge.')
-    return
-  }
-  const source = graphStore.nodes[graphStore.nodes.length - 2].data.id
-  const target = graphStore.nodes[graphStore.nodes.length - 1].data.id
-  const newEdge = { data: { id: `${source}_${target}`, source, target } }
-  graphStore.addEdge(newEdge)
-  cyInstance.value.add(newEdge)
-}
-
 // Save graph
 const saveGraph = async () => {
   // Update node positions from Cytoscape

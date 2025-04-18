@@ -13,14 +13,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const currentGraphId = ref(localStorage.getItem('currentGraphId') || null) // Retrieve from local storage
   const currentVersion = ref(null) // Track the currently loaded version
 
-  const addNode = (node) => {
-    nodes.value.push(node)
-  }
-
-  const addEdge = (edge) => {
-    edges.value.push(edge)
-  }
-
   const resetGraph = () => {
     graphMetadata.value = { title: '', description: '', createdBy: '' }
     nodes.value = []
