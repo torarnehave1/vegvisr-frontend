@@ -550,26 +550,12 @@ const updateGraphFromJson = (parsedJson) => {
   }))
 
   graphStore.edges = parsedJson.edges.map(({ source, target, type, info }) => ({
+    id: `${source}_${target}`,
     source,
     target,
     type,
     info,
   }))
-}
-
-// Handle JSON Editor Input
-const onJsonEditorInput = () => {
-  try {
-    const parsedJson = JSON.parse(graphJson.value)
-
-    // If valid, update the graph
-    validationMessage.value = 'JSON is valid!'
-    validationMessageClass.value = 'alert-success'
-    updateGraphFromJson(parsedJson)
-  } catch (error) {
-    validationMessage.value = `Invalid JSON: ${error.message}`
-    validationMessageClass.value = 'alert-danger'
-  }
 }
 
 // Verify JSON
