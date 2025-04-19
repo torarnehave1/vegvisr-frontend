@@ -1042,24 +1042,19 @@ onMounted(() => {
         {
           selector: 'node[type="quote"]',
           style: {
-            shape: 'rectangle',
-            'background-color': '#FFFFFF',
+            shape: 'round-rectangle',
+            'background-color': (ele) => ele.data('color') || '#f9f9f9',
+            'border-width': 0,
+            'border-color': '#ccc',
+            label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`,
             'text-wrap': 'wrap',
             'text-max-width': '250px',
-
-            'text-halign': 'left',
+            'text-valign': 'right',
+            'text-halign': 'center',
             'font-size': '16px',
-            'font-style': 'italic',
-            'line-height': 1.5,
-            'padding-left': '20px', // Space for the line
-            'padding-right': '10px',
             padding: '10px',
-            width: '320px',
-            height: (ele) => {
-              const lines = (ele.data('info') || ele.data('label') || '').split('\n').length
-              return lines * 20 + 20 // Adjust height based on lines
-            },
-            label: (ele) => ele.data('info') || ele.data('label') || '',
+            width: '280px',
+            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height
           },
         },
         {
