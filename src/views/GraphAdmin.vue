@@ -385,14 +385,17 @@ const saveGraph = async () => {
       type: node.data.type || null,
       info: node.data.info || null,
     })),
-    edges: graphStore.edges.map((edge) => ({
-      id: edge.data.id, // Preserve edge ID
-      source: edge.data.source,
-      target: edge.data.target,
-      label: edge.data.label || null,
-      type: edge.data.type || null,
-      info: edge.data.info || null,
-    })),
+    edges: graphStore.edges.map((edge) => {
+      const edgeData = {
+        id: edge.data.id,
+        source: edge.data.source,
+        target: edge.data.target,
+      }
+      if (edge.data.label !== undefined) edgeData.label = edge.data.label
+      if (edge.data.type !== undefined) edgeData.type = edge.data.type
+      if (edge.data.info !== undefined) edgeData.info = edge.data.info
+      return edgeData
+    }),
   }
 
   try {
@@ -478,14 +481,17 @@ const saveCurrentGraph = async () => {
         type: node.data.type || null,
         info: node.data.info || null,
       })),
-      edges: graphStore.edges.map((edge) => ({
-        id: edge.data.id, // Preserve edge ID
-        source: edge.data.source,
-        target: edge.data.target,
-        label: edge.data.label || null,
-        type: edge.data.type || null,
-        info: edge.data.info || null,
-      })),
+      edges: graphStore.edges.map((edge) => {
+        const edgeData = {
+          id: edge.data.id,
+          source: edge.data.source,
+          target: edge.data.target,
+        }
+        if (edge.data.label !== undefined) edgeData.label = edge.data.label
+        if (edge.data.type !== undefined) edgeData.type = edge.data.type
+        if (edge.data.info !== undefined) edgeData.info = edge.data.info
+        return edgeData
+      }),
     }
 
     // Save the graph to the backend
@@ -682,7 +688,9 @@ const fetchKnowledgeGraphs = async () => {
 const sanitizeGraphData = (graphData) => {
   const sanitize = (obj) =>
     Object.fromEntries(
-      Object.entries(obj).map(([key, value]) => [key, value === null ? '' : value]),
+      Object.entries(obj)
+        .filter(([_, value]) => value !== null)
+        .map(([key, value]) => [key, value]),
     )
 
   return {
@@ -690,8 +698,20 @@ const sanitizeGraphData = (graphData) => {
     nodes: graphData.nodes.map((node) => ({
       ...sanitize(node),
       position: node.position || { x: 0, y: 0 },
+      imageWidth: node.imageWidth || null,
+      imageHeight: node.imageHeight || null,
     })),
-    edges: graphData.edges.map((edge) => sanitize(edge)),
+    edges: graphData.edges.map((edge) => {
+      const sanitizedEdge = sanitize(edge)
+      return {
+        id: edge.id || `${edge.source}_${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        ...(sanitizedEdge.label !== undefined && { label: sanitizedEdge.label }),
+        ...(sanitizedEdge.type !== undefined && { type: sanitizedEdge.type }),
+        ...(sanitizedEdge.info !== undefined && { info: sanitizedEdge.info }),
+      }
+    }),
   }
 }
 
@@ -732,16 +752,17 @@ const loadSelectedGraph = async () => {
       }))
 
       // Explicitly set edge IDs to ${source}_${target}
-      graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
-        data: {
-          id: `${source}_${target}`,
+      graphStore.edges = graphData.edges.map(({ source, target, id, label, type, info }) => {
+        const edgeData = {
+          id: id || `${source}_${target}`,
           source,
           target,
-          label: label || null,
-          type: type || null,
-          info: info || null,
-        },
-      }))
+        }
+        if (label !== undefined) edgeData.label = label
+        if (type !== undefined) edgeData.type = type
+        if (info !== undefined) edgeData.info = info
+        return { data: edgeData }
+      })
 
       // Update Cytoscape view
       if (cyInstance.value) {
@@ -836,8 +857,8 @@ const loadGraphVersion = async (version) => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || 'auto',
-          imageHeight: node.imageHeight || 'auto',
+          imageWidth: node.imageWidth || null, // Changed from 'auto' to null
+          imageHeight: node.imageHeight || null, // Changed from 'auto' to null
         },
         position: node.position || { x: 0, y: 0 },
       }))
