@@ -843,16 +843,17 @@ const loadGraphVersion = async (version) => {
       }))
 
       // Explicitly set edge IDs to ${source}_${target}
-      graphStore.edges = graphData.edges.map(({ source, target, label, type, info }) => ({
-        data: {
-          id: `${source}_${target}`,
+      graphStore.edges = graphData.edges.map(({ source, target, id, label, type, info }) => {
+        const edgeData = {
+          id: id || `${source}_${target}`,
           source,
           target,
-          label: label || null,
-          type: type || null,
-          info: info || null,
-        },
-      }))
+        }
+        if (label !== undefined) edgeData.label = label
+        if (type !== undefined) edgeData.type = type
+        if (info !== undefined) edgeData.info = info
+        return { data: edgeData }
+      })
 
       // Update the JSON Editor
       graphJson.value = JSON.stringify(

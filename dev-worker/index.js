@@ -22,7 +22,14 @@ export default {
       const sanitizeGraphData = (graphData) => {
         const sanitize = (obj) =>
           Object.fromEntries(
-            Object.entries(obj).map(([key, value]) => [key, value === null ? '' : value]),
+            Object.entries(obj).map(([key, value]) => [
+              key,
+              value === null
+                ? ''
+                : typeof value === 'object' && value !== null && !Array.isArray(value)
+                  ? sanitize(value)
+                  : value,
+            ]),
           )
 
         return {
@@ -30,8 +37,15 @@ export default {
           nodes: graphData.nodes.map((node) => ({
             ...sanitize(node),
             position: node.position || { x: 0, y: 0 },
+            imageWidth: node.imageWidth || '', // Ensure imageWidth is not null
+            imageHeight: node.imageHeight || '', // Ensure imageHeight is not null
           })),
-          edges: graphData.edges.map((edge) => sanitize(edge)),
+          edges: graphData.edges.map((edge) => ({
+            ...sanitize(edge),
+            label: edge.label || '', // Ensure label is not null
+            type: edge.type || '', // Ensure type is not null
+            info: edge.info || '', // Ensure info is not null
+          })),
         }
       }
 
