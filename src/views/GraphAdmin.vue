@@ -1017,25 +1017,49 @@ onMounted(() => {
             'border-color': 'yellow',
           },
         },
+        // {
+        //   selector: 'node[type="quote"]',
+        //   style: {
+        //     shape: 'rectangle',
+        //     'background-color': '#f5f5f5',
+        //     'border-width': 0,
+        //     'border-left-width': 4, // Vertical line on the left
+        //     'border-left-color': '#666', // Dark gray line
+        //     'padding-left': '10px', // Space between line and text
+        //     'text-wrap': 'wrap',
+        //     'text-max-width': '400px',
+        //     'text-valign': 'center',
+        //     'text-halign': 'left',
+        //     'font-size': '16px',
+        //     'font-style': 'italic', // Quote-like appearance
+        //     'line-height': 1.5, // Line spacing for readability
+        //     width: '320px',
+        //     height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height // Adjust height based on content
+        //     label: (ele) => ele.data('info') || ele.data('label'), // Display info as the quote
+        //   },
+        // },
+
         {
           selector: 'node[type="quote"]',
           style: {
             shape: 'rectangle',
             'background-color': '#f5f5f5',
-            'border-width': 0,
+            'border-width': 0, // Keep this to avoid other borders
             'border-left-width': 4, // Vertical line on the left
             'border-left-color': '#666', // Dark gray line
+            'border-left-style': 'solid', // Ensure the line is solid
             'padding-left': '10px', // Space between line and text
+            'padding-right': '10px', // Add padding on the right
             'text-wrap': 'wrap',
-            'text-max-width': '400px',
+            'text-max-width': '300px',
             'text-valign': 'center',
-            'text-halign': 'left',
-            'font-size': '16px',
-            'font-style': 'italic', // Quote-like appearance
-            'line-height': 1.5, // Line spacing for readability
+            'text-halign': 'left', // Force left alignment
+            'font-size': '14px',
+            'font-style': 'italic',
+            'line-height': 1.5,
             width: '320px',
-            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height // Adjust height based on content
-            label: (ele) => ele.data('info') || ele.data('label'), // Display info as the quote
+            height: 'auto',
+            label: (ele) => ele.data('info') || ele.data('label'),
           },
         },
         {
