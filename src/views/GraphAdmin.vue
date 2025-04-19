@@ -1046,7 +1046,7 @@ onMounted(() => {
             'background-color': '#FFFFFF',
             'text-wrap': 'wrap',
             'text-max-width': '250px',
-            'text-valign': 'center',
+
             'text-halign': 'left',
             'font-size': '16px',
             'font-style': 'italic',
