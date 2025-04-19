@@ -7,6 +7,7 @@ import SoundStudioView from '../views/SoundStudioView.vue'
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
 import BlogView from '../views/BlogView.vue'
+import GraphAdmin from '@/views/GraphAdmin.vue' // Ensure the path is correct
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -103,7 +104,7 @@ const router = createRouter({
     {
       path: '/graph',
       name: 'GraphAdmin',
-      component: () => import('../views/GraphAdmin.vue'),
+      component: GraphAdmin,
       meta: { layout: null }, // Ensure no default layout is applied
     },
   ],
