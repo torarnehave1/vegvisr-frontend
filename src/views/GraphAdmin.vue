@@ -1044,19 +1044,19 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'border-width': 0, // Disable all borders
-            'border-left-width': 5, // Vertical line on the left
-            'border-left-color': '#666', // Dark gray line
-            'border-left-style': 'solid', // Ensure solid line
-            'padding-left': '15px', // Space between line and text
+            'border-width': 0,
+            'border-left-width': 5,
+            'border-left-color': '#666',
+            'border-left-style': 'solid',
+            'padding-left': '15px',
             'padding-right': '10px',
             'text-wrap': 'wrap',
             'text-max-width': '250px',
             'text-valign': 'center',
-            'text-halign': 'left', // Left-align text
+            'text-halign': 'left',
             'font-size': '16px',
-            'font-style': 'italic', // Quote-like style
-            'line-height': 1.5, // Improve readability
+            'font-style': 'italic',
+            'line-height': 1.5,
             padding: '10px',
             width: '320px',
             height: 'auto',
