@@ -1013,7 +1013,7 @@ onMounted(() => {
             'font-size': '16px',
             padding: '10px',
             width: '280px',
-            height: 'label',
+            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height
           },
         },
         {
@@ -1045,8 +1045,8 @@ onMounted(() => {
             color: 'black',
             'text-valign': 'center',
             'text-halign': 'center',
-            width: 'label',
-            height: 'label',
+            width: 200,
+            height: 50,
           },
         },
         {
