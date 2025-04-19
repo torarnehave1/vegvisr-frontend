@@ -557,6 +557,7 @@ const updateGraphFromJson = (parsedJson) => {
 // Verify JSON
 const verifyJson = () => {
   try {
+    console.log('Raw JSON before parsing:', graphJson.value)
     const parsedJson = JSON.parse(graphJson.value)
     console.log('Parsed JSON edges:', parsedJson.edges)
 
@@ -580,7 +581,7 @@ const verifyJson = () => {
           label: node.label,
           color: node.color || 'gray',
           type: node.type || null,
-          info: node.info || null,
+          info: node.info ? String(node.info).replace(/"/g, '\\"') : null, // Escape quotes in info
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
           imageWidth: node.imageWidth || null,
           imageHeight: node.imageHeight || null,
