@@ -1043,20 +1043,18 @@ onMounted(() => {
           selector: 'node[type="quote"]',
           style: {
             shape: 'rectangle',
-            'background-color': '#f5f5f5',
+            'background-color': '#FFFFFF',
             'border-width': 0, // Keep this to avoid other borders
             'border-left-width': 4, // Vertical line on the left
-            'border-left-color': '#666', // Dark gray line
-            'border-left-style': 'solid', // Ensure the line is solid
-            'padding-left': '10px', // Space between line and text
-            'padding-right': '10px', // Add padding on the right
+            'border-color': '#ccc',
+
             'text-wrap': 'wrap',
-            'text-max-width': '300px',
+            'text-max-width': '250px',
             'text-valign': 'center',
-            'text-halign': 'left', // Force left alignment
-            'font-size': '14px',
-            'font-style': 'italic',
-            'line-height': 1.5,
+            'text-halign': 'center',
+            'font-size': '16px',
+            padding: '10px',
+
             width: '320px',
             height: 'auto',
             label: (ele) => ele.data('info') || ele.data('label'),
