@@ -1004,7 +1004,7 @@ onMounted(() => {
             'background-color': (ele) => ele.data('color') || '#f9f9f9',
             'border-width': 1,
             'border-color': '#ccc',
-            label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`,
+            label: (ele) => `\n\n\${ele.data('label')}\n\n${ele.data('info')}`,
             'text-wrap': 'wrap',
             'text-max-width': '250px',
             'text-valign': 'center',
