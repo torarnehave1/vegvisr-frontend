@@ -1114,12 +1114,13 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-opacity': 0,
-            'border-width': 0,
-            'border-left-width': 5,
-            'border-left-color': '#666',
-            'border-left-style': 'solid',
+            'border-width': 1,
+            'border-color': '#ccc',
             'padding-left': '15px',
             'padding-right': '10px',
+            'padding-top': '5px',
+            'padding-bottom': '5px',
+            label: (ele) => ele.data('label') || '',
 
             'font-size': '24px',
             'font-weight': 'bold',
