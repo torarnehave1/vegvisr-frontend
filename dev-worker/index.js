@@ -22,14 +22,14 @@ export default {
       const sanitizeGraphData = (graphData) => {
         const sanitize = (obj) =>
           Object.fromEntries(
-            Object.entries(obj).map(([key, value]) => [
-              key,
-              value === null
-                ? ''
-                : typeof value === 'object' && value !== null && !Array.isArray(value)
+            Object.entries(obj)
+              .filter(([_, value]) => value !== null) // Exclude null values
+              .map(([key, value]) => [
+                key,
+                typeof value === 'object' && value !== null && !Array.isArray(value)
                   ? sanitize(value)
                   : value,
-            ]),
+              ]),
           )
 
         return {
@@ -37,15 +37,20 @@ export default {
           nodes: graphData.nodes.map((node) => ({
             ...sanitize(node),
             position: node.position || { x: 0, y: 0 },
-            imageWidth: node.imageWidth || '', // Ensure imageWidth is not null
-            imageHeight: node.imageHeight || '', // Ensure imageHeight is not null
+            imageWidth: node.imageWidth || null,
+            imageHeight: node.imageHeight || null,
           })),
-          edges: graphData.edges.map((edge) => ({
-            ...sanitize(edge),
-            label: edge.label || '', // Ensure label is not null
-            type: edge.type || '', // Ensure type is not null
-            info: edge.info || '', // Ensure info is not null
-          })),
+          edges: graphData.edges.map((edge) => {
+            const sanitizedEdge = sanitize(edge)
+            return {
+              id: edge.id || `${edge.source}_${edge.target}`,
+              source: edge.source,
+              target: edge.target,
+              ...(sanitizedEdge.label !== undefined && { label: sanitizedEdge.label }),
+              ...(sanitizedEdge.type !== undefined && { type: sanitizedEdge.type }),
+              ...(sanitizedEdge.info !== undefined && { info: sanitizedEdge.info }),
+            }
+          }),
         }
       }
 
