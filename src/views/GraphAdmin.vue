@@ -1051,7 +1051,7 @@ onMounted(() => {
             'font-size': '16px',
             'font-style': 'italic',
             'line-height': 1.5,
-            'padding-left': '20px', // Space for the "line"
+            'padding-left': '20px', // Space for the line
             'padding-right': '10px',
             padding: '10px',
             width: '320px',
@@ -1063,15 +1063,14 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="quote"]::before', // Pseudo-like child for the line
+          selector: 'node[type="quote-line"]',
           style: {
             shape: 'rectangle',
-            'background-color': '#666', // Dark gray line
+            'background-color': (ele) => ele.data('color') || '#666', // Dark gray line
             width: 5, // 5px wide line
-            height: '100%', // Full height of parent
-            position: 'absolute',
-            'z-index': 1,
-            left: 0, // Position on the left edge
+            height: '100%', // Match parent height
+            'border-width': 0,
+            'text-opacity': 0, // Hide label
           },
         },
         {
