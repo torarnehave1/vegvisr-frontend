@@ -1083,7 +1083,10 @@ onMounted(() => {
             'font-size': '16px',
             padding: '10px',
             width: '280px',
-            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height
+            height: (ele) => {
+              const lines = ele.data('info') ? ele.data('info').split('\n').length : 0
+              return (lines + 2) * 20 // Assuming each line is approximately 20px in height
+            },
           },
         },
         {
