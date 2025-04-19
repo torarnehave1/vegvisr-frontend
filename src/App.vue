@@ -21,6 +21,11 @@ function handleLogout() {
   userStore.logout()
   router.push('/') // Redirect to home page
 }
+
+function setTheme(newTheme) {
+  theme.value = newTheme
+  localStorage.setItem('theme', newTheme) // Persist theme in localStorage
+}
 </script>
 
 <template>
