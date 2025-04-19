@@ -1050,7 +1050,7 @@ onMounted(() => {
             'text-wrap': 'wrap',
             'text-max-width': '250px',
             'text-valign': 'center',
-            'text-halign': 'left',
+            'text-halign': 'right',
             'font-size': '16px',
             padding: '10px',
             width: '280px',
