@@ -19,6 +19,22 @@ export default {
 
       console.log(`[Worker] Request pathname: ${pathname}`)
 
+      const sanitizeGraphData = (graphData) => {
+        const sanitize = (obj) =>
+          Object.fromEntries(
+            Object.entries(obj).map(([key, value]) => [key, value === null ? '' : value]),
+          )
+
+        return {
+          ...graphData,
+          nodes: graphData.nodes.map((node) => ({
+            ...sanitize(node),
+            position: node.position || { x: 0, y: 0 },
+          })),
+          edges: graphData.edges.map((edge) => sanitize(edge)),
+        }
+      }
+
       if (pathname === '/saveknowgraph' && request.method === 'POST') {
         try {
           const requestBody = await request.json()
@@ -188,7 +204,7 @@ export default {
             })
           }
 
-          const graphData = JSON.parse(result.data)
+          const graphData = sanitizeGraphData(JSON.parse(result.data))
           graphData.nodes = graphData.nodes.map((node) => ({
             ...node,
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
@@ -400,7 +416,7 @@ export default {
             )
           }
 
-          const graphData = JSON.parse(result.data)
+          const graphData = sanitizeGraphData(JSON.parse(result.data))
           graphData.nodes = graphData.nodes.map((node) => ({
             ...node,
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included

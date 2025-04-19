@@ -35,6 +35,33 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     }))
   }
 
+  const sanitizeGraphData = (graphData) => {
+    const sanitize = (obj) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([key, value]) => [key, value === null ? '' : value]),
+      )
+
+    return {
+      ...graphData,
+      nodes: graphData.nodes.map((node) => ({
+        ...sanitize(node),
+        position: node.position || { x: 0, y: 0 },
+      })),
+      edges: graphData.edges.map((edge) => sanitize(edge)),
+    }
+  }
+
+  const updateGraphFromJson = (parsedJson) => {
+    const sanitizedData = sanitizeGraphData(parsedJson)
+    nodes.value = sanitizedData.nodes.map((node) => ({
+      data: node,
+      position: node.position,
+    }))
+    edges.value = sanitizedData.edges.map(({ source, target }) => ({
+      data: { id: `${source}_${target}`, source, target },
+    }))
+  }
+
   const setCurrentGraphId = (id) => {
     currentGraphId.value = id
   }
@@ -62,6 +89,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
 
     resetGraph,
     updateGraph, // Expose updateGraph
+    updateGraphFromJson, // Expose updateGraphFromJson
     setCurrentGraphId, // Expose setCurrentGraphId
     setCurrentVersion, // Expose setCurrentVersion
   }

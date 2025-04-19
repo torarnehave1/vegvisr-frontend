@@ -679,7 +679,22 @@ const fetchKnowledgeGraphs = async () => {
   }
 }
 
-// Load selected graph
+const sanitizeGraphData = (graphData) => {
+  const sanitize = (obj) =>
+    Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [key, value === null ? '' : value]),
+    )
+
+  return {
+    ...graphData,
+    nodes: graphData.nodes.map((node) => ({
+      ...sanitize(node),
+      position: node.position || { x: 0, y: 0 },
+    })),
+    edges: graphData.edges.map((edge) => sanitize(edge)),
+  }
+}
+
 const loadSelectedGraph = async () => {
   const graphIdToLoad = selectedGraphId.value
   if (!graphIdToLoad) {
@@ -690,7 +705,7 @@ const loadSelectedGraph = async () => {
   try {
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
-      let graphData = await response.json()
+      let graphData = sanitizeGraphData(await response.json())
 
       if (typeof graphData === 'string') {
         graphData = JSON.parse(graphData)
@@ -799,7 +814,6 @@ const fetchGraphHistory = async () => {
   }
 }
 
-// Load graph version
 const loadGraphVersion = async (version) => {
   if (!graphStore.currentGraphId) {
     console.warn('No currentGraphId found. Cannot load version.')
@@ -811,7 +825,7 @@ const loadGraphVersion = async (version) => {
       `https://knowledge.vegvisr.org/getknowgraphversion?id=${graphStore.currentGraphId}&version=${version}`,
     )
     if (response.ok) {
-      const graphData = await response.json()
+      const graphData = sanitizeGraphData(await response.json())
 
       // Update nodes and edges in the store
       graphStore.nodes = graphData.nodes.map((node) => ({
