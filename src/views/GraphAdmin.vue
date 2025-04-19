@@ -1044,8 +1044,8 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'border-width': 0, // Keep this to avoid other borders
-            'border-left-width': 10, // Vertical line on the left
+            'border-right-width': 1,
+            'border-left-width': 5, // Vertical line on the left
             'border-color': '#666', // Dark gray line
             'border-left-color': '#666', // Dark gray line
             'padding-left': '10px', // Space between line and text
