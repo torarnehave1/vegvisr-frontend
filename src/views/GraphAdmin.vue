@@ -1061,7 +1061,7 @@ onMounted(() => {
         name: 'preset',
       },
       boxSelectionEnabled: true,
-      wheelSensitivity: 0.2,
+      wheelSensitivity: 1,
     })
 
     const debounce = (func, delay) => {
