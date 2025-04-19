@@ -1027,7 +1027,7 @@ onMounted(() => {
             'border-left-color': '#666', // Dark gray line
             'padding-left': '10px', // Space between line and text
             'text-wrap': 'wrap',
-            'text-max-width': '300px',
+            'text-max-width': '400px',
             'text-valign': 'center',
             'text-halign': 'left',
             'font-size': '16px',
