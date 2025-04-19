@@ -992,8 +992,8 @@ onMounted(() => {
           selector: 'node',
           style: {
             label: (ele) =>
-              ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label'),
-            'background-color': 'data(color)',
+              ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label') || '',
+            'background-color': (ele) => ele.data('color') || '#ccc', // Fallback color
             color: '#000',
             'text-valign': 'center',
             'text-halign': 'center',
@@ -1044,14 +1044,6 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'background-image': 'linear-gradient(to right, #666 5px, transparent 5px)', // 5px wide gray line on the left
-            'background-position-x': 0,
-            'background-position-y': 0,
-            'background-width': '100%',
-            'background-height': '100%',
-            'border-width': 0, // No borders
-            'padding-left': '20px', // Space between the "line" and text
-            'padding-right': '10px',
             'text-wrap': 'wrap',
             'text-max-width': '250px',
             'text-valign': 'center',
@@ -1059,10 +1051,27 @@ onMounted(() => {
             'font-size': '16px',
             'font-style': 'italic',
             'line-height': 1.5,
+            'padding-left': '20px', // Space for the "line"
+            'padding-right': '10px',
             padding: '10px',
-            width: '50px',
-            height: 'auto',
-            label: (ele) => ele.data('info') || ele.data('label'),
+            width: '320px',
+            height: (ele) => {
+              const lines = (ele.data('info') || ele.data('label') || '').split('\n').length
+              return lines * 20 + 20 // Adjust height based on lines
+            },
+            label: (ele) => ele.data('info') || ele.data('label') || '',
+          },
+        },
+        {
+          selector: 'node[type="quote"]::before', // Pseudo-like child for the line
+          style: {
+            shape: 'rectangle',
+            'background-color': '#666', // Dark gray line
+            width: 5, // 5px wide line
+            height: '100%', // Full height of parent
+            position: 'absolute',
+            'z-index': 1,
+            left: 0, // Position on the left edge
           },
         },
         {
