@@ -1044,11 +1044,13 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'border-width': 0,
-            'border-left-width': 5,
-            'border-left-color': '#666',
-            'border-left-style': 'solid',
-            'padding-left': '15px',
+            'background-image': 'linear-gradient(to right, #666 5px, transparent 5px)', // 5px wide gray line on the left
+            'background-position-x': 0,
+            'background-position-y': 0,
+            'background-width': '100%',
+            'background-height': '100%',
+            'border-width': 0, // No borders
+            'padding-left': '20px', // Space between the "line" and text
             'padding-right': '10px',
             'text-wrap': 'wrap',
             'text-max-width': '250px',
