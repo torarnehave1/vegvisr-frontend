@@ -1060,7 +1060,7 @@ onMounted(() => {
             'font-style': 'italic',
             'line-height': 1.5,
             padding: '10px',
-            width: '320px',
+            width: '50px',
             height: 'auto',
             label: (ele) => ele.data('info') || ele.data('label'),
           },
