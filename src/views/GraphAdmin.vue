@@ -1030,11 +1030,11 @@ onMounted(() => {
             'text-max-width': '300px',
             'text-valign': 'center',
             'text-halign': 'left',
-            'font-size': '36px',
+            'font-size': '16px',
             'font-style': 'italic', // Quote-like appearance
             'line-height': 1.5, // Line spacing for readability
             width: '320px',
-            height: 'auto', // Adjust height based on content
+            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100), // Dynamic height // Adjust height based on content
             label: (ele) => ele.data('info') || ele.data('label'), // Display info as the quote
           },
         },
