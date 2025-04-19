@@ -1044,10 +1044,10 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'text-wrap': 'wrap',
+            'text-wrap': 'block',
             'text-max-width': '250px',
             'text-valign': 'center',
-            'text-halign': 'left',
+            'text-halign': 'right',
             'font-size': '16px',
             'font-style': 'italic',
             'line-height': 1.5,
