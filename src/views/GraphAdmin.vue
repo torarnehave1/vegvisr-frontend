@@ -1044,19 +1044,20 @@ onMounted(() => {
           style: {
             shape: 'rectangle',
             'background-color': '#FFFFFF',
-            'border-right-width': 1,
+            'border-width': 0, // Disable all borders
             'border-left-width': 5, // Vertical line on the left
-            'border-color': '#666', // Dark gray line
             'border-left-color': '#666', // Dark gray line
-            'padding-left': '10px', // Space between line and text
-
+            'border-left-style': 'solid', // Ensure solid line
+            'padding-left': '15px', // Space between line and text
+            'padding-right': '10px',
             'text-wrap': 'wrap',
             'text-max-width': '250px',
             'text-valign': 'center',
-            'text-halign': 'center',
+            'text-halign': 'left', // Left-align text
             'font-size': '16px',
+            'font-style': 'italic', // Quote-like style
+            'line-height': 1.5, // Improve readability
             padding: '10px',
-
             width: '320px',
             height: 'auto',
             label: (ele) => ele.data('info') || ele.data('label'),
