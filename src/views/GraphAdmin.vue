@@ -892,21 +892,20 @@ const loadGraphVersion = async (version) => {
 
       // Update Cytoscape view
       if (cyInstance.value) {
-        cyInstance.value.elements().remove()
-        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-        cyInstance.value.layout({ name: 'preset' }).run()
-        cyInstance.value.fit()
-      }
-
-      // Update the current version in the store
-      graphStore.setCurrentVersion(version)
-      console.log(`Loaded version ${version} for graph ID: ${graphStore.currentGraphId}`)
-    } else {
-      console.error('Failed to load graph version:', response.statusText)
-    }
-  } catch (error) {
-    console.error('Error loading graph version:', error)
-  }
+  cyInstance.value.elements().remove()
+  cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+  // Log all notes nodes and their connected edges
+  const notesNodes = cyInstance.value.nodes('[type="notes"]')
+  notesNodes.forEach(node => {
+    console.log(`Notes node ${node.data('id')} data:`, node.data())
+    console.log(`Notes node ${node.data('id')} position:`, node.position())
+    console.log(`Edges connected to ${node.data('id')}:`, node.connectedEdges().map(edge => edge.data()))
+  })
+  cyInstance.value.layout({ name: 'preset' }).run()
+  cyInstance.value.fit()
+  notesNodes.forEach(node => {
+    console.log(`Notes node ${node.data('id')} final position:`, node.position())
+  })
 }
 
 // Handle history keyboard navigation
