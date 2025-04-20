@@ -1083,12 +1083,10 @@ onMounted(() => {
             'font-size': '16px',
             padding: '10px',
             width: '280px',
-            height: (ele) => {
-              const lines = ele.data('info') ? ele.data('info').split('\n').length : 0
-              return (lines + 2) * 20 // Assuming each line is approximately 20px in height
-            },
+            height: 'label',
           },
         },
+
         {
           selector: 'node[type="background"]', // Custom style for background nodes
           style: {
