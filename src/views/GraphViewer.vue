@@ -3,30 +3,15 @@
     <div v-if="loading" class="loading">Loading...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="graph-container">
-      <div
-        v-for="node in graphData.nodes"
-        :key="node.id"
-        class="node"
-        :style="{
-          left: `${node.position.x}px`,
-          top: `${node.position.y}px`,
-          backgroundColor: node.color || '#ccc',
-        }"
-      >
-        {{ node.label }}
+      <div v-for="node in graphData.nodes" :key="node.id" class="node">
+        <template v-if="node.type === 'background'">
+          <img :src="node.label" alt="Background Image" class="node-image" />
+        </template>
+        <template v-else>
+          <h3 class="node-label">{{ node.label }}</h3>
+          <p class="node-info">{{ node.info || 'No additional information available.' }}</p>
+        </template>
       </div>
-      <svg class="edges">
-        <line
-          v-for="edge in graphData.edges"
-          :key="edge.id"
-          :x1="getNodePosition(edge.source).x"
-          :y1="getNodePosition(edge.source).y"
-          :x2="getNodePosition(edge.target).x"
-          :y2="getNodePosition(edge.target).y"
-          stroke="black"
-          stroke-width="2"
-        />
-      </svg>
     </div>
   </div>
 </template>
@@ -62,11 +47,6 @@ const fetchGraphData = async () => {
   }
 }
 
-const getNodePosition = (nodeId) => {
-  const node = graphData.value.nodes.find((n) => n.id === nodeId)
-  return node?.position || { x: 0, y: 0 }
-}
-
 onMounted(() => {
   fetchGraphData()
 })
@@ -85,10 +65,7 @@ watch(
 <style scoped>
 /* General styles */
 .graph-viewer {
-  position: relative;
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
+  padding: 20px;
   background-color: #f9f9f9;
 }
 
@@ -100,36 +77,50 @@ watch(
 }
 
 .graph-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 /* Node styles */
 .node {
-  position: absolute;
-  padding: 10px;
-  border-radius: 5px;
-  color: white;
-  font-size: 14px;
-  text-align: center;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Edge styles */
-.edges {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+.node-label {
+  margin: 0 0 10px;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.node-info {
+  margin: 0;
+  font-size: 1rem;
+  color: #666;
+}
+
+.node-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
 }
 
 /* Responsive styles */
 @media (max-width: 768px) {
   .node {
-    font-size: 12px;
-    padding: 8px;
+    padding: 10px;
+  }
+
+  .node-label {
+    font-size: 1rem;
+  }
+
+  .node-info {
+    font-size: 0.875rem;
   }
 }
 </style>
