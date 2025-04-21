@@ -32,17 +32,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-
-const graphId = 'example-graph-id' // Replace with dynamic ID if needed
-const apiUrl = `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`
+import { ref, onMounted, watch } from 'vue'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
 const error = ref(null)
 
+const knowledgeGraphStore = useKnowledgeGraphStore()
+
 const fetchGraphData = async () => {
   try {
+    const graphId = knowledgeGraphStore.currentGraphId
+    if (!graphId) {
+      throw new Error('No graph ID is set in the store.')
+    }
+
+    const apiUrl = `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`
     const response = await fetch(apiUrl)
     if (!response.ok) {
       throw new Error(`Failed to fetch graph: ${response.statusText}`)
@@ -64,6 +70,16 @@ const getNodePosition = (nodeId) => {
 onMounted(() => {
   fetchGraphData()
 })
+
+// Watch for changes to the currentGraphId in the store and refetch data
+watch(
+  () => knowledgeGraphStore.currentGraphId,
+  () => {
+    loading.value = true
+    error.value = null
+    fetchGraphData()
+  },
+)
 </script>
 
 <style scoped>
