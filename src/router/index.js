@@ -8,6 +8,7 @@ import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
 import BlogView from '../views/BlogView.vue'
 import GraphAdmin from '@/views/GraphAdmin.vue' // Ensure the path is correct
+import GraphViewer from '@/views/GraphViewer.vue' // Import the GraphViewer component
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -106,6 +107,12 @@ const router = createRouter({
       name: 'GraphAdmin',
       component: GraphAdmin,
       meta: { layout: null }, // Ensure no default layout is applied
+    },
+    {
+      path: '/graph-viewer',
+      name: 'GraphViewer',
+      component: GraphViewer,
+      props: (route) => ({ graphId: route.query.graphId || '' }), // Pass graphId as a prop
     },
   ],
 })

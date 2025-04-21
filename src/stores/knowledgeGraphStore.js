@@ -13,6 +13,9 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const currentGraphId = ref(localStorage.getItem('currentGraphId') || null) // Retrieve from local storage
   const currentVersion = ref(null) // Track the currently loaded version
 
+  const undoStack = ref([]) // Stack to track undo actions
+  const redoStack = ref([]) // Stack to track redo actions
+
   const resetGraph = () => {
     graphMetadata.value = { title: '', description: '', createdBy: '' }
     nodes.value = []
@@ -20,6 +23,8 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     graphJson.value = '' // Reset graphJson
     currentGraphId.value = null // Reset currentGraphId
     currentVersion.value = null // Reset currentVersion
+    undoStack.value = [] // Clear undo stack
+    redoStack.value = [] // Clear redo stack
     localStorage.removeItem('currentGraphId') // Clear from local storage
   }
 
@@ -98,6 +103,53 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     currentVersion.value = version
   }
 
+  const pushToUndoStack = (action) => {
+    undoStack.value.push(action)
+    redoStack.value = [] // Clear redo stack on new action
+  }
+
+  const undo = () => {
+    if (undoStack.value.length === 0) return
+    const lastAction = undoStack.value.pop()
+    redoStack.value.push(lastAction)
+
+    // Reverse the last action
+    if (lastAction.type === 'addNode') {
+      nodes.value = nodes.value.filter((node) => node.data.id !== lastAction.nodeId)
+    } else if (lastAction.type === 'addEdge') {
+      edges.value = edges.value.filter((edge) => edge.data.id !== lastAction.edgeId)
+    } else if (lastAction.type === 'updateGraph') {
+      nodes.value = lastAction.previousState.nodes
+      edges.value = lastAction.previousState.edges
+    } else if (lastAction.type === 'moveNode') {
+      const node = nodes.value.find((n) => n.data.id === lastAction.nodeId)
+      if (node) {
+        node.position = lastAction.previousPosition
+      }
+    }
+  }
+
+  const redo = () => {
+    if (redoStack.value.length === 0) return
+    const lastAction = redoStack.value.pop()
+    undoStack.value.push(lastAction)
+
+    // Reapply the last undone action
+    if (lastAction.type === 'addNode') {
+      nodes.value.push(lastAction.node)
+    } else if (lastAction.type === 'addEdge') {
+      edges.value.push(lastAction.edge)
+    } else if (lastAction.type === 'updateGraph') {
+      nodes.value = lastAction.newState.nodes
+      edges.value = lastAction.newState.edges
+    } else if (lastAction.type === 'moveNode') {
+      const node = nodes.value.find((n) => n.data.id === lastAction.nodeId)
+      if (node) {
+        node.position = lastAction.newPosition
+      }
+    }
+  }
+
   // Watch for changes to currentGraphId and persist to localStorage
   watch(currentGraphId, (newId) => {
     if (newId === null) {
@@ -119,5 +171,10 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     updateGraphFromJson,
     setCurrentGraphId,
     setCurrentVersion,
+    undoStack,
+    redoStack,
+    pushToUndoStack,
+    undo, // Ensure undo is returned
+    redo, // Ensure redo is returned
   }
 })

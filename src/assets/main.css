@@ -32,3 +32,15 @@ img {
   max-width: 100%;
   height: auto;
 }
+
+#jsonOutput span.match {
+  background-color: #ffff00;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+#jsonOutput span.match.focused {
+  background-color: #ffa500;
+  outline: 2px solid #ff0000;
+  padding: 2px 4px;
+  border-radius: 2px;
+}

@@ -309,15 +309,8 @@
               <div class="d-flex justify-content-between mb-3">
                 <div class="d-flex align-items-center">
                   <button @click="verifyJson" class="btn btn-secondary me-2">Verify JSON</button>
-                  <button @click="saveCurrentGraph" class="btn btn-primary me-2">
+                  <button @click="saveCurrentGraph" class="btn btn-primary">
                     Save Current Graph
-                  </button>
-                  <button
-                    v-if="graphStore.currentGraphId"
-                    @click="goToGraphViewer"
-                    class="btn btn-outline-primary"
-                  >
-                    View Graph
                   </button>
                 </div>
               </div>
@@ -330,7 +323,7 @@
                 style="height: 300px; font-family: monospace; white-space: pre-wrap"
               ></textarea>
               <div class="d-flex align-items-center mt-2">
-                <label class="me-2 ms-3">Search JSON:</label>
+                <label class="me-2 ms-3 fw-bold">Search JSON:</label>
                 <input
                   type="text"
                   v-model="jsonSearchQuery"
@@ -389,6 +382,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -396,22 +390,10 @@
 import { ref, onMounted, watch } from 'vue'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
-
-// Register the undo-redo extension only if it hasn't been registered already
-if (!cytoscape.prototype.undoRedo) {
-  undoRedo(cytoscape)
-}
-
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
-import { useRouter } from 'vue-router'
 
-const router = useRouter()
-
-const goToGraphViewer = () => {
-  if (graphStore.currentGraphId) {
-    router.push({ name: 'GraphViewer', query: { graphId: graphStore.currentGraphId } })
-  }
-}
+// Register the undo-redo extension once globally
+undoRedo(cytoscape)
 
 const cyInstance = ref(null)
 const graphStore = useKnowledgeGraphStore()
@@ -441,48 +423,12 @@ const validationMessageClass = ref('alert-danger')
 const undoRedoInstance = ref(null)
 const graphTemplates = ref([
   {
-    name: 'Info Node Template',
-    nodes: [
-      {
-        id: 'infoNodeDefault',
-        label: 'New Info Node',
-        color: '#FF5733',
-        type: 'info',
-        info: 'Provide a detailed description of the topic or concept for this node. Aim for 100-300 words to ensure clarity and depth. Include key facts, insights, or observations, and consider structuring your text for readability (e.g., use paragraphs or lists). For example, describe the historical, cultural, scientific, or spiritual significance of the topic. If applicable, include:\n\n1. [Key Point 1: e.g., historical context or specific discovery]\n2. [Key Point 2: e.g., cultural or practical implications]\n3. [Key Point 3: e.g., connections to other fields or traditions]\n\nExplain how this topic relates to your project or knowledge graph. Highlight unique aspects or interdisciplinary connections to engage users. Ensure the tone is informative yet accessible, avoiding overly technical jargon unless necessary.',
-        bibl: [
-          '[Author Last Name, First Initial. (Year). Title of the work. Publisher. DOI/URL]',
-          '[Source 1: e.g., book title, article, or URL]',
-          '[Source 2: e.g., academic paper, traditional text, or oral source]',
-          '[Source 3: e.g., modern reference or dataset]',
-          '[Source 4: e.g., website or multimedia source]',
-        ],
-        imageWidth: 'auto',
-        imageHeight: 'auto',
-      },
-    ],
+    name: 'Basic Template',
+    nodes: [{ id: 'node1', label: 'Node 1', color: 'blue' }],
     edges: [],
   },
-  {
-    name: 'Notes Node Template',
-    nodes: [
-      {
-        id: 'notesNodeDefault',
-        label: 'New Notes Node',
-        color: '#f4e2d8',
-        type: 'notes',
-        info: 'Provide a concise note or insight about the topic, typically 50-150 words. Focus on a specific aspect, observation, or connection relevant to your project or knowledge graph. For example, highlight a key idea, historical detail, cultural significance, or interdisciplinary link. Structure the text for clarity (e.g., a single paragraph or short list). If applicable, include:\n\n1. [Key Idea: e.g., a specific insight or observation]\n2. [Context: e.g., why this matters or its relevance]\n\nKeep the tone clear and engaging, avoiding overly complex terms. Ensure the note adds value by connecting to broader themes or nodes in your graph.',
-        bibl: [
-          '[Author Last Name, First Initial. (Year). Title of the work. Publisher. DOI/URL]',
-          '[Source 1: e.g., book title, article, or URL]',
-          '[Source 2: e.g., academic paper, traditional text, or oral source]',
-        ],
-        imageWidth: 'auto',
-        imageHeight: 'auto',
-      },
-    ],
-    edges: [],
-  },
-  { name: 'Custom Template', nodes: [], edges: [] },
+  { name: 'Advanced Template', nodes: [] },
+  { name: 'Custom Template', nodes: [] },
 ])
 
 // JSON Search refs
@@ -508,18 +454,15 @@ const escapeHtml = (text) => {
   return div.innerHTML
 }
 
+// Highlight matches in text
 const highlightMatches = (text, query, caseSensitive) => {
   if (!query) return escapeHtml(text)
   const flags = caseSensitive ? 'g' : 'gi'
   const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, flags)
-  return text
-    .split(regex)
-    .map((part) =>
-      regex.test(part) ? `<span class="match">${escapeHtml(part)}</span>` : escapeHtml(part),
-    )
-    .join('')
+  return escapeHtml(text).replace(regex, '<span class="match">$1</span>')
 }
 
+// Search JSON
 const searchJson = () => {
   const editor = document.getElementById('JsonEditor')
   const output = document.getElementById('jsonOutput')
@@ -547,6 +490,7 @@ const searchJson = () => {
     const formattedJson = JSON.stringify(json, null, 2)
     output.innerHTML = highlightMatches(formattedJson, query, caseSensitive.value)
 
+    // Find all matches
     const matches = output.querySelectorAll('.match')
     matchCount.value = matches.length
     if (matches.length === 0) {
@@ -554,6 +498,7 @@ const searchJson = () => {
       return
     }
 
+    // Initial focus
     updateMatchFocus(matches)
   } catch (e) {
     output.textContent = graphJson.value
@@ -561,10 +506,11 @@ const searchJson = () => {
   }
 }
 
+// Update match focus
 const updateMatchFocus = (matches) => {
   matches.forEach((match, i) => {
-    match.classList.toggle('focused', i === parseInt(currentMatchIndex.value))
-    if (i === parseInt(currentMatchIndex.value)) {
+    match.classList.toggle('focused', i === currentMatchIndex.value)
+    if (i === currentMatchIndex.value) {
       match.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   })
@@ -588,18 +534,18 @@ const nextMatch = () => {
 const debouncedSearchJson = debounce(searchJson, 300)
 
 const applyTemplate = (template) => {
-  const newNodes = template.nodes.map((node) => ({
+  const newNodes = template.nodes.map((node, index) => ({
     data: {
+      id: node.id || `node${graphStore.nodes.length + index + 1}`,
       label: node.label,
       color: node.color,
       type: node.type || null,
       info: node.info || null,
-      bibl: Array.isArray(node.bibl) ? node.bibl : [],
     },
   }))
-  const newEdges = template.edges.map((edge) => ({
+  const newEdges = template.edges.map((edge, index) => ({
     data: {
-      id: edge.id || `${edge.source}_${edge.target}`,
+      id: edge.id || `edge${graphStore.edges.length + index + 1}`,
       source: edge.source,
       target: edge.target,
       label: edge.label || null,
@@ -612,7 +558,6 @@ const applyTemplate = (template) => {
 
   if (cyInstance.value) {
     cyInstance.value.add([...newNodes, ...newEdges])
-    //refresh the layout without changing the currect position of the nodes
   }
 }
 
@@ -1770,19 +1715,5 @@ defineProps({
 
 #jsonOutput {
   max-height: 200px;
-  overflow: auto;
-  white-space: pre;
-  font-family: monospace;
-}
-
-#jsonOutput .match {
-  background: yellow;
-  padding: 2px;
-}
-
-#jsonOutput span.match.focused {
-  background: orange;
-  outline: 2px solid red;
-  padding: 2px;
 }
 </style>
