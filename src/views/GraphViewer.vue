@@ -35,7 +35,7 @@
 import { ref, onMounted } from 'vue'
 
 const graphId = 'example-graph-id' // Replace with dynamic ID if needed
-const apiUrl = `https://knowledge.vegvisr.org/getknowgraph/getknowgraph?id=${graphId}`
+const apiUrl = `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
