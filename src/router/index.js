@@ -100,7 +100,7 @@ const router = createRouter({
     {
       path: '/graph-editor',
       name: 'GraphEditor',
-      component: () => import('../views/GraphEditor.vue'),
+      component: () => import('../views/GraphAdmin.vue'),
     },
     {
       path: '/graph',

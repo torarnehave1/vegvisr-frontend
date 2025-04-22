@@ -1,6 +1,6 @@
 <template>
   <div class="embed-layout">
-    <h1>User Registration</h1>
+    <div class="registration-heading">User Registration XXXX</div>
     <slot />
   </div>
 </template>
@@ -11,6 +11,9 @@
 
 <style scoped>
 .embed-layout {
+  font-size: 1.5em;
+  text-align: center;
+  margin-bottom: 1em;
   width: 100%;
   height: 100%;
   padding: 1rem;

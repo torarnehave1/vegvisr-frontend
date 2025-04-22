@@ -28,11 +28,6 @@
   width: 100%;
 }
 
-img {
-  max-width: 100%;
-  height: auto;
-}
-
 #jsonOutput span.match {
   background-color: #ffff00;
   padding: 2px 4px;
@@ -43,4 +38,13 @@ img {
   outline: 2px solid #ff0000;
   padding: 2px 4px;
   border-radius: 2px;
+}
+.graph-viewer .node-info img {
+  max-width: 50%;
+  height: 100px;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 5px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="user-registration" :class="{ embedded: isEmbedded }">
-    <h1 v-if="!isEmbedded">User Registration</h1>
+    <div class="user-reg-heading" v-if="isEmbedded">User Registration</div>
     <form v-if="!emailExists" @submit.prevent="registerUser">
       <div>
         <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
@@ -143,6 +143,17 @@ export default {
 </script>
 
 <style scoped>
+/* User Registration Component Styles */
+.user-reg-heading {
+  font-size: 1.5em;
+  text-align: center;
+  margin-bottom: 1em;
+}
+.registration-heading {
+  font-size: 1.5em;
+  text-align: center;
+  margin-bottom: 1em;
+}
 .user-registration {
   max-width: 400px;
   margin: 0 auto;

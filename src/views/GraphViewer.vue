@@ -7,9 +7,18 @@
         <template v-if="node.type === 'background'">
           <img :src="node.label" alt="Background Image" class="node-image" />
         </template>
+        <template v-else-if="node.type === 'REG'">
+          <iframe
+            src="https://www.vegvisr.org/register?embed=true"
+            style="width: 100%; height: 500px; border: none"
+          ></iframe>
+        </template>
         <template v-else>
           <h3 class="node-label">{{ node.label }}</h3>
-          <p class="node-info">{{ node.info || 'No additional information available.' }}</p>
+          <div
+            class="node-info"
+            v-html="convertToHtml(node.info || 'No additional information available.')"
+          ></div>
         </template>
       </div>
     </div>
@@ -19,6 +28,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { marked } from 'marked'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -47,6 +57,10 @@ const fetchGraphData = async () => {
   }
 }
 
+const convertToHtml = (text) => {
+  return marked(text)
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -64,6 +78,16 @@ watch(
 
 <style scoped>
 /* General styles */
+
+.graph-viewer[data-v-40c491c3] :deep(.node-image img) {
+  max-width: 100%;
+  height: 100px;
+  display: block;
+  margin: 10px auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 .graph-viewer {
   padding: 20px;
   background-color: #f9f9f9;

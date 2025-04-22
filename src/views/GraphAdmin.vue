@@ -1433,6 +1433,8 @@ onMounted(() => {
             'curve-style': 'bezier',
           },
         },
+        //add a selector for fulltext page that will be used to show a full text in a html page text aling left
+
         {
           selector: '.highlighted',
           style: {
@@ -1488,7 +1490,43 @@ onMounted(() => {
           },
         },
         {
+          selector: 'node[type="fulltext"]',
+          style: {
+            shape: 'round-rectangle',
+            'background-color': (ele) => ele.data('color') || '#ede8e8',
+            'border-width': 1,
+            'border-color': '#ccc',
+            label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`,
+            'text-wrap': 'wrap',
+            'text-max-width': '734px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '16px',
+            padding: '10px',
+            width: '794px',
+            height: 'label',
+          },
+        },
+        {
           selector: 'node[type="background"]',
+          style: {
+            shape: 'rectangle',
+            'background-image': (ele) => ele.data('label'),
+            'background-fit': 'cover',
+            'background-opacity': 1,
+            'border-width': 0,
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
+            label: 'data(label)',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'font-size': '0px',
+            color: '#000',
+            'background-image-crossorigin': 'anonymous',
+          },
+        },
+        {
+          selector: 'node[type="REG"]',
           style: {
             shape: 'rectangle',
             'background-image': (ele) => ele.data('label'),
@@ -1783,6 +1821,12 @@ defineProps({
 #jsonOutput span.match.focused {
   background: orange;
   outline: 2px solid red;
+  padding: 2px;
+}
+
+#jsonOutput .match.focused {
+  background: orange;
+  outline: 2px solid #f7f4f4;
   padding: 2px;
 }
 </style>

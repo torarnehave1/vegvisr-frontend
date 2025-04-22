@@ -141,4 +141,23 @@ function handleLogout() {
 .navbar-brand img {
   margin-left: auto;
 }
+
+.graph-viewer[data-v-40c491c3] :deep(.node-info img) {
+  max-width: 50%;
+  height: 10px;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 5px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+img {
+  max-width: 100%;
+  height: 200px;
+  display: block;
+  margin: 10px auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
 </style>
