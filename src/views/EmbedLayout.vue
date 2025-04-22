@@ -1,6 +1,6 @@
 <template>
   <div class="embed-layout">
-    <div class="registration-heading">User Registration XXXX</div>
+    <div class="registration-heading"></div>
     <slot />
   </div>
 </template>

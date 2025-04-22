@@ -48,3 +48,9 @@
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+
+.user-reg-heading {
+  font-size: 1.5em;
+  margin: 0;
+  text-align: center;
+}
