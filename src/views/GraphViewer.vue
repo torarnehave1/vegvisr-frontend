@@ -57,8 +57,74 @@ const fetchGraphData = async () => {
   }
 }
 
+const preprocessMarkdown = (text) => {
+  console.log('--- Preprocessing Markdown ---')
+  console.log('Original text:', text)
+
+  // Regex to match image markdown with size and optional style information
+  const imageRegex =
+    /!\[([^\]]*?)\|width:(\d+(?:px|%));height:(\d+(?:px|%))(?:;object-fit:\s*(\w+);object-position:\s*([\w\s%]+))?\]\((.*?)\)/g
+
+  // Replace matched image markdown with styled HTML
+  const processedText = text.replace(
+    imageRegex,
+    (match, alt, width, height, objectFit, objectPosition, src) => {
+      console.log('Matched image markdown:', { alt, width, height, objectFit, objectPosition, src })
+
+      // Check if the alt text contains the key "Rightside-X" or "Leftside-X"
+      const rightsideMatch = alt.match(/Rightside-(\d+)/)
+      const leftsideMatch = alt.match(/Leftside-(\d+)/)
+
+      if (rightsideMatch || leftsideMatch) {
+        const paragraphsToInclude = parseInt((rightsideMatch || leftsideMatch)[1], 10) || 1 // Default to 1 paragraph
+        const isLeftside = !!leftsideMatch
+        const imageWidth = parseInt(width) || 50 // Default to 50% if width is not provided
+        const textWidth = 100 - imageWidth // Calculate text width as the remaining percentage
+
+        const styleImage = `width: ${imageWidth}%; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
+        const styleText = `width: ${textWidth}%; display: inline-block; vertical-align: top; padding-${isLeftside ? 'right' : 'left'}: 10px;`
+
+        // Extract text following the image markdown
+        const remainingText = text.split(match)[1]?.trim() || ''
+        const paragraphs = remainingText.split('\n\n') // Split text into paragraphs
+        const sideContentMarkdown = paragraphs.slice(0, paragraphsToInclude).join('\n\n')
+        const remainingContentMarkdown = paragraphs.slice(paragraphsToInclude).join('\n\n')
+
+        const sideContentHtml = marked(sideContentMarkdown) // Convert to HTML
+        const remainingContentHtml = marked(remainingContentMarkdown) // Convert to HTML
+
+        // Generate HTML for the image and aligned text
+        const imgHtml = isLeftside
+          ? `<div style="display: flex;"><div style="${styleText}">${sideContentHtml}</div><img src="${src}" alt="${alt}" style="${styleImage}" /></div>`
+          : `<div style="display: flex;"><img src="${src}" alt="${alt}" style="${styleImage}" /><div style="${styleText}">${sideContentHtml}</div></div>`
+        const fullHtml = `${imgHtml}<div style="width: 100%; margin-top: 10px;">${remainingContentHtml}</div>`
+        console.log('Generated HTML:', fullHtml)
+        return fullHtml
+      }
+
+      // Default handling for other images
+      const style = `width: ${width}; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
+      const imgHtml = `<img src="${src}" alt="${alt}" style="${style}" />`
+      console.log('Generated image HTML:', imgHtml)
+      return imgHtml
+    },
+  )
+
+  console.log('Processed text:', processedText)
+  return processedText
+}
+
 const convertToHtml = (text) => {
-  return marked(text)
+  console.log('--- Debugging convertToHtml ---')
+  console.log('Raw text being processed:', text)
+
+  // Preprocess the markdown to handle image markdown with size information
+  const preprocessedText = preprocessMarkdown(text)
+
+  // Pass the preprocessed text to marked
+  const html = marked(preprocessedText)
+  console.log('Generated HTML from marked:', html)
+  return html
 }
 
 onMounted(() => {
@@ -78,15 +144,6 @@ watch(
 
 <style scoped>
 /* General styles */
-
-.graph-viewer[data-v-40c491c3] :deep(.node-image img) {
-  max-width: 100%;
-  height: 100px;
-  display: block;
-  margin: 10px auto;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
 
 .graph-viewer {
   padding: 20px;

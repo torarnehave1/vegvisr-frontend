@@ -1486,7 +1486,7 @@ onMounted(() => {
             'font-size': '16px',
             padding: '10px',
             width: '280px',
-            height: 'label',
+            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100),
           },
         },
         {
@@ -1504,7 +1504,7 @@ onMounted(() => {
             'font-size': '16px',
             padding: '10px',
             width: '794px',
-            height: 'label',
+            height: '1122px' /* A4 height in pixels */,
           },
         },
         {
