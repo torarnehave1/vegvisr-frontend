@@ -1502,13 +1502,34 @@ onMounted(() => {
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '16px',
+            'text-max-height': '1122px',
             padding: '10px',
             width: '794px',
             height: '1122px' /* A4 height in pixels */,
+            overflow: 'hidden' /* Set overflow to hidden */,
+          },
+        },
+
+        {
+          selector: 'node[type="background"]',
+          style: {
+            shape: 'rectangle',
+            'background-image': (ele) => ele.data('label'),
+            'background-fit': 'cover',
+            'background-opacity': 1,
+            'border-width': 0,
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
+            label: 'data(label)',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'font-size': '0px',
+            color: '#000',
+            'background-image-crossorigin': 'anonymous',
           },
         },
         {
-          selector: 'node[type="background"]',
+          selector: 'node[type="openai"]',
           style: {
             shape: 'rectangle',
             'background-image': (ele) => ele.data('label'),
@@ -1564,6 +1585,29 @@ onMounted(() => {
             height: 50,
           },
         },
+
+        {
+          selector: 'node[type="action"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': (ele) => ele.data('color') || '#f9f9f9',
+
+            'border-width': 5,
+            'border-color': '#ccc',
+
+            label: (ele) =>
+              ele.data('type') === 'action' ? ele.data('label') + '⚠️' : ele.data('label') || '',
+            'text-wrap': 'wrap',
+            'text-max-width': '250px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '16px',
+            padding: '10px',
+            width: '250px',
+            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100),
+          },
+        },
+
         {
           selector: 'node:selected',
           style: {
@@ -1582,6 +1626,58 @@ onMounted(() => {
 
     // Initialize undo-redo instance
     undoRedoInstance.value = cyInstance.value.undoRedo()
+
+    // Event listener for node clicks
+    cyInstance.value.on('tap', 'node', (event) => {
+      const node = event.target
+      const data = node.data()
+
+      // Check if the node type is "action"
+      if (data.type === 'action') {
+        handleActionNodeClick(data)
+
+        // File upload dialog for "action" nodes
+        const fileInput = document.createElement('input')
+        fileInput.type = 'file'
+        fileInput.accept = '.txt,.md'
+        fileInput.onchange = (event) => {
+          const file = event.target.files[0]
+          if (file) {
+            const reader = new FileReader()
+            reader.onload = (e) => {
+              const content = new TextDecoder('windows-1252').decode(e.target.result)
+
+              //Duplictae node
+              const newNode = {
+                data: {
+                  id: `${data.id}_copy`,
+                  label: '/images/openai.svg',
+                  type: 'openai',
+                  info: content,
+                  color: '#f9f9f9',
+                  imageWidth: 250,
+                  imageHeight: 250,
+                },
+                position: { x: node.position('x') + 500, y: node.position('y') + 500 },
+              }
+              graphStore.nodes.push(newNode)
+              cyInstance.value.add(newNode)
+              cyInstance.value.layout({ name: 'preset' }).run()
+            }
+            reader.readAsArrayBuffer(file)
+          } else {
+            console.error('No file selected')
+          }
+        }
+        fileInput.click()
+      }
+
+      selectedElement.value = {
+        label: data.label || `${data.source} → ${data.target}`,
+        info: data.info || null,
+        bibl: Array.isArray(data.bibl) ? data.bibl : [],
+      }
+    })
 
     cyInstance.value.on('tap', 'node, edge', (event) => {
       const element = event.target
@@ -1618,6 +1714,13 @@ onMounted(() => {
 
   trackChanges()
 })
+
+// Function to handle clicks on action nodes
+const handleActionNodeClick = (nodeData) => {
+  console.log('Action node clicked:', nodeData)
+  // Add your custom logic here
+  alert(`Action node clicked: ${nodeData.label}`)
+}
 
 // Watch graph changes
 watch(

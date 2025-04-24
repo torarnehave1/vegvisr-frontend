@@ -25,27 +25,263 @@ const createErrorResponse = (message, status) => {
   return createResponse(JSON.stringify({ error: message }), status)
 }
 
-const parseMultipartFormData = (body, boundary) => {
-  const decoder = new TextDecoder()
-  const text = decoder.decode(body)
-  const parts = text.split(`--${boundary}`).filter((part) => part.trim() && !part.includes('--'))
+// Validate analysis results with SlowYou context
+const validateAnalysisResults = (results) => {
+  if (!results.summary || typeof results.summary !== 'string') {
+    return 'Invalid or missing summary'
+  }
+  if (!Array.isArray(results.insights) || results.insights.length === 0) {
+    return 'Insights must be a non-empty array'
+  }
+  if (!results.reflections || typeof results.reflections !== 'string') {
+    return 'Invalid or missing reflections'
+  }
+  if (!Array.isArray(results.themes) || results.themes.length === 0) {
+    return 'Themes must be a non-empty array'
+  }
+  if (!Array.isArray(results.slowYouApplications) || results.slowYouApplications.length === 0) {
+    return 'SlowYou applications must be a non-empty array'
+  }
+  // Ensure at least one SlowYou principle and exercise are mentioned
+  const principles = [
+    'Kroppens Visdom',
+    'Hjertets Sentralitet',
+    'Grunning og Flyt',
+    'Balanse og Harmoni',
+    'Universalitet og Inklusivitet',
+    'Helhetlig Tilnærming',
+    'Naturlige Skjelvinger',
+    'Divine Feminine',
+  ]
+  const exercises = [
+    'Standing and sensing self',
+    'Golf ball foot massage',
+    'Basic grounding exercise',
+    'Hip movement',
+    'Balancing exercises',
+    'Bending forward',
+    'Face and jaw massage',
+    'Twisting arms',
+    'Swinging arms',
+    'Coordination exercise',
+    'Deep breathing',
+    'Foam roller breathing',
+    'Butterfly legs',
+    'Gong playing',
+  ]
+  const hasPrinciple =
+    results.summary.includes('SlowYou') ||
+    results.insights.some((i) => principles.some((p) => i.significance.includes(p))) ||
+    results.themes.some((t) => principles.some((p) => t.description.includes(p)))
+  const hasExercise = results.slowYouApplications.some((app) =>
+    exercises.some((ex) => app.includes(ex)),
+  )
+  if (!hasPrinciple) {
+    return 'Analysis must reference at least one SlowYou principle'
+  }
+  if (!hasExercise) {
+    return 'Analysis must recommend at least one SlowYou exercise'
+  }
+  return null
+}
 
-  return parts.map((part) => {
-    const [headers, ...rest] = part.split('\r\n\r\n')
-    const headerLines = headers.split('\r\n')
-    const contentDisposition = headerLines.find((line) => line.startsWith('Content-Disposition'))
-    const contentType = headerLines.find((line) => line.startsWith('Content-Type'))?.split(': ')[1]
+// Validate graph data for Vegvisr/Cytoscape with SlowYou context
+const validateGraphData = (data) => {
+  if (!data.layout || !['landing', 'blog', 'academic', 'portfolio', null].includes(data.layout)) {
+    return 'Invalid or missing layout'
+  }
+  if (!Array.isArray(data.nodes) || data.nodes.length < 7) {
+    return 'Nodes array must contain at least 7 nodes'
+  }
+  if (!Array.isArray(data.edges) || data.edges.length < 5) {
+    return 'Edges array must contain at least 5 edges'
+  }
 
-    const nameMatch = contentDisposition?.match(/name="([^"]+)"/)
-    const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/)
-
-    return {
-      name: nameMatch ? nameMatch[1] : null,
-      filename: filenameMatch ? filenameMatch[1] : null,
-      contentType,
-      data: new Uint8Array([...rest.join('\r\n\r\n').trim()].map((char) => char.charCodeAt(0))),
+  const nodeIds = new Set()
+  for (const node of data.nodes) {
+    if (!node.id || typeof node.id !== 'string' || nodeIds.has(node.id)) {
+      return `Invalid or duplicate node ID: ${node.id}`
     }
+    // Ensure node ID is descriptive and not a UUID
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.id)) {
+      return `Node ID must be descriptive, not a UUID: ${node.id}`
+    }
+    nodeIds.add(node.id)
+    if (!node.label || typeof node.label !== 'string') {
+      return `Invalid label for node ${node.id}`
+    }
+    if (!node.color || typeof node.color !== 'string') {
+      return `Invalid color for node ${node.id}`
+    }
+    if (!['background', 'fulltext', 'notes', 'quote', 'info', 'REG', null].includes(node.type)) {
+      return `Invalid type for node ${node.id}: ${node.type}`
+    }
+    if (node.bibl && !Array.isArray(node.bibl)) {
+      return `Invalid bibl for node ${node.id}`
+    }
+    if (node.visible !== undefined && typeof node.visible !== 'boolean') {
+      return `Invalid visible field for node ${node.id}`
+    }
+  }
+
+  const edgeIds = new Set()
+  for (const edge of data.edges) {
+    if (!edge.id || typeof edge.id !== 'string') {
+      return `Invalid edge ID: ${edge.id}`
+    }
+    // Ensure edge ID is in sourcename_targetname format
+    if (edge.id !== `${edge.source}_${edge.target}`) {
+      return `Edge ID must be in sourcename_targetname format: ${edge.id}`
+    }
+    if (edgeIds.has(edge.id)) {
+      return `Duplicate edge ID: ${edge.id}`
+    }
+    edgeIds.add(edge.id)
+    if (!edge.source || !edge.target || !nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+      return `Invalid source or target for edge ${edge.id}`
+    }
+    if (edge.type !== 'info') {
+      return `Invalid type for edge ${edge.id}`
+    }
+  }
+
+  // SlowYou-specific validations
+  if (data.nodes[0].type !== 'background' || !data.nodes[0].label.startsWith('/images/SlowYou_')) {
+    return 'First node must be of type background with SlowYou-themed image'
+  }
+  if (data.nodes[1].type !== 'fulltext' || !data.nodes[1].info.includes('pexels.com')) {
+    return 'Second node must be of type fulltext with a Pexels image'
+  }
+  if (!data.nodes[1].bibl.some((ref) => ref.includes('Håve, T. A. (2025)'))) {
+    return 'Fulltext node must include Håve’s research notes in bibl'
+  }
+  if (!data.nodes.some((node) => node.info && node.info.includes('SlowYou'))) {
+    return 'At least one node must reference SlowYou principles or exercises'
+  }
+
+  return null
+}
+
+// SlowYou context for system instructions
+const slowYouContext = `
+SlowYou, developed by Tor Arne Håve, is a bioenergetic approach to personal growth and self-awareness, rooted in bioenergetic analysis. Håve, a certified Bioenergetic Instructor (NIBI, 2023), integrates principles from psychology, physiotherapy, yoga, and trauma work. SlowYou emphasizes connecting body, mind, and soul through the following principles:
+- Kroppens Visdom: Presence, self-awareness, and grounding in the body.
+- Hjertets Sentralitet: Cultivating love, compassion, and heart-centered wisdom.
+- Grunning og Flyt: Grounding and natural movement to connect with gravity.
+- Balanse og Harmoni: Harmonizing with nature’s cycles and energy flow.
+- Universalitet og Inklusivitet: Embracing diverse experiences and simplicity.
+- Helhetlig Tilnærming: Integrating body, mind, and soul for holistic well-being.
+- Naturlige Skjelvinger: Using body tremors for healing and vitality.
+- Divine Feminine and Primordial Void: Embracing receptivity, intuition, and the nurturing source of creation.
+
+SlowYou includes 15 bioenergetic exercises, such as:
+- Standing and sensing self (5-10 min, focusing on breathing and relaxation).
+- Golf ball foot massage (grounding and body awareness).
+- Basic grounding exercise.
+- Deep breathing into pelvic area and belly.
+- Gong playing for sound healing.
+
+SlowYou’s history includes Håve’s 5-year bioenergetic training, 4 years of group sessions, and over 50 hours of individual sessions. It is supported by NIBI and AlivenessLAB AS, focusing on vitality, presence, and self-discovery.
+`
+
+// Endpoint 1: Analyze Transcription with SlowYou Context
+const handleAnalyzeTranscription = async (request, env) => {
+  const url = new URL(request.url)
+  const subject = url.searchParams.get('subject')
+  let transcription, analysisPrompt
+
+  try {
+    const body = await request.json()
+    transcription = body.transcription
+    analysisPrompt = body.analysisPrompt
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  if (!subject) {
+    return createErrorResponse('Subject is missing in the query parameters', 400)
+  }
+  if (!transcription || typeof transcription !== 'string') {
+    return createErrorResponse('Transcription text is missing or invalid', 400)
+  }
+  if (!analysisPrompt || typeof analysisPrompt !== 'string') {
+    return createErrorResponse('Analysis prompt is missing or invalid', 400)
+  }
+
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: API key missing', 500)
+  }
+
+  const prompt = `
+    Analyze the provided transcription for the subject "${subject}", using the following analysis prompt: "${analysisPrompt}". Generate a JSON object with the following structure, integrating SlowYou’s bioenergetic principles and exercises:
+
+    - summary: A string (100-200 words) summarizing the main themes of the conversation, explicitly linking to at least one SlowYou principle (e.g., Kroppens Visdom, Hjertets Sentralitet).
+    - insights: An array of at least 2 objects, each with:
+      - quote: A string with a key statement from the transcription.
+      - significance: A string (50-100 words) explaining its importance, referencing a SlowYou principle.
+    - reflections: A string (50-100 words) describing the participant's moments of self-awareness or growth, connected to SlowYou’s self-discovery focus.
+    - themes: An array of at least 2 objects, each with:
+      - name: A string naming the theme (e.g., "Self-Love").
+      - description: A string (50-100 words) describing the theme and its relevance to a SlowYou principle.
+    - slowYouApplications: An array of at least 2 strings, each describing a specific SlowYou exercise (e.g., grounding, deep breathing) or principle to support the participant’s growth, tailored to the transcription.
+    - references: An array of APA-formatted strings, including at least "Håve, T. A. (2025). Vegvisr.org Research Notes. Vegvisr.org.".
+
+    **Transcription:**
+    ${transcription}
+
+    **SlowYou Context:**
+    ${slowYouContext}
+
+    **Guidelines:**
+    - Map conversation themes to SlowYou principles and recommend specific exercises from the provided list.
+    - Ensure the analysis is specific to "${subject}" and supports personal growth and self-awareness.
+    - Include Håve’s research notes in the references and summarize their relevance in the summary.
+    - Return only the JSON object, with no additional text or explanations.
+  `
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4',
+      temperature: 0.7,
+      max_tokens: 1500,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert in "${subject}" and SlowYou’s bioenergetic principles, skilled at analyzing transcriptions for personal growth themes. Use the provided SlowYou context to ensure accurate integration of principles and exercises. Return only valid JSON.`,
+        },
+        { role: 'user', content: prompt },
+      ],
+    }),
   })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    return createErrorResponse(`OpenAI API error: ${response.status} - ${errorText}`, 500)
+  }
+
+  const data = await response.json()
+  const analysisData = data.choices[0].message.content.trim()
+
+  console.log('Raw JSON response from OpenAI (analysis):', analysisData)
+
+  try {
+    const parsedData = JSON.parse(analysisData)
+    const validationError = validateAnalysisResults(parsedData)
+    if (validationError) {
+      console.error('Validation error:', validationError)
+      return createErrorResponse(`Invalid analysis data: ${validationError}`, 400)
+    }
+    return createResponse(JSON.stringify(parsedData, null, 2))
+  } catch (e) {
+    console.error('Error parsing JSON or validating analysis data:', e.message)
+    return createErrorResponse(`Failed to parse or validate analysis data: ${e.message}`, 400)
+  }
 }
 
 // Endpoint handlers
