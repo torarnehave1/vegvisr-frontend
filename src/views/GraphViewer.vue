@@ -8,7 +8,21 @@
         :key="node.id"
         class="node"
       >
-        <template v-if="node.type === 'background'">
+        <template v-if="node.type === 'markdown-image'">
+          <img
+            :src="parseMarkdownImage(node.label)?.url"
+            alt="Markdown Image"
+            class="node-image"
+            :style="{
+              width: parseMarkdownImage(node.label)?.styles?.width || 'auto',
+              height: parseMarkdownImage(node.label)?.styles?.height || 'auto',
+              objectFit: parseMarkdownImage(node.label)?.styles?.['object-fit'] || 'cover',
+              objectPosition:
+                parseMarkdownImage(node.label)?.styles?.['object-position'] || 'center',
+            }"
+          />
+        </template>
+        <template v-else-if="node.type === 'background'">
           <img :src="node.label" alt="Background Image" class="node-image" />
         </template>
         <template v-else-if="node.type === 'REG'">
@@ -131,6 +145,22 @@ const preprocessMarkdown = (text) => {
 
 const convertToHtml = (text) => {
   return preprocessMarkdown(text)
+}
+
+const parseMarkdownImage = (markdown) => {
+  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/ // Match markdown image syntax
+  const match = markdown.match(regex)
+
+  if (match) {
+    const styles = match[1].split(';').reduce((acc, style) => {
+      const [key, value] = style.split(':').map((s) => s.trim())
+      if (key && value) acc[key] = value
+      return acc
+    }, {})
+
+    return { url: match[2], styles }
+  }
+  return null
 }
 
 onMounted(() => {
