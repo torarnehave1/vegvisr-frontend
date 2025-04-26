@@ -1,3 +1,5 @@
+//templateMessage
+
 <template>
   <div class="admin-page" :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }">
     <!-- Top Bar -->
@@ -204,35 +206,17 @@
               <div v-if="activeTab === 'templates'" class="form-section">
                 <h3>Graph Templates</h3>
                 <p>Select a template to quickly create a new graph:</p>
-                <div v-if="fetchedTemplates.length > 0">
-                  <div
-                    id="templateList"
-                    tabindex="0"
-                    class="list-group"
-                    :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
-                    style="
-                      max-height: 600px;
-                      overflow-y: auto;
-                      border: 1px solid #ddd;
-                      padding: 5px;
-                    "
+                <ul class="list-group">
+                  <li
+                    v-for="(template, index) in graphTemplates"
+                    :key="index"
+                    class="list-group-item"
+                    @click="applyTemplate(template)"
+                    style="cursor: pointer"
                   >
-                    <button
-                      v-for="(template, index) in fetchedTemplates"
-                      :key="index"
-                      @click="applyTemplate(template)"
-                      :class="[
-                        'list-group-item',
-                        'list-group-item-action',
-                        { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' },
-                      ]"
-                      style="cursor: pointer"
-                    >
-                      {{ template.name }}
-                    </button>
-                  </div>
-                </div>
-                <p v-else class="text-muted">No templates available.</p>
+                    {{ template.name }}
+                  </li>
+                </ul>
               </div>
             </div>
           </div>
@@ -327,6 +311,9 @@
               >
                 {{ validationMessage }}
               </div>
+              <div v-if="templateMessage" class="alert alert-info text-center" role="alert">
+                {{ templateMessage }}
+              </div>
 
               <div class="d-flex justify-content-between mb-3">
                 <div class="d-flex align-items-center">
@@ -411,23 +398,12 @@
         </div>
       </div>
     </div>
-    <!-- Add a context menu container -->
-    <div
-      v-if="contextMenuVisible"
-      class="context-menu"
-      :style="{ top: `${contextMenuPosition.y}px`, left: `${contextMenuPosition.x}px` }"
-    >
-      <ul>
-        <li v-for="(option, index) in contextMenuOptions" :key="index" @click="option.action">
-          {{ option.label }}
-        </li>
-      </ul>
-    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 
@@ -539,33 +515,6 @@ const graphTemplates = ref([
   { name: 'Custom Template', nodes: [], edges: [] },
 ])
 
-const fetchedTemplates = ref([])
-
-// Fetch templates from the endpoint
-const fetchTemplates = async () => {
-  try {
-    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
-    if (response.ok) {
-      const data = await response.json()
-      console.log('Fetched templates:', data) // Debug log
-      fetchedTemplates.value = data.results.map((template) => ({
-        name: template.name,
-        nodes: JSON.parse(template.nodes),
-        edges: JSON.parse(template.edges),
-      }))
-    } else {
-      console.error('Failed to fetch templates')
-    }
-  } catch (error) {
-    console.error('Error fetching templates:', error)
-  }
-}
-
-// Fetch templates on component mount
-onMounted(() => {
-  fetchTemplates()
-})
-
 // JSON Search refs
 const jsonSearchQuery = ref('')
 const caseSensitive = ref(false)
@@ -670,22 +619,36 @@ const nextMatch = () => {
 const debouncedSearchJson = debounce(searchJson, 300)
 
 const applyTemplate = (template) => {
-  const parsedNodes = template.nodes.map((node) => ({
-    ...node,
-    position: node.position || null,
+  const newNodes = template.nodes.map((node) => ({
+    data: {
+      label: node.label,
+      color: node.color,
+      type: node.type || null,
+      info: node.info || null,
+      bibl: Array.isArray(node.bibl) ? node.bibl : [],
+    },
   }))
-  const parsedEdges = template.edges.map((edge) => ({
-    ...edge,
+  const newEdges = template.edges.map((edge) => ({
+    data: {
+      id: edge.id || `${edge.source}_${edge.target}`,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label || null,
+      type: edge.type || null,
+      info: edge.info || null,
+    },
   }))
 
-  const updatedGraph = {
-    nodes: [...graphStore.nodes.map((n) => n.data), ...parsedNodes],
-    edges: [...graphStore.edges.map((e) => e.data), ...parsedEdges],
+  graphStore.nodes.unshift(...newNodes)
+
+  if (cyInstance.value) {
+    cyInstance.value.add([...newNodes, ...newEdges])
+    // Refresh the layout without changing the current position of the nodes
   }
 
-  graphJson.value = JSON.stringify(updatedGraph, null, 2)
-  templateMessage.value = `Template "${template.name}" added successfully!`
-
+  // Show the template message for 3 seconds
+  templateMessage.value =
+    'Template added, please verify and edit the Graph JSON and save after approval of content'
   setTimeout(() => {
     templateMessage.value = ''
   }, 3000)
@@ -981,16 +944,11 @@ const verifyJson = () => {
     if (!parsedJson.nodes || !parsedJson.edges) {
       validationMessage.value = 'Invalid graph data. Ensure JSON contains "nodes" and "edges".'
       validationMessageClass.value = 'alert-danger'
-      return // Do not clear the error message
-    }
-
-    // Check for duplicate node IDs
-    const nodeIds = parsedJson.nodes.map((node) => node.id)
-    const duplicateIds = nodeIds.filter((id, index) => nodeIds.indexOf(id) !== index)
-    if (duplicateIds.length > 0) {
-      validationMessage.value = `Duplicate node IDs found: ${[...new Set(duplicateIds)].join(', ')}`
-      validationMessageClass.value = 'alert-danger'
-      return // Do not clear the error message
+      setTimeout(() => {
+        validationMessage.value = ''
+        validationMessageClass.value = ''
+      }, 2000)
+      return
     }
 
     graphStore.nodes = parsedJson.nodes.map((node) => {
@@ -1038,11 +996,15 @@ const verifyJson = () => {
       // Update visibility for nodes
       cyInstance.value.nodes().forEach((node) => {
         const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+        if (storedNode?.data.visible === false) {
+          node.style('display', 'none')
+        } else {
+          node.style('display', 'element')
+        }
         if (storedNode?.position) {
           node.position(storedNode.position)
+          node.lock()
         }
-        // Ensure all nodes are displayed in the graph editor
-        node.style('display', 'element')
       })
 
       cyInstance.value
@@ -1072,6 +1034,10 @@ const verifyJson = () => {
   } catch (error) {
     validationMessage.value = `Invalid JSON: ${error.message}`
     validationMessageClass.value = 'alert-danger'
+    setTimeout(() => {
+      validationMessage.value = ''
+      validationMessageClass.value = ''
+    }, 2000)
     console.error('Error parsing JSON:', error)
   }
 }
@@ -1506,38 +1472,13 @@ onMounted(() => {
         {
           selector: 'node',
           style: {
-            display: 'element', // Override display to ensure visibility
+            display: (ele) => (ele.data('visible') === false ? 'none' : 'element'),
             label: (ele) =>
               ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label') || '',
             'background-color': (ele) => ele.data('color') || '#ccc',
             color: '#000',
             'text-valign': 'center',
             'text-halign': 'center',
-          },
-        },
-        {
-          selector: 'node[type="markdown-image"]',
-          style: {
-            shape: 'rectangle',
-            'background-image': (ele) => {
-              const parsed = parseMarkdownImage(ele.data('label'))
-              return parsed ? parsed.url : ''
-            },
-            'background-fit': 'cover',
-            'background-opacity': 1,
-            'border-width': 0,
-            width: (ele) => ele.data('imageWidth'),
-            height: (ele) => ele.data('imageHeight'),
-
-            // width: (ele) => {
-            //    const parsed = parseMarkdownImage(ele.data('label'))
-            //    return parsed?.styles?.width || '100px'
-            //   },
-            //   height: (ele) => {
-            //   const parsed = parseMarkdownImage(ele.data('label'))
-            //     return parsed?.styles?.height || '100px'
-            //    },
-            label: '',
           },
         },
         {
@@ -1620,10 +1561,11 @@ onMounted(() => {
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '16px',
-
+            'text-max-height': '1122px',
             padding: '10px',
             width: '794px',
-            height: '1122pt' /* A4 height in pixels */,
+            height: '1122px' /* A4 height in pixels */,
+            overflow: 'hidden' /* Set overflow to hidden */,
           },
         },
 
@@ -1704,7 +1646,7 @@ onMounted(() => {
         },
 
         {
-          selector: 'node[type="action_txt"]',
+          selector: 'node[type="action"]',
           style: {
             shape: 'rectangle',
             'background-image': (ele) => ele.data('label'),
@@ -1735,6 +1677,7 @@ onMounted(() => {
         name: 'preset',
       },
       boxSelectionEnabled: true,
+      wheelSensitivity: 0.2,
     })
 
     // Initialize undo-redo instance
@@ -1746,39 +1689,26 @@ onMounted(() => {
       const data = node.data()
 
       // Check if the node type is "action"
-      if (data.type === 'action_txt') {
+      if (data.type === 'action') {
+        handleActionNodeClick(data)
+
         // File upload dialog for "action" nodes
         const fileInput = document.createElement('input')
         fileInput.type = 'file'
         fileInput.accept = '.txt,.md'
-        fileInput.onchange = async (event) => {
+        fileInput.onchange = (event) => {
           const file = event.target.files[0]
           if (file) {
             const reader = new FileReader()
-            reader.onload = async (e) => {
+            reader.onload = (e) => {
               const content = new TextDecoder('windows-1252').decode(e.target.result)
 
-              // Generate a unique hash for the node ID
-              const hashBuffer = await crypto.subtle.digest(
-                'SHA-256',
-                new TextEncoder().encode(content),
-              )
-              const hashArray = Array.from(new Uint8Array(hashBuffer))
-              const hash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
-              const newNodeId = `${file.name}_${hash}`
-
-              const existingNode = cyInstance.value.getElementById(newNodeId)
-              if (existingNode.length > 0) {
-                alert('Node with this content already exists.')
-                return
-              }
-
-              // Create a new node
+              //Duplictae node
               const newNode = {
                 data: {
-                  id: newNodeId,
+                  id: `${data.id}_copy`,
                   label: '/images/openai.svg',
-                  type: 'fulltext',
+                  type: 'openai',
                   info: content,
                   color: '#f9f9f9',
                   imageWidth: 250,
@@ -1796,50 +1726,6 @@ onMounted(() => {
           }
         }
         fileInput.click()
-      } else if (data.type === 'action_img') {
-        // Handle image upload
-        const fileInput = document.createElement('input')
-        fileInput.type = 'file'
-        fileInput.accept = 'image/*'
-        fileInput.onchange = async (event) => {
-          const file = event.target.files[0]
-          if (file) {
-            const formData = new FormData()
-            formData.append('file', file)
-
-            try {
-              const response = await fetch('https://api.vegvisr.org/upload', {
-                method: 'POST',
-                body: formData,
-              })
-
-              if (response.ok) {
-                const result = await response.json()
-                const imageUrl = result.url
-
-                // Create a new node with the uploaded image
-                const newNode = {
-                  data: {
-                    id: `${data.id}_img`,
-                    label: imageUrl,
-                    type: 'background',
-                    color: '#f9f9f9',
-                    imageWidth: 250,
-                    imageHeight: 250,
-                  },
-                  position: { x: node.position('x') + 100, y: node.position('y') + 100 },
-                }
-                graphStore.nodes.push(newNode)
-                cyInstance.value.add(newNode)
-              } else {
-                console.error('Image upload failed')
-              }
-            } catch (error) {
-              console.error('Error uploading image:', error)
-            }
-          }
-        }
-        fileInput.click()
       }
 
       selectedElement.value = {
@@ -1847,7 +1733,7 @@ onMounted(() => {
         info: data.info || null,
         bibl: Array.isArray(data.bibl) ? data.bibl : [],
       }
-    }) // <-- Add this closing brace to fix the syntax error
+    })
 
     cyInstance.value.on('tap', 'node, edge', (event) => {
       const element = event.target
@@ -1886,88 +1772,13 @@ onMounted(() => {
 })
 
 // Function to handle clicks on action nodes
-// const handleActionNodeClick = (nodeData) => {
-//   console.log('Action node clicked:', nodeData)
+const handleActionNodeClick = (nodeData) => {
+  console.log('Action node clicked:', nodeData)
+  // Add your custom logic here
+  alert(`Action node clicked: ${nodeData.label}`)
+}
 
-//   if (nodeData.type === 'action_txt') {
-//     // Handle text file upload
-//     const fileInput = document.createElement('input')
-//     fileInput.type = 'file'
-//     fileInput.accept = '.txt,.md'
-//     fileInput.onchange = (event) => {
-//       const file = event.target.files[0]
-//       if (file) {
-//         const reader = new FileReader()
-//         reader.onload = (e) => {
-//           const content = e.target.result
-
-//           // Create a new node with the uploaded text
-//           const newNode = {
-//             data: {
-//               id: `${nodeData.id}_txt`,
-//               label: 'Uploaded Text',
-//               type: 'info',
-//               info: content,
-//               color: '#f9f9f9',
-//             },
-//             position: { x: nodeData.position.x + 100, y: nodeData.position.y + 100 },
-//           }
-//           graphStore.nodes.push(newNode)
-//           cyInstance.value.add(newNode)
-//         }
-//         reader.readAsText(file)
-//       }
-//     }
-//     fileInput.click()
-//   } else if (nodeData.type === 'action_img') {
-//     // Handle image upload
-//     const fileInput = document.createElement('input')
-//     fileInput.type = 'file'
-//     fileInput.accept = 'image/*'
-//     fileInput.onchange = async (event) => {
-//       const file = event.target.files[0]
-//       if (file) {
-//         const formData = new FormData()
-//         formData.append('file', file)
-
-//         try {
-//           const response = await fetch('https://api.vegvisr.org/upload', {
-//             method: 'POST',
-//             body: formData,
-//           })
-
-//           if (response.ok) {
-//             const result = await response.json()
-//             const imageUrl = result.url
-
-//             // Create a new node with the uploaded image
-//             const newNode = {
-//               data: {
-//                 id: `${nodeData.id}_img`,
-//                 label: imageUrl,
-//                 type: 'background',
-//                 color: '#f9f9f9',
-//                 imageWidth: 250,
-//                 imageHeight: 250,
-//               },
-//               position: { x: nodeData.position.x + 100, y: nodeData.position.y + 100 },
-//             }
-//             graphStore.nodes.push(newNode)
-//             cyInstance.value.add(newNode)
-//           } else {
-//             console.error('Image upload failed')
-//           }
-//         } catch (error) {
-//           console.error('Error uploading image:', error)
-//         }
-//       }
-//     }
-//     fileInput.click()
-//   } else {
-//     alert('Unknown action type')
-//   }
-// }
-
+// Watch graph changes
 watch(
   () => [graphStore.nodes, graphStore.edges],
   () => {
@@ -2048,132 +1859,6 @@ const updateNodeVisibility = async (nodeId, isVisible) => {
     } catch (error) {
       console.error('Error updating the database:', error)
     }
-  }
-}
-
-const contextMenuVisible = ref(false)
-const contextMenuPosition = ref({ x: 0, y: 0 })
-const contextMenuOptions = ref([]) // Ensure contextMenuOptions is defined as a reactive variable
-
-// Show context menu on right-click
-const showContextMenu = (event, node) => {
-  event.preventDefault()
-  const cyContainer = document.getElementById('cy')
-  const containerRect = cyContainer.getBoundingClientRect()
-  const nodePosition = node.renderedPosition()
-
-  contextMenuPosition.value = {
-    x: containerRect.left + nodePosition.x - 100,
-    y: containerRect.top + nodePosition.y + 100,
-  }
-  contextMenuVisible.value = true
-  selectedElement.value = {
-    label: node.data('label'),
-    info: node.data('info') || null,
-    bibl: node.data('bibl') || [],
-  }
-
-  // Populate contextMenuOptions dynamically
-  contextMenuOptions.value = [
-    { label: 'Add as Template', action: () => addTemplateFromNode(node.data()) },
-    { label: 'Delete Node', action: () => deleteNode(node) },
-    // Add more options as needed
-  ]
-}
-
-// Hide context menu
-const hideContextMenu = () => {
-  contextMenuVisible.value = false
-}
-
-// Add event listener for right-click on nodes
-onMounted(() => {
-  if (cyInstance.value) {
-    cyInstance.value.on('cxttap', 'node', (event) => {
-      showContextMenu(event.originalEvent, event.target)
-    })
-  }
-
-  // Hide context menu on click outside
-  document.addEventListener('click', hideContextMenu)
-})
-
-// Cleanup event listener
-onUnmounted(() => {
-  document.removeEventListener('click', hideContextMenu)
-})
-
-const addTemplateFromNode = async (node) => {
-  const templateName = prompt('Enter a name for the template:')
-  if (!templateName) return
-
-  try {
-    const response = await fetch('https://knowledge.vegvisr.org/addTemplate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: templateName, node }),
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      alert(result.message)
-    } else {
-      const error = await response.json()
-      alert(`Error: ${error.error}`)
-    }
-  } catch (error) {
-    console.error('Error adding template:', error)
-    alert('An error occurred while adding the template.')
-  }
-}
-
-// Example function for deleting a node
-const deleteNode = (node) => {
-  if (cyInstance.value) {
-    cyInstance.value.remove(node)
-    graphStore.nodes = graphStore.nodes.filter((n) => n.data.id !== node.data('id'))
-  }
-  hideContextMenu()
-}
-
-// Function to parse markdown image syntax
-const parseMarkdownImage = (markdown) => {
-  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/ // Match markdown image syntax
-  const match = markdown.match(regex)
-
-  if (match) {
-    const styles = match[1].split(';').reduce((acc, style) => {
-      const [key, value] = style.split(':').map((s) => s.trim())
-      if (key && value) acc[key] = value
-      return acc
-    }, {})
-
-    return { url: match[2], styles }
-  }
-  return null
-}
-
-// Example usage
-const markdown =
-  '![Header|width:100%;height:250px;object-fit: cover;object-position: center](https://images.pexels.com/photos/3822236/pexels-photo-3822236.jpeg)'
-const parsed = parseMarkdownImage(markdown)
-
-if (parsed) {
-  const newNode = {
-    data: {
-      id: 'markdownImageNode',
-      type: 'markdown-image',
-      label: markdown,
-      imageUrl: parsed.url,
-      styles: parsed.styles,
-    },
-    position: { x: 100, y: 100 },
-  }
-
-  graphStore.nodes.push(newNode)
-  if (cyInstance.value) {
-    cyInstance.value.add(newNode)
-    cyInstance.value.layout({ name: 'preset' }).run()
   }
 }
 
@@ -2352,45 +2037,5 @@ defineProps({
   background: orange;
   outline: 2px solid #f7f4f4;
   padding: 2px;
-}
-
-/* Add styles for the context menu */
-.context-menu {
-  position: absolute;
-  background: white;
-  border: 1px solid #ccc;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  z-index: 1000;
-  padding: 10px;
-  border-radius: 4px;
-}
-
-.context-menu ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.context-menu li {
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-.context-menu li:hover {
-  background: #f0f0f0;
-}
-
-/* Add styles for markdown-image nodes */
-.node[type='markdown-image'] {
-  shape: rectangle;
-  background-image: attr(imageUrl);
-  background-fit: cover;
-  background-opacity: 1;
-  border-width: 0;
-  label: attr(label);
-  text-valign: bottom;
-  text-halign: center;
-  font-size: 12px;
-  color: #000;
 }
 </style>

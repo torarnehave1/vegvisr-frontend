@@ -21,3 +21,5 @@ npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "CREATE TABLE config (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, profileimage TEXT, email TEXT, emailVerificationToken TEXT);"
 
 //Create a wrangler command that is using a sql file to execute a command
+
+npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --file=database/graphTemplates.sql

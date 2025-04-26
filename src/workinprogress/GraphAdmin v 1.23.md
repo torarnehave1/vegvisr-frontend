@@ -423,6 +423,7 @@
         </li>
       </ul>
     </div>
+
   </div>
 </template>
 
@@ -1516,31 +1517,6 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="markdown-image"]',
-          style: {
-            shape: 'rectangle',
-            'background-image': (ele) => {
-              const parsed = parseMarkdownImage(ele.data('label'))
-              return parsed ? parsed.url : ''
-            },
-            'background-fit': 'cover',
-            'background-opacity': 1,
-            'border-width': 0,
-            width: (ele) => ele.data('imageWidth'),
-            height: (ele) => ele.data('imageHeight'),
-
-            // width: (ele) => {
-            //    const parsed = parseMarkdownImage(ele.data('label'))
-            //    return parsed?.styles?.width || '100px'
-            //   },
-            //   height: (ele) => {
-            //   const parsed = parseMarkdownImage(ele.data('label'))
-            //     return parsed?.styles?.height || '100px'
-            //    },
-            label: '',
-          },
-        },
-        {
           selector: 'edge',
           style: {
             label: (ele) => (ele.data('type') === 'info' ? 'ℹ️' : ''),
@@ -2136,47 +2112,6 @@ const deleteNode = (node) => {
   hideContextMenu()
 }
 
-// Function to parse markdown image syntax
-const parseMarkdownImage = (markdown) => {
-  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/ // Match markdown image syntax
-  const match = markdown.match(regex)
-
-  if (match) {
-    const styles = match[1].split(';').reduce((acc, style) => {
-      const [key, value] = style.split(':').map((s) => s.trim())
-      if (key && value) acc[key] = value
-      return acc
-    }, {})
-
-    return { url: match[2], styles }
-  }
-  return null
-}
-
-// Example usage
-const markdown =
-  '![Header|width:100%;height:250px;object-fit: cover;object-position: center](https://images.pexels.com/photos/3822236/pexels-photo-3822236.jpeg)'
-const parsed = parseMarkdownImage(markdown)
-
-if (parsed) {
-  const newNode = {
-    data: {
-      id: 'markdownImageNode',
-      type: 'markdown-image',
-      label: markdown,
-      imageUrl: parsed.url,
-      styles: parsed.styles,
-    },
-    position: { x: 100, y: 100 },
-  }
-
-  graphStore.nodes.push(newNode)
-  if (cyInstance.value) {
-    cyInstance.value.add(newNode)
-    cyInstance.value.layout({ name: 'preset' }).run()
-  }
-}
-
 defineProps({
   theme: {
     type: String,
@@ -2378,19 +2313,5 @@ defineProps({
 
 .context-menu li:hover {
   background: #f0f0f0;
-}
-
-/* Add styles for markdown-image nodes */
-.node[type='markdown-image'] {
-  shape: rectangle;
-  background-image: attr(imageUrl);
-  background-fit: cover;
-  background-opacity: 1;
-  border-width: 0;
-  label: attr(label);
-  text-valign: bottom;
-  text-halign: center;
-  font-size: 12px;
-  color: #000;
 }
 </style>

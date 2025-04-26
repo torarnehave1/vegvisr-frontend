@@ -36,6 +36,7 @@ export default {
           ...graphData,
           nodes: graphData.nodes.map((node) => ({
             ...sanitize(node),
+            visible: node.visible !== false, // Default to true if not set
             position: node.position || { x: 0, y: 0 },
             imageWidth: node.imageWidth || null,
             imageHeight: node.imageHeight || null,
@@ -297,6 +298,7 @@ export default {
               position: node.position || { x: 0, y: 0 }, // Ensure position is included
               imageWidth: node.imageWidth || null, // Include image-width
               imageHeight: node.imageHeight || null, // Include image-height
+              visible: node.visible !== false, // Default to true if not set
             })),
             edges: graphData.edges.map(({ source, target }) => ({
               id: `${source}_${target}`, // Ensure edge ID is set
@@ -435,9 +437,10 @@ export default {
             )
           }
 
-          const graphData = sanitizeGraphData(JSON.parse(result.data))
+          const graphData = JSON.parse(result.data)
           graphData.nodes = graphData.nodes.map((node) => ({
             ...node,
+            visible: node.visible !== false, // Ensure visible field is included
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
           }))
@@ -454,6 +457,64 @@ export default {
           })
         } catch (error) {
           console.error('[Worker] Error fetching graph version:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/addTemplate' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { name, node } = requestBody
+
+          if (!name || !node) {
+            return new Response(
+              JSON.stringify({ error: 'Template name and node data are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Adding template: ${name}`)
+
+          const query = `
+            INSERT INTO graphTemplates (name, nodes, edges)
+            VALUES (?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(query)
+            .bind(name, JSON.stringify([node]), JSON.stringify([]))
+            .run()
+
+          console.log('[Worker] Template added successfully')
+          return new Response(JSON.stringify({ message: 'Template added successfully', name }), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] Error adding template:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getTemplates' && request.method === 'GET') {
+        try {
+          console.log('[Worker] Fetching list of graph templates')
+
+          const query = `SELECT name, nodes, edges FROM graphTemplates`
+          const results = await env.vegvisr_org.prepare(query).all()
+
+          console.log('[Worker] Graph templates fetched successfully')
+          return new Response(JSON.stringify(results), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching graph templates:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,

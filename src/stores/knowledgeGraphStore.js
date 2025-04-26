@@ -43,7 +43,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     })
   }
 
-  const sanitizeGraphData = (graphData) => {
+  const sanitizeGraphData = (graphData, forGraphEditor = false) => {
     const sanitize = (obj) =>
       Object.fromEntries(
         Object.entries(obj)
@@ -55,9 +55,10 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
       ...graphData,
       nodes: graphData.nodes.map((node) => ({
         ...sanitize(node),
+        visible: forGraphEditor ? true : node.visible !== false, // Always true for graph editor
         position: node.position || { x: 0, y: 0 },
-        imageWidth: node.imageWidth || null, // Preserve null if not set
-        imageHeight: node.imageHeight || null, // Preserve null if not set
+        imageWidth: node.imageWidth || null,
+        imageHeight: node.imageHeight || null,
       })),
       edges: graphData.edges.map((edge) => {
         const sanitizedEdge = sanitize(edge)
@@ -73,8 +74,8 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     }
   }
 
-  const updateGraphFromJson = (parsedJson) => {
-    const sanitizedData = sanitizeGraphData(parsedJson)
+  const updateGraphFromJson = (parsedJson, forGraphEditor = false) => {
+    const sanitizedData = sanitizeGraphData(parsedJson, forGraphEditor)
     nodes.value = sanitizedData.nodes.map((node) => ({
       data: {
         ...node,
@@ -150,6 +151,13 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     }
   }
 
+  const updateNodeVisibilityInStore = (nodeId, isVisible) => {
+    const node = nodes.value.find((n) => n.data.id === nodeId)
+    if (node) {
+      node.data.visible = isVisible
+    }
+  }
+
   // Watch for changes to currentGraphId and persist to localStorage
   watch(currentGraphId, (newId) => {
     if (newId === null) {
@@ -176,5 +184,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     pushToUndoStack,
     undo, // Ensure undo is returned
     redo, // Ensure redo is returned
+    updateNodeVisibilityInStore, // Ensure updateNodeVisibilityInStore is returned
   }
 })

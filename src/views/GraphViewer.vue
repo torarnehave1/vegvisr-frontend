@@ -3,7 +3,11 @@
     <div v-if="loading" class="loading">Loading...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="graph-container">
-      <div v-for="node in graphData.nodes" :key="node.id" class="node">
+      <div
+        v-for="node in graphData.nodes.filter((n) => n.visible !== false)"
+        :key="node.id"
+        class="node"
+      >
         <template v-if="node.type === 'background'">
           <img :src="node.label" alt="Background Image" class="node-image" />
         </template>
@@ -49,7 +53,11 @@ const fetchGraphData = async () => {
       throw new Error(`Failed to fetch graph: ${response.statusText}`)
     }
     const data = await response.json()
-    graphData.value = data
+
+    graphData.value = {
+      ...data,
+      nodes: data.nodes.filter((node) => node.visible !== false), // Exclude invisible nodes
+    }
   } catch (err) {
     error.value = err.message
   } finally {
@@ -58,80 +66,77 @@ const fetchGraphData = async () => {
 }
 
 const preprocessMarkdown = (text) => {
-  console.log('--- Preprocessing Markdown ---')
-  console.log('Original text:', text)
-
-  // Regex to match image markdown with size and optional style information
   const imageRegex =
     /!\[([^\]]*?)\|width:(\d+(?:px|%));height:(\d+(?:px|%))(?:;object-fit:\s*(\w+);object-position:\s*([\w\s%]+))?\]\((.*?)\)/g
 
-  // Replace matched image markdown with styled HTML
-  const processedText = text.replace(
-    imageRegex,
-    (match, alt, width, height, objectFit, objectPosition, src) => {
-      console.log('Matched image markdown:', { alt, width, height, objectFit, objectPosition, src })
+  let result = ''
+  let lastIndex = 0
+  let match
 
-      // Check if the alt text contains the key "Rightside-X" or "Leftside-X"
-      const rightsideMatch = alt.match(/Rightside-(\d+)/)
-      const leftsideMatch = alt.match(/Leftside-(\d+)/)
+  // Process each image markdown match
+  while ((match = imageRegex.exec(text)) !== null) {
+    const [fullMatch, alt, width, height, objectFit, objectPosition, src] = match
+    const offset = match.index
 
-      if (rightsideMatch || leftsideMatch) {
-        const paragraphsToInclude = parseInt((rightsideMatch || leftsideMatch)[1], 10) || 1 // Default to 1 paragraph
-        const isLeftside = !!leftsideMatch
-        const imageWidth = parseInt(width) || 50 // Default to 50% if width is not provided
-        const textWidth = 100 - imageWidth // Calculate text width as the remaining percentage
+    // Append text before the match
+    result += marked.parse(text.slice(lastIndex, offset))
 
-        const styleImage = `width: ${imageWidth}%; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
-        const styleText = `width: ${textWidth}%; display: inline-block; vertical-align: top; padding-${isLeftside ? 'right' : 'left'}: 10px;`
+    const rightsideMatch = alt.match(/Rightside-(\d+)/)
+    const leftsideMatch = alt.match(/Leftside-(\d+)/)
 
-        // Extract text following the image markdown
-        const remainingText = text.split(match)[1]?.trim() || ''
-        const paragraphs = remainingText.split('\n\n') // Split text into paragraphs
-        const sideContentMarkdown = paragraphs.slice(0, paragraphsToInclude).join('\n\n')
-        const remainingContentMarkdown = paragraphs.slice(paragraphsToInclude).join('\n\n')
+    if (rightsideMatch || leftsideMatch) {
+      const paragraphsToInclude = parseInt((rightsideMatch || leftsideMatch)[1], 10) || 1
+      const isLeftside = !!leftsideMatch
+      const imageWidth = parseInt(width) || 50
+      const textWidth = 100 - imageWidth
 
-        const sideContentHtml = marked(sideContentMarkdown) // Convert to HTML
-        const remainingContentHtml = marked(remainingContentMarkdown) // Convert to HTML
+      const styleImage = `width: ${imageWidth}%; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
+      const styleText = `width: ${textWidth}%; display: inline-block; vertical-align: top; padding-${isLeftside ? 'right' : 'left'}: 10px;`
 
-        // Generate HTML for the image and aligned text
-        const imgHtml = isLeftside
-          ? `<div style="display: flex;"><div style="${styleText}">${sideContentHtml}</div><img src="${src}" alt="${alt}" style="${styleImage}" /></div>`
-          : `<div style="display: flex;"><img src="${src}" alt="${alt}" style="${styleImage}" /><div style="${styleText}">${sideContentHtml}</div></div>`
-        const fullHtml = `${imgHtml}<div style="width: 100%; margin-top: 10px;">${remainingContentHtml}</div>`
-        console.log('Generated HTML:', fullHtml)
-        return fullHtml
-      }
+      // Get text after the match
+      const remainingText = text.slice(offset + fullMatch.length).trim()
+      const paragraphs = remainingText.split('\n\n')
+      const sideContentMarkdown = paragraphs.slice(0, paragraphsToInclude).join('\n\n')
+      const remainingContentMarkdown = paragraphs.slice(paragraphsToInclude).join('\n\n')
 
-      // Default handling for other images
+      const sideContentHtml = marked.parse(sideContentMarkdown)
+      const remainingContentHtml = remainingContentMarkdown
+        ? marked.parse(remainingContentMarkdown)
+        : ''
+
+      const imgHtml = isLeftside
+        ? `<div style="display: flex;"><div style="${styleText}">${sideContentHtml}</div><img src="${src}" alt="${alt}" style="${styleImage}" /></div>`
+        : `<div style="display: flex;"><img src="${src}" alt="${alt}" style="${styleImage}" /><div style="${styleText}">${sideContentHtml}</div></div>`
+
+      result += remainingContentHtml
+        ? `${imgHtml}<div style="width: 100%; margin-top: 10px;">${remainingContentHtml}</div>`
+        : imgHtml
+
+      // Update lastIndex to skip processed remaining content
+      lastIndex = offset + fullMatch.length + remainingText.length
+    } else {
       const style = `width: ${width}; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
-      const imgHtml = `<img src="${src}" alt="${alt}" style="${style}" />`
-      console.log('Generated image HTML:', imgHtml)
-      return imgHtml
-    },
-  )
+      result += `<img src="${src}" alt="${alt}" style="${style}" />`
+      lastIndex = offset + fullMatch.length
+    }
+  }
 
-  console.log('Processed text:', processedText)
-  return processedText
+  // Append any remaining text after the last match
+  if (lastIndex < text.length) {
+    result += marked.parse(text.slice(lastIndex))
+  }
+
+  return result
 }
 
 const convertToHtml = (text) => {
-  console.log('--- Debugging convertToHtml ---')
-  console.log('Raw text being processed:', text)
-
-  // Preprocess the markdown to handle image markdown with size information
-  const preprocessedText = preprocessMarkdown(text)
-
-  // Pass the preprocessed text to marked
-  const html = marked(preprocessedText)
-  console.log('Generated HTML from marked:', html)
-  return html
+  return preprocessMarkdown(text)
 }
 
 onMounted(() => {
   fetchGraphData()
 })
 
-// Watch for changes to the currentGraphId in the store and refetch data
 watch(
   () => knowledgeGraphStore.currentGraphId,
   () => {
@@ -143,8 +148,6 @@ watch(
 </script>
 
 <style scoped>
-/* General styles */
-
 .graph-viewer {
   padding: 20px;
   background-color: #f9f9f9;
@@ -163,7 +166,6 @@ watch(
   gap: 20px;
 }
 
-/* Node styles */
 .node {
   padding: 15px;
   border: 1px solid #ddd;
@@ -190,7 +192,6 @@ watch(
   border-radius: 8px;
 }
 
-/* Responsive styles */
 @media (max-width: 768px) {
   .node {
     padding: 10px;
