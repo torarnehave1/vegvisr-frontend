@@ -639,6 +639,123 @@ const handleGetImage = async (request, env) => {
   return new Response(image.body, { status: 200, headers })
 }
 
+const handleGetImageFromR2 = async (request, env) => {
+  const url = new URL(request.url)
+  const fileName = url.searchParams.get('name')
+
+  if (!fileName) {
+    return createErrorResponse('Image file name is missing', 400)
+  }
+
+  const image = await env.MY_R2_BUCKET.get(fileName)
+
+  if (!image) {
+    return createErrorResponse('Image not found', 404)
+  }
+
+  const headers = {
+    'Content-Type': image.httpMetadata?.contentType || 'application/octet-stream',
+    'Cache-Control': 'public, max-age=31536000',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+    'Timing-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': '*',
+    'X-Content-Type-Options': 'nosniff',
+  }
+
+  return new Response(image.body, { status: 200, headers })
+}
+
+const handleGetImageHeaders = async (request, env) => {
+  const url = new URL(request.url)
+  const fileName = url.searchParams.get('name')
+
+  if (!fileName) {
+    return createErrorResponse('Image file name is missing', 400)
+  }
+
+  const image = await env.MY_R2_BUCKET.get(fileName)
+
+  if (!image) {
+    return createErrorResponse('Image not found', 404)
+  }
+
+  const headers = {
+    'Content-Type': image.httpMetadata?.contentType || 'application/octet-stream',
+    'Cache-Control': 'public, max-age=31536000',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+    'Timing-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': '*',
+    'X-Content-Type-Options': 'nosniff',
+    'Last-Modified': image.httpMetadata?.lastModified || new Date().toUTCString(),
+    'Content-Length': image.size, // Add content-length
+  }
+
+  return new Response(null, { status: 200, headers }) // No body, only headers
+}
+
+const handleSummarize = async (request, env) => {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { text } = body
+  if (!text || typeof text !== 'string') {
+    return createErrorResponse('Text input is missing or invalid', 400)
+  }
+
+  const prompt = `
+    Summarize the following text into a concise paragraph suitable for a fulltext node:
+    ${text}
+  `
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4',
+      temperature: 0.7,
+      max_tokens: 300,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a summarization assistant. Generate concise summaries.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    return createErrorResponse(`OpenAI API error: ${response.status} - ${errorText}`, 500)
+  }
+
+  const data = await response.json()
+  const summary = data.choices[0].message.content.trim()
+
+  return createResponse(
+    JSON.stringify({
+      id: `fulltext_${Date.now()}`,
+      label: 'Summary',
+      type: 'fulltext',
+      info: summary,
+      color: '#f9f9f9',
+    }),
+    200,
+  )
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -691,6 +808,15 @@ export default {
       }
       if (pathname === '/getimage' && request.method === 'GET') {
         return await handleGetImage(request, env)
+      }
+      if (pathname === '/getcorsimage' && request.method === 'GET') {
+        return await handleGetImageFromR2(request, env)
+      }
+      if (pathname === '/getcorsimage' && request.method === 'HEAD') {
+        return await handleGetImageHeaders(request, env)
+      }
+      if (pathname === '/summarize' && request.method === 'POST') {
+        return await handleSummarize(request, env)
       }
 
       return createErrorResponse('Not Found', 404)

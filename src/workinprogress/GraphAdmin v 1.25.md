@@ -423,6 +423,7 @@
         </li>
       </ul>
     </div>
+
   </div>
 </template>
 
@@ -1087,36 +1088,8 @@ const verifyJson = () => {
           position: { x: 100, y: 100 },
         }
         graphStore.nodes.push(newNode)
-
-        const actionNode = {
-          data: {
-            id: `action_txt_${Date.now()}`,
-            label: 'images/ActionSummary.png',
-            color: 'gray',
-            type: 'action_txt',
-            info: null,
-            bibl: [],
-            imageWidth: 180,
-            imageHeight: 180,
-            visible: false,
-          },
-          position: { x: 200, y: 200 },
-        }
-        graphStore.nodes.push(actionNode)
-
-        const newEdge = {
-          data: {
-            id: `edge_${newNode.data.id}_${actionNode.data.id}`,
-            source: newNode.data.id,
-            target: actionNode.data.id,
-          },
-        }
-        graphStore.edges.push(newEdge)
-
         if (cyInstance.value) {
           cyInstance.value.add(newNode)
-          cyInstance.value.add(actionNode)
-          cyInstance.value.add(newEdge)
           cyInstance.value.layout({ name: 'preset' }).run()
         }
         graphJson.value = JSON.stringify(
@@ -1127,8 +1100,7 @@ const verifyJson = () => {
           null,
           2,
         )
-        validationMessage.value =
-          'Transformed text into a fulltext node, added an action node, and connected them with an edge!'
+        validationMessage.value = 'Transformed text into a fulltext node!'
         validationMessageClass.value = 'alert-success'
         setTimeout(() => {
           validationMessage.value = ''
@@ -1565,7 +1537,7 @@ onMounted(() => {
     console.error('Cytoscape container #cy not found!')
     return
   }
-  //NodeTypes
+
   try {
     cyInstance.value = cytoscape({
       container: cyContainer,
@@ -1781,7 +1753,7 @@ onMounted(() => {
             'border-width': 0,
             width: (ele) => ele.data('imageWidth'),
             height: (ele) => ele.data('imageHeight'),
-            label: 'gris',
+            label: 'data(label)',
             'text-valign': 'bottom',
             'text-halign': 'center',
             'font-size': '0px',
@@ -1809,77 +1781,12 @@ onMounted(() => {
     undoRedoInstance.value = cyInstance.value.undoRedo()
 
     // Event listener for node clicks
-    cyInstance.value.on('tap', 'node', async (event) => {
+    cyInstance.value.on('tap', 'node', (event) => {
       const node = event.target
       const data = node.data()
 
       // Check if the node type is "action"
       if (data.type === 'action_txt') {
-        // Retrieve edges connected to the current node
-        const connectedEdges = cyInstance.value.edges().filter((edge) => {
-          return edge.data('source') === node.id() || edge.data('target') === node.id()
-        })
-
-        console.log('Connected edges:', connectedEdges.length)
-
-        if (connectedEdges.length > 0) {
-          const connectedNodeId =
-            connectedEdges[0].data('source') === node.id()
-              ? connectedEdges[0].data('target')
-              : connectedEdges[0].data('source')
-          const connectedNode = cyInstance.value.getElementById(connectedNodeId)
-
-          if (connectedNode && connectedNode.data('label')) {
-            console.log('Connected to node:', connectedNode.data('label'))
-            const content = connectedNode.data('info') || ''
-            console.log('Content:', content)
-
-            //ask the ser if he want to summarize the content
-            const userConfirmed = confirm(
-              'Do you want to summarize the content of the connected node?',
-            )
-
-            //If the user confirms yes call the summarize endpoint
-            if (userConfirmed) {
-              const summaryData = await summarizeContent(content)
-              if (summaryData) {
-                console.log('Summary:', summaryData)
-                if (validateNode(summaryData)) {
-                  graphStore.nodes.push({
-                    data: summaryData,
-                    position: { x: node.position('x') + 100, y: node.position('y') + 100 },
-                  })
-                  cyInstance.value.add({
-                    data: summaryData,
-                    position: { x: node.position('x') + 100, y: node.position('y') + 100 },
-                  })
-                  cyInstance.value.layout({ name: 'preset' }).run()
-
-                  // Update JSON editor
-                  graphJson.value = JSON.stringify(
-                    {
-                      nodes: graphStore.nodes.map((n) => n.data),
-                      edges: graphStore.edges.map((e) => e.data),
-                    },
-                    null,
-                    2,
-                  )
-                } else {
-                  console.error('Invalid summary node. It was not added to the graph.')
-                }
-              }
-            }
-            // If the user confirms no, do nothing
-            else {
-              console.log('User chose not to summarize the content.')
-            }
-          } else {
-            console.warn('Connected node not found or has no label.')
-          }
-
-          return
-        }
-
         // File upload dialog for "action" nodes
         const fileInput = document.createElement('input')
         fileInput.type = 'file'
@@ -2308,53 +2215,6 @@ if (parsed) {
     cyInstance.value.add(newNode)
     cyInstance.value.layout({ name: 'preset' }).run()
   }
-}
-
-const summarizeContent = async (content) => {
-  try {
-    const response = await fetch('https://api.vegvisr.org/summarize', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text: content }),
-    })
-
-    if (!response.ok) {
-      console.error('Failed to summarize content:', response.statusText)
-      return null
-    }
-
-    const summaryData = await response.json()
-    return summaryData
-  } catch (error) {
-    console.error('Error summarizing content:', error)
-    return null
-  }
-}
-
-const validateNode = (node) => {
-  if (!node.id || typeof node.id !== 'string') {
-    console.error('Invalid node ID')
-    return false
-  }
-  if (!node.label || typeof node.label !== 'string') {
-    console.error('Invalid node label')
-    return false
-  }
-  if (!node.type || node.type !== 'fulltext') {
-    console.error('Invalid or missing node type')
-    return false
-  }
-  if (!node.info || typeof node.info !== 'string') {
-    console.error('Invalid or missing node info')
-    return false
-  }
-  if (!node.color || typeof node.color !== 'string') {
-    console.error('Invalid or missing node color')
-    return false
-  }
-  return true
 }
 
 defineProps({
