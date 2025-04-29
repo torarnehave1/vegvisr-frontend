@@ -61,11 +61,13 @@ export default {
           console.log('[Worker] Request body:', requestBody)
 
           let { id, graphData } = requestBody
+          let newlyCreated = false
 
           // Generate an ID if it's missing
           if (!id) {
             id = `graph_${Date.now()}`
             console.log(`[Worker] Generated ID: ${id}`)
+            newlyCreated = true
           }
 
           // Initialize graphData if missing
@@ -76,24 +78,115 @@ export default {
             graphData = {
               metadata: { title: '', description: '', createdBy: '' },
               nodes: [
-                { data: { id: 'main', label: 'Main Node' } },
-                { data: { id: 'first', label: 'First Node' } },
+                {
+                  id: crypto.randomUUID(),
+                  color: 'goldenrod',
+                  type: null,
+                  info: null,
+                  bibl: [],
+                  imageWidth: null,
+                  imageHeight: null,
+                  visible: true,
+                },
+                {
+                  id: crypto.randomUUID(),
+                  color: 'steelblue',
+                  type: null,
+                  info: null,
+                  bibl: [],
+                  imageWidth: null,
+                  imageHeight: null,
+                  visible: true,
+                },
+                {
+                  id: crypto.randomUUID(),
+                  color: 'lightcoral',
+                  type: null,
+                  info: null,
+                  bibl: [],
+                  imageWidth: null,
+                  imageHeight: null,
+                  visible: true,
+                },
               ],
-              edges: [{ data: { source: 'main', target: 'first' } }],
             }
+            newlyCreated = true
           }
 
           // Ensure there are at least two nodes and one edge
           if (!graphData.nodes || graphData.nodes.length < 2) {
             console.log('[Worker] Adding default nodes "Main" and "First".')
             graphData.nodes = [
-              { data: { id: 'main', label: 'Main Node' } },
-              { data: { id: 'first', label: 'First Node' } },
+              {
+                id: crypto.randomUUID(),
+                color: 'goldenrod',
+                type: null,
+                info: null,
+                bibl: [],
+                imageWidth: null,
+                imageHeight: null,
+                visible: true,
+              },
+              {
+                id: crypto.randomUUID(),
+                color: 'steelblue',
+                type: null,
+                info: null,
+                bibl: [],
+                imageWidth: null,
+                imageHeight: null,
+                visible: true,
+              },
             ]
+            newlyCreated = true
           }
           if (!graphData.edges || graphData.edges.length === 0) {
             console.log('[Worker] Adding default edge between "Main" and "First".')
-            graphData.edges = [{ data: { source: 'main', target: 'first' } }]
+            graphData.edges = [
+              {
+                id: crypto.randomUUID(),
+                source: graphData.nodes[0].id,
+                target: graphData.nodes[1].id,
+                label: '1 to 2',
+                type: null,
+                info: null,
+              },
+              {
+                id: crypto.randomUUID(),
+                source: graphData.nodes[1].id,
+                target: graphData.nodes[2].id,
+                label: '2 to 3',
+                type: null,
+                info: null,
+              },
+              {
+                id: crypto.randomUUID(),
+                source: graphData.nodes[2].id,
+                target: graphData.nodes[0].id,
+                label: '3 to 1',
+                type: null,
+                info: null,
+              },
+            ]
+            newlyCreated = true
+          } else {
+            // Ensure edges connect valid node IDs
+            graphData.edges = graphData.edges.map((edge) => {
+              const validSource = graphData.nodes.find((node) => node.id === edge.source)
+              const validTarget = graphData.nodes.find((node) => node.id === edge.target)
+
+              if (!validSource || !validTarget) {
+                console.warn(
+                  `[Worker] Invalid edge detected. Reconnecting edge ${edge.id} to valid nodes.`,
+                )
+                return {
+                  ...edge,
+                  source: graphData.nodes[0].id,
+                  target: graphData.nodes[1].id,
+                }
+              }
+              return edge
+            })
           }
 
           // Ensure metadata fields are included
@@ -132,7 +225,11 @@ export default {
 
           console.log('[Worker] Knowledge graph saved successfully')
           return new Response(
-            JSON.stringify({ message: 'Knowledge graph saved successfully', id }),
+            JSON.stringify({
+              message: 'Knowledge graph saved successfully',
+              id,
+              newlyCreated,
+            }),
             {
               status: 200,
               headers: corsHeaders,

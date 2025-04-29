@@ -5,6 +5,7 @@
 // @license MIT
 
 import { marked } from 'marked'
+import { OpenAI } from 'openai'
 
 // Utility functions
 const corsHeaders = {
@@ -756,6 +757,47 @@ const handleSummarize = async (request, env) => {
   )
 }
 
+const handleGrokTest = async (request, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { text } = body
+  if (!text || typeof text !== 'string') {
+    return createErrorResponse('Text input is missing or invalid', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 300,
+      messages: [
+        { role: 'system', content: 'You are a philosophical AI providing deep insights.' },
+        { role: 'user', content: text },
+      ],
+    })
+
+    const responseText = completion.choices[0].message.content
+    return createResponse(JSON.stringify({ response: responseText }))
+  } catch (error) {
+    return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -817,6 +859,10 @@ export default {
       }
       if (pathname === '/summarize' && request.method === 'POST') {
         return await handleSummarize(request, env)
+      }
+
+      if (pathname === '/groktest' && request.method === 'POST') {
+        return await handleGrokTest(request, env)
       }
 
       return createErrorResponse('Not Found', 404)

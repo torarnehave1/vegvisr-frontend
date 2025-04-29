@@ -219,6 +219,7 @@
         </li>
       </ul>
     </div>
+
   </div>
 </template>
 
@@ -341,25 +342,6 @@ const graphTemplates = ref([
 
   { name: 'Custom Template', nodes: [], edges: [] },
 ])
-
-const testEndpoint = async (endpoint, content) => {
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: content }),
-    })
-    if (!response.ok) {
-      console.error('Endpoint test failed:', response.statusText)
-      return null
-    }
-    const result = await response.json()
-    return result
-  } catch (error) {
-    console.error('Error testing endpoint:', error)
-    return null
-  }
-}
 
 const fetchedTemplates = ref([])
 
@@ -1418,21 +1400,6 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="action_test"]',
-          style: {
-            shape: 'rectangle',
-            'background-color': '#ffcc00',
-            'border-width': 1,
-            'border-color': '#000',
-            label: 'Test Endpoint',
-            'text-valign': 'center',
-            'text-halign': 'center',
-            'font-size': '12px',
-            width: 100,
-            height: 50,
-          },
-        },
-        {
           selector: 'node[type="markdown-image"]',
           style: {
             shape: 'rectangle',
@@ -1657,21 +1624,6 @@ onMounted(() => {
     cyInstance.value.on('tap', 'node', async (event) => {
       const node = event.target
       const data = node.data()
-
-      // Handle action_test node
-      if (data.type === 'action_test') {
-        if (!data.label || !data.info) {
-          alert('Node must have a valid endpoint URL in label and text in info.')
-          return
-        }
-        const result = await testEndpoint(data.label, data.info)
-        if (result) {
-          alert('Endpoint test successful: ' + JSON.stringify(result))
-        } else {
-          alert('Endpoint test failed.')
-        }
-        return
-      }
 
       // Check if the node type is "action"
       if (data.type === 'action_txt') {
@@ -2547,4 +2499,3 @@ const toggleSidebar = () => {
 
 /* Add styles for markdown-image nodes */
 </style>
-```

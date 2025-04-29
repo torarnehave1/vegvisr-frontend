@@ -17,8 +17,11 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const redoStack = ref([]) // Stack to track redo actions
 
   const resetGraph = () => {
+    // Preserve existing action_txt nodes
+    const existingActionTxtNodes = nodes.value.filter((node) => node.data.type === 'action_txt')
+
     graphMetadata.value = { title: '', description: '', createdBy: '' }
-    nodes.value = []
+    nodes.value = [...existingActionTxtNodes] // Reset but keep action_txt nodes
     edges.value = []
     graphJson.value = '' // Reset graphJson
     currentGraphId.value = null // Reset currentGraphId
@@ -75,15 +78,21 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   }
 
   const updateGraphFromJson = (parsedJson, forGraphEditor = false) => {
+    // Preserve existing action_txt nodes
+    const existingActionTxtNodes = nodes.value.filter((node) => node.data.type === 'action_txt')
+
     const sanitizedData = sanitizeGraphData(parsedJson, forGraphEditor)
-    nodes.value = sanitizedData.nodes.map((node) => ({
-      data: {
-        ...node,
-        imageWidth: node.imageWidth || null, // Preserve null
-        imageHeight: node.imageHeight || null, // Preserve null
-      },
-      position: node.position,
-    }))
+    nodes.value = [
+      ...sanitizedData.nodes.map((node) => ({
+        data: {
+          ...node,
+          imageWidth: node.imageWidth || null, // Preserve null
+          imageHeight: node.imageHeight || null, // Preserve null
+        },
+        position: node.position,
+      })),
+      ...existingActionTxtNodes, // Add preserved action_txt nodes
+    ]
     edges.value = sanitizedData.edges.map((edge) => ({
       data: {
         id: edge.id,

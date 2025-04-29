@@ -1,38 +1,245 @@
 <template>
   <div class="admin-page" :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }">
     <!-- Top Bar -->
-    <TopBar
-      :selected-graph-id="selectedGraphId"
-      :knowledge-graphs="knowledgeGraphs"
-      :current-graph-id="graphStore.currentGraphId"
-      :validation-errors="validationErrors"
-      @update:selectedGraphId="updateSelectedGraphId"
-      @toggle-sidebar="toggleSidebar"
-    />
+    <div class="top-bar sticky-top bg-light p-3 border-bottom">
+      <div class="container-fluid">
+        <div class="row align-items-center">
+          <!-- Graph Selector -->
+          <div class="col-md-4 col-sm-12">
+            <label for="graphDropdown" class="form-label"
+              ><strong>Select Knowledge Graph:</strong></label
+            >
+            <select
+              id="graphDropdown"
+              v-model="selectedGraphId"
+              @change="loadSelectedGraph"
+              class="form-select"
+            >
+              <option value="" disabled>Select a graph</option>
+              <option v-for="graph in knowledgeGraphs" :key="graph.id" :value="graph.id">
+                {{ graph.title }}
+              </option>
+            </select>
+          </div>
+          <!-- Current Graph ID -->
+          <div class="col-md-4 col-sm-12 text-center">
+            <p class="mb-0">
+              <strong>Current Graph ID:</strong>
+              <span>{{ graphStore.currentGraphId || 'Not saved yet' }}</span>
+            </p>
+          </div>
+          <!-- Validation Errors -->
+          <div class="col-md-4 col-sm-12">
+            <div v-if="validationErrors.length" class="alert alert-danger mb-0" role="alert">
+              <strong>Graph Validation Errors:</strong>
+              <ul class="mb-0">
+                <li v-for="(error, index) in validationErrors" :key="index">{{ error }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Main Content -->
-    <div class="main-content container-fluid" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <div class="main-content container-fluid">
+      <!-- Success Message -->
       <div class="row">
-        <!-- Sidebar -->
-        <Sidebar
-          :sidebar-collapsed="sidebarCollapsed"
-          :theme="theme"
-          :active-tab="activeTab"
-          :graph-metadata="graphStore.graphMetadata"
-          :graph-history="graphHistory"
-          :selected-history-index="selectedHistoryIndex"
-          :selected-element="selectedElement"
-          :fetched-templates="fetchedTemplates"
-          @update:activeTab="activeTab = $event"
-          @save-graph="saveGraph"
-          @history-keydown="handleHistoryKeydown"
-          @history-item-click="onHistoryItemClick"
-          @apply-template="applyTemplate"
-          @update:graphMetadata="updateGraphMetadata"
-        />
+        <!-- Sidebar (Collapsible) -->
+        <div
+          class="col-md-3 sidebar bg-light border-end"
+          :class="{
+            collapsed: sidebarCollapsed,
+            'bg-dark': theme === 'dark',
+            'text-white': theme === 'dark',
+          }"
+        >
+          <div v-if="!sidebarCollapsed">
+            <!-- Tabs for Form, JSON Editor, and Node Info -->
+            <ul class="nav nav-tabs" :class="{ 'nav-tabs-dark': theme === 'dark' }">
+              <li class="nav-item">
+                <button
+                  class="nav-link"
+                  :class="{ active: activeTab === 'form', 'text-white': theme === 'dark' }"
+                  @click="activeTab = 'form'"
+                >
+                  New Graph
+                </button>
+              </li>
+              <li class="nav-item">
+                <button
+                  class="nav-link"
+                  :class="{ active: activeTab === 'json', 'text-white': theme === 'dark' }"
+                  @click="activeTab = 'json'"
+                >
+                  Version
+                </button>
+              </li>
+              <li class="nav-item">
+                <button
+                  class="nav-link"
+                  :class="{ active: activeTab === 'node-info', 'text-white': theme === 'dark' }"
+                  @click="activeTab = 'node-info'"
+                >
+                  Info
+                </button>
+              </li>
+              <li class="nav-item">
+                <button
+                  class="nav-link"
+                  :class="{ active: activeTab === 'templates', 'text-white': theme === 'dark' }"
+                  @click="activeTab = 'templates'"
+                >
+                  Templates
+                </button>
+              </li>
+            </ul>
+            <div
+              class="tab-content p-3"
+              :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+            >
+              <!-- Create New Graph Form -->
+              <div v-if="activeTab === 'form'" class="form-section">
+                <h3>Create New Knowledge Graph</h3>
+                <form @submit.prevent="saveGraph">
+                  <div class="mb-3">
+                    <label for="graphTitle" class="form-label">Title:</label>
+                    <input
+                      id="graphTitle"
+                      v-model="graphStore.graphMetadata.title"
+                      type="text"
+                      class="form-control"
+                      :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                      required
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label for="graphDescription" class="form-label">Description:</label>
+                    <textarea
+                      id="graphDescription"
+                      v-model="graphStore.graphMetadata.description"
+                      class="form-control"
+                      rows="4"
+                      :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                    ></textarea>
+                  </div>
+                  <div class="mb-3">
+                    <label for="graphCreatedBy" class="form-label">Created By:</label>
+                    <input
+                      id="graphCreatedBy"
+                      v-model="graphStore.graphMetadata.createdBy"
+                      type="text"
+                      class="form-control"
+                      :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                      required
+                    />
+                  </div>
+                  <button type="submit" class="btn btn-primary">Create Knowledge Graph</button>
+                </form>
+              </div>
+              <!-- Graph History -->
+              <div v-if="activeTab === 'json'" class="form-section">
+                <h3>Development Story</h3>
+                <div
+                  id="historyList"
+                  tabindex="0"
+                  @keydown="handleHistoryKeydown"
+                  class="list-group"
+                  :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                  style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; padding: 5px"
+                >
+                  <button
+                    v-for="(history, index) in graphHistory"
+                    :key="index"
+                    @click="onHistoryItemClick(index)"
+                    :class="[
+                      'list-group-item',
+                      'list-group-item-action',
+                      {
+                        active: index === selectedHistoryIndex,
+                        'bg-dark': theme === 'dark',
+                        'text-white': theme === 'dark',
+                      },
+                    ]"
+                    style="cursor: pointer"
+                    :aria-selected="index === selectedHistoryIndex"
+                    role="option"
+                  >
+                    Version {{ history.version }} - {{ history.timestamp }}
+                  </button>
+                  <p v-if="graphHistory.length === 0" class="list-group-item text-center">
+                    No history found for the current graph ID.
+                  </p>
+                </div>
+              </div>
+              <!-- Node Info Tab -->
+              <div v-if="activeTab === 'node-info'" class="form-section">
+                <h3>Node Information</h3>
+                <div v-if="selectedElement">
+                  <h4>{{ selectedElement.label }}</h4>
+                  <textarea
+                    v-if="selectedElement.info"
+                    readonly
+                    class="form-control mb-3"
+                    style="height: 150px; font-family: monospace; white-space: pre-wrap"
+                    v-model="selectedElement.info"
+                    :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                  ></textarea>
+                  <p v-else class="text-muted">No additional information available.</p>
+                  <!-- Bibliographic References -->
+                  <div v-if="selectedElement.bibl && selectedElement.bibl.length" class="mt-3">
+                    <h5>Bibliographic References:</h5>
+                    <ul class="list-unstyled">
+                      <li v-for="(reference, index) in selectedElement.bibl" :key="index">
+                        {{ reference }}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div v-else>
+                  <p class="text-muted">Select a node or connection to see details.</p>
+                </div>
+              </div>
+              <!-- Templates Tab -->
+              <div v-if="activeTab === 'templates'" class="form-section">
+                <h3>Graph Templates</h3>
+                <p>Select a template to quickly create a new graph:</p>
+                <div v-if="fetchedTemplates.length > 0">
+                  <div
+                    id="templateList"
+                    tabindex="0"
+                    class="list-group"
+                    :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                    style="
+                      max-height: 600px;
+                      overflow-y: auto;
+                      border: 1px solid #ddd;
+                      padding: 5px;
+                    "
+                  >
+                    <button
+                      v-for="(template, index) in fetchedTemplates"
+                      :key="index"
+                      @click="applyTemplate(template)"
+                      :class="[
+                        'list-group-item',
+                        'list-group-item-action',
+                        { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' },
+                      ]"
+                      style="cursor: pointer"
+                    >
+                      {{ template.name }}
+                    </button>
+                  </div>
+                </div>
+                <p v-else class="text-muted">No templates available.</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Main Graph Editor -->
-        <div class="col-md-9 main-panel" :class="{ expanded: sidebarCollapsed }">
+        <div class="col-md-9 main-panel">
           <div class="row">
             <!-- Template Message -->
             <div v-if="templateMessage" class="alert alert-info text-center" role="alert">
@@ -99,14 +306,11 @@
             <div class="col-12 graph-content">
               <div class="row">
                 <h2 class="graph-title text-center">Knowledge Story Graph</h2>
-                <div class="col-md-12 graph-editor-container">
-                  <div class="graph-editor">
-                    <div
-                      id="cy"
-                      class="cy-container"
-                      style="width: 100%; height: 600px; border: 1px solid #ddd"
-                    ></div>
-                  </div>
+                <div class="col-md-12 graph-editor p-3">
+                  <div
+                    id="cy"
+                    style="width: 100%; height: calc(100vh - 300px); border: 1px solid #ddd"
+                  ></div>
                 </div>
               </div>
             </div>
@@ -124,7 +328,7 @@
                 {{ validationMessage }}
               </div>
 
-              <div class="d-flex justify-content-between mb-3 action-buttons">
+              <div class="d-flex justify-content-between mb-3">
                 <div class="d-flex align-items-center">
                   <button @click="verifyJson" class="btn btn-secondary me-2">Verify JSON</button>
                   <button @click="saveCurrentGraph" class="btn btn-primary me-2">
@@ -219,6 +423,7 @@
         </li>
       </ul>
     </div>
+
   </div>
 </template>
 
@@ -226,8 +431,7 @@
 import { ref, onMounted, watch, onUnmounted } from 'vue'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
-import TopBar from '../components/TopBar.vue' // Import TopBar
-import Sidebar from '../components/sidebar.vue'
+
 // Register the undo-redo extension only if it hasn't been registered already
 if (!cytoscape.prototype.undoRedo) {
   undoRedo(cytoscape)
@@ -249,12 +453,6 @@ const graphStore = useKnowledgeGraphStore()
 const selectedElement = ref(null)
 const searchQuery = ref('')
 const validationErrors = ref([])
-
-const updateSelectedGraphId = (newValue) => {
-  selectedGraphId.value = newValue
-  loadSelectedGraph()
-}
-
 const saveMessage = ref('')
 const graphHistory = ref([])
 const selectedHistoryIndex = ref(-1)
@@ -293,8 +491,8 @@ const graphTemplates = ref([
           '[Source 3: e.g., modern reference or dataset]',
           '[Source 4: e.g., website or multimedia source]',
         ],
-        imageWidth: '100%',
-        imageHeight: '100%',
+        imageWidth: 'auto',
+        imageHeight: 'auto',
       },
     ],
     edges: [],
@@ -313,8 +511,8 @@ const graphTemplates = ref([
           '[Source 1: e.g., book title, article, or URL]',
           '[Source 2: e.g., academic paper, traditional text, or oral source]',
         ],
-        imageWidth: '100%',
-        imageHeight: '100%',
+        imageWidth: 'auto',
+        imageHeight: 'auto',
       },
     ],
     edges: [],
@@ -330,8 +528,8 @@ const graphTemplates = ref([
         type: 'title',
         info: null,
         bibl: [],
-        imageWidth: '100%',
-        imageHeight: '100%',
+        imageWidth: 'auto',
+        imageHeight: 'auto',
         visible: true,
       },
     ],
@@ -341,25 +539,6 @@ const graphTemplates = ref([
 
   { name: 'Custom Template', nodes: [], edges: [] },
 ])
-
-const testEndpoint = async (endpoint, content) => {
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: content }),
-    })
-    if (!response.ok) {
-      console.error('Endpoint test failed:', response.statusText)
-      return null
-    }
-    const result = await response.json()
-    return result
-  } catch (error) {
-    console.error('Error testing endpoint:', error)
-    return null
-  }
-}
 
 const fetchedTemplates = ref([])
 
@@ -776,8 +955,9 @@ const updateGraphFromJson = (parsedJson) => {
       id: edge.id || `${edge.source}_${edge.target}`,
       source: edge.source,
       target: edge.target,
-      type: edge.type || null,
-      info: edge.info || null,
+      label: edge.label ?? null,
+      type: edge.type ?? null,
+      info: edge.info ?? null,
     },
   }))
 }
@@ -824,8 +1004,8 @@ const verifyJson = () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || '100%',
-          imageHeight: node.imageHeight || '100%',
+          imageWidth: node.imageWidth || null,
+          imageHeight: node.imageHeight || null,
           visible: node.visible !== false, // Ensure visible field is included
         },
         position: existingNode?.position || null,
@@ -1009,8 +1189,8 @@ const loadSelectedGraph = async () => {
           type: node.type || null,
           info: node.info || null,
           bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || '100%',
-          imageHeight: node.imageHeight || '100%',
+          imageWidth: node.imageWidth || null,
+          imageHeight: node.imageHeight || null,
           visible: node.visible !== false, // Ensure visible field is updated
         },
         position: node.position || null,
@@ -1108,8 +1288,8 @@ const loadGraphVersion = async (version) => {
             type: node.type || null,
             info: node.info || null,
             bibl: Array.isArray(node.bibl) ? node.bibl : [],
-            imageWidth: node.imageWidth || '100%',
-            imageHeight: node.imageHeight || '100%',
+            imageWidth: node.imageWidth || 'auto',
+            imageHeight: node.imageHeight || 'auto',
             visible: node.visible !== false, // Ensure the visible field is respected
           },
           position: node.position || { x: 0, y: 0 }, // Preserve original position
@@ -1418,21 +1598,6 @@ onMounted(() => {
           },
         },
         {
-          selector: 'node[type="action_test"]',
-          style: {
-            shape: 'rectangle',
-            'background-color': '#ffcc00',
-            'border-width': 1,
-            'border-color': '#000',
-            label: 'Test Endpoint',
-            'text-valign': 'center',
-            'text-halign': 'center',
-            'font-size': '12px',
-            width: 100,
-            height: 50,
-          },
-        },
-        {
           selector: 'node[type="markdown-image"]',
           style: {
             shape: 'rectangle',
@@ -1443,13 +1608,12 @@ onMounted(() => {
             'background-fit': 'cover',
             'background-opacity': 1,
             'border-width': 0,
-            width: (ele) => ele.data('imageWidth') || '100%',
-            height: (ele) => ele.data('imageHeight') || '100%',
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
             'z-index': -1, // Set z-index to a lower value to ensure it is behind other nodes
             label: '',
           },
         },
-
         {
           selector: 'edge',
           style: {
@@ -1458,10 +1622,7 @@ onMounted(() => {
             'line-color': '#999',
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#999',
-            'curve-style': 'unbundled-bezier', // Use unbundled-bezier for more control
-            'control-point-distances': [50, -50], // Adjusts the curve's offset from the straight line
-            'control-point-weights': [0.3, 0.7], // Positions control points along the edge
-            'edge-distances': 'intersection', // Ensures curves respect node boundaries
+            'curve-style': 'bezier',
           },
         },
         //add a selector for fulltext page that will be used to show a full text in a html page text aling left
@@ -1548,8 +1709,8 @@ onMounted(() => {
             'background-fit': 'cover',
             'background-opacity': 1,
             'border-width': 0,
-            width: (ele) => ele.data('imageWidth') || '100%',
-            height: (ele) => ele.data('imageHeight') || '100%',
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
             label: 'data(label)',
             'text-valign': 'bottom',
             'text-halign': 'center',
@@ -1566,8 +1727,8 @@ onMounted(() => {
             'background-fit': 'cover',
             'background-opacity': 1,
             'border-width': 0,
-            width: (ele) => ele.data('imageWidth') || '100%',
-            height: (ele) => ele.data('imageHeight') || '100%',
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
             label: 'data(label)',
             'text-valign': 'bottom',
             'text-halign': 'center',
@@ -1584,8 +1745,8 @@ onMounted(() => {
             'background-fit': 'cover',
             'background-opacity': 1,
             'border-width': 0,
-            width: (ele) => ele.data('imageWidth') || '100%',
-            height: (ele) => ele.data('imageHeight') || '100%',
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
             label: 'data(label)',
             'text-valign': 'bottom',
             'text-halign': 'center',
@@ -1624,9 +1785,9 @@ onMounted(() => {
             'background-fit': 'cover',
             'background-opacity': 1,
             'border-width': 0,
-            width: (ele) => ele.data('imageWidth') || '100%',
-            height: (ele) => ele.data('imageHeight') || '100%',
-            label: 'data(label)',
+            width: (ele) => ele.data('imageWidth'),
+            height: (ele) => ele.data('imageHeight'),
+            label: 'gris',
             'text-valign': 'bottom',
             'text-halign': 'center',
             'font-size': '0px',
@@ -1657,21 +1818,6 @@ onMounted(() => {
     cyInstance.value.on('tap', 'node', async (event) => {
       const node = event.target
       const data = node.data()
-
-      // Handle action_test node
-      if (data.type === 'action_test') {
-        if (!data.label || !data.info) {
-          alert('Node must have a valid endpoint URL in label and text in info.')
-          return
-        }
-        const result = await testEndpoint(data.label, data.info)
-        if (result) {
-          alert('Endpoint test successful: ' + JSON.stringify(result))
-        } else {
-          alert('Endpoint test failed.')
-        }
-        return
-      }
 
       // Check if the node type is "action"
       if (data.type === 'action_txt') {
@@ -2229,23 +2375,16 @@ const validateNode = (node) => {
   return true
 }
 
-const updateGraphMetadata = (updatedMetadata) => {
-  graphStore.graphMetadata = { ...graphStore.graphMetadata, ...updatedMetadata }
-}
-
 defineProps({
   theme: {
     type: String,
     default: 'light',
   },
 })
-
-const toggleSidebar = () => {
-  sidebarCollapsed.value = !sidebarCollapsed.value
-}
 </script>
 
 <style scoped>
+/* Existing styles */
 .admin-page {
   height: 100vh;
   display: flex;
@@ -2261,14 +2400,6 @@ const toggleSidebar = () => {
 .main-content {
   flex: 1;
   overflow: auto;
-  transition:
-    margin-left 0.3s,
-    width 0.3s;
-}
-
-.main-content.sidebar-collapsed {
-  margin-left: 0;
-  width: 100%;
 }
 
 .sidebar {
@@ -2281,116 +2412,24 @@ const toggleSidebar = () => {
 .sidebar.collapsed {
   width: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .main-panel {
   height: 100%;
   overflow: auto;
-  transition:
-    margin-left 0.3s,
-    width 0.3s;
-  display: flex; /* Add for vertical stacking */
-  flex-direction: column; /* Stack children vertically */
-  gap: 20px; /* Space between col-12 sections */
-}
-
-.main-panel.expanded {
-  margin-left: 0;
-  width: 100%;
 }
 
 .control-panel {
   background: #f8f9fa;
   border-radius: 8px;
   margin-bottom: 20px;
-}
-
-.graph-editor-container {
-  position: relative;
-  height: 600px; /* Already set, but confirming */
-  margin-top: 20px;
-  margin-bottom: 0; /* No need for bottom margin since we control spacing in main-panel */
 }
 
 .graph-editor {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
   background: #fff;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.cy-container {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-  z-index: 1; /* Add this to fix overlap */
-}
-
-.top-bar {
-  z-index: 1000;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.main-content {
-  flex: 1;
-  overflow: auto;
-  transition:
-    margin-left 0.3s,
-    width 0.3s;
-}
-
-.main-content.sidebar-collapsed {
-  margin-left: 0;
-  width: 100%;
-}
-
-.sidebar {
-  transition: width 0.3s;
-  width: 25%;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.col-12 {
-  padding-bottom: 20px; /* Add space between sections */
-}
-
-.sidebar.collapsed {
-  width: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-.main-panel {
-  height: 100%;
-  overflow: auto;
-  transition:
-    margin-left 0.3s,
-    width 0.3s;
-}
-
-.main-panel.expanded {
-  margin-left: 0;
-  width: 100%;
-}
-
-.control-panel {
-  background: #f8f9fa;
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-
-.graph-title {
-  text-align: center;
-  margin-bottom: 20px;
 }
 
 .info-section {
@@ -2398,6 +2437,10 @@ const toggleSidebar = () => {
   border-radius: 8px;
   overflow-y: auto;
   max-height: calc(100vh - 300px);
+}
+
+.graph-content {
+  height: calc(100vh - 200px);
 }
 
 .form-section {
@@ -2425,7 +2468,7 @@ const toggleSidebar = () => {
   border-radius: 8px;
 }
 
-.nav .nav-tabs-dark {
+.nav-tabs-dark {
   background-color: #343a40;
   border-color: #454d55;
 }
@@ -2457,16 +2500,6 @@ const toggleSidebar = () => {
 #jsonOutput .match.focused {
   background: orange;
   outline: 2px solid red;
-}
-
-.action-buttons {
-  margin-bottom: 20px;
-  z-index: 0;
-}
-
-.graph-content {
-  min-height: 600px; /* Ensure minimum height */
-  height: auto; /* Allow natural growth */
 }
 
 @media (max-width: 768px) {
@@ -2547,4 +2580,3 @@ const toggleSidebar = () => {
 
 /* Add styles for markdown-image nodes */
 </style>
-```
