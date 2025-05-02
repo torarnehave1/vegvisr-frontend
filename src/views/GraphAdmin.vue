@@ -15,6 +15,7 @@
       <div class="row">
         <!-- Sidebar -->
         <Sidebar
+          ref="sidebarRef"
           :sidebar-collapsed="sidebarCollapsed"
           :theme="theme"
           :active-tab="activeTab"
@@ -23,12 +24,15 @@
           :selected-history-index="selectedHistoryIndex"
           :selected-element="selectedElement"
           :fetched-templates="fetchedTemplates"
+          :selected-graph-id="selectedGraphId"
           @update:activeTab="activeTab = $event"
           @save-graph="saveGraph"
           @history-keydown="handleHistoryKeydown"
           @history-item-click="onHistoryItemClick"
           @apply-template="applyTemplate"
           @update:graphMetadata="updateGraphMetadata"
+          @fetch-work-notes="fetchWorkNotes"
+          @add-work-note="addWorkNoteToGraph"
         />
 
         <!-- Main Graph Editor -->
@@ -249,10 +253,25 @@ const graphStore = useKnowledgeGraphStore()
 const selectedElement = ref(null)
 const searchQuery = ref('')
 const validationErrors = ref([])
+const sidebarRef = ref(null) // Define a reference for the Sidebar component
+
+const fetchWorkNotes = (graphId) => {
+  if (!graphId) {
+    console.warn('No graph ID provided for fetching work notes.')
+    return
+  }
+  if (typeof sidebarRef.value?.fetchWorkNotes === 'function') {
+    console.log('Invoking fetchWorkNotes for graph ID:', graphId)
+    sidebarRef.value.fetchWorkNotes(graphId)
+  } else {
+    console.error('fetchWorkNotes is not a function on Sidebar component')
+  }
+}
 
 const updateSelectedGraphId = (newValue) => {
   selectedGraphId.value = newValue
   loadSelectedGraph()
+  fetchWorkNotes(newValue) // Fetch work notes for the selected graph
 }
 
 const saveMessage = ref('')
@@ -1036,6 +1055,7 @@ const loadSelectedGraph = async () => {
       graphStore.setCurrentGraphId(graphIdToLoad)
       graphStore.setCurrentVersion(graphData.metadata.version)
       await fetchGraphHistory()
+      fetchWorkNotes(graphIdToLoad) // Ensure work notes are fetched for the loaded graph
     } else {
       console.error('Failed to load the selected graph:', response.statusText)
     }
@@ -1433,6 +1453,23 @@ onMounted(() => {
           },
         },
         {
+          selector: 'node[type="worknote"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': 'yellow', // Bright color for post-it effect
+            'border-width': 2,
+            'border-color': '#333',
+            label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`, // Assumes label is stored in node data
+            'text-wrap': 'wrap',
+            'text-max-width': '734px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '14px',
+            width: '794px',
+            height: '1122pt' /* A4 height in pixels */,
+          },
+        },
+        {
           selector: 'node[type="markdown-image"]',
           style: {
             shape: 'rectangle',
@@ -1634,6 +1671,24 @@ onMounted(() => {
             'background-image-crossorigin': 'anonymous',
           },
         },
+        {
+          selector: 'node[type="action_openai"]',
+          style: {
+            shape: 'rectangle',
+            'background-image': (ele) => ele.data('label'),
+            'background-fit': 'cover',
+            'background-opacity': 1,
+            'border-width': 0,
+            width: (ele) => ele.data('imageWidth') || '100%',
+            height: (ele) => ele.data('imageHeight') || '100%',
+            label: 'data(label)',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'font-size': '0px',
+            color: '#000',
+            'background-image-crossorigin': 'anonymous',
+          },
+        },
 
         {
           selector: 'node:selected',
@@ -1666,9 +1721,39 @@ onMounted(() => {
         }
         const result = await testEndpoint(data.label, data.info)
         if (result) {
-          alert('Endpoint test successful: ' + JSON.stringify(result))
-        } else {
-          alert('Endpoint test failed.')
+          console.log('Endpoint test successful: ' + JSON.stringify(result))
+
+          if (validateNode(result)) {
+            const NewNode = {
+              data: result,
+              position: { x: node.position('x') + 100, y: node.position('y') + 100 },
+            }
+            graphStore.nodes.push(NewNode)
+            cyInstance.value.add(NewNode)
+            cyInstance.value.layout({ name: 'preset' }).run()
+            graphJson.value = JSON.stringify(
+              {
+                nodes: graphStore.nodes.map((n) => n.data),
+                edges: graphStore.edges.map((e) => e.data),
+              },
+              null,
+              2,
+            )
+
+            console.log('Node added successfully.')
+
+            // Update JSON editor
+            graphJson.value = JSON.stringify(
+              {
+                nodes: graphStore.nodes.map((n) => n.data),
+                edges: graphStore.edges.map((e) => e.data),
+              },
+              null,
+              2,
+            )
+          } else {
+            alert('Endpoint test failed.')
+          }
         }
         return
       }
@@ -2061,45 +2146,97 @@ const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextMenuOptions = ref([]) // Ensure contextMenuOptions is defined as a reactive variable
 
 // Show context menu on right-click
-const showContextMenu = (event, node) => {
+// In GraphAdmin.vue <script setup>, update showContextMenu
+const showContextMenu = (event, node = null) => {
   event.preventDefault()
   const cyContainer = document.getElementById('cy')
   const containerRect = cyContainer.getBoundingClientRect()
-  const nodePosition = node.renderedPosition()
+
+  // Use node position if provided, else use mouse position
+  const position = node
+    ? node.renderedPosition()
+    : {
+        x: event.originalEvent.clientX - containerRect.left,
+        y: event.originalEvent.clientY - containerRect.top,
+      }
 
   contextMenuPosition.value = {
-    x: containerRect.left + nodePosition.x - 100,
-    y: containerRect.top + nodePosition.y + 100,
+    x: containerRect.left + position.x - 100,
+    y: containerRect.top + position.y + 100,
   }
   contextMenuVisible.value = true
-  selectedElement.value = {
-    label: node.data('label'),
-    info: node.data('info') || null,
-    bibl: node.data('bibl') || [],
+
+  // Set selectedElement for node if provided
+  if (node) {
+    selectedElement.value = {
+      label: node.data('label'),
+      info: node.data('info') || null,
+      bibl: node.data('bibl') || [],
+    }
   }
 
+  // Get all selected nodes
+  const selectedNodes = cyInstance.value.$(':selected')
+  const nodeData =
+    selectedNodes.length > 0
+      ? selectedNodes.map((node) => ({
+          label: node.data('label') || '',
+          info: node.data('info') || '',
+        }))
+      : node
+        ? [{ label: node.data('label') || '', info: node.data('info') || '' }]
+        : []
+
   // Populate contextMenuOptions dynamically
-  contextMenuOptions.value = [
-    { label: 'Add as Template', action: () => addTemplateFromNode(node.data()) },
-    { label: 'Delete Node', action: () => deleteNode(node) },
-    // Add more options as needed
-  ]
+  contextMenuOptions.value =
+    nodeData.length > 0
+      ? [
+          { label: 'Add as Template', action: () => addTemplateFromNode(node?.data()) },
+          { label: 'Delete Node', action: () => deleteNode(node) },
+          {
+            label: 'Save Work Note',
+            action: () => {
+              if (node) {
+                saveWorkNote(node.data('label'), node.data('info'))
+              } else {
+                alert('No node selected. Please select a node to save as a work note.')
+              }
+              hideContextMenu()
+            },
+          },
+        ]
+      : [
+          {
+            label: 'Save Work Note',
+            action: () => {
+              alert('No nodes selected. Please select one or more nodes.')
+              hideContextMenu()
+            },
+          },
+        ]
 }
 
-// Hide context menu
+// Hide context menu (unchanged)
 const hideContextMenu = () => {
   contextMenuVisible.value = false
 }
 
-// Add event listener for right-click on nodes
+// In onMounted, update the right-click handlers
 onMounted(() => {
   if (cyInstance.value) {
+    // Right-click on node
     cyInstance.value.on('cxttap', 'node', (event) => {
       showContextMenu(event.originalEvent, event.target)
     })
+    // Right-click on canvas
+    cyInstance.value.on('cxttap', (event) => {
+      if (!event.target.data()) {
+        // Ensure no node is clicked
+        showContextMenu(event.originalEvent)
+      }
+    })
   }
 
-  // Hide context menu on click outside
   document.addEventListener('click', hideContextMenu)
 })
 
@@ -2242,6 +2379,74 @@ defineProps({
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+const saveWorkNote = async (label, info) => {
+  if (!graphStore.currentGraphId) {
+    alert('No graph ID is set. Please save the graph first.')
+    return
+  }
+
+  const noteName = prompt('Enter a name for the work note:')
+  if (!noteName) {
+    alert('Work note name is required.')
+    return
+  }
+
+  try {
+    console.log('Saving work note:', { label, info, noteName }) // Debug log
+    const response = await fetch('https://knowledge.vegvisr.org/saveToGraphWorkNotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graphId: graphStore.currentGraphId,
+        note: `Label: ${label}\nInfo: ${info || 'None'}`,
+        name: noteName,
+      }),
+    })
+
+    if (response.ok) {
+      alert('Work note saved successfully!')
+    } else {
+      const error = await response.json()
+      console.error('Failed to save the work note:', error)
+      alert('Failed to save the work note.')
+    }
+  } catch (error) {
+    console.error('Error saving the work note:', error)
+    alert('An error occurred while saving the work note.')
+  }
+}
+
+const addWorkNoteToGraph = (note) => {
+  console.log('Adding work note to graph:', note)
+
+  const newNode = {
+    data: {
+      id: note.id,
+      label: note.name,
+      info: note.content,
+      type: 'worknote',
+    },
+    position: { x: 100, y: 100 }, // Default position
+  }
+
+  // Add the node to the graph view
+  graphStore.nodes.push(newNode)
+  if (cyInstance.value) {
+    cyInstance.value.add(newNode)
+    cyInstance.value.layout({ name: 'preset' }).run()
+  }
+
+  // Update the JSON editor
+  graphJson.value = JSON.stringify(
+    {
+      nodes: graphStore.nodes.map((node) => node.data),
+      edges: graphStore.edges.map((edge) => edge.data),
+    },
+    null,
+    2,
+  )
 }
 </script>
 
@@ -2547,4 +2752,3 @@ const toggleSidebar = () => {
 
 /* Add styles for markdown-image nodes */
 </style>
-```

@@ -784,17 +784,120 @@ const handleGrokTest = async (request, env) => {
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
       temperature: 0.7,
-      max_tokens: 300,
+      max_tokens: 2000,
       messages: [
         { role: 'system', content: 'You are a philosophical AI providing deep insights.' },
         { role: 'user', content: text },
       ],
     })
 
-    const responseText = completion.choices[0].message.content
-    return createResponse(JSON.stringify({ response: responseText }))
+    const responseText = completion.choices[0].message.content.trim()
+    if (!responseText) {
+      return createErrorResponse('Empty summary response', 500)
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: `fulltext_${Date.now()}`,
+        label: 'Summary',
+        type: 'fulltext',
+        info: responseText,
+        color: '#f9f9f9',
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders, // Add CORS headers here
+          'Content-Type': 'application/json',
+        },
+      },
+    )
   } catch (error) {
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
+// Updated endpoint for versatile AI action with response format
+const handleAIAction = async (request, env) => {
+  let body
+  try {
+    body = await request.json()
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const {
+    prompt,
+    instructions,
+    baseURL,
+    model,
+    temperature,
+    max_tokens,
+    apiProvider,
+    response_format,
+  } = body
+  if (
+    !prompt ||
+    !instructions ||
+    !baseURL ||
+    !model ||
+    !temperature ||
+    !max_tokens ||
+    !apiProvider ||
+    !response_format
+  ) {
+    return createErrorResponse('Missing required parameters', 400)
+  }
+
+  let apiKey
+  switch (apiProvider.toLowerCase()) {
+    case 'xai':
+      apiKey = env.XAI_API_KEY
+      break
+    case 'openai':
+      apiKey = env.OPENAI_API_KEY
+      break
+    case 'google':
+      apiKey = env.GOOGLE_API_KEY
+      break
+    default:
+      return createErrorResponse('Unsupported API provider', 400)
+  }
+
+  if (!apiKey) {
+    return createErrorResponse(`Internal Server Error: ${apiProvider} API key missing`, 500)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: baseURL,
+  })
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: model,
+      temperature: temperature,
+      max_tokens: max_tokens,
+      messages: [
+        { role: 'system', content: instructions },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const responseText = completion.choices[0].message.content
+    return createResponse(
+      JSON.stringify({
+        id: `node_${Date.now()}`,
+        label: response_format.label || 'Response',
+        type: response_format.type || 'fulltext',
+        info: responseText,
+        color: response_format.color || '#f9f9f9',
+        ...response_format.additional_fields,
+      }),
+      200,
+    )
+  } catch (error) {
+    return createErrorResponse(`AI API error: ${error.message}`, 500)
   }
 }
 
@@ -863,6 +966,10 @@ export default {
 
       if (pathname === '/groktest' && request.method === 'POST') {
         return await handleGrokTest(request, env)
+      }
+
+      if (pathname === '/aiaction' && request.method === 'POST') {
+        return await handleAIAction(request, env)
       }
 
       return createErrorResponse('Not Found', 404)

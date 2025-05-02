@@ -115,3 +115,34 @@ This document outlines the various types of `action` nodes available in the appl
 ---
 
 These `action` node types provide flexibility and functionality to enhance the user experience and enable dynamic interactions with the graph.
+
+action_openai
+
+{
+"id": `unique_action_openai_${Date.now()}`,
+"label": "AI Action Node",
+"img_path": "/images/ActionSummary.png",
+"color": "#009688",
+"type": "action_openai",
+"instructions": "System prompt to define AI behavior and response style.",
+"info": "Description of what this node does, shown to the user.",
+"template_instructions": "Use this template to interact with AI APIs like xAI, OpenAI, or Google. Set the 'prompt' in api_info to your query, choose the 'apiProvider' (xai, openai, or google), specify the 'baseURL' for the API, select a 'model', and adjust 'temperature' (0.0-2.0 for creativity) and 'max_tokens' for response length. Ensure instructions are clear to guide the AI's tone and style. Customize the response format in 'response_format'.",
+"api_info": {
+"prompt": "User-provided prompt text for the AI to process.",
+"baseURL": "https://api.x.ai/v1",
+"model": "grok-3-beta",
+"temperature": 0.7,
+"max_tokens": 500,
+"apiProvider": "xai",
+"response_format": {
+"type": "fulltext",
+"label": "Summary",
+"color": "#f9f9f9",
+"additional_fields": {}
+}
+},
+"bibl": [],
+"imageWidth": 250,
+"imageHeight": 250,
+"visible": true
+}

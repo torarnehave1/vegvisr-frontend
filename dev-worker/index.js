@@ -619,6 +619,159 @@ export default {
         }
       }
 
+      if (pathname === '/saveToGraphWorkNotes' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { graphId, note, name } = requestBody
+
+          console.log('Saving work note:', { graphId, note, name }) // Debug log
+
+          if (!graphId || !note || !name) {
+            return new Response(
+              JSON.stringify({ error: 'Graph ID, note, and name are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          const workNoteId = crypto.randomUUID() // Generate a unique ID for the work note
+
+          const query = `
+        INSERT INTO graphWorkNotes (id, graph_id, note, created_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          `
+          await env.vegvisr_org.prepare(query).bind(workNoteId, graphId, `${name}: ${note}`).run()
+
+          console.log('Work note saved successfully') // Debug log
+          return new Response(
+            JSON.stringify({ message: 'Work note saved successfully', workNoteId }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        } catch (error) {
+          console.error('Error saving work note:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getGraphWorkNotes' && request.method === 'GET') {
+        try {
+          const graphId = url.searchParams.get('graphId')
+          if (!graphId) {
+            return new Response(JSON.stringify({ error: 'Graph ID is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Fetching work notes for graph ID: ${graphId}`)
+
+          const query = `
+            SELECT id, note, created_at
+            FROM graphWorkNotes
+            WHERE graph_id = ?
+            ORDER BY created_at DESC
+          `
+          const results = await env.vegvisr_org.prepare(query).bind(graphId).all()
+
+          console.log('[Worker] Work notes fetched successfully')
+          return new Response(
+            JSON.stringify({
+              success: true,
+              meta: { graphId },
+              results: results || [], // Ensure results is always an array
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Error fetching work notes:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/insertWorkNoteIntoGraph' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { graphId, workNoteId } = requestBody
+
+          if (!graphId || !workNoteId) {
+            return new Response(
+              JSON.stringify({ error: 'Graph ID and work note ID are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Inserting work note ID: ${workNoteId} into graph ID: ${graphId}`)
+
+          const noteQuery = `
+            SELECT note
+            FROM graphWorkNotes
+            WHERE id = ?
+          `
+          const noteResult = await env.vegvisr_org.prepare(noteQuery).bind(workNoteId).first()
+
+          if (!noteResult) {
+            return new Response(JSON.stringify({ error: 'Work note not found.' }), {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
+
+          const graphQuery = `
+            SELECT data
+            FROM knowledge_graphs
+            WHERE id = ?
+          `
+          const graphResult = await env.vegvisr_org.prepare(graphQuery).bind(graphId).first()
+
+          if (!graphResult) {
+            return new Response(JSON.stringify({ error: 'Graph not found.' }), {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
+
+          const graphData = JSON.parse(graphResult.data)
+          const newNode = {
+            id: `workNote_${Date.now()}`,
+            label: 'Work Note',
+            color: '#f4e2d8',
+            type: 'notes',
+            info: noteResult.note,
+          }
+          graphData.nodes.push(newNode)
+
+          const updateQuery = `
+            UPDATE knowledge_graphs
+            SET data = ?
+            WHERE id = ?
+          `
+          await env.vegvisr_org.prepare(updateQuery).bind(JSON.stringify(graphData), graphId).run()
+
+          console.log('[Worker] Work note inserted into graph successfully')
+          return new Response(
+            JSON.stringify({ message: 'Work note inserted into graph successfully', newNode }),
+            { status: 200, headers: corsHeaders },
+          )
+        } catch (error) {
+          console.error('[Worker] Error inserting work note into graph:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {

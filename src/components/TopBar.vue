@@ -1,4 +1,3 @@
-<!-- src/components/TopBar.vue -->
 <template>
   <div class="top-bar sticky-top bg-light p-3 border-bottom">
     <div class="container-fluid">
@@ -22,7 +21,8 @@
           >
             <option value="" disabled>Select a graph</option>
             <option v-for="graph in knowledgeGraphs" :key="graph.id" :value="graph.id">
-              {{ graph.title }}
+              {{ graph.title || 'Untitled Graph' }}
+              <!-- Fallback to 'Untitled Graph' if title is missing -->
             </option>
           </select>
         </div>

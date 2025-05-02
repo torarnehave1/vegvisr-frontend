@@ -1,7 +1,6 @@
-<!-- src/components/Sidebar.vue -->
 <template>
   <div
-    class="col-md-3 sidebar bg-light border-end"
+    class="SideBarComponent bg-light border-end"
     :class="{
       collapsed: sidebarCollapsed,
       'bg-dark': theme === 'dark',
@@ -9,7 +8,7 @@
     }"
   >
     <div v-if="!sidebarCollapsed">
-      <!-- Tabs for Form, JSON Editor, and Node Info -->
+      <!-- Tabs -->
       <ul class="nav nav-tabs" :class="{ 'nav-tabs-dark': theme === 'dark' }">
         <li class="nav-item">
           <button
@@ -47,11 +46,17 @@
             Templates
           </button>
         </li>
+        <li class="nav-item">
+          <button
+            class="nav-link"
+            :class="{ active: activeTab === 'work-notes', 'text-white': theme === 'dark' }"
+            @click="setActiveTab('work-notes')"
+          >
+            Work Notes
+          </button>
+        </li>
       </ul>
-      <div
-        class="tab-content p-3"
-        :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
-      >
+      <div class="tab-content p-3">
         <!-- Create New Graph Form -->
         <div v-if="activeTab === 'form'" class="form-section">
           <h3>Create New Knowledge Graph</h3>
@@ -186,15 +191,56 @@
           </div>
           <p v-else class="text-muted">No templates available.</p>
         </div>
+        <!-- Work Notes Tab -->
+        <div v-if="activeTab === 'work-notes'" class="form-section">
+          <h3>Work Notes</h3>
+          <div v-if="workNotes.length > 0">
+            <div
+              id="workNotesList"
+              tabindex="0"
+              class="list-group"
+              :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+              style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; padding: 5px"
+            >
+              <button
+                v-for="(note, index) in workNotes"
+                :key="index"
+                class="list-group-item list-group-item-action"
+                :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                style="cursor: pointer"
+                @click="onWorkNoteClick(note)"
+              >
+                {{ note.name }}
+              </button>
+            </div>
+          </div>
+          <div v-else>
+            <p class="text-muted text-center">No work notes available for this graph.</p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue'
+import { defineProps, defineEmits, ref, onMounted, watch } from 'vue'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
-defineProps({
+const workNotes = ref([])
+const graphStore = useKnowledgeGraphStore()
+
+const {
+  sidebarCollapsed,
+  theme,
+  activeTab,
+  graphMetadata,
+  graphHistory,
+  selectedHistoryIndex,
+  selectedElement,
+  fetchedTemplates,
+  selectedGraphId,
+} = defineProps({
   sidebarCollapsed: Boolean,
   theme: String,
   activeTab: String,
@@ -203,6 +249,7 @@ defineProps({
   selectedHistoryIndex: Number,
   selectedElement: Object,
   fetchedTemplates: Array,
+  selectedGraphId: String,
 })
 
 const emit = defineEmits([
@@ -212,10 +259,15 @@ const emit = defineEmits([
   'history-item-click',
   'apply-template',
   'update:graphMetadata',
+  'add-work-note',
 ])
 
 const setActiveTab = (tab) => {
   emit('update:activeTab', tab)
+}
+
+const updateMetadata = (field, value) => {
+  emit('update:graphMetadata', { [field]: value })
 }
 
 const onSaveGraph = () => {
@@ -234,68 +286,76 @@ const onApplyTemplate = (template) => {
   emit('apply-template', template)
 }
 
-const updateMetadata = (key, value) => {
-  emit('update:graphMetadata', { ...graphMetadata, [key]: value })
-}
-</script>
+const onWorkNoteClick = (note) => {
+  console.log('Work note selected:', note) // Log the selected work note
 
+  // Emit the selected work note to the parent component
+  emit('add-work-note', note)
+}
+
+const fetchWorkNotes = async (graphId) => {
+  if (!graphId) {
+    workNotes.value = []
+    console.warn('No graph ID provided for fetching work notes.')
+    return
+  }
+  try {
+    console.log('Fetching work notes for graph ID:', graphId)
+    const response = await fetch(
+      `https://knowledge.vegvisr.org/getGraphWorkNotes?graphId=${graphId}`,
+    )
+    if (response.ok) {
+      const data = await response.json()
+      console.log('API Response:', data)
+      if (data.results?.results && Array.isArray(data.results.results)) {
+        workNotes.value = data.results.results.map((note) => ({
+          id: note.id,
+          name: note.note.split(':')[0],
+          content: note.note.split(':').slice(1).join(':').trim(),
+        }))
+        console.log('Mapped Work Notes:', workNotes.value)
+      } else {
+        console.warn('No results found in API response.')
+        workNotes.value = []
+      }
+    } else {
+      console.error('Failed to fetch work notes:', response.statusText)
+      workNotes.value = []
+    }
+  } catch (error) {
+    console.error('Error fetching work notes:', error)
+    workNotes.value = []
+  }
+}
+
+onMounted(() => {
+  const graphId = selectedGraphId || graphStore.currentGraphId
+  fetchWorkNotes(graphId)
+})
+
+watch(
+  [() => selectedGraphId, () => graphStore.currentGraphId],
+  ([newSelectedGraphId, newGraphId]) => {
+    const graphId = newSelectedGraphId || newGraphId
+    fetchWorkNotes(graphId)
+  },
+)
+
+defineExpose({
+  fetchWorkNotes, // Expose fetchWorkNotes method to parent components
+})
+</script>
 <style scoped>
-.sidebar {
+.SideBarComponent {
   transition: width 0.3s;
   width: 25%;
   overflow-y: auto;
   padding: 20px;
 }
 
-.sidebar.collapsed {
+.SideBarComponent.collapsed {
   width: 0;
   padding: 0;
-  overflow: auto;
-}
-
-.form-section {
-  background: transparent;
-}
-
-.nav-tabs .nav-link {
-  border-radius: 0;
-}
-
-.nav-tabs .nav-link.active {
-  background: #fff;
-  border-bottom: 2px solid #007bff;
-}
-
-.nav-tabs-dark {
-  background-color: #343a40;
-  border-color: #454d55;
-}
-
-.nav-tabs-dark .nav-link {
-  color: #adb5bd;
-}
-
-.nav-tabs-dark .nav-link.active {
-  background-color: #495057;
-  color: #fff;
-}
-
-.list-group-item-action:hover {
-  background-color: #e9ecef;
-}
-
-@media (max-width: 768px) {
-  .sidebar {
-    position: fixed;
-    z-index: 1000;
-    height: 100%;
-    width: 80%;
-    left: 0;
-    transform: translateX(-100%);
-  }
-
-  .sidebar.collapsed {
-    transform: translateX(0);
-  }
+  overflow: hidden;
 }
 </style>
