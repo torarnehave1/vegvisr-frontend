@@ -1,5 +1,5 @@
 <template>
-  <div class="graph-viewer">
+  <div class="graph-viewer container">
     <div v-if="loading" class="loading">Loading...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="graph-container">
@@ -68,10 +68,21 @@ const fetchGraphData = async () => {
     }
     const data = await response.json()
 
+    // Deduplicate nodes based on id
+    const uniqueNodes = []
+    const seenIds = new Set()
+    for (const node of data.nodes) {
+      if (!seenIds.has(node.id)) {
+        uniqueNodes.push(node)
+        seenIds.add(node.id)
+      }
+    }
+
     graphData.value = {
       ...data,
-      nodes: data.nodes.filter((node) => node.visible !== false), // Exclude invisible nodes
+      nodes: uniqueNodes.filter((node) => node.visible !== false),
     }
+    console.log('Fetched graphData:', graphData.value)
   } catch (err) {
     error.value = err.message
   } finally {
@@ -80,67 +91,177 @@ const fetchGraphData = async () => {
 }
 
 const preprocessMarkdown = (text) => {
-  const imageRegex =
-    /!\[([^\]]*?)\|width:(\d+(?:px|%));height:(\d+(?:px|%))(?:;object-fit:\s*(\w+);object-position:\s*([\w\s%]+))?\]\((.*?)\)/g
+  console.log('Input Markdown Text:', text)
 
+  // Updated regex to include text-align for FANCY
+  const markdownRegex =
+    /(!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\))|(\[QUOTE\s*\|\s*Cited='(.+?)'\](.*?)\[END QUOTE\])|(\[SECTION\s*\|\s*background-color:\s*'(.+?)';\s*color:\s*'(.+?)'\](.*?)\[END SECTION\])|(\[FANCY\s*\|\s*font-size:\s*([^;]+?);\s*color:\s*([^;]+?)(?:;\s*background-image:\s*url\('([^;]+?)'\))?(?:;\s*text-align:\s*([^;]+?))?\s*\](.*?)\[END FANCY\])/gs
   let result = ''
-  let lastIndex = 0
+  let currentIndex = 0
   let match
 
-  // Process each image markdown match
-  while ((match = imageRegex.exec(text)) !== null) {
-    const [fullMatch, alt, width, height, objectFit, objectPosition, src] = match
-    const offset = match.index
+  while ((match = markdownRegex.exec(text)) !== null) {
+    const fullMatch = match[0]
+    const isImage = match[1]
+    const isQuote = match[6]
+    const isSection = match[9]
+    const isFancy = match[13]
+    const startIndex = match.index
+    const endIndex = startIndex + fullMatch.length
 
-    // Append text before the match
-    result += marked.parse(text.slice(lastIndex, offset))
+    console.log('Processing match:', {
+      fullMatch,
+      startIndex,
+      endIndex,
+      isImage,
+      isQuote,
+      isSection,
+      isFancy,
+    })
 
-    const rightsideMatch = alt.match(/Rightside-(\d+)/)
-    const leftsideMatch = alt.match(/Leftside-(\d+)/)
+    // Add text before the match
+    if (currentIndex < startIndex) {
+      result += marked.parse(text.slice(currentIndex, startIndex))
+    }
 
-    if (rightsideMatch || leftsideMatch) {
-      const paragraphsToInclude = parseInt((rightsideMatch || leftsideMatch)[1], 10) || 1
-      const isLeftside = !!leftsideMatch
-      const imageWidth = parseInt(width) || 50
-      const textWidth = 100 - imageWidth
+    if (isImage) {
+      const type = match[2]
+      const paragraphCount = match[3]
+      const styles = match[4]
+      const url = match[5]
 
-      const styleImage = `width: ${imageWidth}%; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
-      const styleText = `width: ${textWidth}%; display: inline-block; vertical-align: top; padding-${isLeftside ? 'right' : 'left'}: 10px;`
+      console.log(`Processing ${type}:`, { paragraphCount, styles, url, startIndex, endIndex })
 
-      // Get text after the match
-      const remainingText = text.slice(offset + fullMatch.length).trim()
-      const paragraphs = remainingText.split('\n\n')
-      const sideContentMarkdown = paragraphs.slice(0, paragraphsToInclude).join('\n\n')
-      const remainingContentMarkdown = paragraphs.slice(paragraphsToInclude).join('\n\n')
+      if (type === 'Header') {
+        const height = styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || 'auto'
+        const objectFit = styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'
+        const objectPosition = styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'
 
-      const sideContentHtml = marked.parse(sideContentMarkdown)
-      const remainingContentHtml = remainingContentMarkdown
-        ? marked.parse(remainingContentMarkdown)
-        : ''
+        result += `
+          <div class="header-image-container">
+            <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
+          </div>
+        `.trim()
+        currentIndex = endIndex
+      } else if (type === 'Rightside' || type === 'Leftside') {
+        const width = styles.match(/width:\s*([\d%]+|[\d]+px)/)?.[1] || '20%'
+        const height = styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || '200px'
+        const objectFit = styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'
+        const objectPosition = styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'
 
-      const imgHtml = isLeftside
-        ? `<div style="display: flex;"><div style="${styleText}">${sideContentHtml}</div><img src="${src}" alt="${alt}" style="${styleImage}" /></div>`
-        : `<div style="display: flex;"><img src="${src}" alt="${alt}" style="${styleImage}" /><div style="${styleText}">${sideContentHtml}</div></div>`
+        // Get text after the markdown
+        const remainingText = text.slice(endIndex)
+        const paragraphs = remainingText.split(/\n\s*\n/).filter((p) => p.trim())
+        const numParagraphs = parseInt(paragraphCount, 10) || 1
+        const sideParagraphs = paragraphs
+          .slice(0, numParagraphs)
+          .map((p) => marked.parse(p))
+          .join('')
 
-      result += remainingContentHtml
-        ? `${imgHtml}<div style="width: 100%; margin-top: 10px;">${remainingContentHtml}</div>`
-        : imgHtml
+        // Calculate the index after the processed paragraphs
+        let paragraphEndIndex = endIndex
+        let paragraphTextLength = 0
+        for (let i = 0; i < numParagraphs && i < paragraphs.length; i++) {
+          const paragraph = paragraphs[i]
+          paragraphTextLength += paragraph.length
+          const nextNewline = remainingText.slice(paragraphTextLength).indexOf('\n\n')
+          if (nextNewline !== -1) {
+            paragraphTextLength += nextNewline + 2
+          }
+        }
+        paragraphEndIndex += paragraphTextLength
 
-      // Update lastIndex to skip processed remaining content
-      lastIndex = offset + fullMatch.length + remainingText.length
-    } else {
-      const style = `width: ${width}; height: ${height};${objectFit ? ` object-fit: ${objectFit};` : ''}${objectPosition ? ` object-position: ${objectPosition};` : ''}`
-      result += `<img src="${src}" alt="${alt}" style="${style}" />`
-      lastIndex = offset + fullMatch.length
+        const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
+        const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
+        const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
+        const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
+
+        result += `
+          <div class="${containerClass}">
+            <div class="${imageClass}">
+              <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height !== 'auto' ? height + 'px' : height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
+            </div>
+            <div class="${contentClass}">${sideParagraphs}</div>
+          </div>
+        `.trim()
+
+        currentIndex = paragraphEndIndex
+      }
+    } else if (isQuote) {
+      const cited = match[7]
+      const quoteContent = match[8].trim()
+
+      console.log('Processing Quote:', { cited, quoteContent, startIndex, endIndex })
+
+      result += `
+        <div class="fancy-quote">
+          ${marked.parse(quoteContent)}
+          <cite>— ${cited}</cite>
+        </div>
+      `.trim()
+      currentIndex = endIndex
+    } else if (isSection) {
+      const backgroundColor = match[10]
+      const color = match[11]
+      const sectionContent = match[12].trim()
+
+      console.log('Processing Section:', {
+        backgroundColor,
+        color,
+        sectionContent,
+        startIndex,
+        endIndex,
+      })
+
+      result += `
+        <div class="section" style="background-color: ${backgroundColor}; color: ${color};">
+          ${marked.parse(sectionContent)}
+        </div>
+      `.trim()
+      currentIndex = endIndex
+    } else if (isFancy) {
+      const fontSize = match[14].trim()
+      const color = match[15].trim()
+      const backgroundImage = match[16] ? match[16].trim() : null
+      const textAlign = match[17] ? match[17].trim() : 'center' // Default to center if not specified
+      const titleContent = match[18].trim()
+
+      console.log('Processing Fancy:', {
+        fontSize,
+        color,
+        backgroundImage,
+        textAlign,
+        titleContent,
+        startIndex,
+        endIndex,
+      })
+
+      // Validate backgroundImage URL
+      const isValidUrl = backgroundImage && /^https?:\/\/[^\s;]+$/.test(backgroundImage)
+      let style = `font-size: ${fontSize}; color: ${color}; text-align: ${textAlign};`
+      if (isValidUrl) {
+        style += ` background-image: url('${backgroundImage}');`
+      }
+
+      result += `
+        <div class="fancy-title" style="${style}">
+          ${marked.parse(titleContent)}
+        </div>
+      `.trim()
+      if (!isValidUrl && backgroundImage) {
+        console.warn('Invalid background-image URL:', backgroundImage)
+      }
+      currentIndex = endIndex
     }
   }
 
-  // Append any remaining text after the last match
-  if (lastIndex < text.length) {
-    result += marked.parse(text.slice(lastIndex))
+  // Add any remaining text
+  if (currentIndex < text.length) {
+    result += marked.parse(text.slice(currentIndex))
   }
 
-  return result
+  console.log('Processed Markdown Output:', result)
+  return result.trim()
 }
 
 const convertToHtml = (text) => {
@@ -148,7 +269,7 @@ const convertToHtml = (text) => {
 }
 
 const parseMarkdownImage = (markdown) => {
-  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/ // Match markdown image syntax
+  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/
   const match = markdown.match(regex)
 
   if (match) {
@@ -181,6 +302,7 @@ watch(
 .graph-viewer {
   padding: 20px;
   background-color: #f9f9f9;
+  box-sizing: border-box;
 }
 
 .loading,
@@ -202,6 +324,7 @@ watch(
   border-radius: 8px;
   background-color: #fff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
 }
 
 .node-label {
@@ -222,6 +345,114 @@ watch(
   border-radius: 8px;
 }
 
+.header-image-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto 20px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.header-image-container img.header-image {
+  width: 100%;
+  max-width: 100%;
+  max-height: 200px;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.rightside-container,
+.leftside-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.rightside-content,
+.leftside-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 20% - 20px) !important;
+  box-sizing: border-box;
+}
+
+.rightside-image {
+  flex: 0 0 20%;
+  width: 20%;
+  min-width: 20% !important;
+  box-sizing: border-box;
+  order: 2;
+}
+
+.leftside-image {
+  flex: 0 0 20%;
+  width: 20%;
+  min-width: 20% !important;
+  box-sizing: border-box;
+  order: 1;
+}
+
+.rightside-content {
+  order: 1;
+}
+
+.leftside-content {
+  order: 2;
+}
+
+img.rightside,
+img.leftside {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.fancy-quote {
+  font-style: italic;
+  background-color: #f9f9f9;
+  border-left: 5px solid #ccc;
+  padding: 1em;
+  margin: 1em 0;
+  color: #333;
+}
+
+.fancy-quote cite {
+  display: block;
+  text-align: right;
+  font-style: normal;
+  color: #666;
+  margin-top: 0.5em;
+}
+
+.section {
+  padding: 1em;
+  margin: 1em 0;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.fancy-title {
+  font-family: Arial, Helvetica, sans-serif;
+  background-color: #f9f9f9;
+  padding: 0.5em;
+  margin: 0.5em 0;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-weight: bold;
+  text-align: center;
+  background-size: cover;
+  background-position: center;
+}
+
 @media (max-width: 768px) {
   .node {
     padding: 10px;
@@ -233,6 +464,32 @@ watch(
 
   .node-info {
     font-size: 0.875rem;
+  }
+
+  .header-image-container {
+    margin: 0 0 15px;
+  }
+
+  .header-image-container img.header-image {
+    max-height: 150px;
+  }
+
+  .rightside-container,
+  .leftside-container {
+    flex-direction: column;
+    flex-wrap: wrap;
+  }
+
+  .rightside-content,
+  .leftside-content {
+    max-width: 100% !important;
+  }
+
+  .rightside-image,
+  .leftside-image {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0 !important;
   }
 }
 </style>
