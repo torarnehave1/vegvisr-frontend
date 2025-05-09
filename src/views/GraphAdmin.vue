@@ -363,33 +363,33 @@ const graphTemplates = ref([
 
 const testEndpoint = async (endpoint, content) => {
   try {
+    console.log('Testing endpoint:', endpoint); // Log the endpoint being tested
+    console.log('Content being sent:', content); // Log the content being sent
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: content }),
-    })
+    });
+
+    console.log('Response status:', response.status); // Log the response status
     if (!response.ok) {
-      console.error('Endpoint test failed:', response.statusText)
-      return null
+      console.error('Endpoint test failed with status:', response.statusText);
+      return null;
     }
-    const result = await response.json()
-    return result
+
+    const result = await response.json();
+    console.log('Response data:', result); // Log the response data
+    return result;
   } catch (error) {
-    console.error('Error testing endpoint:', error)
-    return null
+    console.error('Error testing endpoint:', error); // Log the error details
+    return null;
   }
-}
+};
 
 const fetchedTemplates = ref([])
 
 // Fetch templates from the endpoint
-const fetchTemplates = async () => {
-  try {
-    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
-    if (response.ok) {
-      const data = await response.json()
-      console.log('Fetched templates:', data) // Debug log
-      fetchedTemplates.value = data.results.map((template) => ({
         name: template.name,
         nodes: JSON.parse(template.nodes),
         edges: JSON.parse(template.edges),
