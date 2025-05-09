@@ -2321,9 +2321,7 @@ if (parsed) {
 
 const summarizeContent = async (content) => {
   try {
-    // const response = await fetch('https://api.vegvisr.org/summarize'
-
-    const response = await fetch('https://knowledge.vegvisr.org/generateText', {
+    const response = await fetch('https://api.vegvisr.org/summarize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
