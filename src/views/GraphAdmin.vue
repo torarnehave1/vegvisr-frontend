@@ -42,6 +42,22 @@
             <div v-if="templateMessage" class="alert alert-info text-center" role="alert">
               {{ templateMessage }}
             </div>
+
+            <!-- Graph Editor -->
+            <div class="col-12 graph-content">
+              <div class="row">
+                <!--<h2 class="graph-title text-center">Knowledge Story Graph</h2>-->
+                <div class="col-md-12 graph-editor-container">
+                  <div class="graph-editor">
+                    <div
+                      id="cy"
+                      class="cy-container"
+                      style="width: 100%; height: 600px; border: 1px solid #ddd"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
             <!-- Control Panel (Search and History) -->
             <div class="col-12 control-panel bg-light p-3 border-bottom">
               <div class="row align-items-center">
@@ -95,22 +111,6 @@
                   <button @click="redoAction" class="btn btn-outline-secondary">
                     <span class="material-icons">redo</span>
                   </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Graph Editor -->
-            <div class="col-12 graph-content">
-              <div class="row">
-                <h2 class="graph-title text-center">Knowledge Story Graph</h2>
-                <div class="col-md-12 graph-editor-container">
-                  <div class="graph-editor">
-                    <div
-                      id="cy"
-                      class="cy-container"
-                      style="width: 100%; height: 600px; border: 1px solid #ddd"
-                    ></div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -2321,7 +2321,9 @@ if (parsed) {
 
 const summarizeContent = async (content) => {
   try {
-    const response = await fetch('https://api.vegvisr.org/summarize', {
+    // const response = await fetch('https://api.vegvisr.org/summarize'
+
+    const response = await fetch('https://knowledge.vegvisr.org/generateText', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

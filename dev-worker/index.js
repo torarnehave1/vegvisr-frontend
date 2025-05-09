@@ -1,3 +1,11 @@
+import { createWorkersAI } from 'workers-ai-provider'
+import { generateText } from 'ai'
+
+/**
+ * @typedef {Object} Env
+ * @property {Ai} AI
+ */
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -765,6 +773,54 @@ export default {
           )
         } catch (error) {
           console.error('[Worker] Error inserting work note into graph:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/generateText' && request.method === 'POST') {
+        try {
+          const workersai = createWorkersAI({ binding: env.AI })
+          console.log('[Worker] Created workersai instance:', workersai)
+
+          const requestBody = await request.json()
+          const { prompt } = requestBody
+
+          if (!prompt) {
+            return new Response(JSON.stringify({ error: 'Prompt is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log('[Worker] Received prompt:', prompt)
+
+          const result = await generateText({
+            model: workersai('@cf/meta/llama-2-7b-chat-int8'),
+            prompt,
+          })
+
+          console.log('[Worker] Generated text:', result)
+
+          const summary = result.choices[0].message.content.trim()
+
+          return new Response(
+            JSON.stringify({
+              id: `fulltext_${Date.now()}`,
+              label: 'Summary',
+              type: 'fulltext',
+              info: summary,
+              color: '#f9f9f9',
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Error generating text:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,
