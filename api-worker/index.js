@@ -770,9 +770,9 @@ const handleGrokTest = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { text } = body
-  if (!text || typeof text !== 'string') {
-    return createErrorResponse('Text input is missing or invalid', 400)
+  const { prompt } = body
+  if (!prompt || typeof prompt !== 'string') {
+    return createErrorResponse('Prompt input is missing or invalid', 400)
   }
 
   const client = new OpenAI({
@@ -781,13 +781,14 @@ const handleGrokTest = async (request, env) => {
   })
 
   try {
+    // Generate main content
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
       temperature: 0.7,
       max_tokens: 2000,
       messages: [
         { role: 'system', content: 'You are a philosophical AI providing deep insights.' },
-        { role: 'user', content: text },
+        { role: 'user', content: prompt },
       ],
     })
 
@@ -796,6 +797,28 @@ const handleGrokTest = async (request, env) => {
       return createErrorResponse('Empty summary response', 500)
     }
 
+    // Generate bibliographic references in APA format
+    const biblCompletion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a scholarly AI. Return only 2-3 bibliographic references in APA format (e.g., "Author, A. A. (Year). Title of work. Publisher."), one per line, with no explanations, headings, or additional text.',
+        },
+        { role: 'user', content: `Generate references for the topic: ${prompt}` },
+      ],
+    })
+
+    const biblText = biblCompletion.choices[0].message.content.trim()
+    // Split references by newline, filter out empty lines
+    const biblReferences = biblText
+      .split('\n')
+      .filter((ref) => ref.trim())
+      .map((ref) => ref.trim())
+
     return new Response(
       JSON.stringify({
         id: `fulltext_${Date.now()}`,
@@ -803,11 +826,12 @@ const handleGrokTest = async (request, env) => {
         type: 'fulltext',
         info: responseText,
         color: '#f9f9f9',
+        bibl: biblReferences,
       }),
       {
         status: 200,
         headers: {
-          ...corsHeaders, // Add CORS headers here
+          ...corsHeaders,
           'Content-Type': 'application/json',
         },
       },
@@ -816,7 +840,6 @@ const handleGrokTest = async (request, env) => {
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
   }
 }
-
 // Updated endpoint for versatile AI action with response format
 const handleAIAction = async (request, env) => {
   let body

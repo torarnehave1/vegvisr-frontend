@@ -137,11 +137,10 @@
                   <button
                     v-if="graphStore.currentGraphId"
                     @click="goToGraphViewer"
-                    class="btn btn-outline-primary me-2"
+                    class="btn btn-outline-primary"
                   >
                     View Graph
                   </button>
-                  <button @click="expandTopic" class="btn btn-outline-success">Expand Topic</button>
                 </div>
               </div>
 
@@ -224,6 +223,7 @@
         </li>
       </ul>
     </div>
+
   </div>
 </template>
 
@@ -288,7 +288,7 @@ const graphJson = ref(`{
     { id: 'Asgard', label: 'Asgard', color: 'goldenrod' }
   ],
   edges: [
-
+    { source: 'main', target: 'first' }
   ]
 }`)
 const sidebarCollapsed = ref(false)
@@ -634,41 +634,6 @@ const addEdge = () => {
   cyInstance.value.add(newEdge)
 }
 
-//expandTopic
-
-const expandTopic = async () => {
-  const selectedNode = cyInstance.value.$(':selected').first()
-  if (!selectedNode) {
-    alert('Please select a node to provide context for expanding the topic.')
-    return
-  }
-
-  const userInput = prompt('Enter a sentence or keyword to expand the topic:')
-  if (!userInput) {
-    alert('Please provide a valid input to expand the topic.')
-    return
-  }
-
-  const context = {
-    label: selectedNode.data('label'),
-    info: selectedNode.data('info') || '',
-  }
-
-  const response = await fetch('https://knowledge.vegvisr.org/expandTopic', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic: userInput, context }),
-  })
-
-  if (response.ok) {
-    const data = await response.json()
-    console.log('Expanded data:', data)
-    // Process the expanded data and update the graph
-  } else {
-    console.error('Failed to expand topic:', response.statusText)
-  }
-}
-
 // Save graph
 const saveGraph = async () => {
   if (cyInstance.value) {
@@ -685,7 +650,6 @@ const saveGraph = async () => {
     nodes: graphStore.nodes.map((node) => ({
       ...node.data,
       position: node.position,
-
       type: node.data.type || null,
       info: node.data.info || null,
     })),

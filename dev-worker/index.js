@@ -89,6 +89,7 @@ export default {
                 {
                   id: crypto.randomUUID(),
                   color: 'goldenrod',
+                  label: 'Alpha',
                   type: null,
                   info: null,
                   bibl: [],
@@ -99,6 +100,7 @@ export default {
                 {
                   id: crypto.randomUUID(),
                   color: 'steelblue',
+                  label: 'Hyper',
                   type: null,
                   info: null,
                   bibl: [],
@@ -109,6 +111,7 @@ export default {
                 {
                   id: crypto.randomUUID(),
                   color: 'lightcoral',
+                  label: 'Vector',
                   type: null,
                   info: null,
                   bibl: [],
@@ -787,6 +790,8 @@ export default {
 
           const requestBody = await request.json()
           const { prompt } = requestBody
+          console.log('[Worker] Request body:', requestBody)
+          console.log('[Worker] Prompt:', prompt)
 
           if (!prompt) {
             return new Response(JSON.stringify({ error: 'Prompt is required.' }), {
@@ -798,13 +803,22 @@ export default {
           console.log('[Worker] Received prompt:', prompt)
 
           const result = await generateText({
-            model: workersai('@cf/meta/llama-2-7b-chat-int8'),
+            model: workersai('@cf/meta/llama-3.2-1b-instruct'),
+            max_tokens: 5000,
             prompt,
           })
-
+          if (
+            !result ||
+            !result.response ||
+            !result.response.messages ||
+            !result.response.messages[0].content[0].text
+          ) {
+            throw new Error('Invalid response from Workers AI')
+          }
+          const summary = result.response.messages[0].content[0].text.trim()
           console.log('[Worker] Generated text:', result)
 
-          const summary = result.choices[0].message.content.trim()
+          // const summary = result.choices[0].message.content.trim()
 
           return new Response(
             JSON.stringify({
