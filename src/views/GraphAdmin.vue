@@ -1555,7 +1555,7 @@ onMounted(() => {
             'text-halign': 'center',
             'font-size': '16px',
             padding: '20px',
-            width: '800px',
+            width: '400px',
             height: (ele) => {
               const lineHeight = 30 // Approximate line height in pixels
               const padding = 20 // Total vertical padding (10px top + 10px bottom)
@@ -1581,7 +1581,7 @@ onMounted(() => {
             'text-halign': 'center',
             'font-size': '14px',
             'font-weight': 'bold', // Bold font
-            width: '794px',
+            width: '300px',
             height: (ele) => {
               const lineHeight = 30 // Approximate line height in pixels
               const padding = 20 // Total vertical padding (10px top + 10px bottom)
