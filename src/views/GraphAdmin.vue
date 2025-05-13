@@ -137,11 +137,10 @@
                   <button
                     v-if="graphStore.currentGraphId"
                     @click="goToGraphViewer"
-                    class="btn btn-outline-primary me-2"
+                    class="btn btn-outline-primary"
                   >
                     View Graph
                   </button>
-                  <button @click="expandTopic" class="btn btn-outline-success">Expand Topic</button>
                 </div>
               </div>
 
@@ -288,7 +287,7 @@ const graphJson = ref(`{
     { id: 'Asgard', label: 'Asgard', color: 'goldenrod' }
   ],
   edges: [
-
+    { source: 'main', target: 'first' }
   ]
 }`)
 const sidebarCollapsed = ref(false)
@@ -634,41 +633,6 @@ const addEdge = () => {
   cyInstance.value.add(newEdge)
 }
 
-//expandTopic
-
-const expandTopic = async () => {
-  const selectedNode = cyInstance.value.$(':selected').first()
-  if (!selectedNode) {
-    alert('Please select a node to provide context for expanding the topic.')
-    return
-  }
-
-  const userInput = prompt('Enter a sentence or keyword to expand the topic:')
-  if (!userInput) {
-    alert('Please provide a valid input to expand the topic.')
-    return
-  }
-
-  const context = {
-    label: selectedNode.data('label'),
-    info: selectedNode.data('info') || '',
-  }
-
-  const response = await fetch('https://knowledge.vegvisr.org/expandTopic', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic: userInput, context }),
-  })
-
-  if (response.ok) {
-    const data = await response.json()
-    console.log('Expanded data:', data)
-    // Process the expanded data and update the graph
-  } else {
-    console.error('Failed to expand topic:', response.statusText)
-  }
-}
-
 // Save graph
 const saveGraph = async () => {
   if (cyInstance.value) {
@@ -685,7 +649,6 @@ const saveGraph = async () => {
     nodes: graphStore.nodes.map((node) => ({
       ...node.data,
       position: node.position,
-
       type: node.data.type || null,
       info: node.data.info || null,
     })),
@@ -1591,11 +1554,45 @@ onMounted(() => {
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '16px',
-            padding: '10px',
-            width: '280px',
-            height: (ele) => (ele.data('info') ? 100 + ele.data('info').length / 10 : 100),
+            padding: '20px',
+            width: '800px',
+            height: (ele) => {
+              const lineHeight = 30 // Approximate line height in pixels
+              const padding = 20 // Total vertical padding (10px top + 10px bottom)
+              const labelLines = ele.data('label') ? ele.data('label').split('\n').length : 1
+              const infoLines = ele.data('info') ? ele.data('info').split('\n').length : 0
+              const totalLines = labelLines + infoLines + 2 // +2 for the double newline
+              return Math.max(100, totalLines * lineHeight + padding) // Ensure minimum height of 100px
+            },
           },
         },
+        // In GraphAdmin.vue, within the cytoscape style array
+        {
+          selector: 'node[type="worknote"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': '#FFD580', // Light orange background
+            'border-width': 2,
+            'border-color': '#333',
+            label: (ele) => `${ele.data('label')}\n\n${ele.data('info') || ''}`, // Display label and info
+            'text-wrap': 'wrap',
+            'text-max-width': '734px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '14px',
+            'font-weight': 'bold', // Bold font
+            width: '794px',
+            height: (ele) => {
+              const lineHeight = 30 // Approximate line height in pixels
+              const padding = 20 // Total vertical padding (10px top + 10px bottom)
+              const labelLines = ele.data('label') ? ele.data('label').split('\n').length : 1
+              const infoLines = ele.data('info') ? ele.data('info').split('\n').length : 0
+              const totalLines = labelLines + infoLines + 2 // +2 for the double newline
+              return Math.max(100, totalLines * lineHeight + padding) // Ensure minimum height of 100px
+            },
+          },
+        },
+
         {
           selector: 'node[type="fulltext"]',
           style: {
@@ -1689,6 +1686,26 @@ onMounted(() => {
             'text-halign': 'center',
             width: 200,
             height: 50,
+          },
+        },
+        {
+          selector: 'node[type="youtube-video"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': '#FF0000', // YouTube red
+            'border-width': 1,
+            'border-color': '#000',
+            label: (ele) => {
+              const match = ele.data('label').match(/!\[YOUTUBE src=.+?\](.+?)\[END YOUTUBE\]/)
+              return match ? match[1] : ele.data('label')
+            },
+            'text-wrap': 'wrap',
+            'text-max-width': '180px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '14px',
+            width: '200px',
+            height: '112px', // 16:9 aspect ratio for video thumbnail
           },
         },
 

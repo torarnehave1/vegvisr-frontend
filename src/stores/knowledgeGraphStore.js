@@ -77,25 +77,17 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     }
   }
 
-  const updateGraphFromJson = (parsedJson, forGraphEditor = false) => {
-    // Preserve existing action_txt nodes
-    const existingActionTxtNodes = nodes.value.filter((node) => node.data.type === 'action_txt')
-
-    const sanitizedData = sanitizeGraphData(parsedJson, forGraphEditor)
-    nodes.value = [
-      ...sanitizedData.nodes.map((node) => ({
-        data: {
-          ...node,
-          imageWidth: node.imageWidth || null, // Preserve null
-          imageHeight: node.imageHeight || null, // Preserve null
-        },
-        position: node.position,
-      })),
-      ...existingActionTxtNodes, // Add preserved action_txt nodes
-    ]
-    edges.value = sanitizedData.edges.map((edge) => ({
+  const updateGraphFromJson = (parsedJson) => {
+    nodes.value = parsedJson.nodes.map((node) => ({
       data: {
-        id: edge.id,
+        ...node,
+        visible: node.visible !== false, // Ensure visibility is handled
+      },
+      position: node.position || null,
+    }))
+    edges.value = parsedJson.edges.map((edge) => ({
+      data: {
+        id: edge.id || `${edge.source}_${edge.target}`,
         source: edge.source,
         target: edge.target,
         ...(edge.label !== undefined && { label: edge.label }),
@@ -103,6 +95,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         ...(edge.info !== undefined && { info: edge.info }),
       },
     }))
+    graphJson.value = JSON.stringify(parsedJson, null, 2)
   }
 
   const setCurrentGraphId = (id) => {
