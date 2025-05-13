@@ -8,6 +8,13 @@
             <span class="material-icons"> menu </span>
           </button>
         </div>
+        <!-- Logged-in User -->
+        <div class="col-md-4 col-sm-12">
+          <p class="mb-0">
+            <strong>Logged in as:</strong>
+            <span>{{ userStore.email || 'Guest' }}</span>
+          </p>
+        </div>
         <!-- Graph Selector -->
         <div class="col-md-4 col-sm-12">
           <label for="graphDropdown" class="form-label">
@@ -49,6 +56,7 @@
 
 <script setup>
 import { defineProps, defineEmits } from 'vue'
+import { useUserStore } from '@/stores/userStore' // Import user store
 
 defineProps({
   selectedGraphId: String,
@@ -58,6 +66,8 @@ defineProps({
 })
 
 defineEmits(['update:selectedGraphId', 'toggle-sidebar'])
+
+const userStore = useUserStore() // Access user store
 </script>
 
 <style scoped>
