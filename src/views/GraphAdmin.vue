@@ -1598,8 +1598,8 @@ onMounted(() => {
           style: {
             shape: 'round-rectangle',
             'background-color': (ele) => ele.data('color') || '#ede8e8',
-            'border-width': 1,
-            'border-color': '#ccc',
+            'border-width': 4,
+            'border-color': '#555',
             label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`,
             'text-wrap': 'wrap',
             'text-max-width': '734px',

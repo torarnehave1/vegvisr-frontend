@@ -1,3 +1,4 @@
+```vue
 <template>
   <div class="graph-viewer container">
     <!-- Success Message at the top -->
@@ -60,6 +61,21 @@
             </div>
           </div>
         </template>
+        <template v-else-if="node.type === 'worknote'">
+          <!-- Render worknote nodes -->
+          <div class="work-note" :style="{ backgroundColor: node.color || '#FFD580' }">
+            <h3 class="node-label">{{ node.label }}</h3>
+            <button
+              v-if="
+                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+              "
+              @click="openMarkdownEditor(node)"
+            >
+              Edit Info
+            </button>
+            <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
+          </div>
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
@@ -89,6 +105,9 @@
             </button>
             <button @click="insertQuoteMarkdown" title="Insert Quote" class="btn btn-link p-0">
               <span class="material-icons">format_quote</span>
+            </button>
+            <button @click="insertWNoteMarkdown" title="Insert Work Note" class="btn btn-link p-0">
+              <span class="material-icons">note</span>
             </button>
             <button
               @click="insertHeaderImageMarkdown"
@@ -121,6 +140,13 @@
             >
               <span class="material-icons">video_library</span>
             </button>
+            <button
+              @click="insertWorkNoteMarkdown"
+              title="Insert Work Note"
+              class="btn btn-link p-0"
+            >
+              <span class="material-icons">note</span>
+            </button>
           </div>
           <textarea
             v-model="currentMarkdown"
@@ -141,15 +167,14 @@
 import { ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
-import { useUserStore } from '@/stores/userStore' // Import user store
+import { useUserStore } from '@/stores/userStore'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
 const error = ref(null)
 const saveMessage = ref('')
 const knowledgeGraphStore = useKnowledgeGraphStore()
-
-const userStore = useUserStore() // Access user store
+const userStore = useUserStore()
 
 const fetchGraphData = async () => {
   try {
@@ -214,6 +239,21 @@ const insertQuoteMarkdown = () => {
   } else {
     const quoteMarkdown = "[QUOTE | Cited='Author']\n\nYour quote here\n\n[END QUOTE]"
     currentMarkdown.value += `\n${quoteMarkdown}\n`
+  }
+}
+
+const insertWNoteMarkdown = () => {
+  const textarea = document.querySelector('.markdown-editor-modal textarea')
+  if (textarea && textarea.selectionStart !== textarea.selectionEnd) {
+    const selectedText = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd)
+    const wNoteMarkdown = `[WNOTE | Cited='Author']\n${selectedText}\n[END WNOTE]`
+    currentMarkdown.value =
+      textarea.value.substring(0, textarea.selectionStart) +
+      wNoteMarkdown +
+      textarea.value.substring(textarea.selectionEnd)
+  } else {
+    const wNoteMarkdown = "[WNOTE | Cited='Author']\n\nYour work note here\n\n[END WNOTE]"
+    currentMarkdown.value += `\n${wNoteMarkdown}\n`
   }
 }
 
@@ -325,11 +365,28 @@ const insertYoutubeVideoMarkdown = () => {
   }
 }
 
+const insertWorkNoteMarkdown = () => {
+  const textarea = document.querySelector('.markdown-editor-modal textarea')
+  const workNoteMarkdown = `[WORKNOTE]\n\nYour quote here\n\n[END WORKNOTE]`
+  if (textarea && currentMarkdown.value !== undefined) {
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const textBefore = currentMarkdown.value.substring(0, start)
+    const textAfter = currentMarkdown.value.substring(end)
+    currentMarkdown.value = `${textBefore}${workNoteMarkdown}${textAfter}`
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + workNoteMarkdown.length
+      textarea.focus()
+    }, 0)
+  }
+}
+
 const preprocessMarkdown = (text) => {
   console.log('Input Markdown Text:', text)
 
   const markdownRegex =
-    /(!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\))|(\[QUOTE\s*\|\s*Cited='(.+?)'\](.*?)\[END QUOTE\])|(\[SECTION\s*\|\s*background-color:\s*'(.+?)';\s*color:\s*'(.+?)'\](.*?)\[END SECTION\])|(\[FANCY\s*\|\s*font-size:\s*([^;]+?);\s*color:\s*([^;]+?)(?:;\s*background-image:\s*url\('([^;]+?)'\))?(?:;\s*text-align:\s*([^;]+?))?\s*\](.*?)\[END FANCY\])|(!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\])/gs
+    /(!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\))|(\[QUOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END QUOTE\])|(\[WNOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END WNOTE\])|(\[SECTION\s*\|\s*background-color:\s*['"](.+?)['"];\s*color:\s*['"](.+?)['"]\](.*?)\[END SECTION\])|(\[FANCY\s*\|\s*font-size:\s*([^;]+?);\s*color:\s*([^;]+?)(?:;\s*background-image:\s*url\(['"]([^;]+?)['"]\))?(?:;\s*text-align:\s*([^;]+?))?\s*\](.*?)\[END FANCY\])|(!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\])|(\[WORKNOTE\](.*?)\[END WORKNOTE\])/gs
+
   let result = ''
   let currentIndex = 0
   let match
@@ -338,9 +395,11 @@ const preprocessMarkdown = (text) => {
     const fullMatch = match[0]
     const isImage = match[1]
     const isQuote = match[6]
-    const isSection = match[9]
-    const isFancy = match[13]
-    const isYoutube = match[18]
+    const isWNote = match[9]
+    const isSection = match[12]
+    const isFancy = match[16]
+    const isYoutube = match[21]
+    const isWorkNote = match[24]
     const startIndex = match.index
     const endIndex = startIndex + fullMatch.length
 
@@ -350,9 +409,11 @@ const preprocessMarkdown = (text) => {
       endIndex,
       isImage,
       isQuote,
+      isWNote,
       isSection,
       isFancy,
       isYoutube,
+      isWorkNote,
     })
 
     if (currentIndex < startIndex) {
@@ -433,10 +494,23 @@ const preprocessMarkdown = (text) => {
         </div>
       `.trim()
       currentIndex = endIndex
+    } else if (isWNote) {
+      const cited = match[10]
+      const wNoteContent = match[11].trim()
+
+      console.log('Processing WNote:', { cited, wNoteContent, startIndex, endIndex })
+
+      result += `
+        <div class="work-note">
+          ${marked.parse(wNoteContent)}
+          <cite>— ${cited}</cite>
+        </div>
+      `.trim()
+      currentIndex = endIndex
     } else if (isSection) {
-      const backgroundColor = match[10]
-      const color = match[11]
-      const sectionContent = match[12].trim()
+      const backgroundColor = match[13]
+      const color = match[14]
+      const sectionContent = match[15].trim()
 
       console.log('Processing Section:', {
         backgroundColor,
@@ -453,11 +527,11 @@ const preprocessMarkdown = (text) => {
       `.trim()
       currentIndex = endIndex
     } else if (isFancy) {
-      const fontSize = match[14].trim()
-      const color = match[15].trim()
-      const backgroundImage = match[16] ? match[16].trim() : null
-      const textAlign = match[17] ? match[17].trim() : 'center'
-      const titleContent = match[18].trim()
+      const fontSize = match[17].trim()
+      const color = match[18].trim()
+      const backgroundImage = match[19] ? match[19].trim() : null
+      const textAlign = match[20] ? match[20].trim() : 'center'
+      const titleContent = match[21].trim()
 
       console.log('Processing Fancy:', {
         fontSize,
@@ -485,8 +559,8 @@ const preprocessMarkdown = (text) => {
       }
       currentIndex = endIndex
     } else if (isYoutube) {
-      const videoUrl = match[19].trim()
-      const title = match[20].trim()
+      const videoUrl = match[22].trim()
+      const title = match[23].trim()
 
       result += `
         <div class="youtube-section">
@@ -500,6 +574,19 @@ const preprocessMarkdown = (text) => {
             class="youtube-iframe"
           ></iframe>
           <p class="youtube-title">${title}</p>
+        </div>
+      `.trim()
+      currentIndex = endIndex
+    } else if (isWorkNote) {
+      const workNoteContent = match[25].trim()
+      console.log('Processing WorkNote:', {
+        workNoteContent,
+        startIndex,
+        endIndex,
+      })
+      result += `
+        <div class="work-note">
+          ${marked.parse(workNoteContent)}
         </div>
       `.trim()
       currentIndex = endIndex
@@ -575,7 +662,6 @@ const editYoutubeVideo = async (node) => {
   const newUrl = prompt('Enter new YouTube share link or embed URL:', currentUrl)
 
   if (newUrl && newUrl !== currentUrl) {
-    // Extract video ID from the new URL
     const videoIdMatch =
       newUrl.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/) ||
       newUrl.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/) ||
@@ -587,12 +673,9 @@ const editYoutubeVideo = async (node) => {
       return
     }
 
-    // Update the node's label with the new embed URL
     node.label = `![YOUTUBE src=https://www.youtube.com/embed/${videoId}]${currentTitle}[END YOUTUBE]`
-    // Update the bibl to reflect the new share link
     node.bibl = [`[Source: YouTube video URL, e.g., https://youtu.be/${videoId}]`]
 
-    // Prepare the updated graph data
     const updatedGraphData = {
       ...graphData.value,
       nodes: graphData.value.nodes.map((n) =>
@@ -601,7 +684,6 @@ const editYoutubeVideo = async (node) => {
     }
 
     try {
-      // Save the updated graph to the backend
       const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -619,10 +701,8 @@ const editYoutubeVideo = async (node) => {
       const result = await response.json()
       console.log('Graph saved successfully:', result)
 
-      // Update the Pinia store
       knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
-      // Show success message
       saveMessage.value = 'YouTube video updated successfully!'
       setTimeout(() => {
         saveMessage.value = ''
@@ -928,6 +1008,14 @@ img.leftside {
   margin-top: 0.5em;
 }
 
+.work-note cite {
+  display: block;
+  text-align: right;
+  font-style: normal;
+  color: #666;
+  margin-top: 0.5em;
+}
+
 .section {
   padding: 1em;
   margin: 1em 0;
@@ -1058,4 +1146,17 @@ img.leftside {
     min-width: 0 !important;
   }
 }
+
+.work-note {
+  background-color: #ffd580;
+  color: #333;
+  font-size: 14px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  padding: 10px;
+  margin: 10px 0;
+  border-left: 5px solid #ccc;
+  border-radius: 4px;
+}
 </style>
+```

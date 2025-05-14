@@ -432,4 +432,24 @@ img.leftside {
   background-color: #f9f9f9;
   box-sizing: border-box;
 }
+
+.work-note {
+  background-color: #ffd580; /* Light orange background */
+  color: #333;
+  font-size: 14px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  padding: 10px;
+  margin: 10px 0;
+  border-left: 5px solid #ccc;
+  border-radius: 4px;
+}
+
+.work-note cite {
+  display: block;
+  text-align: right;
+  font-style: normal;
+  color: #666;
+  margin-top: 0.5em;
+}
 </style>
