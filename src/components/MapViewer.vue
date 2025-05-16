@@ -64,7 +64,7 @@ onMounted(async () => {
     })
 
     kmlLayer = new google.maps.KmlLayer({
-      url: path, // Use the destructured `path` directly
+      url: path,
       map: map,
       preserveViewport: true,
       suppressInfoWindows: true,
@@ -144,8 +144,8 @@ onMounted(async () => {
 
       console.log('Selected place:', place)
 
-      // Alert the selected place's name
-      alert(`You selected: ${place.name || 'Unknown Place'}`)
+      // Emit the place-changed event
+      emit('gmp-place-changed', place)
 
       // Center the map on the selected place
       map.setCenter(place.geometry.location)
