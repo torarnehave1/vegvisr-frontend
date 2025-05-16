@@ -6,7 +6,17 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), vueDevTools()],
+  plugins: [
+    vue({
+      template: {
+        compilerOptions: {
+          // Treat elements starting with 'gmp-' as custom elements
+          isCustomElement: (tag) => tag.startsWith('gmp-'),
+        },
+      },
+    }),
+    vueDevTools(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

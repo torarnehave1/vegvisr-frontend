@@ -13,14 +13,10 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { Loader } from '@googlemaps/js-api-loader'
 
-// Define the path prop
-defineProps({
-  path: { type: String, required: true },
-})
-
 const mapRef = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const path = 'https://klm.vegvisr.org/Vegvisr.org.kml' // Hardcoded path for testing
 
 onMounted(async () => {
   try {
@@ -52,7 +48,7 @@ onMounted(async () => {
     })
 
     const kmlLayer = new google.maps.KmlLayer({
-      url: props.path, // Use props.path, which is now defined
+      url: path, // Use path variable
       map: map,
       preserveViewport: true,
       suppressInfoWindows: true,

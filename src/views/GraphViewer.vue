@@ -1,4 +1,3 @@
-```vue
 <template>
   <div class="graph-viewer container">
     <!-- Success Message at the top -->
@@ -76,11 +75,16 @@
             <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
           </div>
         </template>
+        <template v-else-if="node.type === 'map'">
+          <!-- Render map nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <MapViewer :path="node.path" @gmp-place-changed="onPlaceChanged" />
+          <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
           <div class="node-info">
-            <!-- Show Edit Info button only if user is logged in and has the required role -->
             <button
               v-if="
                 userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
@@ -140,13 +144,6 @@
             >
               <span class="material-icons">video_library</span>
             </button>
-            <button
-              @click="insertWorkNoteMarkdown"
-              title="Insert Work Note"
-              class="btn btn-link p-0"
-            >
-              <span class="material-icons">note</span>
-            </button>
           </div>
           <textarea
             v-model="currentMarkdown"
@@ -168,6 +165,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
+import MapViewer from '@/components/MapViewer.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -845,6 +843,11 @@ const toggleNodeVisibility = (node) => {
   }, 3000)
 }
 
+const onPlaceChanged = (place) => {
+  console.log('Place changed event received in GraphViewer:', place)
+  // Handle the place change logic here if needed
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1142,7 +1145,7 @@ img.leftside {
   .rightside-image,
   .leftside-image {
     flex: 0 0 auto;
-    width: 100%;
+    width: 200px;
     min-width: 0 !important;
   }
 }
@@ -1159,4 +1162,3 @@ img.leftside {
   border-radius: 4px;
 }
 </style>
-```

@@ -98,6 +98,17 @@ const router = createRouter({
       component: BlogView,
     },
     {
+      path: '/maptest',
+      name: 'MapTest',
+      component: () => import('../components/MapViewer.vue'),
+      props: (route) => ({ theme: route.query.theme || 'light' }),
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      },
+    },
+
+    {
       path: '/graph-editor',
       name: 'GraphEditor',
       component: () => import('../views/GraphAdmin.vue'),

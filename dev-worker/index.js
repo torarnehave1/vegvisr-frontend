@@ -48,6 +48,7 @@ export default {
             position: node.position || { x: 0, y: 0 },
             imageWidth: node.imageWidth || null,
             imageHeight: node.imageHeight || null,
+            path: node.path || null, // Ensure path is included
           })),
           edges: graphData.edges.map((edge) => {
             const sanitizedEdge = sanitize(edge)
@@ -337,6 +338,7 @@ export default {
             ...node,
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+            path: node.path || null, // Ensure path is included
           }))
           graphData.edges = graphData.edges.map(({ source, target }) => ({
             id: `${source}_${target}`, // Ensure edge ID is set
@@ -407,6 +409,7 @@ export default {
               imageWidth: node.imageWidth || null, // Include image-width
               imageHeight: node.imageHeight || null, // Include image-height
               visible: node.visible !== false, // Default to true if not set
+              path: node.path || null, // Ensure path is included
             })),
             edges: graphData.edges.map(({ source, target }) => ({
               id: `${source}_${target}`, // Ensure edge ID is set
@@ -551,6 +554,7 @@ export default {
             visible: node.visible !== false, // Ensure visible field is included
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
+            path: node.path || null, // Ensure path is included
           }))
           graphData.edges = graphData.edges.map(({ source, target }) => ({
             id: `${source}_${target}`, // Ensure edge ID is set

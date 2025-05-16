@@ -924,6 +924,22 @@ const handleAIAction = async (request, env) => {
   }
 }
 
+const handleGetGoogleApiKey = async (request, env) => {
+  const apiKey = env.GOOGLE_API_KEY
+  const url = new URL(request.url)
+  const int_token = url.searchParams.get('key')
+
+  if (!int_token || int_token !== env.INT_TOKEN) {
+    return createErrorResponse({ int_token }, 401)
+  }
+
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: Google API key missing', 500)
+  }
+
+  return createResponse(JSON.stringify({ apiKey }), 200)
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -993,6 +1009,9 @@ export default {
 
       if (pathname === '/aiaction' && request.method === 'POST') {
         return await handleAIAction(request, env)
+      }
+      if (pathname === '/getGoogleApiKey' && request.method === 'GET') {
+        return await handleGetGoogleApiKey(request, env)
       }
 
       return createErrorResponse('Not Found', 404)

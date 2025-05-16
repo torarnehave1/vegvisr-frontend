@@ -848,6 +848,7 @@ const verifyJson = () => {
           imageWidth: node.imageWidth || '100%',
           imageHeight: node.imageHeight || '100%',
           visible: node.visible !== false, // Ensure visible field is included
+          path: node.path || null,
         },
         position: existingNode?.position || null,
       }
@@ -1003,6 +1004,7 @@ const fetchKnowledgeGraphs = async () => {
 
 // Load selected graph
 const loadSelectedGraph = async () => {
+  console.log('loadSelectedGraph called with selectedGraphId:', selectedGraphId.value) // Log the selected graph ID
   const graphIdToLoad = selectedGraphId.value
   if (!graphIdToLoad) {
     console.warn('No graph ID selected.')
@@ -1013,6 +1015,7 @@ const loadSelectedGraph = async () => {
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
       let graphData = await response.json()
+      console.log('Fetched graphData:', graphData) // Log the fetched graph data
       if (typeof graphData === 'string') {
         graphData = JSON.parse(graphData)
       }
@@ -1022,20 +1025,24 @@ const loadSelectedGraph = async () => {
         return
       }
 
-      graphStore.nodes = graphData.nodes.map((node) => ({
-        data: {
-          id: node.id,
-          label: node.label,
-          color: node.color || 'gray',
-          type: node.type || null,
-          info: node.info || null,
-          bibl: Array.isArray(node.bibl) ? node.bibl : [],
-          imageWidth: node.imageWidth || '100%',
-          imageHeight: node.imageHeight || '100%',
-          visible: node.visible !== false, // Ensure visible field is updated
-        },
-        position: node.position || null,
-      }))
+      graphStore.nodes = graphData.nodes.map((node) => {
+        console.log('Processing node in loadSelectedGraph:', node) // Log each node being processed
+        return {
+          data: {
+            id: node.id,
+            label: node.label,
+            color: node.color || 'gray',
+            type: node.type || null,
+            info: node.info || null,
+            bibl: Array.isArray(node.bibl) ? node.bibl : [],
+            imageWidth: node.imageWidth || '100%',
+            imageHeight: node.imageHeight || '100%',
+            visible: node.visible !== false, // Ensure visible field is updated
+            path: node.path || null, // Ensure path is included
+          },
+          position: node.position || null,
+        }
+      })
 
       graphStore.edges = graphData.edges.map((edge) => ({
         data: {
@@ -1046,6 +1053,9 @@ const loadSelectedGraph = async () => {
           info: edge.info || null,
         },
       }))
+
+      console.log('Loaded nodes:', graphStore.nodes) // Log the loaded nodes
+      console.log('Loaded edges:', graphStore.edges) // Log the loaded edges
 
       if (cyInstance.value) {
         cyInstance.value.elements().remove()
@@ -1569,6 +1579,31 @@ onMounted(() => {
         // In GraphAdmin.vue, within the cytoscape style array
         {
           selector: 'node[type="worknote"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': '#FFD580', // Light orange background
+            'border-width': 2,
+            'border-color': '#333',
+            label: (ele) => `${ele.data('label')}\n\n${ele.data('info') || ''}`, // Display label and info
+            'text-wrap': 'wrap',
+            'text-max-width': '734px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '14px',
+            'font-weight': 'bold', // Bold font
+            width: '300px',
+            height: (ele) => {
+              const lineHeight = 30 // Approximate line height in pixels
+              const padding = 20 // Total vertical padding (10px top + 10px bottom)
+              const labelLines = ele.data('label') ? ele.data('label').split('\n').length : 1
+              const infoLines = ele.data('info') ? ele.data('info').split('\n').length : 0
+              const totalLines = labelLines + infoLines + 2 // +2 for the double newline
+              return Math.max(100, totalLines * lineHeight + padding) // Ensure minimum height of 100px
+            },
+          },
+        },
+        {
+          selector: 'node[type="map"]',
           style: {
             shape: 'rectangle',
             'background-color': '#FFD580', // Light orange background
@@ -2124,6 +2159,7 @@ watch(
           visible: node.data.visible !== false, // Ensure visible field is included
           imageWidth: node.data.imageWidth || null,
           imageHeight: node.data.imageHeight || null,
+          path: node.data.path || null, // Ensure path is included
         })),
         edges: graphStore.edges.map((edge) => ({
           ...edge.data,
