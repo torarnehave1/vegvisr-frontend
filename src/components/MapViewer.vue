@@ -19,7 +19,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { Loader } from '@googlemaps/js-api-loader'
 
 // Define props
-defineProps({
+const { path } = defineProps({
   path: { type: String, required: true },
 })
 
@@ -64,7 +64,7 @@ onMounted(async () => {
     })
 
     kmlLayer = new google.maps.KmlLayer({
-      url: props.path,
+      url: path, // Use the destructured `path` directly
       map: map,
       preserveViewport: true,
       suppressInfoWindows: true,
