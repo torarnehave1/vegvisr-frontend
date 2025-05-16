@@ -78,7 +78,7 @@
         <template v-else-if="node.type === 'map'">
           <!-- Render map nodes -->
           <h3 class="node-label">{{ node.label }}</h3>
-          <MapViewer :path="node.path" @gmp-place-changed="onPlaceChanged" />
+          <MapViewer :path="node.path" @place-changed="onPlaceChanged" />
           <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
         </template>
         <template v-else>
@@ -360,22 +360,6 @@ const insertYoutubeVideoMarkdown = () => {
     } else {
       alert('Invalid YouTube URL. Please try again.')
     }
-  }
-}
-
-const insertWorkNoteMarkdown = () => {
-  const textarea = document.querySelector('.markdown-editor-modal textarea')
-  const workNoteMarkdown = `[WORKNOTE]\n\nYour quote here\n\n[END WORKNOTE]`
-  if (textarea && currentMarkdown.value !== undefined) {
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const textBefore = currentMarkdown.value.substring(0, start)
-    const textAfter = currentMarkdown.value.substring(end)
-    currentMarkdown.value = `${textBefore}${workNoteMarkdown}${textAfter}`
-    setTimeout(() => {
-      textarea.selectionStart = textarea.selectionEnd = start + workNoteMarkdown.length
-      textarea.focus()
-    }, 0)
   }
 }
 
@@ -826,26 +810,18 @@ const saveMarkdown = async () => {
   closeMarkdownEditor()
 }
 
-const toggleNodeVisibility = (node) => {
-  node.visible = !node.visible
-
-  const updatedGraphData = {
-    ...graphData.value,
-    nodes: graphData.value.nodes.map((n) =>
-      n.id === node.id ? { ...n, visible: node.visible } : n,
-    ),
-  }
-  knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
-
-  saveMessage.value = 'Node visibility updated successfully!'
-  setTimeout(() => {
-    saveMessage.value = ''
-  }, 3000)
-}
-
 const onPlaceChanged = (place) => {
   console.log('Place changed event received in GraphViewer:', place)
-  // Handle the place change logic here if needed
+  if (place && place.location) {
+    // You can add additional handling here if needed
+    console.log('New place location:', place.location)
+    console.log('Place details:', {
+      name: place.displayName,
+      address: place.formattedAddress,
+      location: place.location,
+      viewport: place.viewport,
+    })
+  }
 }
 
 onMounted(() => {

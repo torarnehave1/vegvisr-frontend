@@ -1,200 +1,112 @@
 <template>
   <div class="map-test-container">
-    <div class="overlay" v-if="loading || error">
+    <div v-if="loading || error" class="overlay">
       <div v-if="loading" class="loading">Loading map...</div>
       <div v-if="error" class="error">{{ error }}</div>
     </div>
-    <!-- Search Box using PlaceAutocompleteElement -->
-    <gmp-place-autocomplete
-      ref="searchBoxRef"
-      class="search-box"
-      placeholder="Search for a place"
-    ></gmp-place-autocomplete>
-    <div ref="mapRef" class="map" style="width: 100%; height: 600px"></div>
+    <div v-if="apiKey" class="map-container">
+      <div id="map-element"></div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
-import { Loader } from '@googlemaps/js-api-loader'
+import { ref, onMounted } from 'vue'
 
-// Define props
-const { path } = defineProps({
+const props = defineProps({
   path: { type: String, required: true },
 })
 
-defineEmits(['gmp-place-changed'])
+const emit = defineEmits(['place-changed'])
 
 const mapRef = ref(null)
-const searchBoxRef = ref(null)
+const markerRef = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const apiKey = ref(null)
+const defaultCenter = '37.94100018383558,27.34237557534141'
 
-// Variables to store map and kmlLayer for use in listeners
-let map = null
-let kmlLayer = null
-
-onMounted(async () => {
+// Initialize map and components
+const initMap = async () => {
   try {
-    const response = await fetch(
-      `https://api.vegvisr.org/getGoogleApiKey?key=${import.meta.env.VITE_API_ACCESS_KEY}`,
-    )
-    if (!response.ok) {
-      throw new Error('Failed to fetch Google API key')
-    }
-    const data = await response.json()
-    const apiKey = data.apiKey
+    // Create and append the API loader
+    const apiLoader = document.createElement('gmpx-api-loader')
+    apiLoader.setAttribute('key', apiKey.value)
+    apiLoader.setAttribute('solution-channel', 'GMP_GE_mapsandplacesautocomplete_v2')
+    document.getElementById('map-element').appendChild(apiLoader)
 
-    const loader = new Loader({
-      apiKey: apiKey,
-      version: 'weekly',
-      libraries: ['places'],
-    })
+    // Wait for custom elements to be defined
+    await customElements.whenDefined('gmp-map')
+    await customElements.whenDefined('gmpx-place-picker')
+    await customElements.whenDefined('gmp-advanced-marker')
 
-    await loader.importLibrary('maps')
-    await nextTick()
+    // Create map element
+    const mapElement = document.createElement('gmp-map')
+    mapElement.style.width = '100%'
+    mapElement.style.height = '600px'
+    mapElement.setAttribute('center', defaultCenter)
+    mapElement.setAttribute('zoom', '15')
+    mapRef.value = mapElement
 
-    if (!mapRef.value) {
-      throw new Error('Map container not found in DOM')
-    }
+    // Create place picker container
+    const pickerContainer = document.createElement('div')
+    pickerContainer.className = 'place-picker-container'
+    pickerContainer.setAttribute('slot', 'control-block-start-inline-start')
 
-    map = new google.maps.Map(mapRef.value, {
-      center: { lat: 37.94100018383558, lng: 27.34237557534141 },
-      zoom: 15,
-    })
+    // Create place picker
+    const placePicker = document.createElement('gmpx-place-picker')
+    placePicker.setAttribute('placeholder', 'Search for a place')
+    placePicker.addEventListener('gmpx-placechange', onPlaceChanged)
+    pickerContainer.appendChild(placePicker)
 
-    kmlLayer = new google.maps.KmlLayer({
-      url: path,
-      map: map,
-      preserveViewport: true,
-      suppressInfoWindows: true,
-    })
+    // Create marker
+    const marker = document.createElement('gmp-advanced-marker')
+    markerRef.value = marker
 
-    kmlLayer.addListener('status_changed', () => {
-      const status = kmlLayer.getStatus()
-      console.log('KML Layer Status:', status)
-      if (status !== 'OK') {
-        error.value = `Failed to load KML: ${status}`
-        console.error('KML Error:', status)
-      }
-      loading.value = false
-    })
+    // Append elements
+    mapElement.appendChild(pickerContainer)
+    mapElement.appendChild(marker)
+    document.getElementById('map-element').appendChild(mapElement)
 
-    // Configure PlaceAutocompleteElement
-    const autocomplete = searchBoxRef.value
-    console.log('Autocomplete element initialized:', autocomplete)
+    // Wait for map to be ready
+    await customElements.whenDefined('gmp-map')
+    const map = mapRef.value
 
-    // Ensure autocomplete is properly initialized
-    if (!autocomplete) {
-      throw new Error('Autocomplete element not found')
+    if (!map || !map.innerMap) {
+      throw new Error('Map not initialized properly')
     }
 
-    // Attach the correct event listener for gmp-place-autocomplete
-    autocomplete.addEventListener('place_changed', () => {
-      console.log('place_changed event triggered')
-      handlePlaceChanged()
+    // Set map options
+    map.innerMap.setOptions({
+      mapTypeControl: false,
     })
 
-    // Bias the autocomplete results towards the map's current viewport
-    map.addListener('bounds_changed', () => {
-      if (autocomplete) {
-        autocomplete.bounds = map.getBounds()
-      }
-    })
-
-    // Handle place_changed event
-    const handlePlaceChanged = async () => {
-      console.log('place_changed event fired')
-      const place = autocomplete.getPlace()
-
-      if (!place || !place.geometry || !place.geometry.location) {
-        console.log('Fetching place details...')
-        const placeId = place?.place_id
-        if (!placeId) {
-          error.value = 'No place selected or place ID unavailable'
-          return
-        }
-
-        // Fetch place details using PlacesService
-        const fetchedPlace = await new Promise((resolve, reject) => {
-          const request = { placeId, fields: ['geometry', 'name'] }
-          const service = new google.maps.places.PlacesService(map)
-          service.getDetails(request, (result, status) => {
-            if (status === google.maps.places.PlacesServiceStatus.OK) {
-              resolve(result)
-            } else {
-              reject(`Failed to fetch place details: ${status}`)
-            }
-          })
-        }).catch((err) => {
-          console.error(err)
-          error.value = err
-          return null
-        })
-
-        if (!fetchedPlace || !fetchedPlace.geometry || !fetchedPlace.geometry.location) {
-          error.value = 'Selected place contains no geometry'
-          return
-        }
-
-        // Update place with fetched details
-        place.geometry = fetchedPlace.geometry
-        place.name = fetchedPlace.name
-      }
-
-      console.log('Selected place:', place)
-
-      // Emit the place-changed event
-      emit('gmp-place-changed', place)
-
-      // Center the map on the selected place
-      map.setCenter(place.geometry.location)
-      map.setZoom(15)
-
-      // Optionally, add a marker at the selected place
-      new google.maps.Marker({
-        map,
-        position: place.geometry.location,
-        title: place.name,
+    // Add KML Layer once Google Maps is loaded
+    if (window.google && window.google.maps) {
+      const kmlLayer = new window.google.maps.KmlLayer({
+        url: props.path,
+        map: map.innerMap,
+        preserveViewport: true,
+        suppressInfoWindows: true,
       })
 
-      // Adjust map bounds if a viewport is available
-      const bounds = new google.maps.LatLngBounds()
-      if (place.geometry.viewport) {
-        bounds.union(place.geometry.viewport)
-      } else {
-        bounds.extend(place.geometry.location)
-      }
-      map.fitBounds(bounds)
-    }
+      // Handle KML layer status
+      kmlLayer.addListener('status_changed', () => {
+        const status = kmlLayer.getStatus()
+        console.log('KML Layer Status:', status)
+        if (status !== 'OK') {
+          error.value = `Failed to load KML: ${status}`
+          console.error('KML Error:', status)
+        }
+        loading.value = false
+      })
 
-    // Add keydown listener to handle Enter key
-    searchBoxRef.value.addEventListener('keydown', (event) => {
-      console.log('Keydown event:', event.key)
-      if (event.key === 'Enter') {
-        event.preventDefault() // Prevent default form submission behavior
-        event.stopPropagation() // Prevent event bubbling
-        console.log('Enter key pressed')
-        handlePlaceChanged() // Trigger the place_changed logic
-      }
-    })
-  } catch (err) {
-    error.value = `Error loading map: ${err.message}`
-    console.error(err)
-    loading.value = false
-  }
-})
+      // Create info window for KML features
+      const infoWindow = new window.google.maps.InfoWindow({
+        maxWidth: 300,
+      })
 
-// Define infoWindow and click listener at the top level
-const infoWindow = ref(null)
-
-onMounted(() => {
-  if (map) {
-    infoWindow.value = new google.maps.InfoWindow({
-      maxWidth: 300,
-    })
-
-    if (kmlLayer) {
+      // Add click listener for KML features
       kmlLayer.addListener('click', (kmlEvent) => {
         const placeName = kmlEvent.featureData.name
         const content = `
@@ -203,11 +115,71 @@ onMounted(() => {
             <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.parentElement.parentElement.style.display='none';">×</button>
           </div>
         `
-        infoWindow.value.setContent(content)
-        infoWindow.value.setPosition(kmlEvent.latLng)
-        infoWindow.value.open(map)
+        infoWindow.setContent(content)
+        infoWindow.setPosition(kmlEvent.latLng)
+        infoWindow.open(map.innerMap)
       })
     }
+  } catch (err) {
+    error.value = `Error initializing map: ${err.message}`
+    console.error('Map initialization error:', err)
+    loading.value = false
+  }
+}
+
+// Handle place changes
+const onPlaceChanged = (event) => {
+  const place = event.target.value
+  const map = mapRef.value
+  const marker = markerRef.value
+
+  if (!place.location) {
+    console.warn('No location details available for:', place.name)
+    if (marker) marker.position = null
+    return
+  }
+
+  if (place.viewport) {
+    map.innerMap.fitBounds(place.viewport)
+  } else {
+    map.center = place.location
+    map.zoom = 17
+  }
+
+  if (marker) marker.position = place.location
+
+  // Emit the place change event
+  emit('place-changed', place)
+}
+
+// Fetch API key and initialize
+onMounted(async () => {
+  try {
+    // Get API key
+    const response = await fetch(
+      `https://api.vegvisr.org/getGoogleApiKey?key=${import.meta.env.VITE_API_ACCESS_KEY}`,
+    )
+    if (!response.ok) {
+      throw new Error('Failed to fetch Google API key')
+    }
+    const data = await response.json()
+    apiKey.value = data.apiKey
+
+    // Load Google Maps Extended Component Library
+    const script = document.createElement('script')
+    script.type = 'module'
+    script.src =
+      'https://ajax.googleapis.com/ajax/libs/@googlemaps/extended-component-library/0.6.11/index.min.js'
+    document.head.appendChild(script)
+
+    // Initialize map after script loads
+    script.onload = () => {
+      initMap()
+    }
+  } catch (err) {
+    error.value = `Error loading map: ${err.message}`
+    console.error(err)
+    loading.value = false
   }
 })
 </script>
@@ -220,14 +192,16 @@ onMounted(() => {
   position: relative;
 }
 
-h2 {
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-.map {
+.map-container {
+  width: 100%;
+  height: 600px;
   border-radius: 8px;
   overflow: hidden;
+}
+
+#map-element {
+  width: 100%;
+  height: 100%;
 }
 
 .overlay {
@@ -252,6 +226,16 @@ h2 {
 
 .error {
   color: red;
+}
+
+.place-picker-container {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 300px;
+  padding: 10px;
 }
 
 .custom-info-window {
@@ -280,19 +264,5 @@ h2 {
 
 .custom-info-window .close-btn:hover {
   color: #000;
-}
-
-.search-box {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  width: 300px;
-  padding: 10px;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 </style>
