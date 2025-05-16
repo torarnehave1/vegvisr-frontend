@@ -19,9 +19,11 @@ import { ref, onMounted, nextTick } from 'vue'
 import { Loader } from '@googlemaps/js-api-loader'
 
 // Define props
-const props = defineProps({
+defineProps({
   path: { type: String, required: true },
 })
+
+defineEmits(['gmp-place-changed'])
 
 const mapRef = ref(null)
 const searchBoxRef = ref(null)
