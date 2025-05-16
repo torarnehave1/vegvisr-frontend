@@ -46,6 +46,8 @@ const initMap = async () => {
     mapElement.style.height = '600px'
     mapElement.setAttribute('center', defaultCenter)
     mapElement.setAttribute('zoom', '15')
+    mapElement.setAttribute('no-error-tile', '')
+    mapElement.setAttribute('hide-error-state', '')
     mapRef.value = mapElement
 
     // Create place picker container
