@@ -78,7 +78,11 @@
         <template v-else-if="node.type === 'map'">
           <!-- Render map nodes -->
           <h3 class="node-label">{{ node.label }}</h3>
-          <MapViewer :path="node.path" @place-changed="onPlaceChanged" />
+          <MapViewer
+            :path="node.path"
+            :map-id="node.mapId || 'efe3a8a8c093a07cf97c4b3c'"
+            @place-changed="onPlaceChanged"
+          />
           <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
         </template>
         <template v-else>
