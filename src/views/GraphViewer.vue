@@ -86,6 +86,11 @@
           <div v-else class="text-danger">No map path provided for this node.</div>
           <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
         </template>
+        <template v-else-if="node.type === 'timeline'">
+          <!-- Render timeline nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <TimelineChart :data="node.info" />
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
@@ -166,11 +171,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import MapViewer from '@/components/MapViewer.vue'
+import TimelineChart from '@/components/TimelineChart.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)

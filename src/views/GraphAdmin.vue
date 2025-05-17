@@ -1830,6 +1830,23 @@ onMounted(() => {
             'background-color': 'lightblue',
           },
         },
+        {
+          selector: 'node[type="timeline"]',
+          style: {
+            shape: 'rectangle',
+            'background-color': '#4a90e2',
+            'border-width': 2,
+            'border-color': '#333',
+            label: 'data(label)',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '16px',
+            width: '400px',
+            height: '40px',
+            color: '#fff',
+            'font-weight': 'bold',
+          },
+        },
       ],
       layout: {
         name: 'preset',
