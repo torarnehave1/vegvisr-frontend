@@ -29,7 +29,14 @@ echo %new_version% > VERSION
 REM Stage all changes
 git add .
 
-REM Commit with version in message
-git commit -m "%new_version%: Automated commit"
+REM Use the first argument as the commit message, or a default if none provided
+if "%~1"=="" (
+    set commit_msg=Automated commit
+) else (
+    set commit_msg=%~1
+)
 
-echo Committed as %new_version%
+REM Commit with version and custom message
+git commit -m "%new_version%: %commit_msg%"
+
+echo Committed as %new_version%: %commit_msg%
