@@ -71,6 +71,53 @@ function loadGoogleMapsApi(key) {
   })
 }
 
+async function handleMapRightClick(latLng, map) {
+  if (!window.confirm('Do you want to add a marker here?')) return
+  const name = window.prompt('Enter marker name:')
+  if (!name) return
+  const description = window.prompt('Enter marker description:') || ''
+
+  // Prepare the payload for the API
+  const payload = {
+    name,
+    description,
+    longitude: latLng.lng(),
+    latitude: latLng.lat(),
+  }
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/updatekml', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_API_ACCESS_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    const result = await response.json()
+    if (result.success) {
+      // Add marker to map immediately
+      const marker = new window.google.maps.Marker({
+        position: latLng,
+        map: map,
+        title: name,
+        visible: true,
+      })
+      const infoWindow = new window.google.maps.InfoWindow({
+        content: `<h3>${name}</h3><p>${description}</p>`,
+      })
+      marker.addListener('click', () => {
+        infoWindow.open(map, marker)
+      })
+      alert('Marker added!')
+    } else {
+      alert('Failed to add marker: ' + (result.message || 'Unknown error'))
+    }
+  } catch (err) {
+    alert('Error adding marker: ' + err.message)
+  }
+}
+
 // Initialize map and components
 const initMap = async () => {
   try {
@@ -92,6 +139,11 @@ const initMap = async () => {
       mapTypeControl: false,
     })
     mapRef.value = map
+
+    // Add right-click context menu for adding markers
+    map.addListener('rightclick', (event) => {
+      handleMapRightClick(event.latLng, map)
+    })
 
     // --- Fetch and parse KML, create markers manually ---
     if (props.path) {

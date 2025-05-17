@@ -12,7 +12,6 @@
         v-for="node in graphData.nodes.filter((n) => n.visible !== false)"
         :key="node.id"
         class="node"
-        @contextmenu="showContextMenu($event, node)"
       >
         <template v-if="node.type === 'markdown-image'">
           <!-- Render markdown image nodes -->
@@ -167,7 +166,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
