@@ -154,7 +154,7 @@ const validateGraphData = (data) => {
     return 'Second node must be of type fulltext with a Pexels image'
   }
   if (!data.nodes[1].bibl.some((ref) => ref.includes('Håve, T. A. (2025)'))) {
-    return 'Fulltext node must include Håve’s research notes in bibl'
+    return "Fulltext node must include Håve's research notes in bibl"
   }
   if (!data.nodes.some((node) => node.info && node.info.includes('SlowYou'))) {
     return 'At least one node must reference SlowYou principles or exercises'
@@ -169,7 +169,7 @@ SlowYou, developed by Tor Arne Håve, is a bioenergetic approach to personal gro
 - Kroppens Visdom: Presence, self-awareness, and grounding in the body.
 - Hjertets Sentralitet: Cultivating love, compassion, and heart-centered wisdom.
 - Grunning og Flyt: Grounding and natural movement to connect with gravity.
-- Balanse og Harmoni: Harmonizing with nature’s cycles and energy flow.
+- Balanse og Harmoni: Harmonizing with nature's cycles and energy flow.
 - Universalitet og Inklusivitet: Embracing diverse experiences and simplicity.
 - Helhetlig Tilnærming: Integrating body, mind, and soul for holistic well-being.
 - Naturlige Skjelvinger: Using body tremors for healing and vitality.
@@ -182,7 +182,7 @@ SlowYou includes 15 bioenergetic exercises, such as:
 - Deep breathing into pelvic area and belly.
 - Gong playing for sound healing.
 
-SlowYou’s history includes Håve’s 5-year bioenergetic training, 4 years of group sessions, and over 50 hours of individual sessions. It is supported by NIBI and AlivenessLAB AS, focusing on vitality, presence, and self-discovery.
+SlowYou's history includes Håve's 5-year bioenergetic training, 4 years of group sessions, and over 50 hours of individual sessions. It is supported by NIBI and AlivenessLAB AS, focusing on vitality, presence, and self-discovery.
 `
 
 // Endpoint 1: Analyze Transcription with SlowYou Context
@@ -215,17 +215,17 @@ const handleAnalyzeTranscription = async (request, env) => {
   }
 
   const prompt = `
-    Analyze the provided transcription for the subject "${subject}", using the following analysis prompt: "${analysisPrompt}". Generate a JSON object with the following structure, integrating SlowYou’s bioenergetic principles and exercises:
+    Analyze the provided transcription for the subject "${subject}", using the following analysis prompt: "${analysisPrompt}". Generate a JSON object with the following structure, integrating SlowYou's bioenergetic principles and exercises:
 
     - summary: A string (100-200 words) summarizing the main themes of the conversation, explicitly linking to at least one SlowYou principle (e.g., Kroppens Visdom, Hjertets Sentralitet).
     - insights: An array of at least 2 objects, each with:
       - quote: A string with a key statement from the transcription.
       - significance: A string (50-100 words) explaining its importance, referencing a SlowYou principle.
-    - reflections: A string (50-100 words) describing the participant's moments of self-awareness or growth, connected to SlowYou’s self-discovery focus.
+    - reflections: A string (50-100 words) describing the participant's moments of self-awareness or growth, connected to SlowYou's self-discovery focus.
     - themes: An array of at least 2 objects, each with:
       - name: A string naming the theme (e.g., "Self-Love").
       - description: A string (50-100 words) describing the theme and its relevance to a SlowYou principle.
-    - slowYouApplications: An array of at least 2 strings, each describing a specific SlowYou exercise (e.g., grounding, deep breathing) or principle to support the participant’s growth, tailored to the transcription.
+    - slowYouApplications: An array of at least 2 strings, each describing a specific SlowYou exercise (e.g., grounding, deep breathing) or principle to support the participant's growth, tailored to the transcription.
     - references: An array of APA-formatted strings, including at least "Håve, T. A. (2025). Vegvisr.org Research Notes. Vegvisr.org.".
 
     **Transcription:**
@@ -237,7 +237,7 @@ const handleAnalyzeTranscription = async (request, env) => {
     **Guidelines:**
     - Map conversation themes to SlowYou principles and recommend specific exercises from the provided list.
     - Ensure the analysis is specific to "${subject}" and supports personal growth and self-awareness.
-    - Include Håve’s research notes in the references and summarize their relevance in the summary.
+    - Include Håve's research notes in the references and summarize their relevance in the summary.
     - Return only the JSON object, with no additional text or explanations.
   `
 
@@ -254,7 +254,7 @@ const handleAnalyzeTranscription = async (request, env) => {
       messages: [
         {
           role: 'system',
-          content: `You are an expert in "${subject}" and SlowYou’s bioenergetic principles, skilled at analyzing transcriptions for personal growth themes. Use the provided SlowYou context to ensure accurate integration of principles and exercises. Return only valid JSON.`,
+          content: `You are an expert in "${subject}" and SlowYou's bioenergetic principles, skilled at analyzing transcriptions for personal growth themes. Use the provided SlowYou context to ensure accurate integration of principles and exercises. Return only valid JSON.`,
         },
         { role: 'user', content: prompt },
       ],
@@ -940,6 +940,63 @@ const handleGetGoogleApiKey = async (request, env) => {
   return createResponse(JSON.stringify({ apiKey }), 200)
 }
 
+const handleUpdateKml = async (request, env) => {
+  // Check for INT_TOKEN in Authorization header
+  const authHeader = request.headers.get('Authorization') || ''
+  const token = authHeader.replace('Bearer ', '').trim()
+  if (token !== env.INT_TOKEN) {
+    return createErrorResponse('Unauthorized: Invalid token', 401)
+  }
+
+  // Parse the request body (expecting JSON with marker info)
+  let body
+  try {
+    body = await request.json()
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { name, description, longitude, latitude } = body
+  if (!name || longitude === undefined || latitude === undefined) {
+    return createErrorResponse('Missing required marker fields', 400)
+  }
+
+  // Fetch the current KML file from R2
+  const kmlObject = await env.MY_R2_BUCKET.get('Vegvisr.org.kml')
+  let kmlText = ''
+  if (kmlObject) {
+    kmlText = await kmlObject.text()
+  } else {
+    // If not found, start a new KML file
+    kmlText = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+  </Document>
+</kml>`
+  }
+
+  // Insert new Placemark before </Document>
+  const placemark = `
+    <Placemark>
+      <name>${name}</name>
+      <description>${description || ''}</description>
+      <Point>
+        <coordinates>${longitude},${latitude},0</coordinates>
+      </Point>
+    </Placemark>
+  `
+
+  // Insert placemark before </Document>
+  kmlText = kmlText.replace(/<\/Document>/, `${placemark}\n</Document>`)
+
+  // Save updated KML back to R2
+  await env.MY_R2_BUCKET.put('Vegvisr.org.kml', kmlText, {
+    httpMetadata: { contentType: 'application/vnd.google-earth.kml+xml' },
+  })
+
+  return createResponse(JSON.stringify({ success: true, message: 'KML updated' }))
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -1012,6 +1069,10 @@ export default {
       }
       if (pathname === '/getGoogleApiKey' && request.method === 'GET') {
         return await handleGetGoogleApiKey(request, env)
+      }
+
+      if (pathname === '/update-kml' && request.method === 'POST') {
+        return await handleUpdateKml(request, env)
       }
 
       return createErrorResponse('Not Found', 404)
