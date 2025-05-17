@@ -1011,6 +1011,7 @@ const loadSelectedGraph = async () => {
     return
   }
 
+  let errorMessages = []
   try {
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
@@ -1021,12 +1022,35 @@ const loadSelectedGraph = async () => {
       }
 
       if (!graphData.nodes || !graphData.edges) {
-        console.warn('Invalid graph data structure:', graphData)
+        const msg = 'Invalid graph data structure: missing nodes or edges.'
+        console.warn(msg, graphData)
+        validationMessage.value = msg
+        validationMessageClass.value = 'alert-danger'
+        // Still fetch history and work notes
+        await fetchGraphHistory()
+        fetchWorkNotes(graphIdToLoad)
         return
       }
 
+      // Build node map for fast lookup
+      const nodeIdSet = new Set(graphData.nodes.map((node) => node.id))
+      // Filter edges with missing source/target
+      const validEdges = []
+      const droppedEdges = []
+      for (const edge of graphData.edges) {
+        if (nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target)) {
+          validEdges.push(edge)
+        } else {
+          droppedEdges.push(edge)
+        }
+      }
+      if (droppedEdges.length > 0) {
+        const msg = `Warning: ${droppedEdges.length} edge(s) dropped due to missing source/target node(s).`
+        errorMessages.push(msg)
+        console.warn(msg, droppedEdges)
+      }
+
       graphStore.nodes = graphData.nodes.map((node) => {
-        console.log('Processing node in loadSelectedGraph:', node) // Log each node being processed
         return {
           data: {
             id: node.id,
@@ -1044,7 +1068,7 @@ const loadSelectedGraph = async () => {
         }
       })
 
-      graphStore.edges = graphData.edges.map((edge) => ({
+      graphStore.edges = validEdges.map((edge) => ({
         data: {
           source: edge.source,
           target: edge.target,
@@ -1065,14 +1089,31 @@ const loadSelectedGraph = async () => {
       }
 
       graphStore.setCurrentGraphId(graphIdToLoad)
-      graphStore.setCurrentVersion(graphData.metadata.version)
+      graphStore.setCurrentVersion(graphData.metadata?.version)
       await fetchGraphHistory()
       fetchWorkNotes(graphIdToLoad) // Ensure work notes are fetched for the loaded graph
+
+      // Show any error/warning messages
+      if (errorMessages.length > 0) {
+        validationMessage.value = errorMessages.join('\n')
+        validationMessageClass.value = 'alert-danger'
+      } else {
+        validationMessage.value = ''
+        validationMessageClass.value = ''
+      }
     } else {
-      console.error('Failed to load the selected graph:', response.statusText)
+      const msg = 'Failed to load the selected graph: ' + response.statusText
+      console.error(msg)
+      validationMessage.value = msg
+      validationMessageClass.value = 'alert-danger'
+      await fetchGraphHistory()
     }
   } catch (error) {
-    console.error('Error loading the selected graph:', error)
+    const msg = 'Error loading the selected graph: ' + error
+    console.error(msg)
+    validationMessage.value = msg
+    validationMessageClass.value = 'alert-danger'
+    await fetchGraphHistory()
   }
 }
 

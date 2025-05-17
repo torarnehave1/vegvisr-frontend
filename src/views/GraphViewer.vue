@@ -79,10 +79,12 @@
           <!-- Render map nodes -->
           <h3 class="node-label">{{ node.label }}</h3>
           <MapViewer
+            v-if="node.path"
             :path="node.path"
             :map-id="node.mapId || 'efe3a8a8c093a07cf97c4b3c'"
             @place-changed="onPlaceChanged"
           />
+          <div v-else class="text-danger">No map path provided for this node.</div>
           <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
         </template>
         <template v-else>
@@ -205,7 +207,6 @@ const fetchGraphData = async () => {
       ...data,
       nodes: uniqueNodes.filter((node) => node.visible !== false),
     }
-    console.log('Fetched graphData:', graphData.value)
   } catch (err) {
     error.value = err.message
   } finally {
@@ -368,8 +369,6 @@ const insertYoutubeVideoMarkdown = () => {
 }
 
 const preprocessMarkdown = (text) => {
-  console.log('Input Markdown Text:', text)
-
   const markdownRegex =
     /(!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\))|(\[QUOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END QUOTE\])|(\[WNOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END WNOTE\])|(\[SECTION\s*\|\s*background-color:\s*['"](.+?)['"];\s*color:\s*['"](.+?)['"]\](.*?)\[END SECTION\])|(\[FANCY\s*\|\s*font-size:\s*([^;]+?);\s*color:\s*([^;]+?)(?:;\s*background-image:\s*url\(['"]([^;]+?)['"]\))?(?:;\s*text-align:\s*([^;]+?))?\s*\](.*?)\[END FANCY\])|(!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\])|(\[WORKNOTE\](.*?)\[END WORKNOTE\])/gs
 
@@ -389,19 +388,6 @@ const preprocessMarkdown = (text) => {
     const startIndex = match.index
     const endIndex = startIndex + fullMatch.length
 
-    console.log('Processing match:', {
-      fullMatch,
-      startIndex,
-      endIndex,
-      isImage,
-      isQuote,
-      isWNote,
-      isSection,
-      isFancy,
-      isYoutube,
-      isWorkNote,
-    })
-
     if (currentIndex < startIndex) {
       result += marked.parse(text.slice(currentIndex, startIndex))
     }
@@ -412,16 +398,10 @@ const preprocessMarkdown = (text) => {
       const styles = match[4]
       const url = match[5]
 
-      console.log(`Processing ${type}:`, { paragraphCount, styles, url, startIndex, endIndex })
-
       if (type === 'Header') {
-        const height = styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || 'auto'
-        const objectFit = styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'
-        const objectPosition = styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'
-
         result += `
           <div class="header-image-container">
-            <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
+            <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'}; object-position: ${styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'}; height: ${styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || 'auto'}; border-radius: 8px;" />
           </div>
         `.trim()
         currentIndex = endIndex
@@ -459,7 +439,7 @@ const preprocessMarkdown = (text) => {
         result += `
           <div class="${containerClass}">
             <div class="${imageClass}">
-              <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height !== 'auto' ? height + 'px' : height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
+              <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
             </div>
             <div class="${contentClass}">${sideParagraphs}</div>
           </div>
@@ -471,8 +451,6 @@ const preprocessMarkdown = (text) => {
       const cited = match[7]
       const quoteContent = match[8].trim()
 
-      console.log('Processing Quote:', { cited, quoteContent, startIndex, endIndex })
-
       result += `
         <div class="fancy-quote">
           ${marked.parse(quoteContent)}
@@ -483,8 +461,6 @@ const preprocessMarkdown = (text) => {
     } else if (isWNote) {
       const cited = match[10]
       const wNoteContent = match[11].trim()
-
-      console.log('Processing WNote:', { cited, wNoteContent, startIndex, endIndex })
 
       result += `
         <div class="work-note">
@@ -498,14 +474,6 @@ const preprocessMarkdown = (text) => {
       const color = match[14]
       const sectionContent = match[15].trim()
 
-      console.log('Processing Section:', {
-        backgroundColor,
-        color,
-        sectionContent,
-        startIndex,
-        endIndex,
-      })
-
       result += `
         <div class="section" style="background-color: ${backgroundColor}; color: ${color};">
           ${marked.parse(sectionContent)}
@@ -518,16 +486,6 @@ const preprocessMarkdown = (text) => {
       const backgroundImage = match[19] ? match[19].trim() : null
       const textAlign = match[20] ? match[20].trim() : 'center'
       const titleContent = match[21].trim()
-
-      console.log('Processing Fancy:', {
-        fontSize,
-        color,
-        backgroundImage,
-        textAlign,
-        titleContent,
-        startIndex,
-        endIndex,
-      })
 
       const isValidUrl = backgroundImage && /^https?:\/\/[^\s;]+$/.test(backgroundImage)
       let style = `font-size: ${fontSize}; color: ${color}; text-align: ${textAlign};`
@@ -565,11 +523,6 @@ const preprocessMarkdown = (text) => {
       currentIndex = endIndex
     } else if (isWorkNote) {
       const workNoteContent = match[25].trim()
-      console.log('Processing WorkNote:', {
-        workNoteContent,
-        startIndex,
-        endIndex,
-      })
       result += `
         <div class="work-note">
           ${marked.parse(workNoteContent)}
@@ -583,7 +536,6 @@ const preprocessMarkdown = (text) => {
     result += marked.parse(text.slice(currentIndex))
   }
 
-  console.log('Processed Markdown Output:', result)
   return result.trim()
 }
 
@@ -684,8 +636,7 @@ const editYoutubeVideo = async (node) => {
         throw new Error('Failed to save the graph with history.')
       }
 
-      const result = await response.json()
-      console.log('Graph saved successfully:', result)
+      await response.json()
 
       knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
@@ -734,8 +685,7 @@ const editYoutubeTitle = async (node) => {
         throw new Error('Failed to save the graph with history.')
       }
 
-      const result = await response.json()
-      console.log('Graph saved successfully:', result)
+      await response.json()
 
       knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
@@ -796,8 +746,7 @@ const saveMarkdown = async () => {
         throw new Error('Failed to save the graph with history.')
       }
 
-      const result = await response.json()
-      console.log('Graph saved successfully:', result)
+      await response.json()
 
       knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
@@ -815,16 +764,8 @@ const saveMarkdown = async () => {
 }
 
 const onPlaceChanged = (place) => {
-  console.log('Place changed event received in GraphViewer:', place)
   if (place && place.location) {
     // You can add additional handling here if needed
-    console.log('New place location:', place.location)
-    console.log('Place details:', {
-      name: place.displayName,
-      address: place.formattedAddress,
-      location: place.location,
-      viewport: place.viewport,
-    })
   }
 }
 
