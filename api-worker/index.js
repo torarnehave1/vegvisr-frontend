@@ -941,14 +941,14 @@ const handleGetGoogleApiKey = async (request, env) => {
 }
 
 const handleUpdateKml = async (request, env) => {
-  // Check for INT_TOKEN in Authorization header
+  // --- Authorization ---
   const authHeader = request.headers.get('Authorization') || ''
   const token = authHeader.replace('Bearer ', '').trim()
   if (token !== env.INT_TOKEN) {
     return createErrorResponse('Unauthorized: Invalid token', 401)
   }
 
-  // Parse the request body (expecting JSON with marker info)
+  // --- Parse Request Body ---
   let body
   try {
     body = await request.json()
@@ -956,41 +956,50 @@ const handleUpdateKml = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { name, description, longitude, latitude } = body
+  // --- Extract Fields with Defaults ---
+  const {
+    id,
+    name,
+    description = '',
+    longitude,
+    latitude,
+    altitude = 0,
+    styleUrl,
+    lookAt = {},
+  } = body
   if (!name || longitude === undefined || latitude === undefined) {
     return createErrorResponse('Missing required marker fields', 400)
   }
 
-  // Fetch the current KML file from R2
-  const kmlObject = await env.MY_R2_BUCKET.get('Vegvisr.org.kml')
+  // --- Fetch or Initialize KML ---
+  const kmlObject = await env.KLM_BUCKET.get('Vegvisr.org.kml')
   let kmlText = ''
   if (kmlObject) {
     kmlText = await kmlObject.text()
   } else {
-    // If not found, start a new KML file
-    kmlText = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-  </Document>
-</kml>`
+    kmlText = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n  </Document>\n</kml>`
   }
 
-  // Insert new Placemark before </Document>
-  const placemark = `
-    <Placemark>
-      <name>${name}</name>
-      <description>${description || ''}</description>
-      <Point>
-        <coordinates>${longitude},${latitude},0</coordinates>
-      </Point>
-    </Placemark>
-  `
+  // --- Build LookAt Block (if provided) ---
+  let lookAtBlock = ''
+  if (Object.keys(lookAt).length > 0) {
+    lookAtBlock = `\n    <LookAt>\n      <longitude>${lookAt.longitude ?? longitude}</longitude>\n      <latitude>${lookAt.latitude ?? latitude}</latitude>\n      <altitude>${lookAt.altitude ?? altitude}</altitude>\n      <heading>${lookAt.heading ?? 0}</heading>\n      <tilt>${lookAt.tilt ?? 0}</tilt>\n      <gx:fovy>${lookAt.fovy ?? 35}</gx:fovy>\n      <range>${lookAt.range ?? 1000}</range>\n      <altitudeMode>${lookAt.altitudeMode ?? 'absolute'}</altitudeMode>\n    </LookAt>`
+  }
 
-  // Insert placemark before </Document>
+  // --- Build styleUrl Block (if provided) ---
+  let styleUrlBlock = styleUrl ? `\n    <styleUrl>${styleUrl}</styleUrl>` : ''
+
+  // --- Build id Attribute (if provided) ---
+  let idAttr = id ? ` id="${id}"` : ''
+
+  // --- Build Placemark ---
+  const placemark = `\n  <Placemark${idAttr}>\n    <name>${name}</name>\n    <description>${description}</description>${lookAtBlock}${styleUrlBlock}\n    <Point>\n      <coordinates>${longitude},${latitude},${altitude}</coordinates>\n    </Point>\n  </Placemark>\n`
+
+  // --- Insert Placemark Before </Document> ---
   kmlText = kmlText.replace(/<\/Document>/, `${placemark}\n</Document>`)
 
-  // Save updated KML back to R2
-  await env.MY_R2_BUCKET.put('Vegvisr.org.kml', kmlText, {
+  // --- Save Updated KML ---
+  await env.KLM_BUCKET.put('Vegvisr.org.kml', kmlText, {
     httpMetadata: { contentType: 'application/vnd.google-earth.kml+xml' },
   })
 
@@ -1071,7 +1080,7 @@ export default {
         return await handleGetGoogleApiKey(request, env)
       }
 
-      if (pathname === '/update-kml' && request.method === 'POST') {
+      if (pathname === '/updatekml' && request.method === 'POST') {
         return await handleUpdateKml(request, env)
       }
 

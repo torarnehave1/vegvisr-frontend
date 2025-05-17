@@ -93,40 +93,50 @@ const initMap = async () => {
     })
     mapRef.value = map
 
-    // Add KML Layer
+    // --- Fetch and parse KML, create markers manually ---
     if (props.path) {
-      const kmlLayer = new google.maps.KmlLayer({
-        url: props.path,
-        map: map,
-        preserveViewport: true,
-        suppressInfoWindows: true,
-      })
-      kmlLayer.addListener('status_changed', () => {
-        const status = kmlLayer.getStatus()
-        if (status !== 'OK') {
-          error.value = `Failed to load KML: ${status}`
+      try {
+        const response = await fetch(props.path)
+        if (!response.ok) throw new Error('Failed to fetch KML')
+        const kmlText = await response.text()
+        const parser = new window.DOMParser()
+        const kmlDoc = parser.parseFromString(kmlText, 'application/xml')
+        const placemarks = kmlDoc.getElementsByTagName('Placemark')
+        for (let i = 0; i < placemarks.length; i++) {
+          const placemark = placemarks[i]
+          const name = placemark.getElementsByTagName('name')[0]?.textContent || ''
+          const description = placemark.getElementsByTagName('description')[0]?.textContent || ''
+          const coords = placemark.getElementsByTagName('coordinates')[0]?.textContent.trim()
+          if (!coords) continue
+          const [lng, lat] = coords.split(',').map(Number)
+          if (isNaN(lat) || isNaN(lng)) continue
+
+          // Create marker
+          const marker = new google.maps.Marker({
+            position: { lat, lng },
+            map: map,
+            title: name,
+            visible: true,
+          })
+
+          // Info window
+          const infoWindow = new google.maps.InfoWindow({
+            content: `<h3>${name}</h3><p>${description}</p>`,
+          })
+          marker.addListener('click', () => {
+            infoWindow.open(map, marker)
+          })
         }
         loading.value = false
-      })
-      // Info window for KML features
-      const infoWindow = new google.maps.InfoWindow({ maxWidth: 300 })
-      kmlLayer.addListener('click', (kmlEvent) => {
-        const placeName = kmlEvent.featureData.name
-        const content = `
-          <div class="custom-info-window">
-            <h3>${placeName}</h3>
-            <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.parentElement.parentElement.style.display='none';">×</button>
-          </div>
-        `
-        infoWindow.setContent(content)
-        infoWindow.setPosition(kmlEvent.latLng)
-        infoWindow.open(map)
-      })
+      } catch (err) {
+        error.value = `Error loading KML: ${err.message}`
+        loading.value = false
+      }
     } else {
       loading.value = false
     }
 
-    // Add marker
+    // Add marker for autocomplete
     const marker = new google.maps.Marker({
       map: map,
       position: map.getCenter(),
