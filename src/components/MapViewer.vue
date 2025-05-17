@@ -220,7 +220,8 @@ onMounted(async () => {
 .place-picker-container {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 5;
   width: 300px;
   padding: 8px 12px;
