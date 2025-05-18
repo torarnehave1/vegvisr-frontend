@@ -91,6 +91,16 @@
           <h3 class="node-label">{{ node.label }}</h3>
           <TimelineChart :data="node.info" />
         </template>
+        <template v-else-if="node.type === 'chart'">
+          <!-- Render chart nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <BarChart :data="node.info" />
+        </template>
+        <template v-else-if="node.type === 'piechart'">
+          <!-- Render pie chart nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <PieChart :data="node.info" />
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
@@ -177,6 +187,8 @@ import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import MapViewer from '@/components/MapViewer.vue'
 import TimelineChart from '@/components/TimelineChart.vue'
+import BarChart from '@/components/BarChart.vue'
+import PieChart from '@/components/PieChart.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
