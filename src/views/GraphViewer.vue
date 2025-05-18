@@ -111,6 +111,11 @@
           <h3 class="node-label">{{ node.label }}</h3>
           <SWOTDiagram :data="node.info" />
         </template>
+        <template v-else-if="node.type === 'bubblechart'">
+          <!-- Render bubble chart nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <BubbleChart :data="node.info" />
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
@@ -201,6 +206,7 @@ import BarChart from '@/components/BarChart.vue'
 import PieChart from '@/components/PieChart.vue'
 import LineChart from '@/components/LineChart.vue'
 import SWOTDiagram from '@/components/SWOTDiagram.vue'
+import BubbleChart from '@/components/BubbleChart.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
