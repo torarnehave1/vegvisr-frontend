@@ -90,6 +90,31 @@
           stroke-width="1.5"
         />
       </g>
+      <!-- Y Axis Legend -->
+      <text
+        v-if="yAxisLabel"
+        :x="margin.left - 38"
+        :y="margin.top + (height - margin.top - margin.bottom) / 2"
+        text-anchor="middle"
+        font-size="15"
+        fill="#444"
+        :transform="`rotate(-90, ${margin.left - 38}, ${margin.top + (height - margin.top - margin.bottom) / 2})`"
+        class="linechart-axis-label"
+      >
+        {{ yAxisLabel }}
+      </text>
+      <!-- X Axis Legend -->
+      <text
+        v-if="xAxisLabel"
+        :x="margin.left + (width - margin.left - margin.right) / 2"
+        :y="height - 24"
+        text-anchor="middle"
+        font-size="15"
+        fill="#444"
+        class="linechart-axis-label"
+      >
+        {{ xAxisLabel }}
+      </text>
     </svg>
     <!-- Legend (if multiple lines) -->
     <div v-if="lines.length > 1" class="linechart-legend">
@@ -106,21 +131,60 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  data: { type: [String, Array], required: true },
+  data: { type: [String, Array, Object], required: true },
+  xLabel: { type: String, default: '' },
+  yLabel: { type: String, default: '' },
 })
 
 // Chart dimensions
 const width = 600
-const height = 320
-const margin = { top: 32, right: 32, bottom: 48, left: 48 }
+const height = 340
+const margin = { top: 32, right: 32, bottom: 70, left: 70 }
 
-// Parse data
+// Parse data and extract axis labels if info is an object
 const parsedData = computed(() => {
-  try {
-    return Array.isArray(props.data) ? props.data : JSON.parse(props.data)
-  } catch {
-    return []
+  let d = props.data
+  if (typeof d === 'string') {
+    try {
+      d = JSON.parse(d)
+    } catch {
+      return []
+    }
   }
+  if (d && typeof d === 'object' && !Array.isArray(d) && d.data) {
+    return d.data
+  }
+  return Array.isArray(d) ? d : []
+})
+
+// Extract axis labels from info object if present, fallback to props
+const xAxisLabel = computed(() => {
+  let d = props.data
+  if (typeof d === 'string') {
+    try {
+      d = JSON.parse(d)
+    } catch {
+      return props.xLabel
+    }
+  }
+  if (d && typeof d === 'object' && !Array.isArray(d) && d.xLabel) {
+    return d.xLabel
+  }
+  return props.xLabel
+})
+const yAxisLabel = computed(() => {
+  let d = props.data
+  if (typeof d === 'string') {
+    try {
+      d = JSON.parse(d)
+    } catch {
+      return props.yLabel
+    }
+  }
+  if (d && typeof d === 'object' && !Array.isArray(d) && d.yLabel) {
+    return d.yLabel
+  }
+  return props.yLabel
 })
 
 // Support both single and multi-line data
@@ -231,5 +295,10 @@ const defaultColors = ['#4a90e2', '#e94e77', '#f9d423', '#6ac174', '#8c54ff', '#
   color: #888;
   font-style: italic;
   padding: 16px;
+}
+.linechart-axis-label {
+  font-family: inherit;
+  font-weight: 500;
+  fill: #444;
 }
 </style>

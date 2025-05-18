@@ -104,7 +104,7 @@
         <template v-else-if="node.type === 'linechart'">
           <!-- Render line chart nodes -->
           <h3 class="node-label">{{ node.label }}</h3>
-          <LineChart :data="node.info" />
+          <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
         </template>
         <template v-else>
           <!-- Render other node types -->
