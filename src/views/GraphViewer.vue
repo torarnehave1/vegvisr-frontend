@@ -106,6 +106,11 @@
           <h3 class="node-label">{{ node.label }}</h3>
           <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
         </template>
+        <template v-else-if="node.type === 'swot'">
+          <!-- Render SWOT diagram nodes -->
+          <h3 class="node-label">{{ node.label }}</h3>
+          <SWOTDiagram :data="node.info" />
+        </template>
         <template v-else>
           <!-- Render other node types -->
           <h3 class="node-label">{{ node.label }}</h3>
@@ -195,6 +200,7 @@ import TimelineChart from '@/components/TimelineChart.vue'
 import BarChart from '@/components/BarChart.vue'
 import PieChart from '@/components/PieChart.vue'
 import LineChart from '@/components/LineChart.vue'
+import SWOTDiagram from '@/components/SWOTDiagram.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
