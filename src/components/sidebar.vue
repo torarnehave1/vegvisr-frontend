@@ -181,7 +181,10 @@
                 :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
                 style="cursor: pointer; justify-content: space-between"
               >
-                <span @click="onApplyTemplate(template)" style="flex: 1">{{ template.name }}</span>
+                <span style="display: flex; align-items: center; flex: 1">
+                  <i class="bi bi-diagram-3" style="margin-right: 8px"></i>
+                  <span @click="onApplyTemplate(template)">{{ template.name }}</span>
+                </span>
                 <button
                   class="btn btn-link btn-sm text-danger"
                   @click.stop="deleteTemplate(template)"
