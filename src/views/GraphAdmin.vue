@@ -392,6 +392,7 @@ const fetchTemplates = async () => {
       const data = await response.json()
       console.log('Fetched templates:', data) // Debug log
       fetchedTemplates.value = data.results.map((template) => ({
+        id: template.id, // <-- Add this line
         name: template.name,
         nodes: JSON.parse(template.nodes),
         edges: JSON.parse(template.edges),

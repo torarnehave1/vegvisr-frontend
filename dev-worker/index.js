@@ -31,7 +31,7 @@ export default {
         const sanitize = (obj) =>
           Object.fromEntries(
             Object.entries(obj)
-              .filter(([_, value]) => value !== null) // Exclude null values
+              .filter(([, value]) => value !== null) // Exclude null values
               .map(([key, value]) => [
                 key,
                 typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -590,20 +590,25 @@ export default {
 
           console.log(`[Worker] Adding template: ${name}`)
 
+          const templateId = crypto.randomUUID() // Generate a UUID for the template
+
           const query = `
-            INSERT INTO graphTemplates (name, nodes, edges)
-            VALUES (?, ?, ?)
+            INSERT INTO graphTemplates (id, name, nodes, edges)
+            VALUES (?, ?, ?, ?)
           `
           await env.vegvisr_org
             .prepare(query)
-            .bind(name, JSON.stringify([node]), JSON.stringify([]))
+            .bind(templateId, name, JSON.stringify([node]), JSON.stringify([]))
             .run()
 
           console.log('[Worker] Template added successfully')
-          return new Response(JSON.stringify({ message: 'Template added successfully', name }), {
-            status: 200,
-            headers: corsHeaders,
-          })
+          return new Response(
+            JSON.stringify({ message: 'Template added successfully', id: templateId, name }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
         } catch (error) {
           console.error('[Worker] Error adding template:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
@@ -617,7 +622,7 @@ export default {
         try {
           console.log('[Worker] Fetching list of graph templates')
 
-          const query = `SELECT name, nodes, edges FROM graphTemplates`
+          const query = `SELECT id, name, nodes, edges FROM graphTemplates`
           const results = await env.vegvisr_org.prepare(query).all()
 
           console.log('[Worker] Graph templates fetched successfully')
@@ -839,6 +844,68 @@ export default {
           )
         } catch (error) {
           console.error('[Worker] Error generating text:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/migrateTemplatesAddUUIDs' && request.method === 'POST') {
+        try {
+          // 1. Fetch all templates without an id or with empty/null id
+          const selectQuery = `SELECT rowid FROM graphTemplates WHERE id IS NULL OR id = ''`
+          const result = await env.vegvisr_org.prepare(selectQuery).all()
+          const templates = result.results || result.rows || result || []
+
+          if (!Array.isArray(templates) || templates.length === 0) {
+            return new Response(JSON.stringify({ message: 'No templates need migration.' }), {
+              status: 200,
+              headers: corsHeaders,
+            })
+          }
+
+          // 2. For each, generate a UUID and update the row
+          for (const template of templates) {
+            const newId = crypto.randomUUID()
+            const updateQuery = `UPDATE graphTemplates SET id = ? WHERE rowid = ?`
+            await env.vegvisr_org.prepare(updateQuery).bind(newId, template.rowid).run()
+          }
+
+          return new Response(
+            JSON.stringify({ message: `Migrated ${templates.length} templates with new UUIDs.` }),
+            { status: 200, headers: corsHeaders },
+          )
+        } catch (error) {
+          console.error('[Worker] Error migrating template UUIDs:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/deleteTemplate' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { id } = requestBody
+
+          if (!id) {
+            return new Response(JSON.stringify({ error: 'Template id is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          const query = `DELETE FROM graphTemplates WHERE id = ?`
+          await env.vegvisr_org.prepare(query).bind(id).run()
+
+          return new Response(JSON.stringify({ message: 'Template deleted successfully', id }), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] Error deleting template:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,

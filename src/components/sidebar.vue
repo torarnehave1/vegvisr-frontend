@@ -166,7 +166,7 @@
         <div v-if="activeTab === 'templates'" class="form-section">
           <h3>Graph Templates</h3>
           <p>Select a template to quickly create a new graph:</p>
-          <div v-if="fetchedTemplates.length > 0">
+          <div v-if="localTemplates.length > 0">
             <div
               id="templateList"
               tabindex="0"
@@ -174,19 +174,23 @@
               :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
               style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; padding: 5px"
             >
-              <button
-                v-for="(template, index) in fetchedTemplates"
-                :key="index"
-                @click="onApplyTemplate(template)"
-                :class="[
-                  'list-group-item',
-                  'list-group-item-action',
-                  { 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' },
-                ]"
-                style="cursor: pointer"
+              <div
+                v-for="(template, index) in localTemplates"
+                :key="template.id || index"
+                class="d-flex align-items-center list-group-item list-group-item-action"
+                :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+                style="cursor: pointer; justify-content: space-between"
               >
-                {{ template.name }}
-              </button>
+                <span @click="onApplyTemplate(template)" style="flex: 1">{{ template.name }}</span>
+                <button
+                  class="btn btn-link btn-sm text-danger"
+                  @click.stop="deleteTemplate(template)"
+                  title="Delete template"
+                  style="font-size: 1.2em; padding: 0 0.5em"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
           </div>
           <p v-else class="text-muted">No templates available.</p>
@@ -230,6 +234,9 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 const workNotes = ref([])
 const graphStore = useKnowledgeGraphStore()
 
+// Local copy of fetchedTemplates for mutation
+const localTemplates = ref([])
+
 const {
   sidebarCollapsed,
   theme,
@@ -261,6 +268,15 @@ const emit = defineEmits([
   'update:graphMetadata',
   'add-work-note',
 ])
+
+// Watch for changes in fetchedTemplates prop and update localTemplates
+watch(
+  () => fetchedTemplates,
+  (newTemplates) => {
+    localTemplates.value = Array.isArray(newTemplates) ? [...newTemplates] : []
+  },
+  { immediate: true },
+)
 
 const setActiveTab = (tab) => {
   emit('update:activeTab', tab)
@@ -325,6 +341,34 @@ const fetchWorkNotes = async (graphId) => {
   } catch (error) {
     console.error('Error fetching work notes:', error)
     workNotes.value = []
+  }
+}
+
+const deleteTemplate = async (template) => {
+  if (!template.id) {
+    alert('Template ID is missing.')
+    return
+  }
+  if (!confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
+    return
+  }
+  try {
+    const response = await fetch('https://knowledge.vegvisr.org/deleteTemplate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: template.id }),
+    })
+    if (response.ok) {
+      // Remove from local list
+      const idx = localTemplates.value.findIndex((t) => t.id === template.id)
+      if (idx !== -1) localTemplates.value.splice(idx, 1)
+    } else {
+      const error = await response.json()
+      alert(`Error deleting template: ${error.error}`)
+    }
+  } catch (error) {
+    alert('An error occurred while deleting the template.')
+    console.error(error)
   }
 }
 
