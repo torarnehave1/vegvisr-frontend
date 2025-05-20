@@ -1,6 +1,6 @@
 <template>
   <div
-    class="SideBarComponent bg-light border-end"
+    class="GraphSideBar bg-light border-end"
     :class="{
       collapsed: sidebarCollapsed,
       'bg-dark': theme === 'dark',
@@ -180,10 +180,11 @@
                 class="d-flex align-items-center list-group-item list-group-item-action"
                 :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
                 style="cursor: pointer; justify-content: space-between"
+                @click="onApplyTemplate(template)"
               >
                 <span style="display: flex; align-items: center; flex: 1">
                   <i class="bi bi-diagram-3" style="margin-right: 8px"></i>
-                  <span @click="onApplyTemplate(template)">{{ template.name }}</span>
+                  {{ template.name }}
                 </span>
                 <button
                   class="btn btn-link btn-sm text-danger"
@@ -233,6 +234,12 @@
 <script setup>
 import { defineProps, defineEmits, ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { v4 as uuidv4 } from 'uuid'
+
+// Add component name
+defineOptions({
+  name: 'GraphSideBar',
+})
 
 const workNotes = ref([])
 const graphStore = useKnowledgeGraphStore()
@@ -276,9 +283,35 @@ const emit = defineEmits([
 watch(
   () => fetchedTemplates,
   (newTemplates) => {
-    localTemplates.value = Array.isArray(newTemplates) ? [...newTemplates] : []
+    console.log('Template data updated:', {
+      newTemplates,
+      isArray: Array.isArray(newTemplates),
+      length: newTemplates?.length,
+      timestamp: new Date().toISOString(),
+      templateIds: newTemplates?.map((t) => t.id),
+      templateNames: newTemplates?.map((t) => t.name),
+    })
+
+    // Ensure we have valid template data
+    if (Array.isArray(newTemplates)) {
+      localTemplates.value = newTemplates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        nodes: Array.isArray(template.nodes) ? template.nodes : [],
+        edges: Array.isArray(template.edges) ? template.edges : [],
+      }))
+    } else {
+      localTemplates.value = []
+    }
+
+    console.log('Local templates after update:', {
+      templates: localTemplates.value,
+      length: localTemplates.value.length,
+      templateIds: localTemplates.value.map((t) => t.id),
+      templateNames: localTemplates.value.map((t) => t.name),
+    })
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
 const setActiveTab = (tab) => {
@@ -302,7 +335,71 @@ const onHistoryItemClick = (index) => {
 }
 
 const onApplyTemplate = (template) => {
-  emit('apply-template', template)
+  console.log('Template clicked:', {
+    templateId: template.id,
+    templateName: template.name,
+    templateData: template,
+    timestamp: new Date().toISOString(),
+    availableTemplates: localTemplates.value.length,
+    templateNodes: template.nodes?.length,
+    templateEdges: template.edges?.length,
+  })
+
+  // Validate template data
+  if (!template) {
+    console.error('Template is undefined or null')
+    return
+  }
+
+  // Ensure nodes and edges are arrays
+  const nodes = Array.isArray(template.nodes) ? template.nodes : []
+  const edges = Array.isArray(template.edges) ? template.edges : []
+
+  // Create a map to store old ID to new ID mappings
+  const idMap = new Map()
+
+  // Generate new IDs for nodes
+  const nodesWithNewIds = nodes.map((node) => {
+    const newId = uuidv4()
+    idMap.set(node.id, newId)
+    return {
+      ...node,
+      id: newId,
+      // Preserve the original ID in data for reference if needed
+      data: {
+        ...node.data,
+        originalId: node.id,
+      },
+    }
+  })
+
+  // Update edge source/target IDs using the mapping
+  const edgesWithNewIds = edges.map((edge) => ({
+    ...edge,
+    id: uuidv4(),
+    source: idMap.get(edge.source) || edge.source,
+    target: idMap.get(edge.target) || edge.target,
+  }))
+
+  // Create a validated template object with new IDs
+  const validatedTemplate = {
+    id: template.id,
+    name: template.name,
+    nodes: nodesWithNewIds,
+    edges: edgesWithNewIds,
+  }
+
+  try {
+    console.log('Emitting apply-template event with validated template data:', validatedTemplate)
+    emit('apply-template', validatedTemplate)
+    console.log('Template event emitted successfully')
+  } catch (error) {
+    console.error('Error applying template:', {
+      error: error.message,
+      stack: error.stack,
+      template: validatedTemplate,
+    })
+  }
 }
 
 const onWorkNoteClick = (note) => {
@@ -376,6 +473,11 @@ const deleteTemplate = async (template) => {
 }
 
 onMounted(() => {
+  console.log('Sidebar component mounted:', {
+    fetchedTemplates,
+    localTemplates: localTemplates.value,
+    timestamp: new Date().toISOString(),
+  })
   const graphId = selectedGraphId || graphStore.currentGraphId
   fetchWorkNotes(graphId)
 })
@@ -393,14 +495,14 @@ defineExpose({
 })
 </script>
 <style scoped>
-.SideBarComponent {
+.GraphSideBar {
   transition: width 0.3s;
   width: 25%;
   overflow-y: auto;
   padding: 20px;
 }
 
-.SideBarComponent.collapsed {
+.GraphSideBar.collapsed {
   width: 0;
   padding: 0;
   overflow: hidden;

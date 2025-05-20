@@ -146,17 +146,82 @@ const margin = { top: 32, right: 32, bottom: 60, left: 70 }
 
 const parsedData = computed(() => {
   let d = props.data
+  console.log('BubbleChart received data:', d)
+
   if (typeof d === 'string') {
     try {
       d = JSON.parse(d)
-    } catch {
+      console.log('Parsed string data:', d)
+    } catch (e) {
+      console.error('Failed to parse string data:', e)
       return []
     }
   }
-  if (d && typeof d === 'object' && !Array.isArray(d) && d.data) {
-    return d.data
+
+  if (d && typeof d === 'object' && !Array.isArray(d)) {
+    if (d.data) {
+      console.log('Using data.data:', d.data)
+      return d.data
+    }
+    if (d.bubbles) {
+      console.log('Using data.bubbles:', d.bubbles)
+      return d.bubbles
+    }
+    if (d.points) {
+      console.log('Using data.points:', d.points)
+      return d.points
+    }
+    if (d.values) {
+      console.log('Using data.values:', d.values)
+      return d.values
+    }
+    if (d.series) {
+      console.log('Using data.series:', d.series)
+      return d.series
+    }
+    if (d.datasets) {
+      console.log('Using data.datasets:', d.datasets)
+      return d.datasets
+    }
+    if (d.chartData) {
+      console.log('Using data.chartData:', d.chartData)
+      return d.chartData
+    }
+    if (d.bubbleData) {
+      console.log('Using data.bubbleData:', d.bubbleData)
+      return d.bubbleData
+    }
+    if (d.bubble_data) {
+      console.log('Using data.bubble_data:', d.bubble_data)
+      return d.bubble_data
+    }
+    if (d.bubblechart) {
+      console.log('Using data.bubblechart:', d.bubblechart)
+      return d.bubblechart
+    }
+    if (d.bubble_chart) {
+      console.log('Using data.bubble_chart:', d.bubble_chart)
+      return d.bubble_chart
+    }
+    if (d.bubblechart_data) {
+      console.log('Using data.bubblechart_data:', d.bubblechart_data)
+      return d.bubblechart_data
+    }
+    if (d.bubble_chart_data) {
+      console.log('Using data.bubble_chart_data:', d.bubble_chart_data)
+      return d.bubble_chart_data
+    }
+    console.log('Converting object to array:', Object.values(d))
+    return Object.values(d)
   }
-  return Array.isArray(d) ? d : []
+
+  if (Array.isArray(d)) {
+    console.log('Using array data:', d)
+    return d
+  }
+
+  console.log('No valid data found, returning empty array')
+  return []
 })
 
 const bubbles = computed(() => parsedData.value)

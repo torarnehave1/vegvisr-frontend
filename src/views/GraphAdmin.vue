@@ -514,21 +514,90 @@ const nextMatch = () => {
 const debouncedSearchJson = debounce(searchJson, 300)
 
 const applyTemplate = (template) => {
-  const parsedNodes = template.nodes.map((node) => ({
+  console.log('GraphAdmin received template:', {
+    templateId: template.id,
+    templateName: template.name,
+    templateData: template,
+    timestamp: new Date().toISOString(),
+    currentGraphNodes: graphStore.nodes.length,
+    currentGraphEdges: graphStore.edges.length,
+  })
+
+  // Validate template data
+  if (!template || !template.id || !template.name) {
+    console.error('Invalid template data received:', template)
+    return
+  }
+
+  // Ensure nodes and edges are arrays
+  const nodes = Array.isArray(template.nodes) ? template.nodes : []
+  const edges = Array.isArray(template.edges) ? template.edges : []
+
+  // Parse and validate nodes
+  const parsedNodes = nodes.map((node) => ({
     ...node,
     position: node.position || null,
-  }))
-  const parsedEdges = template.edges.map((edge) => ({
-    ...edge,
+    // Use the new ID that was generated in the sidebar
+    id: node.id,
+    label: node.label || 'Unnamed Node',
+    color: node.color || '#ccc',
+    // Preserve all other properties
+    type: node.type,
+    info: node.info,
+    bibl: Array.isArray(node.bibl) ? node.bibl : [],
+    imageWidth: node.imageWidth || '100%',
+    imageHeight: node.imageHeight || '100%',
+    visible: node.visible !== false,
+    path: node.path || null,
   }))
 
+  // Parse and validate edges
+  const parsedEdges = edges.map((edge) => ({
+    ...edge,
+    // Use the new IDs that were generated in the sidebar
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    // Preserve other edge properties
+    type: edge.type || null,
+    info: edge.info || null,
+  }))
+
+  console.log('Parsed template data:', {
+    parsedNodesCount: parsedNodes.length,
+    parsedEdgesCount: parsedEdges.length,
+    firstNode: parsedNodes[0],
+    firstEdge: parsedEdges[0],
+  })
+
+  // Create updated graph with validated data
   const updatedGraph = {
     nodes: [...graphStore.nodes.map((n) => n.data), ...parsedNodes],
     edges: [...graphStore.edges.map((e) => e.data), ...parsedEdges],
   }
 
+  console.log('Updated graph data:', {
+    totalNodes: updatedGraph.nodes.length,
+    totalEdges: updatedGraph.edges.length,
+    timestamp: new Date().toISOString(),
+  })
+
+  // Update the graph store
+  graphStore.nodes = updatedGraph.nodes.map((node) => ({ data: node }))
+  graphStore.edges = updatedGraph.edges.map((edge) => ({ data: edge }))
+
+  // Update the JSON editor with properly formatted JSON
   graphJson.value = JSON.stringify(updatedGraph, null, 2)
+  graphStore.graphJson = graphJson.value
+
   templateMessage.value = `Template "${template.name}" added successfully!`
+
+  // Update Cytoscape instance if it exists
+  if (cyInstance.value) {
+    cyInstance.value.elements().remove()
+    cyInstance.value.add([...updatedGraph.nodes, ...updatedGraph.edges])
+    cyInstance.value.layout({ name: 'preset' }).run()
+  }
 
   setTimeout(() => {
     templateMessage.value = ''
