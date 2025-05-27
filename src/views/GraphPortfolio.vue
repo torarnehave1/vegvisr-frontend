@@ -677,7 +677,7 @@ const shareToFacebook = () => {
 const suggestTitle = async (graph) => {
   try {
     isLoading.value = true
-    const response = await fetch('https://knowledge.vegvisr.org/suggest-title', {
+    const response = await fetch('https://api.vegvisr.org/suggest-title', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -689,7 +689,8 @@ const suggestTitle = async (graph) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to get title suggestion')
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get title suggestion: ${response.status}`)
     }
 
     const data = await response.json()
@@ -705,7 +706,7 @@ const suggestTitle = async (graph) => {
 const suggestCategories = async (graph) => {
   try {
     isLoading.value = true
-    const response = await fetch('https://knowledge.vegvisr.org/suggest-categories', {
+    const response = await fetch('https://api.vegvisr.org/suggest-categories', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -717,7 +718,8 @@ const suggestCategories = async (graph) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to get category suggestions')
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get category suggestions: ${response.status}`)
     }
 
     const data = await response.json()
@@ -733,7 +735,7 @@ const suggestCategories = async (graph) => {
 const suggestDescription = async (graph) => {
   try {
     isLoading.value = true
-    const response = await fetch('https://knowledge.vegvisr.org/suggest-description', {
+    const response = await fetch('https://api.vegvisr.org/suggest-description', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -745,7 +747,8 @@ const suggestDescription = async (graph) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to get description suggestion')
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get description suggestion: ${response.status}`)
     }
 
     const data = await response.json()

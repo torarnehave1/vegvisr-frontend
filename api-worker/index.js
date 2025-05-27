@@ -1007,20 +1007,25 @@ const handleUpdateKml = async (request, env) => {
 }
 
 const handleSuggestTitle = async (request, env) => {
+  console.log('Handling title suggestion request')
   const apiKey = env.XAI_API_KEY
   if (!apiKey) {
+    console.error('XAI API key missing')
     return createErrorResponse('Internal Server Error: XAI API key missing', 500)
   }
 
   let body
   try {
     body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
   } catch (e) {
+    console.error('Invalid JSON body:', e)
     return createErrorResponse('Invalid JSON body', 400)
   }
 
   const { nodes, edges } = body
   if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
     return createErrorResponse('Invalid graph data', 400)
   }
 
@@ -1036,6 +1041,8 @@ const handleSuggestTitle = async (request, env) => {
 
     Return only the title, no additional text or explanations.`
 
+    console.log('Sending prompt to Grok:', prompt)
+
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
       temperature: 0.7,
@@ -1050,27 +1057,34 @@ const handleSuggestTitle = async (request, env) => {
     })
 
     const title = completion.choices[0].message.content.trim()
+    console.log('Generated title:', title)
     return createResponse(JSON.stringify({ title }))
   } catch (error) {
+    console.error('Grok API error:', error)
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
   }
 }
 
 const handleSuggestDescription = async (request, env) => {
+  console.log('Handling description suggestion request')
   const apiKey = env.XAI_API_KEY
   if (!apiKey) {
+    console.error('XAI API key missing')
     return createErrorResponse('Internal Server Error: XAI API key missing', 500)
   }
 
   let body
   try {
     body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
   } catch (e) {
+    console.error('Invalid JSON body:', e)
     return createErrorResponse('Invalid JSON body', 400)
   }
 
   const { nodes, edges } = body
   if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
     return createErrorResponse('Invalid graph data', 400)
   }
 
@@ -1085,6 +1099,8 @@ const handleSuggestDescription = async (request, env) => {
     Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
 
     Return only the description, no additional text or explanations.`
+
+    console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
@@ -1101,27 +1117,34 @@ const handleSuggestDescription = async (request, env) => {
     })
 
     const description = completion.choices[0].message.content.trim()
+    console.log('Generated description:', description)
     return createResponse(JSON.stringify({ description }))
   } catch (error) {
+    console.error('Grok API error:', error)
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
   }
 }
 
 const handleSuggestCategories = async (request, env) => {
+  console.log('Handling categories suggestion request')
   const apiKey = env.XAI_API_KEY
   if (!apiKey) {
+    console.error('XAI API key missing')
     return createErrorResponse('Internal Server Error: XAI API key missing', 500)
   }
 
   let body
   try {
     body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
   } catch (e) {
+    console.error('Invalid JSON body:', e)
     return createErrorResponse('Invalid JSON body', 400)
   }
 
   const { nodes, edges } = body
   if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
     return createErrorResponse('Invalid graph data', 400)
   }
 
@@ -1136,6 +1159,8 @@ const handleSuggestCategories = async (request, env) => {
     Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
 
     Return only the categories as hashtags separated by spaces, no additional text or explanations. Example format: #Category1 #Category2 #Category3`
+
+    console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
@@ -1152,8 +1177,10 @@ const handleSuggestCategories = async (request, env) => {
     })
 
     const categories = completion.choices[0].message.content.trim()
+    console.log('Generated categories:', categories)
     return createResponse(JSON.stringify({ categories }))
   } catch (error) {
+    console.error('Grok API error:', error)
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
   }
 }
