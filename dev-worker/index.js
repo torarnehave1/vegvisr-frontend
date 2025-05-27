@@ -913,6 +913,46 @@ export default {
         }
       }
 
+      if (pathname === '/deleteknowgraph' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { id } = requestBody
+
+          if (!id) {
+            return new Response(JSON.stringify({ error: 'Graph ID is required.' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Deleting graph with ID: ${id}`)
+
+          // Delete from knowledge_graphs table
+          const deleteGraphQuery = `DELETE FROM knowledge_graphs WHERE id = ?`
+          await env.vegvisr_org.prepare(deleteGraphQuery).bind(id).run()
+
+          // Delete from knowledge_graph_history table
+          const deleteHistoryQuery = `DELETE FROM knowledge_graph_history WHERE graph_id = ?`
+          await env.vegvisr_org.prepare(deleteHistoryQuery).bind(id).run()
+
+          // Delete from graphWorkNotes table
+          const deleteWorkNotesQuery = `DELETE FROM graphWorkNotes WHERE graph_id = ?`
+          await env.vegvisr_org.prepare(deleteWorkNotesQuery).bind(id).run()
+
+          console.log('[Worker] Graph deleted successfully')
+          return new Response(JSON.stringify({ message: 'Graph deleted successfully', id }), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] Error deleting graph:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {

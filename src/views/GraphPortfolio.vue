@@ -558,7 +558,7 @@ const confirmDelete = async (graph) => {
     )
   ) {
     try {
-      const response = await fetch(`https://knowledge.vegvisr.org/deleteknowgraph`, {
+      const response = await fetch('https://knowledge.vegvisr.org/deleteknowgraph', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -568,15 +568,20 @@ const confirmDelete = async (graph) => {
         }),
       })
 
-      if (response.ok) {
-        // Remove the graph from the local array
-        graphs.value = graphs.value.filter((g) => g.id !== graph.id)
-      } else {
-        throw new Error('Failed to delete graph')
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete graph')
       }
+
+      // Remove the graph from the local array
+      graphs.value = graphs.value.filter((g) => g.id !== graph.id)
+
+      // Show success message
+      alert('Graph deleted successfully')
     } catch (err) {
       error.value = err.message
       console.error('Error deleting graph:', err)
+      alert('Failed to delete graph: ' + err.message)
     }
   }
 }
