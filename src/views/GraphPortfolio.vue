@@ -133,6 +133,18 @@
                     <i class="bi bi-share"></i> Share
                   </button>
                 </div>
+                <!-- Add portfolio image display -->
+                <div
+                  v-if="getPortfolioImage(graph.nodes)"
+                  class="portfolio-image-container mt-2 mb-2"
+                >
+                  <img
+                    :src="getPortfolioImage(graph.nodes).path"
+                    :alt="getPortfolioImage(graph.nodes).label"
+                    class="portfolio-image"
+                    @error="console.error('Image failed to load:', $event)"
+                  />
+                </div>
                 <p class="card-text text-muted" v-if="graph.metadata?.description">
                   {{ truncateText(graph.metadata.description) }}
                 </p>
@@ -367,6 +379,7 @@ const fetchGraphs = async () => {
                   info: node.info || null,
                   position: node.position || { x: 0, y: 0 },
                   visible: node.visible !== false,
+                  path: node.path || null,
                 })),
                 edges: edges.map((edge) => ({
                   source: edge.source,
@@ -778,6 +791,25 @@ const suggestDescription = async (graph) => {
   }
 }
 
+const getPortfolioImage = (nodes) => {
+  if (!Array.isArray(nodes)) return null
+
+  const imageNode = nodes.find((node) => node.type === 'portfolio-image')
+  if (!imageNode) return null
+
+  // The path is directly on the node object
+  const path = imageNode.path
+  if (!path) {
+    console.warn('Portfolio image node found but no path specified:', imageNode)
+    return null
+  }
+
+  return {
+    path,
+    label: imageNode.label || 'Portfolio Image',
+  }
+}
+
 onMounted(() => {
   fetchGraphs()
 })
@@ -1117,5 +1149,36 @@ onMounted(() => {
 .input-group textarea {
   resize: vertical;
   min-height: 100px;
+}
+
+.portfolio-image-container {
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.portfolio-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.portfolio-image:hover {
+  transform: scale(1.05);
+}
+
+@media (max-width: 768px) {
+  .portfolio-image-container {
+    height: 150px;
+  }
+}
+
+@media (max-width: 576px) {
+  .portfolio-image-container {
+    height: 120px;
+  }
 }
 </style>
