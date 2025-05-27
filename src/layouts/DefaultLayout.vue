@@ -38,6 +38,9 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-editor">Graph Editor</RouterLink>
               </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/graph-portfolio">Graph Portfolio</RouterLink>
+              </li>
             </ul>
 
             <div class="dropdown me-3">

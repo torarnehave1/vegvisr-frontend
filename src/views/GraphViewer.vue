@@ -233,7 +233,11 @@ const fetchGraphData = async () => {
     const seenIds = new Set()
     for (const node of data.nodes) {
       if (!seenIds.has(node.id)) {
-        uniqueNodes.push(node)
+        uniqueNodes.push({
+          ...node,
+          position: node.position || { x: 0, y: 0 }, // Ensure position is preserved
+          visible: node.visible !== false,
+        })
         seenIds.add(node.id)
       }
     }
@@ -242,6 +246,15 @@ const fetchGraphData = async () => {
       ...data,
       nodes: uniqueNodes.filter((node) => node.visible !== false),
     }
+
+    // Update the store with the graph data
+    knowledgeGraphStore.updateGraph(
+      graphData.value.nodes.map((node) => ({
+        ...node,
+        position: node.position || { x: 0, y: 0 },
+      })),
+      graphData.value.edges,
+    )
   } catch (err) {
     error.value = err.message
   } finally {

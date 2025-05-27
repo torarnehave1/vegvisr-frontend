@@ -228,6 +228,7 @@
 
 <script setup>
 import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import TopBar from '../components/TopBar.vue' // Import TopBar
@@ -238,7 +239,6 @@ if (!cytoscape.prototype.undoRedo) {
 }
 
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
-import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
@@ -792,48 +792,53 @@ const saveCurrentGraph = async () => {
 
         graphStore.setCurrentVersion(latestVersion)
       }
-    }
 
-    const graphData = {
-      metadata: {
-        title: graphStore.graphMetadata.title || 'Untitled Graph',
-        description: graphStore.graphMetadata.description || '',
-        createdBy: graphStore.graphMetadata.createdBy || 'Unknown',
-        version: graphStore.currentVersion || 1,
-      },
-      nodes: graphStore.nodes.map((node) => ({
-        ...node.data,
-        position: node.position,
-        visible: node.data.visible !== false, // Ensure visible field is included
-      })),
-      edges: graphStore.edges.map((edge) => ({
-        ...edge.data,
-        type: edge.data.type || null,
-        info: edge.data.info || null,
-      })),
-    }
-
-    const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      // Create graph data with updated metadata
+      const graphData = {
         id: graphStore.currentGraphId,
-        graphData,
-        override: true,
-      }),
-    })
+        metadata: {
+          title: latestGraph.metadata.title,
+          description: latestGraph.metadata.description,
+          createdBy: latestGraph.metadata.createdBy,
+          version: latestGraph.metadata.version,
+          updatedAt: new Date().toISOString(), // Always set to current time
+        },
+        nodes: graphStore.nodes.map((node) => ({
+          ...node.data,
+          position: node.position,
+          visible: node.data.visible !== false,
+        })),
+        edges: graphStore.edges.map((edge) => ({
+          ...edge.data,
+          type: edge.data.type || null,
+          info: edge.data.info || null,
+        })),
+      }
 
-    if (saveResponse.ok) {
-      const result = await saveResponse.json()
-      saveMessage.value = 'Saved successfully!'
+      console.log('Saving graph with metadata:', graphData.metadata) // Debug log
 
-      graphStore.setCurrentVersion(result.newVersion)
-      setTimeout(() => {
-        saveMessage.value = ''
-      }, 2000)
-      fetchGraphHistory()
-    } else {
-      alert('Failed to save the graph.')
+      const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: graphStore.currentGraphId,
+          graphData,
+          override: true,
+        }),
+      })
+
+      if (saveResponse.ok) {
+        const result = await saveResponse.json()
+        saveMessage.value = 'Saved successfully!'
+
+        graphStore.setCurrentVersion(result.newVersion)
+        setTimeout(() => {
+          saveMessage.value = ''
+        }, 2000)
+        fetchGraphHistory()
+      } else {
+        alert('Failed to save the graph.')
+      }
     }
   } catch (error) {
     console.error('Error saving the graph:', error)
@@ -1074,7 +1079,7 @@ const fetchKnowledgeGraphs = async () => {
 
 // Load selected graph
 const loadSelectedGraph = async () => {
-  console.log('loadSelectedGraph called with selectedGraphId:', selectedGraphId.value) // Log the selected graph ID
+  console.log('loadSelectedGraph called with selectedGraphId:', selectedGraphId.value)
   const graphIdToLoad = selectedGraphId.value
   if (!graphIdToLoad) {
     console.warn('No graph ID selected.')
@@ -1086,7 +1091,7 @@ const loadSelectedGraph = async () => {
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
     if (response.ok) {
       let graphData = await response.json()
-      console.log('Fetched graphData:', graphData) // Log the fetched graph data
+      console.log('Fetched graphData:', graphData)
       if (typeof graphData === 'string') {
         graphData = JSON.parse(graphData)
       }
@@ -1096,7 +1101,6 @@ const loadSelectedGraph = async () => {
         console.warn(msg, graphData)
         validationMessage.value = msg
         validationMessageClass.value = 'alert-danger'
-        // Still fetch history and work notes
         await fetchGraphHistory()
         fetchWorkNotes(graphIdToLoad)
         return
@@ -1120,23 +1124,22 @@ const loadSelectedGraph = async () => {
         console.warn(msg, droppedEdges)
       }
 
-      graphStore.nodes = graphData.nodes.map((node) => {
-        return {
-          data: {
-            id: node.id,
-            label: node.label,
-            color: node.color || 'gray',
-            type: node.type || null,
-            info: node.info || null,
-            bibl: Array.isArray(node.bibl) ? node.bibl : [],
-            imageWidth: node.imageWidth || '100%',
-            imageHeight: node.imageHeight || '100%',
-            visible: node.visible !== false, // Ensure visible field is updated
-            path: node.path || null, // Ensure path is included
-          },
-          position: node.position || null,
-        }
-      })
+      // Process nodes with positions
+      graphStore.nodes = graphData.nodes.map((node) => ({
+        data: {
+          id: node.id,
+          label: node.label,
+          color: node.color || 'gray',
+          type: node.type || null,
+          info: node.info || null,
+          bibl: Array.isArray(node.bibl) ? node.bibl : [],
+          imageWidth: node.imageWidth || '100%',
+          imageHeight: node.imageHeight || '100%',
+          visible: node.visible !== false,
+          path: node.path || null,
+        },
+        position: node.position || { x: 0, y: 0 },
+      }))
 
       graphStore.edges = validEdges.map((edge) => ({
         data: {
@@ -1148,22 +1151,50 @@ const loadSelectedGraph = async () => {
         },
       }))
 
-      console.log('Loaded nodes:', graphStore.nodes) // Log the loaded nodes
-      console.log('Loaded edges:', graphStore.edges) // Log the loaded edges
+      console.log('Loaded nodes with positions:', graphStore.nodes)
 
       if (cyInstance.value) {
+        // Clear existing elements
         cyInstance.value.elements().remove()
+
+        // Add nodes and edges
         cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
-        cyInstance.value.layout({ name: 'preset' }).run()
+
+        // Apply positions to nodes
+        cyInstance.value.nodes().forEach((node) => {
+          const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+          if (storedNode?.position) {
+            node.position(storedNode.position)
+          }
+        })
+
+        // Run layout with preset positions
+        cyInstance.value
+          .layout({
+            name: 'preset',
+            fit: true,
+            padding: 50,
+            animate: true,
+            animationDuration: 500,
+            randomize: false,
+            nodeDimensionsIncludeLabels: true,
+          })
+          .run()
+
+        // Ensure all nodes are visible
+        cyInstance.value.nodes().forEach((node) => {
+          node.style('display', 'element')
+        })
+
+        // Fit the graph to the viewport
         cyInstance.value.fit()
       }
 
       graphStore.setCurrentGraphId(graphIdToLoad)
       graphStore.setCurrentVersion(graphData.metadata?.version)
       await fetchGraphHistory()
-      fetchWorkNotes(graphIdToLoad) // Ensure work notes are fetched for the loaded graph
+      fetchWorkNotes(graphIdToLoad)
 
-      // Show any error/warning messages
       if (errorMessages.length > 0) {
         validationMessage.value = errorMessages.join('\n')
         validationMessageClass.value = 'alert-danger'
@@ -1542,7 +1573,6 @@ onMounted(() => {
     console.error('Cytoscape container #cy not found!')
     return
   }
-  //NodeTypes
   try {
     cyInstance.value = cytoscape({
       container: cyContainer,
@@ -1962,12 +1992,45 @@ onMounted(() => {
       ],
       layout: {
         name: 'preset',
+        fit: true,
+        padding: 50,
+        animate: true,
+        animationDuration: 500,
+        randomize: false,
+        nodeDimensionsIncludeLabels: true,
       },
       boxSelectionEnabled: true,
+      autoungrabify: false,
+      autolock: false,
+      wheelSensitivity: 0.5,
+      minZoom: 0.1,
+      maxZoom: 2.5,
     })
 
     // Initialize undo-redo instance
     undoRedoInstance.value = cyInstance.value.undoRedo()
+
+    // Add event listener for node positions
+    cyInstance.value.on('position', 'node', (event) => {
+      const node = event.target
+      const position = node.position()
+      const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (graphNode) {
+        graphNode.position = position
+      }
+    })
+
+    // Add event listener for layout stop
+    cyInstance.value.on('layoutstop', () => {
+      // Update node positions in store after layout
+      cyInstance.value.nodes().forEach((node) => {
+        const position = node.position()
+        const graphNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+        if (graphNode) {
+          graphNode.position = position
+        }
+      })
+    })
 
     // Event listener for node clicks
     cyInstance.value.on('tap', 'node', async (event) => {
@@ -2220,7 +2283,13 @@ onMounted(() => {
       node.removeClass('selected')
     })
 
-    if (graphStore.currentGraphId) {
+    // Check if we have a version in the route query
+    const route = useRoute()
+    if (route.query.version) {
+      // If we have a version, load that specific version
+      loadGraphVersion(parseInt(route.query.version))
+    } else if (graphStore.currentGraphId) {
+      // Otherwise load the selected graph
       selectedGraphId.value = graphStore.currentGraphId
       loadSelectedGraph()
     } else {

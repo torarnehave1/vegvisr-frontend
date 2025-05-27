@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 
 export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const graphMetadata = ref({
@@ -18,6 +18,13 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const validationMessage = ref('') // Message for validation feedback
   const validationMessageClass = ref('') // CSS class for validation feedback
 
+  const nodeCount = ref(0)
+  const edgeCount = ref(0)
+
+  // Computed properties for counts
+  const getNodeCount = computed(() => nodeCount.value)
+  const getEdgeCount = computed(() => edgeCount.value)
+
   const resetGraph = () => {
     // Preserve existing action_txt nodes
     const existingActionTxtNodes = nodes.value.filter((node) => node.data.type === 'action_txt')
@@ -31,21 +38,35 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     undoStack.value = [] // Clear undo stack
     redoStack.value = [] // Clear redo stack
     localStorage.removeItem('currentGraphId') // Clear from local storage
+    updateCounts()
   }
 
   const updateGraph = (newNodes, newEdges) => {
-    nodes.value = newNodes
-    edges.value = newEdges.map((edge) => {
-      const edgeData = {
-        id: `${edge.source}_${edge.target}`,
+    nodes.value = newNodes.map((node) => ({
+      data: {
+        id: node.id,
+        label: node.label || node.id,
+        color: node.color || 'gray',
+        type: node.type || 'default',
+        info: node.info || null,
+        bibl: Array.isArray(node.bibl) ? node.bibl : [],
+        visible: node.visible !== false,
+        path: node.path || null,
+      },
+      position: node.position || { x: 0, y: 0 }, // Ensure position is preserved
+    }))
+
+    edges.value = newEdges.map((edge) => ({
+      data: {
+        id: edge.id || `${edge.source}_${edge.target}`,
         source: edge.source,
         target: edge.target,
-      }
-      if (edge.label !== undefined) edgeData.label = edge.label
-      if (edge.type !== undefined) edgeData.type = edge.type
-      if (edge.info !== undefined) edgeData.info = edge.info
-      return { data: edgeData }
-    })
+        label: edge.label || null,
+        type: edge.type || 'default',
+        info: edge.info || null,
+      },
+    }))
+    updateCounts()
   }
 
   const updateGraphFromJson = (parsedJson) => {
@@ -75,6 +96,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     console.log('Updated edges:', edges.value) // Log the updated edges
     graphJson.value = JSON.stringify(parsedJson, null, 2)
     console.log('Updated graphJson:', graphJson.value) // Log the updated JSON
+    updateCounts()
   }
 
   const setCurrentGraphId = (id) => {
@@ -109,6 +131,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         node.position = lastAction.previousPosition
       }
     }
+    updateCounts()
   }
 
   const redo = () => {
@@ -130,6 +153,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         node.position = lastAction.newPosition
       }
     }
+    updateCounts()
   }
 
   const updateNodeVisibilityInStore = (nodeId, isVisible) => {
@@ -223,6 +247,12 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     }
   })
 
+  // Update counts whenever nodes or edges change
+  const updateCounts = () => {
+    nodeCount.value = nodes.value.length
+    edgeCount.value = edges.value.length
+  }
+
   return {
     graphMetadata,
     nodes,
@@ -242,5 +272,9 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     redo, // Ensure redo is returned
     updateNodeVisibilityInStore, // Ensure updateNodeVisibilityInStore is returned
     verifyJson, // Ensure verifyJson is returned
+    nodeCount,
+    edgeCount,
+    getNodeCount,
+    getEdgeCount,
   }
 })
