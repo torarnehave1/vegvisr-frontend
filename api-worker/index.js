@@ -1103,10 +1103,19 @@ const handleSuggestDescription = async (request, env) => {
   })
 
   try {
-    const prompt = `Generate a concise description (2-3 sentences) for a knowledge graph with the following nodes and edges:
-    Nodes: ${nodes.map((n) => n.label).join(', ')}
-    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+    // Extract content from node.info fields, filtering out empty or null values
+    const nodeContents = nodes
+      .map((n) => n.info)
+      .filter((info) => info && typeof info === 'string' && info.trim().length > 0)
+      .join('\n')
 
+    const prompt = `Generate a concise description (2-3 sentences) for a knowledge graph based on the following content:
+
+    Content:
+    ${nodeContents}
+
+    The description should summarize the main themes, insights, and connections present in the content.
+    Focus on the actual content and its meaning, not the graph structure.
     Return only the description, no additional text or explanations.`
 
     console.log('Sending prompt to Grok:', prompt)
@@ -1119,7 +1128,7 @@ const handleSuggestDescription = async (request, env) => {
         {
           role: 'system',
           content:
-            'You are a description generator for knowledge graphs. Return only the description.',
+            'You are a description generator for knowledge graphs. Focus on summarizing the content themes and insights, not the graph structure. Return only the description.',
         },
         { role: 'user', content: prompt },
       ],
@@ -1163,11 +1172,20 @@ const handleSuggestCategories = async (request, env) => {
   })
 
   try {
-    const prompt = `Generate 3-5 relevant categories (as hashtags) for a knowledge graph with the following nodes and edges:
-    Nodes: ${nodes.map((n) => n.label).join(', ')}
-    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+    // Extract content from node.info fields, filtering out empty or null values
+    const nodeContents = nodes
+      .map((n) => n.info)
+      .filter((info) => info && typeof info === 'string' && info.trim().length > 0)
+      .join('\n')
 
-    Return only the categories as hashtags separated by spaces, no additional text or explanations. Example format: #Category1 #Category2 #Category3`
+    const prompt = `Generate 3-5 relevant categories (as hashtags) for a knowledge graph based on the following content:
+
+    Content:
+    ${nodeContents}
+
+    The categories should reflect the main themes, topics, or subject areas present in the content.
+    Return only the categories as hashtags separated by spaces, no additional text or explanations.
+    Example format: #Category1 #Category2 #Category3`
 
     console.log('Sending prompt to Grok:', prompt)
 
@@ -1179,7 +1197,7 @@ const handleSuggestCategories = async (request, env) => {
         {
           role: 'system',
           content:
-            'You are a category generator for knowledge graphs. Return only hashtag categories.',
+            'You are a category generator for knowledge graphs. Focus on the content themes and topics, not the graph structure. Return only hashtag categories.',
         },
         { role: 'user', content: prompt },
       ],
