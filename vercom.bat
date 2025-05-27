@@ -26,7 +26,7 @@ set new_version=v%major%.%minor%.%patch%
 REM Update VERSION file
 echo %new_version% > VERSION
 
-REM Stage all changes
+REM Stage all changes except VERSION file
 git add .
 
 REM Use the first argument as the commit message, or a default if none provided
