@@ -853,6 +853,8 @@ onMounted(() => {
   word-wrap: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
+  flex: 1;
+  margin-right: 1rem;
 }
 
 .graph-meta {
@@ -882,27 +884,11 @@ onMounted(() => {
   padding-top: 1rem;
 }
 
-/* Dark theme adjustments */
-.bg-dark .card {
-  background-color: #2c2c2c;
-  border-color: #404040;
-}
-
-.bg-dark .card-footer {
-  background-color: #333;
-  border-top-color: #404040;
-}
-
-.bg-dark .text-muted {
-  color: #a0a0a0 !important;
-}
-
 .spinner-border {
   width: 3rem;
   height: 3rem;
 }
 
-/* Ensure text content doesn't overflow */
 .card-text {
   overflow-wrap: break-word;
   word-wrap: break-word;
@@ -922,7 +908,96 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-/* Ensure form controls are visible in dark mode */
+.share-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  margin-left: 1rem;
+  white-space: nowrap;
+}
+
+.share-btn i {
+  margin-right: 0.25rem;
+}
+
+.share-buttons {
+  margin-top: 1rem;
+  gap: 0.5rem !important;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.share-buttons .btn {
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.share-buttons .bi {
+  font-size: 1.1em;
+}
+
+.input-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.input-group .form-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-group .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.75rem;
+}
+
+.input-group .bi {
+  font-size: 1.1em;
+}
+
+.input-group textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.portfolio-image-container {
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.portfolio-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.portfolio-image:hover {
+  transform: scale(1.05);
+}
+
+/* Dark theme styles */
+.bg-dark .card {
+  background-color: #2c2c2c;
+  border-color: #404040;
+}
+
+.bg-dark .card-footer {
+  background-color: #333;
+  border-top-color: #404040;
+}
+
+.bg-dark .text-muted {
+  color: #a0a0a0 !important;
+}
+
 .bg-dark .form-control {
   background-color: #2c2c2c;
   border-color: #404040;
@@ -939,61 +1014,15 @@ onMounted(() => {
   color: #fff;
 }
 
-.share-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-  margin-left: 1rem;
-  white-space: nowrap;
+.bg-dark .input-group .btn-outline-primary {
+  color: #0d6efd;
+  border-color: #0d6efd;
 }
 
-.share-btn i {
-  margin-right: 0.25rem;
-}
-
-.card-title {
-  flex: 1;
-  margin-right: 1rem;
-}
-
-.share-buttons {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.instagram-btn {
-  background-color: #e1306c;
-  border-color: #e1306c;
-  color: white;
-}
-
-.instagram-btn:hover {
-  background-color: #c13584;
-  border-color: #c13584;
-  color: white;
-}
-
-.bg-dark .instagram-btn {
-  background-color: #e1306c;
-  border-color: #e1306c;
-  color: white;
-}
-
-.bg-dark .instagram-btn:hover {
-  background-color: #c13584;
-  border-color: #c13584;
-  color: white;
-}
-
-.modal-content {
-  border-radius: 8px;
-}
-
-.modal-header {
-  border-bottom: 1px solid #dee2e6;
-}
-
-.modal-footer {
-  border-top: 1px solid #dee2e6;
+.bg-dark .input-group .btn-outline-primary:hover {
+  color: #fff;
+  background-color: #0d6efd;
+  border-color: #0d6efd;
 }
 
 .bg-dark .modal-content {
@@ -1010,19 +1039,23 @@ onMounted(() => {
   filter: invert(1) grayscale(100%) brightness(200%);
 }
 
-.share-buttons {
-  margin-top: 1rem;
-}
-
-#shareContent {
-  font-family: monospace;
-  resize: none;
-}
-
 .bg-dark #shareContent {
   background-color: #2c2c2c;
   border-color: #404040;
   color: #fff;
+}
+
+/* Social media button styles */
+.instagram-btn {
+  background-color: #e1306c;
+  border-color: #e1306c;
+  color: white;
+}
+
+.instagram-btn:hover {
+  background-color: #c13584;
+  border-color: #c13584;
+  color: white;
 }
 
 .linkedin-btn {
@@ -1058,6 +1091,19 @@ onMounted(() => {
 .facebook-btn:hover {
   background-color: #0d6efd;
   border-color: #0d6efd;
+  color: white;
+}
+
+/* Dark theme social media buttons */
+.bg-dark .instagram-btn {
+  background-color: #e1306c;
+  border-color: #e1306c;
+  color: white;
+}
+
+.bg-dark .instagram-btn:hover {
+  background-color: #c13584;
+  border-color: #c13584;
   color: white;
 }
 
@@ -1097,79 +1143,7 @@ onMounted(() => {
   color: white;
 }
 
-.share-buttons {
-  margin-top: 1rem;
-  gap: 0.5rem !important;
-}
-
-.share-buttons .btn {
-  min-width: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.share-buttons .bi {
-  font-size: 1.1em;
-}
-
-.input-group {
-  display: flex;
-  align-items: stretch;
-}
-
-.input-group .form-control {
-  flex: 1;
-  min-width: 0;
-}
-
-.input-group .btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.375rem 0.75rem;
-}
-
-.input-group .bi {
-  font-size: 1.1em;
-}
-
-.bg-dark .input-group .btn-outline-primary {
-  color: #0d6efd;
-  border-color: #0d6efd;
-}
-
-.bg-dark .input-group .btn-outline-primary:hover {
-  color: #fff;
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-}
-
-.input-group textarea {
-  resize: vertical;
-  min-height: 100px;
-}
-
-.portfolio-image-container {
-  width: 100%;
-  height: 200px;
-  overflow: hidden;
-  border-radius: 4px;
-  margin: 0.5rem 0;
-}
-
-.portfolio-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s ease;
-}
-
-.portfolio-image:hover {
-  transform: scale(1.05);
-}
-
+/* Responsive styles */
 @media (max-width: 768px) {
   .portfolio-image-container {
     height: 150px;
