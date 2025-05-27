@@ -90,10 +90,10 @@
                   <h5 class="card-title mb-0">{{ graph.metadata?.title || 'Untitled Graph' }}</h5>
                   <button
                     class="btn btn-outline-primary btn-sm share-btn"
-                    @click="shareToLinkedIn(graph)"
-                    title="Share to LinkedIn"
+                    @click="openShareModal(graph)"
+                    title="Share Graph"
                   >
-                    <i class="bi bi-linkedin"></i> Share
+                    <i class="bi bi-share"></i> Share
                   </button>
                 </div>
                 <p class="card-text text-muted" v-if="graph.metadata?.description">
@@ -183,6 +183,77 @@
       <div v-if="!loading && !error && filteredGraphs.length === 0" class="text-center mt-5">
         <p class="text-muted">No knowledge graphs found.</p>
       </div>
+
+      <!-- Share Modal -->
+      <div
+        class="modal fade"
+        id="shareModal"
+        tabindex="-1"
+        aria-labelledby="shareModalLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog">
+          <div
+            class="modal-content"
+            :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+          >
+            <div class="modal-header">
+              <h5 class="modal-title" id="shareModalLabel">Share Knowledge Graph</h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              ></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label for="shareContent" class="form-label">Share Content</label>
+                <textarea
+                  class="form-control"
+                  id="shareContent"
+                  rows="6"
+                  v-model="shareContent"
+                  readonly
+                ></textarea>
+              </div>
+              <div class="share-buttons d-flex gap-2 justify-content-center flex-wrap">
+                <button
+                  class="btn btn-outline-primary share-btn instagram-btn"
+                  @click="shareToInstagram"
+                  title="Share to Instagram"
+                >
+                  <i class="bi bi-instagram"></i> Instagram
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn linkedin-btn"
+                  @click="shareToLinkedIn"
+                  title="Share to LinkedIn"
+                >
+                  <i class="bi bi-linkedin"></i> LinkedIn
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn twitter-btn"
+                  @click="shareToTwitter"
+                  title="Share to Twitter"
+                >
+                  <i class="bi bi-twitter-x"></i> Twitter
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn facebook-btn"
+                  @click="shareToFacebook"
+                  title="Share to Facebook"
+                >
+                  <i class="bi bi-facebook"></i> Facebook
+                </button>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -191,6 +262,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { Modal } from 'bootstrap'
 
 const props = defineProps({
   theme: {
@@ -208,6 +280,8 @@ const loading = ref(true)
 const error = ref(null)
 const editingGraphId = ref(null)
 const editingGraph = ref(null)
+const shareContent = ref('')
+const shareModal = ref(null)
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
@@ -507,27 +581,61 @@ const confirmDelete = async (graph) => {
   }
 }
 
-const shareToLinkedIn = (graph) => {
-  const title = encodeURIComponent(graph.metadata?.title || 'Untitled Graph')
-  const description = encodeURIComponent(graph.metadata?.description || '')
-  const url = encodeURIComponent(window.location.origin + '/graph-viewer?graphId=' + graph.id)
-
-  // Create a more detailed summary including node and edge counts
+const openShareModal = (graph) => {
   const nodeCount = Array.isArray(graph.nodes) ? graph.nodes.length : 0
   const edgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0
   const categories = getCategories(graph.metadata?.category || '')
   const categoryText = categories.length > 0 ? `Categories: ${categories.join(', ')}` : ''
 
-  const summary = encodeURIComponent(
-    `${description}\n\n` +
-      `Nodes: ${nodeCount}\n` +
-      `Edges: ${edgeCount}\n` +
-      `${categoryText}\n\n` +
-      `View this knowledge graph to explore the connections and insights.`,
-  )
+  shareContent.value =
+    `${graph.metadata?.title || 'Untitled Graph'}\n\n` +
+    `${graph.metadata?.description || ''}\n\n` +
+    `Nodes: ${nodeCount}\n` +
+    `Edges: ${edgeCount}\n` +
+    `${categoryText}\n\n` +
+    `View this knowledge graph: ${window.location.origin}/graph-viewer?graphId=${graph.id}`
+
+  if (!shareModal.value) {
+    shareModal.value = new Modal(document.getElementById('shareModal'))
+  }
+  shareModal.value.show()
+}
+
+const shareToInstagram = () => {
+  const instagramUrl = `https://www.instagram.com/create/story`
+  window.open(instagramUrl, '_blank', 'width=600,height=400')
+
+  // Show a message to the user
+  alert('Please copy the text from the text area above and paste it into your Instagram story.')
+}
+
+const shareToLinkedIn = () => {
+  const title = encodeURIComponent(shareContent.value.split('\n')[0])
+  const summary = encodeURIComponent(shareContent.value)
+  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
+  const url = encodeURIComponent(window.location.origin + '/graph-viewer?graphId=' + graphId)
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
   window.open(linkedInUrl, '_blank', 'width=600,height=400')
+}
+
+const shareToTwitter = () => {
+  const title = shareContent.value.split('\n')[0]
+  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
+  const url = window.location.origin + '/graph-viewer?graphId=' + graphId
+
+  // Twitter has a 280 character limit, so we'll create a shorter message
+  const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${tweetText}`
+  window.open(twitterUrl, '_blank', 'width=600,height=400')
+}
+
+const shareToFacebook = () => {
+  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
+  const url = encodeURIComponent(window.location.origin + '/graph-viewer?graphId=' + graphId)
+
+  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
+  window.open(facebookUrl, '_blank', 'width=600,height=400')
 }
 
 onMounted(() => {
@@ -673,5 +781,164 @@ onMounted(() => {
 .card-title {
   flex: 1;
   margin-right: 1rem;
+}
+
+.share-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.instagram-btn {
+  background-color: #e1306c;
+  border-color: #e1306c;
+  color: white;
+}
+
+.instagram-btn:hover {
+  background-color: #c13584;
+  border-color: #c13584;
+  color: white;
+}
+
+.bg-dark .instagram-btn {
+  background-color: #e1306c;
+  border-color: #e1306c;
+  color: white;
+}
+
+.bg-dark .instagram-btn:hover {
+  background-color: #c13584;
+  border-color: #c13584;
+  color: white;
+}
+
+.modal-content {
+  border-radius: 8px;
+}
+
+.modal-header {
+  border-bottom: 1px solid #dee2e6;
+}
+
+.modal-footer {
+  border-top: 1px solid #dee2e6;
+}
+
+.bg-dark .modal-content {
+  background-color: #2c2c2c;
+  border-color: #404040;
+}
+
+.bg-dark .modal-header,
+.bg-dark .modal-footer {
+  border-color: #404040;
+}
+
+.bg-dark .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+.share-buttons {
+  margin-top: 1rem;
+}
+
+#shareContent {
+  font-family: monospace;
+  resize: none;
+}
+
+.bg-dark #shareContent {
+  background-color: #2c2c2c;
+  border-color: #404040;
+  color: #fff;
+}
+
+.linkedin-btn {
+  background-color: #0077b5;
+  border-color: #0077b5;
+  color: white;
+}
+
+.linkedin-btn:hover {
+  background-color: #005582;
+  border-color: #005582;
+  color: white;
+}
+
+.twitter-btn {
+  background-color: #000000;
+  border-color: #000000;
+  color: white;
+}
+
+.twitter-btn:hover {
+  background-color: #1da1f2;
+  border-color: #1da1f2;
+  color: white;
+}
+
+.facebook-btn {
+  background-color: #1877f2;
+  border-color: #1877f2;
+  color: white;
+}
+
+.facebook-btn:hover {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: white;
+}
+
+.bg-dark .linkedin-btn {
+  background-color: #0077b5;
+  border-color: #0077b5;
+  color: white;
+}
+
+.bg-dark .linkedin-btn:hover {
+  background-color: #005582;
+  border-color: #005582;
+  color: white;
+}
+
+.bg-dark .twitter-btn {
+  background-color: #000000;
+  border-color: #000000;
+  color: white;
+}
+
+.bg-dark .twitter-btn:hover {
+  background-color: #1da1f2;
+  border-color: #1da1f2;
+  color: white;
+}
+
+.bg-dark .facebook-btn {
+  background-color: #1877f2;
+  border-color: #1877f2;
+  color: white;
+}
+
+.bg-dark .facebook-btn:hover {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: white;
+}
+
+.share-buttons {
+  margin-top: 1rem;
+  gap: 0.5rem !important;
+}
+
+.share-buttons .btn {
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.share-buttons .bi {
+  font-size: 1.1em;
 }
 </style>
