@@ -42,32 +42,68 @@
               <div v-if="editingGraphId === graph.id" class="edit-form">
                 <div class="mb-3">
                   <label class="form-label">Title</label>
-                  <input
-                    type="text"
-                    class="form-control"
-                    v-model="editingGraph.metadata.title"
-                    placeholder="Enter title"
-                  />
+                  <div class="input-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      v-model="editingGraph.metadata.title"
+                      placeholder="Enter title"
+                    />
+                    <button
+                      class="btn btn-outline-primary"
+                      @click="suggestTitle(graph)"
+                      :disabled="isLoadingTitle"
+                      title="Get AI title suggestion"
+                    >
+                      <i class="bi" :class="isLoadingTitle ? 'bi-hourglass-split' : 'bi-magic'"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label"
                     >Categories (use # to separate multiple categories)</label
                   >
-                  <input
-                    type="text"
-                    class="form-control"
-                    v-model="editingGraph.metadata.category"
-                    placeholder="e.g., #Research #Project #Analysis"
-                  />
+                  <div class="input-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      v-model="editingGraph.metadata.category"
+                      placeholder="e.g., #Research #Project #Analysis"
+                    />
+                    <button
+                      class="btn btn-outline-primary"
+                      @click="suggestCategories(graph)"
+                      :disabled="isLoadingCategories"
+                      title="Get AI category suggestions"
+                    >
+                      <i
+                        class="bi"
+                        :class="isLoadingCategories ? 'bi-hourglass-split' : 'bi-magic'"
+                      ></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label">Description</label>
-                  <textarea
-                    class="form-control"
-                    v-model="editingGraph.metadata.description"
-                    rows="3"
-                    placeholder="Enter description"
-                  ></textarea>
+                  <div class="input-group">
+                    <textarea
+                      class="form-control"
+                      v-model="editingGraph.metadata.description"
+                      rows="3"
+                      placeholder="Enter description"
+                    ></textarea>
+                    <button
+                      class="btn btn-outline-primary"
+                      @click="suggestDescription(graph)"
+                      :disabled="isLoadingDescription"
+                      title="Get AI description suggestion"
+                    >
+                      <i
+                        class="bi"
+                        :class="isLoadingDescription ? 'bi-hourglass-split' : 'bi-magic'"
+                      ></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label">Created By</label>
@@ -282,6 +318,9 @@ const editingGraphId = ref(null)
 const editingGraph = ref(null)
 const shareContent = ref('')
 const shareModal = ref(null)
+const isLoadingTitle = ref(false)
+const isLoadingCategories = ref(false)
+const isLoadingDescription = ref(false)
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
@@ -643,6 +682,93 @@ const shareToFacebook = () => {
   window.open(facebookUrl, '_blank', 'width=600,height=400')
 }
 
+const suggestTitle = async (graph) => {
+  try {
+    isLoadingTitle.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-title', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get title suggestion: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.title = data.title
+  } catch (err) {
+    console.error('Error getting title suggestion:', err)
+    alert('Failed to get title suggestion: ' + err.message)
+  } finally {
+    isLoadingTitle.value = false
+  }
+}
+
+const suggestCategories = async (graph) => {
+  try {
+    isLoadingCategories.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-categories', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get category suggestions: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.category = data.categories
+  } catch (err) {
+    console.error('Error getting category suggestions:', err)
+    alert('Failed to get category suggestions: ' + err.message)
+  } finally {
+    isLoadingCategories.value = false
+  }
+}
+
+const suggestDescription = async (graph) => {
+  try {
+    isLoadingDescription.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-description', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get description suggestion: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.description = data.description
+  } catch (err) {
+    console.error('Error getting description suggestion:', err)
+    alert('Failed to get description suggestion: ' + err.message)
+  } finally {
+    isLoadingDescription.value = false
+  }
+}
+
 onMounted(() => {
   fetchGraphs()
 })
@@ -945,5 +1071,42 @@ onMounted(() => {
 
 .share-buttons .bi {
   font-size: 1.1em;
+}
+
+.input-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.input-group .form-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-group .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.75rem;
+}
+
+.input-group .bi {
+  font-size: 1.1em;
+}
+
+.bg-dark .input-group .btn-outline-primary {
+  color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+.bg-dark .input-group .btn-outline-primary:hover {
+  color: #fff;
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+.input-group textarea {
+  resize: vertical;
+  min-height: 100px;
 }
 </style>
