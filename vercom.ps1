@@ -25,8 +25,8 @@ $newVersion = "v$major.$minor.$patch"
 # Update the VERSION file
 Set-Content -Path $versionFile -Value $newVersion
 
-# Add the VERSION file to git
-git add $versionFile
+# Stage all changes
+git add .
 
 # Create the commit message with version
 $fullCommitMessage = "$commitMessage ($newVersion)"
