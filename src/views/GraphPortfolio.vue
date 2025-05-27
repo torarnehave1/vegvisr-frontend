@@ -36,6 +36,7 @@
           <div
             class="card h-100"
             :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+            :data-graph-id="graph.id"
           >
             <div class="card-body">
               <!-- Edit Mode -->
@@ -581,6 +582,14 @@ const saveEdit = async (originalGraph) => {
       }
       editingGraphId.value = null
       editingGraph.value = null
+
+      // Scroll to the card after a short delay to ensure DOM update
+      setTimeout(() => {
+        const cardElement = document.querySelector(`[data-graph-id="${originalGraph.id}"]`)
+        if (cardElement) {
+          cardElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 100)
     } else {
       throw new Error('Failed to update graph')
     }
