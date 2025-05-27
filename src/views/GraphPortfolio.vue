@@ -1109,4 +1109,22 @@ onMounted(() => {
   resize: vertical;
   min-height: 100px;
 }
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.bi-hourglass-split {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>

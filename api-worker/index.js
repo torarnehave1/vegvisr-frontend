@@ -1006,6 +1006,185 @@ const handleUpdateKml = async (request, env) => {
   return createResponse(JSON.stringify({ success: true, message: 'KML updated' }))
 }
 
+const handleSuggestTitle = async (request, env) => {
+  console.log('Handling title suggestion request')
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    console.error('XAI API key missing')
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
+  } catch (e) {
+    console.error('Invalid JSON body:', e)
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { nodes, edges } = body
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
+    return createErrorResponse('Invalid graph data', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const prompt = `Generate a concise, descriptive title (max 10 words) for a knowledge graph with the following nodes and edges:
+    Nodes: ${nodes.map((n) => n.label).join(', ')}
+    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+
+    Return only the title, no additional text or explanations.`
+
+    console.log('Sending prompt to Grok:', prompt)
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 50,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a title generator for knowledge graphs. Return only the title.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const title = completion.choices[0].message.content.trim()
+    console.log('Generated title:', title)
+    return createResponse(JSON.stringify({ title }))
+  } catch (error) {
+    console.error('Grok API error:', error)
+    return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
+const handleSuggestDescription = async (request, env) => {
+  console.log('Handling description suggestion request')
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    console.error('XAI API key missing')
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
+  } catch (e) {
+    console.error('Invalid JSON body:', e)
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { nodes, edges } = body
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
+    return createErrorResponse('Invalid graph data', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const prompt = `Generate a concise description (2-3 sentences) for a knowledge graph with the following nodes and edges:
+    Nodes: ${nodes.map((n) => n.label).join(', ')}
+    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+
+    Return only the description, no additional text or explanations.`
+
+    console.log('Sending prompt to Grok:', prompt)
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 150,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a description generator for knowledge graphs. Return only the description.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const description = completion.choices[0].message.content.trim()
+    console.log('Generated description:', description)
+    return createResponse(JSON.stringify({ description }))
+  } catch (error) {
+    console.error('Grok API error:', error)
+    return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
+const handleSuggestCategories = async (request, env) => {
+  console.log('Handling categories suggestion request')
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    console.error('XAI API key missing')
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
+  } catch (e) {
+    console.error('Invalid JSON body:', e)
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { nodes, edges } = body
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    console.error('Invalid graph data:', { nodes, edges })
+    return createErrorResponse('Invalid graph data', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const prompt = `Generate 3-5 relevant categories (as hashtags) for a knowledge graph with the following nodes and edges:
+    Nodes: ${nodes.map((n) => n.label).join(', ')}
+    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+
+    Return only the categories as hashtags separated by spaces, no additional text or explanations. Example format: #Category1 #Category2 #Category3`
+
+    console.log('Sending prompt to Grok:', prompt)
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 100,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a category generator for knowledge graphs. Return only hashtag categories.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const categories = completion.choices[0].message.content.trim()
+    console.log('Generated categories:', categories)
+    return createResponse(JSON.stringify({ categories }))
+  } catch (error) {
+    console.error('Grok API error:', error)
+    return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -1082,6 +1261,16 @@ export default {
 
       if (pathname === '/updatekml' && request.method === 'POST') {
         return await handleUpdateKml(request, env)
+      }
+
+      if (pathname === '/suggest-title' && request.method === 'POST') {
+        return await handleSuggestTitle(request, env)
+      }
+      if (pathname === '/suggest-description' && request.method === 'POST') {
+        return await handleSuggestDescription(request, env)
+      }
+      if (pathname === '/suggest-categories' && request.method === 'POST') {
+        return await handleSuggestCategories(request, env)
       }
 
       return createErrorResponse('Not Found', 404)
