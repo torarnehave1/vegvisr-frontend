@@ -1035,10 +1035,18 @@ const handleSuggestTitle = async (request, env) => {
   })
 
   try {
-    const prompt = `Generate a concise, descriptive title (max 10 words) for a knowledge graph with the following nodes and edges:
-    Nodes: ${nodes.map((n) => n.label).join(', ')}
-    Edges: ${edges.map((e) => `${e.source} -> ${e.target}`).join(', ')}
+    // Extract content from node.info fields, filtering out empty or null values
+    const nodeContents = nodes
+      .map((n) => n.info)
+      .filter((info) => info && typeof info === 'string' && info.trim().length > 0)
+      .join('\n')
 
+    const prompt = `Generate a concise, descriptive title (max 10 words) for a knowledge graph based on the following content:
+
+    Content:
+    ${nodeContents}
+
+    The title should reflect the main theme or subject matter of the content, not the structure of the graph.
     Return only the title, no additional text or explanations.`
 
     console.log('Sending prompt to Grok:', prompt)
@@ -1050,7 +1058,8 @@ const handleSuggestTitle = async (request, env) => {
       messages: [
         {
           role: 'system',
-          content: 'You are a title generator for knowledge graphs. Return only the title.',
+          content:
+            'You are a title generator for knowledge graphs. Focus on the content and main themes, not the graph structure. Return only the title.',
         },
         { role: 'user', content: prompt },
       ],
