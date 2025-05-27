@@ -9,6 +9,10 @@ $current_version = Get-Content VERSION
 # Remove 'v' and split into major, minor, patch
 $version = $current_version.Substring(1)
 $parts = $version.Split('.')
+# Pad the array with zeros if it has fewer than 3 components
+while ($parts.Count -lt 3) {
+    $parts += "0"
+}
 $major = [int]$parts[0]
 $minor = [int]$parts[1]
 $patch = [int]$parts[2]
