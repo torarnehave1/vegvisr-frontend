@@ -2603,8 +2603,40 @@ const addTemplateFromNode = async (node) => {
 // Example function for deleting a node
 const deleteNode = (node) => {
   if (cyInstance.value) {
+    // Get all edges connected to this node
+    const connectedEdges = cyInstance.value
+      .edges()
+      .filter(
+        (edge) =>
+          edge.data('source') === node.data('id') || edge.data('target') === node.data('id'),
+      )
+
+    // Remove the connected edges first
+    connectedEdges.forEach((edge) => {
+      // Remove from Cytoscape instance
+      cyInstance.value.remove(edge)
+      // Remove from graph store
+      graphStore.edges = graphStore.edges.filter((e) => e.data.id !== edge.data('id'))
+    })
+
+    // Then remove the node
     cyInstance.value.remove(node)
     graphStore.nodes = graphStore.nodes.filter((n) => n.data.id !== node.data('id'))
+
+    // Update the JSON editor with validated data
+    const validatedGraph = {
+      nodes: graphStore.nodes.map((n) => n.data),
+      edges: graphStore.edges
+        .map((e) => e.data)
+        .filter((edge) => {
+          // Only keep edges where both source and target nodes exist
+          const sourceExists = graphStore.nodes.some((n) => n.data.id === edge.source)
+          const targetExists = graphStore.nodes.some((n) => n.data.id === edge.target)
+          return sourceExists && targetExists
+        }),
+    }
+
+    graphJson.value = JSON.stringify(validatedGraph, null, 2)
   }
   hideContextMenu()
 }
