@@ -52,9 +52,10 @@
                     <button
                       class="btn btn-outline-primary"
                       @click="suggestTitle(graph)"
+                      :disabled="isLoadingTitle"
                       title="Get AI title suggestion"
                     >
-                      <i class="bi bi-magic"></i>
+                      <i class="bi" :class="isLoadingTitle ? 'bi-hourglass-split' : 'bi-magic'"></i>
                     </button>
                   </div>
                 </div>
@@ -72,9 +73,13 @@
                     <button
                       class="btn btn-outline-primary"
                       @click="suggestCategories(graph)"
+                      :disabled="isLoadingCategories"
                       title="Get AI category suggestions"
                     >
-                      <i class="bi bi-magic"></i>
+                      <i
+                        class="bi"
+                        :class="isLoadingCategories ? 'bi-hourglass-split' : 'bi-magic'"
+                      ></i>
                     </button>
                   </div>
                 </div>
@@ -90,9 +95,13 @@
                     <button
                       class="btn btn-outline-primary"
                       @click="suggestDescription(graph)"
+                      :disabled="isLoadingDescription"
                       title="Get AI description suggestion"
                     >
-                      <i class="bi bi-magic"></i>
+                      <i
+                        class="bi"
+                        :class="isLoadingDescription ? 'bi-hourglass-split' : 'bi-magic'"
+                      ></i>
                     </button>
                   </div>
                 </div>
@@ -309,6 +318,9 @@ const editingGraphId = ref(null)
 const editingGraph = ref(null)
 const shareContent = ref('')
 const shareModal = ref(null)
+const isLoadingTitle = ref(false)
+const isLoadingCategories = ref(false)
+const isLoadingDescription = ref(false)
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
@@ -671,21 +683,90 @@ const shareToFacebook = () => {
 }
 
 const suggestTitle = async (graph) => {
-  // TODO: Implement AI title suggestion
-  console.log('AI title suggestion requested for graph:', graph.id)
-  alert('AI title suggestion will be implemented in the AI branch')
+  try {
+    isLoadingTitle.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-title', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get title suggestion: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.title = data.title
+  } catch (err) {
+    console.error('Error getting title suggestion:', err)
+    alert('Failed to get title suggestion: ' + err.message)
+  } finally {
+    isLoadingTitle.value = false
+  }
 }
 
 const suggestCategories = async (graph) => {
-  // TODO: Implement AI category suggestions
-  console.log('AI category suggestions requested for graph:', graph.id)
-  alert('AI category suggestions will be implemented in the AI branch')
+  try {
+    isLoadingCategories.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-categories', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get category suggestions: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.category = data.categories
+  } catch (err) {
+    console.error('Error getting category suggestions:', err)
+    alert('Failed to get category suggestions: ' + err.message)
+  } finally {
+    isLoadingCategories.value = false
+  }
 }
 
 const suggestDescription = async (graph) => {
-  // TODO: Implement AI description suggestion
-  console.log('AI description suggestion requested for graph:', graph.id)
-  alert('AI description suggestions will be implemented in the AI branch')
+  try {
+    isLoadingDescription.value = true
+    const response = await fetch('https://api.vegvisr.org/suggest-description', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `Failed to get description suggestion: ${response.status}`)
+    }
+
+    const data = await response.json()
+    editingGraph.value.metadata.description = data.description
+  } catch (err) {
+    console.error('Error getting description suggestion:', err)
+    alert('Failed to get description suggestion: ' + err.message)
+  } finally {
+    isLoadingDescription.value = false
+  }
 }
 
 onMounted(() => {
