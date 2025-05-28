@@ -630,8 +630,14 @@ const confirmDelete = async (graph) => {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete graph')
+        let errorMessage
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || `Server error (${response.status})`
+        } catch {
+          errorMessage = `Server error (${response.status})`
+        }
+        throw new Error(errorMessage)
       }
 
       // Remove the graph from the local array
@@ -642,7 +648,9 @@ const confirmDelete = async (graph) => {
     } catch (err) {
       error.value = err.message
       console.error('Error deleting graph:', err)
-      alert('Failed to delete graph: ' + err.message)
+      alert(
+        `Failed to delete graph: ${err.message}\n\nPlease try again later or contact support if the problem persists.`,
+      )
     }
   }
 }
@@ -1141,6 +1149,25 @@ onMounted(() => {
   background-color: #0d6efd;
   border-color: #0d6efd;
   color: white;
+}
+
+/* Button states */
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.bi-hourglass-split {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive styles */
