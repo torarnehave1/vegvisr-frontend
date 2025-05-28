@@ -918,7 +918,10 @@ export default {
           const requestBody = await request.json()
           const { id } = requestBody
 
+          console.log('[Worker] Delete request received:', { id, requestBody })
+
           if (!id) {
+            console.log('[Worker] Error: No ID provided in request')
             return new Response(JSON.stringify({ error: 'Graph ID is required.' }), {
               status: 400,
               headers: corsHeaders,
@@ -927,29 +930,67 @@ export default {
 
           console.log(`[Worker] Deleting graph with ID: ${id}`)
 
-          // Delete from knowledge_graphs table
-          const deleteGraphQuery = `DELETE FROM knowledge_graphs WHERE id = ?`
-          await env.vegvisr_org.prepare(deleteGraphQuery).bind(id).run()
+          // First check if the graph exists
+          const checkQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
+          console.log('[Worker] Checking if graph exists with query:', checkQuery)
+          const graphExists = await env.vegvisr_org.prepare(checkQuery).bind(id).first()
+          console.log('[Worker] Graph exists check result:', graphExists)
 
-          // Delete from knowledge_graph_history table
-          const deleteHistoryQuery = `DELETE FROM knowledge_graph_history WHERE graph_id = ?`
-          await env.vegvisr_org.prepare(deleteHistoryQuery).bind(id).run()
+          if (!graphExists) {
+            console.log('[Worker] Graph not found:', id)
+            return new Response(JSON.stringify({ error: 'Graph not found.' }), {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
 
-          // Delete from graphWorkNotes table
-          const deleteWorkNotesQuery = `DELETE FROM graphWorkNotes WHERE graph_id = ?`
-          await env.vegvisr_org.prepare(deleteWorkNotesQuery).bind(id).run()
+          // Delete related records first (in correct order)
+          try {
+            // 1. Delete from graphWorkNotes table first (most dependent)
+            console.log('[Worker] Deleting from graphWorkNotes table')
+            const deleteWorkNotesQuery = `DELETE FROM graphWorkNotes WHERE graph_id = ?`
+            await env.vegvisr_org.prepare(deleteWorkNotesQuery).bind(id).run()
+            console.log('[Worker] Deleted from graphWorkNotes table')
 
-          console.log('[Worker] Graph deleted successfully')
-          return new Response(JSON.stringify({ message: 'Graph deleted successfully', id }), {
-            status: 200,
-            headers: corsHeaders,
-          })
+            // 2. Delete from knowledge_graph_history table
+            console.log('[Worker] Deleting from knowledge_graph_history table')
+            const deleteHistoryQuery = `DELETE FROM knowledge_graph_history WHERE graph_id = ?`
+            await env.vegvisr_org.prepare(deleteHistoryQuery).bind(id).run()
+            console.log('[Worker] Deleted from knowledge_graph_history table')
+
+            // 3. Finally delete from knowledge_graphs table
+            console.log('[Worker] Deleting from knowledge_graphs table')
+            const deleteGraphQuery = `DELETE FROM knowledge_graphs WHERE id = ?`
+            await env.vegvisr_org.prepare(deleteGraphQuery).bind(id).run()
+            console.log('[Worker] Deleted from knowledge_graphs table')
+
+            console.log('[Worker] Graph and all related records deleted successfully')
+            return new Response(JSON.stringify({ message: 'Graph deleted successfully', id }), {
+              status: 200,
+              headers: corsHeaders,
+            })
+          } catch (error) {
+            console.error('[Worker] Error during deletion process:', error)
+            console.error('[Worker] Error details:', {
+              message: error.message,
+              stack: error.stack,
+              name: error.name,
+            })
+            return new Response(
+              JSON.stringify({
+                error: 'Failed to delete graph and related records',
+                details: error.message,
+                type: error.name,
+                stack: error.stack,
+              }),
+              {
+                status: 500,
+                headers: corsHeaders,
+              },
+            )
+          }
         } catch (error) {
-          console.error('[Worker] Error deleting graph:', error)
-          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
-            status: 500,
-            headers: corsHeaders,
-          })
+          console.error('[Worker] Unexpected error:', error)
         }
       }
 
