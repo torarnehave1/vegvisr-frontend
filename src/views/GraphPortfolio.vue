@@ -619,6 +619,7 @@ const confirmDelete = async (graph) => {
     )
   ) {
     try {
+      console.log('[Client] Attempting to delete graph:', graph.id)
       const response = await fetch('https://knowledge.vegvisr.org/deleteknowgraph', {
         method: 'POST',
         headers: {
@@ -630,19 +631,37 @@ const confirmDelete = async (graph) => {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete graph')
+        let errorMessage
+        try {
+          const errorData = await response.json()
+          console.error('[Client] Server error response:', errorData)
+          if (response.status === 404) {
+            errorMessage = 'Graph not found. It may have been already deleted.'
+          } else {
+            errorMessage = errorData.error || `Server error (${response.status})`
+            if (errorData.details) {
+              errorMessage += `\nDetails: ${errorData.details}`
+            }
+          }
+        } catch (parseError) {
+          console.error('[Client] Error parsing server response:', parseError)
+          errorMessage = `Server error (${response.status})`
+        }
+        throw new Error(errorMessage)
       }
 
       // Remove the graph from the local array
       graphs.value = graphs.value.filter((g) => g.id !== graph.id)
+      console.log('[Client] Graph removed from local state:', graph.id)
 
       // Show success message
       alert('Graph deleted successfully')
     } catch (err) {
       error.value = err.message
-      console.error('Error deleting graph:', err)
-      alert('Failed to delete graph: ' + err.message)
+      console.error('[Client] Error deleting graph:', err)
+      alert(
+        `Failed to delete graph: ${err.message}\n\nPlease try again later or contact support if the problem persists.`,
+      )
     }
   }
 }
