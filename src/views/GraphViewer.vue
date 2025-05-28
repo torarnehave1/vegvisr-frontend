@@ -1,5 +1,9 @@
 <template>
   <div class="graph-viewer container">
+    <!-- Print/Save as PDF Buttons -->
+    <button @click="printGraph" class="btn btn-primary mb-3">Print</button>
+    <button @click="saveAsPDF" class="btn btn-secondary mb-3 ms-2">Save as PDF</button>
+    <button @click="saveAsPDFMake" class="btn btn-success mb-3 ms-2">Save as PDF (pdfmake)</button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -207,6 +211,8 @@ import PieChart from '@/components/PieChart.vue'
 import LineChart from '@/components/LineChart.vue'
 import SWOTDiagram from '@/components/SWOTDiagram.vue'
 import BubbleChart from '@/components/BubbleChart.vue'
+import { jsPDF } from 'jspdf'
+import htmlToPdfmake from 'html-to-pdfmake'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -817,6 +823,207 @@ const onPlaceChanged = (place) => {
   }
 }
 
+const printGraph = () => {
+  window.print()
+}
+
+const saveAsPDF = () => {
+  const doc = new jsPDF({
+    unit: 'pt',
+    format: 'a4',
+    orientation: 'portrait',
+  })
+  const graphElement = document.querySelector('.graph-container')
+  if (!graphElement) {
+    alert('Graph content not found!')
+    return
+  }
+  // Export only the visible text content for simplicity
+  doc.text(graphElement.innerText, 20, 40, { maxWidth: 555 })
+  doc.save('graph.pdf')
+}
+
+// Helper: preprocess [SECTION ...] blocks to HTML divs with inline style
+function preprocessSections(markdown) {
+  return markdown.replace(
+    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      return `<div style="${css}; padding: 10px; border-radius: 4px; margin: 10px 0;">${content.trim()}</div>`
+    },
+  )
+}
+
+// Helper: replace special diacritic characters with base letters
+function removeDiacritics(str) {
+  if (str == null) return ''
+  str = String(str) // Ensure it's a string
+  return str
+    .replace(/[ṛṝṙṟ]/g, 'r')
+    .replace(/[Ṛ]/g, 'R')
+    .replace(/[ḷḹ]/g, 'l')
+    .replace(/[ṅṇñń]/g, 'n')
+    .replace(/[ṭṯ]/g, 't')
+    .replace(/[ḍḏ]/g, 'd')
+    .replace(/[ṣśșş]/g, 's')
+    .replace(/[ḥḫḩ]/g, 'h')
+    .replace(/[āáàâäãåā]/g, 'a')
+    .replace(/[īíìîïĩī]/g, 'i')
+    .replace(/[ūúùûüũū]/g, 'u')
+    .replace(/[ēéèêëẽē]/g, 'e')
+    .replace(/[ōóòôöõō]/g, 'o')
+    .replace(/[ṁṃ]/g, 'm')
+    .replace(/[çčć]/g, 'c')
+    .replace(/[ḻ]/g, 'l')
+    .replace(/[ḹ]/g, 'l')
+    .replace(/[ẏ]/g, 'y')
+    .replace(/[ḳ]/g, 'k')
+    .replace(/[ḷ]/g, 'l')
+    .replace(/[ḹ]/g, 'l')
+    .replace(/[ḻ]/g, 'l')
+    .replace(/[ṡ]/g, 's')
+    .replace(/[ẓ]/g, 'z')
+    .replace(/[ḏ]/g, 'd')
+    .replace(/[ḡ]/g, 'g')
+    .replace(/[ṫ]/g, 't')
+    .replace(/[ẖ]/g, 'h')
+    .replace(/[ẗ]/g, 't')
+    .replace(/[ẃẁẅ]/g, 'w')
+    .replace(/[ẍ]/g, 'x')
+    .replace(/[ẙ]/g, 'y')
+    .replace(/[ẛ]/g, 's')
+    .replace(/[ẏ]/g, 'y')
+    .replace(/[ẕ]/g, 'z')
+    .replace(/[ẗ]/g, 't')
+    .replace(/[ẘ]/g, 'w')
+    .replace(/[ẚ]/g, 'a')
+    .replace(/[ẞ]/g, 'SS')
+    .replace(/[ß]/g, 'ss')
+}
+
+// Helper: convert all <img src> in HTML to base64 data URLs
+async function convertImagesToBase64(html) {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  const images = div.querySelectorAll('img')
+  for (const img of images) {
+    const src = img.getAttribute('src')
+    if (src && !src.startsWith('data:')) {
+      try {
+        const dataUrl = await toDataURL(src)
+        // Get height from style
+        let height = null
+        const style = img.getAttribute('style') || ''
+        const heightMatch = style.match(/height:\s*(\d+)/i)
+        if (heightMatch) {
+          height = parseInt(heightMatch[1], 10)
+        }
+        // Load image to get natural dimensions
+        let width = null
+        if (height) {
+          await new Promise((resolve, reject) => {
+            const image = new window.Image()
+            image.onload = function () {
+              width = Math.round((image.naturalWidth / image.naturalHeight) * height)
+              img.setAttribute('data-pdfmake-width', width)
+              img.setAttribute('data-pdfmake-height', height)
+              resolve()
+            }
+            image.onerror = reject
+            image.src = dataUrl
+          })
+        }
+        img.setAttribute('src', dataUrl)
+      } catch {
+        img.remove()
+      }
+    }
+  }
+  return div.innerHTML
+}
+
+function toDataURL(url) {
+  return fetch(url)
+    .then((response) => response.blob())
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }),
+    )
+}
+
+function setImageWidth(pdfmakeContent) {
+  if (Array.isArray(pdfmakeContent)) {
+    pdfmakeContent.forEach((item) => setImageWidth(item))
+  } else if (pdfmakeContent && typeof pdfmakeContent === 'object') {
+    if (pdfmakeContent.image) {
+      // For testing: always set fixed width and height
+      pdfmakeContent.width = 400
+      pdfmakeContent.height = 250
+    }
+    if (pdfmakeContent.stack) setImageWidth(pdfmakeContent.stack)
+    if (pdfmakeContent.columns) setImageWidth(pdfmakeContent.columns)
+    if (pdfmakeContent.table) setImageWidth(pdfmakeContent.table.body)
+    if (pdfmakeContent.ul) setImageWidth(pdfmakeContent.ul)
+    if (pdfmakeContent.ol) setImageWidth(pdfmakeContent.ol)
+  }
+}
+
+const saveAsPDFMake = async () => {
+  const graphTitle = removeDiacritics(graphData.value.metadata?.title || 'Graph Export')
+  const nodes = graphData.value.nodes || []
+  const content = [
+    { text: graphTitle, style: 'header', margin: [0, 0, 0, 20] },
+    ...(
+      await Promise.all(
+        nodes.map(async (node) => {
+          // Preprocess [SECTION] blocks and remove diacritics
+          const preprocessed = preprocessSections(removeDiacritics(node.info || ''))
+          // Convert Markdown to HTML
+          const html = marked.parse(preprocessed)
+          // Convert all images in HTML to base64 and set data attributes
+          const htmlWithBase64 = await convertImagesToBase64(html)
+          // Convert HTML to pdfmake definition
+          const pdfmakeContent = htmlToPdfmake(htmlWithBase64)
+          setImageWidth(pdfmakeContent) // Set width/height on images
+          return [
+            { text: removeDiacritics(node.label), style: 'subheader', margin: [0, 10, 0, 2] },
+            ...pdfmakeContent,
+          ]
+        }),
+      )
+    ).flat(),
+  ]
+  const docDefinition = {
+    content,
+    styles: {
+      header: { fontSize: 22, bold: true },
+      subheader: { fontSize: 16, bold: true },
+    },
+    defaultStyle: {
+      fontSize: 12,
+    },
+  }
+  if (window.pdfMake) {
+    window.pdfMake.createPdf(docDefinition).download('graph.pdf')
+  } else {
+    alert('pdfMake is not loaded. Please ensure the CDN script is included in index.html.')
+  }
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1129,5 +1336,35 @@ img.leftside {
   margin: 10px 0;
   border-left: 5px solid #ccc;
   border-radius: 4px;
+}
+</style>
+
+<!-- Global print styles (not scoped) -->
+<style>
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .graph-viewer,
+  .graph-viewer * {
+    visibility: visible !important;
+  }
+  .graph-viewer {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    background: #fff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .btn,
+  .alert,
+  .modal,
+  .navbar,
+  .sidebar,
+  .footer {
+    display: none !important;
+  }
 }
 </style>
