@@ -37,11 +37,18 @@
               Detailed View
             </button>
             <button
-              class="btn btn-outline-secondary"
+              class="btn btn-outline-secondary me-2"
               :class="{ active: portfolioStore.viewMode === 'simple' }"
               @click="portfolioStore.viewMode = 'simple'"
             >
               Simple View
+            </button>
+            <button
+              class="btn btn-outline-success"
+              :class="{ active: portfolioStore.viewMode === 'table' }"
+              @click="portfolioStore.viewMode = 'table'"
+            >
+              Table View
             </button>
           </div>
         </div>
@@ -52,6 +59,14 @@
         v-if="portfolioStore.viewMode === 'simple'"
         :graphs="galleryGraphs"
         @view-graph="handleGalleryViewGraph"
+        @edit-graph="editGraph"
+      />
+
+      <!-- Table View -->
+      <GraphTable
+        v-if="portfolioStore.viewMode === 'table'"
+        :graphs="filteredGraphs"
+        @view-graph="viewGraph"
         @edit-graph="editGraph"
       />
 
@@ -347,6 +362,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
+import GraphTable from './GraphTable.vue'
 
 const props = defineProps({
   theme: {
