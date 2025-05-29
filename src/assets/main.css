@@ -17,14 +17,16 @@
   gap: 20px;
 }
 
-.node {
+/* Remove .node card styles */
+/* .node {
   padding: 15px;
   border: 1px solid #ddd;
   border-radius: 8px;
   background-color: #fff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   box-sizing: border-box;
-}
+  overflow: hidden;
+} */
 
 .node-label {
   margin: 0 0 10px;
@@ -38,10 +40,24 @@
   color: #666;
 }
 
-.node-image {
+.image-wrapper {
+  width: 100%;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+
+.image-wrapper img {
+  width: 100%;
   max-width: 100%;
-  height: auto;
-  border-radius: 8px;
+  display: block;
+  object-fit: cover;
+  box-sizing: border-box;
+}
+
+.node-content-inner {
+  padding-left: 24px;
+  padding-right: 24px;
+  box-sizing: border-box;
 }
 
 .header-image-container {
@@ -238,4 +254,15 @@ img.leftside {
   height: auto;
   display: block;
 }
-</style>
+
+/* Ensure images in .node .image-wrapper are centered and 90% width of the card */
+.node .image-wrapper img,
+.node-content-inner .image-wrapper img {
+  width: 90% !important;
+  max-width: 90% !important;
+  display: block;
+  object-fit: cover;
+  border-radius: 8px;
+  box-sizing: border-box;
+  margin: 0 auto;
+}

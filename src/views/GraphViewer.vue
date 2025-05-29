@@ -15,129 +15,134 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="graph-container">
       <!-- Render only nodes with visible=true -->
-      <div
-        v-for="node in graphData.nodes.filter((n) => n.visible !== false)"
-        :key="node.id"
-        class="node"
-      >
-        <template v-if="node.type === 'markdown-image'">
-          <!-- Render markdown image nodes -->
-          <img
-            :src="parseMarkdownImage(node.label)?.url"
-            alt="Markdown Image"
-            class="node-image"
-            :style="{
-              width: parseMarkdownImage(node.label)?.styles?.width || 'auto',
-              height: parseMarkdownImage(node.label)?.styles?.height || 'auto',
-              objectFit: parseMarkdownImage(node.label)?.styles?.['object-fit'] || 'cover',
-              objectPosition:
-                parseMarkdownImage(node.label)?.styles?.['object-position'] || 'center',
-            }"
-          />
-        </template>
-        <template v-else-if="node.type === 'background'">
-          <img :src="node.label" alt="Background Image" class="node-image" />
-        </template>
-        <template v-else-if="node.type === 'REG'">
-          <iframe
-            src="https://www.vegvisr.org/register?embed=true"
-            style="width: 100%; height: 500px; border: none"
-          ></iframe>
-        </template>
-        <template v-else-if="node.type === 'youtube-video'">
-          <!-- Render YouTube video nodes -->
-          <div class="youtube-section">
-            <h3 class="youtube-title">{{ parseYoutubeVideoTitle(node.label) }}</h3>
+      <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
+        <div class="node-content-inner">
+          <template v-if="node.type === 'markdown-image'">
+            <!-- Render markdown image nodes -->
+            <div class="image-wrapper">
+              <img
+                :src="parseMarkdownImage(node.label)?.url"
+                alt="Markdown Image"
+                :style="{
+                  width: parseMarkdownImage(node.label)?.styles?.width || 'auto',
+                  height: parseMarkdownImage(node.label)?.styles?.height || 'auto',
+                  objectFit: parseMarkdownImage(node.label)?.styles?.['object-fit'] || 'cover',
+                  objectPosition:
+                    parseMarkdownImage(node.label)?.styles?.['object-position'] || 'center',
+                }"
+              />
+            </div>
+          </template>
+          <template v-else-if="node.type === 'background'">
+            <div class="image-wrapper">
+              <img :src="node.label" alt="Background Image" />
+            </div>
+          </template>
+          <template v-else-if="node.type === 'REG'">
             <iframe
-              :src="parseYoutubeVideo(node.label)"
-              frameborder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              referrerpolicy="strict-origin-when-cross-origin"
-              allowfullscreen
-              class="youtube-iframe"
+              src="https://www.vegvisr.org/register?embed=true"
+              style="width: 100%; height: 500px; border: none"
             ></iframe>
-            <div class="node-info">
-              <button @click="editYoutubeVideo(node)">Edit Video</button>
-              <button @click="editYoutubeTitle(node)">Edit Title</button>
-              <button @click="openMarkdownEditor(node)">Edit Info</button>
+          </template>
+          <template v-else-if="node.type === 'youtube-video'">
+            <!-- Render YouTube video nodes -->
+            <div class="youtube-section">
+              <h3 class="youtube-title">{{ parseYoutubeVideoTitle(node.label) }}</h3>
+              <iframe
+                :src="parseYoutubeVideo(node.label)"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen
+                class="youtube-iframe"
+              ></iframe>
+              <div class="node-info">
+                <button @click="editYoutubeVideo(node)">Edit Video</button>
+                <button @click="editYoutubeTitle(node)">Edit Title</button>
+                <button @click="openMarkdownEditor(node)">Edit Info</button>
+                <div
+                  v-html="convertToHtml(node.info || 'No additional information available.')"
+                ></div>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="node.type === 'worknote'">
+            <!-- Render worknote nodes -->
+            <div class="work-note" :style="{ backgroundColor: node.color || '#FFD580' }">
+              <h3 class="node-label">{{ node.label }}</h3>
+              <button
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                @click="openMarkdownEditor(node)"
+              >
+                Edit Info
+              </button>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
               ></div>
             </div>
-          </div>
-        </template>
-        <template v-else-if="node.type === 'worknote'">
-          <!-- Render worknote nodes -->
-          <div class="work-note" :style="{ backgroundColor: node.color || '#FFD580' }">
+          </template>
+          <template v-else-if="node.type === 'map'">
+            <!-- Render map nodes -->
             <h3 class="node-label">{{ node.label }}</h3>
-            <button
-              v-if="
-                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
-              "
-              @click="openMarkdownEditor(node)"
-            >
-              Edit Info
-            </button>
+            <MapViewer
+              v-if="node.path"
+              :path="node.path"
+              :map-id="node.mapId || 'efe3a8a8c093a07cf97c4b3c'"
+              @place-changed="onPlaceChanged"
+            />
+            <div v-else class="text-danger">No map path provided for this node.</div>
             <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
-          </div>
-        </template>
-        <template v-else-if="node.type === 'map'">
-          <!-- Render map nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <MapViewer
-            v-if="node.path"
-            :path="node.path"
-            :map-id="node.mapId || 'efe3a8a8c093a07cf97c4b3c'"
-            @place-changed="onPlaceChanged"
-          />
-          <div v-else class="text-danger">No map path provided for this node.</div>
-          <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
-        </template>
-        <template v-else-if="node.type === 'timeline'">
-          <!-- Render timeline nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <TimelineChart :data="node.info" />
-        </template>
-        <template v-else-if="node.type === 'chart'">
-          <!-- Render chart nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <BarChart :data="node.info" />
-        </template>
-        <template v-else-if="node.type === 'piechart'">
-          <!-- Render pie chart nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <PieChart :data="node.info" />
-        </template>
-        <template v-else-if="node.type === 'linechart'">
-          <!-- Render line chart nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
-        </template>
-        <template v-else-if="node.type === 'swot'">
-          <!-- Render SWOT diagram nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <SWOTDiagram :data="node.info" />
-        </template>
-        <template v-else-if="node.type === 'bubblechart'">
-          <!-- Render bubble chart nodes -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <BubbleChart :data="node.info" />
-        </template>
-        <template v-else>
-          <!-- Render other node types -->
-          <h3 class="node-label">{{ node.label }}</h3>
-          <div class="node-info">
-            <button
-              v-if="
-                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
-              "
-              @click="openMarkdownEditor(node)"
-            >
-              Edit Info
-            </button>
-            <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
-          </div>
-        </template>
+          </template>
+          <template v-else-if="node.type === 'timeline'">
+            <!-- Render timeline nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <TimelineChart :data="node.info" />
+          </template>
+          <template v-else-if="node.type === 'chart'">
+            <!-- Render chart nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <BarChart :data="node.info" />
+          </template>
+          <template v-else-if="node.type === 'piechart'">
+            <!-- Render pie chart nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <PieChart :data="node.info" />
+          </template>
+          <template v-else-if="node.type === 'linechart'">
+            <!-- Render line chart nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
+          </template>
+          <template v-else-if="node.type === 'swot'">
+            <!-- Render SWOT diagram nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <SWOTDiagram :data="node.info" />
+          </template>
+          <template v-else-if="node.type === 'bubblechart'">
+            <!-- Render bubble chart nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <BubbleChart :data="node.info" />
+          </template>
+          <template v-else>
+            <!-- Render other node types -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <div class="node-info">
+              <button
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                @click="openMarkdownEditor(node)"
+              >
+                Edit Info
+              </button>
+              <div
+                v-html="convertToHtml(node.info || 'No additional information available.')"
+              ></div>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- Markdown Editor Modal -->
@@ -1052,6 +1057,8 @@ watch(
   padding: 20px;
   background-color: #f9f9f9;
   box-sizing: border-box;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .loading,
@@ -1065,6 +1072,46 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 20px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+/* Remove or override previous image rules that set width: 100% for images inside p/header containers */
+.graph-container img {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  margin: 0 auto 20px auto;
+  border-radius: 8px;
+  object-fit: cover;
+  box-sizing: border-box;
+}
+
+/* For header images, if you use a class or alt text, make them full width inside the card, but not outside the card's padding */
+.node img.header-image,
+.node p:has(img[alt*='Header']) img {
+  width: 100%;
+  max-width: 100%;
+  display: block;
+  border-radius: 8px;
+  object-fit: cover;
+  margin: 0 0 20px 0;
+  box-sizing: border-box;
+}
+
+/* Remove any special container rules that set width: 100vw or override the card's padding */
+.graph-container p:has(img[alt*='Header']),
+.graph-container p:has(img[alt*='Rightside']),
+.graph-container p:has(img[alt*='Leftside']) {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 20px 0;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .node {
@@ -1074,6 +1121,7 @@ watch(
   background-color: #fff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .node-label {
@@ -1119,7 +1167,7 @@ watch(
 .header-image-container img.header-image {
   width: 100%;
   max-width: 100%;
-  max-height: 200px;
+  max-height: 250px;
   height: auto;
   display: block;
   border-radius: 8px;
@@ -1345,6 +1393,39 @@ img.leftside {
     width: 200px;
     min-width: 0 !important;
   }
+}
+
+.node-content-inner {
+  /* Remove left/right padding for better image centering */
+  box-sizing: border-box;
+}
+.node-content-inner img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  object-fit: cover;
+  margin-bottom: 20px;
+}
+
+.image-wrapper {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+}
+.image-wrapper img {
+  width: 90% !important;
+  max-width: 90% !important;
+  display: block;
+  object-fit: cover;
+  border-radius: 8px;
+  box-sizing: border-box;
+  margin: 0 auto;
 }
 </style>
 
