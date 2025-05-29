@@ -533,15 +533,19 @@ const applyTemplate = (template) => {
   const nodes = Array.isArray(template.nodes) ? template.nodes : []
   const edges = Array.isArray(template.edges) ? template.edges : []
 
-  // Parse and validate nodes
+  // Store existing node positions before adding new nodes
+  const existingPositions = new Map()
+  graphStore.nodes.forEach((node) => {
+    existingPositions.set(node.data.id, node.position)
+  })
+
+  // Parse and validate nodes, assign default position if missing
   const parsedNodes = nodes.map((node) => ({
     ...node,
-    position: node.position || null,
-    // Use the new ID that was generated in the sidebar
+    position: node.position || { x: 100, y: 100 },
     id: node.id,
     label: node.label || 'Unnamed Node',
     color: node.color || '#ccc',
-    // Preserve all other properties
     type: node.type,
     info: node.info,
     bibl: Array.isArray(node.bibl) ? node.bibl : [],
@@ -554,39 +558,25 @@ const applyTemplate = (template) => {
   // Parse and validate edges
   const parsedEdges = edges.map((edge) => ({
     ...edge,
-    // Use the new IDs that were generated in the sidebar
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    // Preserve other edge properties
     type: edge.type || null,
     info: edge.info || null,
   }))
 
-  console.log('Parsed template data:', {
-    parsedNodesCount: parsedNodes.length,
-    parsedEdgesCount: parsedEdges.length,
-    firstNode: parsedNodes[0],
-    firstEdge: parsedEdges[0],
-  })
+  // Add new nodes and edges to the graphStore
+  graphStore.nodes.push(...parsedNodes.map((node) => ({ data: node, position: node.position })))
+  graphStore.edges.push(...parsedEdges.map((edge) => ({ data: edge })))
 
-  // Create updated graph with validated data
+  // Update the JSON editor (without position)
   const updatedGraph = {
-    nodes: [...graphStore.nodes.map((n) => n.data), ...parsedNodes],
-    edges: [...graphStore.edges.map((e) => e.data), ...parsedEdges],
+    nodes: graphStore.nodes.map((n) => {
+      const { position, ...data } = n.data
+      return data
+    }),
+    edges: graphStore.edges.map((e) => e.data),
   }
-
-  console.log('Updated graph data:', {
-    totalNodes: updatedGraph.nodes.length,
-    totalEdges: updatedGraph.edges.length,
-    timestamp: new Date().toISOString(),
-  })
-
-  // Update the graph store
-  graphStore.nodes = updatedGraph.nodes.map((node) => ({ data: node }))
-  graphStore.edges = updatedGraph.edges.map((edge) => ({ data: edge }))
-
-  // Update the JSON editor with properly formatted JSON
   graphJson.value = JSON.stringify(updatedGraph, null, 2)
   graphStore.graphJson = graphJson.value
 
@@ -594,9 +584,36 @@ const applyTemplate = (template) => {
 
   // Update Cytoscape instance if it exists
   if (cyInstance.value) {
+    // Remove all elements
     cyInstance.value.elements().remove()
-    cyInstance.value.add([...updatedGraph.nodes, ...updatedGraph.edges])
-    cyInstance.value.layout({ name: 'preset' }).run()
+
+    // Add all elements back
+    cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+
+    // Restore positions for all nodes
+    cyInstance.value.nodes().forEach((node) => {
+      const nodeId = node.data('id')
+      // Use existing position if available, otherwise use the new node's position
+      const position =
+        existingPositions.get(nodeId) ||
+        graphStore.nodes.find((n) => n.data.id === nodeId)?.position
+      if (position) {
+        node.position(position)
+      }
+    })
+
+    // Run layout with preset positions
+    cyInstance.value
+      .layout({
+        name: 'preset',
+        fit: true,
+        padding: 50,
+        animate: true,
+        animationDuration: 500,
+        randomize: false,
+        nodeDimensionsIncludeLabels: true,
+      })
+      .run()
   }
 
   setTimeout(() => {

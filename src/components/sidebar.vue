@@ -365,11 +365,6 @@ const onApplyTemplate = (template) => {
     return {
       ...node,
       id: newId,
-      // Preserve the original ID in data for reference if needed
-      data: {
-        ...node.data,
-        originalId: node.id,
-      },
     }
   })
 
