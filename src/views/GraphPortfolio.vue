@@ -51,6 +51,17 @@
               Table View
             </button>
           </div>
+          <button
+            v-if="isViewOnly"
+            class="btn btn-success mb-3"
+            @click="goToMyPlayground"
+            :disabled="!playgroundReady"
+          >
+            Go to My Playground
+          </button>
+          <div v-if="isViewOnly && !playgroundReady" class="text-center text-muted mb-2">
+            Setting up your playground...
+          </div>
         </div>
       </div>
 
@@ -238,21 +249,21 @@
                   </button>
                   <div class="btn-group">
                     <button
-                      v-if="editingGraphId !== graph.id && !isViewOnly"
+                      v-if="editingGraphId !== graph.id && canEditGraph(graph.id)"
                       class="btn btn-outline-secondary btn-sm"
                       @click="startEdit(graph)"
                     >
                       Edit Info
                     </button>
                     <button
-                      v-if="editingGraphId !== graph.id && !isViewOnly"
+                      v-if="editingGraphId !== graph.id && canEditGraph(graph.id)"
                       class="btn btn-outline-secondary btn-sm"
                       @click="editGraph(graph)"
                     >
                       Edit Graph
                     </button>
                     <button
-                      v-if="editingGraphId !== graph.id && !isViewOnly"
+                      v-if="editingGraphId !== graph.id && canEditGraph(graph.id)"
                       class="btn btn-danger btn-sm"
                       @click="confirmDelete(graph)"
                     >
@@ -358,7 +369,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
@@ -388,7 +399,13 @@ const shareModal = ref(null)
 const isLoadingTitle = ref(false)
 const isLoadingCategories = ref(false)
 const isLoadingDescription = ref(false)
+const playgroundReady = ref(false)
+const playgroundGraphId = computed(() => (userStore.email ? `playground_${userStore.email}` : ''))
 const isViewOnly = computed(() => userStore.role === 'ViewOnly')
+const canEditGraph = (graphId) => {
+  if (!isViewOnly.value) return true
+  return graphId === playgroundGraphId.value
+}
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
@@ -908,6 +925,75 @@ const handleGalleryViewGraph = (galleryGraph) => {
     viewGraph(fullGraph)
   }
 }
+
+const goToMyPlayground = () => {
+  const playground = graphs.value.find((g) => g.id === playgroundGraphId.value)
+  if (playground) {
+    // Go to GraphAdmin (edit mode)
+    router.push({ name: 'GraphAdmin', query: { graphId: playground.id } })
+  } else {
+    alert('Your playground graph does not exist yet.')
+  }
+}
+
+async function ensurePlaygroundGraph(userEmail) {
+  if (!userEmail) return
+  const playgroundId = `playground_${userEmail}`
+  try {
+    // Check if playground graph exists
+    const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${playgroundId}`)
+    if (response.ok) {
+      playgroundReady.value = true
+      await fetchGraphs()
+      return
+    }
+    // If not found, create it
+    await fetch('https://knowledge.vegvisr.org/saveknowgraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: playgroundId,
+        metadata: {
+          title: 'My Playground',
+          description: 'This is your personal playground graph. Feel free to experiment!',
+          createdBy: userEmail,
+          version: 1,
+          updatedAt: new Date().toISOString(),
+        },
+        nodes: [
+          {
+            id: 'welcome',
+            label: 'Welcome to your Playground!',
+            color: 'green',
+            info: 'You can add, edit, and experiment here. This graph is just for you.',
+            bibl: [],
+            imageWidth: '100%',
+            imageHeight: '100%',
+            visible: true,
+            path: null,
+            position: { x: 0, y: 0 },
+          },
+        ],
+        edges: [],
+      }),
+    })
+    playgroundReady.value = true
+    await fetchGraphs()
+  } catch (err) {
+    playgroundReady.value = false
+    console.error('Error ensuring playground graph:', err)
+  }
+}
+
+watch(
+  () => userStore.email,
+  (email) => {
+    if (userStore.role === 'ViewOnly' && email) {
+      ensurePlaygroundGraph(email)
+    }
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   fetchGraphs()

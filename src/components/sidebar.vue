@@ -10,7 +10,7 @@
     <div v-if="!sidebarCollapsed">
       <!-- Tabs -->
       <ul class="nav nav-tabs" :class="{ 'nav-tabs-dark': theme === 'dark' }">
-        <li class="nav-item">
+        <li class="nav-item" v-if="!isViewOnly">
           <button
             class="nav-link"
             :class="{ active: activeTab === 'form', 'text-white': theme === 'dark' }"
@@ -58,7 +58,7 @@
       </ul>
       <div class="tab-content p-3">
         <!-- Create New Graph Form -->
-        <div v-if="activeTab === 'form'" class="form-section">
+        <div v-if="activeTab === 'form' && !isViewOnly" class="form-section">
           <h3>Create New Knowledge Graph</h3>
           <form @submit.prevent="onSaveGraph">
             <div class="mb-3">
@@ -232,8 +232,9 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, onMounted, watch } from 'vue'
+import { defineProps, defineEmits, ref, onMounted, watch, computed } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useUserStore } from '@/stores/userStore'
 import { v4 as uuidv4 } from 'uuid'
 
 // Add component name
@@ -243,6 +244,8 @@ defineOptions({
 
 const workNotes = ref([])
 const graphStore = useKnowledgeGraphStore()
+const userStore = useUserStore()
+const isViewOnly = computed(() => userStore.role === 'ViewOnly')
 
 // Local copy of fetchedTemplates for mutation
 const localTemplates = ref([])
@@ -482,6 +485,16 @@ watch(
   ([newSelectedGraphId, newGraphId]) => {
     const graphId = newSelectedGraphId || newGraphId
     fetchWorkNotes(graphId)
+  },
+)
+
+// Add watcher to redirect ViewOnly users away from 'form' tab
+watch(
+  () => [isViewOnly.value, activeTab],
+  ([viewOnly, tab]) => {
+    if (viewOnly && tab === 'form') {
+      setActiveTab('json')
+    }
   },
 )
 

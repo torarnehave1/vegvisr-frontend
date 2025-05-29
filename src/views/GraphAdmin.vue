@@ -1,12 +1,15 @@
 <template>
   <div class="admin-page" :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }">
-    <div v-if="isViewOnly" class="alert alert-warning text-center">
-      {{ accessMessage }}
+    <div v-if="isViewOnly && !isPlaygroundGraph" class="alert alert-warning text-center">
+      You can only edit and save your own playground graph.
+    </div>
+    <div v-if="isViewOnly && isPlaygroundGraph" class="alert alert-info text-center">
+      You are editing your personal playground graph. You can save your work here!
     </div>
     <!-- Top Bar -->
     <TopBar
       :selected-graph-id="selectedGraphId"
-      :knowledge-graphs="knowledgeGraphs"
+      :knowledge-graphs="filteredKnowledgeGraphs"
       :current-graph-id="graphStore.currentGraphId"
       :validation-errors="validationErrors"
       @update:selectedGraphId="updateSelectedGraphId"
@@ -2860,7 +2863,20 @@ const addWorkNoteToGraph = (note) => {
 
 const userStore = useUserStore()
 const isViewOnly = computed(() => userStore.role === 'ViewOnly')
-const accessMessage = ref('You only have view access. Editing is disabled on this page.')
+const accessMessage = ref(
+  'Your role is set to View Only, but you can play around in the Vegvisr Knowledge Graph Playground. But you will not be able to save your work.',
+)
+
+const playgroundGraphId = computed(() => (userStore.email ? `playground_${userStore.email}` : ''))
+const isPlaygroundGraph = computed(() => graphStore.currentGraphId === playgroundGraphId.value)
+const canEdit = computed(() => !isViewOnly.value || isPlaygroundGraph.value)
+
+const filteredKnowledgeGraphs = computed(() => {
+  if (isViewOnly.value) {
+    return knowledgeGraphs.value.filter((g) => g.id === playgroundGraphId.value)
+  }
+  return knowledgeGraphs.value
+})
 </script>
 
 <style scoped>

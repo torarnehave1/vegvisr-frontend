@@ -35,7 +35,7 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/blog">Blog</RouterLink>
               </li>
-              <li class="nav-item" v-if="userStore.role !== 'ViewOnly'">
+              <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-editor">Graph Editor</RouterLink>
               </li>
               <li class="nav-item">
