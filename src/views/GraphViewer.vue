@@ -4,6 +4,9 @@
     <button @click="printGraph" class="btn btn-primary mb-3">Print</button>
     <button @click="saveAsPDF" class="btn btn-secondary mb-3 ms-2">Save as PDF</button>
     <button @click="saveAsPDFMake" class="btn btn-success mb-3 ms-2">Save as PDF (pdfmake)</button>
+    <button @click="saveAsHtml2Pdf" class="btn btn-warning mb-3 ms-2">
+      Save as PDF (html2pdf)
+    </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -213,6 +216,7 @@ import SWOTDiagram from '@/components/SWOTDiagram.vue'
 import BubbleChart from '@/components/BubbleChart.vue'
 import { jsPDF } from 'jspdf'
 import htmlToPdfmake from 'html-to-pdfmake'
+import html2pdf from 'html2pdf.js'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -422,179 +426,12 @@ const insertYoutubeVideoMarkdown = () => {
   }
 }
 
-const preprocessMarkdown = (text) => {
-  const markdownRegex =
-    /(!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\))|(\[QUOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END QUOTE\])|(\[WNOTE\s*\|\s*Cited=['"](.+?)['"]\](.*?)\[END WNOTE\])|(\[SECTION\s*\|\s*background-color:\s*['"](.+?)['"];\s*color:\s*['"](.+?)['"]\](.*?)\[END SECTION\])|(\[FANCY\s*\|\s*font-size:\s*([^;]+?);\s*color:\s*([^;]+?)(?:;\s*background-image:\s*url\(['"]([^;]+?)['"]\))?(?:;\s*text-align:\s*([^;]+?))?\s*\](.*?)\[END FANCY\])|(!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\])|(\[WORKNOTE\](.*?)\[END WORKNOTE\])/gs
-
-  let result = ''
-  let currentIndex = 0
-  let match
-
-  while ((match = markdownRegex.exec(text)) !== null) {
-    const fullMatch = match[0]
-    const isImage = match[1]
-    const isQuote = match[6]
-    const isWNote = match[9]
-    const isSection = match[12]
-    const isFancy = match[16]
-    const isYoutube = match[21]
-    const isWorkNote = match[24]
-    const startIndex = match.index
-    const endIndex = startIndex + fullMatch.length
-
-    if (currentIndex < startIndex) {
-      result += marked.parse(text.slice(currentIndex, startIndex))
-    }
-
-    if (isImage) {
-      const type = match[2]
-      const paragraphCount = match[3]
-      const styles = match[4]
-      const url = match[5]
-
-      if (type === 'Header') {
-        result += `
-          <div class="header-image-container">
-            <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'}; object-position: ${styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'}; height: ${styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || 'auto'}; border-radius: 8px;" />
-          </div>
-        `.trim()
-        currentIndex = endIndex
-      } else if (type === 'Rightside' || type === 'Leftside') {
-        const width = styles.match(/width:\s*([\d%]+|[\d]+px)/)?.[1] || '20%'
-        const height = styles.match(/height:\s*([\d%]+|[\d]+px)/)?.[1] || '200px'
-        const objectFit = styles.match(/object-fit:\s*([\w-]+)/)?.[1] || 'cover'
-        const objectPosition = styles.match(/object-position:\s*([\w\s-]+)/)?.[1] || 'center'
-
-        const remainingText = text.slice(endIndex)
-        const paragraphs = remainingText.split(/\n\s*\n/).filter((p) => p.trim())
-        const numParagraphs = parseInt(paragraphCount, 10) || 1
-        const sideParagraphs = paragraphs
-          .slice(0, numParagraphs)
-          .map((p) => marked.parse(p))
-          .join('')
-
-        let paragraphEndIndex = endIndex
-        let paragraphTextLength = 0
-        for (let i = 0; i < numParagraphs && i < paragraphs.length; i++) {
-          const paragraph = paragraphs[i]
-          paragraphTextLength += paragraph.length
-          const nextNewline = remainingText.slice(paragraphTextLength).indexOf('\n\n')
-          if (nextNewline !== -1) {
-            paragraphTextLength += nextNewline + 2
-          }
-        }
-        paragraphEndIndex += paragraphTextLength
-
-        const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
-        const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
-        const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
-        const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
-
-        result += `
-          <div class="${containerClass}">
-            <div class="${imageClass}">
-              <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
-            </div>
-            <div class="${contentClass}">${sideParagraphs}</div>
-          </div>
-        `.trim()
-
-        currentIndex = paragraphEndIndex
-      }
-    } else if (isQuote) {
-      const cited = match[7]
-      const quoteContent = match[8].trim()
-
-      result += `
-        <div class="fancy-quote">
-          ${marked.parse(quoteContent)}
-          <cite>— ${cited}</cite>
-        </div>
-      `.trim()
-      currentIndex = endIndex
-    } else if (isWNote) {
-      const cited = match[10]
-      const wNoteContent = match[11].trim()
-
-      result += `
-        <div class="work-note">
-          ${marked.parse(wNoteContent)}
-          <cite>— ${cited}</cite>
-        </div>
-      `.trim()
-      currentIndex = endIndex
-    } else if (isSection) {
-      const backgroundColor = match[13]
-      const color = match[14]
-      const sectionContent = match[15].trim()
-
-      result += `
-        <div class="section" style="background-color: ${backgroundColor}; color: ${color};">
-          ${marked.parse(sectionContent)}
-        </div>
-      `.trim()
-      currentIndex = endIndex
-    } else if (isFancy) {
-      const fontSize = match[17].trim()
-      const color = match[18].trim()
-      const backgroundImage = match[19] ? match[19].trim() : null
-      const textAlign = match[20] ? match[20].trim() : 'center'
-      const titleContent = match[21].trim()
-
-      const isValidUrl = backgroundImage && /^https?:\/\/[^\s;]+$/.test(backgroundImage)
-      let style = `font-size: ${fontSize}; color: ${color}; text-align: ${textAlign};`
-      if (isValidUrl) {
-        style += ` background-image: url('${backgroundImage}');`
-      }
-
-      result += `
-        <div class="fancy-title" style="${style}">
-          ${marked.parse(titleContent)}
-        </div>
-      `.trim()
-      if (!isValidUrl && backgroundImage) {
-        console.warn('Invalid background-image URL:', backgroundImage)
-      }
-      currentIndex = endIndex
-    } else if (isYoutube) {
-      const videoUrl = match[22].trim()
-      const title = match[23].trim()
-
-      result += `
-        <div class="youtube-section">
-          <iframe
-            src="${parseYoutubeVideo(fullMatch) || videoUrl}"
-            title="${title}"
-            frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerpolicy="strict-origin-when-cross-origin"
-            allowfullscreen
-            class="youtube-iframe"
-          ></iframe>
-          <p class="youtube-title">${title}</p>
-        </div>
-      `.trim()
-      currentIndex = endIndex
-    } else if (isWorkNote) {
-      const workNoteContent = match[25].trim()
-      result += `
-        <div class="work-note">
-          ${marked.parse(workNoteContent)}
-        </div>
-      `.trim()
-      currentIndex = endIndex
-    }
-  }
-
-  if (currentIndex < text.length) {
-    result += marked.parse(text.slice(currentIndex))
-  }
-
-  return result.trim()
-}
-
 const convertToHtml = (text) => {
-  return preprocessMarkdown(text)
+  if (!text) return ''
+  // Preprocess custom blocks BEFORE marked.parse
+  let preprocessed = preprocessSections(text)
+  preprocessed = preprocessFancy(preprocessed)
+  return marked.parse(preprocessed)
 }
 
 const parseMarkdownImage = (markdown) => {
@@ -863,11 +700,89 @@ function preprocessSections(markdown) {
   )
 }
 
-// Helper: replace special diacritic characters with base letters
+// Helper: replace special characters with base Latin characters
 function removeDiacritics(str) {
   if (str == null) return ''
   str = String(str) // Ensure it's a string
+
+  // First pass: replace known special characters
+  const specialChars = {
+    ⵣ: 'z', // Tifinagh YAZ
+    ⵢ: 'y', // Tifinagh YAH
+    ⵡ: 'w', // Tifinagh WAW
+    ⵏ: 'n', // Tifinagh NUN
+    ⵎ: 'm', // Tifinagh YAM
+    ⵍ: 'l', // Tifinagh LAM
+    ⴽ: 'k', // Tifinagh KAF
+    ⵇ: 'q', // Tifinagh QAF
+    ⴼ: 'f', // Tifinagh FA
+    ⵙ: 's', // Tifinagh SIN
+    ⵔ: 'r', // Tifinagh RA
+    ⵃ: 'h', // Tifinagh HA
+    ⵊ: 'j', // Tifinagh JIM
+    ⵅ: 'kh', // Tifinagh KHA
+    ⵖ: 'gh', // Tifinagh GHAIN
+    ⵉ: 'i', // Tifinagh YA
+    ⵓ: 'u', // Tifinagh WAW
+    ⴰ: 'a', // Tifinagh YA
+    ⴻ: 'e', // Tifinagh YA
+    ⵂ: 'h', // Tifinagh HA
+    ⵄ: 'a', // Tifinagh AIN
+    ⵆ: 'kh', // Tifinagh KHA
+    ⵈ: 'q', // Tifinagh QAF
+    ⵋ: 'j', // Tifinagh JIM
+    ⵐ: 'ny', // Tifinagh NYA
+    ⵑ: 'ng', // Tifinagh NGA
+    ⵒ: 'p', // Tifinagh PA
+    ⵕ: 'r', // Tifinagh RA
+    ⵗ: 'gh', // Tifinagh GHAIN
+    ⵘ: 'dj', // Tifinagh DJIM
+    ⵚ: 's', // Tifinagh SAD
+    ⵛ: 'ch', // Tifinagh CHA
+    ⵜ: 'ch', // Tifinagh CHA
+    ⵝ: 't', // Tifinagh TA
+    ⵞ: 'th', // Tifinagh THA
+    ⵟ: 't', // Tifinagh TA
+    ⵠ: 'v', // Tifinagh VA
+    ⵤ: 'z', // Tifinagh ZA
+    ⵥ: 'z', // Tifinagh ZA
+    ⵦ: 'e', // Tifinagh YA
+    ⵧ: 'o', // Tifinagh WAW
+    '⵨': 'p', // Tifinagh PA
+    '⵩': 'p', // Tifinagh PA
+    '⵪': 'v', // Tifinagh VA
+    '⵫': 'v', // Tifinagh VA
+    '⵬': 'v', // Tifinagh VA
+    '⵭': 'v', // Tifinagh VA
+    '⵮': 'v', // Tifinagh VA
+    ⵯ: 'v', // Tifinagh VA
+    '⵰': 'v', // Tifinagh VA
+    '⵱': 'v', // Tifinagh VA
+    '⵲': 'v', // Tifinagh VA
+    '⵳': 'v', // Tifinagh VA
+    '⵴': 'v', // Tifinagh VA
+    '⵵': 'v', // Tifinagh VA
+    '⵶': 'v', // Tifinagh VA
+    '⵷': 'v', // Tifinagh VA
+    '⵸': 'v', // Tifinagh VA
+    '⵹': 'v', // Tifinagh VA
+    '⵺': 'v', // Tifinagh VA
+    '⵻': 'v', // Tifinagh VA
+    '⵼': 'v', // Tifinagh VA
+    '⵽': 'v', // Tifinagh VA
+    '⵾': 'v', // Tifinagh VA
+    '⵿': 'v', // Tifinagh VA
+  }
+
+  // Replace special characters
+  for (const [char, replacement] of Object.entries(specialChars)) {
+    str = str.replace(new RegExp(char, 'g'), replacement)
+  }
+
+  // Second pass: replace diacritics
   return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove combining diacritical marks
     .replace(/[ṛṝṙṟ]/g, 'r')
     .replace(/[Ṛ]/g, 'R')
     .replace(/[ḷḹ]/g, 'l')
@@ -982,46 +897,140 @@ function setImageWidth(pdfmakeContent) {
   }
 }
 
+// Helper: convert font-family in HTML to Roboto
+function convertFontsToRoboto(html) {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  const elements = div.querySelectorAll('*')
+  elements.forEach((element) => {
+    const style = element.getAttribute('style') || ''
+    if (style.includes('font-family')) {
+      const newStyle = style.replace(/font-family:\s*[^;]+/g, 'font-family: Roboto')
+      element.setAttribute('style', newStyle)
+    }
+  })
+  return div.innerHTML
+}
+
+// Update preprocessFancy to use Roboto font
+function preprocessFancy(markdown) {
+  return markdown.replace(
+    /\[FANCY\s*\|\s*([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          if (k === 'font-family') return 'font-family: Roboto'
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
+    },
+  )
+}
+
 const saveAsPDFMake = async () => {
-  const graphTitle = removeDiacritics(graphData.value.metadata?.title || 'Graph Export')
-  const nodes = graphData.value.nodes || []
-  const content = [
-    { text: graphTitle, style: 'header', margin: [0, 0, 0, 20] },
-    ...(
-      await Promise.all(
-        nodes.map(async (node) => {
-          // Preprocess [SECTION] blocks and remove diacritics
-          const preprocessed = preprocessSections(removeDiacritics(node.info || ''))
-          // Convert Markdown to HTML
-          const html = marked.parse(preprocessed)
-          // Convert all images in HTML to base64 and set data attributes
-          const htmlWithBase64 = await convertImagesToBase64(html)
-          // Convert HTML to pdfmake definition
-          const pdfmakeContent = htmlToPdfmake(htmlWithBase64)
-          setImageWidth(pdfmakeContent) // Set width/height on images
-          return [
-            { text: removeDiacritics(node.label), style: 'subheader', margin: [0, 10, 0, 2] },
-            ...pdfmakeContent,
-          ]
-        }),
-      )
-    ).flat(),
-  ]
-  const docDefinition = {
-    content,
-    styles: {
-      header: { fontSize: 22, bold: true },
-      subheader: { fontSize: 16, bold: true },
-    },
-    defaultStyle: {
-      fontSize: 12,
-    },
+  try {
+    const graphTitle = removeDiacritics(graphData.value.metadata?.title || 'Graph Export')
+    const nodes = graphData.value.nodes || []
+    const content = [
+      { text: graphTitle, style: 'header', margin: [0, 0, 0, 20] },
+      ...(
+        await Promise.all(
+          nodes.map(async (node) => {
+            // Always preprocess FANCY and SECTION on raw Markdown before marked.parse
+            let preprocessed = removeDiacritics(node.info || '')
+            preprocessed = preprocessSections(preprocessed)
+            preprocessed = preprocessFancy(preprocessed)
+            // Convert Markdown to HTML
+            const html = marked.parse(preprocessed)
+            // Convert all font-family to Roboto
+            const htmlWithRoboto = convertFontsToRoboto(html)
+            // Convert all images in HTML to base64 and set data attributes
+            const htmlWithBase64 = await convertImagesToBase64(htmlWithRoboto)
+            // Convert HTML to pdfmake definition
+            const pdfmakeContent = htmlToPdfmake(htmlWithBase64)
+            setImageWidth(pdfmakeContent) // Set width/height on images
+
+            // Handle work note nodes differently
+            if (node.type === 'worknote') {
+              return [
+                {
+                  text: removeDiacritics(node.label),
+                  style: 'worknote-header',
+                  margin: [0, 10, 0, 2],
+                },
+                {
+                  text: removeDiacritics(node.info || ''),
+                  style: 'worknote-content',
+                },
+              ]
+            }
+
+            return [
+              { text: removeDiacritics(node.label), style: 'subheader', margin: [0, 10, 0, 2] },
+              ...pdfmakeContent,
+            ]
+          }),
+        )
+      ).flat(),
+    ]
+
+    const docDefinition = {
+      content,
+      styles: {
+        header: { fontSize: 22, bold: true, font: 'Roboto' },
+        subheader: { fontSize: 16, bold: true, font: 'Roboto' },
+        'fancy-title': { fontSize: 20, bold: true, margin: [0, 10, 0, 10], font: 'Roboto' },
+        'worknote-header': { fontSize: 16, bold: true, font: 'Roboto' },
+        'worknote-content': { fontSize: 12, font: 'Roboto' },
+      },
+      defaultStyle: {
+        fontSize: 12,
+        font: 'Roboto',
+      },
+      fonts: {
+        Roboto: {
+          normal:
+            'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+          bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+          italics:
+            'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+          bolditalics:
+            'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf',
+        },
+      },
+    }
+
+    // Create a new instance of pdfMake
+    const pdfMakeInstance = window.pdfMake.createPdf(docDefinition)
+
+    // Download the PDF
+    pdfMakeInstance.download('graph.pdf')
+  } catch (error) {
+    console.error('Error generating PDF:', error)
+    alert('Error generating PDF. Please try again.')
   }
-  if (window.pdfMake) {
-    window.pdfMake.createPdf(docDefinition).download('graph.pdf')
-  } else {
-    alert('pdfMake is not loaded. Please ensure the CDN script is included in index.html.')
+}
+
+const saveAsHtml2Pdf = () => {
+  const element = document.querySelector('.graph-container')
+  if (!element) {
+    alert('Graph content not found!')
+    return
   }
+  const opt = {
+    margin: 0.5,
+    filename: 'graph-export.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+  }
+  html2pdf().set(opt).from(element).save()
 }
 
 onMounted(() => {
@@ -1168,6 +1177,18 @@ img.leftside {
   height: auto;
   display: block;
   border-radius: 8px;
+}
+
+.work-note {
+  background-color: #ffd580;
+  color: #333;
+  font-size: 14px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  padding: 10px;
+  margin: 10px 0;
+  border-left: 5px solid #ccc;
+  border-radius: 4px;
 }
 
 .fancy-quote {
@@ -1324,18 +1345,6 @@ img.leftside {
     width: 200px;
     min-width: 0 !important;
   }
-}
-
-.work-note {
-  background-color: #ffd580;
-  color: #333;
-  font-size: 14px;
-  font-family: 'Courier New', Courier, monospace;
-  font-weight: bold;
-  padding: 10px;
-  margin: 10px 0;
-  border-left: 5px solid #ccc;
-  border-radius: 4px;
 }
 </style>
 
