@@ -38,7 +38,11 @@
           <td>{{ formatDate(graph.metadata?.updatedAt) }}</td>
           <td>
             <button class="btn btn-primary btn-sm" @click="$emit('view-graph', graph)">View</button>
-            <button class="btn btn-secondary btn-sm ms-2" @click="$emit('edit-graph', graph)">
+            <button
+              v-if="!props.isViewOnly"
+              class="btn btn-secondary btn-sm ms-2"
+              @click="$emit('edit-graph', graph)"
+            >
               Edit
             </button>
           </td>
@@ -56,6 +60,10 @@ const props = defineProps({
   graphs: {
     type: Array,
     required: true,
+  },
+  isViewOnly: {
+    type: Boolean,
+    default: false,
   },
 })
 

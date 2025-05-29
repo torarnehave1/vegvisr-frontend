@@ -1,5 +1,8 @@
 <template>
   <div class="admin-page" :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }">
+    <div v-if="isViewOnly" class="alert alert-warning text-center">
+      {{ accessMessage }}
+    </div>
     <!-- Top Bar -->
     <TopBar
       :selected-graph-id="selectedGraphId"
@@ -227,7 +230,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
@@ -239,6 +242,7 @@ if (!cytoscape.prototype.undoRedo) {
 }
 
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useUserStore } from '@/stores/userStore'
 
 const router = useRouter()
 
@@ -2853,6 +2857,10 @@ const addWorkNoteToGraph = (note) => {
     2,
   )
 }
+
+const userStore = useUserStore()
+const isViewOnly = computed(() => userStore.role === 'ViewOnly')
+const accessMessage = ref('You only have view access. Editing is disabled on this page.')
 </script>
 
 <style scoped>

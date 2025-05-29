@@ -58,6 +58,7 @@
       <GraphGallery
         v-if="portfolioStore.viewMode === 'simple'"
         :graphs="galleryGraphs"
+        :isViewOnly="isViewOnly"
         @view-graph="handleGalleryViewGraph"
         @edit-graph="editGraph"
       />
@@ -66,6 +67,7 @@
       <GraphTable
         v-if="portfolioStore.viewMode === 'table'"
         :graphs="filteredGraphs"
+        :isViewOnly="isViewOnly"
         @view-graph="viewGraph"
         @edit-graph="editGraph"
       />
@@ -236,21 +238,21 @@
                   </button>
                   <div class="btn-group">
                     <button
-                      v-if="editingGraphId !== graph.id"
+                      v-if="editingGraphId !== graph.id && !isViewOnly"
                       class="btn btn-outline-secondary btn-sm"
                       @click="startEdit(graph)"
                     >
                       Edit Info
                     </button>
                     <button
-                      v-if="editingGraphId !== graph.id"
+                      v-if="editingGraphId !== graph.id && !isViewOnly"
                       class="btn btn-outline-secondary btn-sm"
                       @click="editGraph(graph)"
                     >
                       Edit Graph
                     </button>
                     <button
-                      v-if="editingGraphId !== graph.id"
+                      v-if="editingGraphId !== graph.id && !isViewOnly"
                       class="btn btn-danger btn-sm"
                       @click="confirmDelete(graph)"
                     >
@@ -360,6 +362,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
+import { useUserStore } from '@/stores/userStore'
 import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
@@ -374,6 +377,7 @@ const props = defineProps({
 const router = useRouter()
 const graphStore = useKnowledgeGraphStore()
 const portfolioStore = usePortfolioStore()
+const userStore = useUserStore()
 const graphs = ref([])
 const loading = ref(true)
 const error = ref(null)
@@ -384,6 +388,7 @@ const shareModal = ref(null)
 const isLoadingTitle = ref(false)
 const isLoadingCategories = ref(false)
 const isLoadingDescription = ref(false)
+const isViewOnly = computed(() => userStore.role === 'ViewOnly')
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {

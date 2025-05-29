@@ -10,7 +10,9 @@
       <h3 class="gallery-title">{{ graph.title }}</h3>
       <div class="gallery-btn-group">
         <button class="gallery-view-btn" @click="$emit('view-graph', graph)">View Graph</button>
-        <button class="gallery-edit-btn" @click="$emit('edit-graph', graph)">Edit Graph</button>
+        <button v-if="!isViewOnly" class="gallery-edit-btn" @click="$emit('edit-graph', graph)">
+          Edit Graph
+        </button>
       </div>
     </div>
   </div>
@@ -22,6 +24,10 @@ defineProps({
   graphs: {
     type: Array,
     required: true,
+  },
+  isViewOnly: {
+    type: Boolean,
+    default: false,
   },
 })
 </script>

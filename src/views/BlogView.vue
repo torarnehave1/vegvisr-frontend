@@ -4,7 +4,7 @@
     <div class="search-bar">
       <input v-model="searchQuery" placeholder="Search blog posts..." />
     </div>
-    <div v-if="isAdminOrSuperadmin" class="toggle-visibility">
+    <div v-if="isAdminOrSuperadmin && !isViewOnly" class="toggle-visibility">
       <button @click="toggleHiddenPosts">
         {{ showHiddenPosts ? 'Show Visible Blog Posts' : 'Show Hidden Blog Posts' }}
       </button>
@@ -19,7 +19,7 @@
         <img v-if="post.image" :src="post.image" alt="Post Image" />
         <h2>{{ post.title }}</h2>
         <p>{{ post.snippet }}</p>
-        <div v-if="isLoggedIn" class="button-group">
+        <div v-if="isLoggedIn && !isViewOnly" class="button-group">
           <button @click.stop="openInEditor(post.id)" class="open-button">Edit</button>
           <button
             @click.stop="toggleVisibility(post.id, showHiddenPosts)"
@@ -94,6 +94,9 @@ const isAdminOrSuperadmin = computed(() => {
 const isLoggedIn = computed(() => {
   return !!userStore.email // Assuming email indicates login status
 })
+
+// Check if the user has the role 'ViewOnly'
+const isViewOnly = computed(() => userStore.role === 'ViewOnly')
 
 // Watch for changes in the search query and refetch posts
 watch(searchQuery, () => {

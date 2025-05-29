@@ -29,13 +29,13 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
-              <li class="nav-item">
+              <li class="nav-item" v-if="userStore.role !== 'ViewOnly'">
                 <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
               </li>
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/blog">Blog</RouterLink>
               </li>
-              <li class="nav-item">
+              <li class="nav-item" v-if="userStore.role !== 'ViewOnly'">
                 <RouterLink class="nav-link" to="/graph-editor">Graph Editor</RouterLink>
               </li>
               <li class="nav-item">
