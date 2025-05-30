@@ -8,6 +8,13 @@
             <span class="material-icons"> menu </span>
           </button>
         </div>
+        <!-- GitHub Issues Button -->
+        <div class="col-auto">
+          <RouterLink to="/github-issues" class="btn btn-outline-primary">
+            <span class="material-icons">map</span>
+            <span class="ms-1">Roadmap</span>
+          </RouterLink>
+        </div>
         <!-- Logged-in User -->
         <div class="col-md-4 col-sm-12">
           <p class="mb-0">
@@ -57,6 +64,7 @@
 <script setup>
 import { defineProps, defineEmits } from 'vue'
 import { useUserStore } from '@/stores/userStore' // Import user store
+import { RouterLink } from 'vue-router' // Import RouterLink
 
 defineProps({
   selectedGraphId: String,

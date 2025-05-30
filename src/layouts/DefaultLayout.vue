@@ -41,6 +41,12 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-portfolio">Graph Portfolio</RouterLink>
               </li>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/github-issues">
+                  <span class="material-icons">map</span>
+                  Roadmap
+                </RouterLink>
+              </li>
             </ul>
 
             <div class="dropdown me-3">

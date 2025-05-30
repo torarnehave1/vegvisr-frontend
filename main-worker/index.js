@@ -569,6 +569,104 @@ export default {
         }
       }
 
+      if (path === '/github/issues' && method === 'GET') {
+        console.log('Received GET /github/issues request')
+
+        try {
+          const response = await fetch('https://www.slowyou.io/api/github/issues', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            },
+          })
+
+          if (!response.ok) {
+            console.error(`Error fetching GitHub issues: ${response.status} ${response.statusText}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Failed to fetch GitHub issues. API returned status ${response.status}.`,
+                }),
+                { status: response.status },
+              ),
+            )
+          }
+
+          const issues = await response.json()
+          return addCorsHeaders(
+            new Response(JSON.stringify(issues), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error fetching GitHub issues:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to fetch GitHub issues.' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
+      if (path === '/github/create-issue' && method === 'POST') {
+        console.log('Received POST /github/create-issue request')
+
+        try {
+          const requestBody = await request.json()
+          const { title, body, labels } = requestBody
+
+          if (!title || !body) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Title and body are required fields.' }), {
+                status: 400,
+              }),
+            )
+          }
+
+          const response = await fetch('https://www.slowyou.io/api/github/create-issue', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            },
+            body: JSON.stringify({
+              title,
+              body,
+              labels: labels || [],
+            }),
+          })
+
+          if (!response.ok) {
+            console.error(`Error creating GitHub issue: ${response.status} ${response.statusText}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Failed to create GitHub issue. API returned status ${response.status}.`,
+                }),
+                { status: response.status },
+              ),
+            )
+          }
+
+          const result = await response.json()
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error creating GitHub issue:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to create GitHub issue.' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {
