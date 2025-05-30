@@ -125,6 +125,10 @@
             <h3 class="node-label">{{ node.label }}</h3>
             <BubbleChart :data="node.info" />
           </template>
+          <template v-else-if="node.type === 'mermaid-diagram'">
+            <h3 class="node-label">{{ node.label }}</h3>
+            <Mermaid :code="node.info" />
+          </template>
           <template v-else>
             <!-- Render other node types -->
             <h3 class="node-label">{{ node.label }}</h3>
@@ -222,6 +226,16 @@ import BubbleChart from '@/components/BubbleChart.vue'
 import { jsPDF } from 'jspdf'
 import htmlToPdfmake from 'html-to-pdfmake'
 import html2pdf from 'html2pdf.js'
+import Mermaid from '@/components/Mermaid.vue'
+import mermaid from 'mermaid'
+
+// Initialize Mermaid
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'default',
+  securityLevel: 'loose',
+  logLevel: 'error',
+})
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)

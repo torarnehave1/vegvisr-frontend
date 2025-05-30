@@ -31,6 +31,7 @@
     "jose": "^6.0.10",
     "jsonwebtoken": "^9.0.2",
     "marked": "^15.0.7",
+    "mermaid": "^11.6.0",
     "node-fetch": "^3.3.2",
     "openai": "^4.87.3",
     "pdfmake": "^0.2.20",

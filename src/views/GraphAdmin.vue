@@ -2038,6 +2038,36 @@ onMounted(() => {
             height: 120,
           },
         },
+        {
+          selector: 'node[type="mermaid-diagram"]',
+          style: {
+            shape: 'rectangle',
+            'background-image': (ele) => ele.data('path'),
+            'background-fit': 'cover',
+            'background-opacity': 1,
+            'border-width': 2,
+            'border-color': '#4a90e2',
+            'border-style': 'solid',
+            width: (ele) => ele.data('imageWidth') || '300px',
+            height: (ele) => ele.data('imageHeight') || '200px',
+            label: (ele) => {
+              const label = ele.data('label') || ''
+              const info = ele.data('info') || ''
+              return `${label}\n${info ? '📊' : ''}` // Add a chart icon if there's mermaid code
+            },
+            'text-wrap': 'wrap',
+            'text-max-width': '250px',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'text-background-color': 'rgba(255, 255, 255, 0.7)',
+            'text-background-padding': '5px',
+            'text-background-opacity': 1,
+            'text-background-shape': 'roundrectangle',
+            'font-size': '14px',
+            'font-weight': 'bold',
+            color: '#333',
+          },
+        },
       ],
       layout: {
         name: 'preset',
