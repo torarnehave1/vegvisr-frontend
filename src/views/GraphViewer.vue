@@ -450,6 +450,7 @@ const convertToHtml = (text) => {
   // Preprocess custom blocks BEFORE marked.parse
   let preprocessed = preprocessSections(text)
   preprocessed = preprocessFancy(preprocessed)
+  preprocessed = preprocessPageBreaks(preprocessed)
   return marked.parse(preprocessed)
 }
 
@@ -1036,20 +1037,70 @@ const saveAsPDFMake = async () => {
   }
 }
 
+// Helper: preprocess page breaks in markdown
+function preprocessPageBreaks(markdown) {
+  // Ensure page break is always a separate block for markdown
+  return markdown.replace(/\[pb\]/g, '\n\n<div class="page-break"></div>\n\n')
+}
+
 const saveAsHtml2Pdf = () => {
   const element = document.querySelector('.graph-container')
   if (!element) {
     alert('Graph content not found!')
     return
   }
+
+  // Clone the element to avoid modifying the original
+  const clonedElement = element.cloneNode(true)
+
+  // No need to process nodes for page breaks here anymore
+
   const opt = {
     margin: 0.5,
     filename: 'graph-export.pdf',
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      logging: true,
+      onclone: (clonedDoc) => {
+        // Add page break styles to the cloned document
+        const style = clonedDoc.createElement('style')
+        style.textContent = `
+          .page-break {
+            page-break-after: always;
+            break-after: page;
+            margin: 0;
+            padding: 0;
+            height: 0;
+            display: block;
+          }
+          table, tr, td, th {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        `
+        clonedDoc.head.appendChild(style)
+      },
+    },
+    jsPDF: {
+      unit: 'in',
+      format: 'a4',
+      orientation: 'portrait',
+      compress: true,
+    },
+    pagebreak: {
+      mode: ['avoid-all', 'css', 'legacy'],
+      before: '.page-break',
+    },
   }
-  html2pdf().set(opt).from(element).save()
+
+  html2pdf()
+    .set(opt)
+    .from(clonedElement)
+    .save()
+    .then(() => console.log('PDF generation completed'))
+    .catch((err) => console.error('Error generating PDF:', err))
 }
 
 onMounted(() => {
