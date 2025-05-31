@@ -1,352 +1,407 @@
 <template>
-  <div
-    class="portfolio-page"
-    :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
-  >
-    <div class="container-fluid">
-      <!-- Header -->
-      <div class="row mb-4">
-        <div class="col-12">
-          <h1 class="text-center">Knowledge Graph Portfolio</h1>
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="search-box">
-              <input
-                type="text"
-                v-model="portfolioStore.searchQuery"
-                class="form-control"
-                placeholder="Search graphs..."
-                @input="filterGraphs"
-              />
-            </div>
-            <div class="view-options">
-              <select v-model="portfolioStore.sortBy" class="form-select" @change="sortGraphs">
-                <option value="title">Sort by Title</option>
-                <option value="date">Sort by Date</option>
-                <option value="nodes">Sort by Node Count</option>
-                <option value="category">Sort by Category</option>
-              </select>
-            </div>
-          </div>
-          <!-- View Mode Toggle -->
-          <div class="view-toggle mb-3">
-            <button
-              class="btn btn-outline-primary me-2"
-              :class="{ active: portfolioStore.viewMode === 'detailed' }"
-              @click="portfolioStore.viewMode = 'detailed'"
-            >
-              Detailed View
-            </button>
-            <button
-              class="btn btn-outline-secondary me-2"
-              :class="{ active: portfolioStore.viewMode === 'simple' }"
-              @click="portfolioStore.viewMode = 'simple'"
-            >
-              Simple View
-            </button>
-            <button
-              class="btn btn-outline-success"
-              :class="{ active: portfolioStore.viewMode === 'table' }"
-              @click="portfolioStore.viewMode = 'table'"
-            >
-              Table View
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Simple View (GraphGallery) -->
-      <GraphGallery
-        v-if="portfolioStore.viewMode === 'simple'"
-        :graphs="galleryGraphs"
-        @view-graph="handleGalleryViewGraph"
-        @edit-graph="editGraph"
-      />
-
-      <!-- Table View -->
-      <GraphTable
-        v-if="portfolioStore.viewMode === 'table'"
-        :graphs="filteredGraphs"
-        @view-graph="viewGraph"
-        @edit-graph="editGraph"
-      />
-
-      <!-- Detailed View (original card/list) -->
-      <div v-if="portfolioStore.viewMode === 'detailed'">
-        <!-- Portfolio Grid -->
-        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
-          <div v-for="graph in filteredGraphs" :key="graph.id" class="col">
-            <div
-              class="card h-100"
-              :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
-              :data-graph-id="graph.id"
-            >
-              <div class="card-body">
-                <!-- Edit Mode -->
-                <div v-if="editingGraphId === graph.id" class="edit-form">
-                  <div class="mb-3">
-                    <label class="form-label">Title</label>
-                    <div class="input-group">
-                      <input
-                        type="text"
-                        class="form-control"
-                        v-model="editingGraph.metadata.title"
-                        placeholder="Enter title"
-                      />
-                      <button
-                        class="btn btn-outline-primary"
-                        @click="suggestTitle(graph)"
-                        :disabled="isLoadingTitle"
-                        title="Get AI title suggestion"
-                      >
-                        <i
-                          class="bi"
-                          :class="isLoadingTitle ? 'bi-hourglass-split' : 'bi-magic'"
-                        ></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label"
-                      >Categories (use # to separate multiple categories)</label
-                    >
-                    <div class="input-group">
-                      <input
-                        type="text"
-                        class="form-control"
-                        v-model="editingGraph.metadata.category"
-                        placeholder="e.g., #Research #Project #Analysis"
-                      />
-                      <button
-                        class="btn btn-outline-primary"
-                        @click="suggestCategories(graph)"
-                        :disabled="isLoadingCategories"
-                        title="Get AI category suggestions"
-                      >
-                        <i
-                          class="bi"
-                          :class="isLoadingCategories ? 'bi-hourglass-split' : 'bi-magic'"
-                        ></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">Description</label>
-                    <div class="input-group">
-                      <textarea
-                        class="form-control"
-                        v-model="editingGraph.metadata.description"
-                        rows="3"
-                        placeholder="Enter description"
-                      ></textarea>
-                      <button
-                        class="btn btn-outline-primary"
-                        @click="suggestDescription(graph)"
-                        :disabled="isLoadingDescription"
-                        title="Get AI description suggestion"
-                      >
-                        <i
-                          class="bi"
-                          :class="isLoadingDescription ? 'bi-hourglass-split' : 'bi-magic'"
-                        ></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">Created By</label>
-                    <input
-                      type="text"
-                      class="form-control"
-                      v-model="editingGraph.metadata.createdBy"
-                      placeholder="Enter creator name"
-                    />
-                  </div>
-                  <div class="d-flex justify-content-end gap-2">
-                    <button class="btn btn-secondary btn-sm" @click="cancelEdit">Cancel</button>
-                    <button class="btn btn-primary btn-sm" @click="saveEdit(graph)">Save</button>
-                  </div>
+  <div class="d-flex">
+    <MetaAreaSidebar
+      :meta-areas="allMetaAreas"
+      :selected="portfolioStore.selectedMetaArea"
+      @select="portfolioStore.selectedMetaArea = $event"
+    />
+    <div class="flex-grow-1">
+      <div
+        class="portfolio-page"
+        :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+      >
+        <div class="container-fluid">
+          <!-- Header -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <h1 class="text-center">Knowledge Graph Portfolio</h1>
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="search-box">
+                  <input
+                    type="text"
+                    v-model="portfolioStore.searchQuery"
+                    class="form-control"
+                    placeholder="Search graphs..."
+                    @input="filterGraphs"
+                  />
                 </div>
+                <div class="view-options">
+                  <select v-model="portfolioStore.sortBy" class="form-select" @change="sortGraphs">
+                    <option value="title">Sort by Title</option>
+                    <option value="date">Sort by Date</option>
+                    <option value="nodes">Sort by Node Count</option>
+                    <option value="category">Sort by Category</option>
+                  </select>
+                </div>
+              </div>
+              <!-- View Mode Toggle -->
+              <div class="view-toggle mb-3">
+                <button
+                  class="btn btn-outline-primary me-2"
+                  :class="{ active: portfolioStore.viewMode === 'detailed' }"
+                  @click="portfolioStore.viewMode = 'detailed'"
+                >
+                  Detailed View
+                </button>
+                <button
+                  class="btn btn-outline-secondary me-2"
+                  :class="{ active: portfolioStore.viewMode === 'simple' }"
+                  @click="portfolioStore.viewMode = 'simple'"
+                >
+                  Simple View
+                </button>
+                <button
+                  class="btn btn-outline-success"
+                  :class="{ active: portfolioStore.viewMode === 'table' }"
+                  @click="portfolioStore.viewMode = 'table'"
+                >
+                  Table View
+                </button>
+              </div>
+            </div>
+          </div>
 
-                <!-- View Mode -->
-                <template v-else>
-                  <div class="d-flex justify-content-between align-items-start">
-                    <h5 class="card-title mb-0">{{ graph.metadata?.title || 'Untitled Graph' }}</h5>
-                    <button
-                      class="btn btn-outline-primary btn-sm share-btn"
-                      @click="openShareModal(graph)"
-                      title="Share Graph"
-                    >
-                      <i class="bi bi-share"></i> Share
-                    </button>
-                  </div>
-                  <!-- Add portfolio image display -->
-                  <div
-                    v-if="getPortfolioImage(graph.nodes)"
-                    class="portfolio-image-container mt-2 mb-2"
-                  >
-                    <img
-                      :src="getPortfolioImage(graph.nodes).path"
-                      :alt="getPortfolioImage(graph.nodes).label"
-                      class="portfolio-image"
-                      @error="console.error('Image failed to load:', $event)"
-                    />
-                  </div>
-                  <p class="card-text text-muted" v-if="graph.metadata?.description">
-                    {{ truncateText(graph.metadata.description) }}
-                  </p>
-                  <div class="graph-meta">
-                    <span class="badge bg-primary">
-                      {{ Array.isArray(graph.nodes) ? graph.nodes.length : 0 }} Nodes
-                      <small v-if="Array.isArray(graph.nodes) && graph.nodes.length > 0"
-                        >({{ getNodeTypes(graph.nodes) }})</small
+          <!-- Simple View (GraphGallery) -->
+          <GraphGallery
+            v-if="portfolioStore.viewMode === 'simple'"
+            :graphs="galleryGraphs"
+            @view-graph="handleGalleryViewGraph"
+            @edit-graph="editGraph"
+          />
+
+          <!-- Table View -->
+          <GraphTable
+            v-if="portfolioStore.viewMode === 'table'"
+            :graphs="filteredGraphs"
+            @view-graph="viewGraph"
+            @edit-graph="editGraph"
+          />
+
+          <!-- Detailed View (original card/list) -->
+          <div v-if="portfolioStore.viewMode === 'detailed'">
+            <!-- Portfolio Grid -->
+            <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
+              <div v-for="graph in filteredGraphs" :key="graph.id" class="col">
+                <div
+                  class="card h-100"
+                  :class="{
+                    'bg-dark': props.theme === 'dark',
+                    'text-white': props.theme === 'dark',
+                  }"
+                  :data-graph-id="graph.id"
+                >
+                  <div class="card-body">
+                    <!-- Edit Mode -->
+                    <div v-if="editingGraphId === graph.id" class="edit-form">
+                      <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <div class="input-group">
+                          <input
+                            type="text"
+                            class="form-control"
+                            v-model="editingGraph.metadata.title"
+                            placeholder="Enter title"
+                          />
+                          <button
+                            class="btn btn-outline-primary"
+                            @click="suggestTitle(graph)"
+                            :disabled="isLoadingTitle"
+                            title="Get AI title suggestion"
+                          >
+                            <i
+                              class="bi"
+                              :class="isLoadingTitle ? 'bi-hourglass-split' : 'bi-magic'"
+                            ></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label"
+                          >Categories (use # to separate multiple categories)</label
+                        >
+                        <div class="input-group">
+                          <input
+                            type="text"
+                            class="form-control"
+                            v-model="editingGraph.metadata.category"
+                            placeholder="e.g., #Research #Project #Analysis"
+                          />
+                          <button
+                            class="btn btn-outline-primary"
+                            @click="suggestCategories(graph)"
+                            :disabled="isLoadingCategories"
+                            title="Get AI category suggestions"
+                          >
+                            <i
+                              class="bi"
+                              :class="isLoadingCategories ? 'bi-hourglass-split' : 'bi-magic'"
+                            ></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <div class="input-group">
+                          <textarea
+                            class="form-control"
+                            v-model="editingGraph.metadata.description"
+                            rows="3"
+                            placeholder="Enter description"
+                          ></textarea>
+                          <button
+                            class="btn btn-outline-primary"
+                            @click="suggestDescription(graph)"
+                            :disabled="isLoadingDescription"
+                            title="Get AI description suggestion"
+                          >
+                            <i
+                              class="bi"
+                              :class="isLoadingDescription ? 'bi-hourglass-split' : 'bi-magic'"
+                            ></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">Created By</label>
+                        <input
+                          type="text"
+                          class="form-control"
+                          v-model="editingGraph.metadata.createdBy"
+                          placeholder="Enter creator name"
+                        />
+                      </div>
+                      <div class="mb-3 position-relative">
+                        <label class="form-label"
+                          >Meta Areas (use # to separate multiple areas)</label
+                        >
+                        <input
+                          type="text"
+                          class="form-control"
+                          v-model="editingGraph.metadata.metaArea"
+                          placeholder="e.g., #Technology #Management #WebDesign"
+                          @input="onMetaAreaInput"
+                          @keydown.tab.prevent="selectSuggestion"
+                          @keydown.enter.prevent="selectSuggestion"
+                          @keydown.down.prevent="moveSuggestion(1)"
+                          @keydown.up.prevent="moveSuggestion(-1)"
+                          @blur="handleBlur"
+                          autocomplete="off"
+                        />
+                        <ul v-if="showSuggestions" class="autocomplete-list">
+                          <li
+                            v-for="(suggestion, idx) in filteredSuggestions"
+                            :key="suggestion"
+                            :class="{ active: idx === suggestionIndex }"
+                            @mousedown.prevent="selectSuggestion(idx)"
+                          >
+                            {{ suggestion }}
+                          </li>
+                        </ul>
+                      </div>
+                      <div class="d-flex justify-content-end gap-2">
+                        <button class="btn btn-secondary btn-sm" @click="cancelEdit">Cancel</button>
+                        <button class="btn btn-primary btn-sm" @click="saveEdit(graph)">
+                          Save
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- View Mode -->
+                    <template v-else>
+                      <div class="d-flex justify-content-between align-items-start">
+                        <h5 class="card-title mb-0">
+                          {{ graph.metadata?.title || 'Untitled Graph' }}
+                        </h5>
+                        <button
+                          class="btn btn-outline-primary btn-sm share-btn"
+                          @click="openShareModal(graph)"
+                          title="Share Graph"
+                        >
+                          <i class="bi bi-share"></i> Share
+                        </button>
+                      </div>
+                      <!-- Add portfolio image display -->
+                      <div
+                        v-if="getPortfolioImage(graph.nodes)"
+                        class="portfolio-image-container mt-2 mb-2"
                       >
-                    </span>
-                    <span class="badge bg-secondary ms-2">
-                      {{ Array.isArray(graph.edges) ? graph.edges.length : 0 }} Edges
-                    </span>
-                    <span class="badge bg-info ms-2" v-if="graph.metadata?.version">
-                      v{{ graph.metadata.version }}
-                    </span>
-                    <template v-if="graph.metadata?.category">
-                      <span
-                        v-for="(cat, index) in getCategories(graph.metadata.category)"
-                        :key="index"
-                        class="badge bg-success ms-2"
-                      >
-                        {{ cat }}
-                      </span>
+                        <img
+                          :src="getPortfolioImage(graph.nodes).path"
+                          :alt="getPortfolioImage(graph.nodes).label"
+                          class="portfolio-image"
+                          @error="console.error('Image failed to load:', $event)"
+                        />
+                      </div>
+                      <p class="card-text text-muted" v-if="graph.metadata?.description">
+                        {{ truncateText(graph.metadata.description) }}
+                      </p>
+                      <div class="graph-meta">
+                        <span class="badge bg-primary">
+                          {{ Array.isArray(graph.nodes) ? graph.nodes.length : 0 }} Nodes
+                          <small v-if="Array.isArray(graph.nodes) && graph.nodes.length > 0"
+                            >({{ getNodeTypes(graph.nodes) }})</small
+                          >
+                        </span>
+                        <span class="badge bg-secondary ms-2">
+                          {{ Array.isArray(graph.edges) ? graph.edges.length : 0 }} Edges
+                        </span>
+                        <span class="badge bg-info ms-2" v-if="graph.metadata?.version">
+                          v{{ graph.metadata.version }}
+                        </span>
+                        <template v-if="graph.metadata?.category">
+                          <span
+                            v-for="(cat, index) in getCategories(graph.metadata.category)"
+                            :key="index"
+                            class="badge bg-success ms-2"
+                          >
+                            {{ cat }}
+                          </span>
+                        </template>
+                        <template v-if="graph.metadata?.metaArea">
+                          <span
+                            v-for="(area, idx) in getMetaAreas(graph.metadata.metaArea)"
+                            :key="idx"
+                            class="badge bg-warning ms-2"
+                          >
+                            {{ area }}
+                          </span>
+                        </template>
+                      </div>
+                      <div class="graph-info mt-3">
+                        <small class="text-muted">
+                          Created by: {{ graph.metadata?.createdBy || 'Unknown' }}
+                        </small>
+                        <br />
+                        <small class="text-muted">
+                          Last updated: {{ formatDate(graph.metadata?.updatedAt) }}
+                        </small>
+                        <br />
+                        <small class="text-muted"> ID: {{ graph.id }} </small>
+                      </div>
                     </template>
                   </div>
-                  <div class="graph-info mt-3">
-                    <small class="text-muted">
-                      Created by: {{ graph.metadata?.createdBy || 'Unknown' }}
-                    </small>
-                    <br />
-                    <small class="text-muted">
-                      Last updated: {{ formatDate(graph.metadata?.updatedAt) }}
-                    </small>
-                    <br />
-                    <small class="text-muted"> ID: {{ graph.id }} </small>
-                  </div>
-                </template>
-              </div>
-              <div class="card-footer">
-                <div class="d-flex justify-content-between">
-                  <button class="btn btn-primary btn-sm" @click="viewGraph(graph)">
-                    View Graph
-                  </button>
-                  <div class="btn-group">
-                    <button
-                      v-if="editingGraphId !== graph.id"
-                      class="btn btn-outline-secondary btn-sm"
-                      @click="startEdit(graph)"
-                    >
-                      Edit Info
-                    </button>
-                    <button
-                      v-if="editingGraphId !== graph.id"
-                      class="btn btn-outline-secondary btn-sm"
-                      @click="editGraph(graph)"
-                    >
-                      Edit Graph
-                    </button>
-                    <button
-                      v-if="editingGraphId !== graph.id"
-                      class="btn btn-danger btn-sm"
-                      @click="confirmDelete(graph)"
-                    >
-                      Delete
-                    </button>
+                  <div class="card-footer">
+                    <div class="d-flex justify-content-between">
+                      <button class="btn btn-primary btn-sm" @click="viewGraph(graph)">
+                        View Graph
+                      </button>
+                      <div class="btn-group">
+                        <button
+                          v-if="editingGraphId !== graph.id"
+                          class="btn btn-outline-secondary btn-sm"
+                          @click="startEdit(graph)"
+                        >
+                          Edit Info
+                        </button>
+                        <button
+                          v-if="editingGraphId !== graph.id"
+                          class="btn btn-outline-secondary btn-sm"
+                          @click="editGraph(graph)"
+                        >
+                          Edit Graph
+                        </button>
+                        <button
+                          v-if="editingGraphId !== graph.id"
+                          class="btn btn-danger btn-sm"
+                          @click="confirmDelete(graph)"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Loading State -->
-      <div v-if="loading" class="text-center mt-5">
-        <div class="spinner-border" role="status">
-          <span class="visually-hidden">Loading...</span>
-        </div>
-      </div>
+          <!-- Loading State -->
+          <div v-if="loading" class="text-center mt-5">
+            <div class="spinner-border" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+          </div>
 
-      <!-- Error State -->
-      <div v-if="error" class="alert alert-danger mt-3" role="alert">
-        {{ error }}
-      </div>
+          <!-- Error State -->
+          <div v-if="error" class="alert alert-danger mt-3" role="alert">
+            {{ error }}
+          </div>
 
-      <!-- No Results State -->
-      <div v-if="!loading && !error && filteredGraphs.length === 0" class="text-center mt-5">
-        <p class="text-muted">No knowledge graphs found.</p>
-      </div>
+          <!-- No Results State -->
+          <div v-if="!loading && !error && filteredGraphs.length === 0" class="text-center mt-5">
+            <p class="text-muted">No knowledge graphs found.</p>
+          </div>
 
-      <!-- Share Modal -->
-      <div
-        class="modal fade"
-        id="shareModal"
-        tabindex="-1"
-        aria-labelledby="shareModalLabel"
-        aria-hidden="true"
-      >
-        <div class="modal-dialog">
+          <!-- Share Modal -->
           <div
-            class="modal-content"
-            :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+            class="modal fade"
+            id="shareModal"
+            tabindex="-1"
+            aria-labelledby="shareModalLabel"
+            aria-hidden="true"
           >
-            <div class="modal-header">
-              <h5 class="modal-title" id="shareModalLabel">Share Knowledge Graph</h5>
-              <button
-                type="button"
-                class="btn-close"
-                data-bs-dismiss="modal"
-                aria-label="Close"
-              ></button>
-            </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label for="shareContent" class="form-label">Share Content</label>
-                <textarea
-                  class="form-control"
-                  id="shareContent"
-                  rows="6"
-                  v-model="shareContent"
-                  readonly
-                ></textarea>
+            <div class="modal-dialog">
+              <div
+                class="modal-content"
+                :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+              >
+                <div class="modal-header">
+                  <h5 class="modal-title" id="shareModalLabel">Share Knowledge Graph</h5>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label for="shareContent" class="form-label">Share Content</label>
+                    <textarea
+                      class="form-control"
+                      id="shareContent"
+                      rows="6"
+                      v-model="shareContent"
+                      readonly
+                    ></textarea>
+                  </div>
+                  <div class="share-buttons d-flex gap-2 justify-content-center flex-wrap">
+                    <button
+                      class="btn btn-outline-primary share-btn instagram-btn"
+                      @click="shareToInstagram"
+                      title="Share to Instagram"
+                    >
+                      <i class="bi bi-instagram"></i> Instagram
+                    </button>
+                    <button
+                      class="btn btn-outline-primary share-btn linkedin-btn"
+                      @click="shareToLinkedIn"
+                      title="Share to LinkedIn"
+                    >
+                      <i class="bi bi-linkedin"></i> LinkedIn
+                    </button>
+                    <button
+                      class="btn btn-outline-primary share-btn twitter-btn"
+                      @click="shareToTwitter"
+                      title="Share to Twitter"
+                    >
+                      <i class="bi bi-twitter-x"></i> Twitter
+                    </button>
+                    <button
+                      class="btn btn-outline-primary share-btn facebook-btn"
+                      @click="shareToFacebook"
+                      title="Share to Facebook"
+                    >
+                      <i class="bi bi-facebook"></i> Facebook
+                    </button>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Close
+                  </button>
+                </div>
               </div>
-              <div class="share-buttons d-flex gap-2 justify-content-center flex-wrap">
-                <button
-                  class="btn btn-outline-primary share-btn instagram-btn"
-                  @click="shareToInstagram"
-                  title="Share to Instagram"
-                >
-                  <i class="bi bi-instagram"></i> Instagram
-                </button>
-                <button
-                  class="btn btn-outline-primary share-btn linkedin-btn"
-                  @click="shareToLinkedIn"
-                  title="Share to LinkedIn"
-                >
-                  <i class="bi bi-linkedin"></i> LinkedIn
-                </button>
-                <button
-                  class="btn btn-outline-primary share-btn twitter-btn"
-                  @click="shareToTwitter"
-                  title="Share to Twitter"
-                >
-                  <i class="bi bi-twitter-x"></i> Twitter
-                </button>
-                <button
-                  class="btn btn-outline-primary share-btn facebook-btn"
-                  @click="shareToFacebook"
-                  title="Share to Facebook"
-                >
-                  <i class="bi bi-facebook"></i> Facebook
-                </button>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
           </div>
         </div>
@@ -363,6 +418,7 @@ import { usePortfolioStore } from '@/stores/portfolioStore'
 import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
+import MetaAreaSidebar from '@/components/MetaAreaSidebar.vue'
 
 const props = defineProps({
   theme: {
@@ -384,6 +440,12 @@ const shareModal = ref(null)
 const isLoadingTitle = ref(false)
 const isLoadingCategories = ref(false)
 const isLoadingDescription = ref(false)
+const showSuggestions = ref(false)
+const filteredSuggestions = ref([])
+const suggestionIndex = ref(0)
+
+// Add the allMetaAreas computed property
+const allMetaAreas = computed(() => portfolioStore.allMetaAreas)
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
@@ -420,6 +482,7 @@ const fetchGraphs = async () => {
                   version: graphData.metadata?.version || 1,
                   updatedAt: graphData.metadata?.updatedAt || new Date().toISOString(),
                   category: graphData.metadata?.category || '#Uncategorized',
+                  metaArea: graphData.metadata?.metaArea || '',
                 },
                 nodes: nodes.map((node) => ({
                   id: node.id,
@@ -449,6 +512,10 @@ const fetchGraphs = async () => {
         // Wait for all graph data to be fetched
         const processedGraphs = await Promise.all(graphPromises)
         graphs.value = processedGraphs.filter((graph) => graph !== null)
+
+        // Update meta areas in the store
+        portfolioStore.updateMetaAreas(graphs.value)
+
         console.log('Final processed graphs:', JSON.stringify(graphs.value, null, 2))
       } else {
         console.warn('No results found in API response')
@@ -467,7 +534,11 @@ const fetchGraphs = async () => {
 
 const filteredGraphs = computed(() => {
   let filtered = graphs.value
-
+  if (portfolioStore.selectedMetaArea) {
+    filtered = filtered.filter((g) =>
+      getMetaAreas(g.metadata?.metaArea).includes(portfolioStore.selectedMetaArea),
+    )
+  }
   // Apply search filter
   if (portfolioStore.searchQuery) {
     const query = portfolioStore.searchQuery.toLowerCase()
@@ -637,7 +708,10 @@ const saveEdit = async (originalGraph) => {
         id: originalGraph.id,
         graphData: {
           ...originalGraph,
-          metadata: editingGraph.value.metadata,
+          metadata: {
+            ...editingGraph.value.metadata,
+            metaArea: editingGraph.value.metadata.metaArea || '',
+          },
         },
       }),
     })
@@ -653,6 +727,9 @@ const saveEdit = async (originalGraph) => {
       }
       editingGraphId.value = null
       editingGraph.value = null
+
+      // Update meta areas in the store
+      portfolioStore.updateMetaAreas(graphs.value)
 
       // Scroll to the card after a short delay to ensure DOM update
       setTimeout(() => {
@@ -912,11 +989,124 @@ const handleGalleryViewGraph = (galleryGraph) => {
   }
 }
 
+// Helper to parse meta areas from string
+function getMetaAreas(metaAreaString) {
+  if (!metaAreaString) return []
+  return metaAreaString
+    .split('#')
+    .map((area) => area.trim())
+    .filter((area) => area.length > 0)
+}
+
+function onMetaAreaInput() {
+  const value = editingGraph.value.metadata.metaArea || ''
+  const match = value.match(/#([\w-]*)$/)
+  if (match) {
+    const search = match[1].toLowerCase()
+    filteredSuggestions.value = allMetaAreas.value.filter((area) =>
+      area.toLowerCase().includes(search),
+    )
+    showSuggestions.value = filteredSuggestions.value.length > 0
+    suggestionIndex.value = 0
+  } else {
+    showSuggestions.value = false
+  }
+}
+
+function selectSuggestion(idx = suggestionIndex.value) {
+  if (!showSuggestions.value || !filteredSuggestions.value.length) return
+
+  const value = editingGraph.value.metadata.metaArea || ''
+  const match = value.match(/#([\w-]*)$/)
+
+  if (match) {
+    const before = value.slice(0, match.index + 1)
+    const after = value.slice(match.index + match[0].length)
+    const selectedArea = filteredSuggestions.value[idx]
+
+    if (selectedArea) {
+      editingGraph.value.metadata.metaArea = before + selectedArea + ' ' + after
+    }
+  }
+
+  showSuggestions.value = false
+}
+
+function moveSuggestion(dir) {
+  if (!showSuggestions.value) return
+  suggestionIndex.value =
+    (suggestionIndex.value + dir + filteredSuggestions.value.length) %
+    filteredSuggestions.value.length
+}
+
+function handleBlur() {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 200)
+}
+
 onMounted(() => {
   fetchGraphs()
 })
 </script>
 
 <style scoped>
-/* ... existing styles ... */
+.portfolio-image-container {
+  width: 100%;
+  max-width: 300px;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.portfolio-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+  .portfolio-image-container {
+    max-width: 100%;
+    height: 150px;
+  }
+}
+
+@media (max-width: 576px) {
+  .portfolio-image-container {
+    height: 120px;
+  }
+}
+
+.autocomplete-list {
+  position: absolute;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.autocomplete-list li {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.autocomplete-list li.active,
+.autocomplete-list li:hover {
+  background: #007bff;
+  color: #fff;
+}
 </style>
