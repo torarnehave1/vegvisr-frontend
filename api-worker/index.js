@@ -1261,6 +1261,74 @@ const handleGrokIssueDescription = async (request, env) => {
   }
 }
 
+const handleGenerateMetaAreas = async (request, env) => {
+  // --- Authorization ---
+  const userRole = request.headers.get('x-user-role') || ''
+  if (userRole !== 'Superadmin') {
+    return createErrorResponse('Forbidden: Superadmin role required', 403)
+  }
+
+  // 1. Fetch all knowledge graphs
+  const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
+  if (!response.ok) return createErrorResponse('Failed to fetch graphs', 500)
+  const data = await response.json()
+  if (!data.results) return createErrorResponse('No graphs found', 404)
+
+  // 2. For each graph, fetch full data and generate a meta area tag
+  for (const graph of data.results) {
+    const graphResponse = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`)
+    if (!graphResponse.ok) continue
+    const graphData = await graphResponse.json()
+
+    // Compose prompt for GROK AI
+    const prompt = `Given the following knowledge graph content, generate a single, relevant, one-word Meta Area tag (noun, lowercase, no spaces, no special characters) that best summarizes the main theme. Only return the word.\n\nContent:\n${graphData.metadata?.title || ''}\n${graphData.metadata?.description || ''}\n${graphData.metadata?.category || ''}\n${graphData.nodes?.map((n) => n.label + ' ' + (n.info || '')).join(' ')}\n`
+
+    // Call GROK AI
+    const apiKey = env.XAI_API_KEY
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.x.ai/v1',
+    })
+    let metaArea = ''
+    try {
+      const completion = await client.chat.completions.create({
+        model: 'grok-3-beta',
+        temperature: 0.7,
+        max_tokens: 10,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an expert at summarizing knowledge graphs. Return only a single, relevant, lowercase, one-word tag.',
+          },
+          { role: 'user', content: prompt },
+        ],
+      })
+      metaArea = completion.choices[0].message.content.trim().split(/\s+/)[0].toLowerCase()
+    } catch (e) {
+      continue // Skip on error
+    }
+
+    // 3. Update the graph with the new meta area
+    await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: graph.id,
+        graphData: {
+          ...graphData,
+          metadata: {
+            ...graphData.metadata,
+            metaArea,
+          },
+        },
+      }),
+    })
+  }
+
+  return createResponse(JSON.stringify({ success: true }))
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -1351,6 +1419,10 @@ export default {
 
       if (pathname === '/grok-issue-description' && request.method === 'POST') {
         return await handleGrokIssueDescription(request, env)
+      }
+
+      if (pathname === '/generate-meta-areas' && request.method === 'POST') {
+        return await handleGenerateMetaAreas(request, env)
       }
 
       return createErrorResponse('Not Found', 404)
