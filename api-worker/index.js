@@ -1212,6 +1212,55 @@ const handleSuggestCategories = async (request, env) => {
   }
 }
 
+const handleGrokIssueDescription = async (request, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch (e) {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { title, labels } = body
+  if (!title || typeof title !== 'string') {
+    return createErrorResponse('Title is required', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    let labelText = ''
+    if (Array.isArray(labels) && labels.length > 0) {
+      labelText = `Labels: ${labels.join(', ')}.`
+    }
+    const prompt = `Generate a concise, clear, and helpful description for a GitHub issue, feature, or enhancement.\nTitle: ${title}\n${labelText}\nThe description should explain the context, the problem or feature, and what a good solution or outcome would look like. Return only the description, no extra text.`
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 200,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert at writing clear, concise, and actionable GitHub issue descriptions. Return only the description.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+    const description = completion.choices[0].message.content.trim()
+    return createResponse(JSON.stringify({ description }))
+  } catch (error) {
+    return createErrorResponse(`Grok API error: ${error.message}`, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     console.log('Request received:', { method: request.method, url: request.url })
@@ -1298,6 +1347,10 @@ export default {
       }
       if (pathname === '/suggest-categories' && request.method === 'POST') {
         return await handleSuggestCategories(request, env)
+      }
+
+      if (pathname === '/grok-issue-description' && request.method === 'POST') {
+        return await handleGrokIssueDescription(request, env)
       }
 
       return createErrorResponse('Not Found', 404)
