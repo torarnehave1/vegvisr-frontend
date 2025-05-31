@@ -10,7 +10,11 @@
       <h3 class="gallery-title">{{ graph.title }}</h3>
       <div class="gallery-btn-group">
         <button class="gallery-view-btn" @click="$emit('view-graph', graph)">View Graph</button>
-        <button v-if="!isViewOnly" class="gallery-edit-btn" @click="$emit('edit-graph', graph)">
+        <button
+          v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
+          class="gallery-edit-btn"
+          @click="$emit('edit-graph', graph)"
+        >
           Edit Graph
         </button>
       </div>
@@ -20,6 +24,9 @@
 
 <script setup>
 // Props: graphs (array of {id, title, image})
+import { useUserStore } from '@/stores/userStore'
+const userStore = useUserStore()
+
 defineProps({
   graphs: {
     type: Array,

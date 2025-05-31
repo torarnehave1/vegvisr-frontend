@@ -39,7 +39,7 @@
           <td>
             <button class="btn btn-primary btn-sm" @click="$emit('view-graph', graph)">View</button>
             <button
-              v-if="!props.isViewOnly"
+              v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
               class="btn btn-secondary btn-sm ms-2"
               @click="$emit('edit-graph', graph)"
             >
@@ -55,6 +55,7 @@
 <script setup>
 import { computed } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolioStore'
+import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
   graphs: {
@@ -68,6 +69,7 @@ const props = defineProps({
 })
 
 const portfolioStore = usePortfolioStore()
+const userStore = useUserStore()
 
 // Add sortDirection to the store if not present
 if (!('sortDirection' in portfolioStore)) {

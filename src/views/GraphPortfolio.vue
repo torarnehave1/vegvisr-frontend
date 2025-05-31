@@ -86,6 +86,7 @@
             <GraphGallery
               v-if="portfolioStore.viewMode === 'simple'"
               :graphs="galleryGraphs"
+              :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="handleGalleryViewGraph"
               @edit-graph="editGraph"
             />
@@ -94,6 +95,7 @@
             <GraphTable
               v-if="portfolioStore.viewMode === 'table'"
               :graphs="filteredGraphs"
+              :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="viewGraph"
               @edit-graph="editGraph"
             />
@@ -308,7 +310,10 @@
                         <button class="btn btn-primary btn-sm" @click="viewGraph(graph)">
                           View Graph
                         </button>
-                        <div class="btn-group">
+                        <div
+                          class="btn-group"
+                          v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
+                        >
                           <button
                             v-if="editingGraphId !== graph.id"
                             class="btn btn-outline-secondary btn-sm"
