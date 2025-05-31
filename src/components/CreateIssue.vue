@@ -22,14 +22,31 @@
           <!-- Body Input -->
           <div class="mb-3">
             <label for="body" class="form-label">Description</label>
-            <textarea
-              class="form-control"
-              id="body"
-              v-model="form.body"
-              rows="6"
-              required
-              placeholder="Describe your issue, feature request, or bug report in detail"
-            ></textarea>
+            <div class="d-flex align-items-center gap-2">
+              <textarea
+                class="form-control"
+                id="body"
+                v-model="form.body"
+                rows="6"
+                required
+                placeholder="Describe your issue, feature request, or bug report in detail"
+              ></textarea>
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                :disabled="grokLoading || !form.title"
+                @click="generateDescription"
+                title="Suggest description with AI"
+              >
+                <span
+                  v-if="grokLoading"
+                  class="spinner-border spinner-border-sm"
+                  role="status"
+                ></span>
+                <span v-else class="bi bi-magic"></span>
+              </button>
+            </div>
+            <div v-if="grokError" class="text-danger mt-1">{{ grokError }}</div>
           </div>
 
           <!-- Labels Selection -->
@@ -93,6 +110,9 @@ const loading = ref(false)
 const success = ref(false)
 const error = ref(null)
 
+const grokLoading = ref(false)
+const grokError = ref(null)
+
 const availableLabels = [
   'bug',
   'enhancement',
@@ -101,6 +121,29 @@ const availableLabels = [
   'question',
   'help wanted',
 ]
+
+const generateDescription = async () => {
+  if (!form.title) return
+  grokLoading.value = true
+  grokError.value = null
+  try {
+    const response = await fetch('https://api.vegvisr.org/grok-issue-description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: form.title, labels: form.labels }),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Failed to generate description')
+    }
+    const data = await response.json()
+    form.body = data.description
+  } catch (err) {
+    grokError.value = err.message
+  } finally {
+    grokLoading.value = false
+  }
+}
 
 const handleSubmit = async () => {
   try {
