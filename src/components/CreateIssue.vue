@@ -97,6 +97,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 const emit = defineEmits(['issue-created'])
 
@@ -112,6 +113,8 @@ const error = ref(null)
 
 const grokLoading = ref(false)
 const grokError = ref(null)
+
+const userStore = useUserStore()
 
 const availableLabels = [
   'bug',
@@ -137,7 +140,8 @@ const generateDescription = async () => {
       throw new Error(data.error || 'Failed to generate description')
     }
     const data = await response.json()
-    form.body = data.description
+    const userName = userStore.name || userStore.email || 'Anonymous'
+    form.body = `(Created by: ${userName})\n\n${data.description}`
   } catch (err) {
     grokError.value = err.message
   } finally {
