@@ -1,7 +1,6 @@
 <template>
   <div class="d-flex">
     <MetaAreaSidebar
-      :meta-areas="allMetaAreas"
       :selected="portfolioStore.selectedMetaArea"
       @select="portfolioStore.selectedMetaArea = $event"
     />
@@ -1048,6 +1047,7 @@ function handleBlur() {
 }
 
 onMounted(() => {
+  console.log('GraphPortfolio mounted, fetching graphs...')
   fetchGraphs()
 })
 </script>
