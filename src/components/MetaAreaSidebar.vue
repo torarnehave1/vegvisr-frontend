@@ -10,23 +10,28 @@
         All
       </li>
       <li
-        v-for="area in metaAreas"
+        v-for="area in store.sortedMetaAreas"
         :key="area"
         class="list-group-item"
         :class="{ active: selected === area }"
         @click="$emit('select', area)"
       >
         {{ area }}
+        <span class="badge bg-secondary ms-2">({{ store.metaAreaFrequencies[area] }})</span>
       </li>
     </ul>
   </div>
 </template>
 
 <script setup>
+import { usePortfolioStore } from '../stores/portfolioStore'
+
 defineProps({
-  metaAreas: Array,
   selected: String,
 })
+
+const store = usePortfolioStore()
+
 defineEmits(['select'])
 </script>
 
@@ -45,5 +50,8 @@ defineEmits(['select'])
 }
 .list-group-item {
   cursor: pointer;
+}
+.badge {
+  font-size: 0.9em;
 }
 </style>
