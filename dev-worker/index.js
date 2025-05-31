@@ -11,7 +11,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, x-user-role',
     }
 
     console.log(`[Worker] Incoming request: ${request.method} ${request.url}`)
@@ -991,6 +991,61 @@ export default {
           }
         } catch (error) {
           console.error('[Worker] Unexpected error:', error)
+        }
+      }
+
+      if (pathname === '/resetMetaAreas' && request.method === 'POST') {
+        // Only allow Superadmin
+        const userRole = request.headers.get('x-user-role') || ''
+        if (userRole !== 'Superadmin') {
+          return new Response(JSON.stringify({ error: 'Forbidden: Superadmin role required' }), {
+            status: 403,
+            headers: corsHeaders,
+          })
+        }
+        try {
+          // Fetch all graph IDs
+          const query = `SELECT id, data FROM knowledge_graphs`
+          const queryResult = await env.vegvisr_org.prepare(query).all()
+          const results = queryResult.results || queryResult.rows || []
+          let updated = 0
+          let skipped = 0
+          for (const row of results) {
+            let graphData
+            try {
+              graphData = JSON.parse(row.data)
+            } catch (e) {
+              console.log(`[Worker] Skipping graph ${row.id}: invalid JSON`)
+              skipped++
+              continue
+            }
+            if (
+              graphData.metadata &&
+              typeof graphData.metadata === 'object' &&
+              graphData.metadata.metaArea !== ''
+            ) {
+              graphData.metadata.metaArea = ''
+              // Update the graph
+              const updateQuery = `UPDATE knowledge_graphs SET data = ? WHERE id = ?`
+              await env.vegvisr_org
+                .prepare(updateQuery)
+                .bind(JSON.stringify(graphData), row.id)
+                .run()
+              updated++
+            } else {
+              skipped++
+            }
+          }
+          return new Response(JSON.stringify({ success: true, updated, skipped }), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] Error in /resetMetaAreas:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
         }
       }
 
