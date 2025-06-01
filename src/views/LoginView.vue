@@ -47,7 +47,17 @@ async function handleLogin() {
       const roleData = await roleRes.json()
 
       if (roleData && roleData.role) {
-        userStore.setUser({ email: email.value, role: roleData.role })
+        // Fetch user data to get emailVerificationToken
+        const userDataRes = await fetch(
+          `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(email.value)}`,
+        )
+        const userData = await userDataRes.json()
+
+        userStore.setUser({
+          email: email.value,
+          role: roleData.role,
+          emailVerificationToken: userData.emailVerificationToken,
+        })
         router.push('/') // Redirect to home page
       } else {
         alert('Unable to retrieve user role. Please contact support.')
@@ -55,7 +65,7 @@ async function handleLogin() {
     } else {
       router.push(`/register?email=${encodeURIComponent(email.value)}`)
     }
-  } catch (error) {
+  } catch {
     alert('An error occurred during login. Please try again later.')
   }
 }

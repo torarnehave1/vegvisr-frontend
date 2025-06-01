@@ -204,6 +204,13 @@
           <div class="modal-actions">
             <button @click="saveMarkdown">Save</button>
             <button @click="closeMarkdownEditor">Cancel</button>
+            <button
+              v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+              @click="saveToMystmkra"
+              class="btn btn-info"
+            >
+              Save to Mystmkra.io
+            </button>
           </div>
         </div>
       </div>
@@ -1101,6 +1108,37 @@ const saveAsHtml2Pdf = () => {
     .save()
     .then(() => console.log('PDF generation completed'))
     .catch((err) => console.error('Error generating PDF:', err))
+}
+
+const saveToMystmkra = async () => {
+  if (!userStore.emailVerificationToken) {
+    alert('No API token found for this user.')
+    return
+  }
+  try {
+    const response = await fetch('https://api.vegvisr.org/api/mystmkra/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        content: currentNode.value?.info || '',
+        title: currentNode.value?.label || 'Untitled',
+        tags: [],
+        documentId: null,
+        userId: userStore.user_id,
+      }),
+    })
+    if (response.ok) {
+      alert('Saved to Mystmkra.io!')
+    } else {
+      const text = await response.text()
+      alert('Failed to save to Mystmkra.io\nStatus: ' + response.status + '\n' + text)
+    }
+  } catch (err) {
+    alert('Error saving to Mystmkra.io: ' + err.message)
+  }
 }
 
 onMounted(() => {
