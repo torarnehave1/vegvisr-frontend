@@ -332,12 +332,33 @@ export default {
                   `Successfully updated emailVerificationToken for email=${parsedBody.email} in the database.`,
                 )
               } else {
-                console.error(`No user found with email=${parsedBody.email}.`)
-                return addCorsHeaders(
-                  new Response(JSON.stringify({ error: 'User not found in the database.' }), {
-                    status: 404,
-                  }),
-                )
+                console.log(`Creating new user with email=${parsedBody.email}`)
+                const userId = uuidv4() // Generate a unique user ID
+                const insertQuery = `
+                  INSERT INTO config (user_id, email, emailVerificationToken, data, role)
+                  VALUES (?, ?, ?, ?, ?);
+                `
+                const insertResult = await db
+                  .prepare(insertQuery)
+                  .bind(
+                    userId,
+                    parsedBody.email,
+                    parsedBody.emailVerificationToken,
+                    JSON.stringify({}),
+                    'ViewOnly',
+                  )
+                  .run()
+
+                if (insertResult.changes === 0) {
+                  console.error(`Failed to create new user for email=${parsedBody.email}`)
+                  return addCorsHeaders(
+                    new Response(JSON.stringify({ error: 'Failed to create user in database.' }), {
+                      status: 500,
+                    }),
+                  )
+                }
+
+                console.log(`Successfully created new user for email=${parsedBody.email}`)
               }
 
               // Set a JWT token for the user using the emailVerificationToken
