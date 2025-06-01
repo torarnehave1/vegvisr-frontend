@@ -120,6 +120,7 @@ const availableLabels = [
   'documentation',
   'question',
   'help wanted',
+  'priority',
 ]
 
 const generateDescription = async () => {
