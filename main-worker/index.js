@@ -729,6 +729,11 @@ export default {
         if (body.mystmkraUserId) {
           data.profile.mystmkraUserId = body.mystmkraUserId
         }
+        // If mystmkraUserId is already in data.profile, keep it (for robustness)
+        if (data.profile && data.profile.mystmkraUserId) {
+          // No action needed, value is already present
+        }
+        console.log('Saving mystmkraUserId:', data.profile.mystmkraUserId)
         const dataJson = JSON.stringify(data)
         const query = `
           INSERT INTO config (email, bio, data, profileimage)
@@ -742,6 +747,54 @@ export default {
         return addCorsHeaders(
           new Response(
             JSON.stringify({ success: true, message: 'User data updated successfully' }),
+            { status: 200 },
+          ),
+        )
+      }
+
+      // Add logging for mystmkraUserId in GET /userdata (if present)
+      if (path === '/userdata' && method === 'GET') {
+        const url = new URL(request.url)
+        const userEmail = url.searchParams.get('email')
+        if (!userEmail) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+        const db = env.vegvisr_org
+        const query = `SELECT user_id, data, profileimage, emailVerificationToken FROM config WHERE email = ?;`
+        const row = await db.prepare(query).bind(userEmail).first()
+        if (!row) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                email: userEmail,
+                user_id: null,
+                data: { profile: {}, settings: {} },
+                profileimage: '',
+                emailVerificationToken: null,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        let parsedData = {}
+        try {
+          parsedData = JSON.parse(row.data)
+        } catch (e) {
+          console.error('Error parsing user data JSON:', e)
+        }
+        const mystmkraUserId = parsedData.profile && parsedData.profile.mystmkraUserId
+        console.log('Retrieved mystmkraUserId:', mystmkraUserId)
+        return addCorsHeaders(
+          new Response(
+            JSON.stringify({
+              email: userEmail,
+              user_id: row.user_id,
+              data: parsedData,
+              profileimage: row.profileimage,
+              emailVerificationToken: row.emailVerificationToken,
+            }),
             { status: 200 },
           ),
         )

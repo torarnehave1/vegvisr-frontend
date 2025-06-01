@@ -191,7 +191,7 @@ export default {
       return token
     },
     maskedMystmkraUserId() {
-      const id = this.mystmkraUserId || 'xxxxxxxxxxxxxxxxxxxx'
+      const id = this.mystmkraUserId || ''
       if (id.length > 8) {
         return `${id.slice(0, 4)}...${id.slice(-4)}`
       }
@@ -234,7 +234,7 @@ export default {
     },
     async fetchUserData() {
       try {
-        const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${this.email}`)
+        const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
         }
@@ -261,6 +261,7 @@ export default {
               this.applyTheme()
             }
           }
+          // Extract mystmkraUserId from meta data structure
           if (result.data && result.data.profile && result.data.profile.mystmkraUserId) {
             this.mystmkraUserId = result.data.profile.mystmkraUserId
           }
@@ -283,7 +284,7 @@ export default {
           formData.append('file', this.selectedFile)
           formData.append('email', this.email)
 
-          const uploadResponse = await fetch('https://dashboard.vegvisr.org/upload', {
+          const uploadResponse = await fetch('https://test.vegvisr.org/upload', {
             method: 'POST',
             body: formData,
           })

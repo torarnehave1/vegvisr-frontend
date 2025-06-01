@@ -7,6 +7,7 @@ export const useUserStore = defineStore('user', {
     user_id: null,
     emailVerificationToken: null,
     loggedIn: false,
+    mystmkraUserId: null,
   }),
   actions: {
     setUser(user) {
@@ -14,6 +15,7 @@ export const useUserStore = defineStore('user', {
       this.role = user.role
       this.user_id = user.user_id
       this.emailVerificationToken = user.emailVerificationToken
+      this.mystmkraUserId = user.mystmkraUserId || null
       this.loggedIn = true
       localStorage.setItem(
         'user',
@@ -22,6 +24,7 @@ export const useUserStore = defineStore('user', {
           role: user.role,
           user_id: user.user_id,
           emailVerificationToken: user.emailVerificationToken,
+          mystmkraUserId: user.mystmkraUserId || null,
         }),
       )
     },
@@ -29,6 +32,12 @@ export const useUserStore = defineStore('user', {
       this.user_id = user_id
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
       storedUser.user_id = user_id
+      localStorage.setItem('user', JSON.stringify(storedUser))
+    },
+    setMystmkraUserId(mystmkraUserId) {
+      this.mystmkraUserId = mystmkraUserId
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+      storedUser.mystmkraUserId = mystmkraUserId
       localStorage.setItem('user', JSON.stringify(storedUser))
     },
     setEmailVerificationToken(token) {
@@ -42,6 +51,7 @@ export const useUserStore = defineStore('user', {
       this.role = null
       this.user_id = null
       this.emailVerificationToken = null
+      this.mystmkraUserId = null
       this.loggedIn = false
       localStorage.removeItem('user')
     },
@@ -52,12 +62,14 @@ export const useUserStore = defineStore('user', {
         this.role = storedUser.role
         this.user_id = storedUser.user_id
         this.emailVerificationToken = storedUser.emailVerificationToken
+        this.mystmkraUserId = storedUser.mystmkraUserId || null
         this.loggedIn = true
       } else {
         this.email = null
         this.role = null
         this.user_id = null
         this.emailVerificationToken = null
+        this.mystmkraUserId = null
         this.loggedIn = false
       }
     },
