@@ -156,8 +156,26 @@ export default {
         const result = await response.json()
         if (result) {
           console.log('Fetched user data:', result)
-          this.bio = result.bio || '' // Assign bio field
+          this.bio = result.bio || ''
           this.profileImage = result.profileimage || ''
+
+          // Load meta information if it exists
+          if (result.data) {
+            if (result.data.profile) {
+              this.bio = result.data.profile.bio || this.bio
+            }
+            if (result.data.settings) {
+              this.data.settings = {
+                darkMode: result.data.settings.darkMode || false,
+                notifications: result.data.settings.notifications || true,
+                theme: result.data.settings.theme || 'light',
+              }
+              // Apply theme if it exists
+              if (this.data.settings.theme) {
+                this.applyTheme()
+              }
+            }
+          }
         } else {
           console.warn('No user data found')
         }
@@ -195,8 +213,20 @@ export default {
 
         const payload = {
           email: this.email,
-          bio: this.bio, // Include bio in payload
-          profileimage: this.profileImage, // Include profileImage in payload
+          bio: this.bio,
+          profileimage: this.profileImage,
+          data: {
+            profile: {
+              user_id: this.userStore.user_id,
+              email: this.email,
+              bio: this.bio,
+            },
+            settings: {
+              darkMode: this.data.settings.darkMode,
+              notifications: this.data.settings.notifications,
+              theme: this.data.settings.theme,
+            },
+          },
         }
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
         const response = await fetch('https://dashboard.vegvisr.org/userdata', {
