@@ -1110,6 +1110,14 @@ const loadSelectedGraph = async () => {
     return
   }
 
+  // Add check for ViewOnly users
+  if (isViewOnly.value && graphIdToLoad !== playgroundGraphId.value) {
+    console.warn('ViewOnly user attempting to load non-playground graph')
+    validationMessage.value = 'You can only access your playground graph.'
+    validationMessageClass.value = 'alert-danger'
+    return
+  }
+
   let errorMessages = []
   try {
     const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphIdToLoad}`)
@@ -2367,6 +2375,10 @@ onMounted(() => {
     if (route.query.version) {
       // If we have a version, load that specific version
       loadGraphVersion(parseInt(route.query.version))
+    } else if (isViewOnly.value) {
+      // For ViewOnly users, automatically select and load their playground graph
+      selectedGraphId.value = playgroundGraphId.value
+      loadSelectedGraph()
     } else if (graphStore.currentGraphId) {
       // Otherwise load the selected graph
       selectedGraphId.value = graphStore.currentGraphId
