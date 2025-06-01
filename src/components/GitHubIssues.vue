@@ -23,9 +23,20 @@
       <!-- Issues List -->
       <div v-else class="row">
         <div class="col-md-4">
+          <!-- Sort Controls -->
+          <div class="mb-3">
+            <label for="sortSelect" class="form-label">Sort by:</label>
+            <select id="sortSelect" class="form-select" v-model="sortBy">
+              <option value="priority">Priority</option>
+              <option value="date">Date</option>
+              <option value="number">Issue Number</option>
+              <option value="title">Title</option>
+            </select>
+          </div>
+
           <div class="list-group">
             <button
-              v-for="issue in issues"
+              v-for="issue in sortedIssues"
               :key="issue.id"
               class="list-group-item list-group-item-action"
               :class="{ active: selectedIssue?.id === issue.id }"
@@ -97,10 +108,39 @@ const issues = ref([])
 const loading = ref(true)
 const error = ref(null)
 const selectedIssue = ref(null)
+const sortBy = ref('priority')
 
 const renderedBody = computed(() => {
   if (!selectedIssue.value?.body) return ''
   return marked(selectedIssue.value.body)
+})
+
+const hasPriority = (issue) => {
+  return issue.labels.some((label) => label.name === 'priority')
+}
+
+const sortedIssues = computed(() => {
+  const issuesArray = [...issues.value]
+
+  switch (sortBy.value) {
+    case 'priority':
+      return issuesArray.sort((a, b) => {
+        const aHasPriority = hasPriority(a)
+        const bHasPriority = hasPriority(b)
+        if (aHasPriority === bHasPriority) {
+          return new Date(b.created_at) - new Date(a.created_at) // Secondary sort by date
+        }
+        return bHasPriority - aHasPriority
+      })
+    case 'date':
+      return issuesArray.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    case 'number':
+      return issuesArray.sort((a, b) => b.number - a.number)
+    case 'title':
+      return issuesArray.sort((a, b) => a.title.localeCompare(b.title))
+    default:
+      return issuesArray
+  }
 })
 
 const fetchIssues = async () => {
