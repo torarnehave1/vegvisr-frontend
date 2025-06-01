@@ -1115,6 +1115,12 @@ const saveToMystmkra = async () => {
     alert('No API token found for this user.')
     return
   }
+  // Validate Mystmkra User ID
+  const mystmkraUserId = userStore.mystmkraUserId
+  if (!mystmkraUserId || !/^[a-f\d]{24}$/i.test(mystmkraUserId)) {
+    alert('Mystmkra User ID is missing or invalid. Please set it in your profile before saving.')
+    return
+  }
   try {
     const response = await fetch('https://api.vegvisr.org/mystmkra-save', {
       method: 'POST',
@@ -1127,7 +1133,7 @@ const saveToMystmkra = async () => {
         title: currentNode.value?.label || 'Untitled',
         tags: [],
         documentId: null,
-        userId: userStore.mystmkraUserId || userStore.user_id,
+        userId: mystmkraUserId,
       }),
     })
     if (response.ok) {
