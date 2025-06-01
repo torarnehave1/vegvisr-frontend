@@ -22,6 +22,20 @@
         <h4>{{ email }}</h4>
         <div v-html="renderedBio" class="text-start"></div>
         <!-- Render bio as HTML -->
+        <div class="mb-3">
+          <label for="bioInput" class="form-label"><strong>Your Biography:</strong></label>
+          <textarea
+            id="bioInput"
+            class="form-control"
+            v-model="bio"
+            rows="4"
+            placeholder="E.g. I am a software developer passionate about open source and hiking."
+          ></textarea>
+          <div class="form-text text-start">
+            Tip: Write a short biography about yourself, your interests, or your background. <br />
+            <span class="text-muted">Markdown is supported!</span>
+          </div>
+        </div>
       </div>
 
       <!-- Settings Section -->
@@ -68,6 +82,18 @@
           </div>
         </div>
 
+        <!-- Application Token Section -->
+        <div
+          class="mt-4"
+          style="background: #fff9db; border-radius: 8px; padding: 1rem; border: 1px solid #ffe066"
+        >
+          <p>Application Token:</p>
+          <div class="d-flex align-items-center">
+            <p class="mb-0 me-3">{{ maskedAppToken }}</p>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyAppToken">Copy</button>
+          </div>
+        </div>
+
         <!-- Save Button -->
         <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
       </div>
@@ -93,6 +119,7 @@ export default {
       profileImage: '', // Default profile image
       selectedFile: null, // Add selectedFile to handle file input
       isStoreReady: false, // Track if the Vuex store is ready
+      emailVerificationToken: '', // Add this line
     }
   },
   computed: {
@@ -111,6 +138,13 @@ export default {
     },
     userRole() {
       return this.userStore.role || null // Fetch role from Vuex store
+    },
+    maskedAppToken() {
+      const token = this.emailVerificationToken || 'xxxxxxxxxxxxxxxxxxxx'
+      if (token.length > 8) {
+        return `${token.slice(0, 4)}...${token.slice(-4)}`
+      }
+      return token
     },
   },
   setup() {
@@ -158,31 +192,22 @@ export default {
           console.log('Fetched user data:', result)
           this.bio = result.bio || ''
           this.profileImage = result.profileimage || ''
-
+          if (result.emailVerificationToken) {
+            this.emailVerificationToken = result.emailVerificationToken
+          }
           // Store the user_id in the store
           if (result.user_id) {
             this.userStore.setUserId(result.user_id)
           }
-
-          // Load meta information if it exists
-          if (result.data) {
-            if (result.data.profile) {
-              this.bio = result.data.profile.bio || this.bio
-              // Also try to get user_id from profile if not already set
-              if (!this.userStore.user_id && result.data.profile.user_id) {
-                this.userStore.setUserId(result.data.profile.user_id)
-              }
+          // Load settings from meta if it exists
+          if (result.data && result.data.settings) {
+            this.data.settings = {
+              darkMode: result.data.settings.darkMode || false,
+              notifications: result.data.settings.notifications || true,
+              theme: result.data.settings.theme || 'light',
             }
-            if (result.data.settings) {
-              this.data.settings = {
-                darkMode: result.data.settings.darkMode || false,
-                notifications: result.data.settings.notifications || true,
-                theme: result.data.settings.theme || 'light',
-              }
-              // Apply theme if it exists
-              if (this.data.settings.theme) {
-                this.applyTheme()
-              }
+            if (this.data.settings.theme) {
+              this.applyTheme()
             }
           }
         } else {
@@ -222,13 +247,12 @@ export default {
 
         const payload = {
           email: this.email,
-          bio: this.bio,
+          bio: this.bio, // Only top-level bio
           profileimage: this.profileImage,
           data: {
             profile: {
               user_id: this.userStore.user_id,
               email: this.email,
-              bio: this.bio,
             },
             settings: {
               darkMode: this.data.settings.darkMode,
@@ -250,9 +274,7 @@ export default {
         }
         const result = await response.json()
         if (result.success) {
-          // Scroll to the top of the page after saving
           window.scrollTo({ top: 0, behavior: 'smooth' })
-          // Refresh the page after saving
           location.reload()
         } else {
           alert('Error updating user data')
@@ -285,6 +307,23 @@ export default {
         },
         (err) => {
           console.error('Failed to copy User ID:', err)
+        },
+      )
+    },
+    copyAppToken() {
+      navigator.clipboard.writeText(this.emailVerificationToken).then(
+        () => {
+          const infoElement = document.createElement('div')
+          infoElement.className = 'alert alert-success position-fixed top-0 end-0 m-3'
+          infoElement.style.zIndex = '1050'
+          infoElement.textContent = 'Application Token copied to clipboard!'
+          document.body.appendChild(infoElement)
+          setTimeout(() => {
+            document.body.removeChild(infoElement)
+          }, 2000)
+        },
+        (err) => {
+          console.error('Failed to copy Application Token:', err)
         },
       )
     },

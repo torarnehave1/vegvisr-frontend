@@ -701,6 +701,48 @@ export default {
         }
       }
 
+      if (path === '/userdata' && method === 'PUT') {
+        const db = env.vegvisr_org
+        const body = await request.json()
+        console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
+        const { email, bio, data, profileimage } = body
+        if (!email || !data || !profileimage) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ error: 'Missing required fields: email, data, or profileimage' }),
+              { status: 400 },
+            ),
+          )
+        }
+        if (
+          typeof data !== 'object' ||
+          !data.profile ||
+          !data.settings ||
+          typeof data.profile !== 'object' ||
+          typeof data.settings !== 'object'
+        ) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Invalid data structure' }), { status: 400 }),
+          )
+        }
+        const dataJson = JSON.stringify(data)
+        const query = `
+          INSERT INTO config (email, bio, data, profileimage)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(email) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
+        `
+        await db
+          .prepare(query)
+          .bind(email, bio, dataJson, profileimage, bio, dataJson, profileimage)
+          .run()
+        return addCorsHeaders(
+          new Response(
+            JSON.stringify({ success: true, message: 'User data updated successfully' }),
+            { status: 200 },
+          ),
+        )
+      }
+
       // Handle other routes
       return new Response('Not Found', { status: 404 })
     } catch (error) {
