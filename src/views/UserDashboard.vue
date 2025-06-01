@@ -100,7 +100,11 @@ export default {
       return marked(this.bio || '') // Convert bio Markdown to HTML
     },
     maskedUserId() {
-      return this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
+      const userId = this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
+      if (userId.length > 8) {
+        return `${userId.slice(0, 4)}...${userId.slice(-4)}`
+      }
+      return userId
     },
     email() {
       return this.userStore.email || null // Fetch email from Vuex store
