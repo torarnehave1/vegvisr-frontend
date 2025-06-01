@@ -1118,8 +1118,6 @@ const handleGenerateMetaAreas = async (request, env) => {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
-    const path = url.pathname
-    const method = request.method
     const pathname = url.pathname
 
     // Add new route handler for Mystmkra.io proxy
@@ -1173,10 +1171,6 @@ export default {
           },
         })
       }
-    }
-
-    if (path === '/api/mystmkra/save' && method === 'POST') {
-      return handleMystmkraProxy(request)
     }
 
     console.log('Request received:', { method: request.method, url: request.url })
@@ -1276,6 +1270,9 @@ export default {
 
       if (pathname === '/generate-meta-areas' && request.method === 'POST') {
         return await handleGenerateMetaAreas(request, env)
+      }
+      if (pathname === '/mystmkra-save' && request.method === 'POST') {
+        return handleMystmkraProxy(request)
       }
 
       return createErrorResponse('Not Found', 404)

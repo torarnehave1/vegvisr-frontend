@@ -1116,7 +1116,7 @@ const saveToMystmkra = async () => {
     return
   }
   try {
-    const response = await fetch('https://api.vegvisr.org/api/mystmkra/save', {
+    const response = await fetch('https://api.vegvisr.org/mystmkra-save', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
