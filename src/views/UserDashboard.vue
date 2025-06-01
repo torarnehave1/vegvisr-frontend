@@ -262,7 +262,7 @@ export default {
           },
         }
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
-        const response = await fetch('https://dashboard.vegvisr.org/userdata', {
+        const response = await fetch('https://test.vegvisr.org/userdata', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
