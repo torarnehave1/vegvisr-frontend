@@ -100,11 +100,7 @@ export default {
       return marked(this.bio || '') // Convert bio Markdown to HTML
     },
     maskedUserId() {
-      const userId = this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
-      if (userId.length > 8) {
-        return `${userId.slice(0, 4)}...${userId.slice(-4)}`
-      }
-      return userId
+      return this.userStore.user_id || 'xxx-xxxx-xxx-xxx'
     },
     email() {
       return this.userStore.email || null // Fetch email from Vuex store
@@ -159,10 +155,19 @@ export default {
           this.bio = result.bio || ''
           this.profileImage = result.profileimage || ''
 
+          // Store the user_id in the store
+          if (result.user_id) {
+            this.userStore.setUserId(result.user_id)
+          }
+
           // Load meta information if it exists
           if (result.data) {
             if (result.data.profile) {
               this.bio = result.data.profile.bio || this.bio
+              // Also try to get user_id from profile if not already set
+              if (!this.userStore.user_id && result.data.profile.user_id) {
+                this.userStore.setUserId(result.data.profile.user_id)
+              }
             }
             if (result.data.settings) {
               this.data.settings = {
@@ -267,7 +272,7 @@ export default {
           const infoElement = document.createElement('div')
           infoElement.className = 'alert alert-success position-fixed top-0 end-0 m-3'
           infoElement.style.zIndex = '1050'
-          infoElement.textContent = 'User Secret copied to clipboard!'
+          infoElement.textContent = 'User ID copied to clipboard!'
           document.body.appendChild(infoElement)
 
           setTimeout(() => {
@@ -275,7 +280,7 @@ export default {
           }, 2000)
         },
         (err) => {
-          console.error('Failed to copy User Secret:', err)
+          console.error('Failed to copy User ID:', err)
         },
       )
     },
