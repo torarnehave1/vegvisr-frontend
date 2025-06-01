@@ -47,6 +47,16 @@
             </button>
           </div>
         </div>
+        <div class="mb-3">
+          <label for="mystmkraUserId" class="form-label"><strong>Mystmkra User ID:</strong></label>
+          <input
+            id="mystmkraUserId"
+            class="form-control"
+            v-model="mystmkraUserId"
+            placeholder="Enter your Mystmkra User ID"
+          />
+          <div class="form-text text-start">This is your Mystmkra.io user ID for integration.</div>
+        </div>
       </div>
 
       <!-- Settings Section -->
@@ -105,6 +115,20 @@
           </div>
         </div>
 
+        <!-- Mystmkra User ID Secret Section -->
+        <div
+          class="mt-4 mystmkra-secret-section"
+          style="background: #e6f7ff; border-radius: 8px; padding: 1rem; border: 1px solid #91d5ff"
+        >
+          <p>Mystmkra User ID:</p>
+          <div class="d-flex align-items-center">
+            <p class="mb-0 me-3">{{ maskedMystmkraUserId }}</p>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyMystmkraUserId">
+              Copy
+            </button>
+          </div>
+        </div>
+
         <!-- Save Button -->
         <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
       </div>
@@ -139,6 +163,7 @@ export default {
       editingBio: false,
       isSaving: false,
       saveMessage: '',
+      mystmkraUserId: '',
     }
   },
   computed: {
@@ -164,6 +189,13 @@ export default {
         return `${token.slice(0, 4)}...${token.slice(-4)}`
       }
       return token
+    },
+    maskedMystmkraUserId() {
+      const id = this.mystmkraUserId || 'xxxxxxxxxxxxxxxxxxxx'
+      if (id.length > 8) {
+        return `${id.slice(0, 4)}...${id.slice(-4)}`
+      }
+      return id
     },
   },
   setup() {
@@ -229,6 +261,9 @@ export default {
               this.applyTheme()
             }
           }
+          if (result.data && result.data.profile && result.data.profile.mystmkraUserId) {
+            this.mystmkraUserId = result.data.profile.mystmkraUserId
+          }
         } else {
           console.warn('No user data found')
         }
@@ -274,6 +309,7 @@ export default {
             profile: {
               user_id: this.userStore.user_id,
               email: this.email,
+              mystmkraUserId: this.mystmkraUserId,
             },
             settings: {
               darkMode: this.data.settings.darkMode,
@@ -358,6 +394,23 @@ export default {
         },
       )
     },
+    copyMystmkraUserId() {
+      navigator.clipboard.writeText(this.mystmkraUserId).then(
+        () => {
+          const infoElement = document.createElement('div')
+          infoElement.className = 'alert alert-success position-fixed top-0 end-0 m-3'
+          infoElement.style.zIndex = '1050'
+          infoElement.textContent = 'Mystmkra User ID copied to clipboard!'
+          document.body.appendChild(infoElement)
+          setTimeout(() => {
+            document.body.removeChild(infoElement)
+          }, 2000)
+        },
+        (err) => {
+          console.error('Failed to copy Mystmkra User ID:', err)
+        },
+      )
+    },
     async saveBio() {
       this.isSaving = true
       this.saveMessage = 'Saving your biography...'
@@ -403,5 +456,11 @@ export default {
     opacity: 1;
     transform: translateY(0);
   }
+}
+.mystmkra-secret-section {
+  background: #e6f7ff;
+  border: 1px solid #91d5ff;
+  border-radius: 8px;
+  padding: 1rem;
 }
 </style>

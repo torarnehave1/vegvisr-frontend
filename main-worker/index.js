@@ -11,7 +11,7 @@ function addCorsHeaders(response) {
 
 // Cloudflare Worker fetch handler
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url)
     const path = url.pathname
     const method = request.method // Added declaration for request method
@@ -724,6 +724,10 @@ export default {
           return addCorsHeaders(
             new Response(JSON.stringify({ error: 'Invalid data structure' }), { status: 400 }),
           )
+        }
+        // Ensure mystmkraUserId is present in data.profile
+        if (body.mystmkraUserId) {
+          data.profile.mystmkraUserId = body.mystmkraUserId
         }
         const dataJson = JSON.stringify(data)
         const query = `
