@@ -20,20 +20,31 @@
         <p><strong>Role:</strong> {{ userRole || 'N/A' }}</p>
 
         <h4>{{ email }}</h4>
-        <div v-html="renderedBio" class="text-start"></div>
-        <!-- Render bio as HTML -->
         <div class="mb-3">
           <label for="bioInput" class="form-label"><strong>Your Biography:</strong></label>
-          <textarea
-            id="bioInput"
-            class="form-control"
-            v-model="bio"
-            rows="4"
-            placeholder="E.g. I am a software developer passionate about open source and hiking."
-          ></textarea>
-          <div class="form-text text-start">
-            Tip: Write a short biography about yourself, your interests, or your background. <br />
-            <span class="text-muted">Markdown is supported!</span>
+          <div v-if="!editingBio && bio">
+            <div v-html="renderedBio" class="text-start"></div>
+            <button class="btn btn-outline-secondary btn-sm mt-2" @click="editingBio = true">
+              Edit Bio
+            </button>
+          </div>
+          <div v-else>
+            <textarea
+              id="bioInput"
+              class="form-control"
+              v-model="bio"
+              rows="4"
+              placeholder="E.g. I am a software developer passionate about open source and hiking."
+            ></textarea>
+            <div class="form-text text-start">
+              Tip: Write a short biography about yourself, your interests, or your background.
+              <br />
+              <span class="text-muted">Markdown is supported!</span>
+            </div>
+            <button class="btn btn-primary btn-sm mt-2" @click="saveBio">Save</button>
+            <button v-if="bio" class="btn btn-link btn-sm mt-2" @click="cancelEditBio">
+              Cancel
+            </button>
           </div>
         </div>
       </div>
@@ -98,6 +109,11 @@
         <button class="btn btn-primary mt-3" @click="saveAllData">Save Changes</button>
       </div>
     </div>
+
+    <div v-if="isSaving" class="saving-message-animated">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      {{ saveMessage }}
+    </div>
   </div>
 </template>
 
@@ -108,7 +124,7 @@ import { marked } from 'marked' // Import marked.js
 export default {
   data() {
     return {
-      bio: '', // Add bio field
+      bio: '',
       data: {
         settings: {
           darkMode: false,
@@ -116,10 +132,13 @@ export default {
           theme: 'light',
         },
       },
-      profileImage: '', // Default profile image
-      selectedFile: null, // Add selectedFile to handle file input
-      isStoreReady: false, // Track if the Vuex store is ready
-      emailVerificationToken: '', // Add this line
+      profileImage: '',
+      selectedFile: null,
+      isStoreReady: false,
+      emailVerificationToken: '',
+      editingBio: false,
+      isSaving: false,
+      saveMessage: '',
     }
   },
   computed: {
@@ -222,6 +241,8 @@ export default {
     },
     async saveAllData() {
       try {
+        this.isSaving = true
+        this.saveMessage = 'Saving your settings...'
         if (this.selectedFile) {
           const formData = new FormData()
           formData.append('file', this.selectedFile)
@@ -274,14 +295,24 @@ export default {
         }
         const result = await response.json()
         if (result.success) {
-          window.scrollTo({ top: 0, behavior: 'smooth' })
-          location.reload()
+          this.saveMessage = 'Settings saved!'
+          setTimeout(() => {
+            this.isSaving = false
+            this.saveMessage = ''
+          }, 1500)
         } else {
-          alert('Error updating user data')
+          this.saveMessage = 'Error updating user data'
+          setTimeout(() => {
+            this.isSaving = false
+            this.saveMessage = ''
+          }, 2000)
         }
       } catch (error) {
-        console.error('Error saving user data:', error)
-        alert(`Error saving user data: ${error.message}`)
+        this.saveMessage = `Error saving user data: ${error.message}`
+        setTimeout(() => {
+          this.isSaving = false
+          this.saveMessage = ''
+        }, 2000)
       }
     },
     applyTheme() {
@@ -327,10 +358,50 @@ export default {
         },
       )
     },
+    async saveBio() {
+      this.isSaving = true
+      this.saveMessage = 'Saving your biography...'
+      await this.saveAllData()
+      this.editingBio = false
+      this.saveMessage = 'Biography saved!'
+      setTimeout(() => {
+        this.isSaving = false
+        this.saveMessage = ''
+      }, 1500)
+    },
+    cancelEditBio() {
+      this.editingBio = false
+    },
   },
 }
 </script>
 
 <style scoped>
-/* Optional custom styling */
+.saving-message-animated {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2000;
+  background: #fffbe6;
+  color: #856404;
+  border: 1px solid #ffe066;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  animation: fadeIn 0.3s;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 </style>
