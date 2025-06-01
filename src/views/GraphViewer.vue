@@ -1112,15 +1112,25 @@ const saveAsHtml2Pdf = () => {
 
 const saveToMystmkra = async () => {
   if (!userStore.emailVerificationToken) {
-    alert('No API token found for this user.')
+    saveMessage.value = 'No API token found for this user.'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 2000)
     return
   }
   // Validate Mystmkra User ID
   const mystmkraUserId = userStore.mystmkraUserId
   if (!mystmkraUserId || !/^[a-f\d]{24}$/i.test(mystmkraUserId)) {
-    alert('Mystmkra User ID is missing or invalid. Please set it in your profile before saving.')
+    saveMessage.value =
+      'Mystmkra User ID is missing or invalid. Please set it in your profile before saving.'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 2000)
     return
   }
+  // Close the modal
+  closeMarkdownEditor()
+  saveMessage.value = 'Saving to Mystmkra.io...'
   try {
     const response = await fetch('https://api.vegvisr.org/mystmkra-save', {
       method: 'POST',
@@ -1137,13 +1147,22 @@ const saveToMystmkra = async () => {
       }),
     })
     if (response.ok) {
-      alert('Saved to Mystmkra.io!')
+      saveMessage.value = 'Saved to Mystmkra.io!'
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 2000)
     } else {
       const text = await response.text()
-      alert('Failed to save to Mystmkra.io\nStatus: ' + response.status + '\n' + text)
+      saveMessage.value = 'Failed to save to Mystmkra.io. ' + text
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 2000)
     }
   } catch (err) {
-    alert('Error saving to Mystmkra.io: ' + err.message)
+    saveMessage.value = 'Error saving to Mystmkra.io: ' + err.message
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 2000)
   }
 }
 
