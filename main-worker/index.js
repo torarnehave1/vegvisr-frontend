@@ -113,25 +113,38 @@ export default {
         // Insert the new user into the database
         try {
           const userId = uuidv4() // Generate a unique user ID
-          const defaultData =
-            '{"profile":{"username":"","email":"","bio":""},"settings":{"darkMode":false,"notifications":true,"theme":"dark"}}'
+          const data = {
+            email: responseBody.email,
+            emailVerificationToken: responseBody.emailVerificationToken,
+            emailVerified: true,
+            role: 'ViewOnly',
+          }
           const insertQuery = `
-            INSERT INTO config (email, user_id, data)
-            VALUES (?, ?, ?)
+            INSERT INTO config (user_id, email, emailVerificationToken, data, role)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(email) DO NOTHING;
           `
           console.log(
             'Executing query:',
             insertQuery,
             'with parameters:',
-            userEmail,
             userId,
-            defaultData,
+            data.email,
+            data.emailVerificationToken,
+            JSON.stringify({}),
+            data.role,
           )
-          await db.prepare(insertQuery).bind(userEmail, userId, defaultData).run()
-          console.log(
-            `Inserted record into database: email=${userEmail}, user_id=${userId}, data=${defaultData}`,
-          )
+          const { changes } = await db
+            .prepare(insertQuery)
+            .bind(userId, data.email, data.emailVerificationToken, JSON.stringify({}), data.role)
+            .run()
+          if (changes === 0) {
+            console.log('No changes made to the database - user might already exist')
+          } else {
+            console.log(
+              `Inserted record into database: user_id=${userId}, email=${data.email}, emailVerificationToken=${data.emailVerificationToken}, data=${JSON.stringify({})}, role=${data.role}`,
+            )
+          }
         } catch (dbError) {
           console.error('Error inserting record into database:', dbError)
           return addCorsHeaders(
@@ -290,10 +303,10 @@ export default {
               if (existingUser) {
                 console.log(`User with email=${parsedBody.email} already exists in the database`)
 
-                // Update the emailVerificationToken if it already exists
+                // Update the emailVerificationToken and set role to ViewOnly
                 const updateQuery = `
                   UPDATE config
-                  SET emailVerificationToken = ?
+                  SET emailVerificationToken = ?, role = 'ViewOnly'
                   WHERE email = ?;
                 `
                 console.log(
