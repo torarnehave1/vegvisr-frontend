@@ -264,6 +264,12 @@ export default {
           // Extract mystmkraUserId from meta data structure
           if (result.data && result.data.profile && result.data.profile.mystmkraUserId) {
             this.mystmkraUserId = result.data.profile.mystmkraUserId
+            this.userStore.setMystmkraUserId(this.mystmkraUserId)
+            console.log('Set mystmkraUserId in store (fetch):', this.mystmkraUserId)
+          } else {
+            this.mystmkraUserId = ''
+            this.userStore.setMystmkraUserId('')
+            console.log('No mystmkraUserId found in fetched data, set to empty string in store.')
           }
         } else {
           console.warn('No user data found')
@@ -302,6 +308,7 @@ export default {
           }
         }
 
+        // Always use the mystmkraUserId from the input/store
         const payload = {
           email: this.email,
           bio: this.bio, // Only top-level bio
@@ -318,7 +325,9 @@ export default {
               theme: this.data.settings.theme,
             },
           },
+          mystmkraUserId: this.mystmkraUserId, // Also send as top-level for backend robustness
         }
+        console.log('Saving mystmkraUserId:', this.mystmkraUserId)
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
         const response = await fetch('https://test.vegvisr.org/userdata', {
           method: 'PUT',
@@ -333,6 +342,8 @@ export default {
         const result = await response.json()
         if (result.success) {
           this.saveMessage = 'Settings saved!'
+          this.userStore.setMystmkraUserId(this.mystmkraUserId)
+          console.log('Set mystmkraUserId in store (save):', this.mystmkraUserId)
           setTimeout(() => {
             this.isSaving = false
             this.saveMessage = ''
