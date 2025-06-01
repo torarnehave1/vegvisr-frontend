@@ -1128,7 +1128,9 @@ const saveToMystmkra = async () => {
     }, 2000)
     return
   }
-  // Close the modal
+  // Store content and title before closing modal
+  const content = currentNode.value?.info || ''
+  const title = currentNode.value?.label || 'Untitled'
   closeMarkdownEditor()
   saveMessage.value = 'Saving to Mystmkra.io...'
   try {
@@ -1139,8 +1141,8 @@ const saveToMystmkra = async () => {
         'X-API-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
-        content: currentNode.value?.info || '',
-        title: currentNode.value?.label || 'Untitled',
+        content,
+        title,
         tags: [],
         documentId: null,
         userId: mystmkraUserId,
