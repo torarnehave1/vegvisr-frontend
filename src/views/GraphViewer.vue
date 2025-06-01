@@ -1127,7 +1127,7 @@ const saveToMystmkra = async () => {
         title: currentNode.value?.label || 'Untitled',
         tags: [],
         documentId: null,
-        userId: userStore.user_id,
+        userId: userStore.mystmkraUserId || userStore.user_id,
       }),
     })
     if (response.ok) {
