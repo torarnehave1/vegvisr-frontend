@@ -1162,8 +1162,8 @@ const handleGenerateMetaAreas = async (request, env) => {
   return createResponse(JSON.stringify({ success: true }))
 }
 
-// --- GROK Ask or Elaborate Endpoint ---
-const handleGrokAskOrElaborate = async (request, env) => {
+// --- GROK Ask Endpoint ---
+const handleGrokAsk = async (request, env) => {
   const apiKey = env.XAI_API_KEY
   if (!apiKey) {
     return createErrorResponse('Internal Server Error: XAI API key missing', 500)
@@ -1176,9 +1176,25 @@ const handleGrokAskOrElaborate = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { context, question } = body
+  let { context, question } = body
   if (!context || typeof context !== 'string') {
     return createErrorResponse('Context is required and must be a string', 400)
+  }
+  if (!question || typeof question !== 'string' || !question.trim()) {
+    return createErrorResponse('Question is required and must be a non-empty string', 400)
+  }
+
+  // Strip markdown/HTML from context using marked
+  let plainContext = ''
+  try {
+    // marked.parse returns HTML, so strip HTML tags
+    const html = marked.parse(context)
+    plainContext = html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  } catch {
+    plainContext = context
   }
 
   const client = new OpenAI({
@@ -1186,15 +1202,9 @@ const handleGrokAskOrElaborate = async (request, env) => {
     baseURL: 'https://api.x.ai/v1',
   })
 
-  let prompt, systemContent
-  if (question && question.trim()) {
-    prompt = `Given the following context, answer the user's question in detail.\n\nContext:\n${context}\n\nQuestion: ${question}`
-    systemContent =
-      "You are an expert assistant. Use the provided context to answer the user's question in detail."
-  } else {
-    prompt = `Elaborate and expand on the following text, providing more detail, examples, and insights.\n\nText:\n${context}`
-    systemContent = 'You are an expert assistant. Expand and elaborate on the provided text.'
-  }
+  const prompt = `Given the following context, answer the user's question in detail.\n\nContext:\n${plainContext}\n\nQuestion: ${question}`
+  const systemContent =
+    "You are an expert assistant. Use the provided context to answer the user's question in detail."
 
   try {
     const completion = await client.chat.completions.create({
@@ -1209,8 +1219,8 @@ const handleGrokAskOrElaborate = async (request, env) => {
     const result = completion.choices[0].message.content.trim()
     return createResponse(JSON.stringify({ result }), 200)
   } catch (error) {
-    console.error('Grok elaborate/ask error:', error)
-    return createErrorResponse('Grok elaborate/ask error', 500)
+    console.error('Grok ask error:', error)
+    return createErrorResponse('Grok ask error', 500)
   }
 }
 
@@ -1370,8 +1380,8 @@ export default {
       if (pathname === '/generate-meta-areas' && request.method === 'POST') {
         return await handleGenerateMetaAreas(request, env)
       }
-      if (pathname === '/grok-elaborate' && request.method === 'POST') {
-        return await handleGrokAskOrElaborate(request, env)
+      if (pathname === '/grok-ask' && request.method === 'POST') {
+        return await handleGrokAsk(request, env)
       }
       if (pathname === '/mystmkra-save' && request.method === 'POST') {
         return handleMystmkraProxy(request)

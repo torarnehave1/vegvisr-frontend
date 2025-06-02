@@ -1285,10 +1285,14 @@ async function runAIAssist(mode) {
   // Real API call for 'expand' and 'ask'
   try {
     const payload = {
-      context: aiAssistNode?.info || '',
-      ...(mode === 'ask' && aiAssistQuestion ? { question: aiAssistQuestion } : {}),
+      context: String(aiAssistNode?.info ?? ''),
+      ...(mode === 'ask' && aiAssistQuestion
+        ? { question: String(aiAssistQuestion?.value ?? aiAssistQuestion) }
+        : {}),
     }
-    const response = await fetch('https://api.vegvisr.org/grok-elaborate', {
+    const endpoint =
+      mode === 'ask' ? 'https://api.vegvisr.org/grok-ask' : 'https://api.vegvisr.org/grok-elaborate'
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
