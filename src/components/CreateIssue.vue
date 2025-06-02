@@ -218,12 +218,13 @@ const expandDescription = async () => {
   grokLoading.value = true
   grokError.value = null
   try {
-    const response = await fetch('https://api.vegvisr.org/expand-issue-description', {
+    const response = await fetch('https://api.vegvisr.org/grok-issue-description', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         description: form.body,
         labels: form.labels,
+        mode: 'expand_description',
       }),
     })
     if (!response.ok) {

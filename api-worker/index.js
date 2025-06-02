@@ -966,7 +966,7 @@ const handleGrokIssueDescription = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { title, description, labels, mode } = body
+  const { title, description, body: bodyText, labels, mode } = body
 
   // Validate mode
   if (
@@ -979,13 +979,16 @@ const handleGrokIssueDescription = async (request, env) => {
     )
   }
 
+  // Use either description or body field
+  const descriptionText = description || bodyText
+
   // Validate required fields based on mode
   if (mode === 'title_to_description' && (!title || typeof title !== 'string')) {
     return createErrorResponse('Title is required for title_to_description mode', 400)
   }
   if (
     (mode === 'description_to_title' || mode === 'expand_description') &&
-    (!description || typeof description !== 'string')
+    (!descriptionText || typeof descriptionText !== 'string')
   ) {
     return createErrorResponse(
       'Description is required for description_to_title and expand_description modes',
@@ -1013,16 +1016,16 @@ const handleGrokIssueDescription = async (request, env) => {
         maxTokens = 500
         break
       case 'description_to_title':
-        prompt = `Generate a clear and concise title for a GitHub issue based on this description:\n${description}\n${labelText}\nThe title should be specific and descriptive. Return only the title, no extra text.`
+        prompt = `Generate a clear and concise title for a GitHub issue based on this description:\n${descriptionText}\n${labelText}\nThe title should be specific and descriptive. Return only the title, no extra text.`
         systemContent =
           'You are an expert at writing clear and concise GitHub issue titles. Return only the title.'
         maxTokens = 50
         break
       case 'expand_description':
-        prompt = `Expand and enhance this GitHub issue description while maintaining its core message:\n${description}\n${labelText}\nAdd more context, technical details, and structure where appropriate. Return only the expanded description, no extra text.`
+        prompt = `Expand and enhance this GitHub issue description while maintaining its core message:\n${descriptionText}\n${labelText}\n\nPlease enhance the description by:\n1. Adding more technical context and details\n2. Including relevant background information\n3. Structuring the content with clear sections\n4. Adding specific examples or use cases\n5. Clarifying any ambiguous points\n6. Suggesting potential solutions or approaches\n\nMaintain the original tone and intent while making the description more comprehensive and actionable. Return only the expanded description, no extra text.`
         systemContent =
-          'You are an expert at expanding and enhancing GitHub issue descriptions while maintaining their core message. Return only the expanded description.'
-        maxTokens = 500
+          'You are an expert at expanding and enhancing GitHub issue descriptions. Focus on adding value through technical details, context, and structure while maintaining the original message. Return only the expanded description.'
+        maxTokens = 1000
         break
     }
 
