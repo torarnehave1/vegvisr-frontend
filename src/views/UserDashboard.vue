@@ -47,16 +47,6 @@
             </button>
           </div>
         </div>
-        <div class="mb-3">
-          <label for="mystmkraUserId" class="form-label"><strong>Mystmkra User ID:</strong></label>
-          <input
-            id="mystmkraUserId"
-            class="form-control"
-            v-model="mystmkraUserId"
-            placeholder="Enter your Mystmkra User ID"
-          />
-          <div class="form-text text-start">This is your Mystmkra.io user ID for integration.</div>
-        </div>
       </div>
 
       <!-- Settings Section -->
@@ -90,6 +80,38 @@
         <div class="mt-4">
           <label for="fileInput" class="form-label">Upload Profile Image</label>
           <input type="file" id="fileInput" class="form-control" @change="onFileChange" />
+        </div>
+
+        <!-- Mystmkra Reference (moved here) -->
+        <div class="mb-3 mt-4">
+          <label for="mystmkraCommentLike" class="form-label"
+            ><strong>Mystmkra Reference:</strong></label
+          >
+          <input
+            type="text"
+            id="mystmkraCommentLike"
+            name="mystmkraCommentLike"
+            class="form-control"
+            v-model="newMystmkraUserId"
+            placeholder="Enter your Mystmkra reference"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+          />
+          <div class="form-text text-start">This is your Mystmkra.io user ID for integration.</div>
+          <button
+            v-if="newMystmkraUserId"
+            class="btn btn-primary btn-sm mt-2"
+            @click="saveMystmkraUserId"
+          >
+            Save
+          </button>
+          <div v-if="mystmkraUserId" class="d-flex align-items-center mt-2">
+            <span class="me-2">{{ maskedMystmkraUserId }}</span>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyMystmkraUserId">
+              Copy
+            </button>
+          </div>
         </div>
 
         <!-- User Secret Section -->
@@ -164,6 +186,8 @@ export default {
       isSaving: false,
       saveMessage: '',
       mystmkraUserId: '',
+      editingMystmkraUserId: false,
+      newMystmkraUserId: '',
     }
   },
   computed: {
@@ -208,6 +232,7 @@ export default {
   mounted() {
     this.waitForStore()
     this.fetchUserData() // Fetch user data on mount
+    this.newMystmkraUserId = ''
   },
   methods: {
     async waitForStore() {
@@ -266,10 +291,12 @@ export default {
             this.mystmkraUserId = result.data.profile.mystmkraUserId
             this.userStore.setMystmkraUserId(this.mystmkraUserId)
             console.log('Set mystmkraUserId in store (fetch):', this.mystmkraUserId)
+            this.newMystmkraUserId = ''
           } else {
             this.mystmkraUserId = ''
             this.userStore.setMystmkraUserId('')
             console.log('No mystmkraUserId found in fetched data, set to empty string in store.')
+            this.newMystmkraUserId = ''
           }
         } else {
           console.warn('No user data found')
@@ -343,6 +370,7 @@ export default {
         if (result.success) {
           this.saveMessage = 'Settings saved!'
           this.userStore.setMystmkraUserId(this.mystmkraUserId)
+          this.editingMystmkraUserId = false
           console.log('Set mystmkraUserId in store (save):', this.mystmkraUserId)
           setTimeout(() => {
             this.isSaving = false
@@ -436,6 +464,14 @@ export default {
     },
     cancelEditBio() {
       this.editingBio = false
+    },
+    saveMystmkraUserId() {
+      if (this.newMystmkraUserId) {
+        this.mystmkraUserId = this.newMystmkraUserId
+        this.userStore.setMystmkraUserId(this.newMystmkraUserId)
+        this.newMystmkraUserId = ''
+        // Optionally, call saveAllData() here if you want to persist immediately
+      }
     },
   },
 }
