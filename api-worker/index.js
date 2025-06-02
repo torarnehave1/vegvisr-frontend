@@ -1162,6 +1162,58 @@ const handleGenerateMetaAreas = async (request, env) => {
   return createResponse(JSON.stringify({ success: true }))
 }
 
+// --- GROK Ask or Elaborate Endpoint ---
+const handleGrokAskOrElaborate = async (request, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { context, question } = body
+  if (!context || typeof context !== 'string') {
+    return createErrorResponse('Context is required and must be a string', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  let prompt, systemContent
+  if (question && question.trim()) {
+    prompt = `Given the following context, answer the user's question in detail.\n\nContext:\n${context}\n\nQuestion: ${question}`
+    systemContent =
+      "You are an expert assistant. Use the provided context to answer the user's question in detail."
+  } else {
+    prompt = `Elaborate and expand on the following text, providing more detail, examples, and insights.\n\nText:\n${context}`
+    systemContent = 'You are an expert assistant. Expand and elaborate on the provided text.'
+  }
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 800,
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: prompt },
+      ],
+    })
+    const result = completion.choices[0].message.content.trim()
+    return createResponse(JSON.stringify({ result }), 200)
+  } catch (error) {
+    console.error('Grok elaborate/ask error:', error)
+    return createErrorResponse('Grok elaborate/ask error', 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -1317,6 +1369,9 @@ export default {
 
       if (pathname === '/generate-meta-areas' && request.method === 'POST') {
         return await handleGenerateMetaAreas(request, env)
+      }
+      if (pathname === '/grok-elaborate' && request.method === 'POST') {
+        return await handleGrokAskOrElaborate(request, env)
       }
       if (pathname === '/mystmkra-save' && request.method === 'POST') {
         return handleMystmkraProxy(request)

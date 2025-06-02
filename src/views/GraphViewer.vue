@@ -237,9 +237,6 @@
           <button class="ai-assist-close" @click="closeAIAssist" title="Close">&times;</button>
           <h4>GROK AI Assist</h4>
           <div v-if="!aiAssistMode">
-            <button class="btn btn-outline-primary mb-2" @click="runAIAssist('expand')">
-              Expand (Elaborate)
-            </button>
             <div class="mb-2">
               <textarea
                 v-model="aiAssistQuestion"
@@ -255,9 +252,14 @@
                 Ask
               </button>
             </div>
-            <button class="btn btn-outline-warning mb-2" @click="runAIAssist('image')">
-              Generate Header Image
-            </button>
+            <div class="ai-assist-btn-row">
+              <button class="btn btn-outline-primary ai-assist-btn" @click="runAIAssist('expand')">
+                Elaborate on the text
+              </button>
+              <button class="btn btn-outline-warning ai-assist-btn" @click="runAIAssist('image')">
+                Generate Header Image
+              </button>
+            </div>
           </div>
           <div v-else>
             <div v-if="aiAssistLoading" class="text-center my-3">
@@ -1726,6 +1728,19 @@ img.leftside {
   min-height: 60px;
   resize: vertical;
   margin-bottom: 8px;
+}
+.ai-assist-btn-row {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}
+.ai-assist-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 </style>
 
