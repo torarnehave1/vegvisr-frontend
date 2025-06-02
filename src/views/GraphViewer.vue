@@ -1272,17 +1272,38 @@ async function runAIAssist(mode) {
   aiAssistResult.value = ''
   aiAssistImageUrl.value = ''
   aiAssistError.value = ''
-  // Placeholder: simulate API call
-  setTimeout(() => {
-    aiAssistLoading.value = false
-    if (mode === 'expand') {
-      aiAssistResult.value = (aiAssistNode?.info || '') + '\n\n[AI: Expanded text here.]'
-    } else if (mode === 'ask') {
-      aiAssistResult.value = '[AI Answer to: ' + aiAssistQuestion.value + ']'
-    } else if (mode === 'image') {
+
+  if (mode === 'image') {
+    // Placeholder for image generation
+    setTimeout(() => {
+      aiAssistLoading.value = false
       aiAssistImageUrl.value = 'https://via.placeholder.com/600x200?text=AI+Header+Image'
+    }, 1200)
+    return
+  }
+
+  // Real API call for 'expand' and 'ask'
+  try {
+    const payload = {
+      context: aiAssistNode?.info || '',
+      ...(mode === 'ask' && aiAssistQuestion ? { question: aiAssistQuestion } : {}),
     }
-  }, 1200)
+    const response = await fetch('https://api.vegvisr.org/grok-elaborate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || 'API error')
+    }
+    const data = await response.json()
+    aiAssistResult.value = data.result || '[No response from AI]'
+  } catch (err) {
+    aiAssistError.value = 'Error: ' + (err.message || err)
+  } finally {
+    aiAssistLoading.value = false
+  }
 }
 function insertAIAssistResult() {
   if (!aiAssistNode) return
