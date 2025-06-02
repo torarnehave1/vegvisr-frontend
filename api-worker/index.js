@@ -1225,9 +1225,29 @@ const handleGrokIssueDescription = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { title, labels } = body
-  if (!title || typeof title !== 'string') {
-    return createErrorResponse('Title is required', 400)
+  const { title, description, labels, mode } = body
+  if (
+    !mode ||
+    !['title_to_description', 'description_to_title', 'expand_description'].includes(mode)
+  ) {
+    return createErrorResponse(
+      'Invalid mode. Must be one of: title_to_description, description_to_title, expand_description',
+      400,
+    )
+  }
+
+  if (mode === 'title_to_description' && (!title || typeof title !== 'string')) {
+    return createErrorResponse('Title is required for title_to_description mode', 400)
+  }
+
+  if (
+    (mode === 'description_to_title' || mode === 'expand_description') &&
+    (!description || typeof description !== 'string')
+  ) {
+    return createErrorResponse(
+      'Description is required for description_to_title and expand_description modes',
+      400,
+    )
   }
 
   const client = new OpenAI({
@@ -1240,22 +1260,40 @@ const handleGrokIssueDescription = async (request, env) => {
     if (Array.isArray(labels) && labels.length > 0) {
       labelText = `Labels: ${labels.join(', ')}.`
     }
-    const prompt = `Generate a concise, clear, and helpful description for a GitHub issue, feature, or enhancement.\nTitle: ${title}\n${labelText}\nThe description should explain the context, the problem or feature, and what a good solution or outcome would look like. Return only the description, no extra text.`
+
+    let prompt, systemContent
+    switch (mode) {
+      case 'title_to_description':
+        prompt = `Generate a concise, clear, and helpful description for a GitHub issue, feature, or enhancement.\nTitle: ${title}\n${labelText}\nThe description should explain the context, the problem or feature, and what a good solution or outcome would look like. Return only the description, no extra text.`
+        systemContent =
+          'You are an expert at writing clear, concise, and actionable GitHub issue descriptions. Return only the description.'
+        break
+      case 'description_to_title':
+        prompt = `Generate a concise, descriptive title (max 10 words) for a GitHub issue based on the following description:\n${description}\n${labelText}\nThe title should be clear, specific, and reflect the main purpose of the issue. Return only the title, no extra text.`
+        systemContent =
+          'You are an expert at writing clear and descriptive GitHub issue titles. Return only the title.'
+        break
+      case 'expand_description':
+        prompt = `Expand and enhance the following GitHub issue description while maintaining its core message:\n${description}\n${labelText}\nAdd more context, technical details, and potential solutions if applicable. Keep the expanded description clear and well-structured. Return only the expanded description, no extra text.`
+        systemContent =
+          'You are an expert at enhancing GitHub issue descriptions with additional context and technical details. Return only the expanded description.'
+        break
+    }
+
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
       temperature: 0.7,
-      max_tokens: 200,
+      max_tokens: mode === 'description_to_title' ? 50 : 500,
       messages: [
-        {
-          role: 'system',
-          content:
-            'You are an expert at writing clear, concise, and actionable GitHub issue descriptions. Return only the description.',
-        },
+        { role: 'system', content: systemContent },
         { role: 'user', content: prompt },
       ],
     })
-    const description = completion.choices[0].message.content.trim()
-    return createResponse(JSON.stringify({ description }))
+
+    const result = completion.choices[0].message.content.trim()
+    return createResponse(
+      JSON.stringify(mode === 'description_to_title' ? { title: result } : { description: result }),
+    )
   } catch (error) {
     return createErrorResponse(`Grok API error: ${error.message}`, 500)
   }
