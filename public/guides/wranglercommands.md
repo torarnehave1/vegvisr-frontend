@@ -23,3 +23,9 @@ npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml 
 //Create a wrangler command that is using a sql file to execute a command
 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --file=database/graphTemplates.sql
+
+// List all D1 databases in your Cloudflare account
+npx wrangler d1 list
+
+// List all tables in a specific D1 database (replace vegvisr_org with your database name)
+npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT name FROM sqlite_master WHERE type='table';"

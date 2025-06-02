@@ -701,11 +701,64 @@ export default {
         }
       }
 
+      if (path === '/userdata' && method === 'GET') {
+        const url = new URL(request.url)
+        const userEmail = url.searchParams.get('email')
+        if (!userEmail) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
+          )
+        }
+        const db = env.vegvisr_org
+        console.log('Fetching user data for email:', userEmail)
+        // First, let's check the table structure
+        const tableInfo = await db.prepare('PRAGMA table_info(config)').all()
+        console.log('Table structure:', tableInfo)
+
+        const query = `SELECT user_id, data, profileimage, emailVerificationToken, bio FROM config WHERE email = ?;`
+        const row = await db.prepare(query).bind(userEmail).first()
+        console.log('Database row:', row)
+        if (!row) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                email: userEmail,
+                user_id: null,
+                data: { profile: {}, settings: {} },
+                profileimage: '',
+                emailVerificationToken: null,
+                bio: '',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        let parsedData = {}
+        try {
+          parsedData = JSON.parse(row.data)
+        } catch (e) {
+          console.error('Error parsing user data JSON:', e)
+        }
+        const mystmkraUserId = parsedData.profile && parsedData.profile.mystmkraUserId
+        console.log('Retrieved mystmkraUserId:', mystmkraUserId)
+        const response = {
+          email: userEmail,
+          user_id: row.user_id,
+          data: parsedData,
+          profileimage: row.profileimage,
+          emailVerificationToken: row.emailVerificationToken,
+          bio: row.bio || '',
+        }
+        console.log('Sending response:', response)
+        return addCorsHeaders(new Response(JSON.stringify(response), { status: 200 }))
+      }
+
       if (path === '/userdata' && method === 'PUT') {
         const db = env.vegvisr_org
         const body = await request.json()
         console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
         const { email, bio, data, profileimage } = body
+        console.log('Bio from request:', bio)
         if (!email || !data || !profileimage) {
           return addCorsHeaders(
             new Response(
@@ -735,66 +788,32 @@ export default {
         }
         console.log('Saving mystmkraUserId:', data.profile.mystmkraUserId)
         const dataJson = JSON.stringify(data)
+
+        // First, let's check if the bio column exists
+        const tableInfo = await db.prepare('PRAGMA table_info(config)').all()
+        console.log('Table structure:', tableInfo)
+
+        // If bio column doesn't exist, add it
+        const hasBioColumn = tableInfo.some((col) => col.name === 'bio')
+        if (!hasBioColumn) {
+          console.log('Adding bio column to config table')
+          await db.prepare('ALTER TABLE config ADD COLUMN bio TEXT').run()
+        }
+
         const query = `
           INSERT INTO config (email, bio, data, profileimage)
           VALUES (?, ?, ?, ?)
           ON CONFLICT(email) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
         `
-        await db
+        console.log('Executing query with bio:', bio)
+        const result = await db
           .prepare(query)
           .bind(email, bio, dataJson, profileimage, bio, dataJson, profileimage)
           .run()
+        console.log('Query result:', result)
         return addCorsHeaders(
           new Response(
             JSON.stringify({ success: true, message: 'User data updated successfully' }),
-            { status: 200 },
-          ),
-        )
-      }
-
-      // Add logging for mystmkraUserId in GET /userdata (if present)
-      if (path === '/userdata' && method === 'GET') {
-        const url = new URL(request.url)
-        const userEmail = url.searchParams.get('email')
-        if (!userEmail) {
-          return addCorsHeaders(
-            new Response(JSON.stringify({ error: 'Missing email parameter' }), { status: 400 }),
-          )
-        }
-        const db = env.vegvisr_org
-        const query = `SELECT user_id, data, profileimage, emailVerificationToken FROM config WHERE email = ?;`
-        const row = await db.prepare(query).bind(userEmail).first()
-        if (!row) {
-          return addCorsHeaders(
-            new Response(
-              JSON.stringify({
-                email: userEmail,
-                user_id: null,
-                data: { profile: {}, settings: {} },
-                profileimage: '',
-                emailVerificationToken: null,
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        let parsedData = {}
-        try {
-          parsedData = JSON.parse(row.data)
-        } catch (e) {
-          console.error('Error parsing user data JSON:', e)
-        }
-        const mystmkraUserId = parsedData.profile && parsedData.profile.mystmkraUserId
-        console.log('Retrieved mystmkraUserId:', mystmkraUserId)
-        return addCorsHeaders(
-          new Response(
-            JSON.stringify({
-              email: userEmail,
-              user_id: row.user_id,
-              data: parsedData,
-              profileimage: row.profileimage,
-              emailVerificationToken: row.emailVerificationToken,
-            }),
             { status: 200 },
           ),
         )

@@ -166,6 +166,7 @@
 <script>
 import { useUserStore } from '@/stores/userStore' // Import Pinia store
 import { marked } from 'marked' // Import marked.js
+import { useRouter } from 'vue-router' // Import router
 
 export default {
   data() {
@@ -224,15 +225,35 @@ export default {
   },
   setup() {
     const userStore = useUserStore() // Use Pinia store
+    const router = useRouter() // Use router
 
     return {
       userStore,
+      router,
     }
   },
   mounted() {
+    // Check if user is logged in
+    if (!this.userStore.loggedIn) {
+      console.log('User not logged in, redirecting to login')
+      this.router.push('/login')
+      return
+    }
     this.waitForStore()
     this.fetchUserData() // Fetch user data on mount
     this.newMystmkraUserId = ''
+  },
+  watch: {
+    // Watch for changes in loggedIn state
+    'userStore.loggedIn': {
+      handler(newValue) {
+        if (!newValue) {
+          console.log('User logged out, redirecting to login')
+          this.router.push('/login')
+        }
+      },
+      immediate: true,
+    },
   },
   methods: {
     async waitForStore() {
@@ -264,9 +285,11 @@ export default {
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         const result = await response.json()
+        console.log('Raw user data response:', result) // Debug log
         if (result) {
-          console.log('Fetched user data:', result)
+          console.log('Bio from response:', result.bio) // Debug log
           this.bio = result.bio || ''
+          console.log('Bio after assignment:', this.bio) // Debug log
           this.profileImage = result.profileimage || ''
           if (result.emailVerificationToken) {
             this.emailVerificationToken = result.emailVerificationToken

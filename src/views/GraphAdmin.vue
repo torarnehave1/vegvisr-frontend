@@ -1599,6 +1599,13 @@ const trackChanges = () => {
 
 // Initialize Cytoscape
 onMounted(() => {
+  // Check if user is logged in
+  if (!userStore.loggedIn) {
+    console.log('User not logged in, redirecting to login')
+    router.push('/login')
+    return
+  }
+
   console.log('Component mounted. Initializing Cytoscape...')
   const cyContainer = document.getElementById('cy')
   if (!cyContainer) {
@@ -2919,6 +2926,18 @@ const filteredKnowledgeGraphs = computed(() => {
   }
   return knowledgeGraphs.value
 })
+
+// Add watcher for loggedIn state
+watch(
+  () => userStore.loggedIn,
+  (newValue) => {
+    if (!newValue) {
+      console.log('User logged out, redirecting to login')
+      router.push('/login')
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
