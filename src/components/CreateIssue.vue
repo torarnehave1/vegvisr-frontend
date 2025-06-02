@@ -9,14 +9,30 @@
           <!-- Title Input -->
           <div class="mb-3">
             <label for="title" class="form-label">Title</label>
-            <input
-              type="text"
-              class="form-control"
-              id="title"
-              v-model="form.title"
-              required
-              placeholder="Enter a descriptive title"
-            />
+            <div class="d-flex align-items-center gap-2">
+              <input
+                type="text"
+                class="form-control"
+                id="title"
+                v-model="form.title"
+                required
+                placeholder="Enter a descriptive title"
+              />
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                :disabled="grokLoading || !form.body"
+                @click="generateFromDescription"
+                title="Suggest title with AI"
+              >
+                <span
+                  v-if="grokLoading"
+                  class="spinner-border spinner-border-sm"
+                  role="status"
+                ></span>
+                <span v-else class="bi bi-magic"></span>
+              </button>
+            </div>
           </div>
 
           <!-- Body Input -->
@@ -31,20 +47,36 @@
                 required
                 placeholder="Describe your issue, feature request, or bug report in detail"
               ></textarea>
-              <button
-                type="button"
-                class="btn btn-outline-secondary"
-                :disabled="grokLoading || !form.title"
-                @click="generateDescription"
-                title="Suggest description with AI"
-              >
-                <span
-                  v-if="grokLoading"
-                  class="spinner-border spinner-border-sm"
-                  role="status"
-                ></span>
-                <span v-else class="bi bi-magic"></span>
-              </button>
+              <div class="d-flex flex-column gap-2">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  :disabled="grokLoading || !form.title"
+                  @click="generateFromTitle"
+                  title="Suggest description with AI"
+                >
+                  <span
+                    v-if="grokLoading"
+                    class="spinner-border spinner-border-sm"
+                    role="status"
+                  ></span>
+                  <span v-else class="bi bi-magic"></span>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  :disabled="grokLoading || !form.body"
+                  @click="expandDescription"
+                  title="Expand description with AI"
+                >
+                  <span
+                    v-if="grokLoading"
+                    class="spinner-border spinner-border-sm"
+                    role="status"
+                  ></span>
+                  <span v-else class="bi bi-arrows-angle-expand"></span>
+                </button>
+              </div>
             </div>
             <div v-if="grokError" class="text-danger mt-1">{{ grokError }}</div>
           </div>
@@ -126,7 +158,7 @@ const availableLabels = [
   'priority',
 ]
 
-const generateDescription = async () => {
+const generateFromTitle = async () => {
   if (!form.title) return
   grokLoading.value = true
   grokError.value = null
@@ -134,7 +166,11 @@ const generateDescription = async () => {
     const response = await fetch('https://api.vegvisr.org/grok-issue-description', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: form.title, labels: form.labels }),
+      body: JSON.stringify({
+        title: form.title,
+        labels: form.labels,
+        mode: 'title_to_description',
+      }),
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
@@ -143,6 +179,59 @@ const generateDescription = async () => {
     const data = await response.json()
     const userName = userStore.name || userStore.email || 'Anonymous'
     form.body = `(Created by: ${userName})\n\n${data.description}`
+  } catch (err) {
+    grokError.value = err.message
+  } finally {
+    grokLoading.value = false
+  }
+}
+
+const generateFromDescription = async () => {
+  if (!form.body) return
+  grokLoading.value = true
+  grokError.value = null
+  try {
+    const response = await fetch('https://api.vegvisr.org/grok-issue-description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: form.body,
+        labels: form.labels,
+        mode: 'description_to_title',
+      }),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Failed to generate title')
+    }
+    const data = await response.json()
+    form.title = data.title
+  } catch (err) {
+    grokError.value = err.message
+  } finally {
+    grokLoading.value = false
+  }
+}
+
+const expandDescription = async () => {
+  if (!form.body) return
+  grokLoading.value = true
+  grokError.value = null
+  try {
+    const response = await fetch('https://api.vegvisr.org/expand-issue-description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: form.body,
+        labels: form.labels,
+      }),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Failed to expand description')
+    }
+    const data = await response.json()
+    form.body = data.description
   } catch (err) {
     grokError.value = err.message
   } finally {
