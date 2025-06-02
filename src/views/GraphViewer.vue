@@ -141,6 +141,22 @@
               >
                 Edit Info
               </button>
+              <button
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                @click="openAIAssist(node)"
+                style="
+                  margin-left: 8px;
+                  background: #6f42c1;
+                  color: #fff;
+                  border-radius: 4px;
+                  border: none;
+                  padding: 5px 10px;
+                "
+              >
+                AI Assist
+              </button>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
               ></div>
@@ -211,6 +227,58 @@
             >
               Save to Mystmkra.io
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Assist Modal -->
+      <div v-if="isAIAssistOpen" class="ai-assist-modal">
+        <div class="ai-assist-content">
+          <button class="ai-assist-close" @click="closeAIAssist" title="Close">&times;</button>
+          <h4>GROK AI Assist</h4>
+          <div v-if="!aiAssistMode">
+            <button class="btn btn-outline-primary mb-2" @click="runAIAssist('expand')">
+              Expand (Elaborate)
+            </button>
+            <div class="mb-2">
+              <textarea
+                v-model="aiAssistQuestion"
+                class="form-control mb-1 ai-assist-questionarea"
+                placeholder="Ask a question..."
+                rows="3"
+              />
+              <button
+                class="btn btn-outline-success"
+                @click="runAIAssist('ask')"
+                :disabled="!aiAssistQuestion"
+              >
+                Ask
+              </button>
+            </div>
+            <button class="btn btn-outline-warning mb-2" @click="runAIAssist('image')">
+              Generate Header Image
+            </button>
+          </div>
+          <div v-else>
+            <div v-if="aiAssistLoading" class="text-center my-3">
+              <span class="spinner-border spinner-border-sm"></span> Loading AI response...
+            </div>
+            <div v-else-if="aiAssistResult">
+              <div class="alert alert-info">{{ aiAssistResult }}</div>
+              <button class="btn btn-primary" @click="insertAIAssistResult">Insert</button>
+            </div>
+            <div v-else-if="aiAssistImageUrl">
+              <img
+                :src="aiAssistImageUrl"
+                alt="AI Header"
+                style="max-width: 100%; border-radius: 6px; margin-bottom: 10px"
+              />
+              <button class="btn btn-primary" @click="insertAIAssistResult">
+                Insert as Header Image
+              </button>
+            </div>
+            <div v-if="aiAssistError" class="alert alert-danger">{{ aiAssistError }}</div>
+            <button class="btn btn-secondary mt-2" @click="closeAIAssist">Back</button>
           </div>
         </div>
       </div>
@@ -1168,6 +1236,64 @@ const saveToMystmkra = async () => {
   }
 }
 
+// --- AI Assist UI State ---
+const isAIAssistOpen = ref(false)
+const aiAssistMode = ref('') // 'expand', 'ask', 'image'
+const aiAssistQuestion = ref('')
+const aiAssistLoading = ref(false)
+const aiAssistResult = ref('')
+const aiAssistImageUrl = ref('')
+const aiAssistError = ref('')
+let aiAssistNode = null
+
+function openAIAssist(node) {
+  isAIAssistOpen.value = true
+  aiAssistMode.value = ''
+  aiAssistQuestion.value = ''
+  aiAssistResult.value = ''
+  aiAssistImageUrl.value = ''
+  aiAssistError.value = ''
+  aiAssistNode = node
+}
+function closeAIAssist() {
+  isAIAssistOpen.value = false
+  aiAssistMode.value = ''
+  aiAssistQuestion.value = ''
+  aiAssistResult.value = ''
+  aiAssistImageUrl.value = ''
+  aiAssistError.value = ''
+  aiAssistNode = null
+}
+async function runAIAssist(mode) {
+  aiAssistMode.value = mode
+  aiAssistLoading.value = true
+  aiAssistResult.value = ''
+  aiAssistImageUrl.value = ''
+  aiAssistError.value = ''
+  // Placeholder: simulate API call
+  setTimeout(() => {
+    aiAssistLoading.value = false
+    if (mode === 'expand') {
+      aiAssistResult.value = (aiAssistNode?.info || '') + '\n\n[AI: Expanded text here.]'
+    } else if (mode === 'ask') {
+      aiAssistResult.value = '[AI Answer to: ' + aiAssistQuestion.value + ']'
+    } else if (mode === 'image') {
+      aiAssistImageUrl.value = 'https://via.placeholder.com/600x200?text=AI+Header+Image'
+    }
+  }, 1200)
+}
+function insertAIAssistResult() {
+  if (!aiAssistNode) return
+  if (aiAssistMode.value === 'expand' || aiAssistMode.value === 'ask') {
+    aiAssistNode.info = (aiAssistNode.info || '') + '\n\n' + aiAssistResult.value
+  } else if (aiAssistMode.value === 'image') {
+    aiAssistNode.info =
+      `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${aiAssistImageUrl.value})\n` +
+      (aiAssistNode.info || '')
+  }
+  closeAIAssist()
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1556,6 +1682,50 @@ img.leftside {
   border-radius: 8px;
   box-sizing: border-box;
   margin: 0 auto;
+}
+
+.ai-assist-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.ai-assist-content {
+  background: #fff;
+  padding: 24px 20px;
+  border-radius: 10px;
+  min-width: 320px;
+  max-width: 95vw;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  position: relative;
+}
+.ai-assist-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #888;
+  cursor: pointer;
+  z-index: 10;
+  line-height: 1;
+}
+.ai-assist-close:hover {
+  color: #333;
+}
+.ai-assist-questionarea {
+  min-width: 220px;
+  min-height: 60px;
+  resize: vertical;
+  margin-bottom: 8px;
 }
 </style>
 
