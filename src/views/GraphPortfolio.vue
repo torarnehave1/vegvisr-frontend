@@ -1149,6 +1149,22 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.graph-meta .badge {
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  display: inline-block;
+  vertical-align: middle;
+  margin-bottom: 2px;
+}
+
+.graph-meta .badge.bg-primary {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 95%;
+}
+
 @media (max-width: 768px) {
   .portfolio-image-container {
     max-width: 100%;
