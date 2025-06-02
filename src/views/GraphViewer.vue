@@ -222,7 +222,7 @@
       <div v-if="isAIAssistOpen" class="ai-assist-modal">
         <div class="ai-assist-content">
           <button class="ai-assist-close" @click="closeAIAssist" title="Close">&times;</button>
-          <h4>GROK AI Assist</h4>
+          <h4>Vegvisr AI Assist</h4>
           <div v-if="!aiAssistMode">
             <div class="mb-2">
               <textarea
