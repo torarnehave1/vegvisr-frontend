@@ -18,20 +18,7 @@
       <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
         <div class="node-content-inner">
           <template v-if="node.type === 'markdown-image'">
-            <!-- Render markdown image nodes -->
-            <div class="image-wrapper">
-              <img
-                :src="parseMarkdownImage(node.label)?.url"
-                alt="Markdown Image"
-                :style="{
-                  width: parseMarkdownImage(node.label)?.styles?.width || 'auto',
-                  height: parseMarkdownImage(node.label)?.styles?.height || 'auto',
-                  objectFit: parseMarkdownImage(node.label)?.styles?.['object-fit'] || 'cover',
-                  objectPosition:
-                    parseMarkdownImage(node.label)?.styles?.['object-position'] || 'center',
-                }"
-              />
-            </div>
+            <div v-html="convertToHtml(node.label)"></div>
           </template>
           <template v-else-if="node.type === 'background'">
             <div class="image-wrapper">
@@ -522,29 +509,91 @@ const insertYoutubeVideoMarkdown = () => {
   }
 }
 
-const convertToHtml = (text) => {
-  if (!text) return ''
-  // Preprocess custom blocks BEFORE marked.parse
-  let preprocessed = preprocessSections(text)
-  preprocessed = preprocessFancy(preprocessed)
-  preprocessed = preprocessPageBreaks(preprocessed)
-  return marked.parse(preprocessed)
+const preprocessMarkdown = (text) => {
+  console.log('Input Markdown Text:', text)
+
+  const markdownRegex = /!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\)/g
+  let result = ''
+  let lastIndex = 0
+
+  let match
+  while ((match = markdownRegex.exec(text)) !== null) {
+    const [, type, paragraphCount, styles, url] = match
+    console.log(`Processing ${type}:`, { paragraphCount, styles, url, index: match.index })
+
+    // Add text before the match
+    if (lastIndex < match.index) {
+      result += marked.parse(text.slice(lastIndex, match.index))
+    }
+
+    // Helper to extract style values robustly (with or without quotes)
+    const getStyleValue = (styleString, key, fallback) => {
+      const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
+      const found = styleString.match(regex)
+      return found ? found[1].trim() : fallback
+    }
+
+    if (type === 'Header') {
+      const height = getStyleValue(styles, 'height', 'auto')
+      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
+      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+
+      result += `
+        <div class="header-image-container">
+          <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
+        </div>
+      `.trim()
+    } else if (type === 'Rightside' || type === 'Leftside') {
+      const width = getStyleValue(styles, 'width', '20%')
+      const height = getStyleValue(styles, 'height', '200px')
+      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
+      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+
+      // Get text after the markdown
+      const remainingText = text.slice(match.index + match[0].length).trim()
+      const paragraphs = remainingText.split(/\n\s*\n/).filter((p) => p.trim())
+      const numParagraphs = parseInt(paragraphCount, 10) || 1
+      const sideParagraphs = paragraphs
+        .slice(0, numParagraphs)
+        .map((p) => marked.parse(p))
+        .join('')
+      const afterParagraphs = paragraphs
+        .slice(numParagraphs)
+        .map((p) => marked.parse(p))
+        .join('')
+
+      const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
+      const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
+      const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
+      const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
+
+      result += `
+        <div class="${containerClass}">
+          <div class="${imageClass}">
+            <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height !== 'auto' ? height + 'px' : height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
+          </div>
+          <div class="${contentClass}">${sideParagraphs}</div>
+        </div>
+      `.trim()
+
+      if (afterParagraphs) {
+        result += `<div class="remaining-content">${afterParagraphs}</div>`
+      }
+    }
+
+    lastIndex = match.index + match[0].length
+  }
+
+  // Add any remaining text after the last match
+  if (lastIndex < text.length) {
+    result += marked.parse(text.slice(lastIndex))
+  }
+
+  return result.trim()
 }
 
-const parseMarkdownImage = (markdown) => {
-  const regex = /!\[.*?\|(.+?)\]\((.+?)\)/
-  const match = markdown.match(regex)
-
-  if (match) {
-    const styles = match[1].split(';').reduce((acc, style) => {
-      const [key, value] = style.split(':').map((s) => s.trim())
-      if (key && value) acc[key] = value
-      return acc
-    }, {})
-
-    return { url: match[2], styles }
-  }
-  return null
+const convertToHtml = (text) => {
+  return preprocessMarkdown(text)
 }
 
 const parseYoutubeVideo = (markdown) => {
@@ -1114,12 +1163,6 @@ const saveAsPDFMake = async () => {
   }
 }
 
-// Helper: preprocess page breaks in markdown
-function preprocessPageBreaks(markdown) {
-  // Ensure page break is always a separate block for markdown
-  return markdown.replace(/\[pb\]/g, '\n\n<div class="page-break"></div>\n\n')
-}
-
 const saveAsHtml2Pdf = () => {
   const element = document.querySelector('.graph-container')
   if (!element) {
@@ -1274,11 +1317,28 @@ async function runAIAssist(mode) {
   aiAssistError.value = ''
 
   if (mode === 'image') {
-    // Placeholder for image generation
-    setTimeout(() => {
+    // Real API call for image generation
+    try {
+      const prompt =
+        String(aiAssistNode?.info ?? '').slice(0, 300) ||
+        'A beautiful, wide, horizontal header image'
+      const response = await fetch('https://api.vegvisr.org/generate-header-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'API error')
+      }
+      const data = await response.json()
+      aiAssistResult.value = data.markdown || '[No image generated]'
+      aiAssistImageUrl.value = data.url || ''
+    } catch (err) {
+      aiAssistError.value = 'Error: ' + (err.message || err)
+    } finally {
       aiAssistLoading.value = false
-      aiAssistImageUrl.value = 'https://via.placeholder.com/600x200?text=AI+Header+Image'
-    }, 1200)
+    }
     return
   }
 
@@ -1314,9 +1374,7 @@ function insertAIAssistResult() {
   if (aiAssistMode.value === 'expand' || aiAssistMode.value === 'ask') {
     aiAssistNode.info = (aiAssistNode.info || '') + '\n\n' + aiAssistResult.value
   } else if (aiAssistMode.value === 'image') {
-    aiAssistNode.info =
-      `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${aiAssistImageUrl.value})\n` +
-      (aiAssistNode.info || '')
+    aiAssistNode.info = aiAssistResult.value + '\n' + (aiAssistNode.info || '')
   }
   closeAIAssist()
 }

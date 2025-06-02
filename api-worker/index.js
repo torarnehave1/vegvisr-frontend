@@ -1224,172 +1224,237 @@ const handleGrokAsk = async (request, env) => {
   }
 }
 
+// --- Generate Header Image Endpoint ---
+const handleGenerateHeaderImage = async (request, env) => {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
+  }
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+  let { prompt } = body
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return createErrorResponse('Prompt is required and must be a non-empty string', 400)
+  }
+  // Add horizontal/landscape hint
+  prompt = prompt + ', horizontal, wide, landscape, header image'
+
+  // 1. Call OpenAI DALL-E 3
+  let imageUrl
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'dall-e-3',
+        prompt,
+        n: 1,
+        size: '1792x1024', // Updated to supported size for horizontal images
+        response_format: 'url',
+      }),
+    })
+    if (!openaiRes.ok) {
+      const err = await openaiRes.text()
+      return createErrorResponse('OpenAI error: ' + err, 500)
+    }
+    const openaiData = await openaiRes.json()
+    imageUrl = openaiData.data[0].url
+  } catch (err) {
+    return createErrorResponse('Failed to generate image: ' + err, 500)
+  }
+
+  // 2. Download the image
+  let imageBuffer
+  try {
+    const imgRes = await fetch(imageUrl)
+    if (!imgRes.ok) throw new Error('Failed to download image')
+    imageBuffer = await imgRes.arrayBuffer()
+  } catch (err) {
+    return createErrorResponse('Failed to download image: ' + err, 500)
+  }
+
+  // 3. Upload to R2
+  const imageId = Date.now() + '-' + Math.random().toString(36).slice(2, 10)
+  const fileName = `${imageId}.png`
+  try {
+    await env.MY_R2_BUCKET.put(fileName, imageBuffer, {
+      httpMetadata: { contentType: 'image/png' },
+    })
+  } catch (err) {
+    return createErrorResponse('Failed to upload image to R2: ' + err, 500)
+  }
+
+  // 4. Return the markdown string
+  const publicUrl = `https://blog.vegvisr.org/${fileName}`
+  const markdown = `![Header|width: 100%; height: 200px; object-fit: cover; object-position: center](${publicUrl})`
+  return createResponse(JSON.stringify({ markdown, url: publicUrl }), 200)
+}
+
+// --- Generate Image Prompt Endpoint ---
+const handleGenerateImagePrompt = async (request, env) => {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
+  }
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+  const { context } = body
+  if (!context || typeof context !== 'string' || !context.trim()) {
+    return createErrorResponse('Context is required and must be a non-empty string', 400)
+  }
+
+  // Compose the system and user prompt
+  const systemPrompt = `You are an expert at creating visually descriptive prompts for AI image generation. Your job is to turn a text context into a concise, creative, and visually rich prompt for DALL-E 3. Always make the image horizontal, wide, and suitable as a website header. Do not mention text, captions, or watermarks. Do not include people unless the context requires it. Focus on landscape, atmosphere, and mood.`
+  const userPrompt = `Context: ${context}\n\nGenerate a single, creative, visually descriptive prompt for DALL-E 3 to create a horizontal header image. Do not include any explanations or extra text.`
+
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        temperature: 0.7,
+        max_tokens: 100,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    })
+    if (!openaiRes.ok) {
+      const err = await openaiRes.text()
+      return createErrorResponse('OpenAI error: ' + err, 500)
+    }
+    const openaiData = await openaiRes.json()
+    let prompt = openaiData.choices[0].message.content.trim()
+    // Remove any extra text or explanations
+    if (prompt.startsWith('"') && prompt.endsWith('"')) prompt = prompt.slice(1, -1)
+    return createResponse(JSON.stringify({ prompt }), 200)
+  } catch (err) {
+    return createErrorResponse('Failed to generate image prompt: ' + err, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
     const pathname = url.pathname
 
-    // Add new route handler for Mystmkra.io proxy
-    async function handleMystmkraProxy(request) {
-      const apiToken = request.headers.get('X-API-Token')
-      if (!apiToken) {
-        return new Response(JSON.stringify({ error: 'Missing API token' }), {
-          status: 401,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': 'application/json',
-          },
-        })
-      }
-
-      try {
-        const body = await request.json()
-        const response = await fetch('https://mystmkra.io/dropbox/api/markdown/save', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Token': apiToken,
-          },
-          body: JSON.stringify(body),
-        })
-
-        let result
-        const contentType = response.headers.get('content-type') || ''
-        if (contentType.includes('application/json')) {
-          result = await response.json()
-        } else {
-          const text = await response.text()
-          console.log('Mystmkra.io raw response:', text)
-          result = { error: 'Mystmkra.io did not return JSON', status: response.status, raw: text }
-        }
-
-        return new Response(JSON.stringify(result), {
-          status: response.status,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': 'application/json',
-          },
-        })
-      } catch (err) {
-        console.error('Error proxying to Mystmkra.io:', err)
-        return new Response(JSON.stringify({ error: 'Failed to proxy request to Mystmkra.io' }), {
-          status: 500,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': 'application/json',
-          },
-        })
-      }
-    }
-
-    console.log('Request received:', { method: request.method, url: request.url })
-
+    // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
-      return new Response('', {
+      return new Response(null, {
         status: 204,
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token',
+          'Access-Control-Max-Age': '86400',
         },
       })
     }
 
-    try {
-      if (pathname === '/createknowledgegraph' && request.method === 'GET') {
-        return await handleCreateKnowledgeGraph(request, env)
-      }
-      if (pathname === '/save' && request.method === 'POST') {
-        return await handleSave(request, env)
-      }
-      if (pathname.startsWith('/view/') && request.method === 'GET') {
-        return await handleView(request, env)
-      }
-      if (pathname === '/blog-posts' && request.method === 'GET') {
-        return await handleBlogPosts(request, env)
-      }
-      if (pathname === '/hidden-blog-posts' && request.method === 'GET') {
-        return await handleBlogPosts(request, env, true)
-      }
-      if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
-        return await handleBlogPostDelete(request, env)
-      }
-      if (pathname === '/snippetadd' && request.method === 'POST') {
-        return await handleSnippetAdd(request, env)
-      }
-      if (pathname.startsWith('/snippets/') && request.method === 'GET') {
-        return await handleSnippetGet(request, env)
-      }
-      if (pathname.startsWith('/snippetdelete') && request.method === 'DELETE') {
-        return await handleSnippetDelete(request, env)
-      }
-      if (pathname === '/snippetlist' && request.method === 'GET') {
-        return await handleSnippetList(request, env)
-      }
-      if (pathname === '/upload' && request.method === 'POST') {
-        return await handleUpload(request, env)
-      }
-      if (pathname === '/search' && request.method === 'GET') {
-        return await handleSearch(request, env)
-      }
-      if (pathname === '/hid_vis' && request.method === 'POST') {
-        return await handleToggleVisibility(request, env)
-      }
-      if (pathname === '/getimage' && request.method === 'GET') {
-        return await handleGetImage(request, env)
-      }
-      if (pathname === '/getcorsimage' && request.method === 'GET') {
-        return await handleGetImageFromR2(request, env)
-      }
-      if (pathname === '/getcorsimage' && request.method === 'HEAD') {
-        return await handleGetImageHeaders(request, env)
-      }
-      if (pathname === '/summarize' && request.method === 'POST') {
-        return await handleSummarize(request, env)
-      }
-
-      if (pathname === '/groktest' && request.method === 'POST') {
-        return await handleGrokTest(request, env)
-      }
-
-      if (pathname === '/aiaction' && request.method === 'POST') {
-        return await handleAIAction(request, env)
-      }
-      if (pathname === '/getGoogleApiKey' && request.method === 'GET') {
-        return await handleGetGoogleApiKey(request, env)
-      }
-
-      if (pathname === '/updatekml' && request.method === 'POST') {
-        return await handleUpdateKml(request, env)
-      }
-
-      if (pathname === '/suggest-title' && request.method === 'POST') {
-        return await handleSuggestTitle(request, env)
-      }
-      if (pathname === '/suggest-description' && request.method === 'POST') {
-        return await handleSuggestDescription(request, env)
-      }
-      if (pathname === '/suggest-categories' && request.method === 'POST') {
-        return await handleSuggestCategories(request, env)
-      }
-
-      if (pathname === '/grok-issue-description' && request.method === 'POST') {
-        return await handleGrokIssueDescription(request, env)
-      }
-
-      if (pathname === '/generate-meta-areas' && request.method === 'POST') {
-        return await handleGenerateMetaAreas(request, env)
-      }
-      if (pathname === '/grok-ask' && request.method === 'POST') {
-        return await handleGrokAsk(request, env)
-      }
-      if (pathname === '/mystmkra-save' && request.method === 'POST') {
-        return handleMystmkraProxy(request)
-      }
-
-      return createErrorResponse('Not Found', 404)
-    } catch (error) {
-      return createErrorResponse(`Internal Server Error: ${error.message}`, 500)
+    if (pathname === '/createknowledgegraph' && request.method === 'GET') {
+      return await handleCreateKnowledgeGraph(request, env)
     }
+    if (pathname === '/save' && request.method === 'POST') {
+      return await handleSave(request, env)
+    }
+    if (pathname.startsWith('/view/') && request.method === 'GET') {
+      return await handleView(request, env)
+    }
+    if (pathname === '/blog-posts' && request.method === 'GET') {
+      return await handleBlogPosts(request, env)
+    }
+    if (pathname === '/hidden-blog-posts' && request.method === 'GET') {
+      return await handleBlogPosts(request, env, true)
+    }
+    if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
+      return await handleBlogPostDelete(request, env)
+    }
+    if (pathname === '/snippetadd' && request.method === 'POST') {
+      return await handleSnippetAdd(request, env)
+    }
+    if (pathname.startsWith('/snippets/') && request.method === 'GET') {
+      return await handleSnippetGet(request, env)
+    }
+    if (pathname === '/snippetlist' && request.method === 'GET') {
+      return await handleSnippetList(request, env)
+    }
+    if (pathname.startsWith('/snippetdelete') && request.method === 'DELETE') {
+      return await handleSnippetDelete(request, env)
+    }
+    if (pathname === '/upload' && request.method === 'POST') {
+      return await handleUpload(request, env)
+    }
+    if (pathname === '/search' && request.method === 'GET') {
+      return await handleSearch(request, env)
+    }
+    if (pathname === '/hid_vis' && request.method === 'POST') {
+      return await handleToggleVisibility(request, env)
+    }
+    if (pathname === '/getimage' && request.method === 'GET') {
+      return await handleGetImage(request, env)
+    }
+    if (pathname === '/getcorsimage' && request.method === 'GET') {
+      return await handleGetImageFromR2(request, env)
+    }
+    if (pathname === '/getcorsimage' && request.method === 'HEAD') {
+      return await handleGetImageHeaders(request, env)
+    }
+    if (pathname === '/summarize' && request.method === 'POST') {
+      return await handleSummarize(request, env)
+    }
+    if (pathname === '/groktest' && request.method === 'POST') {
+      return await handleGrokTest(request, env)
+    }
+    if (pathname === '/aiaction' && request.method === 'POST') {
+      return await handleAIAction(request, env)
+    }
+    if (pathname === '/getGoogleApiKey' && request.method === 'GET') {
+      return await handleGetGoogleApiKey(request, env)
+    }
+    if (pathname === '/updatekml' && request.method === 'POST') {
+      return await handleUpdateKml(request, env)
+    }
+    if (pathname === '/suggest-title' && request.method === 'POST') {
+      return await handleSuggestTitle(request, env)
+    }
+    if (pathname === '/suggest-description' && request.method === 'POST') {
+      return await handleSuggestDescription(request, env)
+    }
+    if (pathname === '/suggest-categories' && request.method === 'POST') {
+      return await handleSuggestCategories(request, env)
+    }
+    if (pathname === '/grok-issue-description' && request.method === 'POST') {
+      return await handleGrokIssueDescription(request, env)
+    }
+    if (pathname === '/generate-meta-areas' && request.method === 'POST') {
+      return await handleGenerateMetaAreas(request, env)
+    }
+    if (pathname === '/grok-ask' && request.method === 'POST') {
+      return await handleGrokAsk(request, env)
+    }
+    if (pathname === '/generate-header-image' && request.method === 'POST') {
+      return await handleGenerateHeaderImage(request, env)
+    }
+    if (pathname === '/generate-image-prompt' && request.method === 'POST') {
+      return await handleGenerateImagePrompt(request, env)
+    }
+    // Fallback
+    return createErrorResponse('Not Found', 404)
   },
 }
