@@ -42,6 +42,9 @@
                 <RouterLink class="nav-link" to="/graph-portfolio">Graph Portfolio</RouterLink>
               </li>
               <li class="nav-item">
+                <RouterLink class="nav-link" to="/r2-portfolio">Image Portfolio</RouterLink>
+              </li>
+              <li class="nav-item">
                 <RouterLink class="nav-link" to="/github-issues">
                   <span class="material-icons">map</span>
                   Roadmap

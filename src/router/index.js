@@ -11,6 +11,7 @@ import GraphAdmin from '@/views/GraphAdmin.vue' // Ensure the path is correct
 import GraphViewer from '@/views/GraphViewer.vue' // Import the GraphViewer component
 import GraphPortfolio from '@/views/GraphPortfolio.vue'
 import GitHubIssuesView from '@/views/GitHubIssuesView.vue'
+import R2Portfolio from '../views/R2Portfolio.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -140,6 +141,11 @@ const router = createRouter({
       name: 'github-issues',
       component: GitHubIssuesView,
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/r2-portfolio',
+      name: 'R2Portfolio',
+      component: R2Portfolio,
     },
   ],
 })

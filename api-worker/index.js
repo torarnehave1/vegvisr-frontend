@@ -1292,7 +1292,7 @@ const handleGenerateHeaderImage = async (request, env) => {
   }
 
   // 4. Return the markdown string
-  const publicUrl = `https://blog.vegvisr.org/${fileName}`
+  const publicUrl = `https://vegvisr.imgix.net/${fileName}`
   const markdown = `![Header|width: 100%; height: 200px; object-fit: cover; object-position: center](${publicUrl})`
   return createResponse(JSON.stringify({ markdown, url: publicUrl }), 200)
 }
@@ -1347,6 +1347,18 @@ const handleGenerateImagePrompt = async (request, env) => {
   } catch (err) {
     return createErrorResponse('Failed to generate image prompt: ' + err, 500)
   }
+}
+
+const handleListR2Images = async (request, env) => {
+  const list = await env.MY_R2_BUCKET.list()
+  // Only include common image extensions
+  const images = list.objects
+    .filter((obj) => /\.(png|jpe?g|gif|webp)$/i.test(obj.key))
+    .map((obj) => ({
+      key: obj.key,
+      url: `https://vegvisr.imgix.net/${obj.key}`,
+    }))
+  return createResponse(JSON.stringify({ images }), 200)
 }
 
 export default {
@@ -1453,6 +1465,9 @@ export default {
     }
     if (pathname === '/generate-image-prompt' && request.method === 'POST') {
       return await handleGenerateImagePrompt(request, env)
+    }
+    if (pathname === '/list-r2-images' && request.method === 'GET') {
+      return await handleListR2Images(request, env)
     }
     // Fallback
     return createErrorResponse('Not Found', 404)
