@@ -941,7 +941,7 @@ const saveToMystmkra = async () => {
   closeMarkdownEditor()
   saveMessage.value = 'Saving to Mystmkra.io...'
   try {
-    const response = await fetch('https://api.vegvisr.org/mystmkra-save', {
+    const response = await fetch('https://api.vegvisr.org/mystmkrasave', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1040,7 +1040,7 @@ function saveToMystmkraFromMenu() {
     }
     saveMessage.value = 'Saving to Mystmkra.io...'
     console.log('Saving to Mystmkra.io...')
-    fetch('https://api.vegvisr.org/mystmkra-save', {
+    fetch('https://api.vegvisr.org/mystmkrasave', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

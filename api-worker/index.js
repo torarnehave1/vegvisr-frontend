@@ -1361,6 +1361,59 @@ const handleListR2Images = async (request, env) => {
   return createResponse(JSON.stringify({ images }), 200)
 }
 
+// Add new route handler for Mystmkra.io proxy
+async function handleMystmkraProxy(request) {
+  const apiToken = request.headers.get('X-API-Token')
+  if (!apiToken) {
+    return new Response(JSON.stringify({ error: 'Missing API token' }), {
+      status: 401,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      },
+    })
+  }
+
+  try {
+    const body = await request.json()
+    const response = await fetch('https://mystmkra.io/dropbox/api/markdown/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': apiToken,
+      },
+      body: JSON.stringify(body),
+    })
+
+    let result
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      result = await response.json()
+    } else {
+      const text = await response.text()
+      console.log('Mystmkra.io raw response:', text)
+      result = { error: 'Mystmkra.io did not return JSON', status: response.status, raw: text }
+    }
+
+    return new Response(JSON.stringify(result), {
+      status: response.status,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (err) {
+    console.error('Error proxying to Mystmkra.io:', err)
+    return new Response(JSON.stringify({ error: 'Failed to proxy request to Mystmkra.io' }), {
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      },
+    })
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -1469,6 +1522,11 @@ export default {
     if (pathname === '/list-r2-images' && request.method === 'GET') {
       return await handleListR2Images(request, env)
     }
+
+    if (pathname === '/mystmkrasave' && request.method === 'POST') {
+      return handleMystmkraProxy(request)
+    }
+
     // Fallback
     return createErrorResponse('Not Found', 404)
   },
