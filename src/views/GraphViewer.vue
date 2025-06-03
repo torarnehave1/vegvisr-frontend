@@ -2,8 +2,13 @@
   <div class="graph-viewer container">
     <!-- Print/Save as PDF Buttons -->
     <button @click="printGraph" class="btn btn-primary mb-3">Print</button>
-    <button @click="saveAsHtml2Pdf" class="btn btn-warning mb-3 ms-2">
-      Save as PDF (html2pdf)
+    <button @click="saveAsHtml2Pdf" class="btn btn-warning mb-3 ms-2">Save as PDF</button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+      @click="saveToMystmkraFromMenu"
+      class="btn btn-info mb-3 ms-2"
+    >
+      Save to Mystmkra.io
     </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
@@ -126,22 +131,6 @@
               >
                 Edit Info
               </button>
-              <button
-                v-if="
-                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
-                "
-                @click="openAIAssist(node)"
-                style="
-                  margin-left: 8px;
-                  background: #6f42c1;
-                  color: #fff;
-                  border-radius: 4px;
-                  border: none;
-                  padding: 5px 10px;
-                "
-              >
-                AI Assist
-              </button>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
               ></div>
@@ -196,11 +185,30 @@
             >
               <span class="material-icons">video_library</span>
             </button>
+            <!-- Add AI Assist button to the modal toolbar -->
+            <button
+              v-if="
+                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+              "
+              @click="openAIAssistInEditor"
+              title="AI Assist"
+              class="btn btn-link p-0"
+              style="
+                background: #6f42c1;
+                color: #fff;
+                border-radius: 4px;
+                border: none;
+                padding: 5px 10px;
+              "
+            >
+              <span class="material-icons">smart_toy</span>
+            </button>
           </div>
           <textarea
             v-model="currentMarkdown"
             class="form-control"
             style="width: 100%; height: 200px; font-family: monospace"
+            ref="markdownEditorTextarea"
           ></textarea>
           <div class="modal-actions">
             <button @click="saveMarkdown">Save</button>
@@ -252,7 +260,9 @@
             </div>
             <div v-else-if="aiAssistResult">
               <div class="alert alert-info">{{ aiAssistResult }}</div>
-              <button class="btn btn-primary" @click="insertAIAssistResult">Insert</button>
+              <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
+                Insert at Cursor
+              </button>
             </div>
             <div v-else-if="aiAssistImageUrl">
               <img
@@ -260,7 +270,7 @@
                 alt="AI Header"
                 style="max-width: 100%; border-radius: 6px; margin-bottom: 10px"
               />
-              <button class="btn btn-primary" @click="insertAIAssistResult">
+              <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
                 Insert as Header Image
               </button>
             </div>
@@ -274,7 +284,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
@@ -505,11 +515,18 @@ const insertYoutubeVideoMarkdown = () => {
   }
 }
 
+function preprocessPageBreaks(markdown) {
+  return markdown.replace(/\[pb\]/gi, '<div class="page-break"></div>')
+}
+
 const preprocessMarkdown = (text) => {
   console.log('Input Markdown Text:', text)
 
+  // First, process [pb] page breaks
+  let processedText = preprocessPageBreaks(text)
+
   // First process sections
-  let processedText = text.replace(
+  processedText = processedText.replace(
     /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
     (match, style, content) => {
       // Convert style string to inline CSS
@@ -757,6 +774,7 @@ const editYoutubeTitle = async (node) => {
 const isMarkdownEditorOpen = ref(false)
 const currentMarkdown = ref('')
 const currentNode = ref(null)
+const markdownEditorTextarea = ref(null)
 
 const openMarkdownEditor = (node) => {
   if (!node.info || node.info.trim() === '') {
@@ -847,16 +865,25 @@ const saveAsHtml2Pdf = () => {
         const buttons = clonedDoc.querySelectorAll('.node-info button')
         buttons.forEach((btn) => (btn.style.display = 'none'))
 
-        // Add page break styles as before
+        // Add strong page break styles and keep .section together
         const style = clonedDoc.createElement('style')
         style.textContent = `
           .page-break {
-            page-break-after: always;
-            break-after: page;
-            margin: 0;
-            padding: 0;
-            height: 0;
-            display: block;
+            display: block !important;
+            width: 100% !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            background: none !important;
+            page-break-before: always !important;
+            page-break-after: always !important;
+            break-before: page !important;
+            break-after: page !important;
+          }
+          .section {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
           table, tr, td, th {
             page-break-inside: avoid !important;
@@ -948,6 +975,118 @@ const saveToMystmkra = async () => {
   }
 }
 
+function saveToMystmkraFromMenu() {
+  // Show user info alert for debugging
+  alert(
+    'User Info:\n' +
+      'Email: ' +
+      userStore.email +
+      '\n' +
+      'Role: ' +
+      userStore.role +
+      '\n' +
+      'Mystmkra User ID: ' +
+      userStore.mystmkraUserId +
+      '\n' +
+      'User ID: ' +
+      userStore.user_id +
+      '\n' +
+      'Email Verification Token: ' +
+      userStore.emailVerificationToken,
+  )
+  console.log('User Info:', {
+    email: userStore.email,
+    role: userStore.role,
+    mystmkraUserId: userStore.mystmkraUserId,
+    user_id: userStore.user_id,
+    emailVerificationToken: userStore.emailVerificationToken,
+  })
+
+  let content = ''
+  let title = ''
+  if (isMarkdownEditorOpen.value && currentNode.value) {
+    content = currentMarkdown.value
+    title = currentNode.value.label || 'Untitled'
+  } else {
+    const node = (graphData.value.nodes || []).find((n) => n.visible !== false)
+    if (node && node.info) {
+      content = node.info
+      title = node.label || 'Untitled'
+    }
+  }
+
+  console.log('Save to Mystmkra.io - Content:', content)
+  console.log('Save to Mystmkra.io - Title:', title)
+
+  if (content) {
+    // Call the Mystmkra save API directly
+    if (!userStore.emailVerificationToken) {
+      saveMessage.value = 'No API token found for this user.'
+      console.log('No API token found for this user.')
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 2000)
+      return
+    }
+    const mystmkraUserId = userStore.mystmkraUserId
+    if (!mystmkraUserId || !/^[a-f\d]{24}$/i.test(mystmkraUserId)) {
+      saveMessage.value =
+        'Mystmkra User ID is missing or invalid. Please set it in your profile before saving.'
+      console.log('Mystmkra User ID is missing or invalid.')
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 2000)
+      return
+    }
+    saveMessage.value = 'Saving to Mystmkra.io...'
+    console.log('Saving to Mystmkra.io...')
+    fetch('https://api.vegvisr.org/mystmkra-save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        content,
+        title,
+        tags: [],
+        documentId: null,
+        userId: mystmkraUserId,
+      }),
+    })
+      .then((response) => {
+        if (response.ok) {
+          saveMessage.value = 'Saved to Mystmkra.io!'
+          console.log('Saved to Mystmkra.io!')
+          setTimeout(() => {
+            saveMessage.value = ''
+          }, 2000)
+        } else {
+          response.text().then((text) => {
+            saveMessage.value = 'Failed to save to Mystmkra.io. ' + text
+            console.log('Failed to save to Mystmkra.io:', text)
+            setTimeout(() => {
+              saveMessage.value = ''
+            }, 2000)
+          })
+        }
+      })
+      .catch((err) => {
+        saveMessage.value = 'Error saving to Mystmkra.io: ' + err.message
+        console.log('Error saving to Mystmkra.io:', err.message)
+        setTimeout(() => {
+          saveMessage.value = ''
+        }, 2000)
+      })
+  } else {
+    saveMessage.value = 'No visible node with markdown content to save.'
+    console.log('No visible node with markdown content to save.')
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 2000)
+  }
+}
+
 // --- AI Assist UI State ---
 const isAIAssistOpen = ref(false)
 const aiAssistMode = ref('') // 'expand', 'ask', 'image'
@@ -958,15 +1097,6 @@ const aiAssistImageUrl = ref('')
 const aiAssistError = ref('')
 let aiAssistNode = null
 
-function openAIAssist(node) {
-  isAIAssistOpen.value = true
-  aiAssistMode.value = ''
-  aiAssistQuestion.value = ''
-  aiAssistResult.value = ''
-  aiAssistImageUrl.value = ''
-  aiAssistError.value = ''
-  aiAssistNode = node
-}
 function closeAIAssist() {
   isAIAssistOpen.value = false
   aiAssistMode.value = ''
@@ -976,6 +1106,7 @@ function closeAIAssist() {
   aiAssistError.value = ''
   aiAssistNode = null
 }
+
 async function runAIAssist(mode) {
   aiAssistMode.value = mode
   aiAssistLoading.value = true
@@ -1036,13 +1167,37 @@ async function runAIAssist(mode) {
     aiAssistLoading.value = false
   }
 }
-function insertAIAssistResult() {
-  if (!aiAssistNode) return
+
+function openAIAssistInEditor() {
+  isAIAssistOpen.value = true
+  aiAssistMode.value = ''
+  aiAssistQuestion.value = ''
+  aiAssistResult.value = ''
+  aiAssistImageUrl.value = ''
+  aiAssistError.value = ''
+  aiAssistNode = currentNode.value // Use the node being edited
+}
+
+function insertAIAssistResultToEditor() {
+  const textarea = markdownEditorTextarea.value
+  if (!textarea) return
+  let insertText = ''
   if (aiAssistMode.value === 'expand' || aiAssistMode.value === 'ask') {
-    aiAssistNode.info = (aiAssistNode.info || '') + '\n\n' + aiAssistResult.value
+    insertText = aiAssistResult.value
   } else if (aiAssistMode.value === 'image') {
-    aiAssistNode.info = aiAssistResult.value + '\n' + (aiAssistNode.info || '')
+    insertText = aiAssistResult.value
   }
+  // Insert at cursor position
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const before = currentMarkdown.value.substring(0, start)
+  const after = currentMarkdown.value.substring(end)
+  currentMarkdown.value = before + insertText + after
+  // Move cursor after inserted text
+  nextTick(() => {
+    textarea.selectionStart = textarea.selectionEnd = start + insertText.length
+    textarea.focus()
+  })
   closeAIAssist()
 }
 
