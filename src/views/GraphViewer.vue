@@ -512,18 +512,39 @@ const insertYoutubeVideoMarkdown = () => {
 const preprocessMarkdown = (text) => {
   console.log('Input Markdown Text:', text)
 
+  // First process sections
+  let processedText = text.replace(
+    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      // Process the content through marked first to handle any markdown inside the section
+      const processedContent = marked.parse(content.trim())
+      return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${processedContent}</div>`
+    },
+  )
+
+  // Then process images
   const markdownRegex = /!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\)/g
   let result = ''
   let lastIndex = 0
 
   let match
-  while ((match = markdownRegex.exec(text)) !== null) {
+  while ((match = markdownRegex.exec(processedText)) !== null) {
     const [, type, paragraphCount, styles, url] = match
     console.log(`Processing ${type}:`, { paragraphCount, styles, url, index: match.index })
 
     // Add text before the match
     if (lastIndex < match.index) {
-      result += marked.parse(text.slice(lastIndex, match.index))
+      result += marked.parse(processedText.slice(lastIndex, match.index))
     }
 
     // Helper to extract style values robustly (with or without quotes)
@@ -550,7 +571,7 @@ const preprocessMarkdown = (text) => {
       const objectPosition = getStyleValue(styles, 'object-position', 'center')
 
       // Get text after the markdown
-      const remainingText = text.slice(match.index + match[0].length).trim()
+      const remainingText = processedText.slice(match.index + match[0].length).trim()
       const paragraphs = remainingText.split(/\n\s*\n/).filter((p) => p.trim())
       const numParagraphs = parseInt(paragraphCount, 10) || 1
       const sideParagraphs = paragraphs
@@ -585,11 +606,244 @@ const preprocessMarkdown = (text) => {
   }
 
   // Add any remaining text after the last match
-  if (lastIndex < text.length) {
-    result += marked.parse(text.slice(lastIndex))
+  if (lastIndex < processedText.length) {
+    result += marked.parse(processedText.slice(lastIndex))
   }
 
   return result.trim()
+}
+
+// Helper: replace special characters with base Latin characters
+function removeDiacritics(str) {
+  if (str == null) return ''
+  str = String(str) // Ensure it's a string
+
+  // First pass: replace known special characters
+  const specialChars = {
+    ⵣ: 'z', // Tifinagh YAZ
+    ⵢ: 'y', // Tifinagh YAH
+    ⵡ: 'w', // Tifinagh WAW
+    ⵏ: 'n', // Tifinagh NUN
+    ⵎ: 'm', // Tifinagh YAM
+    ⵍ: 'l', // Tifinagh LAM
+    ⴽ: 'k', // Tifinagh KAF
+    ⵇ: 'q', // Tifinagh QAF
+    ⴼ: 'f', // Tifinagh FA
+    ⵙ: 's', // Tifinagh SIN
+    ⵔ: 'r', // Tifinagh RA
+    ⵃ: 'h', // Tifinagh HA
+    ⵊ: 'j', // Tifinagh JIM
+    ⵅ: 'kh', // Tifinagh KHA
+    ⵖ: 'gh', // Tifinagh GHAIN
+    ⵉ: 'i', // Tifinagh YA
+    ⵓ: 'u', // Tifinagh WAW
+    ⴰ: 'a', // Tifinagh YA
+    ⴻ: 'e', // Tifinagh YA
+    ⵂ: 'h', // Tifinagh HA
+    ⵄ: 'a', // Tifinagh AIN
+    ⵆ: 'kh', // Tifinagh KHA
+    ⵈ: 'q', // Tifinagh QAF
+    ⵋ: 'j', // Tifinagh JIM
+    ⵐ: 'ny', // Tifinagh NYA
+    ⵑ: 'ng', // Tifinagh NGA
+    ⵒ: 'p', // Tifinagh PA
+    ⵕ: 'r', // Tifinagh RA
+    ⵗ: 'gh', // Tifinagh GHAIN
+    ⵘ: 'dj', // Tifinagh DJIM
+    ⵚ: 's', // Tifinagh SAD
+    ⵛ: 'ch', // Tifinagh CHA
+    ⵜ: 'ch', // Tifinagh CHA
+    ⵝ: 't', // Tifinagh TA
+    ⵞ: 'th', // Tifinagh THA
+    ⵟ: 't', // Tifinagh TA
+    ⵠ: 'v', // Tifinagh VA
+    ⵤ: 'z', // Tifinagh ZA
+    ⵥ: 'z', // Tifinagh ZA
+    ⵦ: 'e', // Tifinagh YA
+    ⵧ: 'o', // Tifinagh WAW
+    '⵨': 'p', // Tifinagh PA
+    '⵩': 'p', // Tifinagh PA
+    '⵪': 'v', // Tifinagh VA
+    '⵫': 'v', // Tifinagh VA
+    '⵬': 'v', // Tifinagh VA
+    '⵭': 'v', // Tifinagh VA
+    '⵮': 'v', // Tifinagh VA
+    ⵯ: 'v', // Tifinagh VA
+    '⵰': 'v', // Tifinagh VA
+    '⵱': 'v', // Tifinagh VA
+    '⵲': 'v', // Tifinagh VA
+    '⵳': 'v', // Tifinagh VA
+    '⵴': 'v', // Tifinagh VA
+    '⵵': 'v', // Tifinagh VA
+    '⵶': 'v', // Tifinagh VA
+    '⵷': 'v', // Tifinagh VA
+    '⵸': 'v', // Tifinagh VA
+    '⵹': 'v', // Tifinagh VA
+    '⵺': 'v', // Tifinagh VA
+    '⵻': 'v', // Tifinagh VA
+    '⵼': 'v', // Tifinagh VA
+    '⵽': 'v', // Tifinagh VA
+    '⵾': 'v', // Tifinagh VA
+    '⵿': 'v', // Tifinagh VA
+  }
+
+  // Replace special characters
+  for (const [char, replacement] of Object.entries(specialChars)) {
+    str = str.replace(new RegExp(char, 'g'), replacement)
+  }
+
+  // Second pass: replace diacritics
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove combining diacritical marks
+    .replace(/[ṛṝṙṟ]/g, 'r')
+    .replace(/[Ṛ]/g, 'R')
+    .replace(/[ḷḹ]/g, 'l')
+    .replace(/[ṅṇñń]/g, 'n')
+    .replace(/[ṭṯ]/g, 't')
+    .replace(/[ḍḏ]/g, 'd')
+    .replace(/[ṣśșş]/g, 's')
+    .replace(/[ḥḫḩ]/g, 'h')
+    .replace(/[āáàâäãåā]/g, 'a')
+    .replace(/[īíìîïĩī]/g, 'i')
+    .replace(/[ūúùûüũū]/g, 'u')
+    .replace(/[ēéèêëẽē]/g, 'e')
+    .replace(/[ōóòôöõō]/g, 'o')
+    .replace(/[ṁṃ]/g, 'm')
+    .replace(/[çčć]/g, 'c')
+    .replace(/[ḻ]/g, 'l')
+    .replace(/[ḹ]/g, 'l')
+    .replace(/[ẏ]/g, 'y')
+    .replace(/[ḳ]/g, 'k')
+    .replace(/[ḷ]/g, 'l')
+    .replace(/[ḹ]/g, 'l')
+    .replace(/[ḻ]/g, 'l')
+    .replace(/[ṡ]/g, 's')
+    .replace(/[ẓ]/g, 'z')
+    .replace(/[ḏ]/g, 'd')
+    .replace(/[ḡ]/g, 'g')
+    .replace(/[ṫ]/g, 't')
+    .replace(/[ẖ]/g, 'h')
+    .replace(/[ẗ]/g, 't')
+    .replace(/[ẃẁẅ]/g, 'w')
+    .replace(/[ẍ]/g, 'x')
+    .replace(/[ẙ]/g, 'y')
+    .replace(/[ẛ]/g, 's')
+    .replace(/[ẏ]/g, 'y')
+    .replace(/[ẕ]/g, 'z')
+    .replace(/[ẗ]/g, 't')
+    .replace(/[ẘ]/g, 'w')
+    .replace(/[ẚ]/g, 'a')
+    .replace(/[ẞ]/g, 'SS')
+    .replace(/[ß]/g, 'ss')
+}
+
+// Helper: convert all <img src> in HTML to base64 data URLs
+async function convertImagesToBase64(html) {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  const images = div.querySelectorAll('img')
+  for (const img of images) {
+    const src = img.getAttribute('src')
+    if (src && !src.startsWith('data:')) {
+      try {
+        const dataUrl = await toDataURL(src)
+        // Get height from style
+        let height = null
+        const style = img.getAttribute('style') || ''
+        const heightMatch = style.match(/height:\s*(\d+)/i)
+        if (heightMatch) {
+          height = parseInt(heightMatch[1], 10)
+        }
+        // Load image to get natural dimensions
+        let width = null
+        if (height) {
+          await new Promise((resolve, reject) => {
+            const image = new window.Image()
+            image.onload = function () {
+              width = Math.round((image.naturalWidth / image.naturalHeight) * height)
+              img.setAttribute('data-pdfmake-width', width)
+              img.setAttribute('data-pdfmake-height', height)
+              resolve()
+            }
+            image.onerror = reject
+            image.src = dataUrl
+          })
+        }
+        img.setAttribute('src', dataUrl)
+      } catch {
+        img.remove()
+      }
+    }
+  }
+  return div.innerHTML
+}
+
+function toDataURL(url) {
+  return fetch(url)
+    .then((response) => response.blob())
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }),
+    )
+}
+
+function setImageWidth(pdfmakeContent) {
+  if (Array.isArray(pdfmakeContent)) {
+    pdfmakeContent.forEach((item) => setImageWidth(item))
+  } else if (pdfmakeContent && typeof pdfmakeContent === 'object') {
+    if (pdfmakeContent.image) {
+      // For testing: always set fixed width and height
+      pdfmakeContent.width = 400
+      pdfmakeContent.height = 250
+    }
+    if (pdfmakeContent.stack) setImageWidth(pdfmakeContent.stack)
+    if (pdfmakeContent.columns) setImageWidth(pdfmakeContent.columns)
+    if (pdfmakeContent.table) setImageWidth(pdfmakeContent.table.body)
+    if (pdfmakeContent.ul) setImageWidth(pdfmakeContent.ul)
+    if (pdfmakeContent.ol) setImageWidth(pdfmakeContent.ol)
+  }
+}
+
+// Helper: convert font-family in HTML to Roboto
+function convertFontsToRoboto(html) {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  const elements = div.querySelectorAll('*')
+  elements.forEach((element) => {
+    const style = element.getAttribute('style') || ''
+    if (style.includes('font-family')) {
+      const newStyle = style.replace(/font-family:\s*[^;]+/g, 'font-family: Roboto')
+      element.setAttribute('style', newStyle)
+    }
+  })
+  return div.innerHTML
+}
+
+// Update preprocessFancy to use Roboto font
+function preprocessFancy(markdown) {
+  return markdown.replace(
+    /\[FANCY\s*\|\s*([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          if (k === 'font-family') return 'font-family: Roboto'
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
+    },
+  )
 }
 
 const convertToHtml = (text) => {
@@ -826,259 +1080,6 @@ const saveAsPDF = () => {
   doc.save('graph.pdf')
 }
 
-// Helper: preprocess [SECTION ...] blocks to HTML divs with inline style
-function preprocessSections(markdown) {
-  return markdown.replace(
-    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
-    (match, style, content) => {
-      // Convert style string to inline CSS
-      const css = style
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          return k && v ? `${k}:${v}` : ''
-        })
-        .join(';')
-      return `<div style="${css}; padding: 10px; border-radius: 4px; margin: 10px 0;">${content.trim()}</div>`
-    },
-  )
-}
-
-// Helper: replace special characters with base Latin characters
-function removeDiacritics(str) {
-  if (str == null) return ''
-  str = String(str) // Ensure it's a string
-
-  // First pass: replace known special characters
-  const specialChars = {
-    ⵣ: 'z', // Tifinagh YAZ
-    ⵢ: 'y', // Tifinagh YAH
-    ⵡ: 'w', // Tifinagh WAW
-    ⵏ: 'n', // Tifinagh NUN
-    ⵎ: 'm', // Tifinagh YAM
-    ⵍ: 'l', // Tifinagh LAM
-    ⴽ: 'k', // Tifinagh KAF
-    ⵇ: 'q', // Tifinagh QAF
-    ⴼ: 'f', // Tifinagh FA
-    ⵙ: 's', // Tifinagh SIN
-    ⵔ: 'r', // Tifinagh RA
-    ⵃ: 'h', // Tifinagh HA
-    ⵊ: 'j', // Tifinagh JIM
-    ⵅ: 'kh', // Tifinagh KHA
-    ⵖ: 'gh', // Tifinagh GHAIN
-    ⵉ: 'i', // Tifinagh YA
-    ⵓ: 'u', // Tifinagh WAW
-    ⴰ: 'a', // Tifinagh YA
-    ⴻ: 'e', // Tifinagh YA
-    ⵂ: 'h', // Tifinagh HA
-    ⵄ: 'a', // Tifinagh AIN
-    ⵆ: 'kh', // Tifinagh KHA
-    ⵈ: 'q', // Tifinagh QAF
-    ⵋ: 'j', // Tifinagh JIM
-    ⵐ: 'ny', // Tifinagh NYA
-    ⵑ: 'ng', // Tifinagh NGA
-    ⵒ: 'p', // Tifinagh PA
-    ⵕ: 'r', // Tifinagh RA
-    ⵗ: 'gh', // Tifinagh GHAIN
-    ⵘ: 'dj', // Tifinagh DJIM
-    ⵚ: 's', // Tifinagh SAD
-    ⵛ: 'ch', // Tifinagh CHA
-    ⵜ: 'ch', // Tifinagh CHA
-    ⵝ: 't', // Tifinagh TA
-    ⵞ: 'th', // Tifinagh THA
-    ⵟ: 't', // Tifinagh TA
-    ⵠ: 'v', // Tifinagh VA
-    ⵤ: 'z', // Tifinagh ZA
-    ⵥ: 'z', // Tifinagh ZA
-    ⵦ: 'e', // Tifinagh YA
-    ⵧ: 'o', // Tifinagh WAW
-    '⵨': 'p', // Tifinagh PA
-    '⵩': 'p', // Tifinagh PA
-    '⵪': 'v', // Tifinagh VA
-    '⵫': 'v', // Tifinagh VA
-    '⵬': 'v', // Tifinagh VA
-    '⵭': 'v', // Tifinagh VA
-    '⵮': 'v', // Tifinagh VA
-    ⵯ: 'v', // Tifinagh VA
-    '⵰': 'v', // Tifinagh VA
-    '⵱': 'v', // Tifinagh VA
-    '⵲': 'v', // Tifinagh VA
-    '⵳': 'v', // Tifinagh VA
-    '⵴': 'v', // Tifinagh VA
-    '⵵': 'v', // Tifinagh VA
-    '⵶': 'v', // Tifinagh VA
-    '⵷': 'v', // Tifinagh VA
-    '⵸': 'v', // Tifinagh VA
-    '⵹': 'v', // Tifinagh VA
-    '⵺': 'v', // Tifinagh VA
-    '⵻': 'v', // Tifinagh VA
-    '⵼': 'v', // Tifinagh VA
-    '⵽': 'v', // Tifinagh VA
-    '⵾': 'v', // Tifinagh VA
-    '⵿': 'v', // Tifinagh VA
-  }
-
-  // Replace special characters
-  for (const [char, replacement] of Object.entries(specialChars)) {
-    str = str.replace(new RegExp(char, 'g'), replacement)
-  }
-
-  // Second pass: replace diacritics
-  return str
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove combining diacritical marks
-    .replace(/[ṛṝṙṟ]/g, 'r')
-    .replace(/[Ṛ]/g, 'R')
-    .replace(/[ḷḹ]/g, 'l')
-    .replace(/[ṅṇñń]/g, 'n')
-    .replace(/[ṭṯ]/g, 't')
-    .replace(/[ḍḏ]/g, 'd')
-    .replace(/[ṣśșş]/g, 's')
-    .replace(/[ḥḫḩ]/g, 'h')
-    .replace(/[āáàâäãåā]/g, 'a')
-    .replace(/[īíìîïĩī]/g, 'i')
-    .replace(/[ūúùûüũū]/g, 'u')
-    .replace(/[ēéèêëẽē]/g, 'e')
-    .replace(/[ōóòôöõō]/g, 'o')
-    .replace(/[ṁṃ]/g, 'm')
-    .replace(/[çčć]/g, 'c')
-    .replace(/[ḻ]/g, 'l')
-    .replace(/[ḹ]/g, 'l')
-    .replace(/[ẏ]/g, 'y')
-    .replace(/[ḳ]/g, 'k')
-    .replace(/[ḷ]/g, 'l')
-    .replace(/[ḹ]/g, 'l')
-    .replace(/[ḻ]/g, 'l')
-    .replace(/[ṡ]/g, 's')
-    .replace(/[ẓ]/g, 'z')
-    .replace(/[ḏ]/g, 'd')
-    .replace(/[ḡ]/g, 'g')
-    .replace(/[ṫ]/g, 't')
-    .replace(/[ẖ]/g, 'h')
-    .replace(/[ẗ]/g, 't')
-    .replace(/[ẃẁẅ]/g, 'w')
-    .replace(/[ẍ]/g, 'x')
-    .replace(/[ẙ]/g, 'y')
-    .replace(/[ẛ]/g, 's')
-    .replace(/[ẏ]/g, 'y')
-    .replace(/[ẕ]/g, 'z')
-    .replace(/[ẗ]/g, 't')
-    .replace(/[ẘ]/g, 'w')
-    .replace(/[ẚ]/g, 'a')
-    .replace(/[ẞ]/g, 'SS')
-    .replace(/[ß]/g, 'ss')
-}
-
-// Helper: convert all <img src> in HTML to base64 data URLs
-async function convertImagesToBase64(html) {
-  const div = document.createElement('div')
-  div.innerHTML = html
-  const images = div.querySelectorAll('img')
-  for (const img of images) {
-    const src = img.getAttribute('src')
-    if (src && !src.startsWith('data:')) {
-      try {
-        const dataUrl = await toDataURL(src)
-        // Get height from style
-        let height = null
-        const style = img.getAttribute('style') || ''
-        const heightMatch = style.match(/height:\s*(\d+)/i)
-        if (heightMatch) {
-          height = parseInt(heightMatch[1], 10)
-        }
-        // Load image to get natural dimensions
-        let width = null
-        if (height) {
-          await new Promise((resolve, reject) => {
-            const image = new window.Image()
-            image.onload = function () {
-              width = Math.round((image.naturalWidth / image.naturalHeight) * height)
-              img.setAttribute('data-pdfmake-width', width)
-              img.setAttribute('data-pdfmake-height', height)
-              resolve()
-            }
-            image.onerror = reject
-            image.src = dataUrl
-          })
-        }
-        img.setAttribute('src', dataUrl)
-      } catch {
-        img.remove()
-      }
-    }
-  }
-  return div.innerHTML
-}
-
-function toDataURL(url) {
-  return fetch(url)
-    .then((response) => response.blob())
-    .then(
-      (blob) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onloadend = () => resolve(reader.result)
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
-        }),
-    )
-}
-
-function setImageWidth(pdfmakeContent) {
-  if (Array.isArray(pdfmakeContent)) {
-    pdfmakeContent.forEach((item) => setImageWidth(item))
-  } else if (pdfmakeContent && typeof pdfmakeContent === 'object') {
-    if (pdfmakeContent.image) {
-      // For testing: always set fixed width and height
-      pdfmakeContent.width = 400
-      pdfmakeContent.height = 250
-    }
-    if (pdfmakeContent.stack) setImageWidth(pdfmakeContent.stack)
-    if (pdfmakeContent.columns) setImageWidth(pdfmakeContent.columns)
-    if (pdfmakeContent.table) setImageWidth(pdfmakeContent.table.body)
-    if (pdfmakeContent.ul) setImageWidth(pdfmakeContent.ul)
-    if (pdfmakeContent.ol) setImageWidth(pdfmakeContent.ol)
-  }
-}
-
-// Helper: convert font-family in HTML to Roboto
-function convertFontsToRoboto(html) {
-  const div = document.createElement('div')
-  div.innerHTML = html
-  const elements = div.querySelectorAll('*')
-  elements.forEach((element) => {
-    const style = element.getAttribute('style') || ''
-    if (style.includes('font-family')) {
-      const newStyle = style.replace(/font-family:\s*[^;]+/g, 'font-family: Roboto')
-      element.setAttribute('style', newStyle)
-    }
-  })
-  return div.innerHTML
-}
-
-// Update preprocessFancy to use Roboto font
-function preprocessFancy(markdown) {
-  return markdown.replace(
-    /\[FANCY\s*\|\s*([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
-    (match, style, content) => {
-      // Convert style string to inline CSS
-      const css = style
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          if (k === 'font-family') return 'font-family: Roboto'
-          return k && v ? `${k}:${v}` : ''
-        })
-        .join(';')
-      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
-    },
-  )
-}
-
 const saveAsPDFMake = async () => {
   try {
     const graphTitle = removeDiacritics(graphData.value.metadata?.title || 'Graph Export')
@@ -1170,11 +1171,6 @@ const saveAsHtml2Pdf = () => {
     return
   }
 
-  // Clone the element to avoid modifying the original
-  const clonedElement = element.cloneNode(true)
-
-  // No need to process nodes for page breaks here anymore
-
   const opt = {
     margin: 0.5,
     filename: 'graph-export.pdf',
@@ -1184,7 +1180,11 @@ const saveAsHtml2Pdf = () => {
       useCORS: true,
       logging: true,
       onclone: (clonedDoc) => {
-        // Add page break styles to the cloned document
+        // Hide all .node-info button elements in the cloned DOM
+        const buttons = clonedDoc.querySelectorAll('.node-info button')
+        buttons.forEach((btn) => (btn.style.display = 'none'))
+
+        // Add page break styles as before
         const style = clonedDoc.createElement('style')
         style.textContent = `
           .page-break {
@@ -1217,10 +1217,14 @@ const saveAsHtml2Pdf = () => {
 
   html2pdf()
     .set(opt)
-    .from(clonedElement)
+    .from(element)
     .save()
-    .then(() => console.log('PDF generation completed'))
-    .catch((err) => console.error('Error generating PDF:', err))
+    .then(() => {
+      console.log('PDF generation completed')
+    })
+    .catch((err) => {
+      console.error('Error generating PDF:', err)
+    })
 }
 
 const saveToMystmkra = async () => {
@@ -1377,6 +1381,27 @@ function insertAIAssistResult() {
     aiAssistNode.info = aiAssistResult.value + '\n' + (aiAssistNode.info || '')
   }
   closeAIAssist()
+}
+
+// Helper: preprocess [SECTION ...] blocks to HTML divs with inline style
+function preprocessSections(markdown) {
+  return markdown.replace(
+    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      // Do not run marked.parse here, as saveAsPDFMake will do it after all preprocessors
+      return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${content.trim()}</div>`
+    },
+  )
 }
 
 onMounted(() => {
@@ -1852,6 +1877,9 @@ img.leftside {
   .navbar,
   .sidebar,
   .footer {
+    display: none !important;
+  }
+  .node-info button {
     display: none !important;
   }
 }
