@@ -70,9 +70,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   }
 
   const updateGraphFromJson = (parsedJson) => {
-    console.log('updateGraphFromJson called with parsedJson:', parsedJson) // Log the input JSON
     nodes.value = parsedJson.nodes.map((node) => {
-      console.log('Processing node:', node) // Log each node being processed
       return {
         data: {
           ...node,
@@ -92,10 +90,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         ...(edge.info !== undefined && { info: edge.info }),
       },
     }))
-    console.log('Updated nodes:', nodes.value) // Log the updated nodes
-    console.log('Updated edges:', edges.value) // Log the updated edges
     graphJson.value = JSON.stringify(parsedJson, null, 2)
-    console.log('Updated graphJson:', graphJson.value) // Log the updated JSON
     updateCounts()
   }
 
@@ -164,10 +159,8 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   }
 
   const verifyJson = () => {
-    console.log('verifyJson called with graphJson:', graphJson.value) // Log the current JSON
     try {
       const parsedJson = JSON.parse(graphJson.value)
-      console.log('Parsed JSON:', parsedJson) // Log the parsed JSON
       if (!parsedJson.nodes || !parsedJson.edges) {
         validationMessage.value = 'Invalid graph data. Ensure JSON contains "nodes" and "edges".'
         validationMessageClass.value = 'alert-danger'
@@ -184,7 +177,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
       }
 
       nodes.value = parsedJson.nodes.map((node) => {
-        console.log('Processing node in verifyJson:', node) // Log each node being processed
         return {
           data: {
             id: node.id,
@@ -213,9 +205,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         },
       }))
 
-      console.log('Verified nodes:', nodes.value) // Log the verified nodes
-      console.log('Verified edges:', edges.value) // Log the verified edges
-
       graphJson.value = JSON.stringify(
         {
           nodes: nodes.value.map((node) => node.data),
@@ -234,7 +223,6 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     } catch (error) {
       validationMessage.value = `Invalid JSON: ${error.message}`
       validationMessageClass.value = 'alert-danger'
-      console.error('Error parsing JSON:', error)
     }
   }
 

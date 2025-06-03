@@ -302,6 +302,18 @@
                           </small>
                           <br />
                           <small class="text-muted"> ID: {{ graph.id }} </small>
+                          <template v-if="graph.metadata?.mystmkraUrl">
+                            <br />
+                            <small class="text-muted">
+                              <a
+                                :href="graph.metadata.mystmkraUrl"
+                                target="_blank"
+                                class="text-info"
+                              >
+                                <i class="bi bi-link-45deg"></i> View on Mystmkra.io
+                              </a>
+                            </small>
+                          </template>
                         </div>
                       </template>
                     </div>
@@ -519,6 +531,9 @@ const fetchGraphs = async () => {
                   updatedAt: graphData.metadata?.updatedAt || new Date().toISOString(),
                   category: graphData.metadata?.category || '#Uncategorized',
                   metaArea: graphData.metadata?.metaArea || '',
+                  mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
+                  mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
+                  mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
                 },
                 nodes: nodes.map((node) => ({
                   id: node.id,
@@ -529,6 +544,8 @@ const fetchGraphs = async () => {
                   position: node.position || { x: 0, y: 0 },
                   visible: node.visible !== false,
                   path: node.path || null,
+                  mystmkraUrl: node.mystmkraUrl || null,
+                  mystmkraDocumentId: node.mystmkraDocumentId || null,
                 })),
                 edges: edges.map((edge) => ({
                   source: edge.source,

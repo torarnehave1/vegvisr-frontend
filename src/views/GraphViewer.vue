@@ -520,12 +520,38 @@ function preprocessPageBreaks(markdown) {
 }
 
 const preprocessMarkdown = (text) => {
-  console.log('Input Markdown Text:', text)
-
   // First, process [pb] page breaks
   let processedText = preprocessPageBreaks(text)
 
-  // First process sections
+  // Process fancy titles
+  processedText = processedText.replace(
+    /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
+    },
+  )
+
+  // Process quotes
+  processedText = processedText.replace(
+    /\[QUOTE\s*\|([^\]]+)\]([\s\S]*?)\[END QUOTE\]/g,
+    (match, style, content) => {
+      const cite = style.split('=')[1]?.replace(/['"]/g, '') || 'Unknown'
+      const processedContent = marked.parse(content.trim())
+      return `<div class="fancy-quote">${processedContent}<cite>— ${cite}</cite></div>`
+    },
+  )
+
+  // Then process sections
   processedText = processedText.replace(
     /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
     (match, style, content) => {
@@ -553,7 +579,6 @@ const preprocessMarkdown = (text) => {
   let match
   while ((match = markdownRegex.exec(processedText)) !== null) {
     const [, type, paragraphCount, styles, url] = match
-    console.log(`Processing ${type}:`, { paragraphCount, styles, url, index: match.index })
 
     // Add text before the match
     if (lastIndex < match.index) {
@@ -591,10 +616,6 @@ const preprocessMarkdown = (text) => {
         .slice(0, numParagraphs)
         .map((p) => marked.parse(p))
         .join('')
-      const afterParagraphs = paragraphs
-        .slice(numParagraphs)
-        .map((p) => marked.parse(p))
-        .join('')
 
       const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
       const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
@@ -610,9 +631,9 @@ const preprocessMarkdown = (text) => {
         </div>
       `.trim()
 
-      if (afterParagraphs) {
-        result += `<div class="remaining-content">${afterParagraphs}</div>`
-      }
+      // Skip the processed paragraphs in the remaining content
+      lastIndex =
+        match.index + match[0].length + paragraphs.slice(0, numParagraphs).join('\n\n').length
     }
 
     lastIndex = match.index + match[0].length
@@ -925,7 +946,6 @@ const saveToMystmkra = async () => {
     }, 2000)
     return
   }
-  // Validate Mystmkra User ID
   const mystmkraUserId = userStore.mystmkraUserId
   if (!mystmkraUserId || !/^[a-f\d]{24}$/i.test(mystmkraUserId)) {
     saveMessage.value =
@@ -935,7 +955,6 @@ const saveToMystmkra = async () => {
     }, 2000)
     return
   }
-  // Store content and title before closing modal
   const content = currentNode.value?.info || ''
   const title = currentNode.value?.label || 'Untitled'
   closeMarkdownEditor()
@@ -956,6 +975,42 @@ const saveToMystmkra = async () => {
       }),
     })
     if (response.ok) {
+      const data = await response.json()
+      console.log('Mystmkra Save Response:', JSON.stringify(data, null, 2))
+      if (currentNode.value) {
+        currentNode.value.mystmkraUrl = data.data.fileUrl
+        currentNode.value.mystmkraDocumentId = data.data.documentId
+
+        const updatedGraphData = {
+          ...graphData.value,
+          nodes: graphData.value.nodes.map((node) =>
+            node.id === currentNode.value.id ? { ...node, ...currentNode.value } : node,
+          ),
+          metadata: {
+            ...graphData.value.metadata,
+            mystmkraDocumentId: data.data.documentId,
+            mystmkraUrl: data.data.fileUrl,
+            mystmkraNodeId: currentNode.value.id,
+          },
+        }
+
+        const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        })
+
+        if (!saveResponse.ok) {
+          throw new Error('Failed to save the graph with history.')
+        }
+
+        knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+      }
+
       saveMessage.value = 'Saved to Mystmkra.io!'
       setTimeout(() => {
         saveMessage.value = ''
@@ -976,53 +1031,25 @@ const saveToMystmkra = async () => {
 }
 
 function saveToMystmkraFromMenu() {
-  // Show user info alert for debugging
-  alert(
-    'User Info:\n' +
-      'Email: ' +
-      userStore.email +
-      '\n' +
-      'Role: ' +
-      userStore.role +
-      '\n' +
-      'Mystmkra User ID: ' +
-      userStore.mystmkraUserId +
-      '\n' +
-      'User ID: ' +
-      userStore.user_id +
-      '\n' +
-      'Email Verification Token: ' +
-      userStore.emailVerificationToken,
-  )
-  console.log('User Info:', {
-    email: userStore.email,
-    role: userStore.role,
-    mystmkraUserId: userStore.mystmkraUserId,
-    user_id: userStore.user_id,
-    emailVerificationToken: userStore.emailVerificationToken,
-  })
-
   let content = ''
   let title = ''
+  let targetNode = null
   if (isMarkdownEditorOpen.value && currentNode.value) {
     content = currentMarkdown.value
     title = currentNode.value.label || 'Untitled'
+    targetNode = currentNode.value
   } else {
     const node = (graphData.value.nodes || []).find((n) => n.visible !== false)
     if (node && node.info) {
       content = node.info
       title = node.label || 'Untitled'
+      targetNode = node
     }
   }
 
-  console.log('Save to Mystmkra.io - Content:', content)
-  console.log('Save to Mystmkra.io - Title:', title)
-
   if (content) {
-    // Call the Mystmkra save API directly
     if (!userStore.emailVerificationToken) {
       saveMessage.value = 'No API token found for this user.'
-      console.log('No API token found for this user.')
       setTimeout(() => {
         saveMessage.value = ''
       }, 2000)
@@ -1032,14 +1059,12 @@ function saveToMystmkraFromMenu() {
     if (!mystmkraUserId || !/^[a-f\d]{24}$/i.test(mystmkraUserId)) {
       saveMessage.value =
         'Mystmkra User ID is missing or invalid. Please set it in your profile before saving.'
-      console.log('Mystmkra User ID is missing or invalid.')
       setTimeout(() => {
         saveMessage.value = ''
       }, 2000)
       return
     }
     saveMessage.value = 'Saving to Mystmkra.io...'
-    console.log('Saving to Mystmkra.io...')
     fetch('https://api.vegvisr.org/mystmkrasave', {
       method: 'POST',
       headers: {
@@ -1054,17 +1079,51 @@ function saveToMystmkraFromMenu() {
         userId: mystmkraUserId,
       }),
     })
-      .then((response) => {
+      .then(async (response) => {
         if (response.ok) {
+          const data = await response.json()
+          console.log('Mystmkra Save Response:', JSON.stringify(data, null, 2))
+          if (targetNode) {
+            targetNode.mystmkraUrl = data.data.fileUrl
+            targetNode.mystmkraDocumentId = data.data.documentId
+
+            const updatedGraphData = {
+              ...graphData.value,
+              nodes: graphData.value.nodes.map((node) =>
+                node.id === targetNode.id ? { ...node, ...targetNode } : node,
+              ),
+              metadata: {
+                ...graphData.value.metadata,
+                mystmkraDocumentId: data.data.documentId,
+                mystmkraUrl: data.data.fileUrl,
+                mystmkraNodeId: targetNode.id,
+              },
+            }
+
+            const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: knowledgeGraphStore.currentGraphId,
+                graphData: updatedGraphData,
+                override: true,
+              }),
+            })
+
+            if (!saveResponse.ok) {
+              throw new Error('Failed to save the graph with history.')
+            }
+
+            knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+          }
+
           saveMessage.value = 'Saved to Mystmkra.io!'
-          console.log('Saved to Mystmkra.io!')
           setTimeout(() => {
             saveMessage.value = ''
           }, 2000)
         } else {
           response.text().then((text) => {
             saveMessage.value = 'Failed to save to Mystmkra.io. ' + text
-            console.log('Failed to save to Mystmkra.io:', text)
             setTimeout(() => {
               saveMessage.value = ''
             }, 2000)
@@ -1073,14 +1132,12 @@ function saveToMystmkraFromMenu() {
       })
       .catch((err) => {
         saveMessage.value = 'Error saving to Mystmkra.io: ' + err.message
-        console.log('Error saving to Mystmkra.io:', err.message)
         setTimeout(() => {
           saveMessage.value = ''
         }, 2000)
       })
   } else {
     saveMessage.value = 'No visible node with markdown content to save.'
-    console.log('No visible node with markdown content to save.')
     setTimeout(() => {
       saveMessage.value = ''
     }, 2000)
@@ -1436,15 +1493,16 @@ img.leftside {
 
 .fancy-title {
   font-family: Arial, Helvetica, sans-serif;
-  background-color: #f9f9f9;
   padding: 0.5em;
-  margin: 0.5em 0;
+  margin: 1em 0;
   border-radius: 4px;
   box-sizing: border-box;
   font-weight: bold;
   text-align: center;
   background-size: cover;
   background-position: center;
+  line-height: 1.2;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .markdown-editor-modal {
