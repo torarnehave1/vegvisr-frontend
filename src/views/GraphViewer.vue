@@ -970,7 +970,7 @@ const saveToMystmkra = async () => {
         content,
         title,
         tags: [],
-        documentId: null,
+        documentId: graphData.value.metadata?.mystmkraDocumentId || null,
         userId: mystmkraUserId,
       }),
     })
@@ -1075,7 +1075,7 @@ function saveToMystmkraFromMenu() {
         content,
         title,
         tags: [],
-        documentId: null,
+        documentId: graphData.value.metadata?.mystmkraDocumentId || null,
         userId: mystmkraUserId,
       }),
     })
