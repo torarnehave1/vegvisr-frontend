@@ -1011,7 +1011,9 @@ const saveToMystmkra = async () => {
         knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
       }
 
-      saveMessage.value = 'Saved to Mystmkra.io!'
+      saveMessage.value = graphData.value.metadata?.mystmkraDocumentId
+        ? 'Updated existing document on Mystmkra.io!'
+        : 'Created new document on Mystmkra.io!'
       setTimeout(() => {
         saveMessage.value = ''
       }, 2000)
@@ -1117,7 +1119,9 @@ function saveToMystmkraFromMenu() {
             knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
           }
 
-          saveMessage.value = 'Saved to Mystmkra.io!'
+          saveMessage.value = graphData.value.metadata?.mystmkraDocumentId
+            ? 'Updated existing document on Mystmkra.io!'
+            : 'Created new document on Mystmkra.io!'
           setTimeout(() => {
             saveMessage.value = ''
           }, 2000)
