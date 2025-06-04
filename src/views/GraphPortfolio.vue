@@ -48,8 +48,10 @@
                       class="form-select"
                       @change="sortGraphs"
                     >
-                      <option value="title">Sort by Title</option>
-                      <option value="date">Sort by Date</option>
+                      <option value="title-asc">Name (A-Z)</option>
+                      <option value="title-desc">Name (Z-A)</option>
+                      <option value="date-desc">Date (Newest First)</option>
+                      <option value="date-asc">Date (Oldest First)</option>
                       <option value="nodes">Sort by Node Count</option>
                       <option value="category">Sort by Category</option>
                     </select>
@@ -618,10 +620,14 @@ const filteredGraphs = computed(() => {
   return filtered.sort((a, b) => {
     let aCategories, bCategories
     switch (portfolioStore.sortBy) {
-      case 'title':
+      case 'title-asc':
         return (a.metadata?.title || '').localeCompare(b.metadata?.title || '')
-      case 'date':
+      case 'title-desc':
+        return (b.metadata?.title || '').localeCompare(a.metadata?.title || '')
+      case 'date-desc':
         return new Date(b.metadata?.updatedAt || 0) - new Date(a.metadata?.updatedAt || 0)
+      case 'date-asc':
+        return new Date(a.metadata?.updatedAt || 0) - new Date(b.metadata?.updatedAt || 0)
       case 'nodes':
         return (b.nodes?.length || 0) - (a.nodes?.length || 0)
       case 'category':
