@@ -196,6 +196,19 @@
                             placeholder="Enter creator name"
                           />
                         </div>
+                        <div class="mb-3">
+                          <button
+                            class="btn btn-outline-primary"
+                            @click="openR2ImageModal"
+                            :disabled="isLoadingPortfolioImage"
+                          >
+                            <i
+                              class="bi"
+                              :class="isLoadingPortfolioImage ? 'bi-hourglass-split' : 'bi-image'"
+                            ></i>
+                            Insert Portfolio Image
+                          </button>
+                        </div>
                         <div class="mb-3 position-relative">
                           <label class="form-label"
                             >Meta Areas (use # to separate multiple areas)</label
@@ -450,6 +463,53 @@
                 </div>
               </div>
             </div>
+
+            <!-- R2 Image Selection Modal -->
+            <div
+              class="modal fade"
+              id="r2ImageModal"
+              tabindex="-1"
+              aria-labelledby="r2ImageModalLabel"
+              aria-hidden="true"
+            >
+              <div class="modal-dialog modal-lg" style="max-width: 800px">
+                <div
+                  class="modal-content"
+                  :class="{
+                    'bg-dark': props.theme === 'dark',
+                    'text-white': props.theme === 'dark',
+                  }"
+                >
+                  <div class="modal-header">
+                    <h5 class="modal-title" id="r2ImageModalLabel">Select Portfolio Image</h5>
+                    <button
+                      type="button"
+                      class="btn-close"
+                      data-bs-dismiss="modal"
+                      aria-label="Close"
+                    ></button>
+                  </div>
+                  <div class="modal-body" style="max-height: 70vh; overflow-y: auto">
+                    <div class="portfolio-grid">
+                      <div
+                        v-for="img in r2Images"
+                        :key="img.key"
+                        class="portfolio-card"
+                        @click="selectR2Image(img)"
+                      >
+                        <img :src="img.url" :alt="img.key" class="portfolio-thumb" loading="lazy" />
+                        <div class="portfolio-caption">{{ img.key }}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -492,6 +552,10 @@ const isLoadingDescription = ref(false)
 const showSuggestions = ref(false)
 const filteredSuggestions = ref([])
 const suggestionIndex = ref(0)
+const isLoadingPortfolioImage = ref(false)
+const r2Images = ref([])
+const r2ImageModal = ref(null)
+const selectedImage = ref(null)
 
 console.log('User role:', userStore.role)
 
@@ -1147,6 +1211,97 @@ const resetMetaAreas = async () => {
   }
 }
 
+const fetchR2Images = async () => {
+  try {
+    const res = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
+    const data = await res.json()
+    r2Images.value = data.images
+  } catch (error) {
+    console.error('Error fetching R2 images:', error)
+  }
+}
+
+const selectR2Image = (img) => {
+  selectedImage.value = img
+  r2ImageModal.value.hide()
+  insertPortfolioImage(img.url)
+}
+
+const insertPortfolioImage = async (imageUrl = null) => {
+  try {
+    isLoadingPortfolioImage.value = true
+
+    // Check if there's already a portfolio image node
+    const existingPortfolioNode = editingGraph.value.nodes?.find(
+      (node) => node.type === 'portfolio-image',
+    )
+
+    if (existingPortfolioNode) {
+      // Update existing node
+      existingPortfolioNode.path = imageUrl
+    } else {
+      // Create new node if none exists
+      const portfolioNode = {
+        id: crypto.randomUUID(),
+        label: 'My Portfolio Image',
+        color: 'white',
+        type: 'portfolio-image',
+        info: null,
+        bibl: [],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        path: imageUrl || 'https://vegvisr.imgix.net/tilopa01.jpg',
+      }
+      editingGraph.value.nodes = [...(editingGraph.value.nodes || []), portfolioNode]
+    }
+
+    // Update the graph
+    const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: editingGraph.value.id,
+        graphData: editingGraph.value,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to update portfolio image')
+    }
+
+    // Update the main graphs array to reflect the changes
+    const graphIndex = graphs.value.findIndex((g) => g.id === editingGraph.value.id)
+    if (graphIndex !== -1) {
+      graphs.value[graphIndex] = {
+        ...graphs.value[graphIndex],
+        nodes: editingGraph.value.nodes,
+      }
+    }
+
+    // Show success message
+    alert('Portfolio image updated successfully!')
+
+    // Refresh the graphs data
+    await fetchGraphs()
+  } catch (error) {
+    console.error('Error updating portfolio image:', error)
+    alert('Failed to update portfolio image: ' + error.message)
+  } finally {
+    isLoadingPortfolioImage.value = false
+  }
+}
+
+const openR2ImageModal = () => {
+  if (!r2ImageModal.value) {
+    r2ImageModal.value = new Modal(document.getElementById('r2ImageModal'))
+  }
+  fetchR2Images()
+  r2ImageModal.value.show()
+}
+
 onMounted(() => {
   console.log('GraphPortfolio mounted, fetching graphs...')
   fetchGraphs()
@@ -1227,5 +1382,51 @@ onMounted(() => {
 .autocomplete-list li:hover {
   background: #007bff;
   color: #fff;
+}
+
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+
+.portfolio-card {
+  width: 100%;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.portfolio-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+}
+
+.portfolio-thumb {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+}
+
+.portfolio-caption {
+  font-size: 0.8em;
+  padding: 4px;
+  text-align: center;
+  word-break: break-all;
+  max-height: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 </style>
