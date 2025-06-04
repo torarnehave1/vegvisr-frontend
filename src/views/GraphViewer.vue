@@ -228,7 +228,7 @@
       <div v-if="isAIAssistOpen" class="ai-assist-modal">
         <div class="ai-assist-content">
           <button class="ai-assist-close" @click="closeAIAssist" title="Close">&times;</button>
-          <h4>Vegvisr AI Assist</h4>
+          <h4 v-if="!aiAssistMode">Vegvisr AI Assist</h4>
           <div v-if="!aiAssistMode">
             <div class="mb-2">
               <textarea
@@ -258,24 +258,29 @@
             <div v-if="aiAssistLoading" class="text-center my-3">
               <span class="spinner-border spinner-border-sm"></span> Loading AI response...
             </div>
-            <div v-else-if="aiAssistResult">
+            <div v-else-if="aiAssistResult" class="ai-assist-result-container">
+              <div class="ai-assist-buttons">
+                <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
+                  Insert at Cursor
+                </button>
+                <button class="btn btn-secondary" @click="closeAIAssist">Back</button>
+              </div>
               <div class="alert alert-info">{{ aiAssistResult }}</div>
-              <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
-                Insert at Cursor
-              </button>
             </div>
-            <div v-else-if="aiAssistImageUrl">
+            <div v-else-if="aiAssistImageUrl" class="ai-assist-image-container">
+              <div class="ai-assist-buttons">
+                <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
+                  Insert as Header Image
+                </button>
+                <button class="btn btn-secondary" @click="closeAIAssist">Back</button>
+              </div>
               <img
                 :src="aiAssistImageUrl"
                 alt="AI Header"
                 style="max-width: 100%; border-radius: 6px; margin-bottom: 10px"
               />
-              <button class="btn btn-primary" @click="insertAIAssistResultToEditor">
-                Insert as Header Image
-              </button>
             </div>
             <div v-if="aiAssistError" class="alert alert-danger">{{ aiAssistError }}</div>
-            <button class="btn btn-secondary mt-2" @click="closeAIAssist">Back</button>
           </div>
         </div>
       </div>
@@ -1708,6 +1713,34 @@ img.leftside {
   min-width: 0;
   max-width: 100%;
   white-space: normal;
+}
+
+.ai-assist-result-container,
+.ai-assist-image-container {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-assist-result-container .alert {
+  margin-bottom: 0;
+}
+
+.ai-assist-result-container .btn,
+.ai-assist-image-container .btn {
+  align-self: flex-start;
+}
+
+.ai-assist-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.ai-assist-buttons .btn {
+  min-width: 120px;
 }
 </style>
 
