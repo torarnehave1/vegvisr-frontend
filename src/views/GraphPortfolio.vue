@@ -42,7 +42,8 @@
                       @input="filterGraphs"
                     />
                   </div>
-                  <div class="view-options">
+                  <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
+                    <label class="mb-0">Sort:</label>
                     <select
                       v-model="portfolioStore.sortBy"
                       class="form-select"
