@@ -35,7 +35,6 @@
             ></iframe>
           </template>
           <template v-else-if="node.type === 'youtube-video'">
-            <!-- Render YouTube video nodes -->
             <div class="youtube-section">
               <h3 class="youtube-title">{{ parseYoutubeVideoTitle(node.label) }}</h3>
               <iframe
@@ -499,7 +498,7 @@ const insertYoutubeVideoMarkdown = () => {
     const videoId = videoIdMatch ? videoIdMatch[1] : null
 
     if (videoId) {
-      const youtubeMarkdown = `![YOUTUBE src=https://www.youtube.com/embed/${videoId}]Title goes here[END YOUTUBE]`
+      const youtubeMarkdown = `![YOUTUBE src=https://www.youtube.com/embed/${videoId}][END YOUTUBE]`
 
       if (textarea && currentMarkdown.value !== undefined) {
         const start = textarea.selectionStart
@@ -527,6 +526,26 @@ function preprocessPageBreaks(markdown) {
 const preprocessMarkdown = (text) => {
   // First, process [pb] page breaks
   let processedText = preprocessPageBreaks(text)
+
+  // Process YouTube videos in fulltext
+  processedText = processedText.replace(
+    /\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/g,
+    (match, src, title) => {
+      return `<div class="youtube-section" style="text-align: center; max-width: 100%; margin: 20px auto;">
+        <h3 class="youtube-title">${title.trim()}</h3>
+        <div style="position: relative; width: 100%; padding-bottom: 56.25%; display: flex; justify-content: center;">
+          <iframe
+            src="${src.trim()}"
+            frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; max-width: 560px; margin: 0 auto;"
+          ></iframe>
+        </div>
+      </div>`
+    },
+  )
 
   // Process fancy titles
   processedText = processedText.replace(
@@ -654,34 +673,6 @@ const preprocessMarkdown = (text) => {
 
 const convertToHtml = (text) => {
   return preprocessMarkdown(text)
-}
-
-const parseYoutubeVideo = (markdown) => {
-  const regex = /!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/
-  const match = markdown.match(regex)
-
-  if (match) {
-    let videoUrl = match[1].trim()
-    if (videoUrl.includes('youtube.com/embed/')) {
-      return videoUrl.split('?')[0]
-    } else if (videoUrl.includes('youtu.be/')) {
-      const videoId = videoUrl.split('youtu.be/')[1].split('?')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    } else if (videoUrl.includes('youtube.com/watch?v=')) {
-      const videoId = videoUrl.split('watch?v=')[1].split('&')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    }
-    console.warn('Invalid YouTube URL:', videoUrl)
-    return null
-  }
-  console.warn('No match for YouTube markdown:', markdown)
-  return null
-}
-
-const parseYoutubeVideoTitle = (markdown) => {
-  const regex = /!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/
-  const match = markdown.match(regex)
-  return match ? match[2].trim() : 'Untitled Video'
 }
 
 const editYoutubeVideo = async (node) => {
@@ -1265,6 +1256,34 @@ function insertAIAssistResultToEditor() {
     textarea.focus()
   })
   closeAIAssist()
+}
+
+const parseYoutubeVideo = (markdown) => {
+  const regex = /!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/
+  const match = markdown.match(regex)
+
+  if (match) {
+    let videoUrl = match[1].trim()
+    if (videoUrl.includes('youtube.com/embed/')) {
+      return videoUrl.split('?')[0]
+    } else if (videoUrl.includes('youtu.be/')) {
+      const videoId = videoUrl.split('youtu.be/')[1].split('?')[0]
+      return `https://www.youtube.com/embed/${videoId}`
+    } else if (videoUrl.includes('youtube.com/watch?v=')) {
+      const videoId = videoUrl.split('watch?v=')[1].split('&')[0]
+      return `https://www.youtube.com/embed/${videoId}`
+    }
+    console.warn('Invalid YouTube URL:', videoUrl)
+    return null
+  }
+  console.warn('No match for YouTube markdown:', markdown)
+  return null
+}
+
+const parseYoutubeVideoTitle = (markdown) => {
+  const regex = /!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/
+  const match = markdown.match(regex)
+  return match ? match[2].trim() : 'Untitled Video'
 }
 
 onMounted(() => {

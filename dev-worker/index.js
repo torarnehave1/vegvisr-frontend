@@ -257,6 +257,53 @@ export default {
             },
           )
         }
+      } else if (
+        pathname.match(/^\/api\/graph\/[^/]+\/ai-instructions$/) &&
+        request.method === 'GET'
+      ) {
+        const graphId = pathname.split('/')[3]
+
+        try {
+          const result = await env.vegvisr_org
+            .prepare('SELECT ai_instructions FROM knowledge_graphs WHERE id = ?')
+            .bind(graphId)
+            .first()
+
+          return new Response(JSON.stringify({ instructions: result?.ai_instructions || '' }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching AI instructions:', error)
+          return new Response(JSON.stringify({ error: 'Failed to fetch AI instructions' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      } else if (
+        pathname.match(/^\/api\/graph\/[^/]+\/ai-instructions$/) &&
+        request.method === 'PUT'
+      ) {
+        const graphId = pathname.split('/')[3]
+        const { instructions } = await request.json()
+
+        try {
+          await env.vegvisr_org
+            .prepare('UPDATE knowledge_graphs SET ai_instructions = ? WHERE id = ?')
+            .bind(instructions, graphId)
+            .run()
+
+          return new Response(JSON.stringify({ message: 'AI instructions updated successfully' }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error updating AI instructions:', error)
+          return new Response(JSON.stringify({ error: 'Failed to update AI instructions' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
       }
 
       if (pathname === '/updateknowgraph' && request.method === 'POST') {
@@ -579,7 +626,7 @@ export default {
       if (pathname === '/addTemplate' && request.method === 'POST') {
         try {
           const requestBody = await request.json()
-          const { name, node } = requestBody
+          const { name, node, ai_instructions } = requestBody
 
           if (!name || !node) {
             return new Response(
@@ -590,16 +637,41 @@ export default {
 
           console.log(`[Worker] Adding template: ${name}`)
 
-          const templateId = crypto.randomUUID() // Generate a UUID for the template
+          const templateId = crypto.randomUUID()
 
           const query = `
-            INSERT INTO graphTemplates (id, name, nodes, edges)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO graphTemplates (
+              id,
+              name,
+              nodes,
+              edges,
+              ai_instructions
+            )
+            VALUES (?, ?, ?, ?, ?)
           `
           await env.vegvisr_org
             .prepare(query)
-            .bind(templateId, name, JSON.stringify([node]), JSON.stringify([]))
+            .bind(
+              templateId,
+              name,
+              JSON.stringify([node]),
+              JSON.stringify([]),
+              ai_instructions || null,
+            )
             .run()
+
+          // If ai_instructions are provided, update the template with them
+          if (ai_instructions) {
+            const updateQuery = `
+              UPDATE graphTemplates
+              SET ai_instructions = ?
+              WHERE id = ?
+            `
+            await env.vegvisr_org
+              .prepare(updateQuery)
+              .bind(JSON.stringify(ai_instructions), templateId)
+              .run()
+          }
 
           console.log('[Worker] Template added successfully')
           return new Response(
@@ -1014,7 +1086,7 @@ export default {
             let graphData
             try {
               graphData = JSON.parse(row.data)
-            } catch (e) {
+            } catch {
               console.log(`[Worker] Skipping graph ${row.id}: invalid JSON`)
               skipped++
               continue
@@ -1042,6 +1114,129 @@ export default {
           })
         } catch (error) {
           console.error('[Worker] Error in /resetMetaAreas:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/getAITemplates' && request.method === 'GET') {
+        try {
+          console.log('[Worker] Fetching list of AI templates')
+
+          const query = `
+            SELECT
+              id,
+              name,
+              nodes,
+              edges,
+              ai_instructions
+            FROM graphTemplates
+          `
+          const results = await env.vegvisr_org.prepare(query).all()
+
+          // Process and enrich the templates with additional AI-specific information
+          const enrichedTemplates = results.results.map((template) => ({
+            id: template.id,
+            name: template.name,
+            type: template.name.toLowerCase().replace(/\s+/g, '_'),
+            nodes: JSON.parse(template.nodes || '[]'),
+            edges: JSON.parse(template.edges || '[]'),
+            ai_instructions: template.ai_instructions || '',
+          }))
+
+          console.log('[Worker] AI templates fetched successfully')
+          return new Response(JSON.stringify({ results: enrichedTemplates }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching AI templates:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      if (pathname === '/addAITemplate' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { name, node, ai_instructions } = requestBody
+
+          if (!name || !node) {
+            return new Response(
+              JSON.stringify({ error: 'Template name and node data are required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Adding AI template: ${name}`)
+
+          const templateId = crypto.randomUUID()
+
+          const query = `
+            INSERT INTO graphTemplates (
+              id,
+              name,
+              nodes,
+              edges,
+              ai_instructions
+            )
+            VALUES (?, ?, ?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(query)
+            .bind(
+              templateId,
+              'AI Knowledge Node', // New name
+              JSON.stringify([
+                {
+                  id: 'Node_Grok_Test',
+                  label: 'https://api.vegvisr.org/groktest',
+                  color: 'black',
+                  type: 'action_test',
+                  info: 'Ask a question about any topic to get an AI-generated response with references.',
+                  bibl: [],
+                  imageWidth: 250,
+                  imageHeight: 250,
+                  visible: true,
+                },
+              ]),
+              JSON.stringify([]),
+              ai_instructions ||
+                "Generate a comprehensive response to the user's question. Include:\n1. A clear explanation of the topic\n2. Key concepts and their relationships\n3. Historical or cultural context if relevant\n4. 2-3 academic references in APA format\n\nKeep the response focused and well-structured, avoiding unnecessary jargon. The response should be informative while remaining accessible to a general audience.", // AI instructions
+            )
+            .run()
+
+          // If ai_instructions are provided, update the template with them
+          if (ai_instructions) {
+            const updateQuery = `
+              UPDATE graphTemplates
+              SET ai_instructions = ?
+              WHERE id = ?
+            `
+            await env.vegvisr_org
+              .prepare(updateQuery)
+              .bind(JSON.stringify(ai_instructions), templateId)
+              .run()
+          }
+
+          console.log('[Worker] AI template added successfully')
+          return new Response(
+            JSON.stringify({
+              message: 'AI template added successfully',
+              id: templateId,
+              name: 'AI Knowledge Node',
+            }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Error adding AI template:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,

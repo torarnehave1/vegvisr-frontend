@@ -6,13 +6,15 @@ npx wrangler d1 execute vegvisr_org --command "ALTER TABLE config ADD COLUMN ema
 
 wrangler d1 execute vegvisr_org --command "INSERT INTO config (user_id, data, profileimage) VALUES ('testuser', 'This is a test', 'https://vegvisr.org/tah12have/tah.png');" --remote --config=main-worker/wrangler.toml
 
-> >
+> > npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM graphTemplates;" --json --remote --config=main-worker/wrangler.toml
 
 npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM config;" --json --remote --config=main-worker/wrangler.toml
 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='config';" --json
 
 npx wrangler d1 execute vegvisr_org --command "ALTER TABLE config ADD COLUMN bio TEXT;" --config main-worker/wrangler.toml --remote
+
+npx wrangler d1 execute vegvisr_org --command "ALTER TABLE graphTemplates ADD COLUMN ai_instructions TEXT;" --config main-worker/wrangler.toml --remote
 
 npx wrangler d1 execute vegvisr_org --command "ALTER TABLE config DROP COLUMN bioTEXT;" --config main-worker/wrangler.toml --remote
 
@@ -29,3 +31,5 @@ npx wrangler d1 list
 
 // List all tables in a specific D1 database (replace vegvisr_org with your database name)
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT name FROM sqlite_master WHERE type='table';"
+
+npx wrangler d1 execute vegvisr_org --command 'UPDATE graphTemplates SET ai_instructions = "{\"format\":\"YYYY-MM-DD: @username - Brief summary\\n\\nDetailed notes...\",\"requirements\":[\"date\",\"username\",\"summary\"],\"validation\":{\"date\":{\"pattern\":\"\\\\d{4}-\\\\d{2}-\\\\d{2}\",\"message\":\"Date must be in YYYY-MM-DD format\"},\"username\":{\"pattern\":\"@\\\\w+\",\"message\":\"Username must be prefixed with @\"},\"summary\":{\"minLength\":10,\"message\":\"Summary must be at least 10 characters\"}}}" WHERE type = "worknote";' --json --remote --config=main-worker/wrangler.toml

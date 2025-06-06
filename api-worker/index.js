@@ -1043,8 +1043,7 @@ const handleGrokIssueDescription = async (request, env) => {
     return createResponse(
       JSON.stringify(mode === 'description_to_title' ? { title: result } : { description: result }),
     )
-  } catch (error) {
-    console.error('Grok API error:', error)
+  } catch {
     return createErrorResponse('Grok API error', 500)
   }
 }
@@ -1056,19 +1055,9 @@ const handleGenerateMetaAreas = async (request, env) => {
     return createErrorResponse('Forbidden: Superadmin role required', 403)
   }
 
-  // Helper function to make fetch requests
-  const makeRequest = async (url, options = {}) => {
-    if (env.KNOWLEDGE) {
-      return env.KNOWLEDGE.fetch(url, options)
-    } else {
-      console.log('Service Binding not available, falling back to direct fetch')
-      return fetch(url, options)
-    }
-  }
-
   // 1. Fetch all knowledge graphs
   console.log('Fetching all knowledge graphs...')
-  const response = await makeRequest('https://knowledge.vegvisr.org/getknowgraphs')
+  const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
   console.log('getknowgraphs response status:', response.status)
   if (!response.ok) {
     const text = await response.text()
@@ -1080,9 +1069,7 @@ const handleGenerateMetaAreas = async (request, env) => {
 
   // 2. For each graph, fetch full data and generate a meta area tag if missing
   for (const graph of data.results) {
-    const graphResponse = await makeRequest(
-      `https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`,
-    )
+    const graphResponse = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`)
     if (!graphResponse.ok) continue
     const graphData = await graphResponse.json()
 
@@ -1097,13 +1084,12 @@ const handleGenerateMetaAreas = async (request, env) => {
     const prompt = `\nGiven the following knowledge graph content, generate a single, specific, community-relevant Meta Area tag (all capital letters, no spaces, no special characters) that best summarizes the main theme. \n- The tag should be a proper noun or a well-known field of study, tradition, technology, or cultural topic (e.g., NORSE MYTHOLOGY, AI GROK TECH, ETYMOLOGY, HERMETICISM, HINDUISM, CLOUD COMPUTING, ASTROLOGY, SYMBOLISM, PSYCHOLOGY, TECHNOLOGY, SHIVA, SHAKTI, NARASIMHA, etc.).\n- Avoid generic words like FATE, SPIRITUALITY, MINDFULNESS, WISDOM, BREATH, AWAKENING, INTERDISCIPLINARY, TEST, TRANSFORMATION, SACREDNESS, PLAYGROUND, or similar.\n- Only return the tag, in ALL CAPITAL LETTERS.\n\nContent:\n${graphData.metadata?.title || ''}\n${graphData.metadata?.description || ''}\n${graphData.metadata?.category || ''}\n${graphData.nodes?.map((n) => n.label + ' ' + (n.info || '')).join(' ')}\n`
 
     // Call GROK AI
-    const apiKey = env.XAI_API_KEY
-    const client = new OpenAI({
-      apiKey: apiKey,
-      baseURL: 'https://api.x.ai/v1',
-    })
     let metaArea = ''
     try {
+      const client = new OpenAI({
+        apiKey: env.XAI_API_KEY,
+        baseURL: 'https://api.x.ai/v1',
+      })
       const completion = await client.chat.completions.create({
         model: 'grok-3-beta',
         temperature: 0.7,
@@ -1143,7 +1129,7 @@ const handleGenerateMetaAreas = async (request, env) => {
     }
 
     // 3. Update the graph with the new meta area
-    await makeRequest('https://knowledge.vegvisr.org/updateknowgraph', {
+    await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1218,8 +1204,7 @@ const handleGrokAsk = async (request, env) => {
     })
     const result = completion.choices[0].message.content.trim()
     return createResponse(JSON.stringify({ result }), 200)
-  } catch (error) {
-    console.error('Grok ask error:', error)
+  } catch {
     return createErrorResponse('Grok ask error', 500)
   }
 }
@@ -1266,8 +1251,8 @@ const handleGenerateHeaderImage = async (request, env) => {
     }
     const openaiData = await openaiRes.json()
     imageUrl = openaiData.data[0].url
-  } catch (err) {
-    return createErrorResponse('Failed to generate image: ' + err, 500)
+  } catch {
+    return createErrorResponse('Failed to generate image', 500)
   }
 
   // 2. Download the image
@@ -1276,8 +1261,8 @@ const handleGenerateHeaderImage = async (request, env) => {
     const imgRes = await fetch(imageUrl)
     if (!imgRes.ok) throw new Error('Failed to download image')
     imageBuffer = await imgRes.arrayBuffer()
-  } catch (err) {
-    return createErrorResponse('Failed to download image: ' + err, 500)
+  } catch {
+    return createErrorResponse('Failed to download image', 500)
   }
 
   // 3. Upload to R2
@@ -1287,8 +1272,8 @@ const handleGenerateHeaderImage = async (request, env) => {
     await env.MY_R2_BUCKET.put(fileName, imageBuffer, {
       httpMetadata: { contentType: 'image/png' },
     })
-  } catch (err) {
-    return createErrorResponse('Failed to upload image to R2: ' + err, 500)
+  } catch {
+    return createErrorResponse('Failed to upload image to R2', 500)
   }
 
   // 4. Return the markdown string
@@ -1344,8 +1329,8 @@ const handleGenerateImagePrompt = async (request, env) => {
     // Remove any extra text or explanations
     if (prompt.startsWith('"') && prompt.endsWith('"')) prompt = prompt.slice(1, -1)
     return createResponse(JSON.stringify({ prompt }), 200)
-  } catch (err) {
-    return createErrorResponse('Failed to generate image prompt: ' + err, 500)
+  } catch {
+    return createErrorResponse('Failed to generate image prompt', 500)
   }
 }
 
@@ -1402,8 +1387,7 @@ async function handleMystmkraProxy(request) {
         'Content-Type': 'application/json',
       },
     })
-  } catch (err) {
-    console.error('Error proxying to Mystmkra.io:', err)
+  } catch {
     return new Response(JSON.stringify({ error: 'Failed to proxy request to Mystmkra.io' }), {
       status: 500,
       headers: {
@@ -1411,6 +1395,290 @@ async function handleMystmkraProxy(request) {
         'Content-Type': 'application/json',
       },
     })
+  }
+}
+
+// --- GPT-4 Vision Image Generation Endpoint ---
+const handleGPT4VisionImage = async (request, env) => {
+  if (!env.OPENAI_API_KEY) {
+    return createErrorResponse('OpenAI API key not configured', 500)
+  }
+
+  try {
+    const body = await request.json()
+    const { prompt, model = 'dall-e-2', size = '1024x1024' } = body
+
+    if (!prompt) {
+      return createErrorResponse('Prompt is required', 400)
+    }
+
+    // Validate model
+    const validModels = ['dall-e-2', 'dall-e-3', 'gpt-image-1']
+    if (!validModels.includes(model)) {
+      return createErrorResponse('Invalid model. Must be one of: ' + validModels.join(', '), 400)
+    }
+
+    // Validate size based on model
+    const validSizes = {
+      'dall-e-2': ['256x256', '512x512', '1024x1024'],
+      'dall-e-3': ['1024x1024', '1024x1792', '1792x1024'],
+      'gpt-image-1': ['1024x1024', '1024x1536', '1536x1024', 'auto'],
+    }
+
+    if (!validSizes[model].includes(size)) {
+      return createErrorResponse(
+        `Invalid size for model ${model}. Must be one of: ${validSizes[model].join(', ')}`,
+        400,
+      )
+    }
+
+    // Prepare request body based on model
+    const requestBody = {
+      model,
+      prompt,
+      size,
+      n: 1,
+    }
+
+    // Add response_format only for DALL-E models
+    if (model.startsWith('dall-e')) {
+      requestBody.response_format = 'url'
+    }
+
+    // Generate image using OpenAI
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      return createErrorResponse(
+        error.error?.message || 'Failed to generate image',
+        response.status,
+      )
+    }
+
+    const data = await response.json()
+    let imageUrl
+
+    // Handle different response formats
+    if (model.startsWith('dall-e')) {
+      imageUrl = data.data[0].url
+    } else {
+      // For gpt-image-1, the image data is in base64
+      const base64Data = data.data[0].b64_json
+      if (!base64Data) {
+        return createErrorResponse('No image data received from API', 500)
+      }
+
+      // Convert base64 to binary
+      const binaryData = atob(base64Data)
+      const bytes = new Uint8Array(binaryData.length)
+      for (let i = 0; i < binaryData.length; i++) {
+        bytes[i] = binaryData.charCodeAt(i)
+      }
+
+      // Generate a unique filename
+      const timestamp = Date.now()
+      const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
+
+      // Upload to R2
+      await env.MY_R2_BUCKET.put(filename, bytes, {
+        httpMetadata: {
+          contentType: 'image/png',
+        },
+      })
+
+      // Return the permanent URL
+      return createResponse(
+        JSON.stringify({
+          url: `https://vegvisr.imgix.net/${filename}`,
+          size,
+          prompt,
+        }),
+      )
+    }
+
+    // For DALL-E models, download the image from URL
+    const imageResponse = await fetch(imageUrl)
+    if (!imageResponse.ok) {
+      return createErrorResponse('Failed to download generated image', 500)
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer()
+    const imageData = new Uint8Array(imageBuffer)
+
+    // Generate a unique filename
+    const timestamp = Date.now()
+    const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
+
+    // Upload to R2
+    await env.MY_R2_BUCKET.put(filename, imageData, {
+      httpMetadata: {
+        contentType: 'image/png',
+      },
+    })
+
+    // Return the permanent URL
+    return createResponse(
+      JSON.stringify({
+        url: `https://vegvisr.imgix.net/${filename}`,
+        size,
+        prompt,
+      }),
+    )
+  } catch {
+    return createErrorResponse('Failed to generate image', 500)
+  }
+}
+
+// --- AI Generate Node Endpoint ---
+const handleAIGenerateNode = async (request, env) => {
+  try {
+    const { userRequest, graphId, username } = await request.json()
+    if (!userRequest) {
+      return createErrorResponse('Missing userRequest parameter', 400)
+    }
+
+    // Get templates from knowledge worker
+    let templates
+    try {
+      console.log('Attempting to fetch templates using KNOWLEDGE binding...')
+      if (!env.KNOWLEDGE) {
+        console.error('KNOWLEDGE binding is not available')
+        throw new Error('KNOWLEDGE binding is not available')
+      }
+
+      const templatesResponse = await env.KNOWLEDGE.fetch(
+        'https://knowledge.vegvisr.org/getAITemplates',
+      )
+      console.log('Templates response status:', templatesResponse.status)
+
+      if (!templatesResponse.ok) {
+        const errorText = await templatesResponse.text()
+        console.error('Templates response error:', errorText)
+        throw new Error(`Failed to fetch templates: ${templatesResponse.status} - ${errorText}`)
+      }
+
+      const templatesData = await templatesResponse.json()
+      if (!templatesData.results || !Array.isArray(templatesData.results)) {
+        throw new Error('Invalid templates data format - missing results array')
+      }
+      templates = templatesData.results
+      console.log('Successfully fetched templates:', templates)
+    } catch (error) {
+      console.error('Detailed error fetching templates:', error)
+      return createErrorResponse(`Failed to fetch templates: ${error.message}`, 500)
+    }
+
+    // Get graph context if available
+    let graphContext = ''
+    if (graphId) {
+      try {
+        const graphResponse = await env.KNOWLEDGE.fetch(
+          `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`,
+        )
+        if (graphResponse.ok) {
+          const graphData = await graphResponse.json()
+          if (graphData?.nodes) {
+            graphContext = graphData.nodes
+              .filter((node) => node.visible !== false)
+              .map((node) => `Node: ${node.label}\nType: ${node.type}\nInfo: ${node.info || ''}`)
+              .join('\n\n')
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching graph context:', error)
+      }
+    }
+
+    // Create the prompt with all context
+    const prompt = `Given the following user request and available templates, generate an appropriate node.
+
+User Request: ${userRequest}
+${username ? `Username: @${username}` : ''}
+
+Available Templates:
+${templates
+  .map(
+    (t) => `
+Template: ${t.label}
+Type: ${t.type}
+Example Node: ${JSON.stringify(t.nodes, null, 2)}
+AI Instructions: ${t.ai_instructions || 'No specific instructions provided.'}
+`,
+  )
+  .join('\n')}
+
+${graphContext ? `\nContext from existing graph:\n${graphContext}` : ''}
+
+Based on the user's request, select the most appropriate template and generate content following its structure and instructions.
+The generated content must strictly follow the AI Instructions of the selected template.
+Return a JSON object with the following structure:
+{
+  "template": "selected_template_id",
+  "content": "generated_content"
+}`
+
+    // Generate content
+    const client = new OpenAI({
+      apiKey: env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert at understanding user intent and generating appropriate content for knowledge graphs. You must strictly follow the AI Instructions provided in the template when generating content.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const result = JSON.parse(completion.choices[0].message.content.trim())
+    const selectedTemplate = templates.find((t) => t.id === result.template) || templates[0]
+
+    // Create the node using the selected template's structure
+    const node = {
+      id: crypto.randomUUID(),
+      label: selectedTemplate.nodes.label,
+      color: selectedTemplate.nodes.color,
+      type: selectedTemplate.nodes.type,
+      info: result.content,
+      bibl: selectedTemplate.nodes.bibl || [],
+      imageWidth: selectedTemplate.nodes.imageWidth,
+      imageHeight: selectedTemplate.nodes.imageHeight,
+      visible: true,
+      path: selectedTemplate.nodes.path || null,
+    }
+
+    // If the info field is an object, merge its properties with the node
+    if (typeof node.info === 'object' && node.info !== null) {
+      const infoObj = node.info
+      node.info = infoObj.info || ''
+      node.label = infoObj.label || node.label
+      node.color = infoObj.color || node.color
+      node.type = infoObj.type || node.type
+      node.bibl = infoObj.bibl || node.bibl
+      node.imageWidth = infoObj.imageWidth || node.imageWidth
+      node.imageHeight = infoObj.imageHeight || node.imageHeight
+      node.path = infoObj.path || node.path
+    }
+
+    return createResponse(JSON.stringify({ node }))
+  } catch (error) {
+    console.error('Error in handleAIGenerateNode:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
   }
 }
 
@@ -1525,6 +1793,14 @@ export default {
 
     if (pathname === '/mystmkrasave' && request.method === 'POST') {
       return handleMystmkraProxy(request)
+    }
+
+    if (pathname === '/gpt4-vision-image' && request.method === 'POST') {
+      return await handleGPT4VisionImage(request, env)
+    }
+
+    if (pathname === '/ai-generate-node' && request.method === 'POST') {
+      return await handleAIGenerateNode(request, env)
     }
 
     // Fallback
