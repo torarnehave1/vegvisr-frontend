@@ -546,6 +546,16 @@ const preprocessMarkdown = (text) => {
     },
   )
 
+  // Process work notes
+  processedText = processedText.replace(
+    /\[WNOTE\s*\|([^\]]+)\]([\s\S]*?)\[END WNOTE\]/g,
+    (match, style, content) => {
+      const cite = style.split('=')[1]?.replace(/['"]/g, '') || 'Unknown'
+      const processedContent = marked.parse(content.trim())
+      return `<div class="work-note">${processedContent}<cite>— ${cite}</cite></div>`
+    },
+  )
+
   // Process fancy titles
   processedText = processedText.replace(
     /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
