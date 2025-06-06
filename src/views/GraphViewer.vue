@@ -529,10 +529,9 @@ const preprocessMarkdown = (text) => {
 
   // Process YouTube videos in fulltext
   processedText = processedText.replace(
-    /\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/g,
-    (match, src, title) => {
+    /\[YOUTUBE src=(.+?)\](?:.*?)\[END YOUTUBE\]/g,
+    (match, src) => {
       return `<div class="youtube-section" style="text-align: center; max-width: 100%; margin: 20px auto;">
-        <h3 class="youtube-title">${title.trim()}</h3>
         <div style="position: relative; width: 100%; padding-bottom: 56.25%; display: flex; justify-content: center;">
           <iframe
             src="${src.trim()}"
@@ -1259,7 +1258,7 @@ function insertAIAssistResultToEditor() {
 }
 
 const parseYoutubeVideo = (markdown) => {
-  const regex = /!\[YOUTUBE src=(.+?)\](.+?)\[END YOUTUBE\]/
+  const regex = /!\[YOUTUBE src=(.+?)\](?:.*?)\[END YOUTUBE\]/
   const match = markdown.match(regex)
 
   if (match) {
