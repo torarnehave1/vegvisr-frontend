@@ -363,7 +363,7 @@ const generateNode = async () => {
           is_public: shareWithCommunity.value,
           anonymize: anonymize.value,
         },
-        userEmail: userStore.email,
+        username: userStore.email,
       }),
     })
 
@@ -444,9 +444,11 @@ const showTemplates = ref(false)
 
 const selectTemplate = (template) => {
   selectedTemplate.value = template
+  aiNodeRequest.value = '' // Clear the text area first
   if (template.standard_question) {
     aiNodeRequest.value = template.standard_question
   }
+  showTemplates.value = false // Hide templates after selection
 }
 </script>
 
