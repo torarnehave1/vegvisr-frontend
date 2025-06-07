@@ -1093,17 +1093,17 @@ const handleGrokIssueDescription = async (request, env) => {
     // Create the node using the selected template's structure
     const node = {
       id: crypto.randomUUID(),
-      label: result.label,
-      color: result.color,
-      type: result.type,
+      label: result.label || 'New Node',
+      color: result.color || '#D2691E',
+      type: result.type || 'fulltext',
       info: result.content,
       bibl: result.bibl || [],
-      imageWidth: result.imageWidth,
-      imageHeight: result.imageHeight,
+      imageWidth: '100%',
+      imageHeight: '100%',
       visible: true,
-      path: result.path || '',
-      category: result.category || 'General',
-      thumbnail_path: result.thumbnail_path || null,
+      path: '',
+      category: 'General',
+      thumbnail_path: null,
     }
 
     // If the info field is an object, merge its properties with the node
@@ -1116,7 +1116,7 @@ const handleGrokIssueDescription = async (request, env) => {
       node.bibl = infoObj.bibl || node.bibl
       node.imageWidth = infoObj.imageWidth || node.imageWidth
       node.imageHeight = infoObj.imageHeight || node.imageHeight
-      node.path = infoObj.path || node.path
+      node.path = infoObj.path || ''
       node.category = infoObj.category || node.category
       node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
     }
@@ -1635,8 +1635,24 @@ const handleAIGenerateNode = async (request, env) => {
       return createErrorResponse('Missing userRequest parameter', 400)
     }
 
+    // Default template for fulltext nodes
+    const defaultFulltextTemplate = {
+      id: 'template_fulltext_node',
+      label: 'Template: Fulltext Node',
+      color: '#D2691E',
+      type: 'fulltext',
+      info: '[FANCY | font-size: 4.5em; color: #2c3e50; text-align: center]\nTitle\n[END FANCY]\n\n![Header|height: 200px; object-fit: cover; object-position: center](https://vegvisr.imgix.net/HEADERIMG.png)\n\n## Introduction\n\n[SECTION | background-color:#FFFBE6; color:#000]\nMain content goes here. You can include regular markdown formatting like **bold**, *italic*, and `code`.\n[END SECTION]\n\n[QUOTE | Cited=Author Name]\nImportant quote or citation goes here.\n[END QUOTE]\n\n## Key Points\n\n1. First point\n2. Second point\n3. Third point\n\n[SECTION | background-color:#E7F7F7; color:#111]\nAdditional content section\n[END SECTION]',
+      bibl: ['Source: Template Example'],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: '',
+      ai_instructions:
+        'Generate a well-structured fulltext node with a title, introduction, key points, and supporting sections. Include appropriate formatting and styling.',
+    }
+
     // Get templates from knowledge worker
-    let templates
+    let templates = [defaultFulltextTemplate]
     try {
       console.log('Attempting to fetch templates using KNOWLEDGE binding...')
       if (!env.KNOWLEDGE) {
@@ -1656,14 +1672,15 @@ const handleAIGenerateNode = async (request, env) => {
       }
 
       const templatesData = await templatesResponse.json()
-      if (!templatesData.results || !Array.isArray(templatesData.results)) {
-        throw new Error('Invalid templates data format - missing results array')
+      if (templatesData.results && Array.isArray(templatesData.results)) {
+        templates = templatesData.results
+        console.log('Successfully fetched templates:', templates)
+      } else {
+        console.log('No templates found, using default template')
       }
-      templates = templatesData.results
-      console.log('Successfully fetched templates:', templates)
     } catch (error) {
       console.error('Detailed error fetching templates:', error)
-      return createErrorResponse(`Failed to fetch templates: ${error.message}`, 500)
+      console.log('Using default template due to error')
     }
 
     // Create the prompt with all context
@@ -1677,14 +1694,14 @@ ${templates
     (t) => `
 Template: ${t.label}
 Type: ${t.type}
-Example Node: ${JSON.stringify(t.nodes, null, 2)}
+Example Node: ${JSON.stringify(t, null, 2)}
 AI Instructions: ${t.ai_instructions || 'No specific instructions provided.'}
 `,
   )
   .join('\n')}
 
 ${
-  graphContext
+  graphContext && graphContext.nodes
     ? `\nContext from current graph (ID: ${graphContext.id}):
 ${graphContext.nodes
   .map(
@@ -1698,20 +1715,18 @@ Content: ${node.info || ''}
     : ''
 }
 
-Based on the user's request and the context provided, determine if the request is about:
-1. Creating new content
-2. Analyzing or summarizing existing content
-3. Creating a timeline or visualization of existing content
-4. Answering questions about the existing content
-
-Select the most appropriate template and generate content following its structure and instructions.
-The generated content must strictly follow the AI Instructions of the selected template.
-Return a JSON object with the following structure:
+Based on the user's request and the context provided, generate a node following the template structure.
+You MUST return a valid JSON object with the following structure:
 {
-  "template": "selected_template_id",
-  "content": "generated_content",
-  "reasoning": "Brief explanation of why this template was chosen and how it relates to the request"
-}`
+  "label": "The title of the node",
+  "type": "fulltext",
+  "color": "#D2691E",
+  "content": "The main content following the template structure",
+  "bibl": ["Source 1", "Source 2"],
+  "reasoning": "Brief explanation of why this content was generated"
+}
+
+The content should follow the template structure with proper formatting. Do not include any text outside the JSON object.`
 
     // Generate content
     const client = new OpenAI({
@@ -1727,7 +1742,7 @@ Return a JSON object with the following structure:
         {
           role: 'system',
           content:
-            'You are an expert at understanding user intent and generating appropriate content for knowledge graphs. You must analyze the context carefully to determine if the request is about existing content or new content. When working with existing content, ensure your response maintains consistency with the current graph structure and themes.',
+            'You are an expert at generating well-structured content for knowledge graphs. You must always return a valid JSON object with the specified structure. Do not include any text outside the JSON object.',
         },
         { role: 'user', content: prompt },
       ],
@@ -1786,17 +1801,17 @@ Return a JSON object with the following structure:
     // Create the node using the selected template's structure
     const node = {
       id: crypto.randomUUID(),
-      label: result.label,
-      color: result.color,
-      type: result.type,
+      label: result.label || 'New Node',
+      color: result.color || '#D2691E',
+      type: result.type || 'fulltext',
       info: result.content,
       bibl: result.bibl || [],
-      imageWidth: result.imageWidth,
-      imageHeight: result.imageHeight,
+      imageWidth: '100%',
+      imageHeight: '100%',
       visible: true,
-      path: result.path || '',
-      category: result.category || 'General',
-      thumbnail_path: result.thumbnail_path || null,
+      path: '',
+      category: 'General',
+      thumbnail_path: null,
     }
 
     // If the info field is an object, merge its properties with the node
@@ -1809,7 +1824,7 @@ Return a JSON object with the following structure:
       node.bibl = infoObj.bibl || node.bibl
       node.imageWidth = infoObj.imageWidth || node.imageWidth
       node.imageHeight = infoObj.imageHeight || node.imageHeight
-      node.path = infoObj.path || node.path
+      node.path = infoObj.path || ''
       node.category = infoObj.category || node.category
       node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
     }
