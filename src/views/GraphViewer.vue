@@ -10,6 +10,14 @@
     >
       Save to Mystmkra.io
     </button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)"
+      @click="openAINodeModal"
+      class="btn btn-purple mb-3 ms-2"
+      style="background: #6f42c1; color: #fff"
+    >
+      Create AI Node
+    </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -138,6 +146,62 @@
         </div>
       </div>
 
+      <!-- AI Node Creation Modal -->
+      <div v-if="isAINodeModalOpen" class="modal-overlay">
+        <div class="modal-content">
+          <h3>Create AI Node</h3>
+          <div class="form-group">
+            <label for="aiNodeRequest">What would you like to create?</label>
+            <textarea
+              id="aiNodeRequest"
+              v-model="aiNodeRequest"
+              class="form-control"
+              rows="3"
+              placeholder="Describe what you want to create..."
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <div class="form-check">
+              <input
+                type="checkbox"
+                id="includeContext"
+                v-model="includeContext"
+                class="form-check-input"
+              />
+              <label class="form-check-label" for="includeContext">
+                Include context from existing nodes
+              </label>
+            </div>
+          </div>
+          <div v-if="aiNodePreview" class="node-preview">
+            <h4>Preview:</h4>
+            <div class="preview-content">
+              <textarea v-model="aiNodePreview" class="form-control" rows="10" readonly></textarea>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button
+              v-if="!aiNodePreview"
+              @click="generateAINode"
+              class="btn btn-primary"
+              :disabled="!aiNodeRequest || isGeneratingNode"
+            >
+              <span
+                v-if="isGeneratingNode"
+                class="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"
+              ></span>
+              {{ isGeneratingNode ? 'Generating...' : 'Generate' }}
+            </button>
+            <button v-if="aiNodePreview" @click="insertAINode" class="btn btn-success">
+              Insert Node
+            </button>
+            <button @click="closeAINodeModal" class="btn btn-secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Markdown Editor Modal -->
       <div v-if="isMarkdownEditorOpen" class="markdown-editor-modal">
         <div class="modal-content">
@@ -204,14 +268,14 @@
             </button>
           </div>
           <textarea
+            ref="markdownEditorTextarea"
             v-model="currentMarkdown"
             class="form-control"
-            style="width: 100%; height: 200px; font-family: monospace"
-            ref="markdownEditorTextarea"
+            rows="10"
           ></textarea>
           <div class="modal-actions">
-            <button @click="saveMarkdown">Save</button>
-            <button @click="closeMarkdownEditor">Cancel</button>
+            <button @click="saveMarkdownChanges" class="btn btn-primary">Save</button>
+            <button @click="closeMarkdownEditor" class="btn btn-secondary">Cancel</button>
             <button
               v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
               @click="saveToMystmkra"
@@ -225,9 +289,9 @@
 
       <!-- AI Assist Modal -->
       <div v-if="isAIAssistOpen" class="ai-assist-modal">
-        <div class="ai-assist-content">
+        <div class="modal-content">
           <button class="ai-assist-close" @click="closeAIAssist" title="Close">&times;</button>
-          <h4 v-if="!aiAssistMode">Vegvisr AI Assist</h4>
+          <h3>AI Assist</h3>
           <div v-if="!aiAssistMode">
             <div class="mb-2">
               <textarea
@@ -818,7 +882,7 @@ const closeMarkdownEditor = () => {
   currentMarkdown.value = ''
 }
 
-const saveMarkdown = async () => {
+const saveMarkdownChanges = async () => {
   if (currentNode.value) {
     currentNode.value.info = currentMarkdown.value
 
@@ -1295,6 +1359,105 @@ const parseYoutubeVideoTitle = (markdown) => {
   return match ? match[2].trim() : 'Untitled Video'
 }
 
+const isAINodeModalOpen = ref(false)
+const aiNodeRequest = ref('')
+const aiNodePreview = ref(null)
+const includeContext = ref(false)
+const isGeneratingNode = ref(false)
+
+const openAINodeModal = () => {
+  isAINodeModalOpen.value = true
+  aiNodeRequest.value = ''
+  aiNodePreview.value = null
+  includeContext.value = false
+  isGeneratingNode.value = false
+}
+
+const closeAINodeModal = () => {
+  isAINodeModalOpen.value = false
+  aiNodeRequest.value = ''
+  aiNodePreview.value = null
+  includeContext.value = false
+  isGeneratingNode.value = false
+}
+
+const generateAINode = async () => {
+  try {
+    isGeneratingNode.value = true
+
+    // Get current graph context
+    const currentGraph = {
+      id: knowledgeGraphStore.currentGraphId,
+      nodes: graphData.value.nodes
+        .filter((node) => node.visible !== false)
+        .map((node) => ({
+          type: node.type,
+          label: node.label,
+          info: node.info,
+        })),
+    }
+
+    const response = await fetch('https://api.vegvisr.org/ai-generate-node', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userRequest: aiNodeRequest.value,
+        graphContext: currentGraph, // Send the current graph context
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || 'Failed to generate AI node')
+    }
+
+    // Get the response as text and parse it
+    const text = await response.text()
+    const data = JSON.parse(text)
+    aiNodePreview.value = JSON.stringify(data.node, null, 2)
+  } catch (error) {
+    console.error('Error generating AI node:', error)
+    alert(error.message || 'Failed to generate AI node. Please try again.')
+  } finally {
+    isGeneratingNode.value = false
+  }
+}
+
+const insertAINode = () => {
+  if (aiNodePreview.value) {
+    try {
+      // Parse the text response into a node object
+      const responseData = JSON.parse(aiNodePreview.value)
+
+      // Extract the node data from the response
+      const nodeData = responseData.node || responseData
+
+      // Add the new node to the graph
+      graphData.value.nodes.push({
+        ...nodeData,
+        visible: true,
+      })
+
+      // Update the store
+      knowledgeGraphStore.updateGraph(
+        graphData.value.nodes.map((node) => ({
+          ...node,
+          position: node.position || { x: 0, y: 0 },
+        })),
+        graphData.value.edges,
+      )
+
+      // Close the modal
+      closeAINodeModal()
+    } catch (error) {
+      console.error('Error parsing node data:', error)
+      alert('Invalid node data. Please check the preview and try again.')
+    }
+  }
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1310,258 +1473,36 @@ watch(
 </script>
 
 <style scoped>
-.graph-viewer {
-  padding: 20px;
-  background-color: #f9f9f9;
-  box-sizing: border-box;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.loading,
-.error {
-  text-align: center;
-  font-size: 1.5rem;
-  margin-top: 20px;
-}
-
-.graph-container {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0 20px;
-  box-sizing: border-box;
-}
-
-/* Remove or override previous image rules that set width: 100% for images inside p/header containers */
-.graph-container img {
-  display: block;
-  max-width: 100%;
-  width: auto;
-  height: auto;
-  margin: 0 auto 20px auto;
-  border-radius: 8px;
-  object-fit: cover;
-  box-sizing: border-box;
-}
-
-/* For header images, if you use a class or alt text, make them full width inside the card, but not outside the card's padding */
-.node img.header-image,
-.node p:has(img[alt*='Header']) img {
-  width: 100%;
-  max-width: 100%;
-  display: block;
-  border-radius: 8px;
-  object-fit: cover;
-  margin: 0 0 20px 0;
-  box-sizing: border-box;
-}
-
-/* Remove any special container rules that set width: 100vw or override the card's padding */
-.graph-container p:has(img[alt*='Header']),
-.graph-container p:has(img[alt*='Rightside']),
-.graph-container p:has(img[alt*='Leftside']) {
-  width: 100%;
-  max-width: 100%;
-  margin: 0 0 20px 0;
-  overflow: hidden;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-.node {
-  padding: 15px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  box-sizing: border-box;
-  overflow: hidden;
-}
-
-.node-label {
-  margin: 0 0 10px;
-  font-size: 1.25rem;
-  color: #333;
-}
-
-.node-info {
-  margin: 0;
-  font-size: 1rem;
-  color: #666;
-}
-
-.node-info button {
-  margin-right: 10px;
-  padding: 5px 10px;
-  background-color: #007bff;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.node-info button:hover {
-  background-color: #0056b3;
-}
-
-.node-image {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-}
-
-.header-image-container {
-  width: 100%;
-  max-width: 100%;
-  margin: 0 auto 20px;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.header-image-container img.header-image {
-  width: 100%;
-  max-width: 100%;
-  max-height: 250px;
-  height: auto;
-  display: block;
-  border-radius: 8px;
-  object-fit: cover;
-}
-
-.rightside-container,
-.leftside-container {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  gap: 20px;
-  align-items: flex-start;
-  width: 100%;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-
-.rightside-content,
-.leftside-content {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: calc(100% - 20% - 20px) !important;
-  box-sizing: border-box;
-}
-
-.rightside-image {
-  flex: 0 0 20%;
-  width: 20%;
-  min-width: 20% !important;
-  box-sizing: border-box;
-  order: 2;
-}
-
-.leftside-image {
-  flex: 0 0 20%;
-  width: 20%;
-  min-width: 20% !important;
-  box-sizing: border-box;
-  order: 1;
-}
-
-.rightside-content {
-  order: 1;
-}
-
-.leftside-content {
-  order: 2;
-}
-
-img.rightside,
-img.leftside {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 8px;
-}
-
-.work-note {
-  background-color: #ffd580;
-  color: #333;
-  font-size: 14px;
-  font-family: 'Courier New', Courier, monospace;
-  font-weight: bold;
-  padding: 10px;
-  margin: 10px 0;
-  border-left: 5px solid #ccc;
-  border-radius: 4px;
-}
-
-.fancy-quote {
-  font-style: italic;
-  background-color: #f9f9f9;
-  border-left: 5px solid #ccc;
-  padding: 1em;
-  margin: 1em 0;
-  color: #333;
-}
-
-.fancy-quote cite {
-  display: block;
-  text-align: right;
-  font-style: normal;
-  color: #666;
-  margin-top: 0.5em;
-}
-
-.work-note cite {
-  display: block;
-  text-align: right;
-  font-style: normal;
-  color: #666;
-  margin-top: 0.5em;
-}
-
-.section {
-  padding: 1em;
-  margin: 1em 0;
-  border-radius: 4px;
-  box-sizing: border-box;
-}
-
-.fancy-title {
-  font-family: Arial, Helvetica, sans-serif;
-  padding: 0.5em;
-  margin: 1em 0;
-  border-radius: 4px;
-  box-sizing: border-box;
-  font-weight: bold;
-  text-align: center;
-  background-size: cover;
-  background-position: center;
-  line-height: 1.2;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.markdown-editor-modal {
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  right: 0;
+  bottom: 0;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 2000;
 }
 
 .modal-content {
-  background: #fff;
+  background: white;
   padding: 20px;
   border-radius: 8px;
-  width: 80%;
-  max-width: 600px;
-  box-sizing: border-box;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
 }
 
 .modal-actions {
@@ -1569,238 +1510,5 @@ img.leftside {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
-}
-
-.modal-actions button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.modal-actions button:first-child {
-  background-color: #007bff;
-  color: #fff;
-}
-
-.modal-actions button:last-child {
-  background-color: #ccc;
-  color: #333;
-}
-
-.youtube-section {
-  margin: 20px 0;
-  text-align: center;
-  padding: 15px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #fff;
-}
-
-.youtube-title {
-  margin: 0 0 10px;
-  font-size: 1.25rem;
-  color: #333;
-  font-weight: bold;
-}
-
-.youtube-iframe {
-  width: 100%;
-  max-width: 560px;
-  height: 315px;
-  border: none;
-  border-radius: 8px;
-  margin-bottom: 10px;
-}
-
-@media (max-width: 768px) {
-  .node {
-    padding: 10px;
-  }
-
-  .node-label {
-    font-size: 1rem;
-  }
-
-  .node-info {
-    font-size: 0.875rem;
-  }
-
-  .header-image-container {
-    margin: 0 0 15px;
-  }
-
-  .header-image-container img.header-image {
-    max-height: 150px;
-  }
-
-  .rightside-container,
-  .leftside-container {
-    flex-direction: column;
-    flex-wrap: wrap;
-  }
-
-  .rightside-content,
-  .leftside-content {
-    max-width: 100% !important;
-  }
-
-  .rightside-image,
-  .leftside-image {
-    flex: 0 0 auto;
-    width: 200px;
-    min-width: 0 !important;
-  }
-}
-
-.node-content-inner {
-  /* Remove left/right padding for better image centering */
-  box-sizing: border-box;
-}
-.node-content-inner img {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 8px;
-  object-fit: cover;
-  margin-bottom: 20px;
-}
-
-.image-wrapper {
-  width: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 20px;
-  box-sizing: border-box;
-  display: flex;
-  justify-content: center;
-}
-.image-wrapper img {
-  width: 90% !important;
-  max-width: 90% !important;
-  display: block;
-  object-fit: cover;
-  border-radius: 8px;
-  box-sizing: border-box;
-  margin: 0 auto;
-}
-
-.ai-assist-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-.ai-assist-content {
-  background: #fff;
-  padding: 24px 20px;
-  border-radius: 10px;
-  min-width: 320px;
-  max-width: 95vw;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.15);
-  text-align: center;
-  position: relative;
-}
-.ai-assist-close {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-  background: none;
-  border: none;
-  font-size: 2rem;
-  color: #888;
-  cursor: pointer;
-  z-index: 10;
-  line-height: 1;
-}
-.ai-assist-close:hover {
-  color: #333;
-}
-.ai-assist-questionarea {
-  min-width: 220px;
-  min-height: 60px;
-  resize: vertical;
-  margin-bottom: 8px;
-}
-.ai-assist-btn-row {
-  display: flex;
-  flex-direction: row;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 8px;
-}
-.ai-assist-btn {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-}
-
-.ai-assist-result-container,
-.ai-assist-image-container {
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.ai-assist-result-container .alert {
-  margin-bottom: 0;
-}
-
-.ai-assist-result-container .btn,
-.ai-assist-image-container .btn {
-  align-self: flex-start;
-}
-
-.ai-assist-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.ai-assist-buttons .btn {
-  min-width: 120px;
-}
-</style>
-
-<!-- Global print styles (not scoped) -->
-<style>
-@media print {
-  body * {
-    visibility: hidden !important;
-  }
-  .graph-viewer,
-  .graph-viewer * {
-    visibility: visible !important;
-  }
-  .graph-viewer {
-    position: absolute !important;
-    left: 0;
-    top: 0;
-    width: 100vw;
-    background: #fff !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-  }
-  .btn,
-  .alert,
-  .modal,
-  .navbar,
-  .sidebar,
-  .footer {
-    display: none !important;
-  }
-  .node-info button {
-    display: none !important;
-  }
 }
 </style>

@@ -1540,7 +1540,7 @@ const handleGPT4VisionImage = async (request, env) => {
 // --- AI Generate Node Endpoint ---
 const handleAIGenerateNode = async (request, env) => {
   try {
-    const { userRequest, graphId, username } = await request.json()
+    const { userRequest, graphContext } = await request.json()
     if (!userRequest) {
       return createErrorResponse('Missing userRequest parameter', 400)
     }
@@ -1576,32 +1576,10 @@ const handleAIGenerateNode = async (request, env) => {
       return createErrorResponse(`Failed to fetch templates: ${error.message}`, 500)
     }
 
-    // Get graph context if available
-    let graphContext = ''
-    if (graphId) {
-      try {
-        const graphResponse = await env.KNOWLEDGE.fetch(
-          `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`,
-        )
-        if (graphResponse.ok) {
-          const graphData = await graphResponse.json()
-          if (graphData?.nodes) {
-            graphContext = graphData.nodes
-              .filter((node) => node.visible !== false)
-              .map((node) => `Node: ${node.label}\nType: ${node.type}\nInfo: ${node.info || ''}`)
-              .join('\n\n')
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching graph context:', error)
-      }
-    }
-
     // Create the prompt with all context
     const prompt = `Given the following user request and available templates, generate an appropriate node.
 
 User Request: ${userRequest}
-${username ? `Username: @${username}` : ''}
 
 Available Templates:
 ${templates
@@ -1615,14 +1593,34 @@ AI Instructions: ${t.ai_instructions || 'No specific instructions provided.'}
   )
   .join('\n')}
 
-${graphContext ? `\nContext from existing graph:\n${graphContext}` : ''}
+${
+  graphContext
+    ? `\nContext from current graph (ID: ${graphContext.id}):
+${graphContext.nodes
+  .map(
+    (node) => `
+Node: ${node.label}
+Type: ${node.type}
+Content: ${node.info || ''}
+`,
+  )
+  .join('\n')}`
+    : ''
+}
 
-Based on the user's request, select the most appropriate template and generate content following its structure and instructions.
+Based on the user's request and the context provided, determine if the request is about:
+1. Creating new content
+2. Analyzing or summarizing existing content
+3. Creating a timeline or visualization of existing content
+4. Answering questions about the existing content
+
+Select the most appropriate template and generate content following its structure and instructions.
 The generated content must strictly follow the AI Instructions of the selected template.
 Return a JSON object with the following structure:
 {
   "template": "selected_template_id",
-  "content": "generated_content"
+  "content": "generated_content",
+  "reasoning": "Brief explanation of why this template was chosen and how it relates to the request"
 }`
 
     // Generate content
@@ -1639,7 +1637,7 @@ Return a JSON object with the following structure:
         {
           role: 'system',
           content:
-            'You are an expert at understanding user intent and generating appropriate content for knowledge graphs. You must strictly follow the AI Instructions provided in the template when generating content.',
+            'You are an expert at understanding user intent and generating appropriate content for knowledge graphs. You must analyze the context carefully to determine if the request is about existing content or new content. When working with existing content, ensure your response maintains consistency with the current graph structure and themes.',
         },
         { role: 'user', content: prompt },
       ],
@@ -1659,7 +1657,7 @@ Return a JSON object with the following structure:
       imageWidth: selectedTemplate.nodes.imageWidth,
       imageHeight: selectedTemplate.nodes.imageHeight,
       visible: true,
-      path: selectedTemplate.nodes.path || null,
+      path: selectedTemplate.nodes.path || '',
     }
 
     // If the info field is an object, merge its properties with the node
