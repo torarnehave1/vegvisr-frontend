@@ -57,6 +57,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
   isOpen: {
@@ -70,6 +71,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'node-inserted'])
+const userStore = useUserStore()
 
 const aiNodeRequest = ref('')
 const aiNodePreview = ref(null)
@@ -84,6 +86,7 @@ const generateNode = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
         userRequest: aiNodeRequest.value,
@@ -91,17 +94,32 @@ const generateNode = async () => {
       }),
     })
 
+    const text = await response.text()
+    console.log('API Response:', text)
+
     if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || 'Failed to generate AI node')
+      try {
+        const errorData = JSON.parse(text)
+        throw new Error(errorData.message || 'Failed to generate AI node')
+      } catch (parseError) {
+        console.error('Error parsing error response:', parseError)
+        throw new Error(`Failed to generate AI node: ${text}`)
+      }
     }
 
-    const text = await response.text()
-    const data = JSON.parse(text)
-    aiNodePreview.value = JSON.stringify(data.node, null, 2)
+    try {
+      const data = JSON.parse(text)
+      if (!data || !data.node) {
+        throw new Error('Invalid response format: missing node data')
+      }
+      aiNodePreview.value = JSON.stringify(data.node, null, 2)
+    } catch (parseError) {
+      console.error('Error parsing success response:', parseError)
+      throw new Error('Invalid response format from server')
+    }
   } catch (error) {
     console.error('Error generating AI node:', error)
-    alert(error.message || 'Failed to generate AI node. Please try again.')
+    alert(`Error: ${error.message}`)
   } finally {
     isGenerating.value = false
   }

@@ -10,6 +10,20 @@
     >
       Save to Mystmkra.io
     </button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+      @click="handleAINodeClick"
+      class="btn btn-info mb-3 ms-2"
+    >
+      AI NODE
+    </button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+      @click="handleEnhancedAINodeClick"
+      class="btn btn-info mb-3 ms-2"
+    >
+      Enhanced AI NODE
+    </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -284,6 +298,22 @@
           </div>
         </div>
       </div>
+
+      <!-- Add the AI Node Modal -->
+      <AINodeModal
+        :is-open="isAINodeModalOpen"
+        :graph-context="graphData"
+        @close="closeAINodeModal"
+        @node-inserted="handleNodeInserted"
+      />
+
+      <!-- Add the Enhanced AI Node Modal -->
+      <EnhancedAINodeModal
+        :is-open="isEnhancedAINodeModalOpen"
+        :graph-context="graphData"
+        @close="closeEnhancedAINodeModal"
+        @node-inserted="handleNodeInserted"
+      />
     </div>
   </div>
 </template>
@@ -303,6 +333,8 @@ import BubbleChart from '@/components/BubbleChart.vue'
 import html2pdf from 'html2pdf.js'
 import Mermaid from '@/components/Mermaid.vue'
 import mermaid from 'mermaid'
+import AINodeModal from '@/components/AINodeModal.vue'
+import EnhancedAINodeModal from '@/components/EnhancedAINodeModal.vue'
 
 // Initialize Mermaid
 mermaid.initialize({
@@ -1265,6 +1297,31 @@ function insertAIAssistResultToEditor() {
     textarea.focus()
   })
   closeAIAssist()
+}
+
+const isAINodeModalOpen = ref(false)
+const isEnhancedAINodeModalOpen = ref(false)
+
+const handleAINodeClick = () => {
+  isAINodeModalOpen.value = true
+}
+
+const handleEnhancedAINodeClick = () => {
+  isEnhancedAINodeModalOpen.value = true
+}
+
+const closeAINodeModal = () => {
+  isAINodeModalOpen.value = false
+}
+
+const closeEnhancedAINodeModal = () => {
+  isEnhancedAINodeModalOpen.value = false
+}
+
+const handleNodeInserted = (nodeData) => {
+  // Add the new node to the graph data
+  graphData.value.nodes.push(nodeData)
+  // You might want to save the updated graph data here
 }
 
 onMounted(() => {

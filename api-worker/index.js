@@ -581,6 +581,7 @@ const handleGrokTest = async (request, env) => {
     return createErrorResponse(`Grok API error:`, 500)
   }
 }
+
 // Updated endpoint for versatile AI action with response format
 const handleAIAction = async (request, env) => {
   let body
@@ -1039,12 +1040,101 @@ const handleGrokIssueDescription = async (request, env) => {
       ],
     })
 
-    const result = completion.choices[0].message.content.trim()
-    return createResponse(
-      JSON.stringify(mode === 'description_to_title' ? { title: result } : { description: result }),
+    // Detailed logging before parsing
+    console.log('AI completion object:', completion)
+    console.log('AI completion.choices:', completion.choices)
+    if (completion.choices && completion.choices[0]) {
+      console.log('AI completion.choices[0]:', completion.choices[0])
+      if (completion.choices[0].message) {
+        console.log('AI completion.choices[0].message:', completion.choices[0].message)
+        if (completion.choices[0].message.content) {
+          console.log(
+            'AI completion.choices[0].message.content:',
+            completion.choices[0].message.content,
+          )
+        } else {
+          console.error('No message.content in AI response')
+        }
+      } else {
+        console.error('No message in AI response')
+      }
+    } else {
+      console.error('No choices[0] in AI response')
+    }
+
+    let result
+    try {
+      result = JSON.parse(completion.choices[0].message.content.trim())
+    } catch (error) {
+      console.error('Error parsing AI response:', error)
+      console.error('AI completion object:', completion)
+      console.error('AI completion.choices:', completion.choices)
+      if (completion.choices && completion.choices[0]) {
+        console.error('AI completion.choices[0]:', completion.choices[0])
+        if (completion.choices[0].message) {
+          console.error('AI completion.choices[0].message:', completion.choices[0].message)
+          if (completion.choices[0].message.content) {
+            console.error(
+              'AI completion.choices[0].message.content:',
+              completion.choices[0].message.content,
+            )
+          } else {
+            console.error('No message.content in AI response (error block)')
+          }
+        } else {
+          console.error('No message in AI response (error block)')
+        }
+      } else {
+        console.error('No choices[0] in AI response (error block)')
+      }
+      return createErrorResponse('Invalid response format from AI model', 500)
+    }
+
+    // Create the node using the selected template's structure
+    const node = {
+      id: crypto.randomUUID(),
+      label: result.label,
+      color: result.color,
+      type: result.type,
+      info: result.content,
+      bibl: result.bibl || [],
+      imageWidth: result.imageWidth,
+      imageHeight: result.imageHeight,
+      visible: true,
+      path: result.path || '',
+      category: result.category || 'General',
+      thumbnail_path: result.thumbnail_path || null,
+    }
+
+    // If the info field is an object, merge its properties with the node
+    if (typeof node.info === 'object' && node.info !== null) {
+      const infoObj = node.info
+      node.info = infoObj.info || ''
+      node.label = infoObj.label || node.label
+      node.color = infoObj.color || node.color
+      node.type = infoObj.type || node.type
+      node.bibl = infoObj.bibl || node.bibl
+      node.imageWidth = infoObj.imageWidth || node.imageWidth
+      node.imageHeight = infoObj.imageHeight || node.imageHeight
+      node.path = infoObj.path || node.path
+      node.category = infoObj.category || node.category
+      node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
+    }
+
+    // Build regex pattern as a string at runtime to avoid linter errors
+    const pattern = '[\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]'
+    const controlCharRegex = new RegExp(pattern, 'g')
+    const sanitizedNode = Object.fromEntries(
+      Object.entries(node).map(([key, value]) => [
+        key,
+        typeof value === 'string' ? value.replace(controlCharRegex, '') : value,
+      ]),
     )
-  } catch {
-    return createErrorResponse('Grok API error', 500)
+
+    return createResponse(JSON.stringify({ node: sanitizedNode }))
+  } catch (error) {
+    console.error('Error in handleAIGenerateNode:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
   }
 }
 
@@ -1643,21 +1733,70 @@ Return a JSON object with the following structure:
       ],
     })
 
-    const result = JSON.parse(completion.choices[0].message.content.trim())
-    const selectedTemplate = templates.find((t) => t.id === result.template) || templates[0]
+    // Detailed logging before parsing
+    console.log('AI completion object:', completion)
+    console.log('AI completion.choices:', completion.choices)
+    if (completion.choices && completion.choices[0]) {
+      console.log('AI completion.choices[0]:', completion.choices[0])
+      if (completion.choices[0].message) {
+        console.log('AI completion.choices[0].message:', completion.choices[0].message)
+        if (completion.choices[0].message.content) {
+          console.log(
+            'AI completion.choices[0].message.content:',
+            completion.choices[0].message.content,
+          )
+        } else {
+          console.error('No message.content in AI response')
+        }
+      } else {
+        console.error('No message in AI response')
+      }
+    } else {
+      console.error('No choices[0] in AI response')
+    }
+
+    let result
+    try {
+      result = JSON.parse(completion.choices[0].message.content.trim())
+    } catch (error) {
+      console.error('Error parsing AI response:', error)
+      console.error('AI completion object:', completion)
+      console.error('AI completion.choices:', completion.choices)
+      if (completion.choices && completion.choices[0]) {
+        console.error('AI completion.choices[0]:', completion.choices[0])
+        if (completion.choices[0].message) {
+          console.error('AI completion.choices[0].message:', completion.choices[0].message)
+          if (completion.choices[0].message.content) {
+            console.error(
+              'AI completion.choices[0].message.content:',
+              completion.choices[0].message.content,
+            )
+          } else {
+            console.error('No message.content in AI response (error block)')
+          }
+        } else {
+          console.error('No message in AI response (error block)')
+        }
+      } else {
+        console.error('No choices[0] in AI response (error block)')
+      }
+      return createErrorResponse('Invalid response format from AI model', 500)
+    }
 
     // Create the node using the selected template's structure
     const node = {
       id: crypto.randomUUID(),
-      label: selectedTemplate.nodes.label,
-      color: selectedTemplate.nodes.color,
-      type: selectedTemplate.nodes.type,
+      label: result.label,
+      color: result.color,
+      type: result.type,
       info: result.content,
-      bibl: selectedTemplate.nodes.bibl || [],
-      imageWidth: selectedTemplate.nodes.imageWidth,
-      imageHeight: selectedTemplate.nodes.imageHeight,
+      bibl: result.bibl || [],
+      imageWidth: result.imageWidth,
+      imageHeight: result.imageHeight,
       visible: true,
-      path: selectedTemplate.nodes.path || '',
+      path: result.path || '',
+      category: result.category || 'General',
+      thumbnail_path: result.thumbnail_path || null,
     }
 
     // If the info field is an object, merge its properties with the node
@@ -1671,9 +1810,21 @@ Return a JSON object with the following structure:
       node.imageWidth = infoObj.imageWidth || node.imageWidth
       node.imageHeight = infoObj.imageHeight || node.imageHeight
       node.path = infoObj.path || node.path
+      node.category = infoObj.category || node.category
+      node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
     }
 
-    return createResponse(JSON.stringify({ node }))
+    // Build regex pattern as a string at runtime to avoid linter errors
+    const pattern = '[\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]'
+    const controlCharRegex = new RegExp(pattern, 'g')
+    const sanitizedNode = Object.fromEntries(
+      Object.entries(node).map(([key, value]) => [
+        key,
+        typeof value === 'string' ? value.replace(controlCharRegex, '') : value,
+      ]),
+    )
+
+    return createResponse(JSON.stringify({ node: sanitizedNode }))
   } catch (error) {
     console.error('Error in handleAIGenerateNode:', error)
     return createErrorResponse(error.message || 'Internal server error', 500)

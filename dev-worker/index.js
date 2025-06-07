@@ -9,9 +9,11 @@ import { generateText } from 'ai'
 export default {
   async fetch(request, env) {
     const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, x-user-role',
+      'Access-Control-Allow-Headers': 'Content-Type, x-user-role, X-API-Token, Accept, Origin',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Max-Age': '86400',
     }
 
     console.log(`[Worker] Incoming request: ${request.method} ${request.url}`)
@@ -1125,16 +1127,39 @@ export default {
         try {
           console.log('[Worker] Fetching list of AI templates')
 
+          // Check if database binding exists
+          if (!env.vegvisr_org) {
+            console.error('[Worker] Database binding not found')
+            return new Response(JSON.stringify({ error: 'Database connection not configured' }), {
+              status: 500,
+              headers: corsHeaders,
+            })
+          }
+
           const query = `
             SELECT
               id,
               name,
               nodes,
               edges,
-              ai_instructions
+              ai_instructions,
+              category,
+              thumbnail_path,
+              standard_question
             FROM graphTemplates
           `
+          console.log('[Worker] Executing query:', query)
+
           const results = await env.vegvisr_org.prepare(query).all()
+          console.log('[Worker] Query results:', results)
+
+          if (!results || !results.results) {
+            console.error('[Worker] No results returned from database')
+            return new Response(JSON.stringify({ error: 'No templates found' }), {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
 
           // Process and enrich the templates with additional AI-specific information
           const enrichedTemplates = results.results.map((template) => ({
@@ -1144,26 +1169,33 @@ export default {
             nodes: JSON.parse(template.nodes || '[]'),
             edges: JSON.parse(template.edges || '[]'),
             ai_instructions: template.ai_instructions || '',
+            category: template.category || 'General',
+            thumbnail_path: template.thumbnail_path || null,
+            standard_question: template.standard_question || '',
           }))
 
-          console.log('[Worker] AI templates fetched successfully')
+          console.log('[Worker] AI templates fetched successfully:', enrichedTemplates.length)
           return new Response(JSON.stringify({ results: enrichedTemplates }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
           console.error('[Worker] Error fetching AI templates:', error)
-          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
-            status: 500,
-            headers: corsHeaders,
-          })
+          return new Response(
+            JSON.stringify({
+              error: 'Server error',
+              details: error.message,
+              stack: error.stack,
+            }),
+            { status: 500, headers: corsHeaders },
+          )
         }
       }
 
       if (pathname === '/addAITemplate' && request.method === 'POST') {
         try {
           const requestBody = await request.json()
-          const { name, node, ai_instructions } = requestBody
+          const { name, node, ai_instructions, category, thumbnail_path } = requestBody
 
           if (!name || !node) {
             return new Response(
@@ -1182,9 +1214,11 @@ export default {
               name,
               nodes,
               edges,
-              ai_instructions
+              ai_instructions,
+              category,
+              thumbnail_path
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `
           await env.vegvisr_org
             .prepare(query)
@@ -1207,6 +1241,8 @@ export default {
               JSON.stringify([]),
               ai_instructions ||
                 "Generate a comprehensive response to the user's question. Include:\n1. A clear explanation of the topic\n2. Key concepts and their relationships\n3. Historical or cultural context if relevant\n4. 2-3 academic references in APA format\n\nKeep the response focused and well-structured, avoiding unnecessary jargon. The response should be informative while remaining accessible to a general audience.", // AI instructions
+              category || 'General',
+              thumbnail_path || null,
             )
             .run()
 
@@ -1214,12 +1250,19 @@ export default {
           if (ai_instructions) {
             const updateQuery = `
               UPDATE graphTemplates
-              SET ai_instructions = ?
+              SET ai_instructions = ?,
+                  category = ?,
+                  thumbnail_path = ?
               WHERE id = ?
             `
             await env.vegvisr_org
               .prepare(updateQuery)
-              .bind(JSON.stringify(ai_instructions), templateId)
+              .bind(
+                JSON.stringify(ai_instructions),
+                category || 'General',
+                thumbnail_path || null,
+                templateId,
+              )
               .run()
           }
 
@@ -1229,6 +1272,8 @@ export default {
               message: 'AI template added successfully',
               id: templateId,
               name: 'AI Knowledge Node',
+              category: category || 'General',
+              thumbnail_path: thumbnail_path || null,
             }),
             {
               status: 200,

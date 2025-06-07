@@ -4,6 +4,8 @@ npx wrangler deploy --config=main-worker/wrangler.toml
 
 npx wrangler d1 execute vegvisr_org --command "ALTER TABLE config ADD COLUMN email BOOLEAN;" --config main-worker/wrangler.toml --remote
 
+npx wrangler d1 execute vegvisr_org --command "ALTER TABLE graphTemplates ADD COLUMN category VARCHAR(50) DEFAULT 'General';" --config main-worker/wrangler.toml --remote
+
 wrangler d1 execute vegvisr_org --command "INSERT INTO config (user_id, data, profileimage) VALUES ('testuser', 'This is a test', 'https://vegvisr.org/tah12have/tah.png');" --remote --config=main-worker/wrangler.toml
 
 > > npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM graphTemplates;" --json --remote --config=main-worker/wrangler.toml
