@@ -363,6 +363,7 @@ const generateNode = async () => {
           is_public: shareWithCommunity.value,
           anonymize: anonymize.value,
         },
+        userEmail: userStore.email,
       }),
     })
 

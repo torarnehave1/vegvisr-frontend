@@ -1102,8 +1102,6 @@ const handleGrokIssueDescription = async (request, env) => {
       imageHeight: '100%',
       visible: true,
       path: '',
-      category: 'General',
-      thumbnail_path: null,
     }
 
     // If the info field is an object, merge its properties with the node
@@ -1117,522 +1115,58 @@ const handleGrokIssueDescription = async (request, env) => {
       node.imageWidth = infoObj.imageWidth || node.imageWidth
       node.imageHeight = infoObj.imageHeight || node.imageHeight
       node.path = infoObj.path || ''
-      node.category = infoObj.category || node.category
-      node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
     }
 
-    // Build regex pattern as a string at runtime to avoid linter errors
-    const pattern = '[\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]'
-    const controlCharRegex = new RegExp(pattern, 'g')
-    const sanitizedNode = Object.fromEntries(
-      Object.entries(node).map(([key, value]) => [
-        key,
-        typeof value === 'string' ? value.replace(controlCharRegex, '') : value,
-      ]),
-    )
+    // For worknote type, format the content with user's email
+    if (node.type === 'worknote') {
+      node.info = formatWorknoteContent(node.info, userEmail)
+    }
 
-    return createResponse(JSON.stringify({ node: sanitizedNode }))
+    // Create a clean node object with only the required fields
+    const cleanNode = {
+      id: node.id,
+      label: node.label,
+      color: node.color,
+      type: node.type,
+      info: node.info,
+      bibl: node.bibl,
+      imageWidth: node.imageWidth,
+      imageHeight: node.imageHeight,
+      visible: node.visible,
+      path: node.path,
+    }
+
+    return createResponse(JSON.stringify({ node: cleanNode }))
   } catch (error) {
-    console.error('Error in handleAIGenerateNode:', error)
-    return createErrorResponse(error.message || 'Internal server error', 500)
+    console.error('Error in handleGrokIssueDescription:', error)
+    return createErrorResponse('Failed to generate node', 500)
   }
 }
 
-const handleGenerateMetaAreas = async (request, env) => {
-  // --- Authorization ---
-  const userRole = request.headers.get('x-user-role') || ''
-  if (userRole !== 'Superadmin') {
-    return createErrorResponse('Forbidden: Superadmin role required', 403)
+// Helper function to format worknote content
+const formatWorknoteContent = (content, userEmail) => {
+  if (!userEmail) return content
+
+  const emailUsername = userEmail.split('@')[0]
+  const currentDate = new Date().toISOString().split('T')[0]
+  const infoLines = content.split('\n')
+
+  // Update the first line with the correct format if it exists
+  if (infoLines.length > 0) {
+    infoLines[0] = `${currentDate}: @${emailUsername} - ${infoLines[0].split('-').slice(1).join('-').trim()}`
   }
 
-  // 1. Fetch all knowledge graphs
-  console.log('Fetching all knowledge graphs...')
-  const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
-  console.log('getknowgraphs response status:', response.status)
-  if (!response.ok) {
-    const text = await response.text()
-    console.log('getknowgraphs response body:', text)
-    return createErrorResponse('Failed to fetch graphs', 500)
-  }
-  const data = await response.json()
-  if (!data.results) return createErrorResponse('No graphs found', 404)
-
-  // 2. For each graph, fetch full data and generate a meta area tag if missing
-  for (const graph of data.results) {
-    const graphResponse = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`)
-    if (!graphResponse.ok) continue
-    const graphData = await graphResponse.json()
-
-    // Skip if metaArea already exists and is a non-empty string
-    const meta = graphData.metadata?.metaArea
-    if (typeof meta === 'string' && meta.trim().length > 0) {
-      console.log(`Skipping graph ${graph.id} (already has metaArea: '${meta}')`)
-      continue
-    }
-
-    // Compose prompt for GROK AI
-    const prompt = `\nGiven the following knowledge graph content, generate a single, specific, community-relevant Meta Area tag (all capital letters, no spaces, no special characters) that best summarizes the main theme. \n- The tag should be a proper noun or a well-known field of study, tradition, technology, or cultural topic (e.g., NORSE MYTHOLOGY, AI GROK TECH, ETYMOLOGY, HERMETICISM, HINDUISM, CLOUD COMPUTING, ASTROLOGY, SYMBOLISM, PSYCHOLOGY, TECHNOLOGY, SHIVA, SHAKTI, NARASIMHA, etc.).\n- Avoid generic words like FATE, SPIRITUALITY, MINDFULNESS, WISDOM, BREATH, AWAKENING, INTERDISCIPLINARY, TEST, TRANSFORMATION, SACREDNESS, PLAYGROUND, or similar.\n- Only return the tag, in ALL CAPITAL LETTERS.\n\nContent:\n${graphData.metadata?.title || ''}\n${graphData.metadata?.description || ''}\n${graphData.metadata?.category || ''}\n${graphData.nodes?.map((n) => n.label + ' ' + (n.info || '')).join(' ')}\n`
-
-    // Call GROK AI
-    let metaArea = ''
-    try {
-      const client = new OpenAI({
-        apiKey: env.XAI_API_KEY,
-        baseURL: 'https://api.x.ai/v1',
-      })
-      const completion = await client.chat.completions.create({
-        model: 'grok-3-beta',
-        temperature: 0.7,
-        max_tokens: 20,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an expert at summarizing knowledge graphs. Return only a single, specific, community-relevant, ALL CAPS, proper-noun tag. Avoid generic words.',
-          },
-          { role: 'user', content: prompt },
-        ],
-      })
-      metaArea = completion.choices[0].message.content.trim().split(/\s+/)[0].toUpperCase()
-      // Filter out banned tags
-      const bannedTags = [
-        'FATE',
-        'SPIRITUALITY',
-        'MINDFULNESS',
-        'WISDOM',
-        'BREATH',
-        'AWAKENING',
-        'INTERDISCIPLINARY',
-        'TEST',
-        'TRANSFORMATION',
-        'SACREDNESS',
-        'PLAYGROUND',
-      ]
-      if (bannedTags.includes(metaArea)) {
-        console.log(
-          `Banned metaArea '${metaArea}' generated for graph ${graph.id}, skipping update.`,
-        )
-        continue
-      }
-    } catch {
-      continue // Skip on error
-    }
-
-    // 3. Update the graph with the new meta area
-    await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: graph.id,
-        graphData: {
-          ...graphData,
-          metadata: {
-            ...graphData.metadata,
-            metaArea,
-          },
-        },
-      }),
-    })
-  }
-
-  return createResponse(JSON.stringify({ success: true }))
+  return infoLines.join('\n')
 }
 
-// --- GROK Ask Endpoint ---
-const handleGrokAsk = async (request, env) => {
-  const apiKey = env.XAI_API_KEY
-  if (!apiKey) {
-    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
-  }
-
-  let body
-  try {
-    body = await request.json()
-  } catch {
-    return createErrorResponse('Invalid JSON body', 400)
-  }
-
-  let { context, question } = body
-  if (!context || typeof context !== 'string') {
-    return createErrorResponse('Context is required and must be a string', 400)
-  }
-  if (!question || typeof question !== 'string' || !question.trim()) {
-    return createErrorResponse('Question is required and must be a non-empty string', 400)
-  }
-
-  // Strip markdown/HTML from context using marked
-  let plainContext = ''
-  try {
-    // marked.parse returns HTML, so strip HTML tags
-    const html = marked.parse(context)
-    plainContext = html
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  } catch {
-    plainContext = context
-  }
-
-  const client = new OpenAI({
-    apiKey: apiKey,
-    baseURL: 'https://api.x.ai/v1',
-  })
-
-  const prompt = `Given the following context, answer the user's question in detail.\n\nContext:\n${plainContext}\n\nQuestion: ${question}`
-  const systemContent =
-    "You are an expert assistant. Use the provided context to answer the user's question in detail."
-
-  try {
-    const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
-      temperature: 0.7,
-      max_tokens: 800,
-      messages: [
-        { role: 'system', content: systemContent },
-        { role: 'user', content: prompt },
-      ],
-    })
-    const result = completion.choices[0].message.content.trim()
-    return createResponse(JSON.stringify({ result }), 200)
-  } catch {
-    return createErrorResponse('Grok ask error', 500)
-  }
-}
-
-// --- Generate Header Image Endpoint ---
-const handleGenerateHeaderImage = async (request, env) => {
-  const apiKey = env.OPENAI_API_KEY
-  if (!apiKey) {
-    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
-  }
-  let body
-  try {
-    body = await request.json()
-  } catch {
-    return createErrorResponse('Invalid JSON body', 400)
-  }
-  let { prompt } = body
-  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-    return createErrorResponse('Prompt is required and must be a non-empty string', 400)
-  }
-  // Add horizontal/landscape hint
-  prompt = prompt + ', horizontal, wide, landscape, header image'
-
-  // 1. Call OpenAI DALL-E 3
-  let imageUrl
-  try {
-    const openaiRes = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'dall-e-3',
-        prompt,
-        n: 1,
-        size: '1792x1024', // Updated to supported size for horizontal images
-        response_format: 'url',
-      }),
-    })
-    if (!openaiRes.ok) {
-      const err = await openaiRes.text()
-      return createErrorResponse('OpenAI error: ' + err, 500)
-    }
-    const openaiData = await openaiRes.json()
-    imageUrl = openaiData.data[0].url
-  } catch {
-    return createErrorResponse('Failed to generate image', 500)
-  }
-
-  // 2. Download the image
-  let imageBuffer
-  try {
-    const imgRes = await fetch(imageUrl)
-    if (!imgRes.ok) throw new Error('Failed to download image')
-    imageBuffer = await imgRes.arrayBuffer()
-  } catch {
-    return createErrorResponse('Failed to download image', 500)
-  }
-
-  // 3. Upload to R2
-  const imageId = Date.now() + '-' + Math.random().toString(36).slice(2, 10)
-  const fileName = `${imageId}.png`
-  try {
-    await env.MY_R2_BUCKET.put(fileName, imageBuffer, {
-      httpMetadata: { contentType: 'image/png' },
-    })
-  } catch {
-    return createErrorResponse('Failed to upload image to R2', 500)
-  }
-
-  // 4. Return the markdown string
-  const publicUrl = `https://vegvisr.imgix.net/${fileName}`
-  const markdown = `![Header|width: 100%; height: 200px; object-fit: cover; object-position: center](${publicUrl})`
-  return createResponse(JSON.stringify({ markdown, url: publicUrl }), 200)
-}
-
-// --- Generate Image Prompt Endpoint ---
-const handleGenerateImagePrompt = async (request, env) => {
-  const apiKey = env.OPENAI_API_KEY
-  if (!apiKey) {
-    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
-  }
-  let body
-  try {
-    body = await request.json()
-  } catch {
-    return createErrorResponse('Invalid JSON body', 400)
-  }
-  const { context } = body
-  if (!context || typeof context !== 'string' || !context.trim()) {
-    return createErrorResponse('Context is required and must be a non-empty string', 400)
-  }
-
-  // Compose the system and user prompt
-  const systemPrompt = `You are an expert at creating visually descriptive prompts for AI image generation. Your job is to turn a text context into a concise, creative, and visually rich prompt for DALL-E 3. Always make the image horizontal, wide, and suitable as a website header. Do not mention text, captions, or watermarks. Do not include people unless the context requires it. Focus on landscape, atmosphere, and mood.`
-  const userPrompt = `Context: ${context}\n\nGenerate a single, creative, visually descriptive prompt for DALL-E 3 to create a horizontal header image. Do not include any explanations or extra text.`
-
-  try {
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4',
-        temperature: 0.7,
-        max_tokens: 100,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-    })
-    if (!openaiRes.ok) {
-      const err = await openaiRes.text()
-      return createErrorResponse('OpenAI error: ' + err, 500)
-    }
-    const openaiData = await openaiRes.json()
-    let prompt = openaiData.choices[0].message.content.trim()
-    // Remove any extra text or explanations
-    if (prompt.startsWith('"') && prompt.endsWith('"')) prompt = prompt.slice(1, -1)
-    return createResponse(JSON.stringify({ prompt }), 200)
-  } catch {
-    return createErrorResponse('Failed to generate image prompt', 500)
-  }
-}
-
-const handleListR2Images = async (request, env) => {
-  const list = await env.MY_R2_BUCKET.list()
-  // Only include common image extensions
-  const images = list.objects
-    .filter((obj) => /\.(png|jpe?g|gif|webp)$/i.test(obj.key))
-    .map((obj) => ({
-      key: obj.key,
-      url: `https://vegvisr.imgix.net/${obj.key}`,
-    }))
-  return createResponse(JSON.stringify({ images }), 200)
-}
-
-// Add new route handler for Mystmkra.io proxy
-async function handleMystmkraProxy(request) {
-  const apiToken = request.headers.get('X-API-Token')
-  if (!apiToken) {
-    return new Response(JSON.stringify({ error: 'Missing API token' }), {
-      status: 401,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json',
-      },
-    })
-  }
-
-  try {
-    const body = await request.json()
-    const response = await fetch('https://mystmkra.io/dropbox/api/markdown/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Token': apiToken,
-      },
-      body: JSON.stringify(body),
-    })
-
-    let result
-    const contentType = response.headers.get('content-type') || ''
-    if (contentType.includes('application/json')) {
-      result = await response.json()
-    } else {
-      const text = await response.text()
-      console.log('Mystmkra.io raw response:', text)
-      result = { error: 'Mystmkra.io did not return JSON', status: response.status, raw: text }
-    }
-
-    return new Response(JSON.stringify(result), {
-      status: response.status,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json',
-      },
-    })
-  } catch {
-    return new Response(JSON.stringify({ error: 'Failed to proxy request to Mystmkra.io' }), {
-      status: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json',
-      },
-    })
-  }
-}
-
-// --- GPT-4 Vision Image Generation Endpoint ---
-const handleGPT4VisionImage = async (request, env) => {
-  if (!env.OPENAI_API_KEY) {
-    return createErrorResponse('OpenAI API key not configured', 500)
-  }
-
-  try {
-    const body = await request.json()
-    const { prompt, model = 'dall-e-2', size = '1024x1024' } = body
-
-    if (!prompt) {
-      return createErrorResponse('Prompt is required', 400)
-    }
-
-    // Validate model
-    const validModels = ['dall-e-2', 'dall-e-3', 'gpt-image-1']
-    if (!validModels.includes(model)) {
-      return createErrorResponse('Invalid model. Must be one of: ' + validModels.join(', '), 400)
-    }
-
-    // Validate size based on model
-    const validSizes = {
-      'dall-e-2': ['256x256', '512x512', '1024x1024'],
-      'dall-e-3': ['1024x1024', '1024x1792', '1792x1024'],
-      'gpt-image-1': ['1024x1024', '1024x1536', '1536x1024', 'auto'],
-    }
-
-    if (!validSizes[model].includes(size)) {
-      return createErrorResponse(
-        `Invalid size for model ${model}. Must be one of: ${validSizes[model].join(', ')}`,
-        400,
-      )
-    }
-
-    // Prepare request body based on model
-    const requestBody = {
-      model,
-      prompt,
-      size,
-      n: 1,
-    }
-
-    // Add response_format only for DALL-E models
-    if (model.startsWith('dall-e')) {
-      requestBody.response_format = 'url'
-    }
-
-    // Generate image using OpenAI
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(requestBody),
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      return createErrorResponse(
-        error.error?.message || 'Failed to generate image',
-        response.status,
-      )
-    }
-
-    const data = await response.json()
-    let imageUrl
-
-    // Handle different response formats
-    if (model.startsWith('dall-e')) {
-      imageUrl = data.data[0].url
-    } else {
-      // For gpt-image-1, the image data is in base64
-      const base64Data = data.data[0].b64_json
-      if (!base64Data) {
-        return createErrorResponse('No image data received from API', 500)
-      }
-
-      // Convert base64 to binary
-      const binaryData = atob(base64Data)
-      const bytes = new Uint8Array(binaryData.length)
-      for (let i = 0; i < binaryData.length; i++) {
-        bytes[i] = binaryData.charCodeAt(i)
-      }
-
-      // Generate a unique filename
-      const timestamp = Date.now()
-      const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
-
-      // Upload to R2
-      await env.MY_R2_BUCKET.put(filename, bytes, {
-        httpMetadata: {
-          contentType: 'image/png',
-        },
-      })
-
-      // Return the permanent URL
-      return createResponse(
-        JSON.stringify({
-          url: `https://vegvisr.imgix.net/${filename}`,
-          size,
-          prompt,
-        }),
-      )
-    }
-
-    // For DALL-E models, download the image from URL
-    const imageResponse = await fetch(imageUrl)
-    if (!imageResponse.ok) {
-      return createErrorResponse('Failed to download generated image', 500)
-    }
-
-    const imageBuffer = await imageResponse.arrayBuffer()
-    const imageData = new Uint8Array(imageBuffer)
-
-    // Generate a unique filename
-    const timestamp = Date.now()
-    const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
-
-    // Upload to R2
-    await env.MY_R2_BUCKET.put(filename, imageData, {
-      httpMetadata: {
-        contentType: 'image/png',
-      },
-    })
-
-    // Return the permanent URL
-    return createResponse(
-      JSON.stringify({
-        url: `https://vegvisr.imgix.net/${filename}`,
-        size,
-        prompt,
-      }),
-    )
-  } catch {
-    return createErrorResponse('Failed to generate image', 500)
-  }
-}
-
-// --- AI Generate Node Endpoint ---
 const handleAIGenerateNode = async (request, env) => {
   try {
-    const { userRequest, graphContext } = await request.json()
+    const { userRequest, graphContext, userEmail } = await request.json()
     if (!userRequest) {
       return createErrorResponse('Missing userRequest parameter', 400)
+    }
+    if (!userEmail) {
+      return createErrorResponse('Missing userEmail parameter', 400)
     }
 
     // Default template for fulltext nodes
@@ -1748,53 +1282,11 @@ The content should follow the template structure with proper formatting. Do not 
       ],
     })
 
-    // Detailed logging before parsing
-    console.log('AI completion object:', completion)
-    console.log('AI completion.choices:', completion.choices)
-    if (completion.choices && completion.choices[0]) {
-      console.log('AI completion.choices[0]:', completion.choices[0])
-      if (completion.choices[0].message) {
-        console.log('AI completion.choices[0].message:', completion.choices[0].message)
-        if (completion.choices[0].message.content) {
-          console.log(
-            'AI completion.choices[0].message.content:',
-            completion.choices[0].message.content,
-          )
-        } else {
-          console.error('No message.content in AI response')
-        }
-      } else {
-        console.error('No message in AI response')
-      }
-    } else {
-      console.error('No choices[0] in AI response')
-    }
-
     let result
     try {
       result = JSON.parse(completion.choices[0].message.content.trim())
     } catch (error) {
       console.error('Error parsing AI response:', error)
-      console.error('AI completion object:', completion)
-      console.error('AI completion.choices:', completion.choices)
-      if (completion.choices && completion.choices[0]) {
-        console.error('AI completion.choices[0]:', completion.choices[0])
-        if (completion.choices[0].message) {
-          console.error('AI completion.choices[0].message:', completion.choices[0].message)
-          if (completion.choices[0].message.content) {
-            console.error(
-              'AI completion.choices[0].message.content:',
-              completion.choices[0].message.content,
-            )
-          } else {
-            console.error('No message.content in AI response (error block)')
-          }
-        } else {
-          console.error('No message in AI response (error block)')
-        }
-      } else {
-        console.error('No choices[0] in AI response (error block)')
-      }
       return createErrorResponse('Invalid response format from AI model', 500)
     }
 
@@ -1810,8 +1302,6 @@ The content should follow the template structure with proper formatting. Do not 
       imageHeight: '100%',
       visible: true,
       path: '',
-      category: 'General',
-      thumbnail_path: null,
     }
 
     // If the info field is an object, merge its properties with the node
@@ -1825,24 +1315,31 @@ The content should follow the template structure with proper formatting. Do not 
       node.imageWidth = infoObj.imageWidth || node.imageWidth
       node.imageHeight = infoObj.imageHeight || node.imageHeight
       node.path = infoObj.path || ''
-      node.category = infoObj.category || node.category
-      node.thumbnail_path = infoObj.thumbnail_path || node.thumbnail_path
     }
 
-    // Build regex pattern as a string at runtime to avoid linter errors
-    const pattern = '[\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]'
-    const controlCharRegex = new RegExp(pattern, 'g')
-    const sanitizedNode = Object.fromEntries(
-      Object.entries(node).map(([key, value]) => [
-        key,
-        typeof value === 'string' ? value.replace(controlCharRegex, '') : value,
-      ]),
-    )
+    // For worknote type, format the content with user's email
+    if (node.type === 'worknote') {
+      node.info = formatWorknoteContent(node.info, userEmail)
+    }
 
-    return createResponse(JSON.stringify({ node: sanitizedNode }))
+    // Create a clean node object with only the required fields
+    const cleanNode = {
+      id: node.id,
+      label: node.label,
+      color: node.color,
+      type: node.type,
+      info: node.info,
+      bibl: node.bibl,
+      imageWidth: node.imageWidth,
+      imageHeight: node.imageHeight,
+      visible: node.visible,
+      path: node.path,
+    }
+
+    return createResponse(JSON.stringify({ node: cleanNode }))
   } catch (error) {
     console.error('Error in handleAIGenerateNode:', error)
-    return createErrorResponse(error.message || 'Internal server error', 500)
+    return createErrorResponse('Failed to generate node', 500)
   }
 }
 
@@ -1862,105 +1359,6 @@ export default {
           'Access-Control-Max-Age': '86400',
         },
       })
-    }
-
-    if (pathname === '/createknowledgegraph' && request.method === 'GET') {
-      return await handleCreateKnowledgeGraph(request, env)
-    }
-    if (pathname === '/save' && request.method === 'POST') {
-      return await handleSave(request, env)
-    }
-    if (pathname.startsWith('/view/') && request.method === 'GET') {
-      return await handleView(request, env)
-    }
-    if (pathname === '/blog-posts' && request.method === 'GET') {
-      return await handleBlogPosts(request, env)
-    }
-    if (pathname === '/hidden-blog-posts' && request.method === 'GET') {
-      return await handleBlogPosts(request, env, true)
-    }
-    if (pathname.startsWith('/blogpostdelete/') && request.method === 'DELETE') {
-      return await handleBlogPostDelete(request, env)
-    }
-    if (pathname === '/snippetadd' && request.method === 'POST') {
-      return await handleSnippetAdd(request, env)
-    }
-    if (pathname.startsWith('/snippets/') && request.method === 'GET') {
-      return await handleSnippetGet(request, env)
-    }
-    if (pathname === '/snippetlist' && request.method === 'GET') {
-      return await handleSnippetList(request, env)
-    }
-    if (pathname.startsWith('/snippetdelete') && request.method === 'DELETE') {
-      return await handleSnippetDelete(request, env)
-    }
-    if (pathname === '/upload' && request.method === 'POST') {
-      return await handleUpload(request, env)
-    }
-    if (pathname === '/search' && request.method === 'GET') {
-      return await handleSearch(request, env)
-    }
-    if (pathname === '/hid_vis' && request.method === 'POST') {
-      return await handleToggleVisibility(request, env)
-    }
-    if (pathname === '/getimage' && request.method === 'GET') {
-      return await handleGetImage(request, env)
-    }
-    if (pathname === '/getcorsimage' && request.method === 'GET') {
-      return await handleGetImageFromR2(request, env)
-    }
-    if (pathname === '/getcorsimage' && request.method === 'HEAD') {
-      return await handleGetImageHeaders(request, env)
-    }
-    if (pathname === '/summarize' && request.method === 'POST') {
-      return await handleSummarize(request, env)
-    }
-    if (pathname === '/groktest' && request.method === 'POST') {
-      return await handleGrokTest(request, env)
-    }
-    if (pathname === '/aiaction' && request.method === 'POST') {
-      return await handleAIAction(request, env)
-    }
-    if (pathname === '/getGoogleApiKey' && request.method === 'GET') {
-      return await handleGetGoogleApiKey(request, env)
-    }
-    if (pathname === '/updatekml' && request.method === 'POST') {
-      return await handleUpdateKml(request, env)
-    }
-    if (pathname === '/suggest-title' && request.method === 'POST') {
-      return await handleSuggestTitle(request, env)
-    }
-    if (pathname === '/suggest-description' && request.method === 'POST') {
-      return await handleSuggestDescription(request, env)
-    }
-    if (pathname === '/suggest-categories' && request.method === 'POST') {
-      return await handleSuggestCategories(request, env)
-    }
-    if (pathname === '/grok-issue-description' && request.method === 'POST') {
-      return await handleGrokIssueDescription(request, env)
-    }
-    if (pathname === '/generate-meta-areas' && request.method === 'POST') {
-      return await handleGenerateMetaAreas(request, env)
-    }
-    if (pathname === '/grok-ask' && request.method === 'POST') {
-      return await handleGrokAsk(request, env)
-    }
-    if (pathname === '/generate-header-image' && request.method === 'POST') {
-      return await handleGenerateHeaderImage(request, env)
-    }
-    if (pathname === '/generate-image-prompt' && request.method === 'POST') {
-      return await handleGenerateImagePrompt(request, env)
-    }
-    if (pathname === '/list-r2-images' && request.method === 'GET') {
-      return await handleListR2Images(request, env)
-    }
-
-    if (pathname === '/mystmkrasave' && request.method === 'POST') {
-      return handleMystmkraProxy(request)
-    }
-
-    if (pathname === '/gpt4-vision-image' && request.method === 'POST') {
-      return await handleGPT4VisionImage(request, env)
     }
 
     if (pathname === '/ai-generate-node' && request.method === 'POST') {
