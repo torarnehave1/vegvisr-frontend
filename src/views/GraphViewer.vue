@@ -1205,7 +1205,7 @@ const preprocessMarkdown = (text) => {
     }
     i++
   }
-  processedText = blocks.join('\n')
+  processedText = blocks.join('\n\n')
 
   // Handle header images normally (they don't consume text)
   processedText = processedText.replace(
