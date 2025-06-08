@@ -49,6 +49,38 @@
               >
                 Copy to Graph...
               </button>
+              <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                🗑️
+              </button>
+              <!-- Reorder Controls -->
+              <div class="reorder-controls">
+                <button
+                  @click="moveNodeUp(node)"
+                  :disabled="getNodePosition(node) === 1"
+                  class="reorder-button"
+                  title="Move Up"
+                >
+                  ⬆️
+                </button>
+                <span class="position-indicator"
+                  >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                >
+                <button
+                  @click="moveNodeDown(node)"
+                  :disabled="getNodePosition(node) === totalVisibleNodes"
+                  class="reorder-button"
+                  title="Move Down"
+                >
+                  ⬇️
+                </button>
+                <button
+                  @click="openReorderModal"
+                  class="reorder-all-button"
+                  title="Reorder All Nodes"
+                >
+                  📋
+                </button>
+              </div>
             </div>
             <div v-html="convertToHtml(node.label)"></div>
           </template>
@@ -89,6 +121,16 @@
                 >
                   Copy to Graph...
                 </button>
+                <button
+                  v-if="
+                    userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                  "
+                  @click="deleteNode(node)"
+                  class="delete-button"
+                  title="Delete Node"
+                >
+                  🗑️
+                </button>
                 <div
                   v-html="convertToHtml(node.info || 'No additional information available.')"
                 ></div>
@@ -113,6 +155,38 @@
                 >
                   Copy to Graph...
                 </button>
+                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                  🗑️
+                </button>
+                <!-- Reorder Controls -->
+                <div class="reorder-controls">
+                  <button
+                    @click="moveNodeUp(node)"
+                    :disabled="getNodePosition(node) === 1"
+                    class="reorder-button"
+                    title="Move Up"
+                  >
+                    ⬆️
+                  </button>
+                  <span class="position-indicator"
+                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                  >
+                  <button
+                    @click="moveNodeDown(node)"
+                    :disabled="getNodePosition(node) === totalVisibleNodes"
+                    class="reorder-button"
+                    title="Move Down"
+                  >
+                    ⬇️
+                  </button>
+                  <button
+                    @click="openReorderModal"
+                    class="reorder-all-button"
+                    title="Reorder All Nodes"
+                  >
+                    📋
+                  </button>
+                </div>
               </div>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
@@ -167,27 +241,119 @@
           </template>
           <template v-else>
             <!-- Render other node types -->
-            <h3 class="node-label">{{ node.label }}</h3>
-            <div class="node-info">
-              <div
-                v-if="
-                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
-                "
-                class="button-group"
-              >
-                <button @click="openMarkdownEditor(node)">Edit Info</button>
-                <button
-                  @click="openCopyNodeModal(node)"
-                  class="copy-button"
-                  title="Copy to another graph"
+            <template v-if="node.type === 'title'">
+              <!-- For title nodes, only render the info content without the label -->
+              <div class="title-content">
+                <div
+                  v-if="
+                    userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                  "
+                  class="button-group"
                 >
-                  Copy to Graph...
-                </button>
+                  <button @click="openMarkdownEditor(node)">Edit Title</button>
+                  <button
+                    @click="openCopyNodeModal(node)"
+                    class="copy-button"
+                    title="Copy to another graph"
+                  >
+                    Copy to Graph...
+                  </button>
+                  <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                    🗑️
+                  </button>
+                  <!-- Reorder Controls -->
+                  <div class="reorder-controls">
+                    <button
+                      @click="moveNodeUp(node)"
+                      :disabled="getNodePosition(node) === 1"
+                      class="reorder-button"
+                      title="Move Up"
+                    >
+                      ⬆️
+                    </button>
+                    <span class="position-indicator"
+                      >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                    >
+                    <button
+                      @click="moveNodeDown(node)"
+                      :disabled="getNodePosition(node) === totalVisibleNodes"
+                      class="reorder-button"
+                      title="Move Down"
+                    >
+                      ⬇️
+                    </button>
+                    <button
+                      @click="openReorderModal"
+                      class="reorder-all-button"
+                      title="Reorder All Nodes"
+                    >
+                      📋
+                    </button>
+                  </div>
+                </div>
+                <div
+                  v-html="
+                    convertToHtml(node.info || 'No content yet. Click Edit Title to add content.')
+                  "
+                ></div>
               </div>
-              <div
-                v-html="convertToHtml(node.info || 'No additional information available.')"
-              ></div>
-            </div>
+            </template>
+            <template v-else>
+              <!-- For all other node types, render label + info -->
+              <h3 class="node-label">{{ node.label }}</h3>
+              <div class="node-info">
+                <div
+                  v-if="
+                    userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                  "
+                  class="button-group"
+                >
+                  <button @click="openMarkdownEditor(node)">Edit Info</button>
+                  <button
+                    @click="openCopyNodeModal(node)"
+                    class="copy-button"
+                    title="Copy to another graph"
+                  >
+                    Copy to Graph...
+                  </button>
+                  <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                    🗑️
+                  </button>
+                  <!-- Reorder Controls -->
+                  <div class="reorder-controls">
+                    <button
+                      @click="moveNodeUp(node)"
+                      :disabled="getNodePosition(node) === 1"
+                      class="reorder-button"
+                      title="Move Up"
+                    >
+                      ⬆️
+                    </button>
+                    <span class="position-indicator"
+                      >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                    >
+                    <button
+                      @click="moveNodeDown(node)"
+                      :disabled="getNodePosition(node) === totalVisibleNodes"
+                      class="reorder-button"
+                      title="Move Down"
+                    >
+                      ⬇️
+                    </button>
+                    <button
+                      @click="openReorderModal"
+                      class="reorder-all-button"
+                      title="Reorder All Nodes"
+                    >
+                      📋
+                    </button>
+                  </div>
+                </div>
+                <div
+                  v-html="convertToHtml(node.info || 'No additional information available.')"
+                ></div>
+              </div>
+            </template>
           </template>
         </div>
       </div>
@@ -195,7 +361,9 @@
       <!-- Markdown Editor Modal -->
       <div v-if="isMarkdownEditorOpen" class="markdown-editor-modal">
         <div class="modal-content">
-          <h3>Edit Info (Markdown)</h3>
+          <h3>
+            {{ currentNode?.type === 'title' ? 'Edit Title (Markdown)' : 'Edit Info (Markdown)' }}
+          </h3>
           <!-- Ensure the editor is visible and bound to currentMarkdown -->
           <div class="d-flex align-items-center gap-2">
             <button @click="insertSectionMarkdown" title="Insert Section" class="btn btn-link p-0">
@@ -361,12 +529,64 @@
         :current-graph-id="knowledgeGraphStore.currentGraphId"
         @node-copied="handleNodeCopied"
       />
+
+      <!-- Reorder Modal -->
+      <div v-if="isReorderModalOpen" class="reorder-modal">
+        <div class="reorder-modal-content">
+          <div class="reorder-header">
+            <h3>Reorder Nodes</h3>
+            <button class="reorder-close" @click="closeReorderModal" title="Close">&times;</button>
+          </div>
+          <div class="reorder-instructions">
+            Drag nodes to reorder, or use the position numbers. Changes are saved automatically.
+          </div>
+          <div class="reorder-list">
+            <div
+              v-for="(node, index) in reorderableNodes"
+              :key="node.id"
+              class="reorder-item"
+              :class="{ 'reorder-item-dragging': draggedNodeId === node.id }"
+              draggable="true"
+              @dragstart="onDragStart(node, index)"
+              @dragover.prevent
+              @drop="onDrop(node, index)"
+              @dragend="onDragEnd"
+            >
+              <div class="reorder-item-content">
+                <div class="drag-handle" title="Drag to reorder">≡≡</div>
+                <div class="node-preview">
+                  <div class="node-type-icon">{{ getNodeTypeIcon(node.type) }}</div>
+                  <div class="node-details">
+                    <div class="node-title">{{ getNodeDisplayName(node) }}</div>
+                    <div class="node-type">{{ node.type }}</div>
+                  </div>
+                </div>
+                <div class="position-input">
+                  <label>Position:</label>
+                  <input
+                    type="number"
+                    :value="node.order"
+                    @input="updateNodePosition(node, $event.target.value)"
+                    min="1"
+                    :max="reorderableNodes.length"
+                    class="position-number"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="reorder-actions">
+            <button @click="resetOrder" class="btn btn-secondary">Reset to Default</button>
+            <button @click="closeReorderModal" class="btn btn-primary">Done</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
@@ -404,6 +624,12 @@ const userStore = useUserStore()
 const copyNodeModal = ref(null)
 const selectedNodeToCopy = ref(null)
 
+// Reordering functionality
+const isReorderModalOpen = ref(false)
+const reorderableNodes = ref([])
+const draggedNodeId = ref(null)
+const draggedFromIndex = ref(null)
+
 const fetchGraphData = async () => {
   try {
     const graphId = knowledgeGraphStore.currentGraphId
@@ -426,14 +652,26 @@ const fetchGraphData = async () => {
           ...node,
           position: node.position || { x: 0, y: 0 }, // Ensure position is preserved
           visible: node.visible !== false,
+          order: node.order || 0, // Ensure order field exists
         })
         seenIds.add(node.id)
       }
     }
 
+    // Filter visible nodes and assign default order if not set
+    const visibleNodes = uniqueNodes.filter((node) => node.visible !== false)
+    visibleNodes.forEach((node, index) => {
+      if (!node.order) {
+        node.order = index + 1
+      }
+    })
+
+    // Sort nodes by order field
+    visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+
     graphData.value = {
       ...data,
-      nodes: uniqueNodes.filter((node) => node.visible !== false),
+      nodes: visibleNodes,
     }
 
     // Update the store with the graph data
@@ -889,15 +1127,17 @@ const markdownEditorTextarea = ref(null)
 
 const openMarkdownEditor = (node) => {
   // For markdown-image nodes, content is in node.label, for others it's in node.info
-  const content = node.type === 'markdown-image' ? node.label : node.info
+  const content = node.type === 'markdown-image' ? node.label : node.info || ''
 
-  if (!content || content.trim() === '') {
+  // For title nodes, allow editing even if info is null by initializing as empty string
+  if (node.type === 'title' || content || content.trim() !== '') {
+    currentNode.value = node
+    currentMarkdown.value = content
+    isMarkdownEditorOpen.value = true
+  } else {
     alert('This node does not contain any markdown content to edit.')
     return
   }
-  currentNode.value = node
-  currentMarkdown.value = content
-  isMarkdownEditorOpen.value = true
 }
 
 const closeMarkdownEditor = () => {
@@ -1467,6 +1707,266 @@ const handleNodeCopied = (copyInfo) => {
   selectedNodeToCopy.value = null
 }
 
+// Computed properties for reordering
+const totalVisibleNodes = computed(() => {
+  return graphData.value.nodes.filter((node) => node.visible !== false).length
+})
+
+// Reordering functions
+const getNodePosition = (node) => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+  return sortedNodes.findIndex((n) => n.id === node.id) + 1
+}
+
+const getNodeTypeIcon = (type) => {
+  const icons = {
+    title: '📄',
+    worknote: '📝',
+    'markdown-image': '🖼️',
+    'youtube-video': '📺',
+    map: '🗺️',
+    chart: '📊',
+    piechart: '🥧',
+    linechart: '📈',
+    timeline: '⏰',
+    swot: '📋',
+    bubblechart: '💭',
+    'mermaid-diagram': '🔀',
+    background: '🖼️',
+  }
+  return icons[type] || '📄'
+}
+
+const getNodeDisplayName = (node) => {
+  if (node.type === 'title') {
+    return node.label || 'Untitled'
+  }
+  return node.label || `${node.type} node`
+}
+
+const moveNodeUp = async (node) => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+  const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
+
+  if (currentIndex > 0) {
+    // Swap orders with the node above
+    const nodeAbove = sortedNodes[currentIndex - 1]
+    const tempOrder = node.order
+    node.order = nodeAbove.order
+    nodeAbove.order = tempOrder
+
+    // Re-sort and update
+    await saveNodeOrder()
+  }
+}
+
+const moveNodeDown = async (node) => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+  const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
+
+  if (currentIndex < sortedNodes.length - 1) {
+    // Swap orders with the node below
+    const nodeBelow = sortedNodes[currentIndex + 1]
+    const tempOrder = node.order
+    node.order = nodeBelow.order
+    nodeBelow.order = tempOrder
+
+    // Re-sort and update
+    await saveNodeOrder()
+  }
+}
+
+const openReorderModal = () => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  reorderableNodes.value = [...visibleNodes].sort((a, b) => (a.order || 0) - (b.order || 0))
+  isReorderModalOpen.value = true
+}
+
+const closeReorderModal = () => {
+  isReorderModalOpen.value = false
+  reorderableNodes.value = []
+}
+
+const updateNodePosition = async (node, newPosition) => {
+  const position = parseInt(newPosition)
+  if (position >= 1 && position <= reorderableNodes.value.length) {
+    node.order = position
+
+    // Reassign all positions to avoid conflicts
+    reorderableNodes.value.forEach((n, index) => {
+      if (n.id !== node.id) {
+        if (index >= position - 1) {
+          n.order = index + 2
+        } else {
+          n.order = index + 1
+        }
+      }
+    })
+
+    // Re-sort the modal list
+    reorderableNodes.value.sort((a, b) => (a.order || 0) - (b.order || 0))
+
+    await saveNodeOrder()
+  }
+}
+
+const onDragStart = (node, index) => {
+  draggedNodeId.value = node.id
+  draggedFromIndex.value = index
+}
+
+const onDrop = async (targetNode, targetIndex) => {
+  if (draggedNodeId.value && draggedFromIndex.value !== null) {
+    const draggedNode = reorderableNodes.value.find((n) => n.id === draggedNodeId.value)
+
+    if (draggedNode && draggedFromIndex.value !== targetIndex) {
+      // Remove dragged node from current position
+      reorderableNodes.value.splice(draggedFromIndex.value, 1)
+
+      // Insert at new position
+      reorderableNodes.value.splice(targetIndex, 0, draggedNode)
+
+      // Reassign orders based on new positions
+      reorderableNodes.value.forEach((node, index) => {
+        node.order = index + 1
+      })
+
+      await saveNodeOrder()
+    }
+  }
+}
+
+const onDragEnd = () => {
+  draggedNodeId.value = null
+  draggedFromIndex.value = null
+}
+
+const resetOrder = async () => {
+  reorderableNodes.value.forEach((node, index) => {
+    node.order = index + 1
+  })
+  await saveNodeOrder()
+}
+
+const saveNodeOrder = async () => {
+  try {
+    // Update the main graphData with new orders
+    graphData.value.nodes.forEach((node) => {
+      const reorderedNode = reorderableNodes.value.find((rn) => rn.id === node.id)
+      if (reorderedNode) {
+        node.order = reorderedNode.order
+      }
+    })
+
+    // Sort main graph data
+    graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+
+    // Save to backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: graphData.value,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save node order.')
+    }
+
+    await response.json()
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    console.log('Node order saved successfully')
+  } catch (error) {
+    console.error('Error saving node order:', error)
+    alert('Failed to save node order. Please try again.')
+  }
+}
+
+// Delete node functionality
+const deleteNode = async (node) => {
+  const nodeDisplayName = getNodeDisplayName(node)
+
+  // Confirm deletion
+  const confirmed = confirm(
+    `Are you sure you want to delete "${nodeDisplayName}"?\n\nThis action cannot be undone.`,
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  try {
+    console.log('=== Deleting Node ===')
+    console.log('Node to delete:', node)
+
+    // Remove the node from graphData
+    const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === node.id)
+    if (nodeIndex === -1) {
+      throw new Error('Node not found in graph data')
+    }
+
+    // Remove from local data
+    graphData.value.nodes.splice(nodeIndex, 1)
+
+    // Also remove from reorderable nodes if modal is open
+    if (isReorderModalOpen.value) {
+      const reorderIndex = reorderableNodes.value.findIndex((n) => n.id === node.id)
+      if (reorderIndex !== -1) {
+        reorderableNodes.value.splice(reorderIndex, 1)
+      }
+    }
+
+    // Reassign order values to maintain sequence
+    const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+    visibleNodes.forEach((n, index) => {
+      n.order = index + 1
+    })
+
+    console.log('Updated graph data after deletion:', graphData.value)
+
+    // Save to backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: graphData.value,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save graph after node deletion.')
+    }
+
+    await response.json()
+
+    // Update the store
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    // Show success message
+    saveMessage.value = `Node "${nodeDisplayName}" deleted successfully!`
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 3000)
+
+    console.log('Node deleted successfully')
+  } catch (error) {
+    console.error('Error deleting node:', error)
+    alert(`Failed to delete node: ${error.message}`)
+
+    // Reload the graph data to ensure consistency
+    await fetchGraphData()
+  }
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1974,11 +2474,327 @@ img.leftside {
   background-color: #1e7e34;
 }
 
+.delete-button {
+  margin-left: 10px;
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  background-color: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.2s ease;
+}
+
+.delete-button:hover {
+  background-color: #c82333;
+}
+
+.delete-button:active {
+  background-color: #bd2130;
+}
+
 .button-group {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+
+/* Reordering Styles */
+.reorder-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 4px 8px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.reorder-button {
+  padding: 2px 6px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reorder-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.reorder-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.position-indicator {
+  font-size: 11px;
+  color: #6c757d;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.reorder-all-button {
+  padding: 2px 6px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reorder-all-button:hover {
+  background-color: #1e7e34;
+}
+
+/* Reorder Modal Styles */
+.reorder-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.reorder-modal-content {
+  background: #fff;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.reorder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.reorder-header h3 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: #333;
+}
+
+.reorder-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #888;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reorder-close:hover {
+  color: #333;
+}
+
+.reorder-instructions {
+  padding: 15px 24px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.reorder-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  min-height: 200px;
+  max-height: 400px;
+}
+
+.reorder-item {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  background-color: #fff;
+  cursor: move;
+  transition: all 0.2s ease;
+}
+
+.reorder-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+}
+
+.reorder-item-dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+  border-color: #007bff;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.2);
+}
+
+.reorder-item-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drag-handle {
+  color: #6c757d;
+  font-weight: bold;
+  cursor: grab;
+  user-select: none;
+  font-family: monospace;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.node-preview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.node-type-icon {
+  font-size: 1.2rem;
+  min-width: 24px;
+}
+
+.node-details {
+  flex: 1;
+}
+
+.node-title {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.node-type {
+  font-size: 0.8rem;
+  color: #6c757d;
+  text-transform: capitalize;
+}
+
+.position-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.position-input label {
+  font-size: 0.85rem;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+.position-number {
+  width: 60px;
+  padding: 4px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.position-number:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.reorder-actions {
+  padding: 15px 24px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reorder-actions .btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.reorder-actions .btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.reorder-actions .btn-secondary:hover {
+  background-color: #545b62;
+}
+
+.reorder-actions .btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.reorder-actions .btn-primary:hover {
+  background-color: #0056b3;
+}
+
+@media (max-width: 768px) {
+  .reorder-controls {
+    flex-direction: column;
+    gap: 4px;
+    margin-left: 0;
+    margin-top: 8px;
+  }
+
+  .reorder-modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .reorder-item-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .node-preview {
+    justify-content: center;
+  }
+
+  .position-input {
+    justify-content: center;
+  }
 }
 </style>
 
