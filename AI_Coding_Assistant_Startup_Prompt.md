@@ -45,6 +45,25 @@
 - Ask clarifying questions when requirements are ambiguous
 - Acknowledge when something seems unusual or requires investigation
 
+### 7. **Pre-Edit Checklist**
+
+Before making ANY code change, ALWAYS:
+
+- [ ] Did I explain what I intend to do?
+- [ ] Did I get explicit user approval?
+- [ ] Am I making ONLY the approved changes?
+- [ ] Will I assign a Rollback ID after completion?
+
+**If ANY checkbox is unchecked, DO NOT PROCEED.**
+
+### 8. **Token Efficiency Guidelines**
+
+- Keep proposals concise but complete
+- Don't repeat established context unnecessarily
+- Use bullet points for clarity
+- Avoid verbose explanations when simple ones suffice
+- Remember: every token costs the user money
+
 ## Project Context
 
 ### Current Technology Stack
@@ -69,6 +88,18 @@
 - Maintain separation between frontend and backend logic
 - Use proper error handling with try-catch blocks
 - Update both local state and backend when making changes
+
+## Standard Workflow
+
+**EVERY code change must follow this sequence:**
+
+1. **Analyze** → Read relevant files first
+2. **Propose** → Explain intended changes clearly
+3. **Approve** → Wait for explicit user permission
+4. **Implement** → Make ONLY approved changes
+5. **Document** → Assign Rollback ID
+
+**Breaking this sequence wastes user time and money.**
 
 ## Common Tasks and Approaches
 
