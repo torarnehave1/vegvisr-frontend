@@ -223,7 +223,57 @@
           <template v-else-if="node.type === 'linechart'">
             <!-- Render line chart nodes -->
             <h3 class="node-label">{{ node.label }}</h3>
-            <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
+            <div class="node-info">
+              <div
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                class="button-group"
+              >
+                <button @click="openMarkdownEditor(node)">Edit Chart Data</button>
+                <button
+                  @click="openCopyNodeModal(node)"
+                  class="copy-button"
+                  title="Copy to another graph"
+                >
+                  Copy to Graph...
+                </button>
+                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                  🗑️
+                </button>
+                <!-- Reorder Controls -->
+                <div class="reorder-controls">
+                  <button
+                    @click="moveNodeUp(node)"
+                    :disabled="getNodePosition(node) === 1"
+                    class="reorder-button"
+                    title="Move Up"
+                  >
+                    ⬆️
+                  </button>
+                  <span class="position-indicator"
+                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                  >
+                  <button
+                    @click="moveNodeDown(node)"
+                    :disabled="getNodePosition(node) === totalVisibleNodes"
+                    class="reorder-button"
+                    title="Move Down"
+                  >
+                    ⬇️
+                  </button>
+                  <button
+                    @click="openReorderModal"
+                    class="reorder-all-button"
+                    title="Reorder All Nodes"
+                  >
+                    📋
+                  </button>
+                </div>
+              </div>
+              <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
+              <div v-if="node.description" v-html="convertToHtml(node.description)"></div>
+            </div>
           </template>
           <template v-else-if="node.type === 'swot'">
             <!-- Render SWOT diagram nodes -->
@@ -362,77 +412,187 @@
       <div v-if="isMarkdownEditorOpen" class="markdown-editor-modal">
         <div class="modal-content">
           <h3>
-            {{ currentNode?.type === 'title' ? 'Edit Title (Markdown)' : 'Edit Info (Markdown)' }}
+            {{
+              currentNode?.type === 'title'
+                ? 'Edit Title (Markdown)'
+                : currentNode?.type === 'linechart'
+                  ? 'Edit Line Chart'
+                  : ['chart', 'piechart', 'timeline', 'swot', 'bubblechart'].includes(
+                        currentNode?.type,
+                      )
+                    ? 'Edit Chart Data (JSON)'
+                    : 'Edit Info (Markdown)'
+            }}
           </h3>
-          <!-- Ensure the editor is visible and bound to currentMarkdown -->
-          <div class="d-flex align-items-center gap-2">
-            <button @click="insertSectionMarkdown" title="Insert Section" class="btn btn-link p-0">
-              <span class="material-icons">format_color_fill</span>
-            </button>
-            <button @click="insertQuoteMarkdown" title="Insert Quote" class="btn btn-link p-0">
-              <span class="material-icons">format_quote</span>
-            </button>
-            <button @click="insertWNoteMarkdown" title="Insert Work Note" class="btn btn-link p-0">
-              <span class="material-icons">note</span>
-            </button>
-            <button
-              @click="insertHeaderImageMarkdown"
-              title="Insert Header Image"
-              class="btn btn-link p-0"
-            >
-              <span class="material-icons">image</span>
-            </button>
-            <button
-              @click="insertRightsideImageMarkdown"
-              title="Insert Rightside Image"
-              class="btn btn-link p-0"
-            >
-              <span class="material-icons">image</span>
-            </button>
-            <button
-              @click="insertLeftsideImageMarkdown"
-              title="Insert Leftside Image"
-              class="btn btn-link p-0"
-            >
-              <span class="material-icons">image</span>
-            </button>
-            <button @click="insertFancyMarkdown" title="Insert Fancy" class="btn btn-link p-0">
-              <span class="material-icons">format_paint</span>
-            </button>
-            <button
-              @click="insertYoutubeVideoMarkdown"
-              title="Insert Youtube Video"
-              class="btn btn-link p-0"
-            >
-              <span class="material-icons">video_library</span>
-            </button>
-            <!-- Add AI Assist button to the modal toolbar -->
-            <button
-              v-if="
-                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
-              "
-              @click="openAIAssistInEditor"
-              title="AI Assist"
-              class="btn btn-link p-0"
-              style="
-                background: #6f42c1;
-                color: #fff;
-                border-radius: 4px;
-                border: none;
-                padding: 5px 10px;
-              "
-            >
-              <span class="material-icons">smart_toy</span>
-            </button>
+
+          <!-- Line Chart Sheet Editor -->
+          <div
+            v-if="currentNode?.type === 'linechart' && !isJsonMode"
+            class="linechart-sheet-editor"
+          >
+            <div class="chart-settings">
+              <div class="setting-row">
+                <label>Chart Title:</label>
+                <input
+                  v-model="chartSheetData.title"
+                  class="chart-input"
+                  placeholder="Enter chart title"
+                />
+              </div>
+              <div class="setting-row">
+                <label>X-Axis Label:</label>
+                <input
+                  v-model="chartSheetData.xLabel"
+                  class="chart-input"
+                  placeholder="X-axis label"
+                />
+              </div>
+              <div class="setting-row">
+                <label>Y-Axis Label:</label>
+                <input
+                  v-model="chartSheetData.yLabel"
+                  class="chart-input"
+                  placeholder="Y-axis label"
+                />
+              </div>
+            </div>
+
+            <div class="chart-data-table">
+              <table class="sheet-table">
+                <thead>
+                  <tr>
+                    <th>Labels</th>
+                    <th v-for="(series, i) in chartSheetData.series" :key="i" class="series-header">
+                      <input
+                        v-model="series.label"
+                        class="series-name-input"
+                        placeholder="Series Name"
+                      />
+                      <button
+                        @click="removeSeries(i)"
+                        v-if="chartSheetData.series.length > 1"
+                        class="remove-series-btn"
+                      >
+                        ❌
+                      </button>
+                    </th>
+                    <th v-if="chartSheetData.series.length < 5">
+                      <button @click="addSeries" class="add-series-btn">+ Series</button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, i) in chartSheetData.rows" :key="i">
+                    <td>
+                      <input v-model="row.label" class="label-input" placeholder="Label" />
+                    </td>
+                    <td v-for="(series, j) in chartSheetData.series" :key="j">
+                      <input
+                        type="number"
+                        v-model.number="row.values[j]"
+                        class="value-input"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td v-if="chartSheetData.rows.length > 1">
+                      <button @click="removeRow(i)" class="remove-row-btn">🗑️</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="table-actions">
+                <button @click="addRow" v-if="chartSheetData.rows.length < 5" class="add-row-btn">
+                  + Add Row
+                </button>
+                <button @click="switchToJsonMode" class="switch-mode-btn">
+                  Switch to JSON for Saving...
+                </button>
+              </div>
+            </div>
           </div>
-          <textarea
-            v-model="currentMarkdown"
-            class="form-control"
-            style="width: 100%; height: 200px; font-family: monospace"
-            ref="markdownEditorTextarea"
-          ></textarea>
+
+          <!-- JSON/Markdown Editor (existing) -->
+          <div v-else>
+            <!-- Ensure the editor is visible and bound to currentMarkdown -->
+            <div class="d-flex align-items-center gap-2">
+              <button
+                @click="insertSectionMarkdown"
+                title="Insert Section"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">format_color_fill</span>
+              </button>
+              <button @click="insertQuoteMarkdown" title="Insert Quote" class="btn btn-link p-0">
+                <span class="material-icons">format_quote</span>
+              </button>
+              <button
+                @click="insertWNoteMarkdown"
+                title="Insert Work Note"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">note</span>
+              </button>
+              <button
+                @click="insertHeaderImageMarkdown"
+                title="Insert Header Image"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">image</span>
+              </button>
+              <button
+                @click="insertRightsideImageMarkdown"
+                title="Insert Rightside Image"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">image</span>
+              </button>
+              <button
+                @click="insertLeftsideImageMarkdown"
+                title="Insert Leftside Image"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">image</span>
+              </button>
+              <button @click="insertFancyMarkdown" title="Insert Fancy" class="btn btn-link p-0">
+                <span class="material-icons">format_paint</span>
+              </button>
+              <button
+                @click="insertYoutubeVideoMarkdown"
+                title="Insert Youtube Video"
+                class="btn btn-link p-0"
+              >
+                <span class="material-icons">video_library</span>
+              </button>
+              <!-- Add AI Assist button to the modal toolbar -->
+              <button
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                @click="openAIAssistInEditor"
+                title="AI Assist"
+                class="btn btn-link p-0"
+                style="
+                  background: #6f42c1;
+                  color: #fff;
+                  border-radius: 4px;
+                  border: none;
+                  padding: 5px 10px;
+                "
+              >
+                <span class="material-icons">smart_toy</span>
+              </button>
+            </div>
+            <textarea
+              v-model="currentMarkdown"
+              class="form-control"
+              style="width: 100%; height: 200px; font-family: monospace"
+              ref="markdownEditorTextarea"
+            ></textarea>
+          </div>
+
           <div class="modal-actions">
-            <button @click="saveMarkdown">Save</button>
+            <button @click="handleSave">Save</button>
             <button @click="closeMarkdownEditor">Cancel</button>
             <button
               v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
@@ -1125,17 +1285,46 @@ const currentMarkdown = ref('')
 const currentNode = ref(null)
 const markdownEditorTextarea = ref(null)
 
+// Chart sheet editor state
+const chartSheetData = ref({
+  title: '',
+  xLabel: '',
+  yLabel: '',
+  series: [{ label: 'Series 1' }],
+  rows: [{ label: '', values: [0] }],
+})
+const isJsonMode = ref(false)
+const originalDataFormat = ref('standard') // 'standard', 'points', 'array', 'object'
+
 const openMarkdownEditor = (node) => {
-  // For markdown-image nodes, content is in node.label, for others it's in node.info
-  const content = node.type === 'markdown-image' ? node.label : node.info || ''
+  currentNode.value = node
+  isJsonMode.value = false
+
+  // Handle linechart with sheet interface
+  if (node.type === 'linechart') {
+    initializeChartSheetData(node)
+    isMarkdownEditorOpen.value = true
+    return
+  }
+
+  // Handle other node types
+  let content = ''
+  if (node.type === 'markdown-image') {
+    content = node.label
+  } else if (['chart', 'piechart', 'timeline', 'swot', 'bubblechart'].includes(node.type)) {
+    // For other chart nodes, use JSON editor
+    content = node.info ? JSON.stringify(node.info, null, 2) : ''
+  } else {
+    // For other nodes, use info field as markdown
+    content = node.info || ''
+  }
 
   // For title nodes, allow editing even if info is null by initializing as empty string
   if (node.type === 'title' || content || content.trim() !== '') {
-    currentNode.value = node
     currentMarkdown.value = content
     isMarkdownEditorOpen.value = true
   } else {
-    alert('This node does not contain any markdown content to edit.')
+    alert('This node does not contain any content to edit.')
     return
   }
 }
@@ -1144,14 +1333,38 @@ const closeMarkdownEditor = () => {
   isMarkdownEditorOpen.value = false
   currentNode.value = null
   currentMarkdown.value = ''
+  isJsonMode.value = false
+  originalDataFormat.value = 'standard'
+
+  // Reset chart sheet data
+  chartSheetData.value = {
+    title: '',
+    xLabel: '',
+    yLabel: '',
+    series: [{ label: 'Series 1' }],
+    rows: [{ label: '', values: [0] }],
+  }
 }
 
 const saveMarkdown = async () => {
   if (currentNode.value) {
-    // For markdown-image nodes, save to node.label, for others save to node.info
+    // Handle different node types appropriately
     if (currentNode.value.type === 'markdown-image') {
       currentNode.value.label = currentMarkdown.value
+    } else if (
+      ['chart', 'piechart', 'linechart', 'timeline', 'swot', 'bubblechart'].includes(
+        currentNode.value.type,
+      )
+    ) {
+      // For chart nodes, parse JSON back to object
+      try {
+        currentNode.value.info = JSON.parse(currentMarkdown.value)
+      } catch (error) {
+        alert('Invalid JSON format. Please check your chart data syntax.')
+        return
+      }
     } else {
+      // For other nodes, save as markdown
       currentNode.value.info = currentMarkdown.value
     }
 
@@ -1886,6 +2099,324 @@ const saveNodeOrder = async () => {
   } catch (error) {
     console.error('Error saving node order:', error)
     alert('Failed to save node order. Please try again.')
+  }
+}
+
+// Chart sheet functions
+const initializeChartSheetData = (node) => {
+  console.log('=== Initializing Chart Sheet Data ===')
+  console.log('Full node data:', JSON.stringify(node, null, 2))
+  console.log('Node info:', node.info)
+  console.log('Node label:', node.label)
+  console.log('Node xLabel:', node.xLabel)
+  console.log('Node yLabel:', node.yLabel)
+
+  // Initialize basic chart properties
+  chartSheetData.value.title = node.label || ''
+  chartSheetData.value.xLabel = node.xLabel || node.info?.xLabel || ''
+  chartSheetData.value.yLabel = node.yLabel || node.info?.yLabel || ''
+
+  // Reset to defaults first
+  chartSheetData.value.series = [{ label: 'Series 1' }]
+  chartSheetData.value.rows = [
+    { label: 'Jan', values: [0] },
+    { label: 'Feb', values: [0] },
+  ]
+
+  // Try to convert existing chart data to sheet format
+  if (node.info) {
+    console.log('Node.info exists, checking structure...')
+
+    // Handle different possible data structures
+    let labels = []
+    let datasets = []
+
+    // Case 1: Standard Chart.js format
+    if (node.info.labels && node.info.datasets) {
+      console.log('Found standard Chart.js format')
+      originalDataFormat.value = 'standard'
+      labels = node.info.labels
+      datasets = node.info.datasets
+    }
+    // Case 2: Custom format with data array containing series with points
+    else if (
+      node.info.data &&
+      Array.isArray(node.info.data) &&
+      node.info.data.length > 0 &&
+      node.info.data[0].points
+    ) {
+      console.log('Found custom points format')
+      originalDataFormat.value = 'points'
+      const seriesData = node.info.data
+
+      // Extract x values as labels from first series
+      if (seriesData[0].points && seriesData[0].points.length > 0) {
+        labels = seriesData[0].points.map((point) => String(point.x))
+        console.log('Extracted labels from x values:', labels)
+      }
+
+      // Convert each series to datasets format
+      datasets = seriesData.map((series) => ({
+        label: series.label || 'Series',
+        data: series.points ? series.points.map((point) => Number(point.y)) : [],
+      }))
+      console.log('Converted series to datasets:', datasets)
+    }
+    // Case 3: Simple array format
+    else if (Array.isArray(node.info)) {
+      console.log('Found array format, trying to parse...')
+      // Try to extract structure from array
+      if (node.info.length > 0 && typeof node.info[0] === 'object') {
+        // Array of objects like [{name: 'Jan', value: 100}, ...]
+        labels = node.info.map((item) => item.name || item.label || item.x || 'Label')
+        datasets = [
+          {
+            label: 'Data',
+            data: node.info.map((item) => item.value || item.y || item.data || 0),
+          },
+        ]
+      }
+    }
+    // Case 3: Object with different structure
+    else if (typeof node.info === 'object') {
+      console.log('Found object format, checking keys...')
+      console.log('Object keys:', Object.keys(node.info))
+
+      // Try to find labels and data in various keys
+      const possibleLabelKeys = ['labels', 'categories', 'x', 'keys']
+      const possibleDataKeys = ['data', 'values', 'series', 'datasets']
+
+      for (const labelKey of possibleLabelKeys) {
+        if (node.info[labelKey] && Array.isArray(node.info[labelKey])) {
+          labels = node.info[labelKey]
+          break
+        }
+      }
+
+      for (const dataKey of possibleDataKeys) {
+        if (node.info[dataKey]) {
+          if (Array.isArray(node.info[dataKey])) {
+            // Check if it's datasets format or simple array
+            if (node.info[dataKey].length > 0 && node.info[dataKey][0].data) {
+              datasets = node.info[dataKey]
+            } else {
+              datasets = [
+                {
+                  label: 'Data',
+                  data: node.info[dataKey],
+                },
+              ]
+            }
+          }
+          break
+        }
+      }
+    }
+
+    console.log('Extracted labels:', labels)
+    console.log('Extracted datasets:', datasets)
+
+    // If we found valid data, use it
+    if (labels.length > 0 && datasets.length > 0) {
+      console.log('Converting to sheet format...')
+
+      // Set up series from datasets
+      chartSheetData.value.series = datasets.map((dataset, i) => ({
+        label: dataset.label || `Series ${i + 1}`,
+      }))
+
+      // Set up rows from labels and data
+      chartSheetData.value.rows = labels.map((label, i) => ({
+        label: String(label),
+        values: datasets.map((dataset) => {
+          const data = Array.isArray(dataset.data) ? dataset.data : []
+          return Number(data[i]) || 0
+        }),
+      }))
+
+      console.log('Successfully converted existing data!')
+    } else {
+      console.log('Could not parse existing data, using defaults')
+    }
+  } else {
+    console.log('No node.info found, using defaults')
+  }
+
+  console.log('Final sheet data:', JSON.stringify(chartSheetData.value, null, 2))
+  console.log('=== End Chart Sheet Initialization ===')
+}
+
+const convertSheetToChartData = () => {
+  console.log('=== Converting Sheet Data Back to Chart Format ===')
+  console.log('Original format:', originalDataFormat.value)
+  console.log('Current sheet data:', chartSheetData.value)
+
+  if (originalDataFormat.value === 'points') {
+    // Convert back to the custom points format
+    const data = chartSheetData.value.series.map((series, seriesIndex) => {
+      const points = chartSheetData.value.rows.map((row, rowIndex) => ({
+        x: Number(row.label) || rowIndex + 1, // Try to parse label as number, fallback to index
+        y: Number(row.values[seriesIndex]) || 0,
+      }))
+
+      return {
+        label: series.label,
+        color: getSeriesColor(seriesIndex), // Add default colors
+        points: points,
+      }
+    })
+
+    return {
+      data: data,
+      xLabel: chartSheetData.value.xLabel,
+      yLabel: chartSheetData.value.yLabel,
+    }
+  } else {
+    // Standard Chart.js format
+    const labels = chartSheetData.value.rows.map((row) => row.label)
+    const datasets = chartSheetData.value.series.map((series, seriesIndex) => ({
+      label: series.label,
+      data: chartSheetData.value.rows.map((row) => row.values[seriesIndex] || 0),
+    }))
+
+    return { labels, datasets }
+  }
+}
+
+const getSeriesColor = (index) => {
+  const colors = ['#4a90e2', '#e94e77', '#f9d423', '#50c8a3', '#8b5cf6']
+  return colors[index % colors.length]
+}
+
+const addSeries = () => {
+  if (chartSheetData.value.series.length < 5) {
+    chartSheetData.value.series.push({ label: `Series ${chartSheetData.value.series.length + 1}` })
+
+    // Add empty values for this series to all existing rows
+    chartSheetData.value.rows.forEach((row) => {
+      row.values.push(0)
+    })
+  }
+}
+
+const removeSeries = (index) => {
+  if (chartSheetData.value.series.length > 1) {
+    chartSheetData.value.series.splice(index, 1)
+
+    // Remove values for this series from all rows
+    chartSheetData.value.rows.forEach((row) => {
+      row.values.splice(index, 1)
+    })
+  }
+}
+
+const addRow = () => {
+  if (chartSheetData.value.rows.length < 5) {
+    const newRow = {
+      label: '',
+      values: new Array(chartSheetData.value.series.length).fill(0),
+    }
+    chartSheetData.value.rows.push(newRow)
+  }
+}
+
+const removeRow = (index) => {
+  if (chartSheetData.value.rows.length > 1) {
+    chartSheetData.value.rows.splice(index, 1)
+  }
+}
+
+const switchToJsonMode = () => {
+  // Convert current sheet data to JSON for manual editing
+  const chartData = convertSheetToChartData()
+  currentMarkdown.value = JSON.stringify(chartData, null, 2)
+  isJsonMode.value = true
+}
+
+const saveChartSheet = async () => {
+  if (currentNode.value) {
+    console.log('Saving chart sheet data...')
+
+    // Update chart properties
+    currentNode.value.label = chartSheetData.value.title
+
+    // Convert sheet data to chart format
+    const chartData = convertSheetToChartData()
+    currentNode.value.info = chartData
+
+    // For points format, xLabel and yLabel are inside info
+    // For standard format, they're at the node level
+    if (originalDataFormat.value === 'points') {
+      // xLabel and yLabel are already in chartData
+    } else {
+      currentNode.value.xLabel = chartSheetData.value.xLabel
+      currentNode.value.yLabel = chartSheetData.value.yLabel
+    }
+
+    console.log('Updated node data:', currentNode.value)
+
+    // Use the existing save logic
+    await saveGraphData()
+  }
+}
+
+const handleSave = async () => {
+  if (currentNode.value?.type === 'linechart') {
+    if (isJsonMode.value) {
+      // Parse JSON and convert back to sheet data, then save
+      try {
+        const chartData = JSON.parse(currentMarkdown.value)
+        currentNode.value.info = chartData
+        await saveGraphData()
+      } catch (error) {
+        alert('Invalid JSON format. Please check your chart data syntax.')
+        return
+      }
+    } else {
+      // Save sheet data
+      await saveChartSheet()
+    }
+  } else {
+    // Regular markdown/JSON save
+    await saveMarkdown()
+  }
+}
+
+const saveGraphData = async () => {
+  const updatedGraphData = {
+    ...graphData.value,
+    nodes: graphData.value.nodes.map((node) =>
+      node.id === currentNode.value.id ? { ...node, ...currentNode.value } : node,
+    ),
+  }
+
+  try {
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: updatedGraphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with history.')
+    }
+
+    await response.json()
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    saveMessage.value = 'Chart updated successfully!'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 3000)
+
+    closeMarkdownEditor()
+  } catch (error) {
+    console.error('Error saving chart:', error)
+    alert('Failed to save the chart. Please try again.')
   }
 }
 
@@ -2794,6 +3325,221 @@ img.leftside {
 
   .position-input {
     justify-content: center;
+  }
+}
+
+/* Chart Sheet Editor Styles */
+.linechart-sheet-editor {
+  padding: 20px;
+  max-width: 100%;
+}
+
+.chart-settings {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.setting-row label {
+  min-width: 100px;
+  font-weight: 500;
+  color: #333;
+}
+
+.chart-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.chart-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.chart-data-table {
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sheet-table th,
+.sheet-table td {
+  padding: 8px 12px;
+  border: 1px solid #dee2e6;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.sheet-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+}
+
+.series-header {
+  position: relative;
+  min-width: 120px;
+}
+
+.series-name-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 3px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.series-name-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.remove-series-btn {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px;
+}
+
+.remove-series-btn:hover {
+  background-color: #f8d7da;
+  border-radius: 3px;
+}
+
+.add-series-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.add-series-btn:hover {
+  background-color: #218838;
+}
+
+.label-input,
+.value-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.label-input:focus,
+.value-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.value-input {
+  text-align: center;
+}
+
+.remove-row-btn {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+}
+
+.remove-row-btn:hover {
+  background-color: #f8d7da;
+  border-radius: 3px;
+}
+
+.table-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+}
+
+.add-row-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.add-row-btn:hover {
+  background-color: #0056b3;
+}
+
+.switch-mode-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.switch-mode-btn:hover {
+  background-color: #545b62;
+}
+
+@media (max-width: 768px) {
+  .linechart-sheet-editor {
+    padding: 10px;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+  }
+
+  .setting-row label {
+    min-width: auto;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .table-actions {
+    flex-direction: column;
+    gap: 10px;
   }
 }
 </style>
