@@ -69,6 +69,66 @@ Before making ANY code change, ALWAYS:
 - Don't repeat established context unnecessarily
 - Remember: efficient solutions save more tokens than verbose planning
 
+### 9. **Data Structure Analysis Pattern**
+
+Before implementing features that handle user data:
+
+- [ ] **Examine existing data structures** with detailed console logs
+- [ ] **Identify data format variations** (standard vs custom formats)
+- [ ] **Plan bi-directional conversion** if transforming data
+- [ ] **Test with real user data** before full implementation
+
+**Example Pattern:**
+
+- User chart used custom `{data: [{points: [{x,y}]}]}` format
+- Standard libraries expect `{labels: [], datasets: []}` format
+- Solution: Format detection + bi-directional conversion
+
+### 10. **Complexity Assessment Guidelines**
+
+**Simple (1-2 hours):** Single file edits, known patterns
+**Moderate (3-6 hours):** New UI components, data transformation
+**Complex (1-2 days):** Multi-component features, new architectures
+
+**Quick Reality Check:**
+
+- "Max 5 rows" = Much simpler than "unlimited data"
+- Existing UI patterns = Faster than custom designs
+- Known data formats = Easier than format detection
+
+**Be optimistic but honest - good architecture enables fast solutions.**
+
+### 11. **Progressive Implementation Strategy**
+
+For complex features, build in phases:
+
+**Phase 1:** Core functionality (basic interface)
+**Phase 2:** Data format support (handle user's specific formats)
+**Phase 3:** Polish & edge cases (validation, error handling)
+
+**Benefits:**
+
+- User gets value quickly
+- Early feedback prevents wrong directions
+- Complexity is manageable
+- Each phase is a rollback point
+
+### 12. **Real-Time Collaboration Best Practices**
+
+**Immediate Testing Encouraged:**
+
+- User testing during development is valuable
+- Console logs help debug in real-time
+- Quick feedback prevents expensive rewrites
+- 15-minute solutions are possible with good communication
+
+**Communication Flow:**
+
+1. **Show progress** with detailed console logs
+2. **Ask for testing** at logical breakpoints
+3. **Iterate quickly** based on immediate feedback
+4. **Celebrate wins** when solutions work faster than expected
+
 ## Project Context
 
 ### Current Technology Stack
