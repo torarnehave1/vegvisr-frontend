@@ -15,9 +15,13 @@
       <textarea
         ref="textareaRef"
         v-model="markdown"
-        placeholder="Enter your markdown here..."
+        placeholder="Enter your markdown here... (You can also paste an image!)"
         @click="closeContextMenu"
+        @paste="handlePaste"
       ></textarea>
+      <div v-if="isUploading" class="spinner-overlay">
+        <div class="spinner"></div>
+      </div>
       <!-- File Upload Form -->
       <form @submit.prevent="uploadImage" class="upload-form">
         <input type="file" ref="fileInput" accept="image/*" />
@@ -91,6 +95,7 @@ const cursorPosition = ref(0)
 const pendingSnippet = ref(null)
 const fileInput = ref(null)
 const theme = ref('light')
+const isUploading = ref(false)
 
 // Check if the embed query parameter is set to true
 isEmbedded.value = route.query.embed === 'true'
@@ -331,6 +336,45 @@ async function uploadImage() {
   }
 }
 
+async function handlePaste(event) {
+  const items = event.clipboardData && event.clipboardData.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (!file) return
+      isUploading.value = true
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'image')
+      try {
+        const response = await fetch('https://api.vegvisr.org/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        if (!response.ok) throw new Error('Failed to upload image')
+        const data = await response.json()
+        const imageUrl = data.url
+        const markdownImage = `![Image](${imageUrl})`
+        await nextTick()
+        const textarea = textareaRef.value
+        if (textarea) {
+          insertSnippetIntoTextarea(markdownImage, textarea)
+          markdown.value = textarea.value
+        }
+      } catch (error) {
+        console.error('Error uploading pasted image:', error)
+        alert('Failed to upload pasted image. Please try again.')
+      } finally {
+        isUploading.value = false
+      }
+      break
+    }
+  }
+}
+
 function clearContent() {
   blogStore.clearBlog()
   console.log('Content reset. Blog ID set to null, and shareable link cleared.')
@@ -527,5 +571,34 @@ textarea {
 .visibility-toggle input[type='checkbox'] {
   width: 16px;
   height: 16px;
+}
+
+.spinner-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 10;
+}
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>
