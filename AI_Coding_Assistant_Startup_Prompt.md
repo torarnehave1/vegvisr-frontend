@@ -23,12 +23,15 @@
 - Do not create documentation files unless explicitly requested
 - Prefer editing existing files over creating new ones
 
-### 4. **Debugging and Console Logging**
+### 4. **Debug-First Development**
 
-- Use console.log statements liberally for debugging issues
-- Add comprehensive logging to understand data flow and state changes
-- Format debug logs clearly with separators (e.g., `===`, `---`)
+- **Log full data structures** with `JSON.stringify(data, null, 2)` when dealing with unknown formats
+- **Identify patterns first** before writing parsers or converters
+- **Test conversion both ways** (input → processed → output)
+- Use comprehensive logging to understand data flow and state changes
+- Format debug logs clearly with separators (e.g., `=== Data Analysis ===`)
 - Include variable types, values, and context in logs
+- **Debug logs often reveal solutions faster than asking questions**
 
 ### 5. **Tool Usage Guidelines**
 
@@ -59,10 +62,12 @@ Before making ANY code change, ALWAYS:
 ### 8. **Token Efficiency Guidelines**
 
 - Keep proposals concise but complete
-- Don't repeat established context unnecessarily
+- **Use debug logs instead of asking questions** when possible
+- **Show don't tell** - console logs reveal data structures instantly
 - Use bullet points for clarity
-- Avoid verbose explanations when simple ones suffice
-- Remember: every token costs the user money
+- **Consolidate related changes** in single edits
+- Don't repeat established context unnecessarily
+- Remember: efficient solutions save more tokens than verbose planning
 
 ## Project Context
 
