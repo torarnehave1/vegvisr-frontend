@@ -35,15 +35,21 @@
       <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
         <div class="node-content-inner">
           <template v-if="node.type === 'markdown-image'">
-            <button
+            <div
               v-if="
                 userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
               "
-              @click="openMarkdownEditor(node)"
-              class="edit-button"
+              class="button-group"
             >
-              Edit Markdown
-            </button>
+              <button @click="openMarkdownEditor(node)" class="edit-button">Edit Markdown</button>
+              <button
+                @click="openCopyNodeModal(node)"
+                class="copy-button"
+                title="Copy to another graph"
+              >
+                Copy to Graph...
+              </button>
+            </div>
             <div v-html="convertToHtml(node.label)"></div>
           </template>
           <template v-else-if="node.type === 'background'">
@@ -73,6 +79,16 @@
                 <button @click="editYoutubeVideo(node)">Edit Video</button>
                 <button @click="editYoutubeTitle(node)">Edit Title</button>
                 <button @click="openMarkdownEditor(node)">Edit Info</button>
+                <button
+                  v-if="
+                    userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                  "
+                  @click="openCopyNodeModal(node)"
+                  class="copy-button"
+                  title="Copy to another graph"
+                >
+                  Copy to Graph...
+                </button>
                 <div
                   v-html="convertToHtml(node.info || 'No additional information available.')"
                 ></div>
@@ -83,14 +99,21 @@
             <!-- Render worknote nodes -->
             <div class="work-note" :style="{ backgroundColor: node.color || '#FFD580' }">
               <h3 class="node-label">{{ node.label }}</h3>
-              <button
+              <div
                 v-if="
                   userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                 "
-                @click="openMarkdownEditor(node)"
+                class="button-group"
               >
-                Edit Info
-              </button>
+                <button @click="openMarkdownEditor(node)">Edit Info</button>
+                <button
+                  @click="openCopyNodeModal(node)"
+                  class="copy-button"
+                  title="Copy to another graph"
+                >
+                  Copy to Graph...
+                </button>
+              </div>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
               ></div>
@@ -146,14 +169,21 @@
             <!-- Render other node types -->
             <h3 class="node-label">{{ node.label }}</h3>
             <div class="node-info">
-              <button
+              <div
                 v-if="
                   userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                 "
-                @click="openMarkdownEditor(node)"
+                class="button-group"
               >
-                Edit Info
-              </button>
+                <button @click="openMarkdownEditor(node)">Edit Info</button>
+                <button
+                  @click="openCopyNodeModal(node)"
+                  class="copy-button"
+                  title="Copy to another graph"
+                >
+                  Copy to Graph...
+                </button>
+              </div>
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.')"
               ></div>
@@ -323,6 +353,14 @@
         @close="closeEnhancedAINodeModal"
         @node-inserted="handleNodeInserted"
       />
+
+      <!-- Copy Node Modal -->
+      <CopyNodeModal
+        ref="copyNodeModal"
+        :node-data="selectedNodeToCopy"
+        :current-graph-id="knowledgeGraphStore.currentGraphId"
+        @node-copied="handleNodeCopied"
+      />
     </div>
   </div>
 </template>
@@ -344,6 +382,8 @@ import Mermaid from '@/components/Mermaid.vue'
 import mermaid from 'mermaid'
 import AINodeModal from '@/components/AINodeModal.vue'
 import EnhancedAINodeModal from '@/components/EnhancedAINodeModal.vue'
+import CopyNodeModal from '@/components/CopyNodeModal.vue'
+import { Modal } from 'bootstrap'
 
 // Initialize Mermaid
 mermaid.initialize({
@@ -359,6 +399,10 @@ const error = ref(null)
 const saveMessage = ref('')
 const knowledgeGraphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
+
+// Copy node functionality
+const copyNodeModal = ref(null)
+const selectedNodeToCopy = ref(null)
 
 const fetchGraphData = async () => {
   try {
@@ -1386,6 +1430,43 @@ const handleNodeInserted = async (nodeData) => {
   }
 }
 
+// Copy node functionality
+const openCopyNodeModal = (node) => {
+  console.log('=== Opening Copy Node Modal ===')
+  console.log('Node to copy:', node)
+
+  selectedNodeToCopy.value = {
+    ...node,
+    position: node.position || { x: 0, y: 0 },
+  }
+
+  // Show the modal using Bootstrap Modal
+  const modalElement = document.getElementById('copyNodeModal')
+  if (modalElement) {
+    const modal = new Modal(modalElement)
+    modal.show()
+
+    // Call the show method on the modal component to fetch graphs
+    if (copyNodeModal.value) {
+      copyNodeModal.value.show()
+    }
+  }
+}
+
+const handleNodeCopied = (copyInfo) => {
+  console.log('=== Node Copied Successfully ===')
+  console.log('Copy info:', copyInfo)
+
+  // Show success message
+  saveMessage.value = `Node "${copyInfo.sourceNode.label}" copied to "${copyInfo.targetGraph.metadata?.title}" with new ID: ${copyInfo.newNodeId}`
+  setTimeout(() => {
+    saveMessage.value = ''
+  }, 5000)
+
+  // Reset the selected node
+  selectedNodeToCopy.value = null
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -1875,6 +1956,29 @@ img.leftside {
 
 .edit-button:hover {
   background-color: #0056b3;
+}
+
+.copy-button {
+  margin-left: 10px;
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  background-color: #28a745;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.copy-button:hover {
+  background-color: #1e7e34;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 </style>
 
