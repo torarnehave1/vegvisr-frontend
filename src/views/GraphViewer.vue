@@ -289,6 +289,63 @@
             <h3 class="node-label">{{ node.label }}</h3>
             <Mermaid :code="node.info" />
           </template>
+          <template v-else-if="node.type === 'fulltext'">
+            <!-- Render fulltext nodes -->
+            <h3 class="node-label">{{ node.label }}</h3>
+            <div class="node-info">
+              <div
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                class="button-group"
+              >
+                <button @click="openLabelEditor(node)">Edit Label</button>
+                <button @click="openMarkdownEditor(node)">Edit Info</button>
+                <button
+                  @click="openCopyNodeModal(node)"
+                  class="copy-button"
+                  title="Copy to another graph"
+                >
+                  Copy to Graph...
+                </button>
+                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
+                  🗑️
+                </button>
+                <!-- Reorder Controls -->
+                <div class="reorder-controls">
+                  <button
+                    @click="moveNodeUp(node)"
+                    :disabled="getNodePosition(node) === 1"
+                    class="reorder-button"
+                    title="Move Up"
+                  >
+                    ⬆️
+                  </button>
+                  <span class="position-indicator"
+                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
+                  >
+                  <button
+                    @click="moveNodeDown(node)"
+                    :disabled="getNodePosition(node) === totalVisibleNodes"
+                    class="reorder-button"
+                    title="Move Down"
+                  >
+                    ⬇️
+                  </button>
+                  <button
+                    @click="openReorderModal"
+                    class="reorder-all-button"
+                    title="Reorder All Nodes"
+                  >
+                    📋
+                  </button>
+                </div>
+              </div>
+              <div
+                v-html="convertToHtml(node.info || 'No additional information available.')"
+              ></div>
+            </div>
+          </template>
           <template v-else>
             <!-- Render other node types -->
             <template v-if="node.type === 'title'">
@@ -690,6 +747,25 @@
         @node-copied="handleNodeCopied"
       />
 
+      <!-- Label Editor Modal -->
+      <div v-if="isLabelEditorOpen" class="label-editor-modal">
+        <div class="modal-content">
+          <h3>Edit Node Label</h3>
+          <input
+            v-model="currentLabelText"
+            class="form-control"
+            type="text"
+            placeholder="Enter node label"
+            ref="labelEditorInput"
+            @keyup.enter="saveLabelChanges"
+          />
+          <div class="modal-actions">
+            <button @click="saveLabelChanges">Save</button>
+            <button @click="closeLabelEditor">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Reorder Modal -->
       <div v-if="isReorderModalOpen" class="reorder-modal">
         <div class="reorder-modal-content">
@@ -1059,58 +1135,42 @@ const preprocessMarkdown = (text) => {
     },
   )
 
-  // Then process images
-  const markdownRegex = /!\[(Header|Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\)/g
-  let result = ''
-  let lastIndex = 0
+  // Super simple approach: find and replace side images one by one, removing consumed text
+  const imageRegex = /!\[(Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\)/
 
-  let match
-  while ((match = markdownRegex.exec(processedText)) !== null) {
-    const [, type, paragraphCount, styles, url] = match
+  while (imageRegex.test(processedText)) {
+    processedText = processedText.replace(
+      imageRegex,
+      (match, type, paragraphCount, styles, url) => {
+        const numParagraphs = parseInt(paragraphCount, 10) || 1
 
-    // Add text before the match
-    if (lastIndex < match.index) {
-      result += marked.parse(processedText.slice(lastIndex, match.index))
-    }
+        // Find what comes after this image
+        const matchIndex = processedText.indexOf(match)
+        const afterImage = processedText.slice(matchIndex + match.length)
 
-    // Helper to extract style values robustly (with or without quotes)
-    const getStyleValue = (styleString, key, fallback) => {
-      const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
-      const found = styleString.match(regex)
-      return found ? found[1].trim() : fallback
-    }
+        // Split into paragraphs
+        const paragraphs = afterImage.split(/\n\s*\n/).filter((p) => p.trim())
+        const consumedParagraphs = paragraphs.slice(0, numParagraphs)
 
-    if (type === 'Header') {
-      const height = getStyleValue(styles, 'height', 'auto')
-      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
-      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+        // Helper to extract style values
+        const getStyleValue = (styleString, key, fallback) => {
+          const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
+          const found = styleString.match(regex)
+          return found ? found[1].trim() : fallback
+        }
 
-      result += `
-        <div class="header-image-container">
-          <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
-        </div>
-      `.trim()
-    } else if (type === 'Rightside' || type === 'Leftside') {
-      const width = getStyleValue(styles, 'width', '20%')
-      const height = getStyleValue(styles, 'height', '200px')
-      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
-      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+        const width = getStyleValue(styles, 'width', '20%')
+        const height = getStyleValue(styles, 'height', '200px')
+        const objectFit = getStyleValue(styles, 'object-fit', 'cover')
+        const objectPosition = getStyleValue(styles, 'object-position', 'center')
 
-      // Get text after the markdown
-      const remainingText = processedText.slice(match.index + match[0].length).trim()
-      const paragraphs = remainingText.split(/\n\s*\n/).filter((p) => p.trim())
-      const numParagraphs = parseInt(paragraphCount, 10) || 1
-      const sideParagraphs = paragraphs
-        .slice(0, numParagraphs)
-        .map((p) => marked.parse(p))
-        .join('')
+        const sideParagraphs = marked.parse(consumedParagraphs.join('\n\n'))
+        const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
+        const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
+        const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
+        const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
 
-      const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
-      const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
-      const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
-      const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
-
-      result += `
+        const containerHtml = `
         <div class="${containerClass}">
           <div class="${imageClass}">
             <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height !== 'auto' ? height + 'px' : height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
@@ -1119,20 +1179,43 @@ const preprocessMarkdown = (text) => {
         </div>
       `.trim()
 
-      // Skip the processed paragraphs in the remaining content
-      lastIndex =
-        match.index + match[0].length + paragraphs.slice(0, numParagraphs).join('\n\n').length
-    }
+        // Remove consumed paragraphs from the processedText
+        consumedParagraphs.forEach((paragraph) => {
+          processedText = processedText.replace(paragraph, '')
+        })
 
-    lastIndex = match.index + match[0].length
+        return containerHtml
+      },
+    )
   }
 
-  // Add any remaining text after the last match
-  if (lastIndex < processedText.length) {
-    result += marked.parse(processedText.slice(lastIndex))
-  }
+  // Handle header images normally (they don't consume text)
+  processedText = processedText.replace(
+    /!\[Header(?:-(\d+))?\|(.+?)\]\((.+?)\)/g,
+    (match, paragraphCount, styles, url) => {
+      const getStyleValue = (styleString, key, fallback) => {
+        const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
+        const found = styleString.match(regex)
+        return found ? found[1].trim() : fallback
+      }
 
-  return result.trim()
+      const height = getStyleValue(styles, 'height', 'auto')
+      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
+      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+
+      return `
+        <div class="header-image-container">
+          <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
+        </div>
+      `.trim()
+    },
+  )
+
+  // Clean up extra whitespace
+  processedText = processedText.replace(/\n\s*\n\s*\n/g, '\n\n')
+
+  // Process the final text with marked
+  return marked.parse(processedText)
 }
 
 const convertToHtml = (text) => {
@@ -1285,6 +1368,12 @@ const currentMarkdown = ref('')
 const currentNode = ref(null)
 const markdownEditorTextarea = ref(null)
 
+// Label editor state
+const isLabelEditorOpen = ref(false)
+const currentLabelText = ref('')
+const currentEditingNode = ref(null)
+const labelEditorInput = ref(null)
+
 // Chart sheet editor state
 const chartSheetData = ref({
   title: '',
@@ -1344,6 +1433,78 @@ const closeMarkdownEditor = () => {
     series: [{ label: 'Series 1' }],
     rows: [{ label: '', values: [0] }],
   }
+}
+
+// Label editor functions
+const openLabelEditor = (node) => {
+  currentEditingNode.value = node
+  currentLabelText.value = node.label || ''
+  isLabelEditorOpen.value = true
+
+  nextTick(() => {
+    if (labelEditorInput.value) {
+      labelEditorInput.value.focus()
+      labelEditorInput.value.select()
+    }
+  })
+}
+
+const closeLabelEditor = () => {
+  isLabelEditorOpen.value = false
+  currentEditingNode.value = null
+  currentLabelText.value = ''
+}
+
+const saveLabelChanges = async () => {
+  if (currentEditingNode.value && currentLabelText.value.trim()) {
+    console.log('=== Saving Label Changes ===')
+    console.log('Node:', currentEditingNode.value)
+    console.log('New label:', currentLabelText.value.trim())
+
+    // Update the node's label
+    currentEditingNode.value.label = currentLabelText.value.trim()
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === currentEditingNode.value.id
+          ? { ...node, label: currentEditingNode.value.label }
+          : node,
+      ),
+    }
+
+    try {
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save the graph with history.')
+      }
+
+      await response.json()
+
+      knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+      saveMessage.value = 'Node label updated successfully!'
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 3000)
+
+      console.log('Label saved successfully')
+    } catch (error) {
+      console.error('Error saving label:', error)
+      alert('Failed to save the label. Please try again.')
+    }
+  }
+
+  closeLabelEditor()
 }
 
 const saveMarkdown = async () => {
@@ -2745,7 +2906,8 @@ img.leftside {
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-.markdown-editor-modal {
+.markdown-editor-modal,
+.label-editor-modal {
   position: fixed;
   top: 0;
   left: 0;

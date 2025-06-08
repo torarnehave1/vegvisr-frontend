@@ -154,6 +154,28 @@ For complex features, build in phases:
 - Use proper error handling with try-catch blocks
 - Update both local state and backend when making changes
 
+### Format Detection Patterns
+
+When handling user data with unknown formats:
+
+- **Log the structure first**: `JSON.stringify(data, null, 2)`
+- **Detect format patterns**: Look for identifying properties
+- **Support multiple formats**: Write format-agnostic conversion functions
+- **Preserve original format**: Track `originalFormat` to maintain user's structure
+
+**Example Implementation:**
+
+```javascript
+// Detect format first
+if (data.data && Array.isArray(data.data) && data.data[0]?.points) {
+  // Custom points format: {data: [{points: [{x,y}]}]}
+  handlePointsFormat(data)
+} else if (data.labels && data.datasets) {
+  // Standard Chart.js format
+  handleStandardFormat(data)
+}
+```
+
 ## Standard Workflow
 
 **EVERY code change must follow this sequence:**
@@ -179,10 +201,15 @@ For complex features, build in phases:
 
 ### Debugging Issues
 
-1. Add comprehensive console.log statements
-2. Check data flow from frontend to backend
-3. Verify API endpoints are receiving correct data
-4. Use browser dev tools and worker logs for investigation
+1. **Log everything first** - `JSON.stringify()` unknown data structures
+2. **Identify the data pattern** - look for format clues
+3. **Test conversion logic** - verify input → output → input roundtrip
+4. Add comprehensive console.log statements with clear separators
+5. Check data flow from frontend to backend
+6. Verify API endpoints are receiving correct data
+7. Use browser dev tools and worker logs for investigation
+
+**Remember: Debug logs often solve the problem faster than analysis**
 
 ### Code Modifications
 
