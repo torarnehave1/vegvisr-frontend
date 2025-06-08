@@ -35,6 +35,15 @@
       <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
         <div class="node-content-inner">
           <template v-if="node.type === 'markdown-image'">
+            <button
+              v-if="
+                userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+              "
+              @click="openMarkdownEditor(node)"
+              class="edit-button"
+            >
+              Edit Markdown
+            </button>
             <div v-html="convertToHtml(node.label)"></div>
           </template>
           <template v-else-if="node.type === 'background'">
@@ -835,12 +844,15 @@ const currentNode = ref(null)
 const markdownEditorTextarea = ref(null)
 
 const openMarkdownEditor = (node) => {
-  if (!node.info || node.info.trim() === '') {
+  // For markdown-image nodes, content is in node.label, for others it's in node.info
+  const content = node.type === 'markdown-image' ? node.label : node.info
+
+  if (!content || content.trim() === '') {
     alert('This node does not contain any markdown content to edit.')
     return
   }
   currentNode.value = node
-  currentMarkdown.value = node.info
+  currentMarkdown.value = content
   isMarkdownEditorOpen.value = true
 }
 
@@ -852,12 +864,17 @@ const closeMarkdownEditor = () => {
 
 const saveMarkdown = async () => {
   if (currentNode.value) {
-    currentNode.value.info = currentMarkdown.value
+    // For markdown-image nodes, save to node.label, for others save to node.info
+    if (currentNode.value.type === 'markdown-image') {
+      currentNode.value.label = currentMarkdown.value
+    } else {
+      currentNode.value.info = currentMarkdown.value
+    }
 
     const updatedGraphData = {
       ...graphData.value,
       nodes: graphData.value.nodes.map((node) =>
-        node.id === currentNode.value.id ? { ...node, info: currentMarkdown.value } : node,
+        node.id === currentNode.value.id ? { ...node, ...currentNode.value } : node,
       ),
     }
 
@@ -1318,10 +1335,55 @@ const closeEnhancedAINodeModal = () => {
   isEnhancedAINodeModalOpen.value = false
 }
 
-const handleNodeInserted = (nodeData) => {
-  // Add the new node to the graph data
+const handleNodeInserted = async (nodeData) => {
+  console.log('Inserting new AI-generated node:', nodeData)
+
+  // Add the new node to the local graph data
   graphData.value.nodes.push(nodeData)
-  // You might want to save the updated graph data here
+
+  // Create updated graph data with the new node
+  const updatedGraphData = {
+    ...graphData.value,
+    nodes: graphData.value.nodes.map((node) => ({
+      ...node,
+      position: node.position || { x: 100, y: 100 }, // Ensure position exists
+    })),
+  }
+
+  try {
+    // Save the updated graph to the backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: updatedGraphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with the new node.')
+    }
+
+    await response.json()
+
+    // Update the knowledge graph store with the new data
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Show success message
+    saveMessage.value = 'AI-generated node added and saved successfully!'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 3000)
+
+    console.log('AI-generated node successfully saved to backend')
+  } catch (error) {
+    console.error('Error saving inserted node:', error)
+    // Remove the node from local state if save failed
+    graphData.value.nodes = graphData.value.nodes.filter((node) => node.id !== nodeData.id)
+    alert('Failed to save the AI-generated node. Please try again.')
+  }
 }
 
 onMounted(() => {
@@ -1798,6 +1860,21 @@ img.leftside {
 
 .ai-assist-buttons .btn {
   min-width: 120px;
+}
+
+.edit-button {
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.edit-button:hover {
+  background-color: #0056b3;
 }
 </style>
 

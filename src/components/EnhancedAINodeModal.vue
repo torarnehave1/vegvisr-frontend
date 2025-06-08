@@ -1,7 +1,14 @@
 <template>
   <div v-if="isOpen" class="modal-overlay">
     <div class="modal-content">
+      <button @click="close" class="close-button">&times;</button>
       <h3>Enhanced Vegvisr AI Node Creation</h3>
+
+      <div v-if="userStore.role === 'Superadmin'" class="form-group">
+        <button @click="refreshContextData" class="btn btn-sm btn-outline-secondary">
+          Refresh Context Data
+        </button>
+      </div>
 
       <!-- Template Gallery -->
       <div class="form-group">
@@ -137,6 +144,28 @@
         </div>
       </div>
 
+      <!-- Context Selection -->
+      <div class="form-group">
+        <label for="contextSelection">Context for AI Generation:</label>
+        <select id="contextSelection" v-model="contextType" class="form-control">
+          <option value="current">Current Node</option>
+          <option value="all">All Nodes in Graph</option>
+          <option value="none">No Context</option>
+        </select>
+      </div>
+      <!-- Context Display for Superadmin -->
+      <div v-if="userStore.role === 'Superadmin'" class="form-group">
+        <label for="contextDisplay">Context Data (Superadmin View):</label>
+        <textarea
+          id="contextDisplay"
+          v-model="displayContext"
+          class="form-control"
+          rows="5"
+          readonly
+          placeholder="Context data will be displayed here for testing purposes."
+        ></textarea>
+      </div>
+
       <!-- Preview Section -->
       <div v-if="aiNodePreview" class="node-preview">
         <h4>Preview:</h4>
@@ -171,8 +200,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+
+console.log('EnhancedAINodeModal script setup initialized')
 
 const props = defineProps({
   isOpen: {
@@ -187,6 +219,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'node-inserted'])
 const userStore = useUserStore()
+const knowledgeGraphStore = useKnowledgeGraphStore()
 
 // State
 const aiNodeRequest = ref('')
@@ -211,6 +244,10 @@ const templateCache = {
   timestamp: null,
   maxAge: 5 * 60 * 1000, // 5 minutes
 }
+
+// Context state
+const contextType = ref('none')
+const displayContext = ref('')
 
 // Load templates with retry mechanism
 const loadTemplates = async (retryCount = 0) => {
@@ -305,9 +342,74 @@ const refreshTemplates = () => {
   loadTemplates()
 }
 
+const refreshContextData = () => {
+  // Function removed as button is no longer present
+}
+
 // Load templates on mount
 onMounted(async () => {
   await loadTemplates()
+
+  console.log('Modal component mounted, initial isOpen:', props.isOpen)
+  console.log('User role:', userStore.role)
+  if (userStore.role === 'Superadmin' && props.isOpen) {
+    console.log('Setting initial displayContext for Superadmin on mount')
+    console.log('contextType:', contextType.value)
+    console.log('currentNodeData:', currentNodeData())
+    console.log('graphContext from store:', {
+      nodes: knowledgeGraphStore.nodes,
+      edges: knowledgeGraphStore.edges,
+    })
+    displayContext.value =
+      contextType.value === 'current'
+        ? JSON.stringify(currentNodeData(), null, 2)
+        : contextType.value === 'all'
+          ? JSON.stringify(
+              { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges },
+              null,
+              2,
+            )
+          : 'No Context Selected'
+    console.log('displayContext set to:', displayContext.value)
+  }
+
+  // Use nextTick to ensure we catch any updates to isOpen after initial render
+  nextTick(() => {
+    console.log('nextTick check after mount, isOpen:', props.isOpen)
+    if (userStore.role === 'Superadmin' && props.isOpen && !displayContext.value) {
+      console.log('Setting displayContext after nextTick')
+      displayContext.value =
+        contextType.value === 'current'
+          ? JSON.stringify(currentNodeData(), null, 2)
+          : contextType.value === 'all'
+            ? JSON.stringify(
+                { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges },
+                null,
+                2,
+              )
+            : 'No Context Selected'
+      console.log('displayContext set after nextTick to:', displayContext.value)
+    }
+  })
+
+  // One-time delayed check to catch late updates to isOpen
+  setTimeout(() => {
+    console.log('One-time delayed check, isOpen:', props.isOpen)
+    if (userStore.role === 'Superadmin' && props.isOpen && !displayContext.value) {
+      console.log('Setting displayContext after delayed check')
+      displayContext.value =
+        contextType.value === 'current'
+          ? JSON.stringify(currentNodeData(), null, 2)
+          : contextType.value === 'all'
+            ? JSON.stringify(
+                { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges },
+                null,
+                2,
+              )
+            : 'No Context Selected'
+      console.log('displayContext set after delayed check to:', displayContext.value)
+    }
+  }, 500)
 
   try {
     // Load preferences and history
@@ -336,6 +438,10 @@ onMounted(async () => {
   }
 })
 
+onUnmounted(() => {
+  console.log('Modal component unmounted')
+})
+
 const formatDate = (date) => {
   return new Date(date).toLocaleDateString()
 }
@@ -357,13 +463,15 @@ const generateNode = async () => {
       },
       body: JSON.stringify({
         userRequest: aiNodeRequest.value,
-        graphContext: props.graphContext,
-        is_saved: saveToHistory.value,
-        share_settings: {
-          is_public: shareWithCommunity.value,
-          anonymize: anonymize.value,
-        },
+        graphId: knowledgeGraphStore.currentGraphId || '',
         username: userStore.email,
+        contextType: contextType.value,
+        contextData:
+          contextType.value === 'current'
+            ? currentNodeData()
+            : contextType.value === 'all'
+              ? { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges }
+              : null,
       }),
     })
 
@@ -450,6 +558,68 @@ const selectTemplate = (template) => {
   }
   showTemplates.value = false // Hide templates after selection
 }
+
+const currentNodeData = () => {
+  // Function to extract current node data using knowledgeGraphStore
+  // Return the first visible node from the store as the current node
+  if (knowledgeGraphStore.nodes && knowledgeGraphStore.nodes.length > 0) {
+    const firstVisibleNode = knowledgeGraphStore.nodes.find((node) => node.data.visible !== false)
+    if (firstVisibleNode) {
+      return firstVisibleNode.data
+    }
+  }
+  // Fallback to a placeholder if no nodes are available or none are visible
+  return {
+    id: 'placeholder-node',
+    label: 'Current Node Placeholder',
+    info: 'No specific current node identified. This is a placeholder. If a specific node is intended, it should be passed or selected explicitly.',
+    type: 'info',
+  }
+}
+
+// Initialize displayContext when modal opens or contextType changes
+watch(props.isOpen, (newValue) => {
+  console.log('Watch triggered for isOpen change, newValue:', newValue)
+  console.log('User role:', userStore.role)
+  if (userStore.role === 'Superadmin' && newValue) {
+    console.log('Modal opened, updating displayContext')
+    console.log('contextType:', contextType.value)
+    console.log('currentNodeData:', currentNodeData())
+    console.log('graphContext from store:', {
+      nodes: knowledgeGraphStore.nodes,
+      edges: knowledgeGraphStore.edges,
+    })
+    displayContext.value =
+      contextType.value === 'current'
+        ? JSON.stringify(currentNodeData(), null, 2)
+        : contextType.value === 'all'
+          ? JSON.stringify(
+              { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges },
+              null,
+              2,
+            )
+          : 'No Context Selected'
+    console.log('displayContext updated to:', displayContext.value)
+  }
+})
+
+watch(contextType, (newValue) => {
+  console.log('Watch triggered for contextType change, newValue:', newValue)
+  if (userStore.role === 'Superadmin' && props.isOpen) {
+    console.log('contextType changed, updating displayContext')
+    displayContext.value =
+      contextType.value === 'current'
+        ? JSON.stringify(currentNodeData(), null, 2)
+        : contextType.value === 'all'
+          ? JSON.stringify(
+              { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges },
+              null,
+              2,
+            )
+          : 'No Context Selected'
+    console.log('displayContext updated to:', displayContext.value)
+  }
+})
 </script>
 
 <style scoped>

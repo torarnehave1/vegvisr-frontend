@@ -1538,7 +1538,21 @@ const handleGPT4VisionImage = async (request, env) => {
 // --- AI Generate Node Endpoint ---
 const handleAIGenerateNode = async (request, env) => {
   try {
-    const { userRequest, graphId, username } = await request.json()
+    const { userRequest, graphId, username, contextType, contextData } = await request.json()
+
+    console.log('=== AI Generate Node Debug ===')
+    console.log('userRequest:', userRequest)
+    console.log('graphId:', graphId)
+    console.log('username:', username)
+    console.log('contextType:', contextType)
+    console.log('contextData:', JSON.stringify(contextData, null, 2))
+    console.log('contextData type:', typeof contextData)
+    console.log(
+      'contextData length/size:',
+      contextData ? Object.keys(contextData).length : 'null/undefined',
+    )
+    console.log('===============================')
+
     if (!userRequest) {
       return createErrorResponse('Missing userRequest parameter', 400)
     }
@@ -1595,6 +1609,14 @@ const handleAIGenerateNode = async (request, env) => {
       }
     }
 
+    // Process context based on type
+    let finalContext = ''
+    if (contextType === 'current' && contextData) {
+      finalContext = `Current Node Context:\n${JSON.stringify(contextData, null, 2)}`
+    } else if (contextType === 'all' && contextData) {
+      finalContext = `All Nodes Context:\n${graphContext}`
+    }
+
     // Create the prompt with all context
     const prompt = `Given the following user request and available templates, generate an appropriate node.
 
@@ -1611,7 +1633,7 @@ AI Instructions: ${t.ai_instructions || 'No specific instructions provided.'}`,
   )
   .join('\n')}
 
-${graphContext ? `\nContext from existing graph:\n${graphContext}` : ''}
+${finalContext ? `\nContext for generation:\n${finalContext}` : ''}
 
 Based on the user's request, select the most appropriate template and generate content following its structure and instructions.
 The generated content must strictly follow the AI Instructions of the selected template.
