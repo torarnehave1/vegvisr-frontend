@@ -1135,79 +1135,94 @@ const preprocessMarkdown = (text) => {
     },
   )
 
-  // Super simple approach: find and replace side images one by one, removing consumed text
-  const imageRegex = /!\[(Rightside|Leftside)(?:-(\d+))?\|(.+?)\]\((.+?)\)/
-
-  while (imageRegex.test(processedText)) {
-    processedText = processedText.replace(
-      imageRegex,
-      (match, type, paragraphCount, styles, url) => {
-        const numParagraphs = parseInt(paragraphCount, 10) || 1
-
-        // Find what comes after this image
-        const matchIndex = processedText.indexOf(match)
-        const afterImage = processedText.slice(matchIndex + match.length)
-
-        // Split into paragraphs
-        const paragraphs = afterImage.split(/\n\s*\n/).filter((p) => p.trim())
-        const consumedParagraphs = paragraphs.slice(0, numParagraphs)
-
-        // Helper to extract style values
-        const getStyleValue = (styleString, key, fallback) => {
-          const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
-          const found = styleString.match(regex)
-          return found ? found[1].trim() : fallback
+  // --- Refactored rightside/leftside image handling to avoid duplication ---
+  // Split into blocks (paragraphs, images, etc.)
+  const lines = processedText.split(/\n+/)
+  const blocks = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i].trim()
+    // Updated regex: match image at start of line, even if text follows
+    const imageMatch = line.match(
+      /^!\[(Rightside|Leftside)(?:-(\d+))?\s*\|\s*([^\]]+?)\s*\]\((.+?)\)(.*)$/,
+    )
+    if (imageMatch) {
+      const type = imageMatch[1]
+      const paragraphCount = parseInt(imageMatch[2], 10) || 1
+      const styles = imageMatch[3].trim()
+      const url = imageMatch[4].trim()
+      const afterText = imageMatch[5].trim()
+      // Collect the next N non-empty lines as paragraphs
+      const consumedParagraphs = []
+      // If there is text after the image on the same line, treat it as the first paragraph
+      if (afterText) {
+        consumedParagraphs.push(afterText)
+      }
+      let j = i + 1
+      while (consumedParagraphs.length < paragraphCount && j < lines.length) {
+        if (lines[j].trim() !== '') {
+          consumedParagraphs.push(lines[j])
         }
-
-        const width = getStyleValue(styles, 'width', '20%')
-        const height = getStyleValue(styles, 'height', '200px')
-        const objectFit = getStyleValue(styles, 'object-fit', 'cover')
-        const objectPosition = getStyleValue(styles, 'object-position', 'center')
-
-        const sideParagraphs = marked.parse(consumedParagraphs.join('\n\n'))
-        const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
-        const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
-        const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
-        const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
-
-        const containerHtml = `
+        j++
+      }
+      // Helper to extract style values
+      const getStyleValue = (styleString, key, fallback) => {
+        const regex = new RegExp(key + ': *[\'\"]?([^;\'\"]+)[\'\"]?', 'i')
+        const found = styleString.match(regex)
+        return found ? found[1].trim() : fallback
+      }
+      const width = (() => {
+        let w = getStyleValue(styles, 'width', '20%')
+        if (/^\d+$/.test(w)) w = w + 'px'
+        return w
+      })()
+      let height = getStyleValue(styles, 'height', '200px')
+      if (/^\d+$/.test(height)) height = height + 'px'
+      const objectFit = getStyleValue(styles, 'object-fit', 'cover')
+      const objectPosition = getStyleValue(styles, 'object-position', 'center')
+      const sideParagraphs = marked.parse(consumedParagraphs.join('\n\n'))
+      const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
+      const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
+      const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
+      const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
+      // Use a human-readable alt text
+      const altText = type + ' Image'
+      const containerHtml = `
         <div class="${containerClass}">
           <div class="${imageClass}">
-            <img src="${url}" alt="${type} Image" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height !== 'auto' ? height + 'px' : height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
+            <img src="${url}" alt="${altText}" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
           </div>
           <div class="${contentClass}">${sideParagraphs}</div>
         </div>
       `.trim()
-
-        // Remove consumed paragraphs from the processedText
-        consumedParagraphs.forEach((paragraph) => {
-          processedText = processedText.replace(paragraph, '')
-        })
-
-        return containerHtml
-      },
-    )
+      blocks.push(containerHtml)
+      i = j // Skip the image line and the consumed paragraphs
+      continue
+    }
+    // Otherwise, just add the line as a block
+    if (line.trim() !== '') {
+      blocks.push(line)
+    }
+    i++
   }
+  processedText = blocks.join('\n')
 
   // Handle header images normally (they don't consume text)
   processedText = processedText.replace(
     /!\[Header(?:-(\d+))?\|(.+?)\]\((.+?)\)/g,
     (match, paragraphCount, styles, url) => {
       const getStyleValue = (styleString, key, fallback) => {
-        const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
+        const regex = new RegExp(key + ': *[\'\"]?([^;\'\"]+)[\'\"]?', 'i')
         const found = styleString.match(regex)
         return found ? found[1].trim() : fallback
       }
-
       const height = getStyleValue(styles, 'height', 'auto')
       const objectFit = getStyleValue(styles, 'object-fit', 'cover')
       const objectPosition = getStyleValue(styles, 'object-position', 'center')
-
-      return `
-        <div class="header-image-container">
-          <img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
-        </div>
-      `.trim()
+      // Return the HTML string with no leading spaces
+      return `<div class="header-image-container">
+<img src="${url}" alt="Header Image" class="header-image" style="object-fit: ${objectFit}; object-position: ${objectPosition}; height: ${height !== 'auto' ? height + 'px' : height}; border-radius: 8px;" />
+</div>\n\n`
     },
   )
 
@@ -3703,6 +3718,18 @@ img.leftside {
     flex-direction: column;
     gap: 10px;
   }
+}
+
+.leftside-content {
+  margin-left: 20px;
+}
+.rightside-content {
+  margin-right: 20px;
+}
+
+.leftside-content p,
+.rightside-content p {
+  margin-bottom: 1em;
 }
 </style>
 
