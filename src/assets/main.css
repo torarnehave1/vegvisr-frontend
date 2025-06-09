@@ -266,3 +266,18 @@ img.leftside {
   box-sizing: border-box;
   margin: 0 auto;
 }
+.comment-block {
+  border-left: 4px solid #ccc;
+  margin: 1.5em 0;
+  padding: 0.75em 1em;
+  font-size: 0.97em;
+  background: #464545;
+  color: #cfcaca;
+  border-radius: 4px;
+}
+.comment-author {
+  font-weight: bold;
+  margin-bottom: 0.5em;
+  color: #888;
+  font-size: 0.93em;
+}

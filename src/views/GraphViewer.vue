@@ -1087,6 +1087,30 @@ const preprocessMarkdown = (text) => {
   // First, process [pb] page breaks
   let processedText = preprocessPageBreaks(text)
 
+  // Process COMMENT blocks before any markdown parsing
+  processedText = processedText.replace(
+    /\[COMMENT\s*\|([^\]]*)\]([\s\S]*?)\[END COMMENT\]/g,
+    (match, style, content) => {
+      // Parse style string for author and CSS
+      let author = ''
+      let css = ''
+      style.split(';').forEach((s) => {
+        const [k, v] = s.split(':').map((x) => x && x.trim().replace(/^['"]|['"]$/g, ''))
+        if (k && v) {
+          if (k.toLowerCase() === 'author') {
+            author = v
+          } else {
+            css += `${k}:${v};`
+          }
+        }
+      })
+      return `<div class="comment-block" style="${css}">
+${author ? `<div class=\"comment-author\">${author}</div>` : ''}
+<div>${marked.parse(content.trim())}</div>
+</div>\n\n`
+    },
+  )
+
   // Process fancy titles
   processedText = processedText.replace(
     /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
@@ -3730,6 +3754,22 @@ img.leftside {
 .leftside-content p,
 .rightside-content p {
   margin-bottom: 1em;
+}
+
+.comment-block {
+  border-left: 4px solid #ccc;
+  margin: 1.5em 0;
+  padding: 0.75em 1em;
+  font-size: 0.97em;
+  background: #464545;
+  color: #cfcaca;
+  border-radius: 4px;
+}
+.comment-author {
+  font-weight: bold;
+  margin-bottom: 0.5em;
+  color: #888;
+  font-size: 0.93em;
 }
 </style>
 

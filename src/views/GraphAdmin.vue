@@ -143,9 +143,17 @@
                   <button
                     v-if="graphStore.currentGraphId"
                     @click="goToGraphViewer"
-                    class="btn btn-outline-primary"
+                    class="btn btn-outline-primary me-2"
                   >
                     View Graph
+                  </button>
+                  <!-- NEW: Transcript Processor Button -->
+                  <button
+                    @click="showTranscriptProcessor = true"
+                    class="btn btn-success"
+                    title="Process transcripts into Norwegian knowledge graphs - add to current graph or create new one"
+                  >
+                    🎙️ Process Transcript
                   </button>
                 </div>
               </div>
@@ -229,6 +237,14 @@
         </li>
       </ul>
     </div>
+
+    <!-- Transcript Processor Modal -->
+    <TranscriptProcessorModal
+      :isOpen="showTranscriptProcessor"
+      @close="showTranscriptProcessor = false"
+      @graph-imported="handleTranscriptImported"
+      @new-graph-created="handleNewGraphCreated"
+    />
   </div>
 </template>
 
@@ -239,6 +255,7 @@ import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import TopBar from '../components/TopBar.vue' // Import TopBar
 import Sidebar from '../components/sidebar.vue'
+import TranscriptProcessorModal from '../components/TranscriptProcessorModal.vue'
 // Register the undo-redo extension only if it hasn't been registered already
 if (!cytoscape.prototype.undoRedo) {
   undoRedo(cytoscape)
@@ -628,88 +645,23 @@ const applyTemplate = (template) => {
   }, 3000)
 }
 
-// Initialize standard graph
+// Initialize standard graph with simple fulltext node
 const initializeStandardGraph = () => {
   const standardGraph = {
     nodes: [
       {
-        id: 'welcome_node',
-        label: 'Welcome to Vegvisr Knowledge Graph',
+        id: `fulltext_${Date.now()}`,
+        label: 'Start Writing',
         color: '#f9f9f9',
         type: 'fulltext',
-        info: `# Welcome to Vegvisr Knowledge Graph! 🌟
-
-## Getting Started Guide
-
-Welcome to your journey with Vegvisr Knowledge Graph! This powerful tool helps you organize, visualize, and explore knowledge in an interactive way. Here's how to begin your exploration:
-
-### 1. Understanding the Interface
-- The Graph Viewer shows your knowledge graph with interactive nodes and connections
-- Use the Graph Portfolio to browse and manage your collection of graphs
-- The GraphAdmin interface lets you create and edit your graphs
-
-### 2. Basic Navigation
-- Click and drag nodes to arrange them
-- Zoom in/out using your mouse wheel
-- Click on nodes to view their content
-- Use the search function to find specific nodes
-
-### 3. Creating Your First Graph
-1. Start with a title node to name your graph
-2. Add info nodes for main concepts
-3. Connect nodes with edges to show relationships
-4. Use different node types (images, charts, text) to enrich your content
-
-### 4. Node Types Available
-- **Info Nodes**: For detailed explanations and information
-- **Image Nodes**: To include visual content
-- **Chart Nodes**: For data visualization
-- **Fulltext Nodes**: For longer-form content (like this one!)
-- **Work Notes**: For capturing research and ideas
-
-### 5. Tips for Effective Graph Building
-- Keep your graph organized with clear node labels
-- Use colors to categorize different types of information
-- Add bibliographic references to support your content
-- Save your work regularly
-
-### 6. Advanced Features
-- Export your graphs as PDF
-- Use templates for consistent node styling
-- Track changes with version history
-- Collaborate by sharing your graphs
-
-### Need Help?
-- Check the documentation for detailed guides
-- Use the template system to get started quickly
-- Experiment in your personal playground graph
-
-Happy exploring! 🚀`,
-        bibl: [
-          'Vegvisr.org Documentation',
-          'Knowledge Graph Best Practices',
-          'Interactive Visualization Guide',
-        ],
+        info: 'Click here to start writing your knowledge graph content...',
+        bibl: [],
+        imageWidth: '100%',
+        imageHeight: '100%',
         visible: true,
       },
-      {
-        id: 'action_node',
-        label: 'images/ActionSummary.png',
-        color: 'gray',
-        type: 'action_txt',
-        info: null,
-        bibl: [],
-        imageWidth: 180,
-        imageHeight: 180,
-        visible: false,
-      },
     ],
-    edges: [
-      {
-        source: 'welcome_node',
-        target: 'action_node',
-      },
-    ],
+    edges: [],
   }
 
   graphStore.nodes = standardGraph.nodes.map((node) => ({
@@ -2642,6 +2594,7 @@ const updateNodeVisibility = async (nodeId, isVisible) => {
 const contextMenuVisible = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextMenuOptions = ref([]) // Ensure contextMenuOptions is defined as a reactive variable
+const showTranscriptProcessor = ref(false)
 
 // Show context menu on right-click
 // In GraphAdmin.vue <script setup>, update showContextMenu
@@ -2977,6 +2930,207 @@ const addWorkNoteToGraph = (note) => {
     null,
     2,
   )
+}
+
+const handleTranscriptImported = (knowledgeGraph) => {
+  console.log('Importing transcript knowledge graph:', knowledgeGraph)
+
+  // Add nodes to the graph with positions
+  if (knowledgeGraph.nodes) {
+    knowledgeGraph.nodes.forEach((node, index) => {
+      const newNode = {
+        data: {
+          id: node.id || `transcript_${Date.now()}_${index}`,
+          label: node.label || 'Imported Node',
+          color: node.color || '#f9f9f9',
+          type: node.type || 'fulltext',
+          info: node.info || '',
+          bibl: Array.isArray(node.bibl) ? node.bibl : [],
+          imageWidth: node.imageWidth || '100%',
+          imageHeight: node.imageHeight || '100%',
+          visible: node.visible !== false,
+          path: node.path || null,
+        },
+        position: { x: 100 + index * 200, y: 100 + Math.floor(index / 5) * 300 }, // Arrange in grid
+      }
+
+      graphStore.nodes.push(newNode)
+    })
+  }
+
+  // Add edges if any
+  if (knowledgeGraph.edges) {
+    knowledgeGraph.edges.forEach((edge) => {
+      const newEdge = {
+        data: {
+          id: edge.id || `edge_${edge.source}_${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label || null,
+          type: edge.type || null,
+          info: edge.info || null,
+        },
+      }
+
+      graphStore.edges.push(newEdge)
+    })
+  }
+
+  // Update Cytoscape instance
+  if (cyInstance.value) {
+    cyInstance.value.elements().remove()
+    cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+
+    // Apply positions to nodes
+    cyInstance.value.nodes().forEach((node) => {
+      const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+      if (storedNode?.position) {
+        node.position(storedNode.position)
+      }
+    })
+
+    // Run layout and fit to viewport
+    cyInstance.value
+      .layout({
+        name: 'preset',
+        fit: true,
+        padding: 50,
+        animate: true,
+        animationDuration: 500,
+      })
+      .run()
+  }
+
+  // Update JSON editor
+  graphJson.value = JSON.stringify(
+    {
+      nodes: graphStore.nodes.map((node) => ({
+        ...node.data,
+        position: node.position,
+      })),
+      edges: graphStore.edges.map((edge) => edge.data),
+    },
+    null,
+    2,
+  )
+
+  // Show success message
+  validationMessage.value = `Successfully imported ${knowledgeGraph.nodes?.length || 0} nodes from transcript!`
+  validationMessageClass.value = 'alert-success'
+  setTimeout(() => {
+    validationMessage.value = ''
+  }, 3000)
+}
+
+const handleNewGraphCreated = async (result) => {
+  console.log('=== HANDLE NEW GRAPH CREATED ===')
+  console.log('Result received:', result)
+  console.log('Graph ID:', result.graphId)
+  console.log('Graph data nodes:', result.graphData?.nodes?.length || 0)
+  console.log('Sample node from result:', result.graphData?.nodes?.[0])
+  console.log('================================')
+
+  try {
+    // Update the knowledge graphs list
+    await fetchKnowledgeGraphs()
+
+    // Set the new graph as selected
+    selectedGraphId.value = result.graphId
+    graphStore.setCurrentGraphId(result.graphId)
+
+    console.log(
+      'Using provided graph data instead of loading from server to prevent default node override',
+    )
+
+    // Use the provided graph data directly instead of loading from server
+    // This prevents the backend from adding default "Alpha, Hyper, Vector" nodes
+    if (result.graphData && result.graphData.nodes) {
+      graphStore.nodes = result.graphData.nodes.map((node) => ({
+        data: {
+          id: node.id,
+          label: node.label,
+          color: node.color || '#f9f9f9',
+          type: node.type || 'fulltext',
+          info: node.info || '',
+          bibl: Array.isArray(node.bibl) ? node.bibl : [],
+          imageWidth: node.imageWidth || '100%',
+          imageHeight: node.imageHeight || '100%',
+          visible: node.visible !== false,
+          path: node.path || null,
+        },
+        position: node.position || { x: 100, y: 100 },
+      }))
+
+      graphStore.edges = (result.graphData.edges || []).map((edge) => ({
+        data: {
+          id: edge.id || `${edge.source}_${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label || null,
+          type: edge.type || null,
+          info: edge.info || null,
+        },
+      }))
+
+      // Update the JSON editor
+      graphJson.value = JSON.stringify(
+        {
+          nodes: graphStore.nodes.map((node) => ({
+            ...node.data,
+            position: node.position,
+          })),
+          edges: graphStore.edges.map((edge) => edge.data),
+        },
+        null,
+        2,
+      )
+
+      // Update Cytoscape instance
+      if (cyInstance.value) {
+        cyInstance.value.elements().remove()
+        cyInstance.value.add([...graphStore.nodes, ...graphStore.edges])
+
+        // Apply positions to nodes
+        cyInstance.value.nodes().forEach((node) => {
+          const storedNode = graphStore.nodes.find((n) => n.data.id === node.data('id'))
+          if (storedNode?.position) {
+            node.position(storedNode.position)
+          }
+        })
+
+        // Run layout and fit to viewport
+        cyInstance.value
+          .layout({
+            name: 'preset',
+            fit: true,
+            padding: 50,
+            animate: true,
+            animationDuration: 500,
+          })
+          .run()
+      }
+
+      console.log(
+        'Graph loaded from provided data, current nodes in store:',
+        graphStore.nodes.length,
+      )
+      console.log('Sample loaded node:', graphStore.nodes[0]?.data)
+    } else {
+      console.warn('No graph data provided, falling back to server load')
+      await loadSelectedGraph()
+    }
+
+    // Show success message
+    validationMessage.value = `New knowledge graph created successfully! Graph ID: ${result.graphId}`
+    validationMessageClass.value = 'alert-success'
+    setTimeout(() => {
+      validationMessage.value = ''
+    }, 5000)
+  } catch (error) {
+    console.error('Error handling new graph creation:', error)
+    validationMessage.value = `Graph created but error loading: ${error.message}`
+    validationMessageClass.value = 'alert-warning'
+  }
 }
 
 const userStore = useUserStore()

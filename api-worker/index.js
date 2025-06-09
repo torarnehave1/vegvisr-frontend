@@ -9,7 +9,7 @@ import { OpenAI } from 'openai'
 
 // Utility functions
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '\*',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token',
 }
@@ -1351,7 +1351,7 @@ async function handleMystmkraProxy(request) {
     return new Response(JSON.stringify({ error: 'Missing API token' }), {
       status: 401,
       headers: {
-        'Access-Control-Allow-Origin': '\*',
+        'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json',
       },
     })
@@ -1389,7 +1389,7 @@ async function handleMystmkraProxy(request) {
     return new Response(JSON.stringify({ error: 'Failed to proxy request to Mystmkra.io' }), {
       status: 500,
       headers: {
-        'Access-Control-Allow-Origin': '\*',
+        'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json',
       },
     })
@@ -1532,6 +1532,169 @@ const handleGPT4VisionImage = async (request, env) => {
     )
   } catch {
     return createErrorResponse('Failed to generate image', 500)
+  }
+}
+
+// --- Process Transcript to Knowledge Graph Endpoint ---
+const handleProcessTranscript = async (request, env) => {
+  try {
+    console.log('=== handleProcessTranscript called ===')
+
+    const body = await request.json()
+    console.log('Request body keys:', Object.keys(body))
+
+    const { transcript, sourceLanguage, targetLanguage } = body
+
+    if (!transcript) {
+      console.error('Missing transcript text in request')
+      return createErrorResponse('Missing transcript text', 400)
+    }
+
+    console.log('=== Processing Transcript ===')
+    console.log('Transcript length:', transcript.length)
+    console.log('Source language:', sourceLanguage)
+    console.log('Target language:', targetLanguage)
+
+    // Check if Grok API key is available
+    const apiKey = env.XAI_API_KEY
+    if (!apiKey) {
+      console.error('Grok API key not found in environment')
+      return createErrorResponse('Grok API key not configured', 500)
+    }
+    console.log('Grok API key found:', apiKey.substring(0, 10) + '...')
+
+    // Check transcript length and handle accordingly
+    const transcriptWords = transcript.split(/\s+/).length
+    console.log('Transcript word count:', transcriptWords)
+
+    let prompt
+    let maxTokens = 12000 // Grok has larger context window
+
+    if (transcriptWords > 3000) {
+      // For very long transcripts, use comprehensive processing
+      console.log('Large transcript detected, using comprehensive processing')
+      maxTokens = 16000 // Use Grok's full capacity for large transcripts
+
+      prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph. Create 8-15 detailed thematic sections as nodes.
+
+SOURCE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
+TARGET: Norwegian
+
+RULES:
+1. Translate EVERYTHING to Norwegian with high quality
+2. Create nodes with structure: {"id": "del_X", "label": "DEL X: [Descriptive Title]", "color": "#f9f9f9", "type": "fulltext", "info": "comprehensive content", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
+3. Split into logical thematic sections - be thorough, don't skip content
+4. Use rich markdown formatting in "info" field with headers, lists, emphasis
+5. Each node should contain substantial content (200-800 words)
+6. Include key quotes, important details, and context
+7. Create a comprehensive knowledge graph that captures the full essence
+
+TRANSCRIPT (full content):
+${transcript}
+
+Return JSON: {"nodes": [...], "edges": []}`
+    } else {
+      // For shorter transcripts, use detailed processing
+      console.log('Standard transcript length, using detailed processing')
+
+      prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph JSON.
+
+SOURCE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
+TARGET: Norwegian
+
+Create nodes with this structure:
+{"id": "del_X", "label": "DEL X: [Descriptive Title]", "color": "#f9f9f9", "type": "fulltext", "info": "comprehensive Norwegian content", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
+
+Rules:
+- Translate ALL content to Norwegian with exceptional quality
+- Split into 6-12 comprehensive thematic sections
+- Use rich markdown formatting in "info" field
+- Preserve cultural context and nuanced meaning
+- Each node should be substantial (150-600 words)
+- Include important quotes, examples, and detailed explanations
+- Don't summarize - be comprehensive and detailed
+
+TRANSCRIPT:
+${transcript}
+
+Return only JSON: {"nodes": [...], "edges": []}`
+    }
+
+    console.log('Calling Grok AI API...')
+
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: maxTokens,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert Norwegian translator and knowledge graph creator specializing in comprehensive content generation. Transform content into detailed Norwegian knowledge graphs with substantial, well-structured content. Create thorough translations that preserve all important information, cultural context, and nuanced meaning. Always generate multiple detailed nodes with rich markdown formatting. Return only valid JSON in the specified format.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    console.log('Grok AI API response received successfully')
+    const knowledgeGraphData = completion.choices[0].message.content.trim()
+
+    console.log('Generated knowledge graph length:', knowledgeGraphData.length)
+
+    // Parse and validate the JSON
+    try {
+      const parsedGraph = JSON.parse(knowledgeGraphData)
+
+      // Validate structure
+      if (!parsedGraph.nodes || !Array.isArray(parsedGraph.nodes)) {
+        throw new Error('Invalid knowledge graph structure: missing nodes array')
+      }
+
+      // Add timestamps to node IDs if missing
+      parsedGraph.nodes = parsedGraph.nodes.map((node) => ({
+        ...node,
+        id: node.id || `fulltext_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        visible: true,
+        path: null,
+      }))
+
+      console.log('Successfully generated', parsedGraph.nodes.length, 'nodes')
+
+      return createResponse(
+        JSON.stringify({
+          knowledgeGraph: parsedGraph,
+          stats: {
+            totalNodes: parsedGraph.nodes.length,
+            processingTime: Date.now(),
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            modelUsed: 'grok-3-beta',
+            transcriptWords: transcriptWords,
+          },
+        }),
+      )
+    } catch (parseError) {
+      console.error('Error parsing generated JSON:', parseError)
+      console.log('Raw response:', knowledgeGraphData)
+
+      // Return raw response for debugging
+      return createResponse(
+        JSON.stringify({
+          knowledgeGraph: { nodes: [], edges: [] },
+          error: 'Failed to parse generated JSON',
+          rawResponse: knowledgeGraphData,
+        }),
+        500,
+      )
+    }
+  } catch (error) {
+    console.error('Error in handleProcessTranscript:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
   }
 }
 
@@ -1819,6 +1982,10 @@ export default {
 
     if (pathname === '/ai-generate-node' && request.method === 'POST') {
       return await handleAIGenerateNode(request, env)
+    }
+
+    if (pathname === '/process-transcript' && request.method === 'POST') {
+      return await handleProcessTranscript(request, env)
     }
 
     // Fallback
