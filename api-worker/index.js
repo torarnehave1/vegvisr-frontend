@@ -1863,6 +1863,484 @@ Return a JSON object with the following structure:
   }
 }
 
+// --- Style Templates Handler ---
+const handleGetStyleTemplates = async (request) => {
+  const url = new URL(request.url)
+  const nodeType = url.searchParams.get('nodeType')
+
+  // Built-in style templates - in a real app, these would come from a database
+  const allTemplates = [
+    {
+      id: 'fulltext_complete_enhancer',
+      name: 'Complete FullText Enhancer',
+      description:
+        'Adds FANCY headers, SECTION blocks, QUOTE citations, WNOTE annotations, and contextual images',
+      nodeTypes: ['fulltext', 'title'],
+      transformationRules: {
+        addFancyHeaders: true,
+        addSections: true,
+        addQuotes: true,
+        addWorkNotes: true,
+        addHeaderImage: true,
+        addSideImages: {
+          leftside: true,
+          rightside: true,
+          contextual: true,
+        },
+      },
+      category: 'comprehensive',
+      isActive: true,
+    },
+    {
+      id: 'visual_content_formatter',
+      name: 'Visual Content Formatter',
+      description:
+        'Focus on image positioning with leftside/rightside placement and WNOTE integration',
+      nodeTypes: ['fulltext', 'worknote'],
+      transformationRules: {
+        addHeaderImage: true,
+        addSideImages: {
+          leftside: true,
+          rightside: true,
+          contextual: true,
+        },
+        addWorkNotes: true,
+        addSections: true,
+      },
+      category: 'visual',
+      isActive: true,
+    },
+    {
+      id: 'work_note_enhancer',
+      name: 'Work Note Enhancer',
+      description:
+        'Specialized WNOTE formatting with contextual rightside images for technical content',
+      nodeTypes: ['fulltext', 'worknote'],
+      transformationRules: {
+        addWorkNotes: true,
+        addSideImages: {
+          rightside: true,
+          contextual: true,
+        },
+        addSections: true,
+      },
+      category: 'technical',
+      isActive: true,
+    },
+    {
+      id: 'header_sections_basic',
+      name: 'Header + Sections Basic',
+      description: 'Basic structure with FANCY headers and SECTION blocks',
+      nodeTypes: ['fulltext', 'title', 'worknote'],
+      transformationRules: {
+        addFancyHeaders: true,
+        addSections: true,
+        addHeaderImage: true,
+      },
+      category: 'structure',
+      isActive: true,
+    },
+  ]
+
+  // Filter by node type if specified
+  const templates = nodeType
+    ? allTemplates.filter((t) => t.nodeTypes.includes(nodeType) && t.isActive)
+    : allTemplates.filter((t) => t.isActive)
+
+  return createResponse(JSON.stringify({ templates }))
+}
+
+// --- Apply Style Template Handler ---
+const handleApplyStyleTemplate = async (request, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { nodeContent, templateId, nodeType, options = {}, colorTheme = null } = body
+
+  if (!nodeContent || !templateId || !nodeType) {
+    return createErrorResponse(
+      'Missing required parameters: nodeContent, templateId, nodeType',
+      400,
+    )
+  }
+
+  console.log('=== Apply Style Template ===')
+  console.log('Template ID:', templateId)
+  console.log('Node Type:', nodeType)
+  console.log('Content length:', nodeContent.length)
+  console.log('Options:', JSON.stringify(options))
+  console.log('Color Theme:', colorTheme ? colorTheme.name : 'Default')
+
+  // Get the template configuration
+  const templates = [
+    {
+      id: 'fulltext_complete_enhancer',
+      aiInstructions: `Transform this content into a rich, well-formatted fulltext node with comprehensive styling:
+
+FORMATTING REQUIREMENTS:
+1. Add a FANCY header at the top with styling: [FANCY | font-size: 3em; color: #2c3e50; background: linear-gradient(45deg, #f0f8ff, #e6f3ff); text-align: center; padding: 20px; border-radius: 10px]Your Title Here[END FANCY]
+
+2. Structure content into SECTION blocks with different colors:
+   [SECTION | background-color: 'lightyellow'; color: 'black'; padding: 15px; border-radius: 8px]
+   Main content here
+   [END SECTION]
+
+3. Add relevant QUOTE blocks with citations:
+   [QUOTE | Cited='Author Name']
+   Relevant quote text
+   [END QUOTE]
+
+4. Include WNOTE annotations for important points:
+   [WNOTE | Cited='Context/Source']
+   Important note or annotation
+   [END WNOTE]
+
+5. Add contextual images (these will be replaced with real images):
+   - Header image: ![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](HEADER_IMAGE_PLACEHOLDER)
+   - Leftside images: ![Leftside-2|width: 200px; height: 200px; object-fit: 'cover'](LEFTSIDE_IMAGE_PLACEHOLDER)
+   - Rightside images: ![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'](RIGHTSIDE_IMAGE_PLACEHOLDER)
+
+Make the content comprehensive, well-structured, and visually appealing. Preserve the original meaning while enhancing presentation.`,
+    },
+    {
+      id: 'visual_content_formatter',
+      aiInstructions: `Transform this content focusing on visual layout with images and work notes:
+
+VISUAL FORMATTING REQUIREMENTS:
+1. Add a contextual header image: ![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](HEADER_IMAGE_PLACEHOLDER)
+2. Structure content with strategic leftside and rightside image placement:
+   ![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'](LEFTSIDE_IMAGE_PLACEHOLDER)
+   ![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'](RIGHTSIDE_IMAGE_PLACEHOLDER)
+3. Include WNOTE blocks for important annotations
+4. Use SECTION blocks to organize content
+5. Balance text and visual elements for optimal readability
+
+Focus on creating a visually engaging layout that enhances comprehension.`,
+    },
+    {
+      id: 'work_note_enhancer',
+      aiInstructions: `Transform this content with focus on technical work notes and rightside documentation:
+
+WORK NOTE FORMATTING:
+1. Add WNOTE blocks for technical annotations and development notes
+2. Include rightside images for diagrams, screenshots, or reference materials:
+   ![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'](RIGHTSIDE_IMAGE_PLACEHOLDER)
+3. Structure content in clear sections
+4. Maintain technical accuracy while improving presentation
+
+Perfect for technical documentation and development notes.`,
+    },
+    {
+      id: 'header_sections_basic',
+      aiInstructions: `Transform this content with basic structural improvements:
+
+BASIC FORMATTING:
+1. Add a FANCY header with attractive styling
+2. Organize content into logical SECTION blocks
+3. Include a relevant header image: ![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](HEADER_IMAGE_PLACEHOLDER)
+4. Maintain clean, professional presentation
+
+Focus on clear structure and readability.`,
+    },
+  ]
+
+  const template = templates.find((t) => t.id === templateId)
+  if (!template) {
+    return createErrorResponse('Template not found', 404)
+  }
+
+  try {
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    // Build color theme instructions
+    let colorInstructions = ''
+    if (colorTheme) {
+      colorInstructions = `
+COLOR THEME: "${colorTheme.name}"
+Use these specific colors for formatting:
+- Primary Color: ${colorTheme.primary}
+- Secondary Color: ${colorTheme.secondary}
+- Accent Color: ${colorTheme.accent}
+- Background Color: ${colorTheme.background}
+- Section Colors: ${colorTheme.sections.join(', ')}
+
+Apply these colors to:
+- FANCY headers: Use primary color and appropriate background
+- SECTION blocks: Use the section colors (${colorTheme.sections.join(', ')}) rotating between them
+- Overall theme: Create a harmonious color scheme using these colors
+`
+    }
+
+    const prompt = `${template.aiInstructions}
+
+${colorInstructions}
+
+ORIGINAL CONTENT TO TRANSFORM:
+${nodeContent}
+
+ADDITIONAL OPTIONS: ${JSON.stringify(options)}
+
+Return the transformed content with all the requested formatting applied. Use the placeholder URLs exactly as specified (HEADER_IMAGE_PLACEHOLDER, LEFTSIDE_IMAGE_PLACEHOLDER, RIGHTSIDE_IMAGE_PLACEHOLDER) - these will be replaced with real contextual images. Apply the color theme consistently throughout all formatting elements. Preserve the core meaning while enhancing the presentation with the specified markdown formatting patterns.`
+
+    console.log('Sending prompt to Grok:', prompt)
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert content formatter specializing in rich markdown formatting for knowledge graphs. Apply the requested formatting patterns precisely while preserving content meaning and enhancing readability.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    let formattedContent = completion.choices[0].message.content.trim()
+
+    // Now replace placeholder images with real Pexels images
+    if (env.PEXELS_API_KEY) {
+      console.log('=== Replacing Placeholder Images with Pexels Images ===')
+      formattedContent = await replacePlaceholderImages(formattedContent, nodeContent, env)
+    } else {
+      console.log('Pexels API key not available, using placeholder URLs')
+      // Replace placeholders with vegvisr.imgix.net URLs
+      formattedContent = formattedContent
+        .replace(/HEADER_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/contextual-header.png')
+        .replace(/LEFTSIDE_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/leftside-image.png')
+        .replace(/RIGHTSIDE_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/rightside-image.png')
+    }
+
+    console.log('=== Template Applied Successfully ===')
+    console.log('Formatted content length:', formattedContent.length)
+
+    return createResponse(
+      JSON.stringify({
+        formattedContent,
+        templateUsed: templateId,
+        success: true,
+      }),
+    )
+  } catch (error) {
+    console.error('Error applying style template:', error)
+    return createErrorResponse('Failed to apply style template: ' + error.message, 500)
+  }
+}
+
+// --- Pexels Image Search and Replacement ---
+const searchPexelsImages = async (query, env, count = 1) => {
+  if (!env.PEXELS_API_KEY) {
+    throw new Error('Pexels API key not configured')
+  }
+
+  try {
+    console.log(`Searching Pexels for: "${query}" (${count} images)`)
+
+    const response = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`,
+      {
+        headers: {
+          Authorization: env.PEXELS_API_KEY,
+        },
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Pexels API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.photos && data.photos.length > 0) {
+      return data.photos.map((photo) => ({
+        url: photo.src.medium, // Use medium size for performance
+        alt: photo.alt || query,
+        photographer: photo.photographer,
+        id: photo.id,
+      }))
+    } else {
+      console.log('No Pexels images found for query:', query)
+      return []
+    }
+  } catch (error) {
+    console.error('Error searching Pexels:', error)
+    return []
+  }
+}
+
+const generateImageSearchQueries = async (content, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return ['nature', 'abstract', 'business'] // Fallback queries
+  }
+
+  try {
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const prompt = `Analyze this content and generate 3-5 relevant image search keywords that would make good contextual images. Focus on the main themes, concepts, and visual elements that would enhance understanding.
+
+Content: ${content.substring(0, 500)}...
+
+Return only the keywords, separated by commas. Examples: "nature, forest, trees" or "technology, computers, digital" or "business, meeting, office"`
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 100,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert at analyzing content and suggesting relevant image search terms. Return only comma-separated keywords, no explanations.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const keywords = completion.choices[0].message.content.trim()
+    const queries = keywords
+      .split(',')
+      .map((q) => q.trim())
+      .filter((q) => q.length > 0)
+
+    console.log('Generated image search queries:', queries)
+    return queries.length > 0 ? queries : ['abstract', 'concept', 'modern']
+  } catch (error) {
+    console.error('Error generating image queries:', error)
+    return ['nature', 'abstract', 'business'] // Fallback queries
+  }
+}
+
+const replacePlaceholderImages = async (content, originalContent, env) => {
+  try {
+    // Generate contextual search queries based on content
+    const searchQueries = await generateImageSearchQueries(originalContent, env)
+
+    let updatedContent = content
+
+    // Replace header images
+    if (content.includes('HEADER_IMAGE_PLACEHOLDER')) {
+      console.log('Replacing header image placeholder...')
+      const headerImages = await searchPexelsImages(searchQueries[0] || 'abstract header', env, 1)
+      if (headerImages.length > 0) {
+        updatedContent = updatedContent.replace(/HEADER_IMAGE_PLACEHOLDER/g, headerImages[0].url)
+        console.log('Header image replaced with:', headerImages[0].url)
+      } else {
+        updatedContent = updatedContent.replace(
+          /HEADER_IMAGE_PLACEHOLDER/g,
+          'https://vegvisr.imgix.net/contextual-header.png',
+        )
+      }
+    }
+
+    // Replace leftside images
+    if (content.includes('LEFTSIDE_IMAGE_PLACEHOLDER')) {
+      console.log('Replacing leftside image placeholder...')
+      const leftsideImages = await searchPexelsImages(
+        searchQueries[1] || searchQueries[0] || 'concept',
+        env,
+        1,
+      )
+      if (leftsideImages.length > 0) {
+        updatedContent = updatedContent.replace(
+          /LEFTSIDE_IMAGE_PLACEHOLDER/g,
+          leftsideImages[0].url,
+        )
+        console.log('Leftside image replaced with:', leftsideImages[0].url)
+      } else {
+        updatedContent = updatedContent.replace(
+          /LEFTSIDE_IMAGE_PLACEHOLDER/g,
+          'https://vegvisr.imgix.net/leftside-image.png',
+        )
+      }
+    }
+
+    // Replace rightside images
+    if (content.includes('RIGHTSIDE_IMAGE_PLACEHOLDER')) {
+      console.log('Replacing rightside image placeholder...')
+      const rightsideImages = await searchPexelsImages(
+        searchQueries[2] || searchQueries[0] || 'modern',
+        env,
+        1,
+      )
+      if (rightsideImages.length > 0) {
+        updatedContent = updatedContent.replace(
+          /RIGHTSIDE_IMAGE_PLACEHOLDER/g,
+          rightsideImages[0].url,
+        )
+        console.log('Rightside image replaced with:', rightsideImages[0].url)
+      } else {
+        updatedContent = updatedContent.replace(
+          /RIGHTSIDE_IMAGE_PLACEHOLDER/g,
+          'https://vegvisr.imgix.net/rightside-image.png',
+        )
+      }
+    }
+
+    return updatedContent
+  } catch (error) {
+    console.error('Error replacing placeholder images:', error)
+    // Fallback to vegvisr.imgix.net URLs
+    return content
+      .replace(/HEADER_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/contextual-header.png')
+      .replace(/LEFTSIDE_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/leftside-image.png')
+      .replace(/RIGHTSIDE_IMAGE_PLACEHOLDER/g, 'https://vegvisr.imgix.net/rightside-image.png')
+  }
+}
+
+// --- Pexels Image Search Endpoint ---
+const handlePexelsImageSearch = async (request, env) => {
+  if (!env.PEXELS_API_KEY) {
+    return createErrorResponse('Pexels API key not configured', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { query, count = 10 } = body
+
+  if (!query || typeof query !== 'string') {
+    return createErrorResponse('Query parameter is required and must be a string', 400)
+  }
+
+  try {
+    const images = await searchPexelsImages(query, env, Math.min(count, 20))
+
+    return createResponse(
+      JSON.stringify({
+        query,
+        total: images.length,
+        images,
+        success: true,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in Pexels search endpoint:', error)
+    return createErrorResponse('Failed to search Pexels images: ' + error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -1986,6 +2464,18 @@ export default {
 
     if (pathname === '/process-transcript' && request.method === 'POST') {
       return await handleProcessTranscript(request, env)
+    }
+
+    if (pathname === '/apply-style-template' && request.method === 'POST') {
+      return await handleApplyStyleTemplate(request, env)
+    }
+
+    if (pathname === '/style-templates' && request.method === 'GET') {
+      return await handleGetStyleTemplates(request, env)
+    }
+
+    if (pathname === '/pexels-search' && request.method === 'POST') {
+      return await handlePexelsImageSearch(request, env)
     }
 
     // Fallback

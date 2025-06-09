@@ -35,54 +35,27 @@
       <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
         <div class="node-content-inner">
           <template v-if="node.type === 'markdown-image'">
-            <div
+            <!-- Node Control Bar: Edit Label, Edit Info, Copy to Graph, Delete, and Reorder Controls -->
+            <NodeControlBar
               v-if="
                 userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
               "
-              class="button-group"
-            >
-              <button @click="openMarkdownEditor(node)" class="edit-button">Edit Markdown</button>
-              <button
-                @click="openCopyNodeModal(node)"
-                class="copy-button"
-                title="Copy to another graph"
-              >
-                Copy to Graph...
-              </button>
-              <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                🗑️
-              </button>
-              <!-- Reorder Controls -->
-              <div class="reorder-controls">
-                <button
-                  @click="moveNodeUp(node)"
-                  :disabled="getNodePosition(node) === 1"
-                  class="reorder-button"
-                  title="Move Up"
-                >
-                  ⬆️
-                </button>
-                <span class="position-indicator"
-                  >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                >
-                <button
-                  @click="moveNodeDown(node)"
-                  :disabled="getNodePosition(node) === totalVisibleNodes"
-                  class="reorder-button"
-                  title="Move Down"
-                >
-                  ⬇️
-                </button>
-                <button
-                  @click="openReorderModal"
-                  class="reorder-all-button"
-                  title="Reorder All Nodes"
-                >
-                  📋
-                </button>
-              </div>
-            </div>
-            <div v-html="convertToHtml(node.label)"></div>
+              :node-type="node.type"
+              :position="getNodePosition(node)"
+              :total="totalVisibleNodes"
+              :is-first="getNodePosition(node) === 1"
+              :is-last="getNodePosition(node) === totalVisibleNodes"
+              @edit-label="openLabelEditor(node)"
+              @edit-info="openMarkdownEditor(node)"
+              @format-node="openTemplateSelector(node)"
+              @quick-format="handleQuickFormat(node, $event)"
+              @copy-node="openCopyNodeModal(node)"
+              @delete-node="deleteNode(node)"
+              @move-up="moveNodeUp(node)"
+              @move-down="moveNodeDown(node)"
+              @open-reorder="openReorderModal"
+            />
+            <div v-html="convertToHtml(node.label, node.id)"></div>
           </template>
           <template v-else-if="node.type === 'background'">
             <div class="image-wrapper">
@@ -141,55 +114,27 @@
             <!-- Render worknote nodes -->
             <div class="work-note" :style="{ backgroundColor: node.color || '#FFD580' }">
               <h3 class="node-label">{{ node.label }}</h3>
-              <div
+              <NodeControlBar
                 v-if="
                   userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                 "
-                class="button-group"
-              >
-                <button @click="openMarkdownEditor(node)">Edit Info</button>
-                <button
-                  @click="openCopyNodeModal(node)"
-                  class="copy-button"
-                  title="Copy to another graph"
-                >
-                  Copy to Graph...
-                </button>
-                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                  🗑️
-                </button>
-                <!-- Reorder Controls -->
-                <div class="reorder-controls">
-                  <button
-                    @click="moveNodeUp(node)"
-                    :disabled="getNodePosition(node) === 1"
-                    class="reorder-button"
-                    title="Move Up"
-                  >
-                    ⬆️
-                  </button>
-                  <span class="position-indicator"
-                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                  >
-                  <button
-                    @click="moveNodeDown(node)"
-                    :disabled="getNodePosition(node) === totalVisibleNodes"
-                    class="reorder-button"
-                    title="Move Down"
-                  >
-                    ⬇️
-                  </button>
-                  <button
-                    @click="openReorderModal"
-                    class="reorder-all-button"
-                    title="Reorder All Nodes"
-                  >
-                    📋
-                  </button>
-                </div>
-              </div>
+                :node-type="node.type"
+                :position="getNodePosition(node)"
+                :total="totalVisibleNodes"
+                :is-first="getNodePosition(node) === 1"
+                :is-last="getNodePosition(node) === totalVisibleNodes"
+                @edit-label="openLabelEditor(node)"
+                @edit-info="openMarkdownEditor(node)"
+                @format-node="openTemplateSelector(node)"
+                @quick-format="handleQuickFormat(node, $event)"
+                @copy-node="openCopyNodeModal(node)"
+                @delete-node="deleteNode(node)"
+                @move-up="moveNodeUp(node)"
+                @move-down="moveNodeDown(node)"
+                @open-reorder="openReorderModal"
+              />
               <div
-                v-html="convertToHtml(node.info || 'No additional information available.')"
+                v-html="convertToHtml(node.info || 'No additional information available.', node.id)"
               ></div>
             </div>
           </template>
@@ -203,7 +148,9 @@
               @place-changed="onPlaceChanged"
             />
             <div v-else class="text-danger">No map path provided for this node.</div>
-            <div v-html="convertToHtml(node.info || 'No additional information available.')"></div>
+            <div
+              v-html="convertToHtml(node.info || 'No additional information available.', node.id)"
+            ></div>
           </template>
           <template v-else-if="node.type === 'timeline'">
             <!-- Render timeline nodes -->
@@ -224,55 +171,27 @@
             <!-- Render line chart nodes -->
             <h3 class="node-label">{{ node.label }}</h3>
             <div class="node-info">
-              <div
+              <NodeControlBar
                 v-if="
                   userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                 "
-                class="button-group"
-              >
-                <button @click="openMarkdownEditor(node)">Edit Chart Data</button>
-                <button
-                  @click="openCopyNodeModal(node)"
-                  class="copy-button"
-                  title="Copy to another graph"
-                >
-                  Copy to Graph...
-                </button>
-                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                  🗑️
-                </button>
-                <!-- Reorder Controls -->
-                <div class="reorder-controls">
-                  <button
-                    @click="moveNodeUp(node)"
-                    :disabled="getNodePosition(node) === 1"
-                    class="reorder-button"
-                    title="Move Up"
-                  >
-                    ⬆️
-                  </button>
-                  <span class="position-indicator"
-                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                  >
-                  <button
-                    @click="moveNodeDown(node)"
-                    :disabled="getNodePosition(node) === totalVisibleNodes"
-                    class="reorder-button"
-                    title="Move Down"
-                  >
-                    ⬇️
-                  </button>
-                  <button
-                    @click="openReorderModal"
-                    class="reorder-all-button"
-                    title="Reorder All Nodes"
-                  >
-                    📋
-                  </button>
-                </div>
-              </div>
+                :node-type="node.type"
+                :position="getNodePosition(node)"
+                :total="totalVisibleNodes"
+                :is-first="getNodePosition(node) === 1"
+                :is-last="getNodePosition(node) === totalVisibleNodes"
+                @edit-label="openLabelEditor(node)"
+                @edit-info="openMarkdownEditor(node)"
+                @format-node="openTemplateSelector(node)"
+                @quick-format="handleQuickFormat(node, $event)"
+                @copy-node="openCopyNodeModal(node)"
+                @delete-node="deleteNode(node)"
+                @move-up="moveNodeUp(node)"
+                @move-down="moveNodeDown(node)"
+                @open-reorder="openReorderModal"
+              />
               <LineChart :data="node.info" :xLabel="node.xLabel" :yLabel="node.yLabel" />
-              <div v-if="node.description" v-html="convertToHtml(node.description)"></div>
+              <div v-if="node.description" v-html="convertToHtml(node.description, node.id)"></div>
             </div>
           </template>
           <template v-else-if="node.type === 'swot'">
@@ -293,56 +212,27 @@
             <!-- Render fulltext nodes -->
             <h3 class="node-label">{{ node.label }}</h3>
             <div class="node-info">
-              <div
+              <NodeControlBar
                 v-if="
                   userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                 "
-                class="button-group"
-              >
-                <button @click="openLabelEditor(node)">Edit Label</button>
-                <button @click="openMarkdownEditor(node)">Edit Info</button>
-                <button
-                  @click="openCopyNodeModal(node)"
-                  class="copy-button"
-                  title="Copy to another graph"
-                >
-                  Copy to Graph...
-                </button>
-                <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                  🗑️
-                </button>
-                <!-- Reorder Controls -->
-                <div class="reorder-controls">
-                  <button
-                    @click="moveNodeUp(node)"
-                    :disabled="getNodePosition(node) === 1"
-                    class="reorder-button"
-                    title="Move Up"
-                  >
-                    ⬆️
-                  </button>
-                  <span class="position-indicator"
-                    >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                  >
-                  <button
-                    @click="moveNodeDown(node)"
-                    :disabled="getNodePosition(node) === totalVisibleNodes"
-                    class="reorder-button"
-                    title="Move Down"
-                  >
-                    ⬇️
-                  </button>
-                  <button
-                    @click="openReorderModal"
-                    class="reorder-all-button"
-                    title="Reorder All Nodes"
-                  >
-                    📋
-                  </button>
-                </div>
-              </div>
+                :node-type="node.type"
+                :position="getNodePosition(node)"
+                :total="totalVisibleNodes"
+                :is-first="getNodePosition(node) === 1"
+                :is-last="getNodePosition(node) === totalVisibleNodes"
+                @edit-label="openLabelEditor(node)"
+                @edit-info="openMarkdownEditor(node)"
+                @format-node="openTemplateSelector(node)"
+                @quick-format="handleQuickFormat(node, $event)"
+                @copy-node="openCopyNodeModal(node)"
+                @delete-node="deleteNode(node)"
+                @move-up="moveNodeUp(node)"
+                @move-down="moveNodeDown(node)"
+                @open-reorder="openReorderModal"
+              />
               <div
-                v-html="convertToHtml(node.info || 'No additional information available.')"
+                v-html="convertToHtml(node.info || 'No additional information available.', node.id)"
               ></div>
             </div>
           </template>
@@ -351,56 +241,31 @@
             <template v-if="node.type === 'title'">
               <!-- For title nodes, only render the info content without the label -->
               <div class="title-content">
-                <div
+                <NodeControlBar
                   v-if="
                     userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                   "
-                  class="button-group"
-                >
-                  <button @click="openMarkdownEditor(node)">Edit Title</button>
-                  <button
-                    @click="openCopyNodeModal(node)"
-                    class="copy-button"
-                    title="Copy to another graph"
-                  >
-                    Copy to Graph...
-                  </button>
-                  <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                    🗑️
-                  </button>
-                  <!-- Reorder Controls -->
-                  <div class="reorder-controls">
-                    <button
-                      @click="moveNodeUp(node)"
-                      :disabled="getNodePosition(node) === 1"
-                      class="reorder-button"
-                      title="Move Up"
-                    >
-                      ⬆️
-                    </button>
-                    <span class="position-indicator"
-                      >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                    >
-                    <button
-                      @click="moveNodeDown(node)"
-                      :disabled="getNodePosition(node) === totalVisibleNodes"
-                      class="reorder-button"
-                      title="Move Down"
-                    >
-                      ⬇️
-                    </button>
-                    <button
-                      @click="openReorderModal"
-                      class="reorder-all-button"
-                      title="Reorder All Nodes"
-                    >
-                      📋
-                    </button>
-                  </div>
-                </div>
+                  :node-type="node.type"
+                  :position="getNodePosition(node)"
+                  :total="totalVisibleNodes"
+                  :is-first="getNodePosition(node) === 1"
+                  :is-last="getNodePosition(node) === totalVisibleNodes"
+                  @edit-label="openLabelEditor(node)"
+                  @edit-info="openMarkdownEditor(node)"
+                  @format-node="openTemplateSelector(node)"
+                  @quick-format="handleQuickFormat(node, $event)"
+                  @copy-node="openCopyNodeModal(node)"
+                  @delete-node="deleteNode(node)"
+                  @move-up="moveNodeUp(node)"
+                  @move-down="moveNodeDown(node)"
+                  @open-reorder="openReorderModal"
+                />
                 <div
                   v-html="
-                    convertToHtml(node.info || 'No content yet. Click Edit Title to add content.')
+                    convertToHtml(
+                      node.info || 'No content yet. Click Edit Title to add content.',
+                      node.id,
+                    )
                   "
                 ></div>
               </div>
@@ -409,55 +274,29 @@
               <!-- For all other node types, render label + info -->
               <h3 class="node-label">{{ node.label }}</h3>
               <div class="node-info">
-                <div
+                <NodeControlBar
                   v-if="
                     userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
                   "
-                  class="button-group"
-                >
-                  <button @click="openMarkdownEditor(node)">Edit Info</button>
-                  <button
-                    @click="openCopyNodeModal(node)"
-                    class="copy-button"
-                    title="Copy to another graph"
-                  >
-                    Copy to Graph...
-                  </button>
-                  <button @click="deleteNode(node)" class="delete-button" title="Delete Node">
-                    🗑️
-                  </button>
-                  <!-- Reorder Controls -->
-                  <div class="reorder-controls">
-                    <button
-                      @click="moveNodeUp(node)"
-                      :disabled="getNodePosition(node) === 1"
-                      class="reorder-button"
-                      title="Move Up"
-                    >
-                      ⬆️
-                    </button>
-                    <span class="position-indicator"
-                      >{{ getNodePosition(node) }} of {{ totalVisibleNodes }}</span
-                    >
-                    <button
-                      @click="moveNodeDown(node)"
-                      :disabled="getNodePosition(node) === totalVisibleNodes"
-                      class="reorder-button"
-                      title="Move Down"
-                    >
-                      ⬇️
-                    </button>
-                    <button
-                      @click="openReorderModal"
-                      class="reorder-all-button"
-                      title="Reorder All Nodes"
-                    >
-                      📋
-                    </button>
-                  </div>
-                </div>
+                  :node-type="node.type"
+                  :position="getNodePosition(node)"
+                  :total="totalVisibleNodes"
+                  :is-first="getNodePosition(node) === 1"
+                  :is-last="getNodePosition(node) === totalVisibleNodes"
+                  @edit-label="openLabelEditor(node)"
+                  @edit-info="openMarkdownEditor(node)"
+                  @format-node="openTemplateSelector(node)"
+                  @quick-format="handleQuickFormat(node, $event)"
+                  @copy-node="openCopyNodeModal(node)"
+                  @delete-node="deleteNode(node)"
+                  @move-up="moveNodeUp(node)"
+                  @move-down="moveNodeDown(node)"
+                  @open-reorder="openReorderModal"
+                />
                 <div
-                  v-html="convertToHtml(node.info || 'No additional information available.')"
+                  v-html="
+                    convertToHtml(node.info || 'No additional information available.', node.id)
+                  "
                 ></div>
               </div>
             </template>
@@ -747,6 +586,42 @@
         @node-copied="handleNodeCopied"
       />
 
+      <!-- Template Selector Modal -->
+      <TemplateSelector
+        :is-open="isTemplateSelectorOpen"
+        :node-type="currentTemplateNode?.type || 'fulltext'"
+        :node-content="currentTemplateNode?.info || ''"
+        @close="closeTemplateSelector"
+        @template-applied="handleTemplateApplied"
+      />
+
+      <!-- Image Selector Modal -->
+      <ImageSelector
+        :is-open="isImageSelectorOpen"
+        :current-image-url="currentImageData.url"
+        :current-image-alt="currentImageData.alt"
+        :image-type="currentImageData.type"
+        :image-context="currentImageData.context"
+        :node-content="currentImageData.nodeContent"
+        @close="closeImageSelector"
+        @image-replaced="handleImageReplaced"
+      />
+
+      <!-- Quick Format Loading Overlay -->
+      <div v-if="isQuickFormatLoading" class="quick-format-loading-overlay">
+        <div class="loading-content">
+          <div class="spinner-large"></div>
+          <h3>🤖 AI Processing</h3>
+          <p>Applying formatting template...</p>
+          <div class="loading-progress">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+          </div>
+          <small>This may take a few seconds. Please don't navigate away.</small>
+        </div>
+      </div>
+
       <!-- Label Editor Modal -->
       <div v-if="isLabelEditorOpen" class="label-editor-modal">
         <div class="modal-content">
@@ -839,6 +714,9 @@ import mermaid from 'mermaid'
 import AINodeModal from '@/components/AINodeModal.vue'
 import EnhancedAINodeModal from '@/components/EnhancedAINodeModal.vue'
 import CopyNodeModal from '@/components/CopyNodeModal.vue'
+import NodeControlBar from '@/components/NodeControlBar.vue'
+import TemplateSelector from '@/components/TemplateSelector.vue'
+import ImageSelector from '@/components/ImageSelector.vue'
 import { Modal } from 'bootstrap'
 
 // Initialize Mermaid
@@ -859,6 +737,25 @@ const userStore = useUserStore()
 // Copy node functionality
 const copyNodeModal = ref(null)
 const selectedNodeToCopy = ref(null)
+
+// Template selector functionality
+const isTemplateSelectorOpen = ref(false)
+const currentTemplateNode = ref(null)
+
+// Image selector functionality
+const isImageSelectorOpen = ref(false)
+const currentImageData = ref({
+  url: '',
+  alt: '',
+  type: '',
+  context: '',
+  nodeId: '',
+  nodeContent: '',
+})
+
+// Quick format loading state
+const isQuickFormatLoading = ref(false)
+const quickFormatCurrentNode = ref(null)
 
 // Reordering functionality
 const isReorderModalOpen = ref(false)
@@ -1083,85 +980,10 @@ function preprocessPageBreaks(markdown) {
   return markdown.replace(/\[pb\]/gi, '<div class="page-break"></div>')
 }
 
-const preprocessMarkdown = (text) => {
-  // First, process [pb] page breaks
-  let processedText = preprocessPageBreaks(text)
-
-  // Process COMMENT blocks before any markdown parsing
-  processedText = processedText.replace(
-    /\[COMMENT\s*\|([^\]]*)\]([\s\S]*?)\[END COMMENT\]/g,
-    (match, style, content) => {
-      // Parse style string for author and CSS
-      let author = ''
-      let css = ''
-      style.split(';').forEach((s) => {
-        const [k, v] = s.split(':').map((x) => x && x.trim().replace(/^['"]|['"]$/g, ''))
-        if (k && v) {
-          if (k.toLowerCase() === 'author') {
-            author = v
-          } else {
-            css += `${k}:${v};`
-          }
-        }
-      })
-      return `<div class="comment-block" style="${css}">
-${author ? `<div class=\"comment-author\">${author}</div>` : ''}
-<div>${marked.parse(content.trim())}</div>
-</div>\n\n`
-    },
-  )
-
-  // Process fancy titles
-  processedText = processedText.replace(
-    /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
-    (match, style, content) => {
-      // Convert style string to inline CSS
-      const css = style
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          return k && v ? `${k}:${v}` : ''
-        })
-        .join(';')
-      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
-    },
-  )
-
-  // Process quotes
-  processedText = processedText.replace(
-    /\[QUOTE\s*\|([^\]]+)\]([\s\S]*?)\[END QUOTE\]/g,
-    (match, style, content) => {
-      const cite = style.split('=')[1]?.replace(/['"]/g, '') || 'Unknown'
-      const processedContent = marked.parse(content.trim())
-      return `<div class="fancy-quote">${processedContent}<cite>— ${cite}</cite></div>`
-    },
-  )
-
-  // Then process sections
-  processedText = processedText.replace(
-    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
-    (match, style, content) => {
-      // Convert style string to inline CSS
-      const css = style
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          return k && v ? `${k}:${v}` : ''
-        })
-        .join(';')
-      // Process the content through marked first to handle any markdown inside the section
-      const processedContent = marked.parse(content.trim())
-      return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${processedContent}</div>`
-    },
-  )
-
-  // --- Refactored rightside/leftside image handling to avoid duplication ---
+// Helper function to process leftside/rightside images
+const processLeftRightImages = (text) => {
   // Split into blocks (paragraphs, images, etc.)
-  const lines = processedText.split(/\n+/)
+  const lines = text.split(/\n+/)
   const blocks = []
   let i = 0
   while (i < lines.length) {
@@ -1191,7 +1013,7 @@ ${author ? `<div class=\"comment-author\">${author}</div>` : ''}
       }
       // Helper to extract style values
       const getStyleValue = (styleString, key, fallback) => {
-        const regex = new RegExp(key + ': *[\'\"]?([^;\'\"]+)[\'\"]?', 'i')
+        const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
         const found = styleString.match(regex)
         return found ? found[1].trim() : fallback
       }
@@ -1211,6 +1033,34 @@ ${author ? `<div class=\"comment-author\">${author}</div>` : ''}
       const imageSideClass = type === 'Rightside' ? 'rightside' : 'leftside'
       // Use a human-readable alt text
       const altText = type + ' Image'
+      // Calculate dynamic width for containers if image is large
+
+      if (width.endsWith('px')) {
+        const widthValue = parseInt(width)
+        if (widthValue > 200) {
+          const containerWidth = 1000 // Typical container width
+          const imagePercentage = Math.min((widthValue / containerWidth) * 100, 60) // Max 60%
+          const contentPercentage = 100 - imagePercentage - 2 // 2% for gap
+
+          const containerStyle = ` style="display: flex; gap: 20px; align-items: flex-start;"`
+          const imageStyle = ` style="flex: 0 0 ${imagePercentage}%; width: ${imagePercentage}%; min-width: ${imagePercentage}%;"`
+          const contentStyleAttr = ` style="flex: 1 1 auto; max-width: ${contentPercentage}%; min-width: 0; overflow-wrap: break-word;"`
+
+          const containerHtml = `
+            <div class="${containerClass} dynamic-width-container"${containerStyle}>
+              <div class="${imageClass}"${imageStyle}>
+                <img src="${url}" alt="${altText}" class="${imageSideClass}" style="width: ${width}; min-width: ${width}; height: ${height}; object-fit: ${objectFit}; object-position: ${objectPosition}; border-radius: 8px;" />
+              </div>
+              <div class="${contentClass}"${contentStyleAttr}>${sideParagraphs}</div>
+            </div>
+          `.trim()
+
+          blocks.push(containerHtml)
+          i = j
+          continue
+        }
+      }
+
       const containerHtml = `
         <div class="${containerClass}">
           <div class="${imageClass}">
@@ -1229,14 +1079,96 @@ ${author ? `<div class=\"comment-author\">${author}</div>` : ''}
     }
     i++
   }
-  processedText = blocks.join('\n\n')
+  return blocks.join('\n\n')
+}
+
+const preprocessMarkdown = (text) => {
+  // First, process [pb] page breaks
+  let processedText = preprocessPageBreaks(text)
+
+  // Process COMMENT blocks before any markdown parsing
+  processedText = processedText.replace(
+    /\[COMMENT\s*\|([^\]]*)\]([\s\S]*?)\[END COMMENT\]/g,
+    (match, style, content) => {
+      // Parse style string for author and CSS
+      let author = ''
+      let css = ''
+      style.split(';').forEach((s) => {
+        const [k, v] = s.split(':').map((x) => x && x.trim().replace(/^['"]|['"]$/g, ''))
+        if (k && v) {
+          if (k.toLowerCase() === 'author') {
+            author = v
+          } else {
+            css += `${k}:${v};`
+          }
+        }
+      })
+      return `<div class="comment-block" style="${css}">
+${author ? `<div class="comment-author">${author}</div>` : ''}
+<div>${marked.parse(content.trim())}</div>
+</div>\n\n`
+    },
+  )
+
+  // Process fancy titles
+  processedText = processedText.replace(
+    /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
+    },
+  )
+
+  // Process leftside/rightside images FIRST (before sections and quotes)
+  processedText = processLeftRightImages(processedText)
+
+  // Process quotes
+  processedText = processedText.replace(
+    /\[QUOTE\s*\|([^\]]+)\]([\s\S]*?)\[END QUOTE\]/g,
+    (match, style, content) => {
+      const cite = style.split('=')[1]?.replace(/['"]/g, '') || 'Unknown'
+      const processedContent = marked.parse(content.trim())
+      return `<div class="fancy-quote">${processedContent}<cite>— ${cite}</cite></div>`
+    },
+  )
+
+  // Then process sections (after leftside/rightside images have been processed)
+  processedText = processedText.replace(
+    /\[SECTION\s*\|([^\]]+)\]([\s\S]*?)\[END SECTION\]/g,
+    (match, style, content) => {
+      // Convert style string to inline CSS
+      const css = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+          return k && v ? `${k}:${v}` : ''
+        })
+        .join(';')
+      // Process the content through marked first to handle any markdown inside the section
+      const processedContent = marked.parse(content.trim())
+      return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${processedContent}</div>`
+    },
+  )
+
+  // Leftside/rightside images are now processed earlier in the pipeline
 
   // Handle header images normally (they don't consume text)
   processedText = processedText.replace(
     /!\[Header(?:-(\d+))?\|(.+?)\]\((.+?)\)/g,
     (match, paragraphCount, styles, url) => {
       const getStyleValue = (styleString, key, fallback) => {
-        const regex = new RegExp(key + ': *[\'\"]?([^;\'\"]+)[\'\"]?', 'i')
+        const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
         const found = styleString.match(regex)
         return found ? found[1].trim() : fallback
       }
@@ -1257,8 +1189,134 @@ ${author ? `<div class=\"comment-author\">${author}</div>` : ''}
   return marked.parse(processedText)
 }
 
-const convertToHtml = (text) => {
-  return preprocessMarkdown(text)
+const convertToHtml = (text, nodeId = null) => {
+  const htmlContent = preprocessMarkdown(text)
+
+  // Add change image buttons for admin/superadmin users
+  if (userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role) && nodeId) {
+    return addChangeImageButtons(htmlContent, nodeId, text)
+  }
+
+  return htmlContent
+}
+
+const addChangeImageButtons = (html, nodeId, originalContent) => {
+  // Create a temporary DOM element to parse the HTML
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = html
+
+  // Find all images and add change buttons + fix layout issues
+  const images = tempDiv.querySelectorAll('img')
+
+  images.forEach((img) => {
+    const imageUrl = img.src
+    const imageAlt = img.alt || ''
+
+    // Determine image type from alt text or class
+    let imageType = 'Unknown'
+    let imageContext = 'Image in content'
+
+    if (imageAlt.toLowerCase().includes('header')) {
+      imageType = 'Header'
+      imageContext = 'Header image for visual impact'
+    } else if (imageAlt.toLowerCase().includes('leftside')) {
+      imageType = 'Leftside'
+      imageContext = 'Left-aligned contextual image'
+      // Fix leftside layout for larger images
+      fixSideImageLayout(img, 'leftside')
+    } else if (imageAlt.toLowerCase().includes('rightside')) {
+      imageType = 'Rightside'
+      imageContext = 'Right-aligned contextual image'
+      // Fix rightside layout for larger images
+      fixSideImageLayout(img, 'rightside')
+    } else if (img.classList.contains('header-image')) {
+      imageType = 'Header'
+      imageContext = 'Header image for visual impact'
+    } else if (img.classList.contains('leftside')) {
+      imageType = 'Leftside'
+      imageContext = 'Left-aligned contextual image'
+      fixSideImageLayout(img, 'leftside')
+    } else if (img.classList.contains('rightside')) {
+      imageType = 'Rightside'
+      imageContext = 'Right-aligned contextual image'
+      fixSideImageLayout(img, 'rightside')
+    }
+
+    // Create change image button
+    const changeButton = document.createElement('button')
+    changeButton.className = 'change-image-btn'
+    changeButton.innerHTML = '🔄 Change Image'
+    changeButton.title = 'Change this image'
+
+    // Add click handler data
+    changeButton.setAttribute('data-image-url', imageUrl)
+    changeButton.setAttribute('data-image-alt', imageAlt)
+    changeButton.setAttribute('data-image-type', imageType)
+    changeButton.setAttribute('data-image-context', imageContext)
+    changeButton.setAttribute('data-node-id', nodeId)
+    changeButton.setAttribute('data-node-content', originalContent)
+
+    // Insert button after the image
+    if (img.parentNode) {
+      // If image is in a container (like header-image-container), add button to container
+      if (
+        img.parentNode.classList.contains('header-image-container') ||
+        img.parentNode.classList.contains('rightside-image') ||
+        img.parentNode.classList.contains('leftside-image')
+      ) {
+        img.parentNode.appendChild(changeButton)
+      } else {
+        // Insert after the image
+        img.parentNode.insertBefore(changeButton, img.nextSibling)
+      }
+    }
+  })
+
+  return tempDiv.innerHTML
+}
+
+// Fix side image layout for larger images
+const fixSideImageLayout = (img, side) => {
+  const imageContainer = img.parentNode
+  if (!imageContainer || !imageContainer.classList.contains(`${side}-image`)) return
+
+  const containerParent = imageContainer.parentNode
+  if (!containerParent || !containerParent.classList.contains(`${side}-container`)) return
+
+  // Parse the width from the image style
+  const imgStyle = img.style
+  let imageWidth = imgStyle.width || '200px'
+
+  // Extract numeric value and unit
+  const widthMatch = imageWidth.match(/^(\d+)(px|%|em|rem)?$/)
+  if (!widthMatch) return
+
+  const widthValue = parseInt(widthMatch[1])
+  const widthUnit = widthMatch[2] || 'px'
+
+  // Only fix if width is specified in pixels and is larger than default
+  if (widthUnit === 'px' && widthValue > 200) {
+    // Calculate the percentage this image should take
+    // Assume container width is around 1000px (typical)
+    const containerWidth = 1000
+    const imagePercentage = Math.min((widthValue / containerWidth) * 100, 60) // Max 60%
+    const contentPercentage = 100 - imagePercentage - 2 // 2% for gap
+
+    // Apply dynamic width to image container
+    imageContainer.style.flex = `0 0 ${imagePercentage}%`
+    imageContainer.style.width = `${imagePercentage}%`
+    imageContainer.style.minWidth = `${imagePercentage}%`
+
+    // Find and adjust content container
+    const contentContainer = containerParent.querySelector(`.${side}-content`)
+    if (contentContainer) {
+      contentContainer.style.flex = `1 1 auto`
+      contentContainer.style.maxWidth = `${contentPercentage}%`
+    }
+
+    // Add responsive class for this specific container
+    containerParent.classList.add('dynamic-width-container')
+  }
 }
 
 const parseYoutubeVideo = (markdown) => {
@@ -1559,7 +1617,7 @@ const saveMarkdown = async () => {
       // For chart nodes, parse JSON back to object
       try {
         currentNode.value.info = JSON.parse(currentMarkdown.value)
-      } catch (error) {
+      } catch {
         alert('Invalid JSON format. Please check your chart data syntax.')
         return
       }
@@ -2011,6 +2069,319 @@ function insertAIAssistResultToEditor() {
     textarea.focus()
   })
   closeAIAssist()
+}
+
+// Template Selector Functions
+const openTemplateSelector = (node) => {
+  console.log('=== Opening Template Selector ===')
+  console.log('Node:', node)
+  console.log('Node type:', node.type)
+  console.log('Node content:', node.info)
+
+  currentTemplateNode.value = node
+  isTemplateSelectorOpen.value = true
+}
+
+const closeTemplateSelector = () => {
+  isTemplateSelectorOpen.value = false
+  currentTemplateNode.value = null
+}
+
+// Image Selector Functions
+const openImageSelector = (imageData) => {
+  console.log('=== Opening Image Selector ===')
+  console.log('Image data:', imageData)
+
+  currentImageData.value = {
+    url: imageData.url,
+    alt: imageData.alt || '',
+    type: imageData.type || 'Unknown',
+    context: imageData.context || 'No context provided',
+    nodeId: imageData.nodeId,
+    nodeContent: imageData.nodeContent || '',
+  }
+  isImageSelectorOpen.value = true
+}
+
+const closeImageSelector = () => {
+  isImageSelectorOpen.value = false
+  currentImageData.value = {
+    url: '',
+    alt: '',
+    type: '',
+    context: '',
+    nodeId: '',
+    nodeContent: '',
+  }
+}
+
+const handleImageReplaced = async (replacementData) => {
+  console.log('=== Image Replaced ===')
+  console.log('Replacement data:', replacementData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = graphData.value.nodes.find(
+      (node) => node.id === currentImageData.value.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for image replacement')
+    }
+
+    // Replace the image URL in the node's info content
+    let updatedContent = nodeToUpdate.info || ''
+
+    // Use a comprehensive regex to find and replace the image URL
+    const oldUrl = replacementData.oldUrl
+    const newUrl = replacementData.newUrl
+
+    // Replace in various markdown image formats
+    updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+
+    // Update the node
+    nodeToUpdate.info = updatedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: updatedGraphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with replaced image.')
+    }
+
+    await response.json()
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Show success message
+    saveMessage.value = `Image replaced successfully! New image by ${replacementData.photographer}`
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 4000)
+
+    console.log('Image replacement saved successfully')
+  } catch (error) {
+    console.error('Error replacing image:', error)
+    alert('Failed to replace the image. Please try again.')
+  }
+}
+
+// Helper function to escape special regex characters
+const escapeRegExp = (string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const handleTemplateApplied = async (result) => {
+  console.log('=== Template Applied ===')
+  console.log('Result:', result)
+  console.log('Formatted content length:', result.formattedContent.length)
+  console.log('Template used:', result.templateUsed)
+
+  if (currentTemplateNode.value) {
+    // Update the node's content with the formatted result
+    currentTemplateNode.value.info = result.formattedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === currentTemplateNode.value.id
+          ? { ...node, info: result.formattedContent }
+          : node,
+      ),
+    }
+
+    try {
+      // Save the updated graph to the backend
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save the graph with formatted content.')
+      }
+
+      await response.json()
+
+      // Update the knowledge graph store
+      knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+      // Show success message
+      saveMessage.value = `Template "${result.template.name}" applied successfully!`
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 3000)
+
+      console.log('Template formatting applied and saved successfully')
+
+      // Reattach image change listeners after template is applied
+      attachImageChangeListeners()
+    } catch (error) {
+      console.error('Error saving formatted content:', error)
+      alert('Failed to save the formatted content. Please try again.')
+    }
+  }
+
+  closeTemplateSelector()
+}
+
+const handleQuickFormat = async (node, formatType) => {
+  console.log('=== Quick Format ===')
+  console.log('Node:', node)
+  console.log('Format type:', formatType)
+
+  // Get user-friendly descriptions
+  const formatDescriptions = {
+    add_side_images: {
+      title: 'Add Side Images & Visual Formatting',
+      description:
+        'This will add leftside/rightside images, header images, WNOTE blocks, and SECTION organization to enhance the visual layout of your content.',
+    },
+    add_work_notes: {
+      title: 'Add Work Notes & Technical Formatting',
+      description:
+        'This will add WNOTE annotations, rightside images for technical diagrams, and structured sections optimized for development notes and documentation.',
+    },
+  }
+
+  const formatInfo = formatDescriptions[formatType] || {
+    title: 'Apply Basic Formatting',
+    description: 'This will add basic structure and formatting to your content.',
+  }
+
+  // Ask for user confirmation
+  const userConfirmed = confirm(
+    `${formatInfo.title}\n\n${formatInfo.description}\n\nThis action will modify your node content using AI. Do you want to proceed?`,
+  )
+
+  if (!userConfirmed) {
+    console.log('User cancelled quick format')
+    return
+  }
+
+  let templateId = ''
+
+  // Map quick format types to templates
+  switch (formatType) {
+    case 'add_side_images':
+      templateId = 'visual_content_formatter'
+      break
+    case 'add_work_notes':
+      templateId = 'work_note_enhancer'
+      break
+    default:
+      templateId = 'header_sections_basic'
+  }
+
+  try {
+    // Set loading state
+    isQuickFormatLoading.value = true
+    quickFormatCurrentNode.value = node
+
+    // Show loading message with spinner effect
+    saveMessage.value = `🤖 AI is ${formatType === 'add_side_images' ? 'adding visual formatting with side images' : 'adding work notes and technical formatting'}... Please wait.`
+
+    console.log('Sending request to apply template:', templateId)
+
+    const response = await fetch('https://api.vegvisr.org/apply-style-template', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nodeContent: node.info || '',
+        templateId: templateId,
+        nodeType: node.type,
+        options: {
+          includeImages: true,
+          preserveStructure: false,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Failed to apply quick format')
+    }
+
+    const result = await response.json()
+    console.log('AI formatting completed successfully')
+
+    // Show saving message
+    saveMessage.value = '💾 Saving formatted content...'
+
+    // Update the node's content
+    node.info = result.formattedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((n) =>
+        n.id === node.id ? { ...n, info: result.formattedContent } : n,
+      ),
+    }
+
+    // Save to backend
+    const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: updatedGraphData,
+        override: true,
+      }),
+    })
+
+    if (!saveResponse.ok) {
+      throw new Error('Failed to save the formatted content.')
+    }
+
+    await saveResponse.json()
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Show success message
+    const successMessages = {
+      add_side_images: '🖼️ Visual formatting with side images applied successfully!',
+      add_work_notes: '📝 Work notes and technical formatting applied successfully!',
+    }
+
+    saveMessage.value = successMessages[formatType] || '✅ Quick format applied successfully!'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 4000)
+
+    console.log('Quick format applied and saved successfully')
+
+    // Reattach image change listeners after quick format is applied
+    attachImageChangeListeners()
+  } catch (error) {
+    console.error('Error applying quick format:', error)
+    saveMessage.value = `❌ Failed to apply ${formatType.replace('_', ' ')}: ${error.message}`
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 5000)
+  } finally {
+    // Clear loading state
+    isQuickFormatLoading.value = false
+    quickFormatCurrentNode.value = null
+  }
 }
 
 const isAINodeModalOpen = ref(false)
@@ -2568,7 +2939,7 @@ const handleSave = async () => {
         const chartData = JSON.parse(currentMarkdown.value)
         currentNode.value.info = chartData
         await saveGraphData()
-      } catch (error) {
+      } catch {
         alert('Invalid JSON format. Please check your chart data syntax.')
         return
       }
@@ -2700,7 +3071,29 @@ const deleteNode = async (node) => {
 
 onMounted(() => {
   fetchGraphData()
+  attachImageChangeListeners()
 })
+
+// Add event listeners for change image buttons
+const attachImageChangeListeners = () => {
+  nextTick(() => {
+    const changeImageButtons = document.querySelectorAll('.change-image-btn')
+    changeImageButtons.forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const btn = event.target
+        const imageData = {
+          url: btn.getAttribute('data-image-url'),
+          alt: btn.getAttribute('data-image-alt'),
+          type: btn.getAttribute('data-image-type'),
+          context: btn.getAttribute('data-image-context'),
+          nodeId: btn.getAttribute('data-node-id'),
+          nodeContent: btn.getAttribute('data-node-content'),
+        }
+        openImageSelector(imageData)
+      })
+    })
+  })
+}
 
 watch(
   () => knowledgeGraphStore.currentGraphId,
@@ -2709,6 +3102,15 @@ watch(
     error.value = null
     fetchGraphData()
   },
+)
+
+// Watch for graph data changes to reattach event listeners
+watch(
+  () => graphData.value,
+  () => {
+    attachImageChangeListeners()
+  },
+  { deep: true },
 )
 </script>
 
@@ -3770,6 +4172,196 @@ img.leftside {
   margin-bottom: 0.5em;
   color: #888;
   font-size: 0.93em;
+}
+
+/* Quick Format Loading Overlay */
+.quick-format-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  backdrop-filter: blur(4px);
+}
+
+.loading-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: fadeInScale 0.3s ease-out;
+}
+
+.loading-content h3 {
+  margin: 20px 0 10px 0;
+  color: #333;
+  font-size: 1.4rem;
+}
+
+.loading-content p {
+  margin: 0 0 20px 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+.loading-content small {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.spinner-large {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #6f42c1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px auto;
+}
+
+.loading-progress {
+  margin: 20px 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6f42c1, #8b5cf6, #6f42c1);
+  background-size: 200% 100%;
+  animation: progressSlide 2s ease-in-out infinite;
+  border-radius: 3px;
+}
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes progressSlide {
+  0% {
+    width: 0%;
+    background-position: 0% 50%;
+  }
+  50% {
+    width: 70%;
+    background-position: 100% 50%;
+  }
+  100% {
+    width: 100%;
+    background-position: 200% 50%;
+  }
+}
+
+/* Change Image Button Styles */
+.change-image-btn {
+  position: relative;
+  margin: 8px 0;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #6f42c1, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+.change-image-btn:hover {
+  background: linear-gradient(135deg, #5a359a, #7c3aed);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(111, 66, 193, 0.4);
+}
+
+.change-image-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.4);
+}
+
+/* Position change image buttons in different containers */
+.header-image-container .change-image-btn {
+  display: block;
+  margin: 10px auto 0 auto;
+  text-align: center;
+}
+
+.rightside-image .change-image-btn,
+.leftside-image .change-image-btn {
+  display: block;
+  margin: 8px 0;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+/* Ensure buttons don't break image layouts */
+.rightside-container .change-image-btn,
+.leftside-container .change-image-btn {
+  margin: 8px 0 0 0;
+}
+
+/* Dynamic width container for larger images */
+.dynamic-width-container {
+  align-items: flex-start;
+}
+
+.dynamic-width-container .rightside-image,
+.dynamic-width-container .leftside-image {
+  /* Override default flex settings for dynamic width containers */
+  flex-shrink: 0;
+}
+
+.dynamic-width-container .rightside-content,
+.dynamic-width-container .leftside-content {
+  /* Ensure content doesn't overflow in dynamic containers */
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* Mobile responsiveness for dynamic width containers */
+@media (max-width: 768px) {
+  .dynamic-width-container {
+    flex-direction: column !important;
+  }
+
+  .dynamic-width-container .rightside-image,
+  .dynamic-width-container .leftside-image {
+    width: 100% !important;
+    max-width: 400px !important;
+    margin: 0 auto !important;
+    flex: 0 0 auto !important;
+  }
+
+  .dynamic-width-container .rightside-content,
+  .dynamic-width-container .leftside-content {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
 }
 </style>
 
