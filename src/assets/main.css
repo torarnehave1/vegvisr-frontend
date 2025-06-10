@@ -281,3 +281,34 @@ img.leftside {
   color: #888;
   font-size: 0.93em;
 }
+
+/* Change Image Button Styles */
+.change-image-btn {
+  position: relative !important;
+  margin: 8px 0 !important;
+  padding: 6px 12px !important;
+  background: linear-gradient(135deg, #6f42c1, #8b5cf6) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  font-size: 0.85rem !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.3) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1) !important;
+}
+
+.change-image-btn:hover {
+  background: linear-gradient(135deg, #5a359a, #7c3aed) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 8px rgba(111, 66, 193, 0.4) !important;
+}
+
+.change-image-btn:active {
+  transform: translateY(0) !important;
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.4) !important;
+}

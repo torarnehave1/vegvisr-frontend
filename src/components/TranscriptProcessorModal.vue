@@ -176,7 +176,7 @@ import { ref } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
-const props = defineProps({
+defineProps({
   isOpen: {
     type: Boolean,
     required: true,
@@ -485,14 +485,29 @@ const createLocalKnowledgeGraph = async () => {
 
 const importToGraph = () => {
   if (knowledgeGraphPreview.value) {
-    knowledgeGraphPreview.value.nodes.forEach((node) => {
-      knowledgeGraphStore.addNode({
-        ...node,
-        visible: true,
-        position: { x: Math.random() * 500, y: Math.random() * 500 },
-      })
+    knowledgeGraphPreview.value.nodes.forEach((node, index) => {
+      const newNode = {
+        data: {
+          id: node.id,
+          label: node.label,
+          color: node.color || '#f9f9f9',
+          type: node.type || 'fulltext',
+          info: node.info || '',
+          bibl: Array.isArray(node.bibl) ? node.bibl : [],
+          imageWidth: node.imageWidth || '100%',
+          imageHeight: node.imageHeight || '100%',
+          visible: true,
+          path: node.path || null,
+        },
+        position: { x: 100 + index * 200, y: 100 + Math.floor(index / 5) * 300 },
+      }
+
+      knowledgeGraphStore.nodes.push(newNode)
     })
 
+    console.log(
+      `Added ${knowledgeGraphPreview.value.nodes.length} transcript nodes to current graph`,
+    )
     emit('graph-imported', knowledgeGraphPreview.value)
     close()
   }
@@ -511,10 +526,15 @@ const createNewGraph = async () => {
   console.log('==============================')
 
   try {
-    // Create graph metadata
+    // Create graph metadata with better naming
+    const today = new Date()
+    const dateStr = today.toLocaleDateString('no-NO')
+    const timeStr = today.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })
+    const nodeCount = knowledgeGraphPreview.value.nodes?.length || 0
+
     const graphMetadata = {
-      title: `Transcript Graph - ${new Date().toLocaleDateString()}`,
-      description: `Automatically generated Norwegian knowledge graph from transcript processed on ${new Date().toLocaleString()}`,
+      title: `📝 Transkript ${dateStr} (${nodeCount} deler)`,
+      description: `Automatisk generert norsk kunnskapsgraf fra transkript prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
       createdBy: userStore.email || 'Anonymous',
       version: 1,
       createdAt: new Date().toISOString(),
@@ -545,7 +565,7 @@ const createNewGraph = async () => {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken,
       },
-      body: JSON.stringify(graphData),
+      body: JSON.stringify({ graphData }),
     })
 
     console.log('=== SAVE RESPONSE ===')
@@ -558,7 +578,14 @@ const createNewGraph = async () => {
       console.log('Created graph ID:', result.id)
       console.log('===================')
 
-      alert('New knowledge graph created successfully!')
+      // Update the knowledge graph store with new graph ID and data
+      knowledgeGraphStore.setCurrentGraphId(result.id)
+      knowledgeGraphStore.updateGraphFromJson(graphData)
+
+      console.log('Updated store with new graph ID:', result.id)
+      console.log('Graph title:', graphData.metadata.title)
+
+      alert(`Ny kunnskapsgraf opprettet: "${graphData.metadata.title}"`)
       emit('new-graph-created', { graphId: result.id, graphData })
       close()
     } else {

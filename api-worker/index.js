@@ -2341,6 +2341,158 @@ const handlePexelsImageSearch = async (request, env) => {
   }
 }
 
+// --- Google Photos OAuth Handlers ---
+const handleGooglePhotosAuth = async (request, env) => {
+  try {
+    const { code } = await request.json()
+
+    if (!code) {
+      return createErrorResponse('Authorization code is required', 400)
+    }
+
+    console.log('🔐 Exchanging code for Google Photos access token...')
+
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: env.GOOGLE_PHOTOS_CLIENT_ID,
+        client_secret: env.GOOGLE_PHOTOS_CLIENT_SECRET,
+        code: code,
+        grant_type: 'authorization_code',
+        redirect_uri:
+          request.url.includes('localhost') || request.url.includes('127.0.0.1')
+            ? 'http://localhost:5173/auth/google/callback.html'
+            : 'https://www.vegvisr.org/auth/google/callback.html',
+      }),
+    })
+
+    const tokenData = await tokenResponse.json()
+
+    if (!tokenResponse.ok) {
+      console.error('❌ Token exchange failed:', tokenData)
+      return createErrorResponse(
+        tokenData.error_description || 'Failed to exchange authorization code',
+        400,
+      )
+    }
+
+    if (tokenData.access_token) {
+      console.log('✅ Google Photos authentication successful')
+
+      return createResponse(
+        JSON.stringify({
+          success: true,
+          access_token: tokenData.access_token,
+          expires_in: tokenData.expires_in,
+        }),
+      )
+    } else {
+      return createErrorResponse('No access token received', 400)
+    }
+  } catch (error) {
+    console.error('❌ Google Photos auth error:', error)
+    return createErrorResponse(error.message, 500)
+  }
+}
+
+const handleGooglePhotosSearch = async (request) => {
+  try {
+    const { access_token, searchParams } = await request.json()
+
+    if (!access_token) {
+      return createErrorResponse('Access token is required', 401)
+    }
+
+    console.log('🔍 Searching Google Photos...')
+
+    const response = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        pageSize: 20,
+        filters: {
+          mediaTypeFilter: {
+            mediaTypes: ['PHOTO'],
+          },
+          // Add content filter if search term is provided
+          ...(searchParams?.contentCategories && {
+            contentFilter: {
+              includedContentCategories: searchParams.contentCategories,
+            },
+          }),
+        },
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      console.error('❌ Google Photos search failed:', data)
+      return createErrorResponse(data.error?.message || 'Failed to search Google Photos', 400)
+    }
+
+    console.log(`✅ Found ${data.mediaItems?.length || 0} photos`)
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        mediaItems: data.mediaItems || [],
+        nextPageToken: data.nextPageToken,
+      }),
+    )
+  } catch (error) {
+    console.error('❌ Google Photos search error:', error)
+    return createErrorResponse(error.message, 500)
+  }
+}
+
+const handleGooglePhotosRecent = async (request) => {
+  try {
+    const { access_token } = await request.json()
+
+    if (!access_token) {
+      return createErrorResponse('Access token is required', 401)
+    }
+
+    console.log('📷 Getting recent Google Photos...')
+
+    const response = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      console.error('❌ Failed to get recent photos:', data)
+      return createErrorResponse(data.error?.message || 'Failed to get recent photos', 400)
+    }
+
+    console.log(`✅ Retrieved ${data.mediaItems?.length || 0} recent photos`)
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        mediaItems: data.mediaItems || [],
+        nextPageToken: data.nextPageToken,
+      }),
+    )
+  } catch (error) {
+    console.error('❌ Recent photos error:', error)
+    return createErrorResponse(error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -2476,6 +2628,18 @@ export default {
 
     if (pathname === '/pexels-search' && request.method === 'POST') {
       return await handlePexelsImageSearch(request, env)
+    }
+
+    if (pathname === '/google-photos-auth' && request.method === 'POST') {
+      return await handleGooglePhotosAuth(request, env)
+    }
+
+    if (pathname === '/google-photos-search' && request.method === 'POST') {
+      return await handleGooglePhotosSearch(request)
+    }
+
+    if (pathname === '/google-photos-recent' && request.method === 'POST') {
+      return await handleGooglePhotosRecent(request)
     }
 
     // Fallback

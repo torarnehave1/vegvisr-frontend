@@ -1190,23 +1190,41 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
 }
 
 const convertToHtml = (text, nodeId = null) => {
+  console.log('=== convertToHtml called ===')
+  console.log('User logged in:', userStore.loggedIn)
+  console.log('User role:', userStore.role)
+  console.log('Node ID provided:', nodeId)
+  console.log('Text length:', text?.length || 0)
+
   const htmlContent = preprocessMarkdown(text)
 
   // Add change image buttons for admin/superadmin users
   if (userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role) && nodeId) {
+    console.log('✅ Conditions met - calling addChangeImageButtons')
     return addChangeImageButtons(htmlContent, nodeId, text)
+  } else {
+    console.log('❌ Conditions not met:')
+    console.log('  - Logged in:', userStore.loggedIn)
+    console.log('  - Role check:', ['Admin', 'Superadmin'].includes(userStore.role))
+    console.log('  - Node ID:', !!nodeId)
   }
 
   return htmlContent
 }
 
 const addChangeImageButtons = (html, nodeId, originalContent) => {
+  console.log('=== Adding Change Image Buttons & Resize Handles ===')
+  console.log('User role:', userStore.role)
+  console.log('User logged in:', userStore.loggedIn)
+  console.log('Node ID:', nodeId)
+
   // Create a temporary DOM element to parse the HTML
   const tempDiv = document.createElement('div')
   tempDiv.innerHTML = html
 
-  // Find all images and add change buttons + fix layout issues
+  // Find all images and add change buttons + resize handles
   const images = tempDiv.querySelectorAll('img')
+  console.log('Found images:', images.length)
 
   images.forEach((img) => {
     const imageUrl = img.src
@@ -1242,6 +1260,17 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
       fixSideImageLayout(img, 'rightside')
     }
 
+    // Wrap the image for change button positioning
+    const imageWrapper = document.createElement('div')
+    imageWrapper.className = 'image-change-wrapper'
+    imageWrapper.setAttribute('data-node-id', nodeId)
+    imageWrapper.setAttribute('data-node-content', originalContent)
+    imageWrapper.setAttribute('data-image-type', imageType)
+
+    // Wrap the image
+    img.parentNode.insertBefore(imageWrapper, img)
+    imageWrapper.appendChild(img)
+
     // Create change image button
     const changeButton = document.createElement('button')
     changeButton.className = 'change-image-btn'
@@ -1256,18 +1285,18 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     changeButton.setAttribute('data-node-id', nodeId)
     changeButton.setAttribute('data-node-content', originalContent)
 
-    // Insert button after the image
-    if (img.parentNode) {
-      // If image is in a container (like header-image-container), add button to container
+    // Insert button after the image wrapper
+    if (imageWrapper.parentNode) {
+      // If wrapper is in a container, add button to container
       if (
-        img.parentNode.classList.contains('header-image-container') ||
-        img.parentNode.classList.contains('rightside-image') ||
-        img.parentNode.classList.contains('leftside-image')
+        imageWrapper.parentNode.classList.contains('header-image-container') ||
+        imageWrapper.parentNode.classList.contains('rightside-image') ||
+        imageWrapper.parentNode.classList.contains('leftside-image')
       ) {
-        img.parentNode.appendChild(changeButton)
+        imageWrapper.parentNode.appendChild(changeButton)
       } else {
-        // Insert after the image
-        img.parentNode.insertBefore(changeButton, img.nextSibling)
+        // Insert after the wrapper
+        imageWrapper.parentNode.insertBefore(changeButton, imageWrapper.nextSibling)
       }
     }
   })
@@ -2128,15 +2157,37 @@ const handleImageReplaced = async (replacementData) => {
       throw new Error('Node not found for image replacement')
     }
 
-    // Replace the image URL in the node's info content
     let updatedContent = nodeToUpdate.info || ''
-
-    // Use a comprehensive regex to find and replace the image URL
     const oldUrl = replacementData.oldUrl
-    const newUrl = replacementData.newUrl
 
-    // Replace in various markdown image formats
-    updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+    // Handle dimension changes vs URL replacements differently
+    if (replacementData.isDimensionChange) {
+      console.log('=== Applying Dimension Change ===')
+      console.log('New dimensions:', replacementData.newWidth, 'x', replacementData.newHeight)
+
+      // Update dimensions in the markdown content
+      updatedContent = updateImageDimensions(
+        updatedContent,
+        oldUrl,
+        replacementData.newWidth,
+        replacementData.newHeight,
+      )
+    } else if (replacementData.isUrlChange) {
+      console.log('=== Applying URL Change ===')
+      console.log('Old URL:', oldUrl)
+      console.log('New URL:', replacementData.newUrl)
+
+      // Replace the image URL in the node's info content
+      const newUrl = replacementData.newUrl
+      updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+    } else {
+      console.log('=== Applying Image Replacement ===')
+      // Replace the image URL in the node's info content (from search)
+      const newUrl = replacementData.newUrl
+
+      // Replace in various markdown image formats
+      updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+    }
 
     // Update the node
     nodeToUpdate.info = updatedContent
@@ -2160,22 +2211,29 @@ const handleImageReplaced = async (replacementData) => {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to save the graph with replaced image.')
+      throw new Error('Failed to save the graph with updated image.')
     }
 
     await response.json()
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
-    // Show success message
-    saveMessage.value = `Image replaced successfully! New image by ${replacementData.photographer}`
+    // Show appropriate success message
+    if (replacementData.isDimensionChange) {
+      saveMessage.value = `Image resized to ${replacementData.newWidth} × ${replacementData.newHeight} successfully!`
+    } else if (replacementData.isUrlChange) {
+      saveMessage.value = `Image URL updated successfully!`
+    } else {
+      saveMessage.value = `Image replaced successfully! New image by ${replacementData.photographer}`
+    }
+
     setTimeout(() => {
       saveMessage.value = ''
     }, 4000)
 
-    console.log('Image replacement saved successfully')
+    console.log('Image update saved successfully')
   } catch (error) {
-    console.error('Error replacing image:', error)
-    alert('Failed to replace the image. Please try again.')
+    console.error('Error updating image:', error)
+    alert('Failed to update the image. Please try again.')
   }
 }
 
@@ -3074,10 +3132,72 @@ onMounted(() => {
   attachImageChangeListeners()
 })
 
+// Image dimension update utility (used by modal)
+
+const parseImageDimensions = (markdownContent, imageUrl) => {
+  // Look for image syntax with the specific URL and extract dimensions
+  const imageRegex = new RegExp(
+    `!\\[([^\\]]*?)\\|([^\\]]*?)\\]\\(${escapeRegExp(imageUrl)}\\)`,
+    'g',
+  )
+  const match = imageRegex.exec(markdownContent)
+
+  if (match) {
+    const styleString = match[2]
+    const widthMatch = styleString.match(/width:\s*['"]?([^;'"]+)['"]?/i)
+    const heightMatch = styleString.match(/height:\s*['"]?([^;'"]+)['"]?/i)
+
+    return {
+      width: widthMatch ? widthMatch[1].trim() : null,
+      height: heightMatch ? heightMatch[1].trim() : null,
+      fullMatch: match[0],
+      styleString: styleString,
+    }
+  }
+
+  return null
+}
+
+const updateImageDimensions = (markdownContent, imageUrl, newWidth, newHeight) => {
+  const dimensions = parseImageDimensions(markdownContent, imageUrl)
+  if (!dimensions) return markdownContent
+
+  // Update the style string with new dimensions
+  let newStyleString = dimensions.styleString
+
+  // Update width
+  if (dimensions.width) {
+    newStyleString = newStyleString.replace(/width:\s*['"]?[^;'"]+['"]?/i, `width: ${newWidth}`)
+  } else {
+    newStyleString = `width: ${newWidth}; ${newStyleString}`
+  }
+
+  // Update height
+  if (dimensions.height) {
+    newStyleString = newStyleString.replace(/height:\s*['"]?[^;'"]+['"]?/i, `height: ${newHeight}`)
+  } else {
+    newStyleString = `height: ${newHeight}; ${newStyleString}`
+  }
+
+  // Create the new image markdown
+  const newImageMarkdown = dimensions.fullMatch.replace(
+    /!\[([^\]]*?)\|([^\]]*?)\]/,
+    `![$1|${newStyleString}]`,
+  )
+
+  return markdownContent.replace(dimensions.fullMatch, newImageMarkdown)
+}
+
+// This function is used by the ImageSelector modal to update image dimensions
+
 // Add event listeners for change image buttons
 const attachImageChangeListeners = () => {
   nextTick(() => {
+    console.log('=== Attaching Change Image Button Listeners ===')
+
+    // Change image button listeners
     const changeImageButtons = document.querySelectorAll('.change-image-btn')
+    console.log('Found change image buttons:', changeImageButtons.length)
     changeImageButtons.forEach((button) => {
       button.addEventListener('click', (event) => {
         const btn = event.target
@@ -3092,6 +3212,8 @@ const attachImageChangeListeners = () => {
         openImageSelector(imageData)
       })
     })
+
+    console.log('Change image button listeners attached successfully')
   })
 }
 
@@ -4273,6 +4395,13 @@ img.leftside {
   }
 }
 
+/* Image Change Wrapper */
+.image-change-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
 /* Change Image Button Styles */
 .change-image-btn {
   position: relative;
@@ -4362,6 +4491,8 @@ img.leftside {
     max-width: 100% !important;
     width: 100% !important;
   }
+
+  /* Mobile-specific adjustments */
 }
 </style>
 
@@ -4393,6 +4524,9 @@ img.leftside {
     display: none !important;
   }
   .node-info button {
+    display: none !important;
+  }
+  .change-image-btn {
     display: none !important;
   }
 }

@@ -8,11 +8,164 @@
 
       <div v-if="searchResults.length === 0" class="current-image-section">
         <h4>Current Image</h4>
-        <div class="current-image-preview">
-          <img :src="currentImageUrl" :alt="currentImageAlt" />
-          <div class="image-info">
-            <p><strong>Type:</strong> {{ imageType }}</p>
-            <p><strong>Context:</strong> {{ imageContext }}</p>
+        <div class="current-image-layout">
+          <!-- Left: Image Preview and Info -->
+          <div class="current-image-preview">
+            <img :src="currentImageUrl" :alt="currentImageAlt" />
+            <div class="image-info">
+              <p><strong>Type:</strong> {{ imageType }}</p>
+              <p><strong>Context:</strong> {{ imageContext }}</p>
+              <p>
+                <strong>Current Size:</strong> {{ currentDimensions.width || 'auto' }} ×
+                {{ currentDimensions.height || 'auto' }}
+              </p>
+            </div>
+          </div>
+
+          <!-- Right: Resize Controls -->
+          <div class="resize-controls-compact">
+            <h5>📐 Resize Current Image</h5>
+            <div class="resize-inputs">
+              <div class="dimension-input-group">
+                <label>Width:</label>
+                <input
+                  type="number"
+                  v-model.number="newDimensions.width"
+                  min="50"
+                  max="2000"
+                  placeholder="Width"
+                  class="dimension-input"
+                  @input="onWidthChange"
+                />
+                <span class="unit">px</span>
+              </div>
+
+              <div class="dimension-input-group">
+                <label>Height:</label>
+                <input
+                  type="number"
+                  v-model.number="newDimensions.height"
+                  min="50"
+                  max="2000"
+                  placeholder="Height"
+                  class="dimension-input"
+                  @input="onHeightChange"
+                />
+                <span class="unit">px</span>
+              </div>
+            </div>
+
+            <div class="aspect-ratio-toggle">
+              <input
+                type="checkbox"
+                id="lockAspectRatio"
+                v-model="lockAspectRatio"
+                class="aspect-checkbox"
+              />
+              <label for="lockAspectRatio" class="aspect-label"> 🔗 Lock aspect ratio </label>
+            </div>
+
+            <div class="resize-actions">
+              <button
+                @click="resetDimensions"
+                class="btn btn-secondary btn-sm"
+                title="Reset to original dimensions"
+              >
+                ↻ Reset
+              </button>
+              <button
+                @click="applyDimensions"
+                :disabled="!hasValidDimensions || applyingDimensions"
+                class="btn btn-primary btn-sm"
+                title="Apply new dimensions to image"
+              >
+                <span v-if="applyingDimensions" class="spinner-sm"></span>
+                {{ applyingDimensions ? 'Applying...' : '✓ Apply Size' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Image URL Editor -->
+        <div class="url-editor">
+          <h5>🔗 Change Image URL</h5>
+          <div class="url-controls">
+            <div class="url-input-group">
+              <label>Current URL:</label>
+              <input
+                type="url"
+                v-model="editableImageUrl"
+                placeholder="Enter image URL (https://...) or Google Photos link"
+                class="url-input"
+                @blur="validateImageUrl"
+                @paste="handleUrlPaste"
+              />
+            </div>
+            <div class="url-actions">
+              <button
+                @click="resetImageUrl"
+                class="btn btn-secondary btn-sm"
+                title="Reset to original URL"
+              >
+                ↻ Reset URL
+              </button>
+              <button
+                @click="applyImageUrl"
+                :disabled="!hasValidUrl || applyingUrl"
+                class="btn btn-primary btn-sm"
+                :title="
+                  isGooglePhotosLink
+                    ? 'Google Photos links need to be converted first'
+                    : 'Apply new image URL'
+                "
+              >
+                <span v-if="applyingUrl" class="spinner-sm"></span>
+                {{
+                  applyingUrl ? 'Applying...' : isGooglePhotosLink ? '🚫 Cannot Use' : '✓ Apply URL'
+                }}
+              </button>
+            </div>
+          </div>
+          <div v-if="urlPreview" class="url-preview">
+            <img :src="urlPreview" alt="URL Preview" class="preview-img" />
+            <p class="preview-text">Preview of new URL</p>
+          </div>
+
+          <div v-if="isGooglePhotosLink" class="google-photos-help">
+            <div class="help-icon">🚫</div>
+            <div class="help-content">
+              <p><strong>Google Photos URL Cannot Be Used</strong></p>
+              <p>
+                This URL requires Google authentication and won't work in web pages due to privacy
+                restrictions.
+              </p>
+
+              <div class="alternative-options">
+                <p><strong>Alternative options:</strong></p>
+                <ol>
+                  <li>
+                    <strong>Upload directly:</strong> Save the image to your computer, then paste it
+                    in the clipboard area above
+                  </li>
+                  <li>
+                    <strong>Use search:</strong> Try the "Search New Images" section below for
+                    professional stock photos
+                  </li>
+                  <li>
+                    <strong>Use a public image host:</strong> Upload to imgur.com, imgbb.com, or
+                    similar, then use that URL
+                  </li>
+                </ol>
+              </div>
+
+              <div class="why-explanation">
+                <p>
+                  <strong>Why this happens:</strong> Google Photos URLs include authentication
+                  tokens and access restrictions that prevent them from being embedded in other
+                  websites for privacy and security reasons.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -20,11 +173,51 @@
       <div class="search-section" :class="{ 'search-section-compact': searchResults.length > 0 }">
         <h4>🔍 Search New Images</h4>
 
+        <!-- Google Photos Integration -->
+        <div class="google-photos-section">
+          <button
+            @click="connectGooglePhotos"
+            v-if="!googlePhotosConnected"
+            class="btn btn-outline-primary google-photos-btn"
+            :disabled="connectingGooglePhotos"
+          >
+            <span v-if="connectingGooglePhotos" class="spinner-sm"></span>
+            {{ connectingGooglePhotos ? 'Connecting...' : '📷 Connect My Google Photos' }}
+          </button>
+
+          <div v-if="googlePhotosConnected" class="google-photos-connected">
+            <div class="connection-status">
+              <span class="status-icon">✅</span>
+              <span>Connected to Google Photos</span>
+              <button @click="disconnectGooglePhotos" class="btn btn-link btn-sm">
+                Disconnect
+              </button>
+            </div>
+
+            <div class="google-photos-search">
+              <input
+                v-model="googlePhotosQuery"
+                @keyup.enter="searchGooglePhotos"
+                class="search-input"
+                placeholder="Search your Google Photos..."
+              />
+              <button
+                @click="searchGooglePhotos"
+                :disabled="searchingGooglePhotos"
+                class="search-button"
+              >
+                <span v-if="searchingGooglePhotos" class="spinner-sm"></span>
+                {{ searchingGooglePhotos ? 'Searching...' : 'Search My Photos' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Clipboard Paste Area -->
-        <div class="clipboard-paste-area" v-if="!pastedImage">
+        <div class="clipboard-paste-area" v-if="!pastedImage && !pastedUrl">
           <div class="paste-info">
             <span class="paste-icon">📋</span>
-            <span class="paste-text">Or paste an image from clipboard (Ctrl+V)</span>
+            <span class="paste-text">Or paste an image or URL from clipboard (Ctrl+V)</span>
           </div>
         </div>
 
@@ -37,6 +230,42 @@
               <button @click="usePastedImage" class="btn btn-primary btn-sm">Use This Image</button>
               <button @click="clearPastedImage" class="btn btn-secondary btn-sm">Clear</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Pasted URL Preview -->
+        <div v-if="pastedUrl" class="pasted-url-preview">
+          <h5>📋 Pasted URL</h5>
+          <div class="pasted-url-container">
+            <div class="pasted-url-info">
+              <p class="url-text">{{ pastedUrl.url }}</p>
+              <p v-if="pastedUrl.isGooglePhotos" class="url-type google-photos">
+                🔗 Google Photos Link
+              </p>
+              <p v-else-if="pastedUrl.isDirect" class="url-type direct">🖼️ Direct Image URL</p>
+              <p v-else class="url-type unknown">🌐 Web URL</p>
+            </div>
+            <div class="pasted-actions">
+              <button
+                @click="usePastedUrl"
+                class="btn btn-primary btn-sm"
+                :title="
+                  pastedUrl.isGooglePhotos
+                    ? 'Move to URL editor for conversion guidance'
+                    : 'Use this URL'
+                "
+              >
+                {{ pastedUrl.isGooglePhotos ? '📝 Edit in URL Field' : 'Use This URL' }}
+              </button>
+              <button @click="clearPastedUrl" class="btn btn-secondary btn-sm">Clear</button>
+            </div>
+          </div>
+          <div v-if="pastedUrl.isGooglePhotos" class="google-photos-paste-help">
+            <p><strong>Google Photos URLs cannot be used directly.</strong></p>
+            <p>
+              They require authentication and have privacy restrictions. Use the alternatives in the
+              URL editor below instead.
+            </p>
           </div>
         </div>
 
@@ -173,6 +402,38 @@ const error = ref('')
 const pastedImage = ref(null)
 const uploading = ref(false)
 
+// Dimensions state
+const currentDimensions = ref({ width: null, height: null })
+const newDimensions = ref({ width: null, height: null })
+const lockAspectRatio = ref(true)
+const originalAspectRatio = ref(1)
+const applyingDimensions = ref(false)
+
+// URL editing state
+const editableImageUrl = ref('')
+const originalImageUrl = ref('')
+const applyingUrl = ref(false)
+const urlPreview = ref('')
+const pastedUrl = ref(null)
+
+// Google Photos integration state
+const googlePhotosConnected = ref(false)
+const connectingGooglePhotos = ref(false)
+const searchingGooglePhotos = ref(false)
+const googlePhotosQuery = ref('')
+const googlePhotosResults = ref([])
+const googleAuth = ref(null)
+
+// Environment-aware API base URL
+const API_BASE =
+  window.location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://api.vegvisr.org'
+
+console.log(
+  '🌍 Environment detected:',
+  window.location.hostname === 'localhost' ? 'LOCAL' : 'PRODUCTION',
+)
+console.log('📡 API Base URL:', API_BASE)
+
 // Quick search suggestions based on image type
 const quickSearchTags = computed(() => {
   const baseCategories = ['abstract', 'minimal', 'professional', 'modern']
@@ -264,6 +525,11 @@ const closeModal = () => {
   error.value = ''
   pastedImage.value = null
   uploading.value = false
+  // Reset URL state
+  editableImageUrl.value = ''
+  originalImageUrl.value = ''
+  urlPreview.value = ''
+  pastedUrl.value = null
   removePasteListener()
   emit('close')
 }
@@ -271,6 +537,222 @@ const closeModal = () => {
 const getImageDimensions = (image) => {
   // This would ideally come from the Pexels API response
   return 'Medium size' // Placeholder
+}
+
+// Computed properties for dimensions
+const hasValidDimensions = computed(() => {
+  return (
+    newDimensions.value.width > 50 &&
+    newDimensions.value.height > 50 &&
+    newDimensions.value.width <= 2000 &&
+    newDimensions.value.height <= 2000
+  )
+})
+
+// Computed properties for URL
+const hasValidUrl = computed(() => {
+  return (
+    editableImageUrl.value &&
+    editableImageUrl.value.trim() !== '' &&
+    editableImageUrl.value !== originalImageUrl.value &&
+    (editableImageUrl.value.startsWith('http://') ||
+      editableImageUrl.value.startsWith('https://')) &&
+    !isGooglePhotosLink.value // Disable Apply for Google Photos links
+  )
+})
+
+const isGooglePhotosLink = computed(() => {
+  return (
+    editableImageUrl.value &&
+    (editableImageUrl.value.includes('photos.app.goo.gl') ||
+      editableImageUrl.value.includes('photos.google.com') ||
+      editableImageUrl.value.includes('photos.fife.usercontent.google.com') ||
+      editableImageUrl.value.includes('lh3.googleusercontent.com'))
+  )
+})
+
+// Dimension methods
+const parseCurrentDimensions = () => {
+  console.log('=== Parsing Current Dimensions ===')
+  console.log('Node content:', props.nodeContent)
+  console.log('Current image URL:', props.currentImageUrl)
+
+  // Extract dimensions from markdown content
+  const imageUrl = props.currentImageUrl
+  if (!imageUrl || !props.nodeContent) {
+    console.log('No URL or content provided')
+    currentDimensions.value = { width: null, height: null }
+    newDimensions.value = { width: 300, height: 200 }
+    originalAspectRatio.value = 1.5
+    return
+  }
+
+  // Escape special regex characters in URL
+  const escapedUrl = imageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  // Look for image syntax with the specific URL and extract dimensions
+  const imageRegex = new RegExp(`!\\[([^\\]]*?)\\|([^\\]]*?)\\]\\(${escapedUrl}\\)`, 'g')
+  const match = imageRegex.exec(props.nodeContent)
+
+  if (match) {
+    const styleString = match[2]
+    console.log('Found image style string:', styleString)
+
+    const widthMatch = styleString.match(/width:\s*['"]?([^;'"]+)['"]?/i)
+    const heightMatch = styleString.match(/height:\s*['"]?([^;'"]+)['"]?/i)
+
+    let width = null
+    let height = null
+
+    if (widthMatch) {
+      width = parseInt(widthMatch[1].replace('px', '')) || null
+    }
+
+    if (heightMatch) {
+      height = parseInt(heightMatch[1].replace('px', '')) || null
+    }
+
+    console.log('Parsed dimensions:', { width, height })
+
+    currentDimensions.value = { width, height }
+    newDimensions.value = { width: width || 300, height: height || 200 }
+
+    if (width && height) {
+      originalAspectRatio.value = width / height
+    } else {
+      originalAspectRatio.value = 1.5 // Default aspect ratio
+    }
+  } else {
+    console.log('No image found in content')
+    currentDimensions.value = { width: null, height: null }
+    newDimensions.value = { width: 300, height: 200 }
+    originalAspectRatio.value = 1.5
+  }
+
+  console.log('Final dimensions:', currentDimensions.value, newDimensions.value)
+}
+
+const onWidthChange = () => {
+  if (lockAspectRatio.value && newDimensions.value.width) {
+    newDimensions.value.height = Math.round(newDimensions.value.width / originalAspectRatio.value)
+  }
+}
+
+const onHeightChange = () => {
+  if (lockAspectRatio.value && newDimensions.value.height) {
+    newDimensions.value.width = Math.round(newDimensions.value.height * originalAspectRatio.value)
+  }
+}
+
+const resetDimensions = () => {
+  newDimensions.value = {
+    width: currentDimensions.value.width || 300,
+    height: currentDimensions.value.height || 200,
+  }
+}
+
+const applyDimensions = async () => {
+  if (!hasValidDimensions.value) return
+
+  applyingDimensions.value = true
+
+  try {
+    console.log('=== Applying Dimensions ===')
+    console.log('New dimensions:', newDimensions.value)
+
+    // Emit the dimension change
+    emit('image-replaced', {
+      oldUrl: props.currentImageUrl,
+      newUrl: props.currentImageUrl, // Same URL, just different dimensions
+      newAlt: props.currentImageAlt,
+      newWidth: newDimensions.value.width + 'px',
+      newHeight: newDimensions.value.height + 'px',
+      photographer: 'Current image resized',
+      imageType: props.imageType,
+      isDimensionChange: true, // Flag to indicate this is just a resize
+    })
+
+    closeModal()
+  } catch (err) {
+    error.value = 'Failed to apply dimensions. Please try again.'
+    console.error('Dimension application error:', err)
+  } finally {
+    applyingDimensions.value = false
+  }
+}
+
+// URL methods
+const handleUrlPaste = (event) => {
+  console.log('=== URL Input Paste Event ===')
+
+  // Get the pasted text
+  const pasteData = event.clipboardData?.getData('text')
+  if (pasteData) {
+    console.log('Pasted text:', pasteData)
+
+    // Allow the default paste, then validate
+    setTimeout(() => {
+      // Ensure the input has the pasted value
+      if (!editableImageUrl.value) {
+        editableImageUrl.value = pasteData.trim()
+      }
+      validateImageUrl()
+    }, 50)
+  }
+}
+
+const validateImageUrl = () => {
+  if (editableImageUrl.value && editableImageUrl.value !== originalImageUrl.value) {
+    // Check if it's a Google Photos link
+    if (isGooglePhotosLink.value) {
+      urlPreview.value = ''
+      // Don't show preview for Google Photos links as they need conversion
+      return
+    }
+
+    // Show preview if it's a valid direct image URL
+    if (editableImageUrl.value.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)) {
+      urlPreview.value = editableImageUrl.value
+    } else {
+      urlPreview.value = ''
+    }
+  } else {
+    urlPreview.value = ''
+  }
+}
+
+const resetImageUrl = () => {
+  editableImageUrl.value = originalImageUrl.value
+  urlPreview.value = ''
+}
+
+const applyImageUrl = async () => {
+  if (!hasValidUrl.value) return
+
+  applyingUrl.value = true
+
+  try {
+    console.log('=== Applying URL Change ===')
+    console.log('Old URL:', originalImageUrl.value)
+    console.log('New URL:', editableImageUrl.value)
+
+    // Emit the URL change
+    emit('image-replaced', {
+      oldUrl: originalImageUrl.value,
+      newUrl: editableImageUrl.value.trim(),
+      newAlt: props.currentImageAlt,
+      photographer: 'Custom URL',
+      imageType: props.imageType,
+      isUrlChange: true, // Flag to indicate this is a URL change
+    })
+
+    closeModal()
+  } catch (err) {
+    error.value = 'Failed to apply URL change. Please try again.'
+    console.error('URL application error:', err)
+  } finally {
+    applyingUrl.value = false
+  }
 }
 
 const generateContextSearch = async () => {
@@ -296,6 +778,22 @@ const handlePaste = async (event) => {
   const items = event.clipboardData?.items
   if (!items) return
 
+  // First check for text (URLs)
+  for (let item of items) {
+    if (item.type === 'text/plain') {
+      item.getAsString((text) => {
+        const trimmedText = text.trim()
+        // Check if it's a URL
+        if (trimmedText.startsWith('http://') || trimmedText.startsWith('https://')) {
+          processPastedUrl(trimmedText)
+          return
+        }
+      })
+      break
+    }
+  }
+
+  // Then check for images
   for (let item of items) {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile()
@@ -365,6 +863,258 @@ const clearPastedImage = () => {
   error.value = ''
 }
 
+const processPastedUrl = (url) => {
+  console.log('=== Processing Pasted URL ===')
+  console.log('URL:', url)
+
+  try {
+    const isGooglePhotos =
+      url.includes('photos.app.goo.gl') ||
+      url.includes('photos.google.com') ||
+      url.includes('photos.fife.usercontent.google.com') ||
+      url.includes('lh3.googleusercontent.com')
+    const isDirect = url.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)
+
+    pastedUrl.value = {
+      url: url,
+      isGooglePhotos: isGooglePhotos,
+      isDirect: !!isDirect,
+      id: 'pasted-url-' + Date.now(),
+    }
+
+    // Clear any previous search results and image pastes
+    searchResults.value = []
+    selectedImage.value = null
+    pastedImage.value = null
+    error.value = ''
+
+    console.log('URL processed:', pastedUrl.value)
+  } catch (err) {
+    error.value = 'Failed to process pasted URL: ' + err.message
+    console.error('URL paste error:', err)
+  }
+}
+
+const usePastedUrl = () => {
+  if (pastedUrl.value && !pastedUrl.value.isGooglePhotos) {
+    // Use the pasted URL as if it was selected
+    selectedImage.value = {
+      id: pastedUrl.value.id,
+      url: pastedUrl.value.url,
+      alt: 'Pasted URL image',
+      photographer: 'Custom URL',
+    }
+    replaceImage()
+  } else if (pastedUrl.value && pastedUrl.value.isGooglePhotos) {
+    // For Google Photos links, show them in the URL editor
+    editableImageUrl.value = pastedUrl.value.url
+    validateImageUrl()
+    // Clear the pasted URL since it's now in the URL editor
+    pastedUrl.value = null
+  }
+}
+
+const clearPastedUrl = () => {
+  pastedUrl.value = null
+  error.value = ''
+}
+
+// Google Photos Methods
+const connectGooglePhotos = async () => {
+  connectingGooglePhotos.value = true
+  error.value = ''
+
+  try {
+    // Initialize Google API client
+    await loadGoogleAPI()
+
+    // Configure OAuth
+    const authConfig = {
+      client_id: '770032297124-952dd4cvlaqi28ec41drv7g5qkajv15a.apps.googleusercontent.com',
+      scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
+      redirect_uri: window.location.origin + '/auth/google/callback.html',
+    }
+
+    // Start OAuth flow
+    const authUrl =
+      `https://accounts.google.com/oauth/authorize?` +
+      `client_id=${authConfig.client_id}&` +
+      `redirect_uri=${encodeURIComponent(authConfig.redirect_uri)}&` +
+      `scope=${encodeURIComponent(authConfig.scope)}&` +
+      `response_type=code&` +
+      `access_type=offline&` +
+      `prompt=consent`
+
+    // Open popup for authentication
+    const popup = window.open(authUrl, 'google-auth', 'width=500,height=600')
+
+    // Listen for the auth callback
+    const authResult = await waitForAuthCallback(popup)
+
+    if (authResult.success) {
+      googleAuth.value = authResult.token
+      googlePhotosConnected.value = true
+
+      // Load recent photos automatically
+      await searchGooglePhotos('recent')
+    } else {
+      throw new Error('Authentication failed')
+    }
+  } catch (err) {
+    error.value = 'Failed to connect to Google Photos: ' + err.message
+    console.error('Google Photos connection error:', err)
+  } finally {
+    connectingGooglePhotos.value = false
+  }
+}
+
+const searchGooglePhotos = async (query = null) => {
+  if (!googlePhotosConnected.value) return
+
+  searchingGooglePhotos.value = true
+  error.value = ''
+
+  try {
+    const searchTerm = query || googlePhotosQuery.value || 'recent'
+
+    // Use different endpoint based on search term
+    const endpoint =
+      searchTerm === 'recent'
+        ? `${API_BASE}/google-photos-recent`
+        : `${API_BASE}/google-photos-search`
+
+    const requestBody = {
+      access_token: googleAuth.value,
+      ...(searchTerm !== 'recent' && {
+        searchParams: {
+          contentCategories: [searchTerm.toUpperCase()],
+        },
+      }),
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    })
+
+    const data = await response.json()
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to search Google Photos')
+    }
+
+    // Transform Google Photos results to match our format
+    googlePhotosResults.value = (data.mediaItems || []).map((item) => ({
+      id: 'google-' + item.id,
+      url: item.baseUrl + '=w800-h600', // Add size parameters for better quality
+      alt: item.filename || 'Google Photos image',
+      photographer: 'Your Google Photos',
+      width: item.mediaMetadata?.width || 800,
+      height: item.mediaMetadata?.height || 600,
+      isGooglePhoto: true,
+      originalItem: item,
+    }))
+
+    // Replace search results with Google Photos results
+    searchResults.value = googlePhotosResults.value
+
+    console.log(`✅ Loaded ${googlePhotosResults.value.length} photos from Google Photos`)
+  } catch (err) {
+    error.value = 'Failed to search Google Photos: ' + err.message
+    console.error('Google Photos search error:', err)
+  } finally {
+    searchingGooglePhotos.value = false
+  }
+}
+
+const disconnectGooglePhotos = () => {
+  googleAuth.value = null
+  googlePhotosConnected.value = false
+  googlePhotosResults.value = []
+  googlePhotosQuery.value = ''
+  searchResults.value = []
+}
+
+const loadGoogleAPI = async () => {
+  return new Promise((resolve, reject) => {
+    if (window.gapi) {
+      resolve()
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://apis.google.com/js/api.js'
+    script.onload = () => {
+      window.gapi.load('auth2', resolve)
+    }
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+const waitForAuthCallback = (popup) => {
+  return new Promise((resolve) => {
+    const checkClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkClosed)
+        resolve({ success: false, error: 'Popup was closed by user' })
+      }
+    }, 1000)
+
+    // Listen for postMessage from popup (real implementation)
+    const messageHandler = async (event) => {
+      if (event.origin !== window.location.origin) return
+
+      if (event.data.type === 'GOOGLE_AUTH_SUCCESS') {
+        clearInterval(checkClosed)
+        popup.close()
+
+        try {
+          // Exchange the authorization code for an access token via backend
+          const response = await fetch(`${API_BASE}/google-photos-auth`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              code: event.data.code,
+            }),
+          })
+
+          const data = await response.json()
+
+          if (data.success && data.access_token) {
+            resolve({ success: true, token: data.access_token })
+          } else {
+            resolve({ success: false, error: data.error || 'Failed to get access token' })
+          }
+        } catch (err) {
+          resolve({
+            success: false,
+            error: 'Failed to exchange authorization code: ' + err.message,
+          })
+        }
+      } else if (event.data.type === 'GOOGLE_AUTH_ERROR') {
+        clearInterval(checkClosed)
+        popup.close()
+        resolve({ success: false, error: event.data.error })
+      }
+    }
+
+    window.addEventListener('message', messageHandler)
+
+    // Clean up listener when done
+    const originalResolve = resolve
+    resolve = (result) => {
+      window.removeEventListener('message', messageHandler)
+      originalResolve(result)
+    }
+  })
+}
+
 const addPasteListener = () => {
   document.addEventListener('paste', handlePaste)
 }
@@ -379,6 +1129,11 @@ watch(
   (newValue) => {
     if (newValue) {
       addPasteListener()
+      // Initialize URL state
+      originalImageUrl.value = props.currentImageUrl
+      editableImageUrl.value = props.currentImageUrl
+      // Parse current image dimensions
+      parseCurrentDimensions()
       if (props.nodeContent) {
         // Generate initial search query based on content
         generateContextSearch()
@@ -454,35 +1209,491 @@ watch(
 }
 
 .current-image-section {
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid #e9ecef;
   background: #f8f9fa;
 }
 
 .current-image-section h4 {
-  margin: 0 0 15px 0;
+  margin: 0 0 12px 0;
   font-size: 1.1rem;
   color: #333;
 }
 
+.current-image-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
 .current-image-preview {
   display: flex;
-  gap: 15px;
+  gap: 12px;
   align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .current-image-preview img {
-  width: 120px;
-  height: 80px;
+  width: 100px;
+  height: 67px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 2px solid #dee2e6;
+  flex-shrink: 0;
 }
 
 .image-info p {
-  margin: 5px 0;
-  font-size: 0.9rem;
+  margin: 3px 0;
+  font-size: 0.85rem;
   color: #666;
+}
+
+/* Compact Resize Controls */
+.resize-controls-compact {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 280px;
+}
+
+.resize-controls-compact h5 {
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.resize-inputs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.resize-inputs .dimension-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.resize-inputs .dimension-input-group label {
+  font-weight: 500;
+  color: #333;
+  font-size: 0.8rem;
+  min-width: 40px;
+}
+
+.resize-inputs .dimension-input {
+  width: 70px;
+  padding: 4px 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.resize-inputs .dimension-input:focus {
+  outline: none;
+  border-color: #6f42c1;
+  box-shadow: 0 0 0 1px rgba(111, 66, 193, 0.25);
+}
+
+.resize-inputs .unit {
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.resize-controls-compact .aspect-ratio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.resize-controls-compact .aspect-checkbox {
+  margin: 0;
+}
+
+.resize-controls-compact .aspect-label {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #495057;
+  cursor: pointer;
+  user-select: none;
+}
+
+.resize-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.resize-actions .btn {
+  flex: 1;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+/* URL Editor Styles */
+.url-editor {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f1f8ff;
+  border-radius: 6px;
+  border: 1px solid #b8daff;
+}
+
+.url-editor h5 {
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  color: #0056b3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.url-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.url-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.url-input-group label {
+  font-weight: 500;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.url-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: monospace;
+  background: white;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: #0056b3;
+  box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25);
+}
+
+.url-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.url-preview {
+  margin-top: 10px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  text-align: center;
+}
+
+.preview-img {
+  max-width: 120px;
+  max-height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  margin-bottom: 6px;
+}
+
+.preview-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* Google Photos Help Styles */
+.google-photos-help {
+  margin-top: 10px;
+  padding: 12px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.help-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.help-content {
+  flex: 1;
+}
+
+.help-content p {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: #856404;
+}
+
+.help-content p:last-child {
+  margin-bottom: 0;
+}
+
+.help-content strong {
+  color: #856404;
+  font-weight: 600;
+}
+
+.help-content ol {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+  color: #856404;
+}
+
+.help-content li {
+  margin-bottom: 4px;
+}
+
+.help-note {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.alternative-options {
+  margin: 12px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  border-left: 3px solid #856404;
+}
+
+.alternative-options p {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.alternative-options ol {
+  margin: 6px 0 0 0;
+}
+
+.alternative-options li {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.why-explanation {
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.why-explanation p {
+  margin: 0;
+  opacity: 0.9;
+  font-style: italic;
+}
+
+/* Dimensions Editor Styles */
+.dimensions-editor {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.dimensions-editor h5 {
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dimensions-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 15px;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.dimension-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dimension-input-group label {
+  font-weight: 500;
+  color: #333;
+  min-width: 50px;
+}
+
+.dimension-input {
+  width: 80px;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.dimension-input:focus {
+  outline: none;
+  border-color: #6f42c1;
+  box-shadow: 0 0 0 2px rgba(111, 66, 193, 0.25);
+}
+
+.unit {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.aspect-ratio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  justify-self: center;
+}
+
+.aspect-checkbox {
+  margin: 0;
+}
+
+.aspect-label {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #495057;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dimension-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dimension-actions .btn {
+  min-width: 100px;
+}
+
+/* Mobile responsive dimensions editor */
+@media (max-width: 768px) {
+  .dimensions-controls {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .dimension-input-group {
+    justify-content: space-between;
+  }
+
+  .aspect-ratio-toggle {
+    justify-self: stretch;
+    justify-content: center;
+  }
+
+  .dimension-actions {
+    flex-direction: column;
+  }
+
+  .dimension-actions .btn {
+    width: 100%;
+  }
+
+  /* Mobile responsive URL editor */
+  .url-actions {
+    flex-direction: column;
+  }
+
+  .url-actions .btn {
+    width: 100%;
+  }
+
+  .url-input {
+    font-size: 16px; /* Prevent zoom on iOS */
+  }
+
+  /* Mobile responsive Google Photos help */
+  .google-photos-help {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+
+  .help-content ol {
+    text-align: left;
+    padding-left: 16px;
+  }
+
+  .alternative-options {
+    margin: 10px 0;
+    padding: 8px;
+  }
+
+  .why-explanation {
+    margin-top: 10px;
+    padding: 6px;
+    font-size: 0.75rem;
+  }
+
+  /* Mobile responsive current image layout */
+  .current-image-layout {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .current-image-preview {
+    justify-content: center;
+  }
+
+  .resize-controls-compact {
+    min-width: auto;
+  }
+
+  .resize-inputs {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .resize-inputs .dimension-input-group {
+    justify-content: space-between;
+  }
+
+  .resize-actions {
+    flex-direction: column;
+  }
 }
 
 .search-section {
@@ -640,6 +1851,91 @@ watch(
 .btn-sm {
   padding: 6px 12px;
   font-size: 0.8rem;
+}
+
+/* Pasted URL Styles */
+.pasted-url-preview {
+  margin: 15px 0;
+  padding: 15px;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  background: #f0f8ff;
+}
+
+.pasted-url-preview h5 {
+  margin: 0 0 10px 0;
+  color: #007bff;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pasted-url-container {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+}
+
+.pasted-url-info {
+  flex: 1;
+}
+
+.url-text {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: #333;
+  font-family: monospace;
+  word-break: break-all;
+  background: white;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+.url-type {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.url-type.google-photos {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.url-type.direct {
+  background: #d1edff;
+  color: #0056b3;
+  border: 1px solid #b8daff;
+}
+
+.url-type.unknown {
+  background: #f8f9fa;
+  color: #6c757d;
+  border: 1px solid #dee2e6;
+}
+
+.google-photos-paste-help {
+  margin-top: 12px;
+  padding: 10px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #856404;
+}
+
+.google-photos-paste-help p {
+  margin: 0 0 6px 0;
+}
+
+.google-photos-paste-help p:last-child {
+  margin-bottom: 0;
 }
 
 .results-section {
@@ -949,6 +2245,17 @@ watch(
     margin-top: 10px;
   }
 
+  /* Mobile responsive pasted URL */
+  .pasted-url-container {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pasted-url-preview {
+    margin: 12px 0;
+    padding: 12px;
+  }
+
   .clipboard-paste-area {
     margin: 10px 0;
     padding: 12px;
@@ -957,6 +2264,107 @@ watch(
   .paste-info {
     flex-direction: column;
     gap: 4px;
+  }
+}
+
+/* Google Photos Integration Styles */
+.google-photos-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  border: 2px dashed #e0e0e0;
+  border-radius: 8px;
+  background-color: #fafafa;
+}
+
+.google-photos-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.google-photos-btn:hover:not(:disabled) {
+  background-color: #4285f4;
+  border-color: #4285f4;
+  color: white;
+}
+
+.google-photos-connected {
+  width: 100%;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 15px;
+  padding: 8px 12px;
+  background-color: #e8f5e8;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.status-icon {
+  font-size: 1.1rem;
+}
+
+.google-photos-search {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.google-photos-search .search-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.google-photos-search .search-button {
+  padding: 10px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.google-photos-search .search-button:hover:not(:disabled) {
+  background-color: #3367d6;
+}
+
+.google-photos-search .search-button:disabled {
+  background-color: #9aa0a6;
+  cursor: not-allowed;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
   }
 }
 </style>
