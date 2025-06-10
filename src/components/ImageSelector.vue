@@ -426,11 +426,15 @@ const googleAuth = ref(null)
 
 // Environment-aware API base URL
 const API_BASE =
-  window.location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://api.vegvisr.org'
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://127.0.0.1:8789'
+    : 'https://api.vegvisr.org'
 
 console.log(
   '🌍 Environment detected:',
-  window.location.hostname === 'localhost' ? 'LOCAL' : 'PRODUCTION',
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'LOCAL'
+    : 'PRODUCTION',
 )
 console.log('📡 API Base URL:', API_BASE)
 
