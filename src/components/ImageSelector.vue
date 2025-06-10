@@ -932,7 +932,10 @@ const connectGooglePhotos = async () => {
     const authConfig = {
       client_id: '770032297124-952dd4cvlaqi28ec41drv7g5qkajv15a.apps.googleusercontent.com',
       scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
-      redirect_uri: window.location.origin + '/auth/google/callback.html',
+      redirect_uri:
+        window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+          ? 'http://127.0.0.1:8789/auth/google/callback.html'
+          : 'https://api.vegvisr.org/auth/google/callback.html',
     }
 
     // Start OAuth flow
