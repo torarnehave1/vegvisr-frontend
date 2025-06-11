@@ -999,12 +999,39 @@ const connectGooglePhotos = async () => {
   error.value = ''
 
   try {
-    console.log('🔄 Starting Google Photos Picker auth via auth-worker...')
+    // First check if we already have a picker token in the URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const existingPickerToken = urlParams.get('picker_access_token')
+    const pickerSuccess = urlParams.get('picker_auth_success')
 
-    // Use the new auth-worker picker flow
-    window.location.href = 'https://auth.vegvisr.org/picker/auth'
+    if (existingPickerToken && pickerSuccess === 'true') {
+      console.log('🎯 Using existing picker token from URL...')
 
-    // The redirect will happen, and we'll handle the return in checkForPickerAuthReturn()
+      // Use the existing token directly
+      const response = await fetch('https://auth.vegvisr.org/picker/credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: existingPickerToken,
+        }),
+      })
+
+      const creds = await response.json()
+
+      if (creds.success) {
+        console.log('✅ Got picker credentials, loading Google Picker...')
+        await loadGooglePickerAPI(creds.api_key, creds.access_token)
+      } else {
+        throw new Error(creds.error || 'Failed to get picker credentials')
+      }
+    } else {
+      console.log('🔄 No existing token, starting new auth flow...')
+
+      // Start new auth flow
+      window.location.href = 'https://auth.vegvisr.org/picker/auth'
+    }
   } catch (err) {
     error.value = 'Failed to connect to Google Photos: ' + err.message
     console.error('Google Photos connection error:', err)
