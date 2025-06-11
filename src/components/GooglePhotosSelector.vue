@@ -204,15 +204,27 @@ const loadGooglePickerAPI = async (apiKey, accessToken) => {
 }
 
 const initializePicker = (apiKey, accessToken) => {
-  const picker = new window.google.picker.PickerBuilder()
-    .addView(window.google.picker.ViewId.PHOTOS)
-    .setOAuthToken(accessToken)
-    .setDeveloperKey(apiKey)
-    .setCallback(handlePickerCallback)
-    .build()
+  console.log('🔧 Picker Debug Info:')
+  console.log('- API Key:', apiKey)
+  console.log('- Access Token (first 20 chars):', accessToken?.substring(0, 20) + '...')
+  console.log('- Current domain:', window.location.origin)
+  console.log('- User agent:', navigator.userAgent)
 
-  picker.setVisible(true)
-  console.log('🖼️ Google Photos Picker opened!')
+  try {
+    const picker = new window.google.picker.PickerBuilder()
+      .addView(window.google.picker.ViewId.PHOTOS)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey)
+      .setCallback(handlePickerCallback)
+      .build()
+
+    console.log('✅ Picker built successfully, showing...')
+    picker.setVisible(true)
+    console.log('🖼️ Google Photos Picker opened!')
+  } catch (error) {
+    console.error('❌ Error building picker:', error)
+    throw error
+  }
 }
 
 const handlePickerCallback = (data) => {
