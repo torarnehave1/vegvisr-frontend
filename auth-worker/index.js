@@ -234,11 +234,33 @@ export default {
           throw new Error(tokenData.error_description || 'Failed to get access token')
         }
 
-        // Redirect back to frontend with picker auth success
+        // Get user email from Google
+        const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+          },
+        })
+
+        const userData = await userResponse.json()
+        const userEmail = userData.email
+
+        if (userEmail) {
+          // Store credentials in KV automatically
+          const credentials = {
+            api_key: env.GOOGLE_API_KEY,
+            access_token: tokenData.access_token,
+            client_id: clientId,
+            stored_at: Date.now(),
+            expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+          }
+
+          await env.GOOGLE_CREDENTIALS.put(userEmail, JSON.stringify(credentials))
+        }
+
+        // Redirect back to frontend with success (no token in URL anymore!)
         const successUrl = new URL('https://www.vegvisr.org/')
         successUrl.searchParams.set('picker_auth_success', 'true')
-        successUrl.searchParams.set('picker_access_token', tokenData.access_token)
-        successUrl.searchParams.set('picker_expires_in', tokenData.expires_in || '3600')
+        successUrl.searchParams.set('user_email', userEmail || 'unknown')
 
         return Response.redirect(successUrl.toString(), 302)
       } catch (error) {
@@ -249,7 +271,92 @@ export default {
       }
     }
 
-    // 8. Google Picker token + API key endpoint
+    // 8. Store Google Picker credentials in KV
+    if (url.pathname === '/picker/store-credentials' && request.method === 'POST') {
+      try {
+        const { access_token, user_email } = await request.json()
+
+        if (!access_token || !user_email) {
+          return createResponse(
+            JSON.stringify({ error: 'Access token and user email required' }),
+            400,
+          )
+        }
+
+        // Store credentials in KV with user email as key
+        const credentials = {
+          api_key: env.GOOGLE_API_KEY,
+          access_token: access_token,
+          client_id: clientId,
+          stored_at: Date.now(),
+          expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+        }
+
+        await env.GOOGLE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+
+        return createResponse(
+          JSON.stringify({
+            success: true,
+            message: 'Credentials stored successfully',
+          }),
+        )
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // 9. Get Google Picker credentials from KV
+    if (url.pathname === '/picker/get-credentials' && request.method === 'POST') {
+      try {
+        const { user_email } = await request.json()
+
+        if (!user_email) {
+          return createResponse(JSON.stringify({ error: 'User email required' }), 400)
+        }
+
+        // Get credentials from KV
+        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
+
+        if (!storedCredentials) {
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'No credentials found for user',
+            }),
+            404,
+          )
+        }
+
+        const credentials = JSON.parse(storedCredentials)
+
+        // Check if credentials are still valid
+        if (credentials.expires_at <= Date.now()) {
+          // Remove expired credentials
+          await env.GOOGLE_CREDENTIALS.delete(user_email)
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'Credentials expired',
+            }),
+            410,
+          )
+        }
+
+        // Return valid credentials
+        return createResponse(
+          JSON.stringify({
+            success: true,
+            api_key: credentials.api_key,
+            access_token: credentials.access_token,
+            client_id: credentials.client_id,
+          }),
+        )
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // 10. Legacy endpoint for backward compatibility
     if (url.pathname === '/picker/credentials' && request.method === 'POST') {
       try {
         const { access_token } = await request.json()

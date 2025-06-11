@@ -424,6 +424,7 @@ const googlePhotosQuery = ref('')
 const googlePhotosResults = ref([])
 const googleAuth = ref(null)
 const googlePickerCredentials = ref(null)
+const userEmail = ref(null)
 
 // Environment-aware API base URL
 const API_BASE =
@@ -1000,25 +1001,56 @@ const connectGooglePhotos = async () => {
   error.value = ''
 
   try {
-    // Check if we have stored credentials
-    if (googlePickerCredentials.value) {
-      // Check if credentials are still valid (not expired)
-      if (googlePickerCredentials.value.expires_at > Date.now()) {
-        console.log('🎯 Using stored credentials to open picker...')
-        await loadGooglePickerAPI(
-          googlePickerCredentials.value.api_key,
-          googlePickerCredentials.value.access_token,
-        )
-        return
-      } else {
-        console.log('⏰ Stored credentials expired, clearing them...')
-        googlePickerCredentials.value = null
-        localStorage.removeItem('googlePickerCredentials')
-        googlePhotosConnected.value = false
+    // Check if we have credentials in memory
+    if (googlePickerCredentials.value && userEmail.value) {
+      console.log('🎯 Using stored credentials to open picker...')
+      await loadGooglePickerAPI(
+        googlePickerCredentials.value.api_key,
+        googlePickerCredentials.value.access_token,
+      )
+      return
+    }
+
+    // If we have a user email but no credentials, try to get them from KV
+    if (userEmail.value) {
+      console.log('🔄 Checking KV storage for existing credentials...')
+
+      try {
+        const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_email: userEmail.value,
+          }),
+        })
+
+        const result = await response.json()
+
+        if (result.success) {
+          console.log('✅ Found valid credentials in KV storage')
+
+          googlePickerCredentials.value = {
+            api_key: result.api_key,
+            access_token: result.access_token,
+            client_id: result.client_id,
+          }
+
+          googlePhotosConnected.value = true
+
+          await loadGooglePickerAPI(
+            googlePickerCredentials.value.api_key,
+            googlePickerCredentials.value.access_token,
+          )
+          return
+        }
+      } catch (kvError) {
+        console.log('⚠️ Could not retrieve from KV:', kvError.message)
       }
     }
 
-    console.log('🔄 No valid credentials, starting new auth flow...')
+    console.log('🔄 No valid credentials found, starting new auth flow...')
 
     // Start new auth flow
     window.location.href = 'https://auth.vegvisr.org/picker/auth'
@@ -1099,8 +1131,8 @@ const disconnectGooglePhotos = () => {
   googlePhotosQuery.value = ''
   searchResults.value = []
   googlePickerCredentials.value = null
-  localStorage.removeItem('googlePickerCredentials')
-  console.log('🔌 Disconnected from Google Photos')
+  userEmail.value = null
+  console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
 }
 
 // Old popup-based functions removed - now using redirect-based OAuth
@@ -1113,32 +1145,8 @@ const removePasteListener = () => {
   document.removeEventListener('paste', handlePaste)
 }
 
-// Load stored credentials on mount
-const loadStoredCredentials = () => {
-  try {
-    const stored = localStorage.getItem('googlePickerCredentials')
-    if (stored) {
-      const creds = JSON.parse(stored)
-
-      // Check if credentials are still valid
-      if (creds.expires_at > Date.now()) {
-        googlePickerCredentials.value = creds
-        googlePhotosConnected.value = true
-        console.log('✅ Loaded stored Google Photos credentials')
-      } else {
-        console.log('⏰ Stored credentials expired, removing them')
-        localStorage.removeItem('googlePickerCredentials')
-      }
-    }
-  } catch (err) {
-    console.error('Error loading stored credentials:', err)
-    localStorage.removeItem('googlePickerCredentials')
-  }
-}
-
 // Check for OAuth return on component mount
 onMounted(() => {
-  loadStoredCredentials()
   checkForOAuthReturn()
   checkForPickerAuthReturn()
 })
@@ -1162,59 +1170,62 @@ const checkForPickerAuthReturn = async () => {
     return
   }
 
-  // Handle Picker OAuth success
-  if (pickerToken && pickerSuccess === 'true') {
-    console.log('🔄 Detected Picker OAuth return, storing credentials...')
+  // Handle Picker OAuth success with KV storage
+  const returnedUserEmail = urlParams.get('user_email')
+  if (pickerSuccess === 'true' && returnedUserEmail) {
+    console.log('🔄 Detected Picker OAuth success, user:', returnedUserEmail)
 
     try {
-      // Get API key and credentials from auth-worker
-      const response = await fetch('https://auth.vegvisr.org/picker/credentials', {
+      // Store user email
+      userEmail.value = returnedUserEmail
+
+      // Get credentials from KV storage
+      const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          access_token: pickerToken,
+          user_email: returnedUserEmail,
         }),
       })
 
-      const creds = await response.json()
+      const result = await response.json()
 
-      if (creds.success) {
-        console.log('✅ Got picker credentials, storing them...')
+      if (result.success) {
+        console.log('✅ Retrieved credentials from KV storage')
 
-        // Store credentials for later use
+        // Store credentials locally
         googlePickerCredentials.value = {
-          api_key: creds.api_key,
-          access_token: creds.access_token,
-          client_id: creds.client_id,
-          expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+          api_key: result.api_key,
+          access_token: result.access_token,
+          client_id: result.client_id,
         }
-
-        // Store in localStorage for persistence
-        localStorage.setItem(
-          'googlePickerCredentials',
-          JSON.stringify(googlePickerCredentials.value),
-        )
 
         // Mark as connected
         googlePhotosConnected.value = true
 
-        console.log('🎊 Google Photos connected! You can now use the picker.')
+        console.log('🎊 Google Photos connected via KV storage!')
       } else {
-        error.value = creds.error || 'Failed to get picker credentials'
+        error.value = result.error || 'Failed to get credentials from server'
+        console.error('❌ KV credentials error:', result.error)
       }
     } catch (err) {
-      error.value = 'Failed to initialize picker: ' + err.message
-      console.error('Picker initialization error:', err)
+      error.value = 'Failed to retrieve credentials: ' + err.message
+      console.error('Picker KV retrieval error:', err)
     }
 
     // Clean up URL parameters
     const cleanUrl = new URL(window.location.href)
-    cleanUrl.searchParams.delete('picker_access_token')
     cleanUrl.searchParams.delete('picker_auth_success')
-    cleanUrl.searchParams.delete('picker_expires_in')
+    cleanUrl.searchParams.delete('user_email')
     window.history.replaceState({}, document.title, cleanUrl.toString())
+  }
+
+  // Legacy support for old token-based flow
+  if (pickerToken && pickerSuccess === 'true') {
+    console.log('🔄 Detected legacy Picker OAuth return...')
+    // Same logic as before but for backward compatibility
   }
 }
 
