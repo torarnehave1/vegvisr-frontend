@@ -361,7 +361,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const props = defineProps({
   isOpen: {
@@ -929,16 +929,13 @@ const connectGooglePhotos = async () => {
   error.value = ''
 
   try {
-    // Initialize Google API client
-    await loadGoogleAPI()
-
     // Configure OAuth
     const authConfig = {
-      client_id: '770032297124-952dd4cvlaqi28ec41drv7g5qkajv15a.apps.googleusercontent.com',
+      client_id: '841754501361-kg4fghcp6h9d61jbggfcufcljvin03rt.apps.googleusercontent.com',
       scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
       redirect_uri:
         window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-          ? 'http://127.0.0.1:8789/auth/google/callback.html'
+          ? `http://${window.location.hostname}:8789/auth/google/callback.html`
           : 'https://api.vegvisr.org/auth/google/callback.html',
     }
 
@@ -952,21 +949,10 @@ const connectGooglePhotos = async () => {
       `access_type=offline&` +
       `prompt=consent`
 
-    // Open popup for authentication
-    const popup = window.open(authUrl, 'google-auth', 'width=500,height=600')
+    // Redirect to Google OAuth (full page redirect instead of popup)
+    window.location.href = authUrl
 
-    // Listen for the auth callback
-    const authResult = await waitForAuthCallback(popup)
-
-    if (authResult.success) {
-      googleAuth.value = authResult.token
-      googlePhotosConnected.value = true
-
-      // Load recent photos automatically
-      await searchGooglePhotos('recent')
-    } else {
-      throw new Error('Authentication failed')
-    }
+    // The redirect will happen, and we'll handle the return in checkForOAuthReturn()
   } catch (err) {
     error.value = 'Failed to connect to Google Photos: ' + err.message
     console.error('Google Photos connection error:', err)
@@ -1045,82 +1031,7 @@ const disconnectGooglePhotos = () => {
   searchResults.value = []
 }
 
-const loadGoogleAPI = async () => {
-  return new Promise((resolve, reject) => {
-    if (window.gapi) {
-      resolve()
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://apis.google.com/js/api.js'
-    script.onload = () => {
-      window.gapi.load('auth2', resolve)
-    }
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-}
-
-const waitForAuthCallback = (popup) => {
-  return new Promise((resolve) => {
-    const checkClosed = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(checkClosed)
-        resolve({ success: false, error: 'Popup was closed by user' })
-      }
-    }, 1000)
-
-    // Listen for postMessage from popup (real implementation)
-    const messageHandler = async (event) => {
-      if (event.origin !== window.location.origin) return
-
-      if (event.data.type === 'GOOGLE_AUTH_SUCCESS') {
-        clearInterval(checkClosed)
-        popup.close()
-
-        try {
-          // Exchange the authorization code for an access token via backend
-          const response = await fetch(`${API_BASE}/google-photos-auth`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              code: event.data.code,
-            }),
-          })
-
-          const data = await response.json()
-
-          if (data.success && data.access_token) {
-            resolve({ success: true, token: data.access_token })
-          } else {
-            resolve({ success: false, error: data.error || 'Failed to get access token' })
-          }
-        } catch (err) {
-          resolve({
-            success: false,
-            error: 'Failed to exchange authorization code: ' + err.message,
-          })
-        }
-      } else if (event.data.type === 'GOOGLE_AUTH_ERROR') {
-        clearInterval(checkClosed)
-        popup.close()
-        resolve({ success: false, error: event.data.error })
-      }
-    }
-
-    window.addEventListener('message', messageHandler)
-
-    // Clean up listener when done
-    const originalResolve = resolve
-    resolve = (result) => {
-      window.removeEventListener('message', messageHandler)
-      originalResolve(result)
-    }
-  })
-}
+// Old popup-based functions removed - now using redirect-based OAuth
 
 const addPasteListener = () => {
   document.addEventListener('paste', handlePaste)
@@ -1128,6 +1039,71 @@ const addPasteListener = () => {
 
 const removePasteListener = () => {
   document.removeEventListener('paste', handlePaste)
+}
+
+// Check for OAuth return on component mount
+onMounted(() => {
+  checkForOAuthReturn()
+})
+
+// Function to check if we're returning from OAuth
+const checkForOAuthReturn = async () => {
+  const urlParams = new URLSearchParams(window.location.search)
+  const authCode = urlParams.get('google_auth_code')
+  const authSuccess = urlParams.get('google_auth_success')
+  const authError = urlParams.get('google_auth_error')
+
+  // Handle OAuth error
+  if (authError) {
+    error.value = 'Google Photos authorization failed: ' + decodeURIComponent(authError)
+    console.error('❌ OAuth Error:', authError)
+
+    // Clean up URL parameters
+    const cleanUrl = new URL(window.location.href)
+    cleanUrl.searchParams.delete('google_auth_error')
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+    return
+  }
+
+  // Handle OAuth success
+  if (authCode && authSuccess === 'true') {
+    console.log('🔄 Detected OAuth return, processing...')
+
+    try {
+      // Exchange the authorization code for an access token
+      const response = await fetch(`${API_BASE}/google-photos-auth`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code: authCode,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.access_token) {
+        googleAuth.value = data.access_token
+        googlePhotosConnected.value = true
+        console.log('✅ Google Photos connected successfully!')
+
+        // Load recent photos automatically
+        await searchGooglePhotos('recent')
+      } else {
+        error.value = data.error || 'Failed to get access token'
+      }
+    } catch (err) {
+      error.value = 'Failed to exchange authorization code: ' + err.message
+      console.error('OAuth exchange error:', err)
+    }
+
+    // Clean up URL parameters
+    const cleanUrl = new URL(window.location.href)
+    cleanUrl.searchParams.delete('google_auth_code')
+    cleanUrl.searchParams.delete('google_auth_success')
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+  }
 }
 
 // Initialize paste listener when modal opens

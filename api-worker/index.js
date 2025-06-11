@@ -2343,6 +2343,8 @@ const handlePexelsImageSearch = async (request, env) => {
 
 // --- Google Photos OAuth Handlers ---
 const handleGoogleOAuthCallback = async () => {
+  console.log('🔐 handleGoogleOAuthCallback called')
+
   const callbackHtml = `<!doctype html>
 <html lang="en">
   <head>
@@ -2460,20 +2462,14 @@ const handleGoogleOAuthCallback = async () => {
               'error',
             )
 
-            // Send error to parent window
-            if (window.opener) {
-              window.opener.postMessage(
-                {
-                  type: 'GOOGLE_AUTH_ERROR',
-                  error: errorDescription || error || 'Authorization failed',
-                },
-                window.location.origin,
-              )
-            }
+            // For redirect-based OAuth, redirect back to the Vue frontend with error
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            const frontendUrl = isLocal
+              ? \`http://\${window.location.hostname}:5173/?google_auth_error=\${encodeURIComponent(errorDescription || error || 'Authorization failed')}\`
+              : \`https://www.vegvisr.org/?google_auth_error=\${encodeURIComponent(errorDescription || error || 'Authorization failed')}\`
 
-            setTimeout(() => {
-              window.close()
-            }, 3000)
+            // Redirect back to the frontend
+            window.location.href = frontendUrl
             return
           }
 
@@ -2487,20 +2483,14 @@ const handleGoogleOAuthCallback = async () => {
               'success',
             )
 
-            // Send success with code to parent window
-            if (window.opener) {
-              window.opener.postMessage(
-                {
-                  type: 'GOOGLE_AUTH_SUCCESS',
-                  code: code,
-                },
-                window.location.origin,
-              )
-            }
+                        // For redirect-based OAuth, redirect back to the Vue frontend with the code
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            const frontendUrl = isLocal
+              ? \`http://\${window.location.hostname}:5173/?google_auth_code=\${code}&google_auth_success=true\`
+              : \`https://www.vegvisr.org/?google_auth_code=\${code}&google_auth_success=true\`
 
-            setTimeout(() => {
-              window.close()
-            }, 2000)
+            // Redirect back to the frontend
+            window.location.href = frontendUrl
           } else {
             console.error('❌ No authorization code found in URL')
 
@@ -2567,6 +2557,8 @@ const handleGoogleOAuthCallback = async () => {
   </body>
 </html>`
 
+  console.log('✅ Returning OAuth callback HTML, length:', callbackHtml.length)
+
   return new Response(callbackHtml, {
     status: 200,
     headers: {
@@ -2599,7 +2591,9 @@ const handleGooglePhotosAuth = async (request, env) => {
         grant_type: 'authorization_code',
         redirect_uri:
           request.url.includes('localhost') || request.url.includes('127.0.0.1')
-            ? 'http://127.0.0.1:8789/auth/google/callback.html'
+            ? request.url.includes('localhost')
+              ? 'http://localhost:8789/auth/google/callback.html'
+              : 'http://127.0.0.1:8789/auth/google/callback.html'
             : 'https://api.vegvisr.org/auth/google/callback.html',
       }),
     })
@@ -2731,6 +2725,16 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
     const pathname = url.pathname
+
+    // Log all incoming requests for debugging
+    console.log('🔍 API Worker Request:', {
+      method: request.method,
+      pathname: pathname,
+      fullUrl: request.url,
+      origin: request.headers.get('Origin'),
+      userAgent: request.headers.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+    })
 
     // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
@@ -2877,10 +2881,26 @@ export default {
     }
 
     if (pathname === '/auth/google/callback.html' && request.method === 'GET') {
+      console.log('✅ OAuth Callback Route Matched!', {
+        pathname: pathname,
+        method: request.method,
+        queryParams: url.searchParams.toString(),
+      })
       return await handleGoogleOAuthCallback()
     }
 
-    // Fallback
+    // Fallback - log unmatched routes
+    console.log('❌ No route matched, returning 404:', {
+      pathname: pathname,
+      method: request.method,
+      availableRoutes: [
+        '/auth/google/callback.html',
+        '/google-photos-auth',
+        '/google-photos-search',
+        '/google-photos-recent',
+        // ... other routes
+      ],
+    })
     return createErrorResponse('Not Found', 404)
   },
 }
