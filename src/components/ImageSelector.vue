@@ -423,6 +423,7 @@ const searchingGooglePhotos = ref(false)
 const googlePhotosQuery = ref('')
 const googlePhotosResults = ref([])
 const googleAuth = ref(null)
+const googlePickerCredentials = ref(null)
 
 // Environment-aware API base URL
 const API_BASE =
@@ -999,39 +1000,28 @@ const connectGooglePhotos = async () => {
   error.value = ''
 
   try {
-    // First check if we already have a picker token in the URL
-    const urlParams = new URLSearchParams(window.location.search)
-    const existingPickerToken = urlParams.get('picker_access_token')
-    const pickerSuccess = urlParams.get('picker_auth_success')
-
-    if (existingPickerToken && pickerSuccess === 'true') {
-      console.log('🎯 Using existing picker token from URL...')
-
-      // Use the existing token directly
-      const response = await fetch('https://auth.vegvisr.org/picker/credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          access_token: existingPickerToken,
-        }),
-      })
-
-      const creds = await response.json()
-
-      if (creds.success) {
-        console.log('✅ Got picker credentials, loading Google Picker...')
-        await loadGooglePickerAPI(creds.api_key, creds.access_token)
+    // Check if we have stored credentials
+    if (googlePickerCredentials.value) {
+      // Check if credentials are still valid (not expired)
+      if (googlePickerCredentials.value.expires_at > Date.now()) {
+        console.log('🎯 Using stored credentials to open picker...')
+        await loadGooglePickerAPI(
+          googlePickerCredentials.value.api_key,
+          googlePickerCredentials.value.access_token,
+        )
+        return
       } else {
-        throw new Error(creds.error || 'Failed to get picker credentials')
+        console.log('⏰ Stored credentials expired, clearing them...')
+        googlePickerCredentials.value = null
+        localStorage.removeItem('googlePickerCredentials')
+        googlePhotosConnected.value = false
       }
-    } else {
-      console.log('🔄 No existing token, starting new auth flow...')
-
-      // Start new auth flow
-      window.location.href = 'https://auth.vegvisr.org/picker/auth'
     }
+
+    console.log('🔄 No valid credentials, starting new auth flow...')
+
+    // Start new auth flow
+    window.location.href = 'https://auth.vegvisr.org/picker/auth'
   } catch (err) {
     error.value = 'Failed to connect to Google Photos: ' + err.message
     console.error('Google Photos connection error:', err)
@@ -1108,6 +1098,9 @@ const disconnectGooglePhotos = () => {
   googlePhotosResults.value = []
   googlePhotosQuery.value = ''
   searchResults.value = []
+  googlePickerCredentials.value = null
+  localStorage.removeItem('googlePickerCredentials')
+  console.log('🔌 Disconnected from Google Photos')
 }
 
 // Old popup-based functions removed - now using redirect-based OAuth
@@ -1120,8 +1113,32 @@ const removePasteListener = () => {
   document.removeEventListener('paste', handlePaste)
 }
 
+// Load stored credentials on mount
+const loadStoredCredentials = () => {
+  try {
+    const stored = localStorage.getItem('googlePickerCredentials')
+    if (stored) {
+      const creds = JSON.parse(stored)
+
+      // Check if credentials are still valid
+      if (creds.expires_at > Date.now()) {
+        googlePickerCredentials.value = creds
+        googlePhotosConnected.value = true
+        console.log('✅ Loaded stored Google Photos credentials')
+      } else {
+        console.log('⏰ Stored credentials expired, removing them')
+        localStorage.removeItem('googlePickerCredentials')
+      }
+    }
+  } catch (err) {
+    console.error('Error loading stored credentials:', err)
+    localStorage.removeItem('googlePickerCredentials')
+  }
+}
+
 // Check for OAuth return on component mount
 onMounted(() => {
+  loadStoredCredentials()
   checkForOAuthReturn()
   checkForPickerAuthReturn()
 })
@@ -1147,7 +1164,7 @@ const checkForPickerAuthReturn = async () => {
 
   // Handle Picker OAuth success
   if (pickerToken && pickerSuccess === 'true') {
-    console.log('🔄 Detected Picker OAuth return, initializing picker...')
+    console.log('🔄 Detected Picker OAuth return, storing credentials...')
 
     try {
       // Get API key and credentials from auth-worker
@@ -1164,10 +1181,26 @@ const checkForPickerAuthReturn = async () => {
       const creds = await response.json()
 
       if (creds.success) {
-        console.log('✅ Got picker credentials, loading Google Picker...')
+        console.log('✅ Got picker credentials, storing them...')
 
-        // Load Google Picker API and show picker
-        await loadGooglePickerAPI(creds.api_key, creds.access_token)
+        // Store credentials for later use
+        googlePickerCredentials.value = {
+          api_key: creds.api_key,
+          access_token: creds.access_token,
+          client_id: creds.client_id,
+          expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+        }
+
+        // Store in localStorage for persistence
+        localStorage.setItem(
+          'googlePickerCredentials',
+          JSON.stringify(googlePickerCredentials.value),
+        )
+
+        // Mark as connected
+        googlePhotosConnected.value = true
+
+        console.log('🎊 Google Photos connected! You can now use the picker.')
       } else {
         error.value = creds.error || 'Failed to get picker credentials'
       }
