@@ -194,21 +194,20 @@
               </button>
             </div>
 
-            <div class="google-photos-search">
-              <input
-                v-model="googlePhotosQuery"
-                @keyup.enter="searchGooglePhotos"
-                class="search-input"
-                placeholder="Search your Google Photos..."
-              />
+            <div class="google-photos-picker">
               <button
-                @click="searchGooglePhotos"
+                @click="openGooglePhotosPicker"
                 :disabled="searchingGooglePhotos"
-                class="search-button"
+                class="btn btn-primary google-photos-picker-btn"
               >
                 <span v-if="searchingGooglePhotos" class="spinner-sm"></span>
-                {{ searchingGooglePhotos ? 'Searching...' : 'Search My Photos' }}
+                {{
+                  searchingGooglePhotos
+                    ? 'Opening Picker...'
+                    : '🖼️ Choose Photos from Google Photos'
+                }}
               </button>
+              <p class="picker-help">Click to open Google Photos picker and select images</p>
             </div>
           </div>
         </div>
@@ -420,8 +419,6 @@ const pastedUrl = ref(null)
 // Google Photos integration state
 const connectingGooglePhotos = ref(false)
 const searchingGooglePhotos = ref(false)
-const googlePhotosQuery = ref('')
-const googlePhotosResults = ref([])
 
 // Use userStore for Google Photos integration
 const userStore = useUserStore()
@@ -1027,63 +1024,27 @@ const connectGooglePhotos = async () => {
   }
 }
 
-const searchGooglePhotos = async (query = null) => {
-  if (!userStore.googlePhotosConnected) return
+const openGooglePhotosPicker = async () => {
+  if (!userStore.googlePhotosConnected || !userStore.googlePhotosCredentials) {
+    error.value = 'Please connect to Google Photos first'
+    return
+  }
 
   searchingGooglePhotos.value = true
   error.value = ''
 
   try {
-    const searchTerm = query || googlePhotosQuery.value || 'recent'
+    console.log('🖼️ Opening Google Photos Picker...')
 
-    // Use different endpoint based on search term
-    const endpoint =
-      searchTerm === 'recent'
-        ? `${API_BASE}/google-photos-recent`
-        : `${API_BASE}/google-photos-search`
+    await loadGooglePickerAPI(
+      userStore.googlePhotosCredentials.api_key,
+      userStore.googlePhotosCredentials.access_token,
+    )
 
-    const requestBody = {
-      access_token: userStore.googlePhotosCredentials.access_token,
-      ...(searchTerm !== 'recent' && {
-        searchParams: {
-          contentCategories: [searchTerm.toUpperCase()],
-        },
-      }),
-    }
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    })
-
-    const data = await response.json()
-
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to search Google Photos')
-    }
-
-    // Transform Google Photos results to match our format
-    googlePhotosResults.value = (data.mediaItems || []).map((item) => ({
-      id: 'google-' + item.id,
-      url: item.baseUrl + '=w800-h600', // Add size parameters for better quality
-      alt: item.filename || 'Google Photos image',
-      photographer: 'Your Google Photos',
-      width: item.mediaMetadata?.width || 800,
-      height: item.mediaMetadata?.height || 600,
-      isGooglePhoto: true,
-      originalItem: item,
-    }))
-
-    // Replace search results with Google Photos results
-    searchResults.value = googlePhotosResults.value
-
-    console.log(`✅ Loaded ${googlePhotosResults.value.length} photos from Google Photos`)
+    console.log('✅ Google Photos Picker opened!')
   } catch (err) {
-    error.value = 'Failed to search Google Photos: ' + err.message
-    console.error('Google Photos search error:', err)
+    error.value = 'Failed to open Google Photos picker: ' + err.message
+    console.error('Google Photos picker error:', err)
   } finally {
     searchingGooglePhotos.value = false
   }
@@ -1091,8 +1052,6 @@ const searchGooglePhotos = async (query = null) => {
 
 const disconnectGooglePhotos = () => {
   userStore.disconnectGooglePhotos()
-  googlePhotosResults.value = []
-  googlePhotosQuery.value = ''
   searchResults.value = []
   console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
 }
@@ -1118,64 +1077,10 @@ onMounted(() => {
   }
 })
 
-// Function to check if we're returning from OAuth
+// Legacy OAuth check - now handled by userStore.handleGooglePhotosOAuthReturn()
 const checkForOAuthReturn = async () => {
-  const urlParams = new URLSearchParams(window.location.search)
-  const authCode = urlParams.get('google_auth_code')
-  const authSuccess = urlParams.get('google_auth_success')
-  const authError = urlParams.get('google_auth_error')
-
-  // Handle OAuth error
-  if (authError) {
-    error.value = 'Google Photos authorization failed: ' + decodeURIComponent(authError)
-    console.error('❌ OAuth Error:', authError)
-
-    // Clean up URL parameters
-    const cleanUrl = new URL(window.location.href)
-    cleanUrl.searchParams.delete('google_auth_error')
-    window.history.replaceState({}, document.title, cleanUrl.toString())
-    return
-  }
-
-  // Handle OAuth success
-  if (authCode && authSuccess === 'true') {
-    console.log('🔄 Detected OAuth return, processing...')
-
-    try {
-      // Exchange the authorization code for an access token
-      const response = await fetch(`${API_BASE}/google-photos-auth`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          code: authCode,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success && data.access_token) {
-        googleAuth.value = data.access_token
-        googlePhotosConnected.value = true
-        console.log('✅ Google Photos connected successfully!')
-
-        // Load recent photos automatically
-        await searchGooglePhotos('recent')
-      } else {
-        error.value = data.error || 'Failed to get access token'
-      }
-    } catch (err) {
-      error.value = 'Failed to exchange authorization code: ' + err.message
-      console.error('OAuth exchange error:', err)
-    }
-
-    // Clean up URL parameters
-    const cleanUrl = new URL(window.location.href)
-    cleanUrl.searchParams.delete('google_auth_code')
-    cleanUrl.searchParams.delete('google_auth_success')
-    window.history.replaceState({}, document.title, cleanUrl.toString())
-  }
+  // This function is now deprecated - OAuth handling moved to userStore
+  console.log('✅ OAuth handling moved to userStore')
 }
 
 // Initialize paste listener when modal opens
@@ -2368,41 +2273,41 @@ watch(
   font-size: 1.1rem;
 }
 
-.google-photos-search {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
+.google-photos-picker {
+  text-align: center;
+  padding: 10px 0;
 }
 
-.google-photos-search .search-input {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
+.google-photos-picker-btn {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
   border-radius: 6px;
-  font-size: 0.9rem;
-}
-
-.google-photos-search .search-button {
-  padding: 10px 16px;
   background-color: #4285f4;
   color: white;
   border: none;
-  border-radius: 6px;
   cursor: pointer;
-  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 8px;
   transition: background-color 0.2s ease;
 }
 
-.google-photos-search .search-button:hover:not(:disabled) {
+.google-photos-picker-btn:hover:not(:disabled) {
   background-color: #3367d6;
 }
 
-.google-photos-search .search-button:disabled {
+.google-photos-picker-btn:disabled {
   background-color: #9aa0a6;
   cursor: not-allowed;
+}
+
+.picker-help {
+  margin: 8px 0 0 0;
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
 }
 
 .spinner-sm {
