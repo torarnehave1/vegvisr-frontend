@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Google Picker Test</title>
+  </head>
+  <body>
+    <h1>Google Picker Direct Test</h1>
+    <button onclick="testPicker()">Test Picker</button>
+    <div id="output"></div>
+
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script>
+      const API_KEY = 'AIzaSyB7iCzKdoulnhoE8sOizc4N9mQkQMTYUfs'
+
+      function testPicker() {
+        console.log('Testing Google Picker...')
+        console.log('Domain:', window.location.origin)
+
+        // First, let's just test if we can load the API
+        gapi.load('picker', () => {
+          console.log('Picker API loaded successfully')
+
+          // Test without OAuth token first
+          try {
+            const picker = new google.picker.PickerBuilder()
+              .addView(google.picker.ViewId.DOCS) // Try docs first (less restrictive)
+              .setDeveloperKey(API_KEY)
+              .setCallback(pickerCallback)
+              .build()
+
+            picker.setVisible(true)
+            console.log('Picker opened without OAuth')
+          } catch (error) {
+            console.error('Error creating picker:', error)
+            document.getElementById('output').innerHTML = 'Error: ' + error.message
+          }
+        })
+      }
+
+      function pickerCallback(data) {
+        console.log('Picker callback:', data)
+        document.getElementById('output').innerHTML = 'Picker callback: ' + JSON.stringify(data)
+      }
+    </script>
+  </body>
+</html>
