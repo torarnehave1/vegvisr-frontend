@@ -8,6 +8,8 @@ export const useUserStore = defineStore('user', {
     emailVerificationToken: null,
     loggedIn: false,
     mystmkraUserId: null,
+    googlePhotosConnected: false,
+    googlePhotosCredentials: null,
   }),
   actions: {
     setUser(user) {
@@ -53,7 +55,111 @@ export const useUserStore = defineStore('user', {
       this.emailVerificationToken = null
       this.mystmkraUserId = null
       this.loggedIn = false
+      this.googlePhotosConnected = false
+      this.googlePhotosCredentials = null
       localStorage.removeItem('user')
+    },
+
+    // Google Photos Integration
+    async checkGooglePhotosConnection() {
+      if (!this.email) {
+        console.log('❌ No user email, cannot check Google Photos connection')
+        return false
+      }
+
+      try {
+        console.log('🔄 Checking Google Photos connection for:', this.email)
+
+        const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_email: this.email }),
+        })
+
+        const result = await response.json()
+
+        if (result.success) {
+          console.log('✅ Found Google Photos credentials in KV storage')
+          this.googlePhotosCredentials = {
+            api_key: result.api_key,
+            access_token: result.access_token,
+            client_id: result.client_id,
+          }
+          this.googlePhotosConnected = true
+          return true
+        } else {
+          console.log('❌ No Google Photos credentials found:', result.error)
+          this.googlePhotosConnected = false
+          this.googlePhotosCredentials = null
+          return false
+        }
+      } catch (error) {
+        console.error('❌ Error checking Google Photos connection:', error)
+        this.googlePhotosConnected = false
+        this.googlePhotosCredentials = null
+        return false
+      }
+    },
+
+    async connectGooglePhotos() {
+      if (!this.email) {
+        throw new Error('User must be logged in to connect Google Photos')
+      }
+
+      console.log('🔄 Starting Google Photos OAuth for user:', this.email)
+
+      // Check if already connected first
+      const isConnected = await this.checkGooglePhotosConnection()
+      if (isConnected) {
+        console.log('✅ Already connected to Google Photos')
+        return this.googlePhotosCredentials
+      }
+
+      // Start OAuth flow
+      window.location.href = 'https://auth.vegvisr.org/picker/auth'
+    },
+
+    handleGooglePhotosOAuthReturn() {
+      const urlParams = new URLSearchParams(window.location.search)
+      const pickerSuccess = urlParams.get('picker_auth_success')
+      const pickerError = urlParams.get('picker_auth_error')
+      const returnedUserEmail = urlParams.get('user_email')
+
+      // Handle OAuth error
+      if (pickerError) {
+        console.error('❌ Google Photos OAuth Error:', pickerError)
+        this.googlePhotosConnected = false
+        this.googlePhotosCredentials = null
+
+        // Clean up URL parameters
+        const cleanUrl = new URL(window.location.href)
+        cleanUrl.searchParams.delete('picker_auth_error')
+        window.history.replaceState({}, document.title, cleanUrl.toString())
+        return false
+      }
+
+      // Handle OAuth success
+      if (pickerSuccess === 'true' && returnedUserEmail) {
+        console.log('🔄 Detected Google Photos OAuth success, checking credentials...')
+
+        // Clean up URL parameters
+        const cleanUrl = new URL(window.location.href)
+        cleanUrl.searchParams.delete('picker_auth_success')
+        cleanUrl.searchParams.delete('user_email')
+        window.history.replaceState({}, document.title, cleanUrl.toString())
+
+        // Check connection (will auto-populate credentials if found)
+        this.checkGooglePhotosConnection()
+        return true
+      }
+
+      return false
+    },
+
+    disconnectGooglePhotos() {
+      this.googlePhotosConnected = false
+      this.googlePhotosCredentials = null
+      console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
     },
     loadUserFromStorage() {
       const storedUser = JSON.parse(localStorage.getItem('user'))

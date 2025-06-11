@@ -177,7 +177,7 @@
         <div class="google-photos-section">
           <button
             @click="connectGooglePhotos"
-            v-if="!googlePhotosConnected"
+            v-if="!userStore.googlePhotosConnected"
             class="btn btn-outline-primary google-photos-btn"
             :disabled="connectingGooglePhotos"
           >
@@ -185,7 +185,7 @@
             {{ connectingGooglePhotos ? 'Connecting...' : '📷 Connect My Google Photos' }}
           </button>
 
-          <div v-if="googlePhotosConnected" class="google-photos-connected">
+          <div v-if="userStore.googlePhotosConnected" class="google-photos-connected">
             <div class="connection-status">
               <span class="status-icon">✅</span>
               <span>Connected to Google Photos</span>
@@ -362,6 +362,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useUserStore } from '../stores/userStore'
 
 const props = defineProps({
   isOpen: {
@@ -417,14 +418,13 @@ const urlPreview = ref('')
 const pastedUrl = ref(null)
 
 // Google Photos integration state
-const googlePhotosConnected = ref(false)
 const connectingGooglePhotos = ref(false)
 const searchingGooglePhotos = ref(false)
 const googlePhotosQuery = ref('')
 const googlePhotosResults = ref([])
-const googleAuth = ref(null)
-const googlePickerCredentials = ref(null)
-const userEmail = ref(null)
+
+// Use userStore for Google Photos integration
+const userStore = useUserStore()
 
 // Environment-aware API base URL
 const API_BASE =
@@ -1001,59 +1001,24 @@ const connectGooglePhotos = async () => {
   error.value = ''
 
   try {
-    // Check if we have credentials in memory
-    if (googlePickerCredentials.value && userEmail.value) {
+    // Check if user is logged in
+    if (!userStore.loggedIn || !userStore.email) {
+      error.value = 'Please log in first to connect Google Photos'
+      return
+    }
+
+    // Check if we already have credentials
+    if (userStore.googlePhotosCredentials) {
       console.log('🎯 Using stored credentials to open picker...')
       await loadGooglePickerAPI(
-        googlePickerCredentials.value.api_key,
-        googlePickerCredentials.value.access_token,
+        userStore.googlePhotosCredentials.api_key,
+        userStore.googlePhotosCredentials.access_token,
       )
       return
     }
 
-    // If we have a user email but no credentials, try to get them from KV
-    if (userEmail.value) {
-      console.log('🔄 Checking KV storage for existing credentials...')
-
-      try {
-        const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            user_email: userEmail.value,
-          }),
-        })
-
-        const result = await response.json()
-
-        if (result.success) {
-          console.log('✅ Found valid credentials in KV storage')
-
-          googlePickerCredentials.value = {
-            api_key: result.api_key,
-            access_token: result.access_token,
-            client_id: result.client_id,
-          }
-
-          googlePhotosConnected.value = true
-
-          await loadGooglePickerAPI(
-            googlePickerCredentials.value.api_key,
-            googlePickerCredentials.value.access_token,
-          )
-          return
-        }
-      } catch (kvError) {
-        console.log('⚠️ Could not retrieve from KV:', kvError.message)
-      }
-    }
-
-    console.log('🔄 No valid credentials found, starting new auth flow...')
-
-    // Start new auth flow
-    window.location.href = 'https://auth.vegvisr.org/picker/auth'
+    // Use userStore method to connect
+    await userStore.connectGooglePhotos()
   } catch (err) {
     error.value = 'Failed to connect to Google Photos: ' + err.message
     console.error('Google Photos connection error:', err)
@@ -1063,7 +1028,7 @@ const connectGooglePhotos = async () => {
 }
 
 const searchGooglePhotos = async (query = null) => {
-  if (!googlePhotosConnected.value) return
+  if (!userStore.googlePhotosConnected) return
 
   searchingGooglePhotos.value = true
   error.value = ''
@@ -1078,7 +1043,7 @@ const searchGooglePhotos = async (query = null) => {
         : `${API_BASE}/google-photos-search`
 
     const requestBody = {
-      access_token: googleAuth.value,
+      access_token: userStore.googlePhotosCredentials.access_token,
       ...(searchTerm !== 'recent' && {
         searchParams: {
           contentCategories: [searchTerm.toUpperCase()],
@@ -1125,13 +1090,10 @@ const searchGooglePhotos = async (query = null) => {
 }
 
 const disconnectGooglePhotos = () => {
-  googleAuth.value = null
-  googlePhotosConnected.value = false
+  userStore.disconnectGooglePhotos()
   googlePhotosResults.value = []
   googlePhotosQuery.value = ''
   searchResults.value = []
-  googlePickerCredentials.value = null
-  userEmail.value = null
   console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
 }
 
@@ -1148,86 +1110,13 @@ const removePasteListener = () => {
 // Check for OAuth return on component mount
 onMounted(() => {
   checkForOAuthReturn()
-  checkForPickerAuthReturn()
+  userStore.handleGooglePhotosOAuthReturn()
+
+  // Check for existing Google Photos connection if user is logged in
+  if (userStore.loggedIn && userStore.email) {
+    userStore.checkGooglePhotosConnection()
+  }
 })
-
-// Function to check if we're returning from Picker OAuth
-const checkForPickerAuthReturn = async () => {
-  const urlParams = new URLSearchParams(window.location.search)
-  const pickerToken = urlParams.get('picker_access_token')
-  const pickerSuccess = urlParams.get('picker_auth_success')
-  const pickerError = urlParams.get('picker_auth_error')
-
-  // Handle Picker OAuth error
-  if (pickerError) {
-    error.value = 'Google Picker authorization failed: ' + decodeURIComponent(pickerError)
-    console.error('❌ Picker OAuth Error:', pickerError)
-
-    // Clean up URL parameters
-    const cleanUrl = new URL(window.location.href)
-    cleanUrl.searchParams.delete('picker_auth_error')
-    window.history.replaceState({}, document.title, cleanUrl.toString())
-    return
-  }
-
-  // Handle Picker OAuth success with KV storage
-  const returnedUserEmail = urlParams.get('user_email')
-  if (pickerSuccess === 'true' && returnedUserEmail) {
-    console.log('🔄 Detected Picker OAuth success, user:', returnedUserEmail)
-
-    try {
-      // Store user email
-      userEmail.value = returnedUserEmail
-
-      // Get credentials from KV storage
-      const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_email: returnedUserEmail,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        console.log('✅ Retrieved credentials from KV storage')
-
-        // Store credentials locally
-        googlePickerCredentials.value = {
-          api_key: result.api_key,
-          access_token: result.access_token,
-          client_id: result.client_id,
-        }
-
-        // Mark as connected
-        googlePhotosConnected.value = true
-
-        console.log('🎊 Google Photos connected via KV storage!')
-      } else {
-        error.value = result.error || 'Failed to get credentials from server'
-        console.error('❌ KV credentials error:', result.error)
-      }
-    } catch (err) {
-      error.value = 'Failed to retrieve credentials: ' + err.message
-      console.error('Picker KV retrieval error:', err)
-    }
-
-    // Clean up URL parameters
-    const cleanUrl = new URL(window.location.href)
-    cleanUrl.searchParams.delete('picker_auth_success')
-    cleanUrl.searchParams.delete('user_email')
-    window.history.replaceState({}, document.title, cleanUrl.toString())
-  }
-
-  // Legacy support for old token-based flow
-  if (pickerToken && pickerSuccess === 'true') {
-    console.log('🔄 Detected legacy Picker OAuth return...')
-    // Same logic as before but for backward compatibility
-  }
-}
 
 // Function to check if we're returning from OAuth
 const checkForOAuthReturn = async () => {

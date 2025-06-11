@@ -170,7 +170,7 @@ export default {
             success: true,
             client_id: clientId,
             auth_url: `https://auth.vegvisr.org/picker/auth`,
-            scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
+            scope: 'email https://www.googleapis.com/auth/photoslibrary.readonly',
           }),
         )
       } catch (error) {
@@ -184,7 +184,7 @@ export default {
         client_id: clientId,
         redirect_uri: 'https://auth.vegvisr.org/picker/callback',
         response_type: 'code',
-        scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
+        scope: 'email https://www.googleapis.com/auth/photoslibrary.readonly',
         access_type: 'offline',
         prompt: 'consent',
       })
@@ -241,26 +241,37 @@ export default {
           },
         })
 
+        if (!userResponse.ok) {
+          console.error('Failed to get user info:', userResponse.status, userResponse.statusText)
+          throw new Error(`Failed to get user info: ${userResponse.status}`)
+        }
+
         const userData = await userResponse.json()
         const userEmail = userData.email
 
-        if (userEmail) {
-          // Store credentials in KV automatically
-          const credentials = {
-            api_key: env.GOOGLE_API_KEY,
-            access_token: tokenData.access_token,
-            client_id: clientId,
-            stored_at: Date.now(),
-            expires_at: Date.now() + 3600 * 1000, // 1 hour from now
-          }
+        console.log('User data from Google:', userData)
 
-          await env.GOOGLE_CREDENTIALS.put(userEmail, JSON.stringify(credentials))
+        if (!userEmail) {
+          console.error('No email found in user data:', userData)
+          throw new Error('Could not retrieve user email from Google')
         }
+
+        // Store credentials in KV automatically
+        const credentials = {
+          api_key: env.GOOGLE_API_KEY,
+          access_token: tokenData.access_token,
+          client_id: clientId,
+          stored_at: Date.now(),
+          expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+        }
+
+        await env.GOOGLE_CREDENTIALS.put(userEmail, JSON.stringify(credentials))
+        console.log('Stored credentials for user:', userEmail)
 
         // Redirect back to frontend with success (no token in URL anymore!)
         const successUrl = new URL('https://www.vegvisr.org/')
         successUrl.searchParams.set('picker_auth_success', 'true')
-        successUrl.searchParams.set('user_email', userEmail || 'unknown')
+        successUrl.searchParams.set('user_email', userEmail)
 
         return Response.redirect(successUrl.toString(), 302)
       } catch (error) {
