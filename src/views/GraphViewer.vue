@@ -607,6 +607,15 @@
         @image-replaced="handleImageReplaced"
       />
 
+      <!-- Google Photos Selector Modal -->
+      <GooglePhotosSelector
+        :is-open="isGooglePhotosSelectorOpen"
+        :image-type="currentGooglePhotosData.type"
+        :image-context="currentGooglePhotosData.context"
+        @close="closeGooglePhotosSelector"
+        @photo-selected="handleGooglePhotoSelected"
+      />
+
       <!-- Quick Format Loading Overlay -->
       <div v-if="isQuickFormatLoading" class="quick-format-loading-overlay">
         <div class="loading-content">
@@ -717,6 +726,7 @@ import CopyNodeModal from '@/components/CopyNodeModal.vue'
 import NodeControlBar from '@/components/NodeControlBar.vue'
 import TemplateSelector from '@/components/TemplateSelector.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
+import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import { Modal } from 'bootstrap'
 
 // Initialize Mermaid
@@ -747,6 +757,15 @@ const isImageSelectorOpen = ref(false)
 const currentImageData = ref({
   url: '',
   alt: '',
+  type: '',
+  context: '',
+  nodeId: '',
+  nodeContent: '',
+})
+
+// Google Photos selector functionality
+const isGooglePhotosSelectorOpen = ref(false)
+const currentGooglePhotosData = ref({
   type: '',
   context: '',
   nodeId: '',
@@ -1271,6 +1290,10 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     img.parentNode.insertBefore(imageWrapper, img)
     imageWrapper.appendChild(img)
 
+    // Create button container
+    const buttonContainer = document.createElement('div')
+    buttonContainer.className = 'image-button-container'
+
     // Create change image button
     const changeButton = document.createElement('button')
     changeButton.className = 'change-image-btn'
@@ -1285,18 +1308,34 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     changeButton.setAttribute('data-node-id', nodeId)
     changeButton.setAttribute('data-node-content', originalContent)
 
-    // Insert button after the image wrapper
+    // Create Google Photos button
+    const googleButton = document.createElement('button')
+    googleButton.className = 'google-photos-btn'
+    googleButton.innerHTML = '📷 Google'
+    googleButton.title = 'Select from Google Photos'
+
+    // Add click handler data for Google button
+    googleButton.setAttribute('data-image-type', imageType)
+    googleButton.setAttribute('data-image-context', imageContext)
+    googleButton.setAttribute('data-node-id', nodeId)
+    googleButton.setAttribute('data-node-content', originalContent)
+
+    // Add buttons to container
+    buttonContainer.appendChild(changeButton)
+    buttonContainer.appendChild(googleButton)
+
+    // Insert button container after the image wrapper
     if (imageWrapper.parentNode) {
-      // If wrapper is in a container, add button to container
+      // If wrapper is in a container, add button container to container
       if (
         imageWrapper.parentNode.classList.contains('header-image-container') ||
         imageWrapper.parentNode.classList.contains('rightside-image') ||
         imageWrapper.parentNode.classList.contains('leftside-image')
       ) {
-        imageWrapper.parentNode.appendChild(changeButton)
+        imageWrapper.parentNode.appendChild(buttonContainer)
       } else {
         // Insert after the wrapper
-        imageWrapper.parentNode.insertBefore(changeButton, imageWrapper.nextSibling)
+        imageWrapper.parentNode.insertBefore(buttonContainer, imageWrapper.nextSibling)
       }
     }
   })
@@ -2141,6 +2180,96 @@ const closeImageSelector = () => {
     context: '',
     nodeId: '',
     nodeContent: '',
+  }
+}
+
+// Google Photos Selector Functions
+const openGooglePhotosSelector = (googlePhotosData) => {
+  console.log('=== Opening Google Photos Selector ===')
+  console.log('Google Photos data:', googlePhotosData)
+
+  currentGooglePhotosData.value = {
+    type: googlePhotosData.type || 'Unknown',
+    context: googlePhotosData.context || 'No context provided',
+    nodeId: googlePhotosData.nodeId,
+    nodeContent: googlePhotosData.nodeContent || '',
+  }
+  isGooglePhotosSelectorOpen.value = true
+}
+
+const closeGooglePhotosSelector = () => {
+  isGooglePhotosSelectorOpen.value = false
+  currentGooglePhotosData.value = {
+    type: '',
+    context: '',
+    nodeId: '',
+    nodeContent: '',
+  }
+}
+
+const handleGooglePhotoSelected = async (selectionData) => {
+  console.log('=== Google Photo Selected ===')
+  console.log('Selection data:', selectionData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = graphData.value.nodes.find(
+      (node) => node.id === currentGooglePhotosData.value.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for Google photo replacement')
+    }
+
+    const photo = selectionData.photo
+
+    // Create markdown for the selected Google photo
+    const photoMarkdown = `![${selectionData.imageType}|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${photo.url})`
+
+    // If there's existing content, append the photo
+    let updatedContent = nodeToUpdate.info || ''
+    if (updatedContent.trim()) {
+      updatedContent += '\n\n' + photoMarkdown
+    } else {
+      updatedContent = photoMarkdown
+    }
+
+    // Update the node
+    nodeToUpdate.info = updatedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: updatedGraphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with Google photo.')
+    }
+
+    await response.json()
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    saveMessage.value = `Google Photo added successfully from your Google Photos!`
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 4000)
+
+    console.log('Google photo added and saved successfully')
+  } catch (error) {
+    console.error('Error adding Google photo:', error)
+    alert('Failed to add the Google photo. Please try again.')
   }
 }
 
@@ -3213,7 +3342,23 @@ const attachImageChangeListeners = () => {
       })
     })
 
-    console.log('Change image button listeners attached successfully')
+    // Google Photos button listeners
+    const googlePhotosButtons = document.querySelectorAll('.google-photos-btn')
+    console.log('Found Google Photos buttons:', googlePhotosButtons.length)
+    googlePhotosButtons.forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const btn = event.target
+        const googlePhotosData = {
+          type: btn.getAttribute('data-image-type'),
+          context: btn.getAttribute('data-image-context'),
+          nodeId: btn.getAttribute('data-node-id'),
+          nodeContent: btn.getAttribute('data-node-content'),
+        }
+        openGooglePhotosSelector(googlePhotosData)
+      })
+    })
+
+    console.log('Change image and Google Photos button listeners attached successfully')
   })
 }
 
@@ -4402,10 +4547,17 @@ img.leftside {
   max-width: 100%;
 }
 
+/* Image Button Container Styles */
+.image-button-container {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 /* Change Image Button Styles */
 .change-image-btn {
-  position: relative;
-  margin: 8px 0;
   padding: 6px 12px;
   background: linear-gradient(135deg, #6f42c1, #8b5cf6);
   color: white;
@@ -4420,6 +4572,7 @@ img.leftside {
   align-items: center;
   gap: 6px;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
 }
 
 .change-image-btn:hover {
@@ -4433,24 +4586,59 @@ img.leftside {
   box-shadow: 0 2px 4px rgba(111, 66, 193, 0.4);
 }
 
-/* Position change image buttons in different containers */
-.header-image-container .change-image-btn {
-  display: block;
+/* Google Photos Button Styles */
+.google-photos-btn {
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #4285f4, #4fc3f7);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(66, 133, 244, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
+
+.google-photos-btn:hover {
+  background: linear-gradient(135deg, #3367d6, #29b6f6);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(66, 133, 244, 0.4);
+}
+
+.google-photos-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(66, 133, 244, 0.4);
+}
+
+/* Position image button containers in different containers */
+.header-image-container .image-button-container {
   margin: 10px auto 0 auto;
-  text-align: center;
+  justify-content: center;
+}
+
+.rightside-image .image-button-container,
+.leftside-image .image-button-container {
+  margin: 8px 0;
+  justify-content: center;
 }
 
 .rightside-image .change-image-btn,
-.leftside-image .change-image-btn {
-  display: block;
-  margin: 8px 0;
+.rightside-image .google-photos-btn,
+.leftside-image .change-image-btn,
+.leftside-image .google-photos-btn {
   font-size: 0.8rem;
   padding: 4px 8px;
 }
 
-/* Ensure buttons don't break image layouts */
-.rightside-container .change-image-btn,
-.leftside-container .change-image-btn {
+/* Ensure button containers don't break image layouts */
+.rightside-container .image-button-container,
+.leftside-container .image-button-container {
   margin: 8px 0 0 0;
 }
 
@@ -4526,7 +4714,9 @@ img.leftside {
   .node-info button {
     display: none !important;
   }
-  .change-image-btn {
+  .change-image-btn,
+  .google-photos-btn,
+  .image-button-container {
     display: none !important;
   }
 }

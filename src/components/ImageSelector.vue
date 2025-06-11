@@ -173,45 +173,6 @@
       <div class="search-section" :class="{ 'search-section-compact': searchResults.length > 0 }">
         <h4>🔍 Search New Images</h4>
 
-        <!-- Google Photos Integration -->
-        <div class="google-photos-section">
-          <button
-            @click="connectGooglePhotos"
-            v-if="!userStore.googlePhotosConnected"
-            class="btn btn-outline-primary google-photos-btn"
-            :disabled="connectingGooglePhotos"
-          >
-            <span v-if="connectingGooglePhotos" class="spinner-sm"></span>
-            {{ connectingGooglePhotos ? 'Connecting...' : '📷 Connect My Google Photos' }}
-          </button>
-
-          <div v-if="userStore.googlePhotosConnected" class="google-photos-connected">
-            <div class="connection-status">
-              <span class="status-icon">✅</span>
-              <span>Connected to Google Photos</span>
-              <button @click="disconnectGooglePhotos" class="btn btn-link btn-sm">
-                Disconnect
-              </button>
-            </div>
-
-            <div class="google-photos-picker">
-              <button
-                @click="openGooglePhotosPicker"
-                :disabled="searchingGooglePhotos"
-                class="btn btn-primary google-photos-picker-btn"
-              >
-                <span v-if="searchingGooglePhotos" class="spinner-sm"></span>
-                {{
-                  searchingGooglePhotos
-                    ? 'Opening Picker...'
-                    : '🖼️ Choose Photos from Google Photos'
-                }}
-              </button>
-              <p class="picker-help">Click to open Google Photos picker and select images</p>
-            </div>
-          </div>
-        </div>
-
         <!-- Clipboard Paste Area -->
         <div class="clipboard-paste-area" v-if="!pastedImage && !pastedUrl">
           <div class="paste-info">
@@ -416,11 +377,7 @@ const applyingUrl = ref(false)
 const urlPreview = ref('')
 const pastedUrl = ref(null)
 
-// Google Photos integration state
-const connectingGooglePhotos = ref(false)
-const searchingGooglePhotos = ref(false)
-
-// Use userStore for Google Photos integration
+// Use userStore for user management
 const userStore = useUserStore()
 
 // Environment-aware API base URL
@@ -922,141 +879,7 @@ const clearPastedUrl = () => {
   error.value = ''
 }
 
-// Load Google Picker API and show picker
-const loadGooglePickerAPI = async (apiKey, accessToken) => {
-  return new Promise((resolve, reject) => {
-    // Check if Google API is already loaded
-    if (window.gapi) {
-      initializePicker(apiKey, accessToken)
-      resolve()
-      return
-    }
-
-    // Load Google API
-    const script = document.createElement('script')
-    script.src = 'https://apis.google.com/js/api.js'
-    script.onload = () => {
-      window.gapi.load('picker', () => {
-        initializePicker(apiKey, accessToken)
-        resolve()
-      })
-    }
-    script.onerror = () => reject(new Error('Failed to load Google API'))
-    document.head.appendChild(script)
-  })
-}
-
-// Initialize and show Google Picker
-const initializePicker = (apiKey, accessToken) => {
-  const picker = new window.google.picker.PickerBuilder()
-    .addView(window.google.picker.ViewId.PHOTOS) // Google Photos view
-    .setOAuthToken(accessToken) // Access token from auth-worker
-    .setDeveloperKey(apiKey) // API key from auth-worker
-    .setCallback(handlePickerCallback) // Handle photo selection
-    .build()
-
-  picker.setVisible(true)
-  console.log('🖼️ Google Photos Picker opened!')
-}
-
-// Handle photo selection from picker
-const handlePickerCallback = (data) => {
-  if (data.action === window.google.picker.Action.PICKED) {
-    const selectedPhotos = data.docs || []
-    console.log('📸 Photos selected:', selectedPhotos)
-
-    if (selectedPhotos.length > 0) {
-      const photo = selectedPhotos[0] // Use first selected photo
-
-      // Convert picker result to our image format
-      selectedImage.value = {
-        id: 'picker-' + photo.id,
-        url: photo.url,
-        alt: photo.name || 'Google Photos image',
-        photographer: 'Your Google Photos',
-        width: photo.sizeBytes ? 'Original size' : '800x600',
-        height: '',
-        isGooglePhoto: true,
-        originalItem: photo,
-      }
-
-      console.log('✅ Selected photo:', selectedImage.value)
-
-      // Replace search results with selected photo for preview
-      searchResults.value = [selectedImage.value]
-    }
-  }
-
-  if (data.action === window.google.picker.Action.CANCEL) {
-    console.log('🚫 Picker was cancelled')
-  }
-}
-
-// Google Photos Methods
-const connectGooglePhotos = async () => {
-  connectingGooglePhotos.value = true
-  error.value = ''
-
-  try {
-    // Check if user is logged in
-    if (!userStore.loggedIn || !userStore.email) {
-      error.value = 'Please log in first to connect Google Photos'
-      return
-    }
-
-    // Check if we already have credentials
-    if (userStore.googlePhotosCredentials) {
-      console.log('🎯 Using stored credentials to open picker...')
-      await loadGooglePickerAPI(
-        userStore.googlePhotosCredentials.api_key,
-        userStore.googlePhotosCredentials.access_token,
-      )
-      return
-    }
-
-    // Use userStore method to connect
-    await userStore.connectGooglePhotos()
-  } catch (err) {
-    error.value = 'Failed to connect to Google Photos: ' + err.message
-    console.error('Google Photos connection error:', err)
-  } finally {
-    connectingGooglePhotos.value = false
-  }
-}
-
-const openGooglePhotosPicker = async () => {
-  if (!userStore.googlePhotosConnected || !userStore.googlePhotosCredentials) {
-    error.value = 'Please connect to Google Photos first'
-    return
-  }
-
-  searchingGooglePhotos.value = true
-  error.value = ''
-
-  try {
-    console.log('🖼️ Opening Google Photos Picker...')
-
-    await loadGooglePickerAPI(
-      userStore.googlePhotosCredentials.api_key,
-      userStore.googlePhotosCredentials.access_token,
-    )
-
-    console.log('✅ Google Photos Picker opened!')
-  } catch (err) {
-    error.value = 'Failed to open Google Photos picker: ' + err.message
-    console.error('Google Photos picker error:', err)
-  } finally {
-    searchingGooglePhotos.value = false
-  }
-}
-
-const disconnectGooglePhotos = () => {
-  userStore.disconnectGooglePhotos()
-  searchResults.value = []
-  console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
-}
-
-// Old popup-based functions removed - now using redirect-based OAuth
+// Google Photos functionality moved to dedicated GooglePhotosSelector component
 
 const addPasteListener = () => {
   document.addEventListener('paste', handlePaste)
@@ -1066,15 +889,9 @@ const removePasteListener = () => {
   document.removeEventListener('paste', handlePaste)
 }
 
-// Check for OAuth return on component mount
+// Legacy OAuth check - Google Photos OAuth now handled by GooglePhotosSelector
 onMounted(() => {
   checkForOAuthReturn()
-  userStore.handleGooglePhotosOAuthReturn()
-
-  // Check for existing Google Photos connection if user is logged in
-  if (userStore.loggedIn && userStore.email) {
-    userStore.checkGooglePhotosConnection()
-  }
 })
 
 // Legacy OAuth check - now handled by userStore.handleGooglePhotosOAuthReturn()
@@ -2225,89 +2042,6 @@ watch(
     flex-direction: column;
     gap: 4px;
   }
-}
-
-/* Google Photos Integration Styles */
-.google-photos-section {
-  margin-bottom: 20px;
-  padding: 15px;
-  border: 2px dashed #e0e0e0;
-  border-radius: 8px;
-  background-color: #fafafa;
-}
-
-.google-photos-btn {
-  width: 100%;
-  padding: 12px;
-  font-size: 1rem;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: all 0.2s ease;
-}
-
-.google-photos-btn:hover:not(:disabled) {
-  background-color: #4285f4;
-  border-color: #4285f4;
-  color: white;
-}
-
-.google-photos-connected {
-  width: 100%;
-}
-
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 15px;
-  padding: 8px 12px;
-  background-color: #e8f5e8;
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
-
-.status-icon {
-  font-size: 1.1rem;
-}
-
-.google-photos-picker {
-  text-align: center;
-  padding: 10px 0;
-}
-
-.google-photos-picker-btn {
-  width: 100%;
-  padding: 12px 16px;
-  font-size: 1rem;
-  border-radius: 6px;
-  background-color: #4285f4;
-  color: white;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: background-color 0.2s ease;
-}
-
-.google-photos-picker-btn:hover:not(:disabled) {
-  background-color: #3367d6;
-}
-
-.google-photos-picker-btn:disabled {
-  background-color: #9aa0a6;
-  cursor: not-allowed;
-}
-
-.picker-help {
-  margin: 8px 0 0 0;
-  font-size: 0.85rem;
-  color: #666;
-  font-style: italic;
 }
 
 .spinner-sm {
