@@ -923,36 +923,88 @@ const clearPastedUrl = () => {
   error.value = ''
 }
 
+// Load Google Picker API and show picker
+const loadGooglePickerAPI = async (apiKey, accessToken) => {
+  return new Promise((resolve, reject) => {
+    // Check if Google API is already loaded
+    if (window.gapi) {
+      initializePicker(apiKey, accessToken)
+      resolve()
+      return
+    }
+
+    // Load Google API
+    const script = document.createElement('script')
+    script.src = 'https://apis.google.com/js/api.js'
+    script.onload = () => {
+      window.gapi.load('picker', () => {
+        initializePicker(apiKey, accessToken)
+        resolve()
+      })
+    }
+    script.onerror = () => reject(new Error('Failed to load Google API'))
+    document.head.appendChild(script)
+  })
+}
+
+// Initialize and show Google Picker
+const initializePicker = (apiKey, accessToken) => {
+  const picker = new window.google.picker.PickerBuilder()
+    .addView(window.google.picker.ViewId.PHOTOS) // Google Photos view
+    .setOAuthToken(accessToken) // Access token from auth-worker
+    .setDeveloperKey(apiKey) // API key from auth-worker
+    .setCallback(handlePickerCallback) // Handle photo selection
+    .build()
+
+  picker.setVisible(true)
+  console.log('🖼️ Google Photos Picker opened!')
+}
+
+// Handle photo selection from picker
+const handlePickerCallback = (data) => {
+  if (data.action === window.google.picker.Action.PICKED) {
+    const selectedPhotos = data.docs || []
+    console.log('📸 Photos selected:', selectedPhotos)
+
+    if (selectedPhotos.length > 0) {
+      const photo = selectedPhotos[0] // Use first selected photo
+
+      // Convert picker result to our image format
+      selectedImage.value = {
+        id: 'picker-' + photo.id,
+        url: photo.url,
+        alt: photo.name || 'Google Photos image',
+        photographer: 'Your Google Photos',
+        width: photo.sizeBytes ? 'Original size' : '800x600',
+        height: '',
+        isGooglePhoto: true,
+        originalItem: photo,
+      }
+
+      console.log('✅ Selected photo:', selectedImage.value)
+
+      // Replace search results with selected photo for preview
+      searchResults.value = [selectedImage.value]
+    }
+  }
+
+  if (data.action === window.google.picker.Action.CANCEL) {
+    console.log('🚫 Picker was cancelled')
+  }
+}
+
 // Google Photos Methods
 const connectGooglePhotos = async () => {
   connectingGooglePhotos.value = true
   error.value = ''
 
   try {
-    // Configure OAuth
-    const authConfig = {
-      client_id: '841754501361-kg4fghcp6h9d61jbggfcufcljvin03rt.apps.googleusercontent.com',
-      scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
-      redirect_uri:
-        window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-          ? `http://${window.location.hostname}:8789/auth/google/callback.html`
-          : 'https://api.vegvisr.org/auth/google/callback.html',
-    }
+    console.log('🔄 Starting Google Photos Picker auth via auth-worker...')
 
-    // Start OAuth flow
-    const authUrl =
-      `https://accounts.google.com/oauth/authorize?` +
-      `client_id=${authConfig.client_id}&` +
-      `redirect_uri=${encodeURIComponent(authConfig.redirect_uri)}&` +
-      `scope=${encodeURIComponent(authConfig.scope)}&` +
-      `response_type=code&` +
-      `access_type=offline&` +
-      `prompt=consent`
+    // Use the new auth-worker picker flow
+    window.location.href = 'https://auth.vegvisr.org/picker/auth'
 
-    // Redirect to Google OAuth (full page redirect instead of popup)
-    window.location.href = authUrl
-
-    // The redirect will happen, and we'll handle the return in checkForOAuthReturn()
+    // The redirect will happen, and we'll handle the return in checkForPickerAuthReturn()
   } catch (err) {
     error.value = 'Failed to connect to Google Photos: ' + err.message
     console.error('Google Photos connection error:', err)
@@ -1044,7 +1096,67 @@ const removePasteListener = () => {
 // Check for OAuth return on component mount
 onMounted(() => {
   checkForOAuthReturn()
+  checkForPickerAuthReturn()
 })
+
+// Function to check if we're returning from Picker OAuth
+const checkForPickerAuthReturn = async () => {
+  const urlParams = new URLSearchParams(window.location.search)
+  const pickerToken = urlParams.get('picker_access_token')
+  const pickerSuccess = urlParams.get('picker_auth_success')
+  const pickerError = urlParams.get('picker_auth_error')
+
+  // Handle Picker OAuth error
+  if (pickerError) {
+    error.value = 'Google Picker authorization failed: ' + decodeURIComponent(pickerError)
+    console.error('❌ Picker OAuth Error:', pickerError)
+
+    // Clean up URL parameters
+    const cleanUrl = new URL(window.location.href)
+    cleanUrl.searchParams.delete('picker_auth_error')
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+    return
+  }
+
+  // Handle Picker OAuth success
+  if (pickerToken && pickerSuccess === 'true') {
+    console.log('🔄 Detected Picker OAuth return, initializing picker...')
+
+    try {
+      // Get API key and credentials from auth-worker
+      const response = await fetch('https://auth.vegvisr.org/picker/credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: pickerToken,
+        }),
+      })
+
+      const creds = await response.json()
+
+      if (creds.success) {
+        console.log('✅ Got picker credentials, loading Google Picker...')
+
+        // Load Google Picker API and show picker
+        await loadGooglePickerAPI(creds.api_key, creds.access_token)
+      } else {
+        error.value = creds.error || 'Failed to get picker credentials'
+      }
+    } catch (err) {
+      error.value = 'Failed to initialize picker: ' + err.message
+      console.error('Picker initialization error:', err)
+    }
+
+    // Clean up URL parameters
+    const cleanUrl = new URL(window.location.href)
+    cleanUrl.searchParams.delete('picker_access_token')
+    cleanUrl.searchParams.delete('picker_auth_success')
+    cleanUrl.searchParams.delete('picker_expires_in')
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+  }
+}
 
 // Function to check if we're returning from OAuth
 const checkForOAuthReturn = async () => {

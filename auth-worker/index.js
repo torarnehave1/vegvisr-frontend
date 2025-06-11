@@ -170,7 +170,7 @@ export default {
             success: true,
             client_id: clientId,
             auth_url: `https://auth.vegvisr.org/picker/auth`,
-            scope: 'https://www.googleapis.com/auth/photos.readonly',
+            scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
           }),
         )
       } catch (error) {
@@ -184,7 +184,7 @@ export default {
         client_id: clientId,
         redirect_uri: 'https://auth.vegvisr.org/picker/callback',
         response_type: 'code',
-        scope: 'https://www.googleapis.com/auth/photos.readonly',
+        scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
         access_type: 'offline',
         prompt: 'consent',
       })
