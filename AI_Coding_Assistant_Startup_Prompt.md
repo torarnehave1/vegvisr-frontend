@@ -52,6 +52,8 @@
 
 **CRITICAL: Before implementing ANY external API integration:**
 
+- [ ] **REQUEST COMPLETE API DOCUMENTATION FIRST** - never assume or guess at API formats
+- [ ] **Ask user for official API reference docs** - request/response examples, field names, endpoint formats
 - [ ] **Research the CURRENT official API documentation** - don't assume existing code is correct
 - [ ] **Verify the API approach** - many APIs have multiple versions or methods
 - [ ] **Check for deprecation notices** - older implementations may be outdated
@@ -64,14 +66,16 @@
 
 **Research Protocol for External APIs:**
 
-1. **Find the official API documentation** (e.g., developers.google.com for Google APIs)
-2. **Read the "Getting Started" or "Overview" section** to understand the recommended approach
-3. **Check the current date** of documentation to ensure it's not outdated
-4. **Look for code samples** in the official docs, not random tutorials
-5. **Download/examine official sample applications** if available - they show working implementations
-6. **Verify authentication requirements** and scopes needed
-7. **Confirm the API endpoints** and response formats
-8. **When debugging 400/500 errors, compare against official sample code line-by-line**
+1. **ASK USER FOR COMPLETE API DOCUMENTATION** - "Can you provide the official API reference documentation?"
+2. **Request specific docs**: API reference, request/response examples, field naming conventions
+3. **Find the official API documentation** (e.g., developers.google.com for Google APIs) if not provided
+4. **Read the "Getting Started" or "Overview" section** to understand the recommended approach
+5. **Check the current date** of documentation to ensure it's not outdated
+6. **Look for code samples** in the official docs, not random tutorials
+7. **Download/examine official sample applications** if available - they show working implementations
+8. **Verify authentication requirements** and scopes needed
+9. **Confirm the API endpoints** and response formats
+10. **When debugging 400/500 errors, compare against official sample code line-by-line**
 
 **Google Photos Example:** The correct approach is the REST-based Picker API (photospicker.googleapis.com/v1/sessions), not the old JavaScript google.picker.PickerBuilder().
 
@@ -81,6 +85,14 @@
 - **Media Items:** GET from `/v1/mediaItems?sessionId={id}` not `/v1/sessions/{id}/mediaItems`
 - **400 Errors:** Often caused by sending request bodies when APIs expect header-only requests
 - **Official Sample Code:** Google's sample app showed simple implementation vs. complex parameter configurations
+
+**MAJOR FAILURE PATTERN - Assumption-Based Development:**
+
+- **What happened:** Implemented API without requesting documentation first
+- **Result:** Multiple wrong assumptions about field names (snake_case vs camelCase)
+- **Cost:** Several rollback cycles, trial-and-error debugging, wasted time
+- **Correct approach:** Should have asked "Can you provide the complete Google Photos Picker API documentation?" at the start
+- **Lesson:** Documentation-first development prevents assumption-based failures
 
 ### 8. **Deployment and Testing Preferences**
 
@@ -125,6 +137,7 @@ curl -X DELETE https://api.example.com/endpoint `
 
 Before making ANY code change, ALWAYS:
 
+- [ ] **For external APIs:** Did I request complete API documentation first?
 - [ ] Did I research the correct API approach (if applicable)?
 - [ ] Did I explain what I intend to do?
 - [ ] Did I get explicit user approval?
