@@ -2211,7 +2211,6 @@ const handleGooglePhotoSelected = async (selectionData) => {
   console.log('=== Google Photo Selected ===')
   console.log('Selection data:', selectionData)
   console.log('Current Google Photos data:', currentGooglePhotosData.value)
-
   try {
     // Find the node to update
     const nodeToUpdate = graphData.value.nodes.find(
@@ -2220,23 +2219,19 @@ const handleGooglePhotoSelected = async (selectionData) => {
     if (!nodeToUpdate) {
       throw new Error('Node not found for Google photo replacement')
     }
-
     console.log('=== Node to Update ===')
     console.log('Node ID:', nodeToUpdate.id)
     console.log('Node type:', nodeToUpdate.type)
     console.log('Current node content:', nodeToUpdate.info)
     console.log('Image type from selection:', selectionData.imageType)
-
     const photo = selectionData.photo
     console.log('=== Photo Data ===')
     console.log('Photo URL:', photo.url)
     console.log('Photo alt:', photo.alt)
     console.log('Photo permanent URL:', photo.permanentUrl)
-
     // Create markdown for the selected Google photo based on image type
     let photoMarkdown = ''
     const imageUrl = photo.permanentUrl || photo.url // Use permanentUrl first, fallback to url
-
     switch (selectionData.imageType) {
       case 'Header':
         photoMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
@@ -2250,46 +2245,48 @@ const handleGooglePhotoSelected = async (selectionData) => {
       default:
         photoMarkdown = `![Image|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
     }
-
     console.log('=== Generated Photo Markdown ===')
     console.log('Photo markdown:', photoMarkdown)
-
     // Get current content
     let updatedContent = nodeToUpdate.info || ''
     console.log('=== Content Update Strategy ===')
     console.log('Current content length:', updatedContent.length)
     console.log('Current content preview:', updatedContent.substring(0, 200) + '...')
-
-    // If there's existing content, append the photo
-    if (updatedContent.trim()) {
-      updatedContent += '\n\n' + photoMarkdown
-      console.log('Appending photo to existing content')
+    // Attempt to find and replace existing image URL if available
+    const oldUrl = currentGooglePhotosData.value.nodeContent ? extractOldImageUrl(currentGooglePhotosData.value.nodeContent) : null
+    if (oldUrl && updatedContent.includes(oldUrl)) {
+      console.log('=== Replacing Old URL with New Google Photo URL ===')
+      console.log('Old URL:', oldUrl)
+      console.log('New URL:', imageUrl)
+      updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), imageUrl)
     } else {
-      updatedContent = photoMarkdown
-      console.log('Setting photo as new content')
-    }
+      console.log('=== Appending or Setting New Google Photo Markdown ===')
+      // If there's existing content, append the photo
+      if (updatedContent.trim()) {
+        updatedContent += '
 
+' + photoMarkdown
+      } else {
+        updatedContent = photoMarkdown
+      }
+    }
     console.log('=== Final Updated Content ===')
     console.log('Updated content length:', updatedContent.length)
     console.log('Updated content preview:', updatedContent.substring(0, 300) + '...')
-
     // Update the node
     nodeToUpdate.info = updatedContent
-
     const updatedGraphData = {
       ...graphData.value,
       nodes: graphData.value.nodes.map((node) =>
         node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
       ),
     }
-
     console.log('=== Saving to Backend ===')
     console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
     console.log(
       'Updated node in graph data:',
       updatedGraphData.nodes.find((n) => n.id === nodeToUpdate.id),
     )
-
     // Save to backend
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
@@ -2300,35 +2297,27 @@ const handleGooglePhotoSelected = async (selectionData) => {
         override: true,
       }),
     })
-
     if (!response.ok) {
       const errorText = await response.text()
       console.error('Backend save failed:', errorText)
       throw new Error('Failed to save the graph with Google photo.')
     }
-
     const saveResult = await response.json()
     console.log('=== Backend Save Result ===')
     console.log('Save response:', saveResult)
-
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
-
     // Force immediate local update to avoid needing page refresh
     graphData.value = { ...updatedGraphData }
-
     // Reattach image change listeners after content update
     nextTick(() => {
       attachImageChangeListeners()
     })
-
     saveMessage.value = `Google Photo added successfully from your Google Photos!`
     setTimeout(() => {
       saveMessage.value = ''
     }, 4000)
-
     console.log('=== Google Photo Addition Complete ===')
     console.log('Photo added and saved successfully')
-
     // Close the Google Photos selector modal
     closeGooglePhotosSelector()
   } catch (error) {
@@ -3446,6 +3435,13 @@ watch(
   },
   { deep: true },
 )
+
+// Helper function to extract old image URL from markdown content
+const extractOldImageUrl = (content) => {
+  if (!content) return null
+  const imageMatch = content.match(/!\[[^\]]*\]\(([^\)]+)\)/)
+  return imageMatch ? imageMatch[1] : null
+}
 </script>
 
 <style scoped>
