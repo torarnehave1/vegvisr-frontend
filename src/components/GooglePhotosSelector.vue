@@ -338,15 +338,83 @@ const useSelectedPhoto = async () => {
   applying.value = true
 
   try {
+    console.log('=== Processing Selected Photo for Permanent Storage ===')
+    console.log('Selected photo:', activePhoto.value)
+
+    // Get the original Google Photos item
+    const originalItem = activePhoto.value.originalItem
+    if (!originalItem || !originalItem.mediaFile) {
+      throw new Error('Original photo data not found')
+    }
+
+    // Download the image from Google Photos using our proxy at higher resolution
+    console.log('📥 Downloading high-resolution image from Google Photos...')
+    const highResUrl = originalItem.mediaFile.baseUrl + '=w1200-h800' // Higher resolution
+
+    const proxyResponse = await fetch('https://auth.vegvisr.org/picker/proxy-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        baseUrl: highResUrl,
+        user_email: userStore.email,
+      }),
+    })
+
+    if (!proxyResponse.ok) {
+      throw new Error('Failed to download image from Google Photos')
+    }
+
+    const imageBlob = await proxyResponse.blob()
+    console.log('✅ Image downloaded, size:', imageBlob.size, 'bytes')
+
+    // Create a File object for upload
+    const fileName = `google-photos-${Date.now()}.jpg`
+    const file = new File([imageBlob], fileName, { type: 'image/jpeg' })
+
+    // Upload to R2 bucket via api-worker
+    console.log('☁️ Uploading to permanent storage...')
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const uploadResponse = await fetch('https://api.vegvisr.org/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!uploadResponse.ok) {
+      throw new Error('Failed to upload image to storage')
+    }
+
+    const uploadData = await uploadResponse.json()
+    console.log('✅ Image uploaded successfully:', uploadData.url)
+
+    // Create the final photo object with permanent URL
+    const permanentPhoto = {
+      ...activePhoto.value,
+      url: uploadData.url, // Use the permanent R2 URL
+      isGooglePhoto: true,
+      originalGoogleUrl: activePhoto.value.url, // Keep reference to blob URL
+      permanentUrl: uploadData.url,
+    }
+
+    // Clean up the blob URL
+    if (activePhoto.value.url && activePhoto.value.url.startsWith('blob:')) {
+      URL.revokeObjectURL(activePhoto.value.url)
+    }
+
+    console.log('📸 Photo ready with permanent URL')
+
     emit('photo-selected', {
-      photo: activePhoto.value,
+      photo: permanentPhoto,
       imageType: props.imageType,
     })
 
     closeModal()
   } catch (err) {
-    error.value = 'Failed to apply photo. Please try again.'
-    console.error('Photo application error:', err)
+    error.value = 'Failed to process photo: ' + err.message
+    console.error('Photo processing error:', err)
   } finally {
     applying.value = false
   }
