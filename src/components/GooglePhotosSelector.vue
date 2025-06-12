@@ -267,14 +267,27 @@ const getSelectedMediaItems = async (sessionId) => {
 
     if (mediaData.mediaItems && mediaData.mediaItems.length > 0) {
       // Convert Google Photos API results to our format
-      const newPhotos = mediaData.mediaItems.map((item) => ({
-        id: 'picker-' + item.id,
-        url: item.baseUrl + '=w800-h600', // Add size parameters
-        alt: item.filename || 'Google Photos image',
-        photographer: 'Your Google Photos',
-        isGooglePhoto: true,
-        originalItem: item,
-      }))
+      console.log('🔍 Processing media items:', mediaData.mediaItems)
+
+      const newPhotos = mediaData.mediaItems.map((item) => {
+        const finalUrl = item.baseUrl + '=w800-h600'
+        console.log('📸 Processing item:', {
+          id: item.id,
+          filename: item.filename,
+          baseUrl: item.baseUrl,
+          finalUrl: finalUrl,
+          fullItem: item,
+        })
+
+        return {
+          id: 'picker-' + item.id,
+          url: finalUrl,
+          alt: item.filename || 'Google Photos image',
+          photographer: 'Your Google Photos',
+          isGooglePhoto: true,
+          originalItem: item,
+        }
+      })
 
       selectedPhotos.value = newPhotos
       if (newPhotos.length > 0) {
