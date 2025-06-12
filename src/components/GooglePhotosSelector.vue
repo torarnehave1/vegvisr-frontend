@@ -269,25 +269,51 @@ const getSelectedMediaItems = async (sessionId) => {
       // Convert Google Photos API results to our format
       console.log('🔍 Processing media items:', mediaData.mediaItems)
 
-      const newPhotos = mediaData.mediaItems.map((item) => {
-        const finalUrl = item.mediaFile.baseUrl + '=w800-h600'
+      // Process media items and create proxy URLs
+      const newPhotos = []
+
+      for (const item of mediaData.mediaItems) {
+        const baseUrl = item.mediaFile.baseUrl + '=w800-h600'
         console.log('📸 Processing item:', {
           id: item.id,
           filename: item.mediaFile.filename,
           baseUrl: item.mediaFile.baseUrl,
-          finalUrl: finalUrl,
           dimensions: `${item.mediaFile.mediaFileMetadata.width}x${item.mediaFile.mediaFileMetadata.height}`,
         })
 
-        return {
-          id: 'picker-' + item.id,
-          url: finalUrl,
-          alt: item.mediaFile.filename || 'Google Photos image',
-          photographer: 'Your Google Photos',
-          isGooglePhoto: true,
-          originalItem: item,
+        try {
+          // Fetch image through proxy
+          const proxyResponse = await fetch('https://auth.vegvisr.org/picker/proxy-image', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              baseUrl: baseUrl,
+              user_email: userStore.email,
+            }),
+          })
+
+          if (proxyResponse.ok) {
+            // Create blob URL for the image
+            const imageBlob = await proxyResponse.blob()
+            const blobUrl = URL.createObjectURL(imageBlob)
+
+            newPhotos.push({
+              id: 'picker-' + item.id,
+              url: blobUrl,
+              alt: item.mediaFile.filename || 'Google Photos image',
+              photographer: 'Your Google Photos',
+              isGooglePhoto: true,
+              originalItem: item,
+            })
+          } else {
+            console.error('Failed to proxy image:', item.id)
+          }
+        } catch (error) {
+          console.error('Error proxying image:', error)
         }
-      })
+      }
 
       selectedPhotos.value = newPhotos
       if (newPhotos.length > 0) {
@@ -327,6 +353,13 @@ const useSelectedPhoto = async () => {
 }
 
 const disconnect = () => {
+  // Clean up blob URLs
+  selectedPhotos.value.forEach((photo) => {
+    if (photo.url && photo.url.startsWith('blob:')) {
+      URL.revokeObjectURL(photo.url)
+    }
+  })
+
   userStore.disconnectGooglePhotos()
   selectedPhotos.value = []
   activePhoto.value = null
@@ -334,6 +367,13 @@ const disconnect = () => {
 }
 
 const closeModal = () => {
+  // Clean up blob URLs to prevent memory leaks
+  selectedPhotos.value.forEach((photo) => {
+    if (photo.url && photo.url.startsWith('blob:')) {
+      URL.revokeObjectURL(photo.url)
+    }
+  })
+
   selectedPhotos.value = []
   activePhoto.value = null
   error.value = ''

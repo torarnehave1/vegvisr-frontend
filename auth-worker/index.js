@@ -414,6 +414,52 @@ export default {
       }
     }
 
+    // 12. Proxy Google Photos images with authentication
+    if (url.pathname === '/picker/proxy-image' && request.method === 'POST') {
+      try {
+        const { baseUrl, user_email } = await request.json()
+
+        if (!baseUrl || !user_email) {
+          return createResponse(JSON.stringify({ error: 'Base URL and user email required' }), 400)
+        }
+
+        // Get user's credentials
+        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
+        if (!storedCredentials) {
+          return createResponse(JSON.stringify({ error: 'No credentials found for user' }), 404)
+        }
+
+        const credentials = JSON.parse(storedCredentials)
+
+        // Fetch image with authentication
+        const imageResponse = await fetch(baseUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${credentials.access_token}`,
+          },
+        })
+
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.status}`)
+        }
+
+        // Return the image with proper headers
+        const imageData = await imageResponse.arrayBuffer()
+        const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
+
+        return new Response(imageData, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600',
+            ...corsHeaders,
+          },
+        })
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
     return new Response('Not found', {
       status: 404,
       headers: corsHeaders,
