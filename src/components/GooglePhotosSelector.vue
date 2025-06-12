@@ -180,9 +180,9 @@ const openPicker = async () => {
       },
       body: JSON.stringify({
         // Configure the picker session
-        mediaTypeFilter: {
-          includePhotos: true,
-          includeVideos: false,
+        media_type_filter: {
+          include_photos: true,
+          include_videos: false,
         },
       }),
     })
@@ -194,9 +194,9 @@ const openPicker = async () => {
     const sessionData = await response.json()
     console.log('📸 Picker session created:', sessionData)
 
-    if (sessionData.pickerUri) {
+    if (sessionData.picker_uri) {
       // Open the picker URI in a new window/tab
-      window.open(sessionData.pickerUri, '_blank', 'width=800,height=600')
+      window.open(sessionData.picker_uri, '_blank', 'width=800,height=600')
 
       // Start polling for results
       pollPickerSession(sessionData.id)
@@ -231,7 +231,7 @@ const pollPickerSession = async (sessionId) => {
       console.log('📊 Session status:', sessionStatus)
 
       // Check if user has selected photos
-      if (sessionStatus.mediaItemsSet) {
+      if (sessionStatus.media_items_set) {
         console.log('✅ User has selected photos!')
         clearInterval(pollInterval)
 
@@ -271,11 +271,11 @@ const getSelectedMediaItems = async (sessionId) => {
     const mediaData = await response.json()
     console.log('📸 Selected media items:', mediaData)
 
-    if (mediaData.mediaItems && mediaData.mediaItems.length > 0) {
+    if (mediaData.media_items && mediaData.media_items.length > 0) {
       // Convert Google Photos API results to our format
-      const newPhotos = mediaData.mediaItems.map((item) => ({
+      const newPhotos = mediaData.media_items.map((item) => ({
         id: 'picker-' + item.id,
-        url: item.baseUrl + '=w800-h600', // Add size parameters
+        url: item.base_url + '=w800-h600', // Add size parameters
         alt: item.filename || 'Google Photos image',
         photographer: 'Your Google Photos',
         isGooglePhoto: true,
