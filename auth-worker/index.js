@@ -36,8 +36,7 @@ export default {
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope:
-          'openid email profile https://www.googleapis.com/auth/photoslibrary.readonly https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+        scope: 'openid email profile https://www.googleapis.com/auth/photospicker',
         access_type: 'offline',
         prompt: 'consent',
       })
@@ -171,8 +170,7 @@ export default {
             success: true,
             client_id: clientId,
             auth_url: `https://auth.vegvisr.org/picker/auth`,
-            scope:
-              'email https://www.googleapis.com/auth/photoslibrary.readonly https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+            scope: 'email https://www.googleapis.com/auth/photospicker',
           }),
         )
       } catch (error) {
@@ -186,8 +184,7 @@ export default {
         client_id: clientId,
         redirect_uri: 'https://auth.vegvisr.org/picker/callback',
         response_type: 'code',
-        scope:
-          'email https://www.googleapis.com/auth/photoslibrary.readonly https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+        scope: 'email https://www.googleapis.com/auth/photospicker',
         access_type: 'offline',
         prompt: 'consent',
       })

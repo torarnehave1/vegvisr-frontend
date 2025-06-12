@@ -169,11 +169,40 @@ const openPicker = async () => {
       return
     }
 
-    console.log('🖼️ Opening Google Photos Picker...')
-    await loadGooglePickerAPI(
-      userStore.googlePhotosCredentials.api_key,
-      userStore.googlePhotosCredentials.access_token,
-    )
+    console.log('🖼️ Creating Google Photos Picker session...')
+
+    // Create a new picker session using the proper Picker API
+    const response = await fetch('https://photospicker.googleapis.com/v1/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${userStore.googlePhotosCredentials.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        // Configure the picker session
+        mediaTypeFilter: {
+          includePhotos: true,
+          includeVideos: false,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to create picker session: ${response.status}`)
+    }
+
+    const sessionData = await response.json()
+    console.log('📸 Picker session created:', sessionData)
+
+    if (sessionData.pickerUri) {
+      // Open the picker URI in a new window/tab
+      window.open(sessionData.pickerUri, '_blank', 'width=800,height=600')
+
+      // Start polling for results
+      pollPickerSession(sessionData.id)
+    } else {
+      throw new Error('No picker URI received from Google')
+    }
   } catch (err) {
     error.value = 'Failed to open Google Photos picker: ' + err.message
     console.error('Google Photos picker error:', err)
@@ -182,76 +211,87 @@ const openPicker = async () => {
   }
 }
 
-const loadGooglePickerAPI = async (apiKey, accessToken) => {
-  return new Promise((resolve, reject) => {
-    if (window.gapi) {
-      initializePicker(apiKey, accessToken)
-      resolve()
-      return
-    }
+// Poll the picker session until photos are selected
+const pollPickerSession = async (sessionId) => {
+  console.log('🔄 Starting to poll picker session:', sessionId)
 
-    const script = document.createElement('script')
-    script.src = 'https://apis.google.com/js/api.js'
-    script.onload = () => {
-      window.gapi.load('picker', () => {
-        initializePicker(apiKey, accessToken)
-        resolve()
+  const pollInterval = setInterval(async () => {
+    try {
+      const response = await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
+        headers: {
+          Authorization: `Bearer ${userStore.googlePhotosCredentials.access_token}`,
+        },
       })
+
+      if (!response.ok) {
+        throw new Error(`Failed to poll session: ${response.status}`)
+      }
+
+      const sessionStatus = await response.json()
+      console.log('📊 Session status:', sessionStatus)
+
+      // Check if user has selected photos
+      if (sessionStatus.mediaItemsSet) {
+        console.log('✅ User has selected photos!')
+        clearInterval(pollInterval)
+
+        // Get the selected media items
+        await getSelectedMediaItems(sessionId)
+      }
+    } catch (error) {
+      console.error('❌ Error polling session:', error)
+      clearInterval(pollInterval)
+      error.value = 'Failed to check picker status: ' + error.message
     }
-    script.onerror = () => reject(new Error('Failed to load Google API'))
-    document.head.appendChild(script)
-  })
+  }, 3000) // Poll every 3 seconds
+
+  // Stop polling after 5 minutes
+  setTimeout(() => {
+    clearInterval(pollInterval)
+    console.log('⏰ Picker polling timeout')
+  }, 300000)
 }
 
-const initializePicker = (apiKey, accessToken) => {
-  console.log('🔧 Picker Debug Info:')
-  console.log('- API Key:', apiKey)
-  console.log('- Access Token (first 20 chars):', accessToken?.substring(0, 20) + '...')
-  console.log('- Current domain:', window.location.origin)
-  console.log('- User agent:', navigator.userAgent)
-
+// Get the selected media items from the session
+const getSelectedMediaItems = async (sessionId) => {
   try {
-    const picker = new window.google.picker.PickerBuilder()
-      .addView(window.google.picker.ViewId.PHOTOS)
-      .setOAuthToken(accessToken)
-      .setDeveloperKey(apiKey)
-      .setCallback(handlePickerCallback)
-      .build()
+    const response = await fetch(
+      `https://photospicker.googleapis.com/v1/sessions/${sessionId}/mediaItems`,
+      {
+        headers: {
+          Authorization: `Bearer ${userStore.googlePhotosCredentials.access_token}`,
+        },
+      },
+    )
 
-    console.log('✅ Picker built successfully, showing...')
-    picker.setVisible(true)
-    console.log('🖼️ Google Photos Picker opened!')
-  } catch (error) {
-    console.error('❌ Error building picker:', error)
-    throw error
-  }
-}
-
-const handlePickerCallback = (data) => {
-  if (data.action === window.google.picker.Action.PICKED) {
-    const pickedPhotos = data.docs || []
-    console.log('📸 Photos selected:', pickedPhotos)
-
-    // Convert picker results to our format
-    const newPhotos = pickedPhotos.map((photo) => ({
-      id: 'picker-' + photo.id,
-      url: photo.url,
-      alt: photo.name || 'Google Photos image',
-      photographer: 'Your Google Photos',
-      isGooglePhoto: true,
-      originalItem: photo,
-    }))
-
-    selectedPhotos.value = newPhotos
-    if (newPhotos.length > 0) {
-      activePhoto.value = newPhotos[0] // Auto-select first photo
+    if (!response.ok) {
+      throw new Error(`Failed to get media items: ${response.status}`)
     }
 
-    console.log('✅ Photos processed:', selectedPhotos.value)
-  }
+    const mediaData = await response.json()
+    console.log('📸 Selected media items:', mediaData)
 
-  if (data.action === window.google.picker.Action.CANCEL) {
-    console.log('🚫 Picker was cancelled')
+    if (mediaData.mediaItems && mediaData.mediaItems.length > 0) {
+      // Convert Google Photos API results to our format
+      const newPhotos = mediaData.mediaItems.map((item) => ({
+        id: 'picker-' + item.id,
+        url: item.baseUrl + '=w800-h600', // Add size parameters
+        alt: item.filename || 'Google Photos image',
+        photographer: 'Your Google Photos',
+        isGooglePhoto: true,
+        originalItem: item,
+      }))
+
+      selectedPhotos.value = newPhotos
+      if (newPhotos.length > 0) {
+        activePhoto.value = newPhotos[0] // Auto-select first photo
+      }
+
+      console.log('✅ Photos processed:', selectedPhotos.value)
+    }
+  } catch (error) {
+    console.error('❌ Error getting media items:', error)
+    error.value = 'Failed to get selected photos: ' + error.message
   }
 }
 

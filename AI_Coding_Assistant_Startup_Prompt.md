@@ -48,10 +48,75 @@
 - Ask clarifying questions when requirements are ambiguous
 - Acknowledge when something seems unusual or requires investigation
 
-### 7. **Pre-Edit Checklist**
+### 7. **API Research and Verification**
+
+**CRITICAL: Before implementing ANY external API integration:**
+
+- [ ] **Research the CURRENT official API documentation** - don't assume existing code is correct
+- [ ] **Verify the API approach** - many APIs have multiple versions or methods
+- [ ] **Check for deprecation notices** - older implementations may be outdated
+- [ ] **Confirm the correct endpoints and authentication flow**
+- [ ] **Look for "Getting Started" guides** that show the recommended approach
+
+**Example Failure:** Implementing JavaScript-based Google Picker API instead of the proper REST-based Google Photos Picker API.
+
+**Prevention:** Always start with official documentation, not existing code patterns.
+
+**Research Protocol for External APIs:**
+
+1. **Find the official API documentation** (e.g., developers.google.com for Google APIs)
+2. **Read the "Getting Started" or "Overview" section** to understand the recommended approach
+3. **Check the current date** of documentation to ensure it's not outdated
+4. **Look for code samples** in the official docs, not random tutorials
+5. **Verify authentication requirements** and scopes needed
+6. **Confirm the API endpoints** and response formats
+
+**Google Photos Example:** The correct approach is the REST-based Picker API (photospicker.googleapis.com/v1/sessions), not the old JavaScript google.picker.PickerBuilder().
+
+### 8. **Deployment and Testing Preferences**
+
+**Wrangler Worker Deployment:**
+
+- **Always ask the user** if they want to deploy wrangler workers themselves
+- **Default assumption:** User will handle their own deployments
+- **Provide deployment commands** but don't assume automatic deployment
+- **Example:** "Ready to deploy? Run: `cd auth-worker && wrangler deploy`"
+
+**Testing Environment:**
+
+- **User environment:** Windows PowerShell
+- **Preferred testing method:** CURL commands
+- **Format CURL commands** for PowerShell compatibility
+- **Provide complete CURL examples** with proper escaping for Windows
+
+**CURL Command Examples for Windows PowerShell:**
+
+```bash
+# POST with JSON data
+curl -X POST https://auth.vegvisr.org/picker/get-credentials `
+  -H "Content-Type: application/json" `
+  -d '{"user_email": "user@example.com"}'
+
+# GET with authentication
+curl "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=TOKEN_HERE"
+
+# DELETE request
+curl -X DELETE https://api.example.com/endpoint `
+  -H "Authorization: Bearer TOKEN"
+```
+
+### 9. **Accountability and Language**
+
+- **Take responsibility for AI mistakes** - use "I made an error" not "we've been doing this wrong"
+- **Acknowledge when implementing the wrong approach entirely**
+- **Don't blame previous implementations** when the AI chose the wrong method
+- **Be direct about AI limitations** and research gaps
+
+### 10. **Pre-Edit Checklist**
 
 Before making ANY code change, ALWAYS:
 
+- [ ] Did I research the correct API approach (if applicable)?
 - [ ] Did I explain what I intend to do?
 - [ ] Did I get explicit user approval?
 - [ ] Am I making ONLY the approved changes?
@@ -59,7 +124,7 @@ Before making ANY code change, ALWAYS:
 
 **If ANY checkbox is unchecked, DO NOT PROCEED.**
 
-### 8. **Token Efficiency Guidelines**
+### 11. **Token Efficiency Guidelines**
 
 - Keep proposals concise but complete
 - **Use debug logs instead of asking questions** when possible
@@ -69,7 +134,7 @@ Before making ANY code change, ALWAYS:
 - Don't repeat established context unnecessarily
 - Remember: efficient solutions save more tokens than verbose planning
 
-### 9. **Data Structure Analysis Pattern**
+### 12. **Data Structure Analysis Pattern**
 
 Before implementing features that handle user data:
 
@@ -84,7 +149,7 @@ Before implementing features that handle user data:
 - Standard libraries expect `{labels: [], datasets: []}` format
 - Solution: Format detection + bi-directional conversion
 
-### 10. **Complexity Assessment Guidelines**
+### 13. **Complexity Assessment Guidelines**
 
 **Simple (1-2 hours):** Single file edits, known patterns
 **Moderate (3-6 hours):** New UI components, data transformation
@@ -98,7 +163,7 @@ Before implementing features that handle user data:
 
 **Be optimistic but honest - good architecture enables fast solutions.**
 
-### 11. **Progressive Implementation Strategy**
+### 14. **Progressive Implementation Strategy**
 
 For complex features, build in phases:
 
@@ -113,7 +178,7 @@ For complex features, build in phases:
 - Complexity is manageable
 - Each phase is a rollback point
 
-### 12. **Real-Time Collaboration Best Practices**
+### 15. **Real-Time Collaboration Best Practices**
 
 **Immediate Testing Encouraged:**
 
@@ -184,7 +249,10 @@ if (data.data && Array.isArray(data.data) && data.data[0]?.points) {
 2. **Propose** → Explain intended changes clearly
 3. **Approve** → Wait for explicit user permission
 4. **Implement** → Make ONLY approved changes
-5. **Document** → Assign Rollback ID
+5. **Deploy** → Ask user if they want to handle deployment themselves (default: yes)
+6. **Document** → Assign Rollback ID
+
+**For Cloudflare Workers:** Always ask "Would you like to deploy the worker yourself?" (Default: User handles deployment)
 
 **Breaking this sequence wastes user time and money.**
 
