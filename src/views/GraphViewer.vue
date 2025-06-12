@@ -2210,6 +2210,7 @@ const closeGooglePhotosSelector = () => {
 const handleGooglePhotoSelected = async (selectionData) => {
   console.log('=== Google Photo Selected ===')
   console.log('Selection data:', selectionData)
+  console.log('Current Google Photos data:', currentGooglePhotosData.value)
 
   try {
     // Find the node to update
@@ -2220,18 +2221,57 @@ const handleGooglePhotoSelected = async (selectionData) => {
       throw new Error('Node not found for Google photo replacement')
     }
 
-    const photo = selectionData.photo
+    console.log('=== Node to Update ===')
+    console.log('Node ID:', nodeToUpdate.id)
+    console.log('Node type:', nodeToUpdate.type)
+    console.log('Current node content:', nodeToUpdate.info)
+    console.log('Image type from selection:', selectionData.imageType)
 
-    // Create markdown for the selected Google photo
-    const photoMarkdown = `![${selectionData.imageType}|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${photo.url})`
+    const photo = selectionData.photo
+    console.log('=== Photo Data ===')
+    console.log('Photo URL:', photo.url)
+    console.log('Photo alt:', photo.alt)
+    console.log('Photo permanent URL:', photo.permanentUrl)
+
+    // Create markdown for the selected Google photo based on image type
+    let photoMarkdown = ''
+    const imageUrl = photo.permanentUrl || photo.url // Use permanentUrl first, fallback to url
+
+    switch (selectionData.imageType) {
+      case 'Header':
+        photoMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      case 'Leftside':
+        photoMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      case 'Rightside':
+        photoMarkdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      default:
+        photoMarkdown = `![Image|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+    }
+
+    console.log('=== Generated Photo Markdown ===')
+    console.log('Photo markdown:', photoMarkdown)
+
+    // Get current content
+    let updatedContent = nodeToUpdate.info || ''
+    console.log('=== Content Update Strategy ===')
+    console.log('Current content length:', updatedContent.length)
+    console.log('Current content preview:', updatedContent.substring(0, 200) + '...')
 
     // If there's existing content, append the photo
-    let updatedContent = nodeToUpdate.info || ''
     if (updatedContent.trim()) {
       updatedContent += '\n\n' + photoMarkdown
+      console.log('Appending photo to existing content')
     } else {
       updatedContent = photoMarkdown
+      console.log('Setting photo as new content')
     }
+
+    console.log('=== Final Updated Content ===')
+    console.log('Updated content length:', updatedContent.length)
+    console.log('Updated content preview:', updatedContent.substring(0, 300) + '...')
 
     // Update the node
     nodeToUpdate.info = updatedContent
@@ -2242,6 +2282,13 @@ const handleGooglePhotoSelected = async (selectionData) => {
         node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
       ),
     }
+
+    console.log('=== Saving to Backend ===')
+    console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
+    console.log(
+      'Updated node in graph data:',
+      updatedGraphData.nodes.find((n) => n.id === nodeToUpdate.id),
+    )
 
     // Save to backend
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
@@ -2255,10 +2302,15 @@ const handleGooglePhotoSelected = async (selectionData) => {
     })
 
     if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Backend save failed:', errorText)
       throw new Error('Failed to save the graph with Google photo.')
     }
 
-    await response.json()
+    const saveResult = await response.json()
+    console.log('=== Backend Save Result ===')
+    console.log('Save response:', saveResult)
+
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
     saveMessage.value = `Google Photo added successfully from your Google Photos!`
@@ -2266,9 +2318,13 @@ const handleGooglePhotoSelected = async (selectionData) => {
       saveMessage.value = ''
     }, 4000)
 
-    console.log('Google photo added and saved successfully')
+    console.log('=== Google Photo Addition Complete ===')
+    console.log('Photo added and saved successfully')
   } catch (error) {
-    console.error('Error adding Google photo:', error)
+    console.error('=== Error Adding Google Photo ===')
+    console.error('Error details:', error)
+    console.error('Error message:', error.message)
+    console.error('Error stack:', error.stack)
     alert('Failed to add the Google photo. Please try again.')
   }
 }
