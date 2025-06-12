@@ -2253,7 +2253,9 @@ const handleGooglePhotoSelected = async (selectionData) => {
     console.log('Current content length:', updatedContent.length)
     console.log('Current content preview:', updatedContent.substring(0, 200) + '...')
     // Attempt to find and replace existing image URL if available
-    const oldUrl = currentGooglePhotosData.value.nodeContent ? extractOldImageUrl(currentGooglePhotosData.value.nodeContent) : null
+    const oldUrl = currentGooglePhotosData.value.nodeContent
+      ? extractOldImageUrl(currentGooglePhotosData.value.nodeContent)
+      : null
     if (oldUrl && updatedContent.includes(oldUrl)) {
       console.log('=== Replacing Old URL with New Google Photo URL ===')
       console.log('Old URL:', oldUrl)
@@ -2263,9 +2265,7 @@ const handleGooglePhotoSelected = async (selectionData) => {
       console.log('=== Appending or Setting New Google Photo Markdown ===')
       // If there's existing content, append the photo
       if (updatedContent.trim()) {
-        updatedContent += '
-
-' + photoMarkdown
+        updatedContent += '\n\n' + photoMarkdown
       } else {
         updatedContent = photoMarkdown
       }
