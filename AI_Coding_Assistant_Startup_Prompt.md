@@ -68,10 +68,19 @@
 2. **Read the "Getting Started" or "Overview" section** to understand the recommended approach
 3. **Check the current date** of documentation to ensure it's not outdated
 4. **Look for code samples** in the official docs, not random tutorials
-5. **Verify authentication requirements** and scopes needed
-6. **Confirm the API endpoints** and response formats
+5. **Download/examine official sample applications** if available - they show working implementations
+6. **Verify authentication requirements** and scopes needed
+7. **Confirm the API endpoints** and response formats
+8. **When debugging 400/500 errors, compare against official sample code line-by-line**
 
 **Google Photos Example:** The correct approach is the REST-based Picker API (photospicker.googleapis.com/v1/sessions), not the old JavaScript google.picker.PickerBuilder().
+
+**Critical Learning - Google Photos Picker API Implementation:**
+
+- **Session Creation:** POST to `https://photospicker.googleapis.com/v1/sessions` with NO BODY - only Authorization header
+- **Media Items:** GET from `/v1/mediaItems?sessionId={id}` not `/v1/sessions/{id}/mediaItems`
+- **400 Errors:** Often caused by sending request bodies when APIs expect header-only requests
+- **Official Sample Code:** Google's sample app showed simple implementation vs. complex parameter configurations
 
 ### 8. **Deployment and Testing Preferences**
 
@@ -178,7 +187,26 @@ For complex features, build in phases:
 - Complexity is manageable
 - Each phase is a rollback point
 
-### 15. **Real-Time Collaboration Best Practices**
+### 15. **API Debugging Best Practices**
+
+**When Getting HTTP 400/500 Errors:**
+
+1. **Stop guessing at parameter formats** - ask user for official sample code
+2. **Compare request format line-by-line** with working examples
+3. **Check for common issues:**
+   - Sending request body when none expected
+   - Using camelCase vs snake_case parameters
+   - Wrong endpoint paths
+   - Missing required headers
+4. **Official sample apps > API documentation** for debugging format issues
+
+**Example Pattern:**
+
+- Error: 400 when creating Google Photos session
+- Solution: Official sample showed POST with headers only, no body
+- Lesson: Don't assume complex configuration when simple requests work
+
+### 16. **Real-Time Collaboration Best Practices**
 
 **Immediate Testing Encouraged:**
 
