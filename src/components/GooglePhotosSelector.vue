@@ -392,8 +392,8 @@ const useSelectedPhoto = async () => {
 
     // Convert blog.vegvisr.org URL to imgix URL
     const blogUrl = uploadData.url
-    const fileName = blogUrl.split('/').pop()
-    const imgixUrl = `https://vegvisr.imgix.net/${fileName}`
+    const imageFileName = blogUrl.split('/').pop()
+    const imgixUrl = `https://vegvisr.imgix.net/${imageFileName}`
 
     console.log('🔄 Converting URL:', blogUrl, '→', imgixUrl)
 
