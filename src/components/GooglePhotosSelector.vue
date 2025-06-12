@@ -390,13 +390,20 @@ const useSelectedPhoto = async () => {
     const uploadData = await uploadResponse.json()
     console.log('✅ Image uploaded successfully:', uploadData.url)
 
-    // Create the final photo object with permanent URL
+    // Convert blog.vegvisr.org URL to imgix URL
+    const blogUrl = uploadData.url
+    const fileName = blogUrl.split('/').pop()
+    const imgixUrl = `https://vegvisr.imgix.net/${fileName}`
+
+    console.log('🔄 Converting URL:', blogUrl, '→', imgixUrl)
+
+    // Create the final photo object with permanent imgix URL
     const permanentPhoto = {
       ...activePhoto.value,
-      url: uploadData.url, // Use the permanent R2 URL
+      url: imgixUrl, // Use the permanent imgix URL
       isGooglePhoto: true,
       originalGoogleUrl: activePhoto.value.url, // Keep reference to blob URL
-      permanentUrl: uploadData.url,
+      permanentUrl: imgixUrl,
     }
 
     // Clean up the blob URL
