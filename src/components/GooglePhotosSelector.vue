@@ -186,6 +186,8 @@ const openPicker = async () => {
 
     const sessionData = await response.json()
     console.log('📸 Picker session created:', sessionData)
+    console.log('📊 Session data keys:', Object.keys(sessionData))
+    console.log('📊 Full response:', JSON.stringify(sessionData, null, 2))
 
     if (sessionData.picker_uri) {
       // Open the picker URI in a new window/tab
@@ -194,7 +196,11 @@ const openPicker = async () => {
       // Start polling for results
       pollPickerSession(sessionData.id)
     } else {
-      throw new Error('No picker URI received from Google')
+      console.error(
+        '❌ No picker_uri found in response. Available fields:',
+        Object.keys(sessionData),
+      )
+      throw new Error('No picker URI received from Google. Check console for response details.')
     }
   } catch (err) {
     error.value = 'Failed to open Google Photos picker: ' + err.message
