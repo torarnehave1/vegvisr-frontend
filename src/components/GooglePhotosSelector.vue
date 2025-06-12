@@ -178,13 +178,6 @@ const openPicker = async () => {
         Authorization: `Bearer ${userStore.googlePhotosCredentials.access_token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        // Configure the picker session
-        media_type_filter: {
-          include_photos: true,
-          include_videos: false,
-        },
-      }),
     })
 
     if (!response.ok) {
@@ -256,10 +249,11 @@ const pollPickerSession = async (sessionId) => {
 const getSelectedMediaItems = async (sessionId) => {
   try {
     const response = await fetch(
-      `https://photospicker.googleapis.com/v1/sessions/${sessionId}/mediaItems`,
+      `https://photospicker.googleapis.com/v1/mediaItems?sessionId=${sessionId}`,
       {
         headers: {
           Authorization: `Bearer ${userStore.googlePhotosCredentials.access_token}`,
+          'Content-Type': 'application/json',
         },
       },
     )
