@@ -270,19 +270,19 @@ const getSelectedMediaItems = async (sessionId) => {
       console.log('🔍 Processing media items:', mediaData.mediaItems)
 
       const newPhotos = mediaData.mediaItems.map((item) => {
-        const finalUrl = item.baseUrl + '=w800-h600'
+        const finalUrl = item.mediaFile.baseUrl + '=w800-h600'
         console.log('📸 Processing item:', {
           id: item.id,
-          filename: item.filename,
-          baseUrl: item.baseUrl,
+          filename: item.mediaFile.filename,
+          baseUrl: item.mediaFile.baseUrl,
           finalUrl: finalUrl,
-          fullItem: item,
+          dimensions: `${item.mediaFile.mediaFileMetadata.width}x${item.mediaFile.mediaFileMetadata.height}`,
         })
 
         return {
           id: 'picker-' + item.id,
           url: finalUrl,
-          alt: item.filename || 'Google Photos image',
+          alt: item.mediaFile.filename || 'Google Photos image',
           photographer: 'Your Google Photos',
           isGooglePhoto: true,
           originalItem: item,
