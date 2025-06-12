@@ -2313,6 +2313,14 @@ const handleGooglePhotoSelected = async (selectionData) => {
 
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
+    // Force immediate local update to avoid needing page refresh
+    graphData.value = { ...updatedGraphData }
+
+    // Reattach image change listeners after content update
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+
     saveMessage.value = `Google Photo added successfully from your Google Photos!`
     setTimeout(() => {
       saveMessage.value = ''
@@ -2320,6 +2328,9 @@ const handleGooglePhotoSelected = async (selectionData) => {
 
     console.log('=== Google Photo Addition Complete ===')
     console.log('Photo added and saved successfully')
+
+    // Close the Google Photos selector modal
+    closeGooglePhotosSelector()
   } catch (error) {
     console.error('=== Error Adding Google Photo ===')
     console.error('Error details:', error)
