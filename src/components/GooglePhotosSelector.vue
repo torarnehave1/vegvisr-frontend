@@ -338,18 +338,25 @@ const useSelectedPhoto = async () => {
   applying.value = true
 
   try {
-    console.log('=== Processing Selected Photo for Permanent Storage ===')
-    console.log('Selected photo:', activePhoto.value)
+    console.log('=== Starting Photo Upload Process ===')
+    console.log('Selected photo:', {
+      id: activePhoto.value.id,
+      url: activePhoto.value.url,
+      alt: activePhoto.value.alt,
+      isGooglePhoto: activePhoto.value.isGooglePhoto,
+    })
 
     // Get the original Google Photos item
     const originalItem = activePhoto.value.originalItem
     if (!originalItem || !originalItem.mediaFile) {
+      console.error('❌ Missing original photo data:', originalItem)
       throw new Error('Original photo data not found')
     }
 
     // Download the image from Google Photos using our proxy at higher resolution
     console.log('📥 Downloading high-resolution image from Google Photos...')
     const highResUrl = originalItem.mediaFile.baseUrl + '=w1200-h800' // Higher resolution
+    console.log('High-res URL:', highResUrl)
 
     const proxyResponse = await fetch('https://auth.vegvisr.org/picker/proxy-image', {
       method: 'POST',
@@ -363,39 +370,60 @@ const useSelectedPhoto = async () => {
     })
 
     if (!proxyResponse.ok) {
+      console.error('❌ Proxy response error:', {
+        status: proxyResponse.status,
+        statusText: proxyResponse.statusText,
+      })
       throw new Error('Failed to download image from Google Photos')
     }
 
     const imageBlob = await proxyResponse.blob()
-    console.log('✅ Image downloaded, size:', imageBlob.size, 'bytes')
+    console.log('✅ Image downloaded successfully:', {
+      size: imageBlob.size,
+      type: imageBlob.type,
+    })
 
     // Create a File object for upload
     const fileName = `google-photos-${Date.now()}.jpg`
     const file = new File([imageBlob], fileName, { type: 'image/jpeg' })
+    console.log('📁 Created file object:', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    })
 
     // Upload to R2 bucket via api-worker
-    console.log('☁️ Uploading to permanent storage...')
+    console.log('☁️ Starting upload to R2 storage...')
     const formData = new FormData()
     formData.append('file', file)
+    console.log('📦 FormData created with file')
 
+    console.log('🚀 Sending upload request to:', 'https://api.vegvisr.org/upload')
     const uploadResponse = await fetch('https://api.vegvisr.org/upload', {
       method: 'POST',
       body: formData,
     })
 
     if (!uploadResponse.ok) {
+      console.error('❌ Upload response error:', {
+        status: uploadResponse.status,
+        statusText: uploadResponse.statusText,
+      })
       throw new Error('Failed to upload image to storage')
     }
 
     const uploadData = await uploadResponse.json()
-    console.log('✅ Image uploaded successfully:', uploadData.url)
+    console.log('✅ Upload response:', uploadData)
 
     // Convert blog.vegvisr.org URL to imgix URL
     const blogUrl = uploadData.url
     const imageFileName = blogUrl.split('/').pop()
     const imgixUrl = `https://vegvisr.imgix.net/${imageFileName}`
 
-    console.log('🔄 Converting URL:', blogUrl, '→', imgixUrl)
+    console.log('🔄 URL conversion:', {
+      original: blogUrl,
+      imgix: imgixUrl,
+    })
 
     // Create the final photo object with permanent imgix URL
     const permanentPhoto = {
@@ -409,9 +437,14 @@ const useSelectedPhoto = async () => {
     // Clean up the blob URL
     if (activePhoto.value.url && activePhoto.value.url.startsWith('blob:')) {
       URL.revokeObjectURL(activePhoto.value.url)
+      console.log('🧹 Cleaned up blob URL')
     }
 
-    console.log('📸 Photo ready with permanent URL')
+    console.log('📸 Final photo object:', {
+      id: permanentPhoto.id,
+      url: permanentPhoto.url,
+      permanentUrl: permanentPhoto.permanentUrl,
+    })
 
     emit('photo-selected', {
       photo: permanentPhoto,
@@ -420,8 +453,8 @@ const useSelectedPhoto = async () => {
 
     closeModal()
   } catch (err) {
+    console.error('❌ Photo processing error:', err)
     error.value = 'Failed to process photo: ' + err.message
-    console.error('Photo processing error:', err)
   } finally {
     applying.value = false
   }
