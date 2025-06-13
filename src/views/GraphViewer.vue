@@ -610,6 +610,8 @@
       <!-- Google Photos Selector Modal -->
       <GooglePhotosSelector
         :is-open="isGooglePhotosSelectorOpen"
+        :current-image-url="currentGooglePhotosData.url"
+        :current-image-alt="currentGooglePhotosData.alt"
         :image-type="currentGooglePhotosData.type"
         :image-context="currentGooglePhotosData.context"
         @close="closeGooglePhotosSelector"
@@ -1315,6 +1317,8 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     googleButton.title = 'Select from Google Photos'
 
     // Add click handler data for Google button
+    googleButton.setAttribute('data-image-url', imageUrl) // Add missing image URL
+    googleButton.setAttribute('data-image-alt', imageAlt) // Add missing image alt
     googleButton.setAttribute('data-image-type', imageType)
     googleButton.setAttribute('data-image-context', imageContext)
     googleButton.setAttribute('data-node-id', nodeId)
@@ -2189,6 +2193,8 @@ const openGooglePhotosSelector = (googlePhotosData) => {
   console.log('Google Photos data:', googlePhotosData)
 
   currentGooglePhotosData.value = {
+    url: googlePhotosData.url || '',
+    alt: googlePhotosData.alt || '',
     type: googlePhotosData.type || 'Unknown',
     context: googlePhotosData.context || 'No context provided',
     nodeId: googlePhotosData.nodeId,
@@ -2200,6 +2206,8 @@ const openGooglePhotosSelector = (googlePhotosData) => {
 const closeGooglePhotosSelector = () => {
   isGooglePhotosSelectorOpen.value = false
   currentGooglePhotosData.value = {
+    url: '',
+    alt: '',
     type: '',
     context: '',
     nodeId: '',
@@ -2252,17 +2260,18 @@ const handleGooglePhotoSelected = async (selectionData) => {
     console.log('=== Content Update Strategy ===')
     console.log('Current content length:', updatedContent.length)
     console.log('Current content preview:', updatedContent.substring(0, 200) + '...')
-    // Attempt to find and replace existing image URL if available
-    const oldUrl = currentGooglePhotosData.value.nodeContent
-      ? extractOldImageUrl(currentGooglePhotosData.value.nodeContent)
-      : null
+    // Replace the specific image URL that had the Google Photos button clicked
+    const oldUrl = currentGooglePhotosData.value.url
+
     if (oldUrl && updatedContent.includes(oldUrl)) {
-      console.log('=== Replacing Old URL with New Google Photo URL ===')
+      console.log('=== Replacing Specific Image URL with New Google Photo URL ===')
       console.log('Old URL:', oldUrl)
       console.log('New URL:', imageUrl)
       updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), imageUrl)
     } else {
-      console.log('=== Appending or Setting New Google Photo Markdown ===')
+      console.log('=== Could not find specific image URL, appending new photo ===')
+      console.log('Looking for URL:', oldUrl)
+      console.log('Content includes URL:', updatedContent.includes(oldUrl))
       // If there's existing content, append the photo
       if (updatedContent.trim()) {
         updatedContent += '\n\n' + photoMarkdown
@@ -3405,6 +3414,8 @@ const attachImageChangeListeners = () => {
       button.addEventListener('click', (event) => {
         const btn = event.target
         const googlePhotosData = {
+          url: btn.getAttribute('data-image-url'),
+          alt: btn.getAttribute('data-image-alt'),
           type: btn.getAttribute('data-image-type'),
           context: btn.getAttribute('data-image-context'),
           nodeId: btn.getAttribute('data-node-id'),
@@ -3436,12 +3447,12 @@ watch(
   { deep: true },
 )
 
-// Helper function to extract old image URL from markdown content
-const extractOldImageUrl = (content) => {
-  if (!content) return null
-  const imageMatch = content.match(/!\[[^\]]*\]\(([^\)]+)\)/)
-  return imageMatch ? imageMatch[1] : null
-}
+// Helper function to extract old image URL from markdown content (unused, kept for future use)
+// const extractOldImageUrl = (content) => {
+//   if (!content) return null
+//   const imageMatch = content.match(/!\[[^\]]*\]\(([^)]+)\)/)
+//   return imageMatch ? imageMatch[1] : null
+// }
 </script>
 
 <style scoped>

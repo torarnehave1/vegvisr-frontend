@@ -7,6 +7,21 @@
       </div>
 
       <div class="google-photos-body">
+        <!-- Current Image Info -->
+        <div v-if="currentImageUrl" class="current-image-info">
+          <h4>🔄 Replacing Image</h4>
+          <div class="current-image-preview">
+            <img :src="currentImageUrl" :alt="currentImageAlt" class="current-img" />
+            <div class="image-details">
+              <p><strong>Type:</strong> {{ imageType }}</p>
+              <p><strong>Context:</strong> {{ imageContext }}</p>
+              <p class="replacement-note">
+                Select a photo from your Google Photos to replace this image
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Connection Status -->
         <div v-if="!userStore.googlePhotosConnected" class="connection-section">
           <div class="connection-info">
@@ -103,13 +118,21 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useUserStore } from '../stores/userStore'
 
 const props = defineProps({
   isOpen: {
     type: Boolean,
     default: false,
+  },
+  currentImageUrl: {
+    type: String,
+    default: '',
+  },
+  currentImageAlt: {
+    type: String,
+    default: '',
   },
   imageType: {
     type: String,
@@ -578,6 +601,54 @@ watch(() => props.isOpen, handleModalOpen)
   padding: 24px;
   overflow-y: auto;
   min-height: 0;
+}
+
+.current-image-info {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.current-image-info h4 {
+  margin: 0 0 12px 0;
+  font-size: 1.1rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-image-preview {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.current-img {
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 2px solid #dee2e6;
+  flex-shrink: 0;
+}
+
+.image-details {
+  flex: 1;
+}
+
+.image-details p {
+  margin: 4px 0;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.replacement-note {
+  font-style: italic;
+  color: #0056b3 !important;
+  margin-top: 8px !important;
 }
 
 .connection-section {
