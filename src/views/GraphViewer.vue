@@ -1,6 +1,11 @@
 <template>
   <div class="graph-viewer container">
-    <!-- Print/Save as PDF Buttons -->
+    <!-- ============================= -->
+    <!-- MAIN ACTION TOOLBAR          -->
+    <!-- Document-level actions:      -->
+    <!-- Print, Save as PDF, Export,  -->
+    <!-- AI Node Generation           -->
+    <!-- ============================= -->
     <button @click="printGraph" class="btn btn-primary mb-3">Print</button>
     <button @click="saveAsHtml2Pdf" class="btn btn-warning mb-3 ms-2">Save as PDF</button>
     <button
@@ -23,6 +28,13 @@
       class="btn btn-info mb-3 ms-2"
     >
       Enhanced AI NODE
+    </button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+      @click="handleAIImageClick"
+      class="btn btn-success mb-3 ms-2"
+    >
+      AI IMAGE
     </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
@@ -611,6 +623,14 @@
         @node-inserted="handleNodeInserted"
       />
 
+      <!-- Add the AI Image Modal -->
+      <AIImageModal
+        :is-open="isAIImageModalOpen"
+        :graph-context="graphData"
+        @close="closeAIImageModal"
+        @image-inserted="handleImageInserted"
+      />
+
       <!-- Copy Node Modal -->
       <CopyNodeModal
         ref="copyNodeModal"
@@ -772,6 +792,7 @@ import Mermaid from '@/components/Mermaid.vue'
 import mermaid from 'mermaid'
 import AINodeModal from '@/components/AINodeModal.vue'
 import EnhancedAINodeModal from '@/components/EnhancedAINodeModal.vue'
+import AIImageModal from '@/components/AIImageModal.vue'
 import CopyNodeModal from '@/components/CopyNodeModal.vue'
 import NodeControlBar from '@/components/NodeControlBar.vue'
 import TemplateSelector from '@/components/TemplateSelector.vue'
@@ -2686,6 +2707,7 @@ const handleQuickFormat = async (node, formatType) => {
 
 const isAINodeModalOpen = ref(false)
 const isEnhancedAINodeModalOpen = ref(false)
+const isAIImageModalOpen = ref(false)
 
 // Add loading state for action_test AI responses
 const isActionTestLoading = ref(false)
@@ -3638,6 +3660,40 @@ watch(
 //   const imageMatch = content.match(/!\[[^\]]*\]\(([^)]+)\)/)
 //   return imageMatch ? imageMatch[1] : null
 // }
+
+const handleAIImageClick = () => {
+  console.log('AI Image generation clicked')
+  isAIImageModalOpen.value = true
+}
+
+const closeAIImageModal = () => {
+  isAIImageModalOpen.value = false
+}
+
+const handleImageInserted = (imageData) => {
+  console.log('Image inserted:', imageData)
+  // Insert the image node data into the graph
+  if (imageData && imageData.info) {
+    // Create a new node with the image data
+    const newNode = {
+      id: generateNodeId(),
+      type: 'fulltext',
+      content: imageData.info,
+      x: Math.random() * 800 + 100,
+      y: Math.random() * 600 + 100,
+      width: 400,
+      height: 300,
+      lastModified: new Date().toISOString(),
+      bibl: imageData.bibl || 'AI Generated Image',
+    }
+
+    // Add the node to the graph
+    if (graphData.value && graphData.value.nodes) {
+      graphData.value.nodes.push(newNode)
+      console.log('New image node added:', newNode)
+    }
+  }
+}
 </script>
 
 <style scoped>

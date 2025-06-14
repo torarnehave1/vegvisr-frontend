@@ -1483,11 +1483,13 @@ const handleGPT4VisionImage = async (request, env) => {
       return createErrorResponse('Prompt is required', 400)
     }
 
-    // Parse model and size from prompt if provided (overrides request body)
+    // Parse model, size, and quality from prompt if provided (overrides request body)
+    let quality = 'auto' // Default quality
     if (prompt.includes('|')) {
       const parts = prompt.split('|')
       const modelPart = parts.find((p) => p.startsWith('model:'))
       const sizePart = parts.find((p) => p.startsWith('size:'))
+      const qualityPart = parts.find((p) => p.startsWith('quality:'))
 
       if (modelPart) {
         const promptModel = modelPart.replace('model:', '').trim()
@@ -1500,10 +1502,47 @@ const handleGPT4VisionImage = async (request, env) => {
         console.log('🔍 Size found in prompt:', promptSize)
         size = promptSize
       }
+
+      if (qualityPart) {
+        const promptQuality = qualityPart.replace('quality:', '').trim()
+        console.log('🔍 Quality found in prompt:', promptQuality)
+        quality = promptQuality
+      }
+    }
+
+    // Set model-specific quality defaults and validate
+    if (quality === 'auto') {
+      if (model === 'gpt-image-1') {
+        quality = 'auto' // gpt-image-1 supports auto
+      } else if (model === 'dall-e-3') {
+        quality = 'standard' // dall-e-3 default
+      } else if (model === 'dall-e-2') {
+        quality = 'standard' // dall-e-2 only supports standard
+      }
+    }
+
+    // Validate quality for each model
+    const qualityValidation = {
+      'gpt-image-1': ['auto', 'high', 'medium', 'low'],
+      'dall-e-3': ['hd', 'standard'],
+      'dall-e-2': ['standard'],
+    }
+
+    if (!qualityValidation[model].includes(quality)) {
+      console.error('❌ Invalid quality for model:', {
+        model,
+        quality,
+        valid: qualityValidation[model],
+      })
+      return createErrorResponse(
+        `Invalid quality '${quality}' for model '${model}'. Valid options: ${qualityValidation[model].join(', ')}`,
+        400,
+      )
     }
 
     console.log('📋 Final model to use:', model)
     console.log('📋 Final size to use:', size)
+    console.log('📋 Final quality to use:', quality)
 
     // Validate model
     const validModels = ['dall-e-2', 'dall-e-3', 'gpt-image-1']
@@ -1534,6 +1573,14 @@ const handleGPT4VisionImage = async (request, env) => {
       prompt,
       size,
       n: 1,
+    }
+
+    // Add quality parameter only for models that support it
+    if (model === 'dall-e-3' || model === 'gpt-image-1') {
+      requestBody.quality = quality
+      console.log('📊 Including quality parameter:', quality)
+    } else {
+      console.log('📊 Omitting quality parameter for', model, '(not supported)')
     }
 
     // Add response_format only for DALL-E models
@@ -1658,7 +1705,7 @@ const handleGPT4VisionImage = async (request, env) => {
           type: 'fulltext',
           info: imageMarkdown,
           color: '#e8f4fd',
-          bibl: [`Generated using ${model} with prompt: "${finalPrompt}"`],
+          bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
           imageWidth: '100%',
           imageHeight: '100%',
           metadata: {
@@ -1667,6 +1714,7 @@ const handleGPT4VisionImage = async (request, env) => {
             imageType: imageType,
             model: model,
             size: size,
+            quality: quality,
           },
         }),
       )
@@ -1740,6 +1788,8 @@ const handleGPT4VisionImage = async (request, env) => {
     console.log('🎉 Image generation complete!')
     console.log('📄 Final response metadata:')
     console.log('  - Model used:', model)
+    console.log('  - Quality used:', quality)
+    console.log('  - Size used:', size)
     console.log('  - Image type:', imageType)
     console.log('  - Final image URL:', finalImageUrl)
     console.log('  - Original prompt:', finalPrompt?.substring(0, 50) + '...')
@@ -1752,7 +1802,7 @@ const handleGPT4VisionImage = async (request, env) => {
         type: 'fulltext',
         info: imageMarkdown,
         color: '#e8f4fd',
-        bibl: [`Generated using ${model} with prompt: "${finalPrompt}"`],
+        bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
         imageWidth: '100%',
         imageHeight: '100%',
         metadata: {
@@ -1761,6 +1811,7 @@ const handleGPT4VisionImage = async (request, env) => {
           imageType: imageType,
           model: model,
           size: size,
+          quality: quality,
         },
       }),
     )
