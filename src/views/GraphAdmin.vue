@@ -245,6 +245,21 @@
       @graph-imported="handleTranscriptImported"
       @new-graph-created="handleNewGraphCreated"
     />
+
+    <!-- Action Test Loading Overlay -->
+    <div v-if="isActionTestLoading" class="action-test-loading-overlay">
+      <div class="loading-content">
+        <div class="spinner-large"></div>
+        <h3>{{ actionTestLoadingMessage }}</h3>
+        <p>Processing AI request...</p>
+        <div class="loading-progress">
+          <div class="progress-bar">
+            <div class="progress-fill"></div>
+          </div>
+        </div>
+        <small>This may take a few seconds. Please don't navigate away.</small>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -303,6 +318,11 @@ const graphHistory = ref([])
 const selectedHistoryIndex = ref(-1)
 const knowledgeGraphs = ref([])
 const selectedGraphId = ref('')
+
+// Add loading state for action_test nodes
+const isActionTestLoading = ref(false)
+const actionTestLoadingMessage = ref('')
+
 const graphJson = ref(`{
   nodes: [
     { id: 'main', label: 'Main Node', color: 'blue' },
@@ -2158,41 +2178,57 @@ onMounted(() => {
           alert('Node must have a valid endpoint URL in label and text in info.')
           return
         }
-        const result = await testEndpoint(data.label, data.info)
-        if (result) {
-          console.log('Endpoint test successful: ' + JSON.stringify(result))
 
-          if (validateNode(result)) {
-            const NewNode = {
-              data: result,
-              position: { x: node.position('x') + 100, y: node.position('y') + 100 },
+        // Show loading spinner
+        isActionTestLoading.value = true
+        actionTestLoadingMessage.value = `🤖 Calling ${data.label}...`
+
+        try {
+          const result = await testEndpoint(data.label, data.info)
+          if (result) {
+            console.log('Endpoint test successful: ' + JSON.stringify(result))
+
+            if (validateNode(result)) {
+              const NewNode = {
+                data: result,
+                position: { x: node.position('x') + 100, y: node.position('y') + 100 },
+              }
+              graphStore.nodes.push(NewNode)
+              cyInstance.value.add(NewNode)
+              cyInstance.value.layout({ name: 'preset' }).run()
+              graphJson.value = JSON.stringify(
+                {
+                  nodes: graphStore.nodes.map((n) => n.data),
+                  edges: graphStore.edges.map((e) => e.data),
+                },
+                null,
+                2,
+              )
+
+              console.log('Node added successfully.')
+
+              // Update JSON editor
+              graphJson.value = JSON.stringify(
+                {
+                  nodes: graphStore.nodes.map((n) => n.data),
+                  edges: graphStore.edges.map((e) => e.data),
+                },
+                null,
+                2,
+              )
+            } else {
+              alert('Endpoint test failed.')
             }
-            graphStore.nodes.push(NewNode)
-            cyInstance.value.add(NewNode)
-            cyInstance.value.layout({ name: 'preset' }).run()
-            graphJson.value = JSON.stringify(
-              {
-                nodes: graphStore.nodes.map((n) => n.data),
-                edges: graphStore.edges.map((e) => e.data),
-              },
-              null,
-              2,
-            )
-
-            console.log('Node added successfully.')
-
-            // Update JSON editor
-            graphJson.value = JSON.stringify(
-              {
-                nodes: graphStore.nodes.map((n) => n.data),
-                edges: graphStore.edges.map((e) => e.data),
-              },
-              null,
-              2,
-            )
           } else {
             alert('Endpoint test failed.')
           }
+        } catch (error) {
+          console.error('Error testing endpoint:', error)
+          alert('Error testing endpoint: ' + error.message)
+        } finally {
+          // Hide loading spinner
+          isActionTestLoading.value = false
+          actionTestLoadingMessage.value = ''
         }
         return
       }
@@ -3464,4 +3500,112 @@ watch(
 }
 
 /* Add styles for markdown-image nodes */
+
+/* Action Test Loading Overlay */
+.action-test-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  backdrop-filter: blur(4px);
+}
+
+.action-test-loading-overlay .loading-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: fadeInScale 0.3s ease-out;
+}
+
+.action-test-loading-overlay .loading-content h3 {
+  margin: 20px 0 10px 0;
+  color: #333;
+  font-size: 1.4rem;
+}
+
+.action-test-loading-overlay .loading-content p {
+  margin: 0 0 20px 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+.action-test-loading-overlay .loading-content small {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.action-test-loading-overlay .spinner-large {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #ff9500;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px auto;
+}
+
+.action-test-loading-overlay .loading-progress {
+  margin: 20px 0;
+}
+
+.action-test-loading-overlay .progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.action-test-loading-overlay .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff9500, #ffcc00, #ff9500);
+  background-size: 200% 100%;
+  animation: progressSlide 2s ease-in-out infinite;
+  border-radius: 3px;
+}
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes progressSlide {
+  0% {
+    width: 0%;
+    background-position: 0% 50%;
+  }
+  50% {
+    width: 70%;
+    background-position: 100% 50%;
+  }
+  100% {
+    width: 100%;
+    background-position: 200% 50%;
+  }
+}
 </style>

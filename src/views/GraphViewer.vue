@@ -270,6 +270,39 @@
                 ></div>
               </div>
             </template>
+            <template v-else-if="node.type === 'action_test'">
+              <!-- For action_test nodes, render endpoint URL and question -->
+              <div class="action-test-content">
+                <h3 class="node-label">{{ node.label }}</h3>
+                <NodeControlBar
+                  v-if="
+                    userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                  "
+                  :node-type="node.type"
+                  :position="getNodePosition(node)"
+                  :total="totalVisibleNodes"
+                  :is-first="getNodePosition(node) === 1"
+                  :is-last="getNodePosition(node) === totalVisibleNodes"
+                  @edit-label="openLabelEditor(node)"
+                  @edit-info="openMarkdownEditor(node)"
+                  @format-node="openTemplateSelector(node)"
+                  @quick-format="handleQuickFormat(node, $event)"
+                  @copy-node="openCopyNodeModal(node)"
+                  @delete-node="deleteNode(node)"
+                  @move-up="moveNodeUp(node)"
+                  @move-down="moveNodeDown(node)"
+                  @open-reorder="openReorderModal"
+                  @get-ai-response="handleGetAIResponse(node)"
+                />
+                <div class="action-test-info">
+                  <div class="endpoint-info"><strong>🔗 Endpoint:</strong> {{ node.label }}</div>
+                  <div class="question-info">
+                    <strong>❓ Question:</strong>
+                    <div class="question-content">{{ node.info || 'No question provided' }}</div>
+                  </div>
+                </div>
+              </div>
+            </template>
             <template v-else>
               <!-- For all other node types, render label + info -->
               <h3 class="node-label">{{ node.label }}</h3>
@@ -701,6 +734,21 @@
             <button @click="resetOrder" class="btn btn-secondary">Reset to Default</button>
             <button @click="closeReorderModal" class="btn btn-primary">Done</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Action Test Loading Overlay -->
+      <div v-if="isActionTestLoading" class="action-test-loading-overlay">
+        <div class="loading-content">
+          <div class="spinner-large"></div>
+          <h3>{{ actionTestLoadingMessage }}</h3>
+          <p>Processing AI request...</p>
+          <div class="loading-progress">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+          </div>
+          <small>This may take a few seconds. Please don't navigate away.</small>
         </div>
       </div>
     </div>
@@ -2639,6 +2687,10 @@ const handleQuickFormat = async (node, formatType) => {
 const isAINodeModalOpen = ref(false)
 const isEnhancedAINodeModalOpen = ref(false)
 
+// Add loading state for action_test AI responses
+const isActionTestLoading = ref(false)
+const actionTestLoadingMessage = ref('')
+
 const handleAINodeClick = () => {
   isAINodeModalOpen.value = true
 }
@@ -3241,6 +3293,139 @@ const saveGraphData = async () => {
     console.error('Error saving chart:', error)
     alert('Failed to save the chart. Please try again.')
   }
+}
+
+// AI Response functionality for action_test nodes
+const handleGetAIResponse = async (node) => {
+  console.log('=== Handling Get AI Response ===')
+  console.log('Action test node:', node)
+  console.log('Endpoint URL:', node.label)
+  console.log('Question/Prompt:', node.info)
+
+  // Validate node data
+  if (!node.label || !node.info) {
+    alert('Action test node must have a valid endpoint URL in label and question in info.')
+    return
+  }
+
+  // Show loading spinner and message
+  isActionTestLoading.value = true
+  actionTestLoadingMessage.value = `🤖 Calling ${node.label}...`
+
+  try {
+    // Call the endpoint using the same logic as GraphAdmin
+    const result = await testEndpoint(node.label, node.info)
+
+    if (result && validateAINode(result)) {
+      console.log('AI response received:', result)
+
+      // Create a new fulltext node with the AI response
+      const newNode = {
+        id: result.id || `ai_response_${Date.now()}`,
+        label: result.label || 'AI Response',
+        color: result.color || '#e8f4fd',
+        type: 'fulltext',
+        info: result.info || 'No response generated',
+        bibl: Array.isArray(result.bibl) ? result.bibl : [],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        order: graphData.value.nodes.length + 1, // Put at the end
+      }
+
+      // Add the new node to the graph
+      graphData.value.nodes.push(newNode)
+
+      // Update the graph data for saving
+      const updatedGraphData = {
+        ...graphData.value,
+        nodes: graphData.value.nodes,
+      }
+
+      // Save to backend
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save the graph with AI response.')
+      }
+
+      await response.json()
+      knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+      // Show success message
+      saveMessage.value = `✅ AI response added successfully! New node: "${newNode.label}"`
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 4000)
+
+      console.log('AI response node added successfully')
+    } else {
+      throw new Error('Invalid AI response format')
+    }
+  } catch (error) {
+    console.error('Error getting AI response:', error)
+    saveMessage.value = `❌ Failed to get AI response: ${error.message}`
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 5000)
+  } finally {
+    // Hide loading spinner
+    isActionTestLoading.value = false
+    actionTestLoadingMessage.value = ''
+  }
+}
+
+// Test endpoint function (adapted from GraphAdmin.vue)
+const testEndpoint = async (endpoint, content) => {
+  console.log('Testing endpoint:', endpoint, 'with content:', content)
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: content }),
+    })
+
+    if (!response.ok) {
+      console.error('Endpoint test failed:', response.statusText)
+      return null
+    }
+
+    const result = await response.json()
+    return result
+  } catch (error) {
+    console.error('Error testing endpoint:', error)
+    return null
+  }
+}
+
+// Validate AI node response
+const validateAINode = (node) => {
+  if (!node) {
+    console.error('Node is null or undefined')
+    return false
+  }
+
+  // Check for basic required fields
+  if (!node.id && !node.label) {
+    console.error('Node missing id or label')
+    return false
+  }
+
+  if (!node.info || typeof node.info !== 'string') {
+    console.error('Node missing or invalid info field')
+    return false
+  }
+
+  return true
 }
 
 // Delete node functionality
@@ -4588,6 +4773,15 @@ img.leftside {
   border-radius: 3px;
 }
 
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes fadeInScale {
   0% {
     opacity: 0;
@@ -4755,6 +4949,154 @@ img.leftside {
   }
 
   /* Mobile-specific adjustments */
+}
+
+/* Action Test Node Styles */
+.action-test-content {
+  padding: 15px;
+  border: 2px solid #ff9500;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #fff3e0, #ffcc80);
+  box-shadow: 0 4px 8px rgba(255, 149, 0, 0.2);
+  margin: 10px 0;
+}
+
+.action-test-content .node-label {
+  color: #e65100;
+  margin-bottom: 15px;
+  font-weight: bold;
+  text-shadow: 1px 1px 2px rgba(255, 149, 0, 0.2);
+}
+
+.action-test-info {
+  background-color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  padding: 15px;
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+
+.endpoint-info {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.question-info {
+  padding: 8px 12px;
+  background-color: #f3e5f5;
+  border-left: 4px solid #9c27b0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.question-content {
+  margin-top: 8px;
+  padding: 10px;
+  background-color: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  border: 1px dashed #9c27b0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .action-test-content {
+    padding: 10px;
+    margin: 8px 0;
+  }
+
+  .action-test-info {
+    padding: 10px;
+  }
+
+  .endpoint-info,
+  .question-info {
+    padding: 6px 8px;
+    font-size: 0.85rem;
+  }
+
+  .question-content {
+    padding: 8px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Action Test Loading Overlay */
+.action-test-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  backdrop-filter: blur(4px);
+}
+
+.action-test-loading-overlay .loading-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: fadeInScale 0.3s ease-out;
+}
+
+.action-test-loading-overlay .loading-content h3 {
+  margin: 20px 0 10px 0;
+  color: #333;
+  font-size: 1.4rem;
+}
+
+.action-test-loading-overlay .loading-content p {
+  margin: 0 0 20px 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+.action-test-loading-overlay .loading-content small {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.action-test-loading-overlay .spinner-large {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #ff9500;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px auto;
+}
+
+.action-test-loading-overlay .loading-progress {
+  margin: 20px 0;
+}
+
+.action-test-loading-overlay .progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.action-test-loading-overlay .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff9500, #ffcc00, #ff9500);
+  background-size: 200% 100%;
+  animation: progressSlide 2s ease-in-out infinite;
+  border-radius: 3px;
 }
 </style>
 

@@ -579,6 +579,73 @@ const handleGrokTest = async (request, env) => {
     return createErrorResponse(`Grok API error:`, 500)
   }
 }
+
+const handleGeminiTest = async (request, env) => {
+  const apiKey = env.GOOGLE_GEMINI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: Google Gemini API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { text, prompt } = body
+  const inputText = text || prompt // Accept both 'text' and 'prompt' for compatibility
+  if (!inputText || typeof inputText !== 'string') {
+    return createErrorResponse('Text or prompt input is missing or invalid', 400)
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: inputText,
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      return createErrorResponse(`Gemini API error: ${response.status} - ${errorText}`, 500)
+    }
+
+    const data = await response.json()
+
+    // Extract the generated text from Gemini's response format
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated'
+
+    return createResponse(
+      JSON.stringify({
+        id: `gemini_${Date.now()}`,
+        label: 'Gemini Response',
+        type: 'fulltext',
+        info: generatedText,
+        color: '#e8f4fd',
+        model: 'gemini-2.0-flash',
+        prompt: inputText,
+      }),
+    )
+  } catch (error) {
+    return createErrorResponse(`Gemini API error: ${error.message}`, 500)
+  }
+}
 // Updated endpoint for versatile AI action with response format
 const handleAIAction = async (request, env) => {
   let body
@@ -1404,17 +1471,48 @@ const handleGPT4VisionImage = async (request, env) => {
 
   try {
     const body = await request.json()
-    const { prompt, model = 'dall-e-2', size = '1024x1024' } = body
+    let { prompt, model = 'dall-e-2', size = '1024x1024' } = body
+
+    console.log('=== GPT4 Vision Image Generation Request ===')
+    console.log('Model from request body:', model)
+    console.log('Size from request body:', size)
+    console.log('Prompt length:', prompt?.length || 0)
+    console.log('Prompt preview:', prompt?.substring(0, 100) + '...')
 
     if (!prompt) {
       return createErrorResponse('Prompt is required', 400)
     }
 
+    // Parse model and size from prompt if provided (overrides request body)
+    if (prompt.includes('|')) {
+      const parts = prompt.split('|')
+      const modelPart = parts.find((p) => p.startsWith('model:'))
+      const sizePart = parts.find((p) => p.startsWith('size:'))
+
+      if (modelPart) {
+        const promptModel = modelPart.replace('model:', '').trim()
+        console.log('🔍 Model found in prompt:', promptModel)
+        model = promptModel
+      }
+
+      if (sizePart) {
+        const promptSize = sizePart.replace('size:', '').trim()
+        console.log('🔍 Size found in prompt:', promptSize)
+        size = promptSize
+      }
+    }
+
+    console.log('📋 Final model to use:', model)
+    console.log('📋 Final size to use:', size)
+
     // Validate model
     const validModels = ['dall-e-2', 'dall-e-3', 'gpt-image-1']
     if (!validModels.includes(model)) {
+      console.error('❌ Invalid model requested:', model)
       return createErrorResponse('Invalid model. Must be one of: ' + validModels.join(', '), 400)
     }
+
+    console.log('✅ Model validation passed for:', model)
 
     // Validate size based on model
     const validSizes = {
@@ -1441,9 +1539,15 @@ const handleGPT4VisionImage = async (request, env) => {
     // Add response_format only for DALL-E models
     if (model.startsWith('dall-e')) {
       requestBody.response_format = 'url'
+      console.log('🎨 Using DALL-E model with URL response format')
+    } else {
+      console.log('🤖 Using GPT-Image model with base64 response format')
     }
 
+    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2))
+
     // Generate image using OpenAI
+    console.log('🚀 Calling OpenAI Image Generation API...')
     const response = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -1452,6 +1556,8 @@ const handleGPT4VisionImage = async (request, env) => {
       },
       body: JSON.stringify(requestBody),
     })
+
+    console.log('📥 OpenAI API Response Status:', response.status, response.statusText)
 
     if (!response.ok) {
       const error = await response.json()
@@ -1462,72 +1568,200 @@ const handleGPT4VisionImage = async (request, env) => {
     }
 
     const data = await response.json()
+    console.log('📊 API Response keys:', Object.keys(data))
+    console.log('📊 Data array length:', data.data?.length || 0)
+    if (data.data?.[0]) {
+      console.log('📊 First data item keys:', Object.keys(data.data[0]))
+    }
+
     let imageUrl
 
     // Handle different response formats
     if (model.startsWith('dall-e')) {
+      console.log('🎨 Processing DALL-E response (URL format)')
       imageUrl = data.data[0].url
+      console.log('🔗 Image URL received:', imageUrl?.substring(0, 50) + '...')
     } else {
+      console.log('🤖 Processing GPT-Image response (base64 format)')
       // For gpt-image-1, the image data is in base64
       const base64Data = data.data[0].b64_json
+      console.log('📏 Base64 data length:', base64Data?.length || 0)
       if (!base64Data) {
+        console.error('❌ No base64 image data received from API')
         return createErrorResponse('No image data received from API', 500)
       }
 
       // Convert base64 to binary
+      console.log('🔄 Converting base64 to binary data...')
       const binaryData = atob(base64Data)
       const bytes = new Uint8Array(binaryData.length)
       for (let i = 0; i < binaryData.length; i++) {
         bytes[i] = binaryData.charCodeAt(i)
       }
+      console.log('✅ Binary conversion complete, size:', bytes.length, 'bytes')
 
       // Generate a unique filename
       const timestamp = Date.now()
       const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
+      console.log('📁 Generated filename:', filename)
 
       // Upload to R2
+      console.log('⬆️ Uploading to R2 bucket...')
       await env.MY_R2_BUCKET.put(filename, bytes, {
         httpMetadata: {
           contentType: 'image/png',
         },
       })
+      console.log('✅ R2 upload complete')
 
-      // Return the permanent URL
+      // Parse additional parameters from prompt if they exist (for gpt-image-1)
+      let imageType = 'header'
+      let finalPrompt = prompt
+
+      // Check if prompt contains structured format: "prompt:text|type:header|model:gpt-image-1"
+      if (prompt.includes('|')) {
+        const parts = prompt.split('|')
+        const promptPart = parts.find((p) => p.startsWith('prompt:'))
+        const typePart = parts.find((p) => p.startsWith('type:'))
+
+        if (promptPart) {
+          finalPrompt = promptPart.replace('prompt:', '')
+        }
+        if (typePart) {
+          imageType = typePart.replace('type:', '')
+        }
+      }
+
+      // Generate appropriate markdown based on image type (for gpt-image-1)
+      let imageMarkdown = ''
+      const gptImageUrl = `https://vegvisr.imgix.net/${filename}`
+
+      switch (imageType.toLowerCase()) {
+        case 'header':
+          imageMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
+          break
+        case 'leftside':
+          imageMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
+          break
+        case 'rightside':
+          imageMarkdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
+          break
+        default:
+          imageMarkdown = `![Generated Image|width: 300px; height: auto; object-fit: 'cover'](${gptImageUrl})`
+      }
+
+      // Return in action_test compatible format (for gpt-image-1)
       return createResponse(
         JSON.stringify({
-          url: `https://vegvisr.imgix.net/${filename}`,
-          size,
-          prompt,
+          id: `generated_image_${Date.now()}`,
+          label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
+          type: 'fulltext',
+          info: imageMarkdown,
+          color: '#e8f4fd',
+          bibl: [`Generated using ${model} with prompt: "${finalPrompt}"`],
+          imageWidth: '100%',
+          imageHeight: '100%',
+          metadata: {
+            generatedImageUrl: gptImageUrl,
+            originalPrompt: finalPrompt,
+            imageType: imageType,
+            model: model,
+            size: size,
+          },
         }),
       )
     }
 
     // For DALL-E models, download the image from URL
+    console.log('⬇️ Downloading DALL-E image from URL...')
     const imageResponse = await fetch(imageUrl)
+    console.log('📥 Download response status:', imageResponse.status, imageResponse.statusText)
     if (!imageResponse.ok) {
+      console.error('❌ Failed to download image from URL')
       return createErrorResponse('Failed to download generated image', 500)
     }
 
+    console.log('🔄 Converting downloaded image to buffer...')
     const imageBuffer = await imageResponse.arrayBuffer()
     const imageData = new Uint8Array(imageBuffer)
+    console.log('✅ Image buffer created, size:', imageData.length, 'bytes')
 
     // Generate a unique filename
     const timestamp = Date.now()
     const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
+    console.log('📁 Generated filename for DALL-E image:', filename)
 
     // Upload to R2
+    console.log('⬆️ Uploading DALL-E image to R2 bucket...')
     await env.MY_R2_BUCKET.put(filename, imageData, {
       httpMetadata: {
         contentType: 'image/png',
       },
     })
+    console.log('✅ DALL-E image R2 upload complete')
 
-    // Return the permanent URL
+    // Parse additional parameters from prompt if they exist
+    let imageType = 'header'
+    let finalPrompt = prompt
+
+    // Check if prompt contains structured format: "prompt:text|type:header|model:dall-e-3"
+    if (prompt.includes('|')) {
+      const parts = prompt.split('|')
+      const promptPart = parts.find((p) => p.startsWith('prompt:'))
+      const typePart = parts.find((p) => p.startsWith('type:'))
+
+      if (promptPart) {
+        finalPrompt = promptPart.replace('prompt:', '')
+      }
+      if (typePart) {
+        imageType = typePart.replace('type:', '')
+      }
+    }
+
+    // Generate appropriate markdown based on image type
+    let imageMarkdown = ''
+    const finalImageUrl = `https://vegvisr.imgix.net/${filename}`
+
+    switch (imageType.toLowerCase()) {
+      case 'header':
+        imageMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+        break
+      case 'leftside':
+        imageMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+        break
+      case 'rightside':
+        imageMarkdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+        break
+      default:
+        imageMarkdown = `![Generated Image|width: 300px; height: auto; object-fit: 'cover'](${finalImageUrl})`
+    }
+
+    // Return in action_test compatible format
+    console.log('🎉 Image generation complete!')
+    console.log('📄 Final response metadata:')
+    console.log('  - Model used:', model)
+    console.log('  - Image type:', imageType)
+    console.log('  - Final image URL:', finalImageUrl)
+    console.log('  - Original prompt:', finalPrompt?.substring(0, 50) + '...')
+    console.log('=== End GPT4 Vision Image Generation ===')
+
     return createResponse(
       JSON.stringify({
-        url: `https://vegvisr.imgix.net/${filename}`,
-        size,
-        prompt,
+        id: `generated_image_${Date.now()}`,
+        label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
+        type: 'fulltext',
+        info: imageMarkdown,
+        color: '#e8f4fd',
+        bibl: [`Generated using ${model} with prompt: "${finalPrompt}"`],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        metadata: {
+          generatedImageUrl: finalImageUrl,
+          originalPrompt: finalPrompt,
+          imageType: imageType,
+          model: model,
+          size: size,
+        },
       }),
     )
   } catch {
@@ -2802,6 +3036,9 @@ export default {
     }
     if (pathname === '/groktest' && request.method === 'POST') {
       return await handleGrokTest(request, env)
+    }
+    if (pathname === '/gemini-test' && request.method === 'POST') {
+      return await handleGeminiTest(request, env)
     }
     if (pathname === '/aiaction' && request.method === 'POST') {
       return await handleAIAction(request, env)

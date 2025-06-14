@@ -51,6 +51,19 @@
       </button>
     </div>
 
+    <!-- AI Action Group (only for action_test nodes) -->
+    <div v-if="nodeType === 'action_test'" class="control-group ai-group">
+      <button
+        @click="$emit('get-ai-response')"
+        class="control-btn ai-btn"
+        title="Get Response from AI"
+        :aria-label="`Get AI response for ${nodeType} node`"
+      >
+        <span class="icon">🤖</span>
+        <span class="btn-text">AI Response</span>
+      </button>
+    </div>
+
     <!-- Copy/Move Actions Group -->
     <div class="control-group action-group">
       <button
@@ -149,6 +162,7 @@ const emit = defineEmits([
   'move-up',
   'move-down',
   'open-reorder',
+  'get-ai-response',
 ])
 
 const getEditButtonText = computed(() => {
@@ -206,6 +220,11 @@ const getEditButtonText = computed(() => {
 .action-group {
   background-color: rgba(25, 135, 84, 0.05);
   border-left: 3px solid #198754;
+}
+
+.ai-group {
+  background-color: rgba(255, 149, 0, 0.05);
+  border-left: 3px solid #ff9500;
 }
 
 .delete-group {
@@ -303,6 +322,17 @@ const getEditButtonText = computed(() => {
 .reorder-btn:hover:not(:disabled) {
   background-color: #ffc107;
   color: #000;
+}
+
+.ai-btn {
+  background-color: #fff3e0;
+  color: #ff9500;
+  border: 1px solid rgba(255, 149, 0, 0.2);
+}
+
+.ai-btn:hover:not(:disabled) {
+  background-color: #ff9500;
+  color: white;
 }
 
 .delete-btn {
