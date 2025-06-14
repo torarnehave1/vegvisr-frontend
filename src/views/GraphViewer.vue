@@ -3670,28 +3670,67 @@ const closeAIImageModal = () => {
   isAIImageModalOpen.value = false
 }
 
-const handleImageInserted = (imageData) => {
-  console.log('Image inserted:', imageData)
-  // Insert the image node data into the graph
-  if (imageData && imageData.info) {
-    // Create a new node with the image data
+const handleImageInserted = async (nodeData) => {
+  console.log('=== Image Inserted ===')
+  console.log('Node data received:', nodeData)
+
+  if (nodeData && nodeData.type === 'markdown-image') {
+    // Add the new markdown-image node to the graph data
     const newNode = {
-      id: generateNodeId(),
-      type: 'fulltext',
-      content: imageData.info,
-      x: Math.random() * 800 + 100,
-      y: Math.random() * 600 + 100,
-      width: 400,
-      height: 300,
-      lastModified: new Date().toISOString(),
-      bibl: imageData.bibl || 'AI Generated Image',
+      ...nodeData,
+      order: graphData.value.nodes.length + 1, // Put at the end
     }
 
-    // Add the node to the graph
-    if (graphData.value && graphData.value.nodes) {
-      graphData.value.nodes.push(newNode)
-      console.log('New image node added:', newNode)
+    // Add to local graph data
+    graphData.value.nodes.push(newNode)
+
+    // Create updated graph data for saving
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes,
     }
+
+    try {
+      // Save to backend
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save the graph with AI-generated image.')
+      }
+
+      await response.json()
+      knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+      // Show success message
+      saveMessage.value = `✅ AI-generated image added successfully! New node: "${newNode.label?.substring(0, 50)}..."`
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 4000)
+
+      console.log('AI-generated image node saved successfully')
+    } catch (error) {
+      console.error('Error saving AI-generated image node:', error)
+      // Remove the node from local state if save failed
+      graphData.value.nodes = graphData.value.nodes.filter((node) => node.id !== newNode.id)
+      saveMessage.value = `❌ Failed to save AI-generated image: ${error.message}`
+      setTimeout(() => {
+        saveMessage.value = ''
+      }, 5000)
+    }
+  } else {
+    console.error('Invalid node data for image insertion:', nodeData)
+    saveMessage.value = '❌ Invalid image data received'
+    setTimeout(() => {
+      saveMessage.value = ''
+    }, 3000)
   }
 }
 </script>

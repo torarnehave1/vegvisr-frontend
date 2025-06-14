@@ -1685,7 +1685,7 @@ const handleGPT4VisionImage = async (request, env) => {
 
       switch (imageType.toLowerCase()) {
         case 'header':
-          imageMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
+          imageMarkdown = `![Header|width: 100%; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
           break
         case 'leftside':
           imageMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
@@ -1772,7 +1772,7 @@ const handleGPT4VisionImage = async (request, env) => {
 
     switch (imageType.toLowerCase()) {
       case 'header':
-        imageMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+        imageMarkdown = `![Header|width: 100%; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
         break
       case 'leftside':
         imageMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`

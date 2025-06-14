@@ -378,6 +378,13 @@ const generateImage = async () => {
       nodeData: result,
     }
 
+    console.log('=== Generated Image Data ===')
+    console.log('Image URL:', generatedImage.value.imageUrl)
+    console.log('Markdown:', generatedImage.value.markdown)
+    console.log('Size:', generatedImage.value.size)
+    console.log('Model:', generatedImage.value.model)
+    console.log('Quality:', generatedImage.value.quality)
+
     console.log('Generated image data:', generatedImage.value)
   } catch (error) {
     console.error('Error generating image:', error)
@@ -397,9 +404,25 @@ const insertImageToGraph = () => {
   console.log('=== Inserting Image to Graph ===')
   console.log('Generated image:', generatedImage.value)
 
-  if (generatedImage.value?.nodeData) {
+  if (generatedImage.value?.markdown && generatedImage.value?.imageUrl) {
+    // Create a proper markdown-image node
+    const newNode = {
+      id: crypto.randomUUID(),
+      label: generatedImage.value.markdown,
+      color: 'white',
+      type: 'markdown-image',
+      info: null,
+      bibl: [],
+      imageWidth: generatedImage.value.size?.split('x')[0] || '1024',
+      imageHeight: generatedImage.value.size?.split('x')[1] || '1024',
+      visible: true,
+      path: null,
+    }
+
+    console.log('Created markdown-image node:', newNode)
+
     // Emit the node data for insertion
-    emit('image-inserted', generatedImage.value.nodeData)
+    emit('image-inserted', newNode)
     closeModal()
   } else {
     errorMessage.value = 'No image data available for insertion.'
