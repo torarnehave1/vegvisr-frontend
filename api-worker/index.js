@@ -1621,138 +1621,11 @@ const handleGPT4VisionImage = async (request, env) => {
       console.log('📊 First data item keys:', Object.keys(data.data[0]))
     }
 
-    let imageUrl
-
-    // Handle different response formats
-    if (model.startsWith('dall-e')) {
-      console.log('🎨 Processing DALL-E response (URL format)')
-      imageUrl = data.data[0].url
-      console.log('🔗 Image URL received:', imageUrl?.substring(0, 50) + '...')
-    } else {
-      console.log('🤖 Processing GPT-Image response (base64 format)')
-      // For gpt-image-1, the image data is in base64
-      const base64Data = data.data[0].b64_json
-      console.log('📏 Base64 data length:', base64Data?.length || 0)
-      if (!base64Data) {
-        console.error('❌ No base64 image data received from API')
-        return createErrorResponse('No image data received from API', 500)
-      }
-
-      // Convert base64 to binary
-      console.log('🔄 Converting base64 to binary data...')
-      const binaryData = atob(base64Data)
-      const bytes = new Uint8Array(binaryData.length)
-      for (let i = 0; i < binaryData.length; i++) {
-        bytes[i] = binaryData.charCodeAt(i)
-      }
-      console.log('✅ Binary conversion complete, size:', bytes.length, 'bytes')
-
-      // Generate a unique filename
-      const timestamp = Date.now()
-      const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
-      console.log('📁 Generated filename:', filename)
-
-      // Upload to R2
-      console.log('⬆️ Uploading to R2 bucket...')
-      await env.MY_R2_BUCKET.put(filename, bytes, {
-        httpMetadata: {
-          contentType: 'image/png',
-        },
-      })
-      console.log('✅ R2 upload complete')
-
-      // Parse additional parameters from prompt if they exist (for gpt-image-1)
-      let imageType = 'header'
-      let finalPrompt = prompt
-
-      // Check if prompt contains structured format: "prompt:text|type:header|model:gpt-image-1"
-      if (prompt.includes('|')) {
-        const parts = prompt.split('|')
-        const promptPart = parts.find((p) => p.startsWith('prompt:'))
-        const typePart = parts.find((p) => p.startsWith('type:'))
-
-        if (promptPart) {
-          finalPrompt = promptPart.replace('prompt:', '')
-        }
-        if (typePart) {
-          imageType = typePart.replace('type:', '')
-        }
-      }
-
-      // Generate appropriate markdown based on image type (for gpt-image-1)
-      let imageMarkdown = ''
-      const gptImageUrl = `https://vegvisr.imgix.net/${filename}`
-
-      switch (imageType.toLowerCase()) {
-        case 'header':
-          imageMarkdown = `![Header|width: 100%; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
-          break
-        case 'leftside':
-          imageMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
-          break
-        case 'rightside':
-          imageMarkdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${gptImageUrl})`
-          break
-        default:
-          imageMarkdown = `![Generated Image|width: 300px; height: auto; object-fit: 'cover'](${gptImageUrl})`
-      }
-
-      // Return in action_test compatible format (for gpt-image-1)
-      return createResponse(
-        JSON.stringify({
-          id: `generated_image_${Date.now()}`,
-          label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
-          type: 'fulltext',
-          info: imageMarkdown,
-          color: '#e8f4fd',
-          bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
-          imageWidth: '100%',
-          imageHeight: '100%',
-          metadata: {
-            generatedImageUrl: gptImageUrl,
-            originalPrompt: finalPrompt,
-            imageType: imageType,
-            model: model,
-            size: size,
-            quality: quality,
-          },
-        }),
-      )
-    }
-
-    // For DALL-E models, download the image from URL
-    console.log('⬇️ Downloading DALL-E image from URL...')
-    const imageResponse = await fetch(imageUrl)
-    console.log('📥 Download response status:', imageResponse.status, imageResponse.statusText)
-    if (!imageResponse.ok) {
-      console.error('❌ Failed to download image from URL')
-      return createErrorResponse('Failed to download generated image', 500)
-    }
-
-    console.log('🔄 Converting downloaded image to buffer...')
-    const imageBuffer = await imageResponse.arrayBuffer()
-    const imageData = new Uint8Array(imageBuffer)
-    console.log('✅ Image buffer created, size:', imageData.length, 'bytes')
-
-    // Generate a unique filename
-    const timestamp = Date.now()
-    const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
-    console.log('📁 Generated filename for DALL-E image:', filename)
-
-    // Upload to R2
-    console.log('⬆️ Uploading DALL-E image to R2 bucket...')
-    await env.MY_R2_BUCKET.put(filename, imageData, {
-      httpMetadata: {
-        contentType: 'image/png',
-      },
-    })
-    console.log('✅ DALL-E image R2 upload complete')
-
     // Parse additional parameters from prompt if they exist
     let imageType = 'header'
     let finalPrompt = prompt
 
-    // Check if prompt contains structured format: "prompt:text|type:header|model:dall-e-3"
+    // Check if prompt contains structured format
     if (prompt.includes('|')) {
       const parts = prompt.split('|')
       const promptPart = parts.find((p) => p.startsWith('prompt:'))
@@ -1766,9 +1639,144 @@ const handleGPT4VisionImage = async (request, env) => {
       }
     }
 
+    // Handle different response formats
+    if (model.startsWith('dall-e')) {
+      console.log('🎨 Processing DALL-E response (URL format)')
+      const imageUrl = data.data[0].url
+      console.log('🔗 Image URL received:', imageUrl?.substring(0, 50) + '...')
+
+      // Return preview data WITHOUT saving to R2
+      return createResponse(
+        JSON.stringify({
+          id: `generated_image_${Date.now()}`,
+          label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
+          type: 'fulltext',
+          info: null, // Will be populated after approval
+          color: '#e8f4fd',
+          bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
+          imageWidth: '100%',
+          imageHeight: '100%',
+          metadata: {
+            previewImageUrl: imageUrl, // Original OpenAI URL for preview
+            originalPrompt: finalPrompt,
+            imageType: imageType,
+            model: model,
+            size: size,
+            quality: quality,
+            needsApproval: true, // Flag indicating this image needs approval before saving
+          },
+        }),
+      )
+    } else {
+      console.log('🤖 Processing GPT-Image response (base64 format)')
+      const base64Data = data.data[0].b64_json
+      console.log('📏 Base64 data length:', base64Data?.length || 0)
+
+      if (!base64Data) {
+        console.error('❌ No base64 image data received from API')
+        return createErrorResponse('No image data received from API', 500)
+      }
+
+      // Convert base64 to data URL for preview
+      const previewDataUrl = `data:image/png;base64,${base64Data}`
+
+      // Return preview data WITHOUT saving to R2
+      return createResponse(
+        JSON.stringify({
+          id: `generated_image_${Date.now()}`,
+          label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
+          type: 'fulltext',
+          info: null, // Will be populated after approval
+          color: '#e8f4fd',
+          bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
+          imageWidth: '100%',
+          imageHeight: '100%',
+          metadata: {
+            previewImageUrl: previewDataUrl, // Base64 data URL for preview
+            base64Data: base64Data, // Store base64 data for later upload
+            originalPrompt: finalPrompt,
+            imageType: imageType,
+            model: model,
+            size: size,
+            quality: quality,
+            needsApproval: true, // Flag indicating this image needs approval before saving
+          },
+        }),
+      )
+    }
+  } catch (error) {
+    console.error('Error in handleGPT4VisionImage:', error)
+    return createErrorResponse('Failed to generate image', 500)
+  }
+}
+
+// --- Save Approved AI Image Endpoint ---
+const handleSaveApprovedImage = async (request, env) => {
+  if (!env.MY_R2_BUCKET) {
+    return createErrorResponse('R2 bucket not configured', 500)
+  }
+
+  try {
+    const body = await request.json()
+    const { imageData } = body
+
+    if (!imageData || !imageData.metadata) {
+      return createErrorResponse('Invalid image data provided', 400)
+    }
+
+    const { previewImageUrl, base64Data, originalPrompt, imageType, model, size, quality } =
+      imageData.metadata
+
+    console.log('=== Saving Approved AI Image ===')
+    console.log('Model:', model)
+    console.log('Image Type:', imageType)
+    console.log('Size:', size)
+
+    let imageBuffer
+    let contentType = 'image/png'
+
+    // Handle different image sources
+    if (base64Data) {
+      // For GPT-Image models with base64 data
+      console.log('🔄 Processing base64 image data...')
+      const binaryData = atob(base64Data)
+      const bytes = new Uint8Array(binaryData.length)
+      for (let i = 0; i < binaryData.length; i++) {
+        bytes[i] = binaryData.charCodeAt(i)
+      }
+      imageBuffer = bytes
+      console.log('✅ Base64 conversion complete, size:', bytes.length, 'bytes')
+    } else if (previewImageUrl && previewImageUrl.startsWith('http')) {
+      // For DALL-E models with URL
+      console.log('⬇️ Downloading image from URL...')
+      const response = await fetch(previewImageUrl)
+      if (!response.ok) {
+        throw new Error('Failed to download image from preview URL')
+      }
+      const arrayBuffer = await response.arrayBuffer()
+      imageBuffer = new Uint8Array(arrayBuffer)
+      console.log('✅ Image download complete, size:', imageBuffer.length, 'bytes')
+    } else {
+      throw new Error('No valid image source found')
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now()
+    const filename = `ai-generated/${timestamp}-${Math.random().toString(36).substring(2, 15)}.png`
+    console.log('📁 Generated filename:', filename)
+
+    // Upload to R2
+    console.log('⬆️ Uploading to R2 bucket...')
+    await env.MY_R2_BUCKET.put(filename, imageBuffer, {
+      httpMetadata: {
+        contentType: contentType,
+      },
+    })
+    console.log('✅ R2 upload complete')
+
     // Generate appropriate markdown based on image type
-    let imageMarkdown = ''
     const finalImageUrl = `https://vegvisr.imgix.net/${filename}`
+    let imageMarkdown = ''
 
     switch (imageType.toLowerCase()) {
       case 'header':
@@ -1784,39 +1792,35 @@ const handleGPT4VisionImage = async (request, env) => {
         imageMarkdown = `![Generated Image|width: 300px; height: auto; object-fit: 'cover'](${finalImageUrl})`
     }
 
-    // Return in action_test compatible format
-    console.log('🎉 Image generation complete!')
-    console.log('📄 Final response metadata:')
-    console.log('  - Model used:', model)
-    console.log('  - Quality used:', quality)
-    console.log('  - Size used:', size)
-    console.log('  - Image type:', imageType)
-    console.log('  - Final image URL:', finalImageUrl)
-    console.log('  - Original prompt:', finalPrompt?.substring(0, 50) + '...')
-    console.log('=== End GPT4 Vision Image Generation ===')
+    console.log('🎉 Approved image saved successfully!')
+    console.log('📄 Final image URL:', finalImageUrl)
 
+    // Return the final node data
     return createResponse(
       JSON.stringify({
-        id: `generated_image_${Date.now()}`,
+        id: `approved_image_${Date.now()}`,
         label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
         type: 'fulltext',
         info: imageMarkdown,
         color: '#e8f4fd',
-        bibl: [`Generated using ${model} (${quality} quality) with prompt: "${finalPrompt}"`],
+        bibl: [`Generated using ${model} (${quality} quality) with prompt: "${originalPrompt}"`],
         imageWidth: '100%',
         imageHeight: '100%',
         metadata: {
           generatedImageUrl: finalImageUrl,
-          originalPrompt: finalPrompt,
+          originalPrompt: originalPrompt,
           imageType: imageType,
           model: model,
           size: size,
           quality: quality,
+          approved: true,
+          savedAt: new Date().toISOString(),
         },
       }),
     )
-  } catch {
-    return createErrorResponse('Failed to generate image', 500)
+  } catch (error) {
+    console.error('Error in handleSaveApprovedImage:', error)
+    return createErrorResponse('Failed to save approved image: ' + error.message, 500)
   }
 }
 
@@ -3134,6 +3138,10 @@ export default {
 
     if (pathname === '/gpt4-vision-image' && request.method === 'POST') {
       return await handleGPT4VisionImage(request, env)
+    }
+
+    if (pathname === '/save-approved-image' && request.method === 'POST') {
+      return await handleSaveApprovedImage(request, env)
     }
 
     if (pathname === '/ai-generate-node' && request.method === 'POST') {

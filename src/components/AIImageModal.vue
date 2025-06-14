@@ -136,12 +136,18 @@
       <div v-else class="ai-image-result">
         <div class="image-preview-section">
           <h4>🖼️ Generated Image Preview</h4>
-          <div class="image-preview-container">
+          <div
+            class="image-preview-container"
+            :class="{ 'preview-mode': generatedImage.needsApproval }"
+          >
             <img
               :src="generatedImage.imageUrl"
               :alt="generatedImage.prompt"
               class="generated-image-preview"
             />
+            <div v-if="generatedImage.needsApproval" class="preview-badge">
+              <span class="badge badge-warning">📝 Preview - Not Saved</span>
+            </div>
           </div>
 
           <!-- Image Details -->
@@ -167,19 +173,51 @@
           </div>
 
           <!-- Generated Markdown Preview -->
-          <div class="markdown-preview">
+          <div v-if="generatedImage.markdown" class="markdown-preview">
             <h5>📄 Generated Markdown:</h5>
             <pre class="markdown-code">{{ generatedImage.markdown }}</pre>
+          </div>
+
+          <!-- Approval Process Info -->
+          <div v-if="generatedImage.needsApproval" class="approval-info">
+            <div class="info-box">
+              <h6>ℹ️ About Image Approval</h6>
+              <p>
+                This image is currently a preview and hasn't been saved to permanent storage yet.
+                When you click "Approve & Insert into Graph", the image will be:
+              </p>
+              <ul>
+                <li>Saved to permanent storage</li>
+                <li>Given a permanent URL</li>
+                <li>Inserted into your knowledge graph</li>
+              </ul>
+              <small class="text-muted">
+                This prevents unnecessary storage costs for images you might not want to keep.
+              </small>
+            </div>
           </div>
         </div>
 
         <!-- Result Actions -->
         <div class="result-actions">
-          <button @click="insertImageToGraph" class="btn btn-success insert-btn">
-            ✅ Insert into Graph
+          <button
+            @click="insertImageToGraph"
+            class="btn btn-success insert-btn"
+            :disabled="isGenerating"
+          >
+            <span v-if="isGenerating">
+              <span class="spinner-border spinner-border-sm me-2"></span>
+              Saving & Inserting...
+            </span>
+            <span v-else-if="generatedImage.needsApproval"> ✅ Approve & Insert into Graph </span>
+            <span v-else> ✅ Insert into Graph </span>
           </button>
-          <button @click="regenerateImage" class="btn btn-warning">🔄 Generate New Image</button>
-          <button @click="closeModal" class="btn btn-secondary">Close</button>
+          <button @click="regenerateImage" class="btn btn-warning" :disabled="isGenerating">
+            🔄 Generate New Image
+          </button>
+          <button @click="closeModal" class="btn btn-secondary" :disabled="isGenerating">
+            Close
+          </button>
         </div>
       </div>
 
@@ -368,7 +406,10 @@ const generateImage = async () => {
 
     // Extract image information from result
     generatedImage.value = {
-      imageUrl: result.metadata?.generatedImageUrl || extractImageUrl(result.info),
+      imageUrl:
+        result.metadata?.previewImageUrl ||
+        result.metadata?.generatedImageUrl ||
+        extractImageUrl(result.info),
       markdown: result.info,
       prompt: result.metadata?.originalPrompt || imagePrompt.value,
       model: result.metadata?.model || selectedModel.value,
@@ -376,6 +417,7 @@ const generateImage = async () => {
       quality: result.metadata?.quality || selectedQuality.value,
       imageType: result.metadata?.imageType || selectedImageType.value,
       nodeData: result,
+      needsApproval: result.metadata?.needsApproval || false,
     }
 
     console.log('=== Generated Image Data ===')
@@ -400,21 +442,52 @@ const extractImageUrl = (markdown) => {
   return match ? match[1] : null
 }
 
-const insertImageToGraph = () => {
+const insertImageToGraph = async () => {
   console.log('=== Inserting Image to Graph ===')
   console.log('Generated image:', generatedImage.value)
 
-  if (generatedImage.value?.markdown && generatedImage.value?.imageUrl) {
+  if (!generatedImage.value?.imageUrl) {
+    errorMessage.value = 'No image data available for insertion.'
+    return
+  }
+
+  try {
+    let finalNodeData = generatedImage.value.nodeData
+
+    // If image needs approval, save it to R2 first
+    if (generatedImage.value.needsApproval) {
+      console.log('🔄 Saving approved image to R2...')
+      isGenerating.value = true
+
+      const saveResponse = await fetch('https://api.vegvisr.org/save-approved-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageData: generatedImage.value.nodeData,
+        }),
+      })
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json()
+        throw new Error(errorData.error || 'Failed to save approved image')
+      }
+
+      finalNodeData = await saveResponse.json()
+      console.log('✅ Image saved to R2 successfully:', finalNodeData)
+    }
+
     // Create a proper markdown-image node
     const newNode = {
       id: crypto.randomUUID(),
-      label: generatedImage.value.markdown,
+      label: finalNodeData.info || finalNodeData.label || 'Generated Image',
       color: 'white',
       type: 'markdown-image',
       info: null,
-      bibl: [],
-      imageWidth: generatedImage.value.size?.split('x')[0] || '1024',
-      imageHeight: generatedImage.value.size?.split('x')[1] || '1024',
+      bibl: finalNodeData.bibl || [],
+      imageWidth: finalNodeData.imageWidth || generatedImage.value.size?.split('x')[0] || '1024',
+      imageHeight: finalNodeData.imageHeight || generatedImage.value.size?.split('x')[1] || '1024',
       visible: true,
       path: null,
     }
@@ -424,8 +497,11 @@ const insertImageToGraph = () => {
     // Emit the node data for insertion
     emit('image-inserted', newNode)
     closeModal()
-  } else {
-    errorMessage.value = 'No image data available for insertion.'
+  } catch (error) {
+    console.error('Error inserting image to graph:', error)
+    errorMessage.value = error.message || 'Failed to insert image. Please try again.'
+  } finally {
+    isGenerating.value = false
   }
 }
 
@@ -631,6 +707,79 @@ updateModelSettings()
   background: #f8f9fa;
   border-radius: 12px;
   border: 2px dashed #dee2e6;
+  position: relative;
+}
+
+.image-preview-container.preview-mode {
+  border-color: #ffc107;
+  background: #fff8e1;
+}
+
+.preview-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.4em 0.7em;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: baseline;
+  border-radius: 0.25rem;
+}
+
+.badge-warning {
+  color: #856404;
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+}
+
+.approval-info {
+  margin-bottom: 20px;
+}
+
+.info-box {
+  background: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.info-box h6 {
+  margin: 0 0 12px 0;
+  color: #0066cc;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.info-box p {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.info-box ul {
+  margin: 0 0 12px 0;
+  padding-left: 20px;
+  color: #555;
+}
+
+.info-box li {
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+
+.info-box .text-muted {
+  color: #6c757d !important;
+  font-size: 0.8rem;
+  font-style: italic;
 }
 
 .generated-image-preview {
