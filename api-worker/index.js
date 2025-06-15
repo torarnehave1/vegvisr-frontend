@@ -11,7 +11,8 @@ import { OpenAI } from 'openai'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token',
+  'Access-Control-Allow-Headers':
+    'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email',
 }
 
 const createResponse = (body, status = 200, headers = {}) => {
