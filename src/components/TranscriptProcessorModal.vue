@@ -85,6 +85,14 @@
                 {{ isLoadingTranscript ? '⏳' : '📄' }} Official Captions
               </button>
               <button
+                @click="fetchYouTubeTranscriptIO"
+                :disabled="!videoId || isLoadingTranscript"
+                class="btn btn-info"
+                title="Third-party transcript service (better availability)"
+              >
+                {{ isLoadingTranscript ? '⏳' : '🌐' }} Transcript IO
+              </button>
+              <button
                 @click="fetchYouTubeWhisperTranscript"
                 :disabled="!videoId || isLoadingTranscript"
                 class="btn btn-success"
@@ -98,6 +106,8 @@
           <div class="method-explanation">
             <small class="text-muted">
               <strong>📄 Official Captions:</strong> Fast, uses YouTube's captions (if available)<br />
+              <strong>🌐 Transcript IO:</strong> Third-party service, better availability than
+              official<br />
               <strong>🎵 AI Whisper:</strong> Downloads audio + AI transcription (works for any
               video, slower)
             </small>
@@ -505,6 +515,66 @@ const fetchYouTubeTranscript = async () => {
   } catch (error) {
     console.error('❌ YouTube transcript error:', error)
     alert(`Error fetching official captions: ${error.message}`)
+  } finally {
+    isLoadingTranscript.value = false
+  }
+}
+
+const fetchYouTubeTranscriptIO = async () => {
+  if (!videoId.value) {
+    alert('Please enter a valid YouTube URL or Video ID')
+    return
+  }
+
+  isLoadingTranscript.value = true
+  transcriptText.value = ''
+
+  try {
+    console.log('🌐 Fetching Transcript IO for video ID:', videoId.value)
+
+    const response = await fetch(`https://api.vegvisr.org/youtube-transcript-io/${videoId.value}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    console.log('📊 YouTube Transcript IO response status:', response.status)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ YouTube Transcript IO response:', data)
+
+      if (data.success && data.transcript) {
+        // Convert transcript segments to text
+        const transcriptParts = data.transcript.map((segment) => segment.text).join(' ')
+        transcriptText.value = transcriptParts
+
+        console.log(`📝 Transcript IO extracted: ${transcriptParts.length} characters`)
+
+        // Set source language if detected
+        if (data.language) {
+          sourceLanguage.value = data.language === 'en' ? 'english' : 'auto'
+        }
+
+        alert(
+          `✅ Third-party transcript fetched successfully!\n🌐 Service: ${data.service}\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters\n🌍 Language: ${data.language || 'auto'}`,
+        )
+      } else {
+        console.warn('⚠️ No Transcript IO data in response:', data)
+        alert(`Failed to get third-party transcript.\n\nError: ${data.error || 'Unknown error'}`)
+      }
+    } else {
+      const errorData = await response.json()
+      console.error('❌ YouTube Transcript IO failed:', errorData)
+
+      alert(
+        `Failed to get third-party transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThe video may not have transcripts available through this service.`,
+      )
+    }
+  } catch (error) {
+    console.error('❌ YouTube Transcript IO error:', error)
+    alert(`Error fetching third-party transcript: ${error.message}`)
   } finally {
     isLoadingTranscript.value = false
   }
@@ -1120,13 +1190,15 @@ const close = () => {
 
 .transcript-method-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .transcript-method-buttons .btn {
   flex: 1;
-  font-size: 0.9em;
+  font-size: 0.85em;
+  min-width: 120px;
 }
 
 .method-explanation {

@@ -1716,6 +1716,125 @@ const getYouTubeCaptionsOfficial = async (videoId, apiKey, accessToken = null) =
   }
 }
 
+// --- YouTube Transcript IO (Third-party service) ---
+const handleYouTubeTranscriptIO = async (request, env) => {
+  const url = new URL(request.url)
+  const videoId = url.pathname.split('/').pop()
+
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return createErrorResponse('Invalid or missing video ID', 400)
+  }
+
+  console.log('🌐 YouTube Transcript IO Request:', { videoId })
+
+  try {
+    // Get API token from environment
+    const apiToken = env.YOUTUBE_TRANSCRIPT_IO_TOKEN
+    if (!apiToken) {
+      return createErrorResponse('YouTube Transcript IO API token not configured', 500)
+    }
+
+    console.log('📡 Calling YouTube Transcript IO service...')
+
+    // Call the third-party service
+    const response = await fetch('https://www.youtube-transcript.io/api/transcripts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ids: [videoId],
+      }),
+    })
+
+    console.log('📊 YouTube Transcript IO response status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ YouTube Transcript IO error:', errorText)
+      return createErrorResponse(
+        `YouTube Transcript IO service error: ${response.status} - ${errorText}`,
+        response.status,
+      )
+    }
+
+    const data = await response.json()
+    console.log('✅ YouTube Transcript IO response received')
+    console.log('📊 Response data keys:', Object.keys(data))
+
+    // Check if we got transcript data
+    if (!data || !data[videoId]) {
+      return createErrorResponse('No transcript data found for this video ID', 404)
+    }
+
+    const transcriptData = data[videoId]
+    console.log('📝 Transcript data structure:', Object.keys(transcriptData))
+
+    // Convert to our expected format
+    let transcript = []
+    let totalSegments = 0
+
+    if (transcriptData.segments && Array.isArray(transcriptData.segments)) {
+      transcript = transcriptData.segments.map((segment) => ({
+        start: segment.start || 0,
+        duration: segment.duration || 0,
+        text: segment.text || '',
+      }))
+      totalSegments = transcript.length
+    } else if (transcriptData.text) {
+      // If it's just a text blob, create a single segment
+      transcript = [
+        {
+          start: 0,
+          duration: 0,
+          text: transcriptData.text,
+        },
+      ]
+      totalSegments = 1
+    }
+
+    // Get video title from YouTube API for better metadata
+    let videoTitle = 'Unknown Title'
+    try {
+      if (env.YOUTUBE_API_KEY) {
+        const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
+        const videoResponse = await fetch(videoInfoUrl)
+
+        if (videoResponse.ok) {
+          const videoData = await videoResponse.json()
+          videoTitle = videoData.items?.[0]?.snippet?.title || 'Unknown Title'
+        }
+      }
+    } catch (infoError) {
+      console.warn('⚠️ Could not get video title:', infoError.message)
+    }
+
+    console.log('🎉 Successfully processed transcript from YouTube Transcript IO')
+    console.log('📊 Total segments:', totalSegments)
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        videoId: videoId,
+        videoTitle: videoTitle,
+        transcript: transcript,
+        totalSegments: totalSegments,
+        source: 'youtube_transcript_io',
+        language: transcriptData.language || 'auto',
+        method: 'third_party_service',
+        service: 'youtube-transcript.io',
+      }),
+    )
+  } catch (error) {
+    console.error('❌ YouTube Transcript IO Error:', error)
+    return createErrorResponse(
+      'Failed to fetch transcript from YouTube Transcript IO: ' + error.message,
+      500,
+    )
+  }
+}
+
 // --- YouTube Whisper Transcript Endpoint (Audio Download + Whisper) ---
 const handleYouTubeWhisperTranscript = async (request, env) => {
   const url = new URL(request.url)
@@ -1908,15 +2027,6 @@ const extractYouTubeAudio = async (videoId, env) => {
   try {
     console.log('🎵 Extracting audio for video:', videoId)
 
-    // For now, we'll use a third-party service to extract audio
-    // You can replace this with your preferred method
-
-    // Option 1: Use a hosted yt-dlp service (example)
-    const audioServiceUrl = `https://youtube-audio-extractor.example.com/extract`
-
-    // Option 2: Use existing services that provide audio extraction
-    // For this implementation, I'll create a placeholder that shows the structure
-
     // Get video info first
     const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
     const videoResponse = await fetch(videoInfoUrl)
@@ -1928,28 +2038,17 @@ const extractYouTubeAudio = async (videoId, env) => {
     const videoData = await videoResponse.json()
     const videoTitle = videoData.items?.[0]?.snippet?.title || 'Unknown Title'
 
-    // TODO: Implement actual audio extraction
-    // This is where you'd call your preferred audio extraction service
-    // For now, returning a placeholder structure
+    // TODO: Implement audio extraction service
+    // This requires an external service that can run yt-dlp or similar tools
+    // Cloudflare Workers cannot run external binaries like yt-dlp
 
-    console.log('⚠️ Audio extraction not yet implemented - returning placeholder')
+    console.log('⚠️ Audio extraction not yet implemented')
     return {
       success: false,
       error:
-        'Audio extraction service not yet configured. Please implement extractYouTubeAudio function with your preferred method (yt-dlp service, etc.)',
+        'Audio extraction service not yet configured. This requires an external service that can run yt-dlp, as Cloudflare Workers cannot execute external binaries.',
       videoTitle: videoTitle,
     }
-
-    // Example of what the successful response should look like:
-    /*
-    return {
-      success: true,
-      audioBuffer: audioBuffer, // The actual audio file data
-      videoTitle: videoTitle,
-      duration: audioDuration,
-      format: 'mp3'
-    }
-    */
   } catch (error) {
     console.error('❌ Audio extraction error:', error)
     return {
@@ -3761,6 +3860,11 @@ export default {
 
     if (pathname === '/youtube-search' && request.method === 'GET') {
       return await handleYouTubeSearch(request, env)
+    }
+
+    // YouTube Transcript IO (Third-party service)
+    if (pathname.startsWith('/youtube-transcript-io/') && request.method === 'GET') {
+      return handleYouTubeTranscriptIO(request, env)
     }
 
     // YouTube Whisper Transcript (Download Audio + Whisper)
