@@ -4,8 +4,33 @@
       <button @click="close" class="close-button">&times;</button>
       <h3>🎙️ Automated Transcript to Knowledge Graph</h3>
 
+      <!-- Input Method Tabs -->
+      <div class="input-tabs">
+        <button
+          @click="inputMethod = 'upload'"
+          :class="{ active: inputMethod === 'upload' }"
+          class="tab-button"
+        >
+          📁 Upload File
+        </button>
+        <button
+          @click="inputMethod = 'paste'"
+          :class="{ active: inputMethod === 'paste' }"
+          class="tab-button"
+        >
+          📝 Paste Text
+        </button>
+        <button
+          @click="inputMethod = 'youtube'"
+          :class="{ active: inputMethod === 'youtube' }"
+          class="tab-button"
+        >
+          🎬 YouTube Video
+        </button>
+      </div>
+
       <!-- Upload Section -->
-      <div v-if="!transcriptText" class="upload-section">
+      <div v-if="inputMethod === 'upload' && !transcriptText" class="upload-section">
         <div class="form-group">
           <label>Upload Transcript or Paste Text:</label>
           <div class="upload-area" @drop="handleDrop" @dragover.prevent @dragenter.prevent>
@@ -23,15 +48,102 @@
             </div>
           </div>
         </div>
+      </div>
 
+      <!-- Paste Text Section -->
+      <div v-if="inputMethod === 'paste' && !transcriptText" class="paste-section">
         <div class="form-group">
-          <label>Or paste transcript text directly:</label>
+          <label>Paste transcript text directly:</label>
           <textarea
             v-model="transcriptText"
             class="form-control"
             rows="8"
             placeholder="Paste your transcript text here..."
           ></textarea>
+        </div>
+      </div>
+
+      <!-- YouTube Section -->
+      <div v-if="inputMethod === 'youtube' && !transcriptText" class="youtube-section">
+        <!-- YouTube URL Input -->
+        <div class="form-group">
+          <label>🔗 YouTube URL or Video ID:</label>
+          <div class="url-input-group">
+            <input
+              v-model="youtubeUrl"
+              @input="extractVideoId"
+              class="form-control"
+              placeholder="https://www.youtube.com/watch?v=VIDEO_ID or just VIDEO_ID"
+            />
+            <button
+              @click="fetchYouTubeTranscript"
+              :disabled="!videoId || isLoadingTranscript"
+              class="btn btn-primary"
+            >
+              {{ isLoadingTranscript ? '⏳' : '📥' }} Get Transcript
+            </button>
+          </div>
+          <small v-if="videoId" class="video-id-display">Video ID: {{ videoId }}</small>
+        </div>
+
+        <!-- YouTube Search -->
+        <div class="form-group">
+          <label>🔍 Or search for videos:</label>
+          <div class="search-input-group">
+            <input
+              v-model="searchQuery"
+              @keyup.enter="searchYouTubeVideos"
+              class="form-control"
+              placeholder="Search YouTube videos..."
+            />
+            <button
+              @click="searchYouTubeVideos"
+              :disabled="!searchQuery.trim() || isSearching"
+              class="btn btn-outline-primary"
+            >
+              {{ isSearching ? '⏳' : '🔍' }} Search
+            </button>
+          </div>
+        </div>
+
+        <!-- Search Results -->
+        <div v-if="searchResults.length > 0" class="search-results">
+          <h5>Search Results:</h5>
+          <div class="video-list">
+            <div
+              v-for="video in searchResults.slice(0, 10)"
+              :key="video.videoId"
+              class="video-item"
+              @click="selectVideo(video)"
+            >
+              <div class="video-thumbnail">
+                <img
+                  :src="video.thumbnails?.medium?.url || video.thumbnails?.default?.url"
+                  :alt="video.title"
+                  @error="handleImageError"
+                />
+              </div>
+              <div class="video-info">
+                <div class="video-title">{{ video.title }}</div>
+                <div class="video-channel">{{ video.channelTitle }}</div>
+                <div class="video-date">{{ formatDate(video.publishedAt) }}</div>
+              </div>
+              <div class="video-actions">
+                <button class="btn btn-sm btn-primary">Select</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading States -->
+        <div v-if="isLoadingTranscript" class="loading-state">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p>Fetching YouTube transcript...</p>
+        </div>
+
+        <div v-if="isSearching" class="loading-state">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p>Searching YouTube videos...</p>
         </div>
       </div>
 
@@ -50,6 +162,18 @@
             <option value="spanish">Spanish</option>
             <option value="norwegian">Norwegian</option>
           </select>
+        </div>
+
+        <!-- YouTube Video Info -->
+        <div v-if="selectedVideo" class="selected-video-info">
+          <h5>📺 Selected Video:</h5>
+          <div class="video-card">
+            <img :src="selectedVideo.thumbnails?.medium?.url" :alt="selectedVideo.title" />
+            <div class="video-details">
+              <div class="video-title">{{ selectedVideo.title }}</div>
+              <div class="video-channel">{{ selectedVideo.channelTitle }}</div>
+            </div>
+          </div>
         </div>
 
         <div class="transcript-preview">
@@ -190,6 +314,7 @@ const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
 
 // State
+const inputMethod = ref('upload') // 'upload', 'paste', 'youtube'
 const transcriptText = ref('')
 const sourceLanguage = ref('auto')
 const isProcessing = ref(false)
@@ -198,6 +323,182 @@ const processingProgress = ref(0)
 const processingMessage = ref('')
 const knowledgeGraphPreview = ref(null)
 const fileInput = ref(null)
+
+// YouTube-specific state
+const youtubeUrl = ref('')
+const videoId = ref('')
+const searchQuery = ref('')
+const searchResults = ref([])
+const selectedVideo = ref(null)
+const isLoadingTranscript = ref(false)
+const isSearching = ref(false)
+
+// YouTube functions
+const extractVideoId = () => {
+  const url = youtubeUrl.value.trim()
+  if (!url) {
+    videoId.value = ''
+    return
+  }
+
+  // Handle direct video ID
+  if (url.length === 11 && !url.includes('/')) {
+    videoId.value = url
+    return
+  }
+
+  // Extract from YouTube URLs
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
+  ]
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern)
+    if (match) {
+      videoId.value = match[1]
+      return
+    }
+  }
+
+  videoId.value = ''
+}
+
+const searchYouTubeVideos = async () => {
+  if (!searchQuery.value.trim()) return
+
+  isSearching.value = true
+  searchResults.value = []
+
+  try {
+    console.log('🔍 Searching YouTube for:', searchQuery.value)
+
+    const response = await fetch(
+      `https://api.vegvisr.org/youtube-search?q=${encodeURIComponent(searchQuery.value)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+
+    console.log('📊 YouTube search response status:', response.status)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ YouTube search results:', data)
+
+      if (data.success && data.results) {
+        searchResults.value = data.results
+        console.log(`Found ${data.results.length} videos`)
+      } else {
+        console.warn('⚠️ No results in response:', data)
+        alert('No videos found for your search.')
+      }
+    } else {
+      const errorText = await response.text()
+      console.error('❌ YouTube search failed:', errorText)
+      alert(`YouTube search failed: ${response.status}`)
+    }
+  } catch (error) {
+    console.error('❌ YouTube search error:', error)
+    alert(`Error searching YouTube: ${error.message}`)
+  } finally {
+    isSearching.value = false
+  }
+}
+
+const selectVideo = (video) => {
+  console.log('📺 Selected video:', video)
+  selectedVideo.value = video
+  videoId.value = video.videoId
+  youtubeUrl.value = `https://www.youtube.com/watch?v=${video.videoId}`
+
+  // Auto-fetch transcript when video is selected
+  fetchYouTubeTranscript()
+}
+
+const fetchYouTubeTranscript = async () => {
+  if (!videoId.value) {
+    alert('Please enter a valid YouTube URL or Video ID')
+    return
+  }
+
+  isLoadingTranscript.value = true
+  transcriptText.value = ''
+
+  try {
+    console.log('📥 Fetching transcript for video ID:', videoId.value)
+
+    const headers = {
+      'Content-Type': 'application/json',
+    }
+
+    // Add user email for OAuth2 credentials if available
+    if (userStore.email) {
+      headers['x-user-email'] = userStore.email
+    }
+
+    const response = await fetch(`https://api.vegvisr.org/youtube-transcript/${videoId.value}`, {
+      method: 'GET',
+      headers,
+    })
+
+    console.log('📊 YouTube transcript response status:', response.status)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ YouTube transcript response:', data)
+
+      if (data.success && data.transcript) {
+        // Convert transcript segments to text
+        const transcriptParts = data.transcript.map((segment) => segment.text).join(' ')
+        transcriptText.value = transcriptParts
+
+        console.log(`📝 Transcript extracted: ${transcriptParts.length} characters`)
+
+        // Set source language if detected
+        if (data.language) {
+          sourceLanguage.value = data.language === 'en' ? 'english' : 'auto'
+        }
+
+        alert(
+          `✅ Transcript fetched successfully!\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters`,
+        )
+      } else {
+        console.warn('⚠️ No transcript data in response:', data)
+        alert(`No transcript available for this video.\n\nError: ${data.error || 'Unknown error'}`)
+      }
+    } else {
+      const errorData = await response.json()
+      console.error('❌ YouTube transcript failed:', errorData)
+
+      if (errorData.debug) {
+        console.log('🔍 Debug info:', errorData.debug)
+      }
+
+      alert(
+        `Failed to get YouTube transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThis video may not have captions available.`,
+      )
+    }
+  } catch (error) {
+    console.error('❌ YouTube transcript error:', error)
+    alert(`Error fetching YouTube transcript: ${error.message}`)
+  } finally {
+    isLoadingTranscript.value = false
+  }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  return new Date(dateString).toLocaleDateString()
+}
+
+const handleImageError = (event) => {
+  event.target.src =
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjkwIiB2aWV3Qm94PSIwIDAgMTIwIDkwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjkwIiBmaWxsPSIjZjBmMGYwIi8+Cjx0ZXh0IHg9IjYwIiB5PSI0NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9IjAuM2VtIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiPk5vIEltYWdlPC90ZXh0Pgo8L3N2Zz4K'
+}
 
 // File handling
 const handleFileUpload = async (event) => {
@@ -532,9 +833,17 @@ const createNewGraph = async () => {
     const timeStr = today.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })
     const nodeCount = knowledgeGraphPreview.value.nodes?.length || 0
 
+    // Use video title if available, otherwise generic title
+    const videoTitle = selectedVideo.value?.title || 'Transkript'
+    const graphTitle = selectedVideo.value
+      ? `🎬 ${videoTitle.substring(0, 50)}${videoTitle.length > 50 ? '...' : ''} (${nodeCount} deler)`
+      : `📝 Transkript ${dateStr} (${nodeCount} deler)`
+
     const graphMetadata = {
-      title: `📝 Transkript ${dateStr} (${nodeCount} deler)`,
-      description: `Automatisk generert norsk kunnskapsgraf fra transkript prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
+      title: graphTitle,
+      description: selectedVideo.value
+        ? `Norsk kunnskapsgraf fra YouTube video: "${videoTitle}" (${selectedVideo.value.channelTitle}). Prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`
+        : `Automatisk generert norsk kunnskapsgraf fra transkript prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
       createdBy: userStore.email || 'Anonymous',
       version: 1,
       createdAt: new Date().toISOString(),
@@ -603,6 +912,12 @@ const resetProcessor = () => {
   transcriptText.value = ''
   knowledgeGraphPreview.value = null
   isProcessing.value = false
+  youtubeUrl.value = ''
+  videoId.value = ''
+  searchQuery.value = ''
+  searchResults.value = []
+  selectedVideo.value = null
+  inputMethod.value = 'upload'
   if (fileInput.value) {
     fileInput.value.value = ''
   }
@@ -651,6 +966,26 @@ const close = () => {
   color: #666;
 }
 
+.input-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #333;
+  transition: all 0.3s ease;
+}
+
+.tab-button.active {
+  border-bottom: 2px solid #007bff;
+}
+
 .upload-section {
   margin-bottom: 30px;
 }
@@ -685,8 +1020,99 @@ const close = () => {
   margin-bottom: 15px;
 }
 
+.paste-section {
+  margin-bottom: 30px;
+}
+
+.youtube-section {
+  margin-bottom: 30px;
+}
+
+.url-input-group {
+  display: flex;
+  gap: 10px;
+}
+
+.search-input-group {
+  display: flex;
+  gap: 10px;
+}
+
 .processing-controls {
   margin-bottom: 20px;
+}
+
+.selected-video-info {
+  margin-bottom: 20px;
+}
+
+.video-card {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.video-thumbnail img {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.video-info {
+  flex: 1;
+}
+
+.video-title {
+  font-weight: bold;
+  color: #333;
+}
+
+.video-channel {
+  color: #666;
+}
+
+.video-date {
+  color: #666;
+}
+
+.video-actions {
+  text-align: right;
+}
+
+.search-results {
+  margin-bottom: 20px;
+}
+
+.video-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.video-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.video-item:hover {
+  background: #f0f0f0;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.video-id-display {
+  color: #007bff;
+  font-weight: 500;
+  margin-top: 5px;
+  display: block;
 }
 
 .transcript-preview {
