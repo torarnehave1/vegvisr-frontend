@@ -1572,7 +1572,9 @@ const getYouTubeCaptionsOfficial = async (videoId, apiKey, accessToken = null) =
     const captionDownloadUrl = new URL(
       `https://www.googleapis.com/youtube/v3/captions/${bestTrack.id}`,
     )
-    captionDownloadUrl.searchParams.set('tfmt', 'srv3') // Get structured XML format
+    // Use proper YouTube Data API v3 parameters
+    captionDownloadUrl.searchParams.set('fmt', 'srv3') // Format parameter (not tfmt)
+    captionDownloadUrl.searchParams.set('tlang', bestTrack.snippet.language) // Target language
 
     // Prepare download headers with OAuth2 or API key
     const downloadHeaders = {
@@ -1714,6 +1716,70 @@ const getYouTubeCaptionsOfficial = async (videoId, apiKey, accessToken = null) =
   }
 }
 
+// --- YouTube Whisper Transcript Endpoint (Audio Download + Whisper) ---
+const handleYouTubeWhisperTranscript = async (request, env) => {
+  const url = new URL(request.url)
+  const videoId = url.pathname.split('/').pop()
+
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return createErrorResponse('Invalid or missing video ID', 400)
+  }
+
+  console.log('🎵 YouTube Whisper Transcript Request:', { videoId })
+
+  try {
+    // Step 1: Extract audio from YouTube video
+    console.log('📹 Extracting audio from YouTube video...')
+    const audioData = await extractYouTubeAudio(videoId, env)
+
+    if (!audioData.success) {
+      return createErrorResponse(`Failed to extract audio: ${audioData.error}`, 400)
+    }
+
+    // Step 2: Store audio temporarily in R2
+    const tempFileName = `temp-audio-${Date.now()}-${videoId}.mp3`
+    console.log('💾 Storing audio temporarily:', tempFileName)
+
+    await env.MY_R2_BUCKET.put(tempFileName, audioData.audioBuffer, {
+      httpMetadata: {
+        contentType: 'audio/mpeg',
+      },
+    })
+
+    // Step 3: Transcribe with OpenAI Whisper
+    console.log('🎙️ Transcribing with OpenAI Whisper...')
+    const transcript = await transcribeAudioWithWhisper(tempFileName, env)
+
+    // Step 4: Cleanup temporary file
+    console.log('🧹 Cleaning up temporary file...')
+    await env.MY_R2_BUCKET.delete(tempFileName)
+
+    if (!transcript.success) {
+      return createErrorResponse(`Transcription failed: ${transcript.error}`, 500)
+    }
+
+    console.log('✅ Whisper transcription complete!')
+    console.log('📊 Transcript segments:', transcript.segments?.length || 0)
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        videoId: videoId,
+        videoTitle: audioData.videoTitle || 'Unknown Title',
+        transcript: transcript.segments || [],
+        totalSegments: transcript.segments?.length || 0,
+        source: 'youtube_whisper_api',
+        language: transcript.language || 'auto',
+        duration: transcript.duration || 0,
+        method: 'audio_download_whisper',
+      }),
+    )
+  } catch (error) {
+    console.error('❌ YouTube Whisper Transcript Error:', error)
+    return createErrorResponse('Failed to process audio transcript: ' + error.message, 500)
+  }
+}
+
 // --- YouTube Transcript Endpoint (Official API Only) ---
 const handleYouTubeTranscript = async (request, env) => {
   const url = new URL(request.url)
@@ -1834,6 +1900,143 @@ const handleYouTubeTranscript = async (request, env) => {
   } catch (error) {
     console.error('❌ YouTube Transcript Error:', error)
     return createErrorResponse('Failed to fetch transcript: ' + error.message, 500)
+  }
+}
+
+// --- YouTube Audio Extraction Function ---
+const extractYouTubeAudio = async (videoId, env) => {
+  try {
+    console.log('🎵 Extracting audio for video:', videoId)
+
+    // For now, we'll use a third-party service to extract audio
+    // You can replace this with your preferred method
+
+    // Option 1: Use a hosted yt-dlp service (example)
+    const audioServiceUrl = `https://youtube-audio-extractor.example.com/extract`
+
+    // Option 2: Use existing services that provide audio extraction
+    // For this implementation, I'll create a placeholder that shows the structure
+
+    // Get video info first
+    const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
+    const videoResponse = await fetch(videoInfoUrl)
+
+    if (!videoResponse.ok) {
+      throw new Error('Failed to get video information')
+    }
+
+    const videoData = await videoResponse.json()
+    const videoTitle = videoData.items?.[0]?.snippet?.title || 'Unknown Title'
+
+    // TODO: Implement actual audio extraction
+    // This is where you'd call your preferred audio extraction service
+    // For now, returning a placeholder structure
+
+    console.log('⚠️ Audio extraction not yet implemented - returning placeholder')
+    return {
+      success: false,
+      error:
+        'Audio extraction service not yet configured. Please implement extractYouTubeAudio function with your preferred method (yt-dlp service, etc.)',
+      videoTitle: videoTitle,
+    }
+
+    // Example of what the successful response should look like:
+    /*
+    return {
+      success: true,
+      audioBuffer: audioBuffer, // The actual audio file data
+      videoTitle: videoTitle,
+      duration: audioDuration,
+      format: 'mp3'
+    }
+    */
+  } catch (error) {
+    console.error('❌ Audio extraction error:', error)
+    return {
+      success: false,
+      error: error.message,
+    }
+  }
+}
+
+// --- OpenAI Whisper Transcription Function ---
+const transcribeAudioWithWhisper = async (audioFileName, env) => {
+  try {
+    console.log('🎙️ Transcribing audio file:', audioFileName)
+
+    if (!env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API key not configured')
+    }
+
+    // Get audio file from R2
+    const audioObject = await env.MY_R2_BUCKET.get(audioFileName)
+    if (!audioObject) {
+      throw new Error('Audio file not found in storage')
+    }
+
+    const audioBuffer = await audioObject.arrayBuffer()
+    console.log('📊 Audio file size:', audioBuffer.byteLength, 'bytes')
+
+    // Check file size (Whisper has 25MB limit)
+    const maxSize = 25 * 1024 * 1024 // 25MB
+    if (audioBuffer.byteLength > maxSize) {
+      throw new Error(
+        `Audio file too large: ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)}MB (max 25MB)`,
+      )
+    }
+
+    // Create form data for OpenAI API
+    const formData = new FormData()
+    formData.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), audioFileName)
+    formData.append('model', 'whisper-1')
+    formData.append('response_format', 'verbose_json') // Get timestamps
+    formData.append('language', 'auto') // Auto-detect language
+
+    console.log('🚀 Sending to OpenAI Whisper API...')
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: formData,
+    })
+
+    console.log('📥 Whisper API response status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Whisper API error:', errorText)
+      throw new Error(`Whisper API error: ${response.status} - ${errorText}`)
+    }
+
+    const transcriptionData = await response.json()
+    console.log('✅ Whisper transcription received')
+    console.log('📊 Detected language:', transcriptionData.language)
+    console.log('📊 Duration:', transcriptionData.duration, 'seconds')
+    console.log('📊 Segments:', transcriptionData.segments?.length || 0)
+
+    // Convert Whisper segments to our format
+    const segments =
+      transcriptionData.segments?.map((segment) => ({
+        start: segment.start,
+        duration: segment.end - segment.start,
+        text: segment.text.trim(),
+      })) || []
+
+    return {
+      success: true,
+      segments: segments,
+      language: transcriptionData.language,
+      duration: transcriptionData.duration,
+      fullText: transcriptionData.text,
+    }
+  } catch (error) {
+    console.error('❌ Whisper transcription error:', error)
+    return {
+      success: false,
+      error: error.message,
+    }
   }
 }
 
@@ -3560,8 +3763,14 @@ export default {
       return await handleYouTubeSearch(request, env)
     }
 
+    // YouTube Whisper Transcript (Download Audio + Whisper)
+    if (pathname.startsWith('/youtube-whisper/') && request.method === 'GET') {
+      return handleYouTubeWhisperTranscript(request, env)
+    }
+
+    // YouTube Transcript (Official API - with restrictions)
     if (pathname.startsWith('/youtube-transcript/') && request.method === 'GET') {
-      return await handleYouTubeTranscript(request, env)
+      return handleYouTubeTranscript(request, env)
     }
 
     if (pathname === '/mystmkrasave' && request.method === 'POST') {

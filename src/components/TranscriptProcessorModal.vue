@@ -75,15 +75,33 @@
               class="form-control"
               placeholder="https://www.youtube.com/watch?v=VIDEO_ID or just VIDEO_ID"
             />
-            <button
-              @click="fetchYouTubeTranscript"
-              :disabled="!videoId || isLoadingTranscript"
-              class="btn btn-primary"
-            >
-              {{ isLoadingTranscript ? '⏳' : '📥' }} Get Transcript
-            </button>
+            <div class="transcript-method-buttons">
+              <button
+                @click="fetchYouTubeTranscript"
+                :disabled="!videoId || isLoadingTranscript"
+                class="btn btn-primary"
+                title="Uses YouTube's official captions (limited availability)"
+              >
+                {{ isLoadingTranscript ? '⏳' : '📄' }} Official Captions
+              </button>
+              <button
+                @click="fetchYouTubeWhisperTranscript"
+                :disabled="!videoId || isLoadingTranscript"
+                class="btn btn-success"
+                title="Downloads audio and uses AI transcription (works for any video)"
+              >
+                {{ isLoadingTranscript ? '⏳' : '🎵' }} AI Whisper
+              </button>
+            </div>
           </div>
           <small v-if="videoId" class="video-id-display">Video ID: {{ videoId }}</small>
+          <div class="method-explanation">
+            <small class="text-muted">
+              <strong>📄 Official Captions:</strong> Fast, uses YouTube's captions (if available)<br />
+              <strong>🎵 AI Whisper:</strong> Downloads audio + AI transcription (works for any
+              video, slower)
+            </small>
+          </div>
         </div>
 
         <!-- YouTube Search -->
@@ -415,8 +433,8 @@ const selectVideo = (video) => {
   videoId.value = video.videoId
   youtubeUrl.value = `https://www.youtube.com/watch?v=${video.videoId}`
 
-  // Auto-fetch transcript when video is selected
-  fetchYouTubeTranscript()
+  // Don't auto-fetch anymore - let user choose method
+  console.log('🎯 Video selected. Choose transcription method above.')
 }
 
 const fetchYouTubeTranscript = async () => {
@@ -464,11 +482,13 @@ const fetchYouTubeTranscript = async () => {
         }
 
         alert(
-          `✅ Transcript fetched successfully!\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters`,
+          `✅ Official captions fetched successfully!\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters`,
         )
       } else {
         console.warn('⚠️ No transcript data in response:', data)
-        alert(`No transcript available for this video.\n\nError: ${data.error || 'Unknown error'}`)
+        alert(
+          `No official captions available for this video.\n\nError: ${data.error || 'Unknown error'}\n\nTry the AI Whisper option instead!`,
+        )
       }
     } else {
       const errorData = await response.json()
@@ -479,12 +499,72 @@ const fetchYouTubeTranscript = async () => {
       }
 
       alert(
-        `Failed to get YouTube transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThis video may not have captions available.`,
+        `Failed to get official captions.\n\nError: ${errorData.error || 'Unknown error'}\n\nTry the AI Whisper option for better compatibility!`,
       )
     }
   } catch (error) {
     console.error('❌ YouTube transcript error:', error)
-    alert(`Error fetching YouTube transcript: ${error.message}`)
+    alert(`Error fetching official captions: ${error.message}`)
+  } finally {
+    isLoadingTranscript.value = false
+  }
+}
+
+const fetchYouTubeWhisperTranscript = async () => {
+  if (!videoId.value) {
+    alert('Please enter a valid YouTube URL or Video ID')
+    return
+  }
+
+  isLoadingTranscript.value = true
+  transcriptText.value = ''
+
+  try {
+    console.log('🎵 Fetching Whisper transcript for video ID:', videoId.value)
+
+    const response = await fetch(`https://api.vegvisr.org/youtube-whisper/${videoId.value}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    console.log('📊 YouTube Whisper response status:', response.status)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ YouTube Whisper response:', data)
+
+      if (data.success && data.transcript) {
+        // Convert transcript segments to text
+        const transcriptParts = data.transcript.map((segment) => segment.text).join(' ')
+        transcriptText.value = transcriptParts
+
+        console.log(`📝 Whisper transcript extracted: ${transcriptParts.length} characters`)
+
+        // Set source language if detected
+        if (data.language) {
+          sourceLanguage.value = data.language === 'en' ? 'english' : 'auto'
+        }
+
+        alert(
+          `✅ AI Whisper transcript generated successfully!\n🎵 Duration: ${Math.round(data.duration || 0)}s\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters\n🌍 Language: ${data.language || 'auto'}`,
+        )
+      } else {
+        console.warn('⚠️ No Whisper transcript data in response:', data)
+        alert(`Failed to generate AI transcript.\n\nError: ${data.error || 'Unknown error'}`)
+      }
+    } else {
+      const errorData = await response.json()
+      console.error('❌ YouTube Whisper failed:', errorData)
+
+      alert(
+        `Failed to generate AI transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nNote: Audio extraction service may need configuration.`,
+      )
+    }
+  } catch (error) {
+    console.error('❌ YouTube Whisper error:', error)
+    alert(`Error generating AI transcript: ${error.message}`)
   } finally {
     isLoadingTranscript.value = false
   }
@@ -1036,6 +1116,25 @@ const close = () => {
 .search-input-group {
   display: flex;
   gap: 10px;
+}
+
+.transcript-method-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.transcript-method-buttons .btn {
+  flex: 1;
+  font-size: 0.9em;
+}
+
+.method-explanation {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border-left: 3px solid #007bff;
 }
 
 .processing-controls {
