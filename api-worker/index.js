@@ -1737,6 +1737,7 @@ const handleYouTubeTranscriptIO = async (request, env) => {
     console.log('📡 Calling YouTube Transcript IO service...')
 
     // Call the third-party service
+    // YouTube Transcript IO uses "Basic <token>" format, not standard base64 encoded Basic auth
     const response = await fetch('https://www.youtube-transcript.io/api/transcripts', {
       method: 'POST',
       headers: {
@@ -1761,53 +1762,82 @@ const handleYouTubeTranscriptIO = async (request, env) => {
 
     const data = await response.json()
     console.log('✅ YouTube Transcript IO response received')
-    console.log('📊 Response data keys:', Object.keys(data))
+    console.log('📊 Response is array:', Array.isArray(data))
+
+    // YouTube Transcript IO returns an array of video objects, get the first one
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log('❌ Invalid response format - expected array with video data')
+      return createErrorResponse('Invalid response format from YouTube Transcript IO', 500)
+    }
+
+    const videoData = data[0] // Get the first (and usually only) video object
+    console.log('📊 Video data keys:', Object.keys(videoData))
 
     // Check if we got transcript data
-    if (!data || !data[videoId]) {
+    if (
+      !videoData ||
+      !videoData.tracks ||
+      !Array.isArray(videoData.tracks) ||
+      videoData.tracks.length === 0
+    ) {
+      console.log('❌ No tracks found in video data')
+      console.log('❌ videoData.tracks:', videoData?.tracks)
       return createErrorResponse('No transcript data found for this video ID', 404)
     }
 
-    const transcriptData = data[videoId]
-    console.log('📝 Transcript data structure:', Object.keys(transcriptData))
+    const tracks = videoData.tracks
+    console.log('📝 Available tracks:', tracks.length)
+    console.log(
+      '📝 Track languages:',
+      tracks.map((t) => t.language),
+    )
+
+    // Use the first available track (usually English)
+    const firstTrack = tracks[0]
+    const transcriptArray = firstTrack.transcript
+
+    console.log('📝 Using track language:', firstTrack.language)
+    console.log('📝 Transcript segments:', transcriptArray?.length || 0)
 
     // Convert to our expected format
     let transcript = []
     let totalSegments = 0
 
-    if (transcriptData.segments && Array.isArray(transcriptData.segments)) {
-      transcript = transcriptData.segments.map((segment) => ({
-        start: segment.start || 0,
-        duration: segment.duration || 0,
-        text: segment.text || '',
+    if (transcriptArray && Array.isArray(transcriptArray)) {
+      transcript = transcriptArray.map((segment, index) => ({
+        start: parseFloat(segment.start) || index * 5, // Convert string to number
+        duration: parseFloat(segment.dur) || parseFloat(segment.duration) || 5, // Use 'dur' field from API
+        text: segment.text || segment.content || '', // Handle different text field names
       }))
       totalSegments = transcript.length
-    } else if (transcriptData.text) {
+    } else if (typeof transcriptArray === 'string') {
       // If it's just a text blob, create a single segment
       transcript = [
         {
           start: 0,
           duration: 0,
-          text: transcriptData.text,
+          text: transcriptArray,
         },
       ]
       totalSegments = 1
     }
 
-    // Get video title from YouTube API for better metadata
-    let videoTitle = 'Unknown Title'
-    try {
-      if (env.YOUTUBE_API_KEY) {
-        const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
-        const videoResponse = await fetch(videoInfoUrl)
+    // Get video title from the response or fallback to YouTube API
+    let videoTitle = videoData.title || 'Unknown Title'
+    if (!videoTitle || videoTitle === 'Unknown Title') {
+      try {
+        if (env.YOUTUBE_API_KEY) {
+          const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
+          const videoResponse = await fetch(videoInfoUrl)
 
-        if (videoResponse.ok) {
-          const videoData = await videoResponse.json()
-          videoTitle = videoData.items?.[0]?.snippet?.title || 'Unknown Title'
+          if (videoResponse.ok) {
+            const youtubeData = await videoResponse.json()
+            videoTitle = youtubeData.items?.[0]?.snippet?.title || videoTitle
+          }
         }
+      } catch (infoError) {
+        console.warn('⚠️ Could not get video title:', infoError.message)
       }
-    } catch (infoError) {
-      console.warn('⚠️ Could not get video title:', infoError.message)
     }
 
     console.log('🎉 Successfully processed transcript from YouTube Transcript IO')
@@ -1821,9 +1851,10 @@ const handleYouTubeTranscriptIO = async (request, env) => {
         transcript: transcript,
         totalSegments: totalSegments,
         source: 'youtube_transcript_io',
-        language: transcriptData.language || 'auto',
+        language: firstTrack.language || 'auto',
         method: 'third_party_service',
         service: 'youtube-transcript.io',
+        availableLanguages: tracks.map((t) => t.language),
       }),
     )
   } catch (error) {

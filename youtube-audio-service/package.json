@@ -1,0 +1,35 @@
+{
+  "name": "youtube-audio-extractor",
+  "version": "1.0.0",
+  "description": "Node.js microservice for extracting audio from YouTube videos using yt-dlp",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "install-yt-dlp": "npm run download-yt-dlp",
+    "download-yt-dlp": "node scripts/download-yt-dlp.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "youtube",
+    "audio",
+    "extraction",
+    "yt-dlp",
+    "microservice"
+  ],
+  "author": "Vegvisr",
+  "license": "MIT"
+}
