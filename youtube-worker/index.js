@@ -47,7 +47,7 @@ export default {
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: 'email https://www.googleapis.com/auth/youtube.readonly',
+        scope: 'email https://www.googleapis.com/auth/youtube.force-ssl',
         access_type: 'offline',
         prompt: 'consent',
       })
@@ -127,7 +127,7 @@ export default {
           client_id: clientId,
           stored_at: Date.now(),
           expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
-          scope: 'youtube.readonly',
+          scope: 'youtube.force-ssl',
         }
 
         await env.YOUTUBE_CREDENTIALS.put(userEmail, JSON.stringify(credentials))

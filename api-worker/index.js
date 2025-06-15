@@ -1714,7 +1714,7 @@ const getYouTubeCaptionsOfficial = async (videoId, apiKey, accessToken = null) =
   }
 }
 
-// --- YouTube Transcript Endpoint ---
+// --- YouTube Transcript Endpoint (Official API Only) ---
 const handleYouTubeTranscript = async (request, env) => {
   const url = new URL(request.url)
   const videoId = url.pathname.split('/').pop()
@@ -1725,815 +1725,115 @@ const handleYouTubeTranscript = async (request, env) => {
 
   console.log('🎬 YouTube Transcript Request:', { videoId })
 
-  // Debug tracking
-  const debugInfo = {
-    videoId: videoId,
-    videoFound: false,
-    videoTitle: null,
-    attemptsTriede: [],
-    errors: [],
-  }
-
   try {
-    // First, get video metadata to verify the video exists
+    // Get video metadata to verify the video exists
     const apiKey = env.YOUTUBE_API_KEY
-    if (apiKey) {
-      const videoUrl = new URL('https://www.googleapis.com/youtube/v3/videos')
-      videoUrl.searchParams.set('part', 'snippet')
-      videoUrl.searchParams.set('id', videoId)
-      videoUrl.searchParams.set('key', apiKey)
-
-      console.log('📡 Fetching video metadata:', videoUrl.toString())
-
-      const videoResponse = await fetch(videoUrl.toString())
-      console.log('📊 Video API Status:', videoResponse.status)
-
-      if (videoResponse.ok) {
-        const videoData = await videoResponse.json()
-        if (!videoData.items || videoData.items.length === 0) {
-          debugInfo.errors.push('Video not found in YouTube API')
-          return createResponse(
-            JSON.stringify({
-              error: 'Video not found',
-              debug: debugInfo,
-            }),
-            404,
-          )
-        }
-        debugInfo.videoFound = true
-        debugInfo.videoTitle = videoData.items[0].snippet.title
-        console.log('✅ Video found:', debugInfo.videoTitle)
-
-        // ✅ PRIORITY METHOD: Try Official YouTube Data API v3 Captions first
-        console.log('🚀 METHOD 0 (PRIORITY): Trying Official YouTube Data API v3 Captions...')
-
-        // Try to get OAuth2 credentials from the dedicated YouTube auth worker
-        let accessToken = null
-        try {
-          if (request.headers.get('x-user-email')) {
-            const userEmail = request.headers.get('x-user-email')
-            console.log('🔍 OFFICIAL: Getting YouTube OAuth2 credentials for user:', userEmail)
-
-            // Call the dedicated YouTube auth worker
-            const credentialsResponse = await fetch('https://youtube.vegvisr.org/credentials', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ user_email: userEmail }),
-            })
-
-            if (credentialsResponse.ok) {
-              const credentialsData = await credentialsResponse.json()
-              if (credentialsData.success && credentialsData.access_token) {
-                accessToken = credentialsData.access_token
-                console.log('✅ OFFICIAL: Found valid YouTube OAuth2 credentials')
-              } else {
-                console.log('⚠️ OFFICIAL: No valid YouTube credentials found')
-              }
-            } else {
-              console.log('⚠️ OFFICIAL: YouTube auth worker returned:', credentialsResponse.status)
-            }
-          } else {
-            console.log('ℹ️ OFFICIAL: No user email provided for YouTube authentication')
-          }
-        } catch (oauthError) {
-          console.log('⚠️ OFFICIAL: YouTube OAuth2 check failed:', oauthError.message)
-        }
-
-        const officialResult = await getYouTubeCaptionsOfficial(videoId, apiKey, accessToken)
-
-        if (officialResult.success) {
-          console.log('🎉 SUCCESS! Official YouTube Data API v3 returned transcript')
-          debugInfo.attemptsTriede.push({
-            method: 'youtube_data_api_v3_official',
-            success: true,
-            segments: officialResult.totalSegments,
-            language: officialResult.language,
-            source: officialResult.source,
-          })
-
-          return createResponse(
-            JSON.stringify({
-              success: true,
-              videoId: videoId,
-              transcript: officialResult.transcript,
-              totalSegments: officialResult.totalSegments,
-              source: officialResult.source,
-              language: officialResult.language,
-              trackInfo: officialResult.trackInfo,
-              availableTracks: officialResult.availableTracks,
-              debug: debugInfo,
-            }),
-          )
-        } else {
-          console.log('⚠️ Official API failed, will try scraping methods:', officialResult.error)
-          debugInfo.attemptsTriede.push({
-            method: 'youtube_data_api_v3_official',
-            success: false,
-            error: officialResult.error,
-          })
-        }
-      } else {
-        debugInfo.errors.push(`Video API returned ${videoResponse.status}`)
-      }
+    if (!apiKey) {
+      return createErrorResponse('YouTube API key not configured', 500)
     }
 
-    // Fallback Methods: Try multiple transcript URL variants (if official API failed)
-    const transcriptUrls = [
-      `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}`,
-      `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=srv3`,
-      `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=vtt`,
-      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en`,
-      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
-    ]
+    const videoUrl = new URL('https://www.googleapis.com/youtube/v3/videos')
+    videoUrl.searchParams.set('part', 'snippet')
+    videoUrl.searchParams.set('id', videoId)
+    videoUrl.searchParams.set('key', apiKey)
 
-    console.log('🔄 FALLBACK: Official API failed, trying direct transcript URLs...')
+    console.log('📡 Verifying video exists:', videoUrl.toString())
 
-    for (let i = 0; i < transcriptUrls.length; i++) {
-      const transcriptUrl = transcriptUrls[i]
-      console.log(`📡 FALLBACK Method ${i + 1}: Trying transcript URL:`, transcriptUrl)
+    const videoResponse = await fetch(videoUrl.toString())
+    console.log('📊 Video verification status:', videoResponse.status)
+
+    if (!videoResponse.ok) {
+      return createErrorResponse('Failed to verify video with YouTube API', videoResponse.status)
+    }
+
+    const videoData = await videoResponse.json()
+    if (!videoData.items || videoData.items.length === 0) {
+      return createErrorResponse('Video not found', 404)
+    }
+
+    const videoTitle = videoData.items[0].snippet.title
+    console.log('✅ Video found:', videoTitle)
+
+    // Get OAuth2 credentials from the dedicated YouTube auth worker
+    let accessToken = null
+    const userEmail = request.headers.get('x-user-email')
+
+    if (userEmail) {
+      console.log('🔍 Getting YouTube OAuth2 credentials for user:', userEmail)
 
       try {
-        console.log(`🔍 ENHANCED: Fetching timedtext with headers for method ${i + 1}`)
-        const transcriptResponse = await fetch(transcriptUrl, {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            Referer: `https://www.youtube.com/watch?v=${videoId}`,
-            Accept:
-              'text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            DNT: '1',
-            Connection: 'keep-alive',
+        const credentialsResponse = await env.YOUTUBE.fetch(
+          'https://youtube.vegvisr.org/credentials',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ user_email: userEmail }),
           },
-        })
-        const attempt = {
-          method: `timedtext_${i + 1}`,
-          url: transcriptUrl,
-          status: transcriptResponse.status,
-          success: false,
-        }
-
-        console.log(`📊 Transcript Response ${i + 1} Status:`, transcriptResponse.status)
-
-        if (transcriptResponse.ok) {
-          const transcriptText = await transcriptResponse.text()
-          console.log(`📄 Transcript ${i + 1} response length:`, transcriptText.length)
-          console.log(`📄 Transcript ${i + 1} preview:`, transcriptText.substring(0, 200))
-
-          attempt.responseLength = transcriptText.length
-          attempt.preview = transcriptText.substring(0, 100)
-
-          // Try to parse as XML (YouTube transcripts are often in XML format)
-          if (
-            transcriptText.includes('<?xml') ||
-            transcriptText.includes('<transcript>') ||
-            transcriptText.includes('<text')
-          ) {
-            console.log(`📝 Method ${i + 1}: Parsing XML transcript...`)
-
-            // Basic XML parsing for transcript
-            const textMatches = transcriptText.match(
-              /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)</g,
-            )
-
-            if (textMatches && textMatches.length > 0) {
-              const transcript = textMatches
-                .map((match) => {
-                  const startMatch = match.match(/start="([^"]*)"/)
-                  const durMatch = match.match(/dur="([^"]*)"/)
-                  const textMatch = match.match(/>([^<]*)</)
-
-                  return {
-                    start: startMatch ? parseFloat(startMatch[1]) : 0,
-                    duration: durMatch ? parseFloat(durMatch[1]) : 0,
-                    text: textMatch
-                      ? textMatch[1]
-                          .replace(/&amp;/g, '&')
-                          .replace(/&lt;/g, '<')
-                          .replace(/&gt;/g, '>')
-                          .replace(/&quot;/g, '"')
-                      : '',
-                  }
-                })
-                .filter((item) => item.text.trim().length > 0)
-
-              if (transcript.length > 0) {
-                console.log(`✅ Method ${i + 1}: Parsed transcript segments:`, transcript.length)
-                attempt.success = true
-                attempt.segments = transcript.length
-                debugInfo.attemptsTriede.push(attempt)
-
-                return createResponse(
-                  JSON.stringify({
-                    success: true,
-                    videoId: videoId,
-                    transcript: transcript,
-                    totalSegments: transcript.length,
-                    source: `youtube_timedtext_${i + 1}`,
-                    debug: debugInfo,
-                  }),
-                )
-              }
-            }
-          }
-
-          // Try JSON parsing for json3 format
-          if (transcriptUrl.includes('json3') && transcriptText.startsWith('{')) {
-            console.log(`📝 Method ${i + 1}: Parsing JSON transcript...`)
-            try {
-              const jsonData = JSON.parse(transcriptText)
-              if (jsonData.events) {
-                const transcript = jsonData.events
-                  .filter((event) => event.segs)
-                  .map((event) => ({
-                    start: event.tStartMs / 1000,
-                    duration: event.dDurationMs / 1000,
-                    text: event.segs.map((seg) => seg.utf8).join(''),
-                  }))
-                  .filter((item) => item.text.trim().length > 0)
-
-                if (transcript.length > 0) {
-                  console.log(
-                    `✅ Method ${i + 1}: Parsed JSON transcript segments:`,
-                    transcript.length,
-                  )
-                  attempt.success = true
-                  attempt.segments = transcript.length
-                  debugInfo.attemptsTriede.push(attempt)
-
-                  return createResponse(
-                    JSON.stringify({
-                      success: true,
-                      videoId: videoId,
-                      transcript: transcript,
-                      totalSegments: transcript.length,
-                      source: `youtube_json3_${i + 1}`,
-                      debug: debugInfo,
-                    }),
-                  )
-                }
-              }
-            } catch (jsonError) {
-              attempt.error = 'JSON parsing failed: ' + jsonError.message
-            }
-          }
-
-          // If not XML or JSON, try to handle as plain text with length check
-          if (transcriptText.trim().length > 10) {
-            console.log(`📝 Method ${i + 1}: Handling as plain text transcript...`)
-            attempt.success = true
-            attempt.textLength = transcriptText.length
-            debugInfo.attemptsTriede.push(attempt)
-
-            return createResponse(
-              JSON.stringify({
-                success: true,
-                videoId: videoId,
-                transcript: [
-                  {
-                    start: 0,
-                    duration: 0,
-                    text: transcriptText.trim(),
-                  },
-                ],
-                totalSegments: 1,
-                source: `youtube_plaintext_${i + 1}`,
-                debug: debugInfo,
-              }),
-            )
-          }
-        } else {
-          attempt.error = `HTTP ${transcriptResponse.status}`
-        }
-
-        debugInfo.attemptsTriede.push(attempt)
-      } catch (fetchError) {
-        console.error(`❌ Method ${i + 1} fetch error:`, fetchError.message)
-        debugInfo.attemptsTriede.push({
-          method: `timedtext_${i + 1}`,
-          url: transcriptUrl,
-          error: fetchError.message,
-          success: false,
-        })
-      }
-    }
-
-    console.log('🔄 FALLBACK: Direct URL methods failed, trying advanced scraping methods...')
-
-    // Advanced Fallback Method 1: Try YouTube watch page scraping
-    console.log('📡 ADVANCED FALLBACK 1: Trying YouTube watch page scraping...')
-    let setCookieHeaders = '' // Define in broader scope for all transcript methods
-
-    try {
-      const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
-      console.log('🔍 DIAGNOSTIC: About to fetch watch URL:', watchUrl)
-      const watchResponse = await fetch(watchUrl, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        },
-      })
-      console.log('🔍 DIAGNOSTIC: Watch response status:', watchResponse.status)
-      console.log('🔍 DIAGNOSTIC: Watch response OK:', watchResponse.ok)
-
-      const attempt = {
-        method: 'watch_page_scraping',
-        url: watchUrl,
-        status: watchResponse.status,
-        success: false,
-      }
-
-      if (watchResponse.ok) {
-        console.log('🔍 DIAGNOSTIC: Starting HTML text extraction...')
-        const htmlText = await watchResponse.text()
-
-        // Extract cookies from watch page response for session continuity
-        setCookieHeaders = watchResponse.headers.get('set-cookie') || ''
-        console.log('🍪 Session cookies available:', !!setCookieHeaders)
-        console.log('📄 Watch page response length:', htmlText.length)
-        console.log(
-          '🔍 DIAGNOSTIC: HTML text extracted successfully, starting detailed analysis...',
         )
 
-        // ULTRA-DETAILED DEBUGGING: Log HTML preview
-        console.log('📄 HTML Preview (first 2000 chars):', htmlText.substring(0, 2000))
-        console.log(
-          '📄 HTML Preview (middle 1000 chars):',
-          htmlText.substring(
-            Math.floor(htmlText.length / 2),
-            Math.floor(htmlText.length / 2) + 1000,
-          ),
-        )
-        console.log('📄 HTML contains "captionTracks":', htmlText.includes('captionTracks'))
-        console.log('📄 HTML contains "playerResponse":', htmlText.includes('playerResponse'))
-        console.log(
-          '📄 HTML contains "ytInitialPlayerResponse":',
-          htmlText.includes('ytInitialPlayerResponse'),
-        )
-
-        // Try multiple caption track patterns
-        const captionPatterns = [
-          /"captionTracks":\[(.*?)\]/,
-          /"captionTracks"\s*:\s*\[(.*?)\]/,
-          /captionTracks":\[(.*?)\]/,
-          /captionTracks:\[(.*?)\]/,
-          /"captionTracks":\[([^\]]*)\]/,
-        ]
-
-        let foundCaptionMatch = null
-
-        for (let i = 0; i < captionPatterns.length; i++) {
-          const pattern = captionPatterns[i]
-          foundCaptionMatch = htmlText.match(pattern)
-          if (foundCaptionMatch) {
-            console.log(
-              `✅ Found captionTracks with pattern ${i + 1}:`,
-              foundCaptionMatch[0].substring(0, 200),
-            )
-            break
+        if (credentialsResponse.ok) {
+          const credentialsData = await credentialsResponse.json()
+          if (credentialsData.success && credentialsData.access_token) {
+            accessToken = credentialsData.access_token
+            console.log('✅ Found valid YouTube OAuth2 credentials')
           } else {
-            console.log(`❌ Pattern ${i + 1} failed: ${pattern}`)
-          }
-        }
-
-        // Also try to find ytInitialPlayerResponse
-        const playerResponsePatterns = [
-          /ytInitialPlayerResponse\s*=\s*({.*?});/,
-          /"ytInitialPlayerResponse":({.*?}),/,
-          /var ytInitialPlayerResponse = ({.*?});/,
-        ]
-
-        for (let i = 0; i < playerResponsePatterns.length; i++) {
-          const pattern = playerResponsePatterns[i]
-          const playerMatch = htmlText.match(pattern)
-          if (playerMatch) {
-            console.log(`✅ Found ytInitialPlayerResponse with pattern ${i + 1}`)
-            try {
-              const playerData = JSON.parse(playerMatch[1])
-              if (playerData.captions && playerData.captions.playerCaptionsTracklistRenderer) {
-                const tracks = playerData.captions.playerCaptionsTracklistRenderer.captionTracks
-                console.log('📋 ytInitialPlayerResponse caption tracks found:', tracks?.length || 0)
-
-                if (tracks && tracks.length > 0) {
-                  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
-                    const track = tracks[trackIndex]
-                    console.log(`📡 ytInitialPlayerResponse track ${trackIndex + 1}:`, {
-                      languageCode: track.languageCode,
-                      baseUrl: track.baseUrl?.substring(0, 100) + '...',
-                      name: track.name?.simpleText || track.name?.runs?.[0]?.text,
-                    })
-
-                    if (track.baseUrl) {
-                      try {
-                        console.log(
-                          `🔍 ENHANCED: Fetching caption with session headers for track ${trackIndex + 1}`,
-                        )
-
-                        // Enhanced session headers with cookies and additional browser simulation
-                        const enhancedHeaders = {
-                          'User-Agent':
-                            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                          Referer: `https://www.youtube.com/watch?v=${videoId}`,
-                          Origin: 'https://www.youtube.com',
-                          Accept:
-                            'text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5',
-                          'Accept-Language': 'en-US,en;q=0.9,nl;q=0.8',
-                          'Accept-Encoding': 'gzip, deflate, br',
-                          DNT: '1',
-                          Connection: 'keep-alive',
-                          'Upgrade-Insecure-Requests': '1',
-                          'Sec-Fetch-Dest': 'empty',
-                          'Sec-Fetch-Mode': 'cors',
-                          'Sec-Fetch-Site': 'same-origin',
-                          'sec-ch-ua':
-                            '"Google Chrome";v="91", "Chromium";v="91", ";Not A Brand";v="99"',
-                          'sec-ch-ua-mobile': '?0',
-                          'sec-ch-ua-platform': '"Windows"',
-                        }
-
-                        // Add session cookies if available
-                        if (setCookieHeaders) {
-                          enhancedHeaders.Cookie = setCookieHeaders
-                          console.log('🍪 Adding session cookies to request')
-                        }
-
-                        const captionResponse = await fetch(track.baseUrl, {
-                          headers: enhancedHeaders,
-                        })
-                        console.log(
-                          `🔍 ENHANCED: Caption response status: ${captionResponse.status}`,
-                        )
-                        if (captionResponse.ok) {
-                          const captionXml = await captionResponse.text()
-                          console.log(
-                            `📄 ytInitialPlayerResponse track ${trackIndex + 1} XML length:`,
-                            captionXml.length,
-                          )
-                          console.log(
-                            `📄 ytInitialPlayerResponse track ${trackIndex + 1} XML preview:`,
-                            captionXml.substring(0, 500),
-                          )
-
-                          if (captionXml.length > 50) {
-                            const textMatches = captionXml.match(
-                              /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)<\/text>/g,
-                            )
-
-                            if (textMatches && textMatches.length > 0) {
-                              const transcript = textMatches
-                                .map((match) => {
-                                  const startMatch = match.match(/start="([^"]*)"/)
-                                  const durMatch = match.match(/dur="([^"]*)"/)
-                                  const textMatch = match.match(/>([^<]*)<\/text>/)
-
-                                  return {
-                                    start: startMatch ? parseFloat(startMatch[1]) : 0,
-                                    duration: durMatch ? parseFloat(durMatch[1]) : 0,
-                                    text: textMatch
-                                      ? textMatch[1]
-                                          .replace(/&amp;/g, '&')
-                                          .replace(/&lt;/g, '<')
-                                          .replace(/&gt;/g, '>')
-                                          .replace(/&quot;/g, '"')
-                                          .replace(/&#39;/g, "'")
-                                      : '',
-                                  }
-                                })
-                                .filter((item) => item.text.trim().length > 0)
-
-                              if (transcript.length > 0) {
-                                console.log(
-                                  `✅ SUCCESS! ytInitialPlayerResponse transcript: ${transcript.length} segments`,
-                                )
-                                attempt.success = true
-                                attempt.segments = transcript.length
-                                attempt.source = 'ytInitialPlayerResponse'
-                                debugInfo.attemptsTriede.push(attempt)
-
-                                return createResponse(
-                                  JSON.stringify({
-                                    success: true,
-                                    videoId: videoId,
-                                    transcript: transcript,
-                                    totalSegments: transcript.length,
-                                    source: 'youtube_ytInitialPlayerResponse',
-                                    language: track.languageCode,
-                                    debug: debugInfo,
-                                  }),
-                                )
-                              }
-                            }
-                          }
-                        } else {
-                          console.error(
-                            `❌ ytInitialPlayerResponse track ${trackIndex + 1} HTTP error: ${captionResponse.status}`,
-                          )
-                          const errorText = await captionResponse.text()
-                          console.error(
-                            `❌ ytInitialPlayerResponse track ${trackIndex + 1} error response:`,
-                            errorText.substring(0, 200),
-                          )
-                        }
-                      } catch (trackError) {
-                        console.error(
-                          `❌ ytInitialPlayerResponse track ${trackIndex + 1} fetch error:`,
-                          trackError.message,
-                        )
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (parseError) {
-              console.error(`❌ ytInitialPlayerResponse parsing error:`, parseError.message)
-            }
-            break
-          }
-        }
-
-        // Look for caption tracks in the page
-        const captionRegex = /"captionTracks":\[(.*?)\]/
-        const captionMatch = htmlText.match(captionRegex)
-
-        if (captionMatch) {
-          console.log('✅ Found captionTracks in watch page')
-          try {
-            const captionTracksJson = `[${captionMatch[1]}]`
-            const captionTracks = JSON.parse(captionTracksJson)
-
-            console.log('📋 Available caption tracks:', captionTracks.length)
-
-            // Try each caption track
-            for (let i = 0; i < captionTracks.length; i++) {
-              const track = captionTracks[i]
-              if (track.baseUrl) {
-                console.log(`📡 Trying caption track ${i + 1}:`, track.languageCode)
-
-                console.log(
-                  `🔍 ENHANCED: Fetching caption with session headers for legacy track ${i + 1}`,
-                )
-
-                // Enhanced session headers with cookies for legacy tracks
-                const legacyHeaders = {
-                  'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                  Referer: `https://www.youtube.com/watch?v=${videoId}`,
-                  Origin: 'https://www.youtube.com',
-                  Accept:
-                    'text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5',
-                  'Accept-Language': 'en-US,en;q=0.9,nl;q=0.8',
-                  'Accept-Encoding': 'gzip, deflate, br',
-                  DNT: '1',
-                  Connection: 'keep-alive',
-                  'Upgrade-Insecure-Requests': '1',
-                  'Sec-Fetch-Dest': 'empty',
-                  'Sec-Fetch-Mode': 'cors',
-                  'Sec-Fetch-Site': 'same-origin',
-                  'sec-ch-ua': '"Google Chrome";v="91", "Chromium";v="91", ";Not A Brand";v="99"',
-                  'sec-ch-ua-mobile': '?0',
-                  'sec-ch-ua-platform': '"Windows"',
-                }
-
-                // Add session cookies if available
-                if (setCookieHeaders) {
-                  legacyHeaders.Cookie = setCookieHeaders
-                  console.log('🍪 Adding session cookies to legacy track request')
-                }
-
-                const captionResponse = await fetch(track.baseUrl, {
-                  headers: legacyHeaders,
-                })
-                console.log(
-                  `🔍 ENHANCED: Legacy caption response status: ${captionResponse.status}`,
-                )
-                if (captionResponse.ok) {
-                  const captionXml = await captionResponse.text()
-                  console.log(`📄 Caption track ${i + 1} length:`, captionXml.length)
-
-                  if (captionXml.length > 50) {
-                    const textMatches = captionXml.match(
-                      /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)<\/text>/g,
-                    )
-
-                    if (textMatches && textMatches.length > 0) {
-                      const transcript = textMatches
-                        .map((match) => {
-                          const startMatch = match.match(/start="([^"]*)"/)
-                          const durMatch = match.match(/dur="([^"]*)"/)
-                          const textMatch = match.match(/>([^<]*)<\/text>/)
-
-                          return {
-                            start: startMatch ? parseFloat(startMatch[1]) : 0,
-                            duration: durMatch ? parseFloat(durMatch[1]) : 0,
-                            text: textMatch
-                              ? textMatch[1]
-                                  .replace(/&amp;/g, '&')
-                                  .replace(/&lt;/g, '<')
-                                  .replace(/&gt;/g, '>')
-                                  .replace(/&quot;/g, '"')
-                                  .replace(/&#39;/g, "'")
-                              : '',
-                          }
-                        })
-                        .filter((item) => item.text.trim().length > 0)
-
-                      if (transcript.length > 0) {
-                        console.log(
-                          `✅ Successfully parsed watch page transcript: ${transcript.length} segments`,
-                        )
-                        attempt.success = true
-                        attempt.segments = transcript.length
-                        attempt.language = track.languageCode
-                        debugInfo.attemptsTriede.push(attempt)
-
-                        return createResponse(
-                          JSON.stringify({
-                            success: true,
-                            videoId: videoId,
-                            transcript: transcript,
-                            totalSegments: transcript.length,
-                            source: 'youtube_watch_page_scraping',
-                            language: track.languageCode,
-                            debug: debugInfo,
-                          }),
-                        )
-                      }
-                    }
-                  }
-                } else {
-                  console.error(
-                    `❌ Legacy caption track ${i + 1} HTTP error: ${captionResponse.status}`,
-                  )
-                  const errorText = await captionResponse.text()
-                  console.error(
-                    `❌ Legacy caption track ${i + 1} error response:`,
-                    errorText.substring(0, 200),
-                  )
-                }
-              }
-            }
-          } catch (parseError) {
-            attempt.error = 'Caption tracks parsing failed: ' + parseError.message
-          }
-        }
-      } else {
-        attempt.error = `HTTP ${watchResponse.status}`
-        console.log('🔍 DIAGNOSTIC: Watch response not OK, status:', watchResponse.status)
-      }
-
-      console.log('🔍 DIAGNOSTIC: Adding watch page attempt to debug info')
-      debugInfo.attemptsTriede.push(attempt)
-      console.log('🔍 DIAGNOSTIC: Watch page scraping completed')
-    } catch (watchError) {
-      console.error('❌ Watch page scraping error:', watchError.message)
-      console.error('🔍 DIAGNOSTIC: Full watch error:', watchError)
-      debugInfo.attemptsTriede.push({
-        method: 'watch_page_scraping',
-        error: watchError.message,
-        success: false,
-      })
-    }
-
-    // Advanced Fallback Method 2: Try multiple language codes
-    const languageCodes = ['en', 'en-US', 'en-GB', 'auto', 'a.en']
-
-    for (let langIndex = 0; langIndex < languageCodes.length; langIndex++) {
-      const lang = languageCodes[langIndex]
-      console.log(`📡 ADVANCED FALLBACK 2.${langIndex + 1}: Trying language code: ${lang}`)
-
-      try {
-        const langUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=srv3`
-        console.log(`🔍 ENHANCED: Fetching language ${lang} with headers`)
-
-        // Enhanced session headers with cookies for language-specific requests
-        const langHeaders = {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          Referer: `https://www.youtube.com/watch?v=${videoId}`,
-          Origin: 'https://www.youtube.com',
-          Accept:
-            'text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5',
-          'Accept-Language': 'en-US,en;q=0.9,nl;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          DNT: '1',
-          Connection: 'keep-alive',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
-          'sec-ch-ua': '"Google Chrome";v="91", "Chromium";v="91", ";Not A Brand";v="99"',
-          'sec-ch-ua-mobile': '?0',
-          'sec-ch-ua-platform': '"Windows"',
-        }
-
-        // Add session cookies if available
-        if (setCookieHeaders) {
-          langHeaders.Cookie = setCookieHeaders
-          console.log(`🍪 Adding session cookies to language ${lang} request`)
-        }
-
-        const langResponse = await fetch(langUrl, {
-          headers: langHeaders,
-        })
-
-        const attempt = {
-          method: `language_${lang}`,
-          url: langUrl,
-          status: langResponse.status,
-          success: false,
-        }
-
-        if (langResponse.ok) {
-          const langText = await langResponse.text()
-          console.log(`📄 Language ${lang} response length:`, langText.length)
-
-          if (langText.length > 50) {
-            const textMatches = langText.match(
-              /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)<\/text>/g,
-            )
-
-            if (textMatches && textMatches.length > 0) {
-              const transcript = textMatches
-                .map((match) => {
-                  const startMatch = match.match(/start="([^"]*)"/)
-                  const durMatch = match.match(/dur="([^"]*)"/)
-                  const textMatch = match.match(/>([^<]*)<\/text>/)
-
-                  return {
-                    start: startMatch ? parseFloat(startMatch[1]) : 0,
-                    duration: durMatch ? parseFloat(durMatch[1]) : 0,
-                    text: textMatch
-                      ? textMatch[1]
-                          .replace(/&amp;/g, '&')
-                          .replace(/&lt;/g, '<')
-                          .replace(/&gt;/g, '>')
-                          .replace(/&quot;/g, '"')
-                          .replace(/&#39;/g, "'")
-                      : '',
-                  }
-                })
-                .filter((item) => item.text.trim().length > 0)
-
-              if (transcript.length > 0) {
-                console.log(
-                  `✅ Successfully parsed ${lang} transcript: ${transcript.length} segments`,
-                )
-                attempt.success = true
-                attempt.segments = transcript.length
-                debugInfo.attemptsTriede.push(attempt)
-
-                return createResponse(
-                  JSON.stringify({
-                    success: true,
-                    videoId: videoId,
-                    transcript: transcript,
-                    totalSegments: transcript.length,
-                    source: `youtube_language_${lang}`,
-                    debug: debugInfo,
-                  }),
-                )
-              }
-            }
+            console.log('⚠️ No valid YouTube credentials found:', credentialsData.error)
           }
         } else {
-          attempt.error = `HTTP ${langResponse.status}`
+          console.log('⚠️ YouTube auth worker returned error:', credentialsResponse.status)
         }
-
-        debugInfo.attemptsTriede.push(attempt)
-      } catch (langError) {
-        console.error(`❌ Language ${lang} error:`, langError.message)
-        debugInfo.attemptsTriede.push({
-          method: `language_${lang}`,
-          error: langError.message,
-          success: false,
-        })
+      } catch (oauthError) {
+        console.log('⚠️ YouTube OAuth2 check failed:', oauthError.message)
       }
+    } else {
+      console.log('ℹ️ No user email provided for YouTube authentication')
     }
 
-    console.log('❌ All transcript methods failed (Official API + Fallback + Advanced Scraping)')
+    // Call the official YouTube Data API v3 Captions endpoint
+    console.log('🚀 Calling Official YouTube Data API v3 Captions...')
+    const officialResult = await getYouTubeCaptionsOfficial(videoId, apiKey, accessToken)
 
-    // Return detailed error with debug information
-    return createResponse(
-      JSON.stringify({
-        error: 'Transcript not available for this video',
-        message:
-          'Tried Official YouTube Data API v3, direct transcript URLs, and advanced scraping methods but none returned usable data',
-        debug: debugInfo,
-      }),
-      404,
-    )
+    if (officialResult.success) {
+      console.log('🎉 SUCCESS! Official YouTube Data API v3 returned transcript')
+      console.log('📊 Transcript segments:', officialResult.totalSegments)
+
+      return createResponse(
+        JSON.stringify({
+          success: true,
+          videoId: videoId,
+          videoTitle: videoTitle,
+          transcript: officialResult.transcript,
+          totalSegments: officialResult.totalSegments,
+          source: officialResult.source,
+          language: officialResult.language,
+          trackInfo: officialResult.trackInfo,
+          availableTracks: officialResult.availableTracks,
+        }),
+      )
+    } else {
+      console.log('❌ Official YouTube Data API v3 failed:', officialResult.error)
+
+      // Return clear error message
+      const errorMessage = accessToken
+        ? 'This video does not have captions available, or the captions are restricted.'
+        : 'YouTube authentication required. Please sign in to access video captions.'
+
+      return createResponse(
+        JSON.stringify({
+          error: errorMessage,
+          details: officialResult.error,
+          requiresAuth: !accessToken,
+          videoTitle: videoTitle,
+          availableTracks: officialResult.availableTracks || [],
+        }),
+        accessToken ? 404 : 401,
+      )
+    }
   } catch (error) {
     console.error('❌ YouTube Transcript Error:', error)
-    debugInfo.errors.push(error.message)
-    return createResponse(
-      JSON.stringify({
-        error: 'Failed to fetch transcript: ' + error.message,
-        debug: debugInfo,
-      }),
-      500,
-    )
+    return createErrorResponse('Failed to fetch transcript: ' + error.message, 500)
   }
 }
 
@@ -4156,9 +3456,7 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token',
+          ...corsHeaders,
           'Access-Control-Max-Age': '86400',
         },
       })
