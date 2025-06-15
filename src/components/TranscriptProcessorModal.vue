@@ -206,7 +206,12 @@
 
         <div class="transcript-preview">
           <h5>Transcript Preview:</h5>
-          <div class="preview-text">{{ transcriptText.substring(0, 500) }}...</div>
+          <textarea
+            v-model="transcriptText"
+            class="form-control preview-text full-transcript"
+            rows="10"
+            readonly
+          ></textarea>
           <small>{{ transcriptText.length }} characters total</small>
         </div>
       </div>
@@ -1301,6 +1306,10 @@ const close = () => {
   font-size: 0.9em;
   max-height: 150px;
   overflow-y: auto;
+}
+
+.full-transcript {
+  max-height: 400px;
 }
 
 .processing-status {
