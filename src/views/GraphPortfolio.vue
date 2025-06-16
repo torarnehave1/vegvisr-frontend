@@ -523,6 +523,7 @@ import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useUserStore } from '@/stores/userStore'
+import { useContentFilter } from '@/composables/useContentFilter'
 import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
@@ -540,6 +541,7 @@ const router = useRouter()
 const graphStore = useKnowledgeGraphStore()
 const portfolioStore = usePortfolioStore()
 const userStore = useUserStore()
+const contentFilter = useContentFilter()
 const graphs = ref([])
 const loading = ref(true)
 const error = ref(null)
@@ -630,39 +632,10 @@ const fetchGraphs = async () => {
 
         // Wait for all graph data to be fetched
         const processedGraphs = await Promise.all(graphPromises)
+        const validGraphs = processedGraphs.filter((graph) => graph !== null)
 
-        // Filter graphs based on meta area if header is present
-        const metaAreaFilter =
-          response.headers.get('x-meta-area-filter') ||
-          response.headers.get('x-custom-meta-area-filter')
-        console.log('Received meta area filter from headers:', metaAreaFilter)
-        console.log('All response headers:', Object.fromEntries(response.headers.entries()))
-
-        if (metaAreaFilter) {
-          console.log('Filtering graphs by meta areas:', metaAreaFilter)
-          const allowedMetaAreas = metaAreaFilter
-            .split(',')
-            .map((area) => area.trim().toUpperCase())
-          console.log('Allowed meta areas:', allowedMetaAreas)
-
-          const filteredGraphs = processedGraphs
-            .filter((graph) => graph !== null)
-            .filter((graph) => {
-              const metaAreas = getMetaAreas(graph.metadata?.metaArea || '')
-              console.log(`Graph ${graph.id} meta areas:`, metaAreas)
-              const hasMetaArea = metaAreas.some((area) =>
-                allowedMetaAreas.includes(area.toUpperCase()),
-              )
-              console.log(`Graph ${graph.id} has any of the allowed meta areas:`, hasMetaArea)
-              return hasMetaArea
-            })
-          console.log('Filtered graphs count:', filteredGraphs.length)
-          console.log('Total graphs before filtering:', processedGraphs.length)
-          graphs.value = filteredGraphs
-        } else {
-          console.log('No meta area filter found, showing all graphs')
-          graphs.value = processedGraphs.filter((graph) => graph !== null)
-        }
+        // Apply KV-based content filtering
+        graphs.value = contentFilter.filterGraphsByMetaAreas(validGraphs)
 
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)
