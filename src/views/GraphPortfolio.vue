@@ -567,7 +567,7 @@ const fetchGraphs = async () => {
   loading.value = true
   error.value = null
   try {
-    const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
+    const response = await fetch('/getknowgraphs')
     if (response.ok) {
       const data = await response.json()
       console.log('Raw API response:', JSON.stringify(data, null, 2))
@@ -576,9 +576,7 @@ const fetchGraphs = async () => {
         // Fetch complete data for each graph
         const graphPromises = data.results.map(async (graph) => {
           try {
-            const graphResponse = await fetch(
-              `https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`,
-            )
+            const graphResponse = await fetch(`/getknowgraph?id=${graph.id}`)
             if (graphResponse.ok) {
               const graphData = await graphResponse.json()
               console.log('Fetched complete graph data:', JSON.stringify(graphData, null, 2))

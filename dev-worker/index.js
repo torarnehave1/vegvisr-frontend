@@ -344,10 +344,20 @@ export default {
           console.log('[Worker] Fetching list of knowledge graphs')
 
           // 1. Determine allowed meta areas based on hostname
-          const hostname = new URL(request.url).hostname
+          const hostname =
+            request.headers.get('x-original-hostname') || new URL(request.url).hostname
+          console.log('[Worker] Request hostname:', hostname)
           let allowedMetaAreas = null
           if (hostname === 'sweet.norsegong.com') {
             allowedMetaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
+            console.log(
+              '[Worker] Setting allowed meta areas for sweet.norsegong.com:',
+              allowedMetaAreas,
+            )
+          } else {
+            console.log(
+              '[Worker] No filtering applied - hostname does not match sweet.norsegong.com',
+            )
           }
           // Add more domains/filters as needed
 
@@ -355,10 +365,12 @@ export default {
           const query = `SELECT id, title, data FROM knowledge_graphs`
           const results = await env.vegvisr_org.prepare(query).all()
           const allGraphs = results.results || results.rows || []
+          console.log('[Worker] Total graphs fetched from database:', allGraphs.length)
 
           // 3. Filter by meta area if needed
           let filteredGraphs = allGraphs
           if (allowedMetaAreas) {
+            console.log('[Worker] Applying meta area filter...')
             filteredGraphs = allGraphs.filter((row) => {
               try {
                 const graphData = JSON.parse(row.data)
@@ -367,11 +379,27 @@ export default {
                   .split('#')
                   .map((a) => a.trim().toUpperCase())
                   .filter(Boolean)
-                return metaAreas.some((area) => allowedMetaAreas.includes(area))
-              } catch {
+                const match = metaAreas.some((area) => allowedMetaAreas.includes(area))
+                console.log(
+                  `[Worker] Graph ${row.id} (${row.title}) - metaAreas:`,
+                  metaAreas,
+                  '- Match:',
+                  match,
+                )
+                return match
+              } catch (e) {
+                console.log(`[Worker] Error parsing graph ${row.id}:`, e)
                 return false
               }
             })
+            console.log(
+              '[Worker] Graphs after filtering:',
+              filteredGraphs.length,
+              'out of',
+              allGraphs.length,
+            )
+          } else {
+            console.log('[Worker] No filtering applied - returning all graphs')
           }
 
           // 4. Return only id and title (or whatever fields you want)
@@ -380,7 +408,11 @@ export default {
             title: row.title,
           }))
 
-          console.log('[Worker] Knowledge graphs fetched and filtered successfully')
+          console.log('[Worker] Final response will contain', responseGraphs.length, 'graphs')
+          console.log(
+            '[Worker] Graph IDs being returned:',
+            responseGraphs.map((g) => g.id),
+          )
           return new Response(JSON.stringify({ results: responseGraphs }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
