@@ -799,6 +799,7 @@ import TemplateSelector from '@/components/TemplateSelector.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import { Modal } from 'bootstrap'
+// import { useBranding } from '@/composables/useBranding' // Import for future use if needed
 
 // Initialize Mermaid
 mermaid.initialize({
@@ -814,6 +815,36 @@ const error = ref(null)
 const saveMessage = ref('')
 const knowledgeGraphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
+
+// Add branding composable for domain detection (only importing for potential future use)
+// const { currentDomain, isCustomDomain } = useBranding()
+
+// Dynamic API endpoint configuration
+const getApiEndpoint = (endpoint) => {
+  const currentHostname = window.location.hostname
+
+  // If on custom domain, use relative paths for knowledge graph operations
+  if (currentHostname !== 'www.vegvisr.org' && currentHostname !== 'localhost') {
+    // Knowledge graph operations should go through proxy
+    if (
+      endpoint.includes('/getknowgraph') ||
+      endpoint.includes('/saveGraphWithHistory') ||
+      endpoint.includes('/saveknowgraph') ||
+      endpoint.includes('/updateknowgraph') ||
+      endpoint.includes('/deleteknowgraph')
+    ) {
+      return endpoint.replace(/https:\/\/knowledge\.vegvisr\.org/, '')
+    }
+
+    // API operations (AI, etc.) should still go to main API worker through proxy
+    if (endpoint.includes('api.vegvisr.org')) {
+      return endpoint.replace(/https:\/\/api\.vegvisr\.org/, '')
+    }
+  }
+
+  // Default: return original endpoint for www.vegvisr.org
+  return endpoint
+}
 
 // Copy node functionality
 const copyNodeModal = ref(null)
@@ -860,7 +891,7 @@ const fetchGraphData = async () => {
       throw new Error('No graph ID is set in the store.')
     }
 
-    const apiUrl = `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`
+    const apiUrl = getApiEndpoint(`https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`)
     const response = await fetch(apiUrl)
     if (!response.ok) {
       throw new Error(`Failed to fetch graph: ${response.statusText}`)
@@ -1523,15 +1554,18 @@ const editYoutubeVideo = async (node) => {
     }
 
     try {
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with history.')
@@ -1572,15 +1606,18 @@ const editYoutubeTitle = async (node) => {
     }
 
     try {
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with history.')
@@ -1712,15 +1749,18 @@ const saveLabelChanges = async () => {
     }
 
     try {
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with history.')
@@ -1775,15 +1815,18 @@ const saveMarkdown = async () => {
     }
 
     try {
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with history.')
@@ -1910,7 +1953,7 @@ const saveToMystmkra = async () => {
   closeMarkdownEditor()
   saveMessage.value = 'Saving to Mystmkra.io...'
   try {
-    const response = await fetch('https://api.vegvisr.org/mystmkrasave', {
+    const response = await fetch(getApiEndpoint('https://api.vegvisr.org/mystmkrasave'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1944,15 +1987,18 @@ const saveToMystmkra = async () => {
           },
         }
 
-        const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: knowledgeGraphStore.currentGraphId,
-            graphData: updatedGraphData,
-            override: true,
-          }),
-        })
+        const saveResponse = await fetch(
+          getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: knowledgeGraphStore.currentGraphId,
+              graphData: updatedGraphData,
+              override: true,
+            }),
+          },
+        )
 
         if (!saveResponse.ok) {
           throw new Error('Failed to save the graph with history.')
@@ -2017,7 +2063,7 @@ function saveToMystmkraFromMenu() {
       return
     }
     saveMessage.value = 'Saving to Mystmkra.io...'
-    fetch('https://api.vegvisr.org/mystmkrasave', {
+    fetch(getApiEndpoint('https://api.vegvisr.org/mystmkrasave'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2052,15 +2098,18 @@ function saveToMystmkraFromMenu() {
               },
             }
 
-            const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: knowledgeGraphStore.currentGraphId,
-                graphData: updatedGraphData,
-                override: true,
-              }),
-            })
+            const saveResponse = await fetch(
+              getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: knowledgeGraphStore.currentGraphId,
+                  graphData: updatedGraphData,
+                  override: true,
+                }),
+              },
+            )
 
             if (!saveResponse.ok) {
               throw new Error('Failed to save the graph with history.')
@@ -2131,11 +2180,14 @@ async function runAIAssist(mode) {
       const prompt =
         String(aiAssistNode?.info ?? '').slice(0, 300) ||
         'A beautiful, wide, horizontal header image'
-      const response = await fetch('https://api.vegvisr.org/generate-header-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://api.vegvisr.org/generate-header-image'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        },
+      )
       if (!response.ok) {
         const errorText = await response.text()
         throw new Error(errorText || 'API error')
@@ -2160,7 +2212,9 @@ async function runAIAssist(mode) {
         : {}),
     }
     const endpoint =
-      mode === 'ask' ? 'https://api.vegvisr.org/grok-ask' : 'https://api.vegvisr.org/grok-elaborate'
+      mode === 'ask'
+        ? getApiEndpoint('https://api.vegvisr.org/grok-ask')
+        : getApiEndpoint('https://api.vegvisr.org/grok-elaborate')
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2366,15 +2420,18 @@ const handleGooglePhotoSelected = async (selectionData) => {
       updatedGraphData.nodes.find((n) => n.id === nodeToUpdate.id),
     )
     // Save to backend
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: updatedGraphData,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
     if (!response.ok) {
       const errorText = await response.text()
       console.error('Backend save failed:', errorText)
@@ -2463,15 +2520,18 @@ const handleImageReplaced = async (replacementData) => {
     }
 
     // Save to backend
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: updatedGraphData,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
 
     if (!response.ok) {
       throw new Error('Failed to save the graph with updated image.')
@@ -2526,15 +2586,18 @@ const handleTemplateApplied = async (result) => {
 
     try {
       // Save the updated graph to the backend
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with formatted content.')
@@ -2622,7 +2685,7 @@ const handleQuickFormat = async (node, formatType) => {
 
     console.log('Sending request to apply template:', templateId)
 
-    const response = await fetch('https://api.vegvisr.org/apply-style-template', {
+    const response = await fetch(getApiEndpoint('https://api.vegvisr.org/apply-style-template'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2660,15 +2723,18 @@ const handleQuickFormat = async (node, formatType) => {
     }
 
     // Save to backend
-    const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: updatedGraphData,
-        override: true,
-      }),
-    })
+    const saveResponse = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
 
     if (!saveResponse.ok) {
       throw new Error('Failed to save the formatted content.')
@@ -2746,15 +2812,18 @@ const handleNodeInserted = async (nodeData) => {
 
   try {
     // Save the updated graph to the backend
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: updatedGraphData,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
 
     if (!response.ok) {
       throw new Error('Failed to save the graph with the new node.')
@@ -2975,15 +3044,18 @@ const saveNodeOrder = async () => {
     graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 
     // Save to backend
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: graphData.value,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: graphData.value,
+          override: true,
+        }),
+      },
+    )
 
     if (!response.ok) {
       throw new Error('Failed to save node order.')
@@ -3288,15 +3360,18 @@ const saveGraphData = async () => {
   }
 
   try {
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: updatedGraphData,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
 
     if (!response.ok) {
       throw new Error('Failed to save the graph with history.')
@@ -3365,15 +3440,18 @@ const handleGetAIResponse = async (node) => {
       }
 
       // Save to backend
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with AI response.')
@@ -3493,15 +3571,18 @@ const deleteNode = async (node) => {
     console.log('Updated graph data after deletion:', graphData.value)
 
     // Save to backend
-    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: graphData.value,
-        override: true,
-      }),
-    })
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: graphData.value,
+          override: true,
+        }),
+      },
+    )
 
     if (!response.ok) {
       throw new Error('Failed to save graph after node deletion.')
@@ -3692,15 +3773,18 @@ const handleImageInserted = async (nodeData) => {
 
     try {
       // Save to backend
-      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
-      })
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
 
       if (!response.ok) {
         throw new Error('Failed to save the graph with AI-generated image.')
