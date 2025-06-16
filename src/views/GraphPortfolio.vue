@@ -631,7 +631,24 @@ const fetchGraphs = async () => {
 
         // Wait for all graph data to be fetched
         const processedGraphs = await Promise.all(graphPromises)
-        graphs.value = processedGraphs.filter((graph) => graph !== null)
+
+        // Filter graphs based on meta area if header is present
+        const metaAreaFilter = response.headers.get('x-meta-area-filter')
+        if (metaAreaFilter) {
+          console.log('Filtering graphs by meta area:', metaAreaFilter)
+          graphs.value = processedGraphs
+            .filter((graph) => graph !== null)
+            .filter((graph) => {
+              const metaAreas = getMetaAreas(graph.metadata?.metaArea || '')
+              const hasMetaArea = metaAreas.some(
+                (area) => area.toUpperCase() === metaAreaFilter.toUpperCase(),
+              )
+              console.log(`Graph ${graph.id} meta areas:`, metaAreas, 'Has filter:', hasMetaArea)
+              return hasMetaArea
+            })
+        } else {
+          graphs.value = processedGraphs.filter((graph) => graph !== null)
+        }
 
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)

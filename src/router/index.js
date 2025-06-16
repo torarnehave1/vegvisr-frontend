@@ -19,6 +19,11 @@ const router = createRouter({
   routes: [
     {
       path: '/',
+      name: 'frontpage',
+      component: () => import('../views/FrontPage.vue'),
+    },
+    {
+      path: '/home',
       name: 'home',
       component: HomeView,
     },
@@ -30,7 +35,7 @@ const router = createRouter({
     {
       path: '/test',
       name: 'test',
-      component: () => import('../views/TestView.vue'),
+      component: () => import('../views/FrontPage.vue'),
     },
     {
       path: '/openAI',
