@@ -220,7 +220,6 @@
               </div>
             </div>
           </div>
-        </div>
 
           <!-- Live Preview for Edit Mode -->
           <div v-if="formData.domain" class="preview-section mt-4">
@@ -259,8 +258,9 @@
               <button @click="copyWorkerCode" class="btn btn-outline-primary btn-sm ms-2">
                 Copy Worker Code
               </button>
-              <br><br>
-              <strong>2. DNS Setup:</strong> Point {{ getDomainSubdomain() }} to your Cloudflare Worker<br>
+              <br /><br />
+              <strong>2. DNS Setup:</strong> Point {{ getDomainSubdomain() }} to your Cloudflare
+              Worker<br />
               <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
             </div>
           </div>
@@ -272,24 +272,25 @@
         <div v-if="viewMode === 'list'" class="w-100 d-flex justify-content-between">
           <div>
             <small class="text-muted">
-              {{ domainConfigs.length }} domain{{ domainConfigs.length !== 1 ? 's' : '' }} configured
+              {{ domainConfigs.length }} domain{{ domainConfigs.length !== 1 ? 's' : '' }}
+              configured
             </small>
           </div>
           <div>
-            <button @click="saveAllDomains" class="btn btn-success me-2" :disabled="domainConfigs.length === 0">
+            <button
+              @click="saveAllDomains"
+              class="btn btn-success me-2"
+              :disabled="domainConfigs.length === 0"
+            >
               Save All Domains
             </button>
-            <button @click="closeModal" class="btn btn-outline-secondary">
-              Close
-            </button>
+            <button @click="closeModal" class="btn btn-outline-secondary">Close</button>
           </div>
         </div>
 
         <!-- Edit View Footer -->
         <div v-if="viewMode === 'edit'" class="w-100 d-flex justify-content-end">
-          <button @click="backToList" class="btn btn-secondary me-2">
-            Cancel
-          </button>
+          <button @click="backToList" class="btn btn-secondary me-2">Cancel</button>
           <button @click="saveDomain" :disabled="!canSaveDomain()" class="btn btn-primary">
             {{ editingDomainIndex !== null ? 'Update Domain' : 'Add Domain' }}
           </button>
@@ -390,7 +391,9 @@ export default {
       this.viewMode = 'edit'
     },
     removeDomain(index) {
-      if (confirm(`Are you sure you want to remove the domain "${this.domainConfigs[index].domain}"?`)) {
+      if (
+        confirm(`Are you sure you want to remove the domain "${this.domainConfigs[index].domain}"?`)
+      ) {
         this.domainConfigs.splice(index, 1)
         console.log('Removed domain at index', index, 'remaining configs:', this.domainConfigs)
       }
@@ -411,9 +414,9 @@ export default {
       this.logoError = ''
     },
     canSaveDomain() {
-      return this.formData.domain &&
-             !this.domainError &&
-             (this.formData.logo ? !this.logoError : true)
+      return (
+        this.formData.domain && !this.domainError && (this.formData.logo ? !this.logoError : true)
+      )
     },
     saveDomain() {
       if (!this.canSaveDomain()) return
@@ -583,10 +586,13 @@ export default {
             ...currentData.data,
             domainConfigs: this.domainConfigs, // New multi-domain structure
             // Keep legacy branding for backward compatibility
-            branding: this.domainConfigs.length > 0 ? {
-              mySite: this.domainConfigs[0].domain,
-              myLogo: this.domainConfigs[0].logo,
-            } : {},
+            branding:
+              this.domainConfigs.length > 0
+                ? {
+                    mySite: this.domainConfigs[0].domain,
+                    myLogo: this.domainConfigs[0].logo,
+                  }
+                : {},
           },
         }
 

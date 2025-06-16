@@ -114,8 +114,8 @@
           </div>
         </div>
 
-        <!-- Custom Domain Branding Section - Admin/Superadmin Only -->
-        <div v-if="isAdminOrSuperadmin" class="mt-4">
+        <!-- Custom Domain Branding Section - Temporarily Available to All Users -->
+        <div class="mt-4">
           <div
             class="branding-card"
             style="
