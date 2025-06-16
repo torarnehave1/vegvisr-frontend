@@ -77,40 +77,26 @@
             />
             <div class="transcript-method-buttons">
               <button
-                @click="fetchYouTubeTranscript"
-                :disabled="!videoId || isLoadingTranscript"
-                class="btn btn-primary"
-                title="Uses YouTube's official captions (limited availability)"
-              >
-                {{ isLoadingTranscript ? '⏳' : '📄' }} Official Captions
-              </button>
-              <button
                 @click="fetchYouTubeTranscriptIO"
                 :disabled="!videoId || isLoadingTranscript"
                 class="btn btn-info"
                 title="Third-party transcript service (better availability)"
               >
-                {{ isLoadingTranscript ? '⏳' : '🌐' }} Transcript IO
-              </button>
-              <button
-                @click="fetchYouTubeWhisperTranscript"
-                :disabled="!videoId || isLoadingTranscript"
-                class="btn btn-success"
-                title="Downloads audio and uses AI transcription (works for any video)"
-              >
-                {{ isLoadingTranscript ? '⏳' : '🎵' }} AI Whisper
+                {{ isLoadingTranscript ? '⏳' : '🌐' }} Transcribe
               </button>
             </div>
           </div>
           <small v-if="videoId" class="video-id-display">Video ID: {{ videoId }}</small>
-          <div class="method-explanation">
-            <small class="text-muted">
-              <strong>📄 Official Captions:</strong> Fast, uses YouTube's captions (if available)<br />
-              <strong>🌐 Transcript IO:</strong> Third-party service, better availability than
-              official<br />
-              <strong>🎵 AI Whisper:</strong> Downloads audio + AI transcription (works for any
-              video, slower)
-            </small>
+          <!-- Show video description here if selectedVideo and description exist -->
+          <div v-if="selectedVideo && selectedVideo.description" class="video-description-box">
+            <strong>Description:</strong>
+            <div class="video-description-content">
+              {{
+                selectedVideo.description.length > 250
+                  ? selectedVideo.description.slice(0, 250) + '...'
+                  : selectedVideo.description.padEnd(250, ' ')
+              }}
+            </div>
           </div>
         </div>
 
@@ -175,7 +161,33 @@
         </div>
       </div>
 
-      <!-- Processing Controls -->
+      <!-- YouTube Video Info (moved up to always show when selectedVideo is set) -->
+      <div v-if="selectedVideo" class="selected-video-info">
+        <h5>📺 Selected Video:</h5>
+        <div class="video-card">
+          <img :src="selectedVideo.thumbnails?.medium?.url" :alt="selectedVideo.title" />
+          <div class="video-details">
+            <div class="video-title">{{ selectedVideo.title }}</div>
+            <div class="video-channel">{{ selectedVideo.channelTitle }}</div>
+            <div v-if="selectedVideo.description" class="video-description">
+              <div class="description-header">
+                <span>Description:</span>
+                <button
+                  @click="showFullDescription = !showFullDescription"
+                  class="btn btn-sm btn-link"
+                >
+                  {{ showFullDescription ? 'Show Less' : 'Show More' }}
+                </button>
+              </div>
+              <div class="description-content" :class="{ expanded: showFullDescription }">
+                {{ selectedVideo.description }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Processing Controls (remove selected-video-info from here) -->
       <div
         v-if="transcriptText && !isProcessing && !knowledgeGraphPreview"
         class="processing-controls"
@@ -191,19 +203,6 @@
             <option value="norwegian">Norwegian</option>
           </select>
         </div>
-
-        <!-- YouTube Video Info -->
-        <div v-if="selectedVideo" class="selected-video-info">
-          <h5>📺 Selected Video:</h5>
-          <div class="video-card">
-            <img :src="selectedVideo.thumbnails?.medium?.url" :alt="selectedVideo.title" />
-            <div class="video-details">
-              <div class="video-title">{{ selectedVideo.title }}</div>
-              <div class="video-channel">{{ selectedVideo.channelTitle }}</div>
-            </div>
-          </div>
-        </div>
-
         <div class="transcript-preview">
           <h5>Transcript Preview:</h5>
           <textarea
@@ -365,6 +364,7 @@ const searchResults = ref([])
 const selectedVideo = ref(null)
 const isLoadingTranscript = ref(false)
 const isSearching = ref(false)
+const showFullDescription = ref(false)
 
 // YouTube functions
 const extractVideoId = () => {
@@ -421,6 +421,7 @@ const searchYouTubeVideos = async () => {
     if (response.ok) {
       const data = await response.json()
       console.log('✅ YouTube search results:', data)
+      console.log('📝 First video description:', data.results?.[0]?.description)
 
       if (data.success && data.results) {
         searchResults.value = data.results
@@ -444,6 +445,7 @@ const searchYouTubeVideos = async () => {
 
 const selectVideo = (video) => {
   console.log('📺 Selected video:', video)
+  console.log('📝 Video description:', video.description)
   selectedVideo.value = video
   videoId.value = video.videoId
   youtubeUrl.value = `https://www.youtube.com/watch?v=${video.videoId}`
@@ -580,66 +582,6 @@ const fetchYouTubeTranscriptIO = async () => {
   } catch (error) {
     console.error('❌ YouTube Transcript IO error:', error)
     alert(`Error fetching third-party transcript: ${error.message}`)
-  } finally {
-    isLoadingTranscript.value = false
-  }
-}
-
-const fetchYouTubeWhisperTranscript = async () => {
-  if (!videoId.value) {
-    alert('Please enter a valid YouTube URL or Video ID')
-    return
-  }
-
-  isLoadingTranscript.value = true
-  transcriptText.value = ''
-
-  try {
-    console.log('🎵 Fetching Whisper transcript for video ID:', videoId.value)
-
-    const response = await fetch(`https://api.vegvisr.org/youtube-whisper/${videoId.value}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-
-    console.log('📊 YouTube Whisper response status:', response.status)
-
-    if (response.ok) {
-      const data = await response.json()
-      console.log('✅ YouTube Whisper response:', data)
-
-      if (data.success && data.transcript) {
-        // Convert transcript segments to text
-        const transcriptParts = data.transcript.map((segment) => segment.text).join(' ')
-        transcriptText.value = transcriptParts
-
-        console.log(`📝 Whisper transcript extracted: ${transcriptParts.length} characters`)
-
-        // Set source language if detected
-        if (data.language) {
-          sourceLanguage.value = data.language === 'en' ? 'english' : 'auto'
-        }
-
-        alert(
-          `✅ AI Whisper transcript generated successfully!\n🎵 Duration: ${Math.round(data.duration || 0)}s\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters\n🌍 Language: ${data.language || 'auto'}`,
-        )
-      } else {
-        console.warn('⚠️ No Whisper transcript data in response:', data)
-        alert(`Failed to generate AI transcript.\n\nError: ${data.error || 'Unknown error'}`)
-      }
-    } else {
-      const errorData = await response.json()
-      console.error('❌ YouTube Whisper failed:', errorData)
-
-      alert(
-        `Failed to generate AI transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nNote: Audio extraction service may need configuration.`,
-      )
-    }
-  } catch (error) {
-    console.error('❌ YouTube Whisper error:', error)
-    alert(`Error generating AI transcript: ${error.message}`)
   } finally {
     isLoadingTranscript.value = false
   }
@@ -1458,6 +1400,115 @@ const close = () => {
   font-size: 0.9em;
   color: #666;
   line-height: 1.4;
+}
+
+.video-description {
+  margin-top: 10px;
+  font-size: 0.9em;
+  color: #666;
+  background: #f8f9fa;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.description-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.description-header span {
+  font-weight: 500;
+  color: #333;
+}
+
+.description-content {
+  max-height: 60px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  position: relative;
+}
+
+.description-content.expanded {
+  max-height: none;
+}
+
+.description-content:not(.expanded)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(transparent, #f8f9fa);
+}
+
+.btn-link {
+  padding: 0;
+  font-size: 0.85em;
+  color: #007bff;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.video-detailed-info {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.detail-label {
+  font-size: 0.8em;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.detail-value {
+  font-weight: 500;
+  color: #333;
+}
+
+.video-description-box {
+  margin-top: 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: #444;
+  font-size: 0.97em;
+  border-left: 3px solid #007bff;
+}
+.video-description-content {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 @media (max-width: 768px) {
