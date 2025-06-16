@@ -92,9 +92,9 @@
             <strong>Description:</strong>
             <div class="video-description-content">
               {{
-                selectedVideo.description.length > 250
-                  ? selectedVideo.description.slice(0, 250) + '...'
-                  : selectedVideo.description.padEnd(250, ' ')
+                selectedVideo.description.length > 500
+                  ? selectedVideo.description.slice(0, 500) + '...'
+                  : selectedVideo.description
               }}
             </div>
           </div>
@@ -158,32 +158,6 @@
         <div v-if="isSearching" class="loading-state">
           <div class="spinner-border text-primary" role="status"></div>
           <p>Searching YouTube videos...</p>
-        </div>
-      </div>
-
-      <!-- YouTube Video Info (moved up to always show when selectedVideo is set) -->
-      <div v-if="selectedVideo" class="selected-video-info">
-        <h5>📺 Selected Video:</h5>
-        <div class="video-card">
-          <img :src="selectedVideo.thumbnails?.medium?.url" :alt="selectedVideo.title" />
-          <div class="video-details">
-            <div class="video-title">{{ selectedVideo.title }}</div>
-            <div class="video-channel">{{ selectedVideo.channelTitle }}</div>
-            <div v-if="selectedVideo.description" class="video-description">
-              <div class="description-header">
-                <span>Description:</span>
-                <button
-                  @click="showFullDescription = !showFullDescription"
-                  class="btn btn-sm btn-link"
-                >
-                  {{ showFullDescription ? 'Show Less' : 'Show More' }}
-                </button>
-              </div>
-              <div class="description-content" :class="{ expanded: showFullDescription }">
-                {{ selectedVideo.description }}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

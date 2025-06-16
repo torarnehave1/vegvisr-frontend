@@ -1433,7 +1433,7 @@ const handleYouTubeSearch = async (request, env) => {
     const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search')
     searchUrl.searchParams.set('part', 'id,snippet')
     searchUrl.searchParams.set('q', query)
-    searchUrl.searchParams.set('maxResults', '50')
+    searchUrl.searchParams.set('maxResults', '10')
     searchUrl.searchParams.set('key', apiKey)
     searchUrl.searchParams.set('type', 'video')
 
@@ -1453,12 +1453,24 @@ const handleYouTubeSearch = async (request, env) => {
     const data = await apiResponse.json()
     console.log('✅ YouTube Search Results:', { count: data.items?.length || 0 })
 
-    // Transform the data to match our expected format
+    // Get full descriptions for all videoIds
+    const videoIds = data.items.map((item) => item.id.videoId).join(',')
+    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoIds}&key=${apiKey}`
+    const detailsResponse = await fetch(detailsUrl)
+    const detailsData = await detailsResponse.json()
+    const detailsMap = {}
+    if (detailsData.items) {
+      for (const item of detailsData.items) {
+        detailsMap[item.id] = item.snippet?.description || ''
+      }
+    }
+
+    // Transform the data to match our expected format, using the full description if available
     const results =
       data.items?.map((item) => ({
         videoId: item.id.videoId,
         title: item.snippet.title,
-        description: item.snippet.description,
+        description: detailsMap[item.id.videoId] || item.snippet.description,
         channelTitle: item.snippet.channelTitle,
         publishedAt: item.snippet.publishedAt,
         thumbnails: item.snippet.thumbnails,
