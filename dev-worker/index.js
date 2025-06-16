@@ -343,11 +343,45 @@ export default {
         try {
           console.log('[Worker] Fetching list of knowledge graphs')
 
-          const query = `SELECT id, title FROM knowledge_graphs`
-          const results = await env.vegvisr_org.prepare(query).all()
+          // 1. Determine allowed meta areas based on hostname
+          const hostname = new URL(request.url).hostname
+          let allowedMetaAreas = null
+          if (hostname === 'sweet.norsegong.com') {
+            allowedMetaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
+          }
+          // Add more domains/filters as needed
 
-          console.log('[Worker] Knowledge graphs fetched successfully')
-          return new Response(JSON.stringify(results), {
+          // 2. Fetch all graphs
+          const query = `SELECT id, title, data FROM knowledge_graphs`
+          const results = await env.vegvisr_org.prepare(query).all()
+          const allGraphs = results.results || results.rows || []
+
+          // 3. Filter by meta area if needed
+          let filteredGraphs = allGraphs
+          if (allowedMetaAreas) {
+            filteredGraphs = allGraphs.filter((row) => {
+              try {
+                const graphData = JSON.parse(row.data)
+                const metaAreaString = graphData.metadata?.metaArea || ''
+                const metaAreas = metaAreaString
+                  .split('#')
+                  .map((a) => a.trim().toUpperCase())
+                  .filter(Boolean)
+                return metaAreas.some((area) => allowedMetaAreas.includes(area))
+              } catch {
+                return false
+              }
+            })
+          }
+
+          // 4. Return only id and title (or whatever fields you want)
+          const responseGraphs = filteredGraphs.map((row) => ({
+            id: row.id,
+            title: row.title,
+          }))
+
+          console.log('[Worker] Knowledge graphs fetched and filtered successfully')
+          return new Response(JSON.stringify({ results: responseGraphs }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })

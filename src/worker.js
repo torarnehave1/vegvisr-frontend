@@ -2,21 +2,24 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
     const hostname = url.hostname
-    console.log('Incoming request from hostname:', hostname)
+    console.log('Incoming request hostname:', hostname)
 
-    // Proxy all requests to vegvisr.org
+    // Build the target URL on vegvisr.org
     const targetUrl = 'https://www.vegvisr.org' + url.pathname + url.search
 
-    // Add domain-specific headers for filtering
+    // Create headers for the request
     const headers = new Headers(request.headers)
 
-    // Add domain-specific meta area filter
+    // Set domain-specific headers for filtering
     if (hostname === 'sweet.norsegong.com') {
-      console.log('Setting NORSEGONG filter for sweet.norsegong.com')
-      headers.set('x-meta-area-filter', 'NORSEGONG')
-      console.log('Headers after setting filter:', Object.fromEntries(headers.entries()))
+      console.log('Setting NORSEGONG and NORSEMYTHOLOGY filter for sweet.norsegong.com')
+      headers.set('x-meta-area-filter', 'NORSEGONG,NORSEMYTHOLOGY')
+      headers.set('x-custom-meta-area-filter', 'NORSEGONG,NORSEMYTHOLOGY')
     }
 
+    console.log('Headers being sent:', Object.fromEntries(headers.entries()))
+
+    // Make the request to vegvisr.org
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: headers,
@@ -25,15 +28,12 @@ export default {
     })
 
     // Create a new response to ensure headers are preserved
-    const newHeaders = new Headers(response.headers)
-    // Copy the meta area filter to the response headers
-    if (headers.has('x-meta-area-filter')) {
-      newHeaders.set('x-meta-area-filter', headers.get('x-meta-area-filter'))
-    }
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: newHeaders,
-    })
+    const newResponse = new Response(response.body, response)
+    newResponse.headers.set('x-meta-area-filter', headers.get('x-meta-area-filter'))
+    newResponse.headers.set('x-custom-meta-area-filter', headers.get('x-custom-meta-area-filter'))
+
+    console.log('Final headers being sent:', Object.fromEntries(newResponse.headers.entries()))
+
+    return newResponse
   },
 }
