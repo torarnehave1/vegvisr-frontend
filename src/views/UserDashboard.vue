@@ -114,6 +114,65 @@
           </div>
         </div>
 
+        <!-- Site Branding Section -->
+        <div
+          class="mt-4"
+          style="background: #f8f9fa; border-radius: 8px; padding: 1rem; border: 1px solid #dee2e6"
+        >
+          <h5 class="mb-3">Site Branding</h5>
+
+          <!-- My Site -->
+          <div class="mb-3">
+            <label for="mySite" class="form-label"><strong>My Site:</strong></label>
+            <input
+              type="text"
+              id="mySite"
+              class="form-control"
+              v-model="mySite"
+              placeholder="e.g., sweet.norsegong.com"
+              autocomplete="off"
+            />
+            <div class="form-text text-start">Your custom domain or site identifier.</div>
+          </div>
+
+          <!-- My Logo -->
+          <div class="mb-3">
+            <label for="myLogo" class="form-label"><strong>My Logo URL:</strong></label>
+            <input
+              type="url"
+              id="myLogo"
+              class="form-control"
+              v-model="myLogo"
+              placeholder="https://example.com/logo.png"
+              autocomplete="off"
+            />
+            <div class="form-text text-start">URL to your custom logo image.</div>
+          </div>
+
+          <!-- Logo Preview -->
+          <div v-if="myLogo" class="mb-3">
+            <label class="form-label"><strong>Logo Preview:</strong></label>
+            <div>
+              <img
+                :src="myLogo"
+                alt="My Logo"
+                class="img-fluid"
+                style="
+                  max-width: 200px;
+                  max-height: 100px;
+                  border: 1px solid #dee2e6;
+                  border-radius: 4px;
+                "
+                @error="logoError = true"
+                @load="logoError = false"
+              />
+              <div v-if="logoError" class="text-danger small mt-1">
+                Unable to load logo from this URL
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- User Secret Section -->
         <div class="user-id-section alert alert-info mt-5">
           <p>Current User Secret:</p>
@@ -167,6 +226,7 @@
 import { useUserStore } from '@/stores/userStore' // Import Pinia store
 import { marked } from 'marked' // Import marked.js
 import { useRouter } from 'vue-router' // Import router
+import { apiUrls } from '@/config/api' // Import API configuration
 
 export default {
   data() {
@@ -189,6 +249,9 @@ export default {
       mystmkraUserId: '',
       editingMystmkraUserId: false,
       newMystmkraUserId: '',
+      mySite: '',
+      myLogo: '',
+      logoError: false,
     }
   },
   computed: {
@@ -280,7 +343,7 @@ export default {
     },
     async fetchUserData() {
       try {
-        const response = await fetch(`https://test.vegvisr.org/userdata?email=${this.email}`)
+        const response = await fetch(apiUrls.getUserData(this.email))
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
         }
@@ -321,6 +384,15 @@ export default {
             console.log('No mystmkraUserId found in fetched data, set to empty string in store.')
             this.newMystmkraUserId = ''
           }
+
+          // Extract site branding data
+          if (result.data && result.data.branding) {
+            this.mySite = result.data.branding.mySite || ''
+            this.myLogo = result.data.branding.myLogo || ''
+          } else {
+            this.mySite = ''
+            this.myLogo = ''
+          }
         } else {
           console.warn('No user data found')
         }
@@ -340,7 +412,7 @@ export default {
           formData.append('file', this.selectedFile)
           formData.append('email', this.email)
 
-          const uploadResponse = await fetch('https://test.vegvisr.org/upload', {
+          const uploadResponse = await fetch(apiUrls.uploadFile(), {
             method: 'POST',
             body: formData,
           })
@@ -374,12 +446,16 @@ export default {
               notifications: this.data.settings.notifications,
               theme: this.data.settings.theme,
             },
+            branding: {
+              mySite: this.mySite,
+              myLogo: this.myLogo,
+            },
           },
           mystmkraUserId: this.mystmkraUserId, // Also send as top-level for backend robustness
         }
         console.log('Saving mystmkraUserId:', this.mystmkraUserId)
         console.log('Sending PUT /userdata request:', JSON.stringify(payload, null, 2))
-        const response = await fetch('https://test.vegvisr.org/userdata', {
+        const response = await fetch(apiUrls.updateUserData(), {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',

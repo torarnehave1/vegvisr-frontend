@@ -527,6 +527,7 @@ import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
 import MetaAreaSidebar from '@/components/MetaAreaSidebar.vue'
+import { apiUrls, getApiUrl } from '@/config/api'
 
 const props = defineProps({
   theme: {
@@ -567,7 +568,7 @@ const fetchGraphs = async () => {
   loading.value = true
   error.value = null
   try {
-    const response = await fetch('/getknowgraphs')
+    const response = await fetch(apiUrls.getKnowledgeGraphs())
     if (response.ok) {
       const data = await response.json()
       console.log('Raw API response:', JSON.stringify(data, null, 2))
@@ -576,7 +577,7 @@ const fetchGraphs = async () => {
         // Fetch complete data for each graph
         const graphPromises = data.results.map(async (graph) => {
           try {
-            const graphResponse = await fetch(`/getknowgraph?id=${graph.id}`)
+            const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
             if (graphResponse.ok) {
               const graphData = await graphResponse.json()
               console.log('Fetched complete graph data:', JSON.stringify(graphData, null, 2))
@@ -771,7 +772,7 @@ const editGraph = async (graph) => {
     graphStore.setCurrentGraphId(graph.id)
 
     // Fetch the complete graph data
-    const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`)
+    const response = await fetch(apiUrls.getKnowledgeGraph(graph.id))
     if (response.ok) {
       const graphData = await response.json()
 
@@ -853,7 +854,7 @@ const cancelEdit = () => {
 // Save edited graph
 const saveEdit = async (originalGraph) => {
   try {
-    const response = await fetch(`https://knowledge.vegvisr.org/updateknowgraph`, {
+    const response = await fetch(apiUrls.updateKnowledgeGraph(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -909,7 +910,7 @@ const confirmDelete = async (graph) => {
   ) {
     try {
       console.log('[Client] Attempting to delete graph:', graph.id)
-      const response = await fetch('https://knowledge.vegvisr.org/deleteknowgraph', {
+      const response = await fetch(apiUrls.deleteKnowledgeGraph(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1223,7 +1224,7 @@ const generateMetaAreas = async () => {
 const resetMetaAreas = async () => {
   try {
     loading.value = true
-    const response = await fetch('https://knowledge.vegvisr.org/resetMetaAreas', {
+    const response = await fetch(getApiUrl('resetMetaAreas', {}, true), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1287,7 +1288,7 @@ const insertPortfolioImage = async (imageUrl = null) => {
     }
 
     // Update the graph
-    const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+    const response = await fetch(apiUrls.updateKnowledgeGraph(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

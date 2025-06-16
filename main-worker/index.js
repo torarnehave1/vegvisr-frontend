@@ -715,6 +715,50 @@ export default {
         const tableInfo = await db.prepare('PRAGMA table_info(config)').all()
         console.log('Table structure:', tableInfo)
 
+        // Check if columns exist and add them if missing
+        const hasBioColumn = tableInfo.results.some((col) => col.name === 'bio')
+        const hasProfileImageColumn = tableInfo.results.some((col) => col.name === 'profileimage')
+        const hasEmailVerificationTokenColumn = tableInfo.results.some(
+          (col) => col.name === 'emailVerificationToken',
+        )
+        const hasRoleColumn = tableInfo.results.some((col) => col.name === 'role')
+
+        try {
+          if (!hasBioColumn) {
+            console.log('Adding bio column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN bio TEXT').run()
+          }
+        } catch (e) {
+          console.log('Bio column may already exist:', e.message)
+        }
+
+        try {
+          if (!hasProfileImageColumn) {
+            console.log('Adding profileimage column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN profileimage TEXT').run()
+          }
+        } catch (e) {
+          console.log('Profileimage column may already exist:', e.message)
+        }
+
+        try {
+          if (!hasEmailVerificationTokenColumn) {
+            console.log('Adding emailVerificationToken column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN emailVerificationToken TEXT').run()
+          }
+        } catch (e) {
+          console.log('EmailVerificationToken column may already exist:', e.message)
+        }
+
+        try {
+          if (!hasRoleColumn) {
+            console.log('Adding role column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN role TEXT DEFAULT "ViewOnly"').run()
+          }
+        } catch (e) {
+          console.log('Role column may already exist:', e.message)
+        }
+
         const query = `SELECT user_id, data, profileimage, emailVerificationToken, bio FROM config WHERE email = ?;`
         const row = await db.prepare(query).bind(userEmail).first()
         console.log('Database row:', row)
@@ -759,7 +803,7 @@ export default {
         console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
         const { email, bio, data, profileimage } = body
         console.log('Bio from request:', bio)
-        if (!email || !data || !profileimage) {
+        if (!email || !data || profileimage === undefined) {
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Missing required fields: email, data, or profileimage' }),
@@ -789,26 +833,44 @@ export default {
         console.log('Saving mystmkraUserId:', data.profile.mystmkraUserId)
         const dataJson = JSON.stringify(data)
 
-        // First, let's check if the bio column exists
+        // First, let's check if the columns exist
         const tableInfo = await db.prepare('PRAGMA table_info(config)').all()
         console.log('Table structure:', tableInfo)
 
-        // If bio column doesn't exist, add it
-        const hasBioColumn = tableInfo.some((col) => col.name === 'bio')
-        if (!hasBioColumn) {
-          console.log('Adding bio column to config table')
-          await db.prepare('ALTER TABLE config ADD COLUMN bio TEXT').run()
+        // Check if columns exist and add them if missing
+        const hasBioColumn = tableInfo.results.some((col) => col.name === 'bio')
+        const hasProfileImageColumn = tableInfo.results.some((col) => col.name === 'profileimage')
+
+        try {
+          if (!hasBioColumn) {
+            console.log('Adding bio column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN bio TEXT').run()
+          }
+        } catch (e) {
+          console.log('Bio column may already exist:', e.message)
+        }
+
+        try {
+          if (!hasProfileImageColumn) {
+            console.log('Adding profileimage column to config table')
+            await db.prepare('ALTER TABLE config ADD COLUMN profileimage TEXT').run()
+          }
+        } catch (e) {
+          console.log('Profileimage column may already exist:', e.message)
         }
 
         const query = `
-          INSERT INTO config (email, bio, data, profileimage)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(email) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
+          INSERT INTO config (user_id, email, bio, data, profileimage)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
         `
         console.log('Executing query with bio:', bio)
+        // Generate a user_id if we don't have one
+        const userId = data.profile?.user_id || uuidv4()
+
         const result = await db
           .prepare(query)
-          .bind(email, bio, dataJson, profileimage, bio, dataJson, profileimage)
+          .bind(userId, email, bio, dataJson, profileimage, bio, dataJson, profileimage)
           .run()
         console.log('Query result:', result)
         return addCorsHeaders(

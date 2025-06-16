@@ -10,6 +10,10 @@ export const useUserStore = defineStore('user', {
     mystmkraUserId: null,
     googlePhotosConnected: false,
     googlePhotosCredentials: null,
+    branding: {
+      mySite: null,
+      myLogo: null,
+    },
   }),
   actions: {
     setUser(user) {
@@ -18,6 +22,7 @@ export const useUserStore = defineStore('user', {
       this.user_id = user.user_id
       this.emailVerificationToken = user.emailVerificationToken
       this.mystmkraUserId = user.mystmkraUserId || null
+      this.branding = user.branding || { mySite: null, myLogo: null }
       this.loggedIn = true
       localStorage.setItem(
         'user',
@@ -27,6 +32,7 @@ export const useUserStore = defineStore('user', {
           user_id: user.user_id,
           emailVerificationToken: user.emailVerificationToken,
           mystmkraUserId: user.mystmkraUserId || null,
+          branding: user.branding || { mySite: null, myLogo: null },
         }),
       )
     },
@@ -42,6 +48,12 @@ export const useUserStore = defineStore('user', {
       storedUser.mystmkraUserId = mystmkraUserId
       localStorage.setItem('user', JSON.stringify(storedUser))
     },
+    setBranding(branding) {
+      this.branding = branding
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+      storedUser.branding = branding
+      localStorage.setItem('user', JSON.stringify(storedUser))
+    },
     setEmailVerificationToken(token) {
       this.emailVerificationToken = token
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
@@ -54,6 +66,7 @@ export const useUserStore = defineStore('user', {
       this.user_id = null
       this.emailVerificationToken = null
       this.mystmkraUserId = null
+      this.branding = { mySite: null, myLogo: null }
       this.loggedIn = false
       this.googlePhotosConnected = false
       this.googlePhotosCredentials = null
@@ -169,6 +182,7 @@ export const useUserStore = defineStore('user', {
         this.user_id = storedUser.user_id
         this.emailVerificationToken = storedUser.emailVerificationToken
         this.mystmkraUserId = storedUser.mystmkraUserId || null
+        this.branding = storedUser.branding || { mySite: null, myLogo: null }
         this.loggedIn = true
       } else {
         this.email = null
@@ -176,6 +190,7 @@ export const useUserStore = defineStore('user', {
         this.user_id = null
         this.emailVerificationToken = null
         this.mystmkraUserId = null
+        this.branding = { mySite: null, myLogo: null }
         this.loggedIn = false
       }
     },

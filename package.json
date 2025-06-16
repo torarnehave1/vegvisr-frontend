@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev:vue": "vite",
-    "dev:m-worker": "wrangler dev --config main-worker/wrangler.toml --port=8787",
+    "dev:m-worker": "wrangler dev --config main-worker/wrangler.toml --port=8787 --remote",
     "dev:d-worker": "wrangler dev --config dev-worker/wrangler.toml --port=8788",
     "dev:api-worker": "wrangler dev --config api-worker/wrangler.toml --port=8789",
     "dev": "concurrently \"npm run dev:vue\" \"npm run dev:m-worker\" \"npm run dev:d-worker\" \"npm run dev:api-worker\"",
