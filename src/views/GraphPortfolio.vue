@@ -634,19 +634,26 @@ const fetchGraphs = async () => {
 
         // Filter graphs based on meta area if header is present
         const metaAreaFilter = response.headers.get('x-meta-area-filter')
+        console.log('Received meta area filter from headers:', metaAreaFilter)
+        console.log('All response headers:', Object.fromEntries(response.headers.entries()))
+
         if (metaAreaFilter) {
           console.log('Filtering graphs by meta area:', metaAreaFilter)
-          graphs.value = processedGraphs
+          const filteredGraphs = processedGraphs
             .filter((graph) => graph !== null)
             .filter((graph) => {
               const metaAreas = getMetaAreas(graph.metadata?.metaArea || '')
+              console.log(`Graph ${graph.id} meta areas:`, metaAreas)
               const hasMetaArea = metaAreas.some(
                 (area) => area.toUpperCase() === metaAreaFilter.toUpperCase(),
               )
-              console.log(`Graph ${graph.id} meta areas:`, metaAreas, 'Has filter:', hasMetaArea)
+              console.log(`Graph ${graph.id} has meta area ${metaAreaFilter}:`, hasMetaArea)
               return hasMetaArea
             })
+          console.log('Filtered graphs count:', filteredGraphs.length)
+          graphs.value = filteredGraphs
         } else {
+          console.log('No meta area filter found, showing all graphs')
           graphs.value = processedGraphs.filter((graph) => graph !== null)
         }
 
