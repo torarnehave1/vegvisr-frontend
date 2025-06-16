@@ -7,30 +7,93 @@
       </div>
 
       <div class="modal-content">
-        <!-- Step Indicator -->
-        <div class="step-indicator">
-          <div class="step" :class="{ active: currentStep === 1, completed: currentStep > 1 }">
-            <div class="step-number">1</div>
-            <div class="step-label">Domain & Logo</div>
+        <!-- Domain Management Views -->
+
+        <!-- Domain List View -->
+        <div v-if="viewMode === 'list'" class="step-content">
+          <h3>Manage Your Custom Domains</h3>
+          <p class="step-description">
+            Configure multiple custom domains with unique branding and content filtering for each.
+          </p>
+
+          <!-- Existing Domains List -->
+          <div v-if="domainConfigs.length > 0" class="domain-list mb-4">
+            <h4>Your Configured Domains</h4>
+            <div v-for="(config, index) in domainConfigs" :key="index" class="domain-item">
+              <div class="domain-card">
+                <div class="domain-header">
+                  <div class="domain-info">
+                    <h5 class="domain-name">{{ config.domain }}</h5>
+                    <div class="domain-meta">
+                      <span v-if="config.logo" class="badge bg-success">✓ Logo</span>
+                      <span v-else class="badge bg-secondary">No Logo</span>
+                      <span class="badge bg-info ms-1">
+                        {{
+                          config.contentFilter === 'none'
+                            ? 'No Filtering'
+                            : config.selectedCategories
+                              ? config.selectedCategories.length + ' Filters'
+                              : 'Custom Filter'
+                        }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="domain-actions">
+                    <button @click="editDomain(index)" class="btn btn-outline-primary btn-sm me-2">
+                      <i class="bi bi-pencil"></i> Edit
+                    </button>
+                    <button @click="removeDomain(index)" class="btn btn-outline-danger btn-sm">
+                      <i class="bi bi-trash"></i> Remove
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Domain Preview -->
+                <div v-if="config.logo" class="domain-preview mt-2">
+                  <img
+                    :src="config.logo"
+                    :alt="config.domain + ' logo'"
+                    class="domain-logo-preview"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="step-divider"></div>
-          <div class="step" :class="{ active: currentStep === 2, completed: currentStep > 2 }">
-            <div class="step-number">2</div>
-            <div class="step-label">Preview</div>
+
+          <!-- No Domains Message -->
+          <div v-else class="no-domains-message">
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle"></i>
+              <strong>No custom domains configured yet.</strong><br />
+              Start by adding your first custom domain to create a branded experience.
+            </div>
           </div>
-          <div class="step-divider"></div>
-          <div class="step" :class="{ active: currentStep === 3 }">
-            <div class="step-number">3</div>
-            <div class="step-label">Deployment</div>
+
+          <!-- Add New Domain Button -->
+          <div class="add-domain-section">
+            <button @click="addNewDomain" class="btn btn-primary">
+              <i class="bi bi-plus-circle me-2"></i>
+              Add New Domain
+            </button>
           </div>
         </div>
 
-        <!-- Step 1: Domain & Logo Configuration -->
-        <div v-if="currentStep === 1" class="step-content">
-          <h3>Configure Your Custom Domain</h3>
+        <!-- Domain Edit/Add Form -->
+        <div v-if="viewMode === 'edit'" class="step-content">
+          <div class="d-flex align-items-center mb-3">
+            <button @click="backToList" class="btn btn-outline-secondary btn-sm me-3">
+              <i class="bi bi-arrow-left"></i> Back
+            </button>
+            <h3 class="mb-0">
+              {{ editingDomainIndex !== null ? 'Edit Domain' : 'Add New Domain' }}
+            </h3>
+          </div>
           <p class="step-description">
-            Set up your custom domain and branding to create a personalized experience for your
-            users.
+            {{
+              editingDomainIndex !== null
+                ? 'Update your domain configuration and branding settings.'
+                : 'Set up a new custom domain with branding and content filtering.'
+            }}
           </p>
 
           <div class="form-group">
@@ -103,18 +166,6 @@
               </div>
               <div class="filter-option">
                 <input
-                  id="filterNorse"
-                  v-model="formData.contentFilter"
-                  type="radio"
-                  value="norse"
-                  class="form-check-input"
-                />
-                <label for="filterNorse" class="form-check-label">
-                  Norse Mythology only (like sweet.norsegong.com)
-                </label>
-              </div>
-              <div class="filter-option">
-                <input
                   id="filterCustom"
                   v-model="formData.contentFilter"
                   type="radio"
@@ -122,19 +173,58 @@
                   class="form-check-input"
                 />
                 <label for="filterCustom" class="form-check-label">
-                  Custom filtering (contact support)
+                  Filter by specific meta areas
                 </label>
+              </div>
+            </div>
+
+            <!-- Custom Category Selection -->
+            <div v-if="formData.contentFilter === 'custom'" class="category-selection mt-3">
+              <label class="form-label">
+                <strong>Select Meta Areas to Show:</strong>
+              </label>
+              <div class="form-text mb-3">
+                These are the actual meta areas currently used in your knowledge graphs.
+                <span v-if="availableCategories.length === 0" class="text-warning">
+                  No meta areas found. Create some knowledge graphs with meta areas first.
+                </span>
+              </div>
+              <div v-if="availableCategories.length > 0" class="category-grid">
+                <div
+                  v-for="category in availableCategories"
+                  :key="category.value"
+                  class="category-item"
+                >
+                  <input
+                    :id="`cat-${category.value}`"
+                    v-model="formData.selectedCategories"
+                    type="checkbox"
+                    :value="category.value"
+                    class="form-check-input"
+                  />
+                  <label :for="`cat-${category.value}`" class="form-check-label">
+                    {{ category.label }}
+                  </label>
+                  <small class="category-description">{{ category.description }}</small>
+                </div>
+              </div>
+              <div v-else class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                <strong>No meta areas available yet.</strong><br />
+                To enable content filtering, you need to:
+                <ol class="mt-2 mb-0">
+                  <li>Create knowledge graphs in the system</li>
+                  <li>Add meta areas to those graphs (e.g., #Technology #Business)</li>
+                  <li>Come back here to select which meta areas to show on your domain</li>
+                </ol>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Step 2: Preview -->
-        <div v-if="currentStep === 2" class="step-content">
-          <h3>Preview Your Branding</h3>
-          <p class="step-description">See how your custom domain will look to users.</p>
-
-          <div class="preview-section">
+          <!-- Live Preview for Edit Mode -->
+          <div v-if="formData.domain" class="preview-section mt-4">
+            <h5>Live Preview</h5>
             <div class="browser-mockup">
               <div class="browser-bar">
                 <div class="browser-buttons">
@@ -154,107 +244,56 @@
                   <div class="mockup-nav">Knowledge Graphs | Dashboard | Profile</div>
                   <div class="mockup-graph">
                     <div class="mockup-node">Sample Knowledge Graph</div>
-                    <div class="mockup-node">Custom Branded Content</div>
+                    <div class="mockup-node">Filtered Content</div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="preview-details">
-            <h4>Configuration Summary:</h4>
-            <ul>
-              <li><strong>Domain:</strong> {{ formData.domain || 'Not set' }}</li>
-              <li><strong>Logo:</strong> {{ formData.logo ? 'Configured' : 'Not set' }}</li>
-              <li>
-                <strong>Content Filter:</strong>
-                {{
-                  formData.contentFilter === 'none'
-                    ? 'All content'
-                    : formData.contentFilter === 'norse'
-                      ? 'Norse Mythology only'
-                      : 'Custom filtering'
-                }}
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <!-- Step 3: Deployment Instructions -->
-        <div v-if="currentStep === 3" class="step-content">
-          <h3>Deployment Instructions</h3>
-          <p class="step-description">Follow these steps to deploy your custom domain.</p>
-
-          <div class="deployment-steps">
-            <div class="deployment-step">
-              <div class="step-number-small">1</div>
-              <div class="step-content-small">
-                <h4>Update Your DNS</h4>
-                <p>Create a CNAME record pointing your domain to Cloudflare Workers:</p>
-                <div class="code-block">
-                  <code>
-                    Type: CNAME<br />
-                    Name: {{ getDomainSubdomain() }}<br />
-                    Value: your-worker.your-subdomain.workers.dev
-                  </code>
-                </div>
-              </div>
-            </div>
-
-            <div class="deployment-step">
-              <div class="step-number-small">2</div>
-              <div class="step-content-small">
-                <h4>Deploy Proxy Worker</h4>
-                <p>Copy and deploy this worker script to your Cloudflare Workers:</p>
-                <div class="code-block">
-                  <code>{{ generateWorkerCode() }}</code>
-                  <button @click="copyWorkerCode" class="copy-btn">Copy Code</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="deployment-step">
-              <div class="step-number-small">3</div>
-              <div class="step-content-small">
-                <h4>Test Your Domain</h4>
-                <p>After deployment, test your custom domain:</p>
-                <ul>
-                  <li>Visit {{ formData.domain || 'your-domain.com' }}</li>
-                  <li>Verify your logo and branding appear</li>
-                  <li>Test knowledge graph functionality</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="deployment-notice">
-            <div class="notice-icon">💡</div>
-            <div class="notice-content">
-              <strong>Need Help?</strong> Contact support for assistance with DNS configuration or
-              worker deployment.
+          <!-- Deployment Instructions -->
+          <div v-if="formData.domain" class="deployment-instructions mt-4">
+            <h5>🚀 Quick Deployment Guide</h5>
+            <div class="alert alert-info">
+              <strong>1. Copy Worker Code:</strong>
+              <button @click="copyWorkerCode" class="btn btn-outline-primary btn-sm ms-2">
+                Copy Worker Code
+              </button>
+              <br><br>
+              <strong>2. DNS Setup:</strong> Point {{ getDomainSubdomain() }} to your Cloudflare Worker<br>
+              <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
             </div>
           </div>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button v-if="currentStep > 1" @click="previousStep" class="btn btn-secondary">
-          Previous
-        </button>
-        <button
-          v-if="currentStep < 3"
-          @click="nextStep"
-          :disabled="!canProceed()"
-          class="btn btn-primary"
-        >
-          Next
-        </button>
-        <button v-if="currentStep === 3" @click="saveBranding" class="btn btn-success">
-          Save & Deploy
-        </button>
-        <button @click="closeModal" class="btn btn-outline-secondary">
-          {{ currentStep === 3 ? 'Close' : 'Cancel' }}
-        </button>
+        <!-- List View Footer -->
+        <div v-if="viewMode === 'list'" class="w-100 d-flex justify-content-between">
+          <div>
+            <small class="text-muted">
+              {{ domainConfigs.length }} domain{{ domainConfigs.length !== 1 ? 's' : '' }} configured
+            </small>
+          </div>
+          <div>
+            <button @click="saveAllDomains" class="btn btn-success me-2" :disabled="domainConfigs.length === 0">
+              Save All Domains
+            </button>
+            <button @click="closeModal" class="btn btn-outline-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+
+        <!-- Edit View Footer -->
+        <div v-if="viewMode === 'edit'" class="w-100 d-flex justify-content-end">
+          <button @click="backToList" class="btn btn-secondary me-2">
+            Cancel
+          </button>
+          <button @click="saveDomain" :disabled="!canSaveDomain()" class="btn btn-primary">
+            {{ editingDomainIndex !== null ? 'Update Domain' : 'Add Domain' }}
+          </button>
+        </div>
       </div>
 
       <!-- Loading Overlay -->
@@ -270,6 +309,7 @@
 
 <script>
 import { useUserStore } from '@/stores/userStore'
+import { usePortfolioStore } from '@/stores/portfolioStore'
 import { apiUrls } from '@/config/api'
 
 export default {
@@ -279,39 +319,123 @@ export default {
       type: Boolean,
       default: false,
     },
+    existingDomainConfigs: {
+      type: Array,
+      default: () => [],
+    },
   },
   emits: ['close', 'saved'],
   data() {
     return {
       currentStep: 1,
       isSaving: false,
+      domainConfigs: [], // Array of domain configurations
+      editingDomainIndex: null, // Index of domain being edited, null for new domain
       formData: {
         domain: '',
         logo: '',
         contentFilter: 'none',
+        selectedCategories: [],
       },
       domainError: '',
       logoError: '',
+      viewMode: 'list', // 'list' or 'edit'
       logoLoaded: false,
     }
   },
   setup() {
     const userStore = useUserStore()
-    return { userStore }
+    const portfolioStore = usePortfolioStore()
+    return { userStore, portfolioStore }
+  },
+  computed: {
+    availableCategories() {
+      // Get meta areas from portfolio store and format them for the UI
+      return this.portfolioStore.allMetaAreas.map((metaArea) => ({
+        value: metaArea,
+        label: this.formatMetaAreaLabel(metaArea),
+        description: `Content related to ${this.formatMetaAreaLabel(metaArea).toLowerCase()}`,
+      }))
+    },
   },
   mounted() {
-    this.loadExistingBranding()
+    this.loadExistingDomainConfigs()
+    this.fetchMetaAreas()
   },
   methods: {
-    async loadExistingBranding() {
-      if (this.userStore.branding) {
-        this.formData.domain = this.userStore.branding.mySite || ''
-        this.formData.logo = this.userStore.branding.myLogo || ''
-        // Determine content filter based on domain
-        if (this.formData.domain === 'sweet.norsegong.com') {
-          this.formData.contentFilter = 'norse'
-        }
+    loadExistingDomainConfigs() {
+      // Load existing domain configurations from props
+      this.domainConfigs = [...this.existingDomainConfigs]
+      console.log('Loaded existing domain configs:', this.domainConfigs)
+    },
+    addNewDomain() {
+      this.editingDomainIndex = null
+      this.formData = {
+        domain: '',
+        logo: '',
+        contentFilter: 'none',
+        selectedCategories: [],
       }
+      this.viewMode = 'edit'
+    },
+    editDomain(index) {
+      this.editingDomainIndex = index
+      const config = this.domainConfigs[index]
+      this.formData = {
+        domain: config.domain,
+        logo: config.logo || '',
+        contentFilter: config.contentFilter || 'none',
+        selectedCategories: config.selectedCategories || [],
+      }
+      this.viewMode = 'edit'
+    },
+    removeDomain(index) {
+      if (confirm(`Are you sure you want to remove the domain "${this.domainConfigs[index].domain}"?`)) {
+        this.domainConfigs.splice(index, 1)
+        console.log('Removed domain at index', index, 'remaining configs:', this.domainConfigs)
+      }
+    },
+    backToList() {
+      this.viewMode = 'list'
+      this.editingDomainIndex = null
+      this.clearFormData()
+    },
+    clearFormData() {
+      this.formData = {
+        domain: '',
+        logo: '',
+        contentFilter: 'none',
+        selectedCategories: [],
+      }
+      this.domainError = ''
+      this.logoError = ''
+    },
+    canSaveDomain() {
+      return this.formData.domain &&
+             !this.domainError &&
+             (this.formData.logo ? !this.logoError : true)
+    },
+    saveDomain() {
+      if (!this.canSaveDomain()) return
+
+      const newConfig = {
+        domain: this.formData.domain,
+        logo: this.formData.logo,
+        contentFilter: this.formData.contentFilter,
+        selectedCategories: this.formData.selectedCategories,
+      }
+
+      if (this.editingDomainIndex !== null) {
+        // Update existing domain
+        this.domainConfigs[this.editingDomainIndex] = newConfig
+        console.log('Updated domain config at index', this.editingDomainIndex, newConfig)
+      } else {
+        // Add new domain
+        this.domainConfigs.push(newConfig)
+        console.log('Added new domain config:', newConfig)
+      }
+
+      this.backToList()
     },
     validateDomain() {
       this.domainError = ''
@@ -349,6 +473,45 @@ export default {
     getDomainSubdomain() {
       if (!this.formData.domain) return 'your-subdomain'
       return this.formData.domain.split('.')[0]
+    },
+    formatMetaAreaLabel(metaArea) {
+      // Convert meta area to a readable label
+      return metaArea
+        .split(/(?=[A-Z])/) // Split on capital letters
+        .join(' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2') // Add space between lowercase and uppercase
+        .toLowerCase()
+        .split(' ')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+    },
+    async fetchMetaAreas() {
+      // Fetch knowledge graphs to ensure meta areas are populated
+      try {
+        const response = await fetch(apiUrls.getKnowledgeGraphs())
+        if (response.ok) {
+          const data = await response.json()
+          if (data.results) {
+            // Process graphs to extract meta areas (simplified version of GraphPortfolio logic)
+            const graphs = data.results
+            this.portfolioStore.updateMetaAreas(graphs)
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching meta areas:', error)
+      }
+    },
+    getSelectedCategoryNames() {
+      if (!this.formData.selectedCategories || this.formData.selectedCategories.length === 0) {
+        return 'No categories selected'
+      }
+      const names = this.formData.selectedCategories.map((value) => {
+        const category = this.availableCategories.find((cat) => cat.value === value)
+        return category ? category.label : this.formatMetaAreaLabel(value)
+      })
+      return names.length > 3
+        ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+        : names.join(', ')
     },
     generateWorkerCode() {
       return `export default {
@@ -400,53 +563,34 @@ export default {
         console.error('Failed to copy worker code:', error)
       }
     },
-    canProceed() {
-      if (this.currentStep === 1) {
-        return (
-          this.formData.domain && !this.domainError && (this.formData.logo ? !this.logoError : true)
-        )
-      }
-      return true
-    },
-    nextStep() {
-      if (this.canProceed() && this.currentStep < 3) {
-        this.currentStep++
-      }
-    },
-    previousStep() {
-      if (this.currentStep > 1) {
-        this.currentStep--
-      }
-    },
-    async saveBranding() {
+
+    async saveAllDomains() {
       this.isSaving = true
 
       try {
-        const brandingData = {
-          mySite: this.formData.domain,
-          myLogo: this.formData.logo,
-        }
-
-        // Determine content filter
-        let metaAreas = []
-        if (this.formData.contentFilter === 'norse') {
-          metaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
+        // Get current user data to preserve existing settings
+        const currentResponse = await fetch(apiUrls.getUserData(this.userStore.email))
+        let currentData = {}
+        if (currentResponse.ok) {
+          currentData = await currentResponse.json()
         }
 
         const payload = {
           email: this.userStore.email,
-          bio: '', // Preserve existing bio
-          profileimage: '', // Preserve existing profile image
+          bio: currentData.bio || '',
+          profileimage: currentData.profileimage || '',
           data: {
-            profile: {
-              user_id: this.userStore.user_id,
-              email: this.userStore.email,
-              mystmkraUserId: this.userStore.mystmkraUserId || '',
-            },
-            settings: this.userStore.settings || { notifications: true, theme: 'light' },
-            branding: brandingData,
+            ...currentData.data,
+            domainConfigs: this.domainConfigs, // New multi-domain structure
+            // Keep legacy branding for backward compatibility
+            branding: this.domainConfigs.length > 0 ? {
+              mySite: this.domainConfigs[0].domain,
+              myLogo: this.domainConfigs[0].logo,
+            } : {},
           },
         }
+
+        console.log('Saving multi-domain configuration:', payload)
 
         const response = await fetch(apiUrls.updateUserData(), {
           method: 'PUT',
@@ -455,23 +599,23 @@ export default {
         })
 
         if (!response.ok) {
-          throw new Error('Failed to save branding configuration')
+          throw new Error('Failed to save domain configurations')
         }
 
-        // Update user store
-        this.userStore.setBranding(brandingData)
-
-        this.$emit('saved', 'Branding configuration saved successfully!')
+        // Emit success with updated domain configs
+        this.$emit('saved', 'All domain configurations saved successfully!', this.domainConfigs)
         this.closeModal()
       } catch (error) {
-        console.error('Error saving branding:', error)
+        console.error('Error saving domain configurations:', error)
         this.$emit('saved', `Error: ${error.message}`)
       } finally {
         this.isSaving = false
       }
     },
     closeModal() {
-      this.currentStep = 1
+      this.viewMode = 'list'
+      this.editingDomainIndex = null
+      this.clearFormData()
       this.$emit('close')
     },
   },
@@ -702,6 +846,156 @@ export default {
   margin: 0;
   cursor: pointer;
   font-size: 0.95rem;
+}
+
+.category-selection {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #dee2e6;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.category-item {
+  background: white;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  padding: 15px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.category-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+}
+
+.category-item:has(.form-check-input:checked) {
+  border-color: #007bff;
+  background: rgba(0, 123, 255, 0.05);
+}
+
+.category-item .form-check-input {
+  margin-bottom: 8px;
+}
+
+.category-item .form-check-label {
+  font-weight: 600;
+  color: #333;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.category-description {
+  color: #6c757d;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  display: block;
+}
+
+/* Multi-Domain Management Styles */
+.domain-list {
+  margin-bottom: 20px;
+}
+
+.domain-item {
+  margin-bottom: 15px;
+}
+
+.domain-card {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  transition: box-shadow 0.2s ease;
+}
+
+.domain-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.domain-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+}
+
+.domain-info {
+  flex: 1;
+}
+
+.domain-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.domain-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.domain-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.domain-preview {
+  border-top: 1px solid #dee2e6;
+  padding-top: 15px;
+  text-align: center;
+}
+
+.domain-logo-preview {
+  max-width: 120px;
+  max-height: 50px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.no-domains-message {
+  text-align: center;
+  margin: 40px 0;
+}
+
+.add-domain-section {
+  text-align: center;
+  margin-top: 30px;
+}
+
+.deployment-instructions {
+  background: #e7f3ff;
+  border-radius: 8px;
+  padding: 20px;
+  border-left: 4px solid #007bff;
+}
+
+.deployment-instructions h5 {
+  color: #004085;
+  margin-bottom: 15px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .domain-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .domain-actions {
+    justify-content: flex-end;
+    margin-top: 15px;
+  }
 }
 
 .browser-mockup {

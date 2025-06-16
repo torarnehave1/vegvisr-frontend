@@ -878,27 +878,86 @@ export default {
           .run()
         console.log('Query result:', result)
 
-        // If branding data exists, also save to KV for site configuration
-        if (data.branding && data.branding.mySite) {
+        // Multi-Domain KV Configuration Saving
+        if (data.domainConfigs && Array.isArray(data.domainConfigs)) {
+          // New multi-domain structure
+          console.log(
+            'Processing multi-domain configurations:',
+            data.domainConfigs.length,
+            'domains',
+          )
+
+          for (const domainConfig of data.domainConfigs) {
+            try {
+              // Determine metaAreas based on domain's content filter selection
+              let metaAreas = []
+              if (domainConfig.contentFilter === 'custom' && domainConfig.selectedCategories) {
+                metaAreas = domainConfig.selectedCategories
+                console.log(`Domain ${domainConfig.domain}: Using selected meta areas:`, metaAreas)
+              } else if (domainConfig.contentFilter === 'none') {
+                metaAreas = []
+                console.log(`Domain ${domainConfig.domain}: No content filtering`)
+              }
+
+              const siteConfig = {
+                domain: domainConfig.domain,
+                owner: email,
+                branding: {
+                  mySite: domainConfig.domain,
+                  myLogo: domainConfig.logo,
+                  contentFilter: domainConfig.contentFilter,
+                  selectedCategories: domainConfig.selectedCategories,
+                },
+                contentFilter: {
+                  metaAreas: metaAreas,
+                },
+                updatedAt: new Date().toISOString(),
+              }
+
+              const kvKey = `site-config:${domainConfig.domain}`
+              await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+              console.log(`Saved domain config to KV: ${kvKey} with ${metaAreas.length} meta areas`)
+            } catch (kvError) {
+              console.error(`Error saving domain config for ${domainConfig.domain}:`, kvError)
+              // Continue with other domains even if one fails
+            }
+          }
+        } else if (data.branding && data.branding.mySite) {
+          // Legacy single domain support (backwards compatibility)
           try {
+            let metaAreas = []
+            if (data.branding.contentFilter === 'custom' && data.branding.selectedCategories) {
+              metaAreas = data.branding.selectedCategories
+              console.log('Legacy: Using user-selected meta areas:', metaAreas)
+            } else if (data.branding.contentFilter === 'none') {
+              metaAreas = []
+              console.log('Legacy: No content filtering')
+            } else if (data.branding.mySite === 'sweet.norsegong.com') {
+              // Legacy support for sweet.norsegong.com
+              metaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
+              console.log('Legacy sweet.norsegong.com filtering applied:', metaAreas)
+            }
+
             const siteConfig = {
               domain: data.branding.mySite,
               owner: email,
               branding: data.branding,
               contentFilter: {
-                metaAreas:
-                  data.branding.mySite === 'sweet.norsegong.com'
-                    ? ['NORSEGONG', 'NORSEMYTHOLOGY']
-                    : [],
+                metaAreas: metaAreas,
               },
               updatedAt: new Date().toISOString(),
             }
 
             const kvKey = `site-config:${data.branding.mySite}`
             await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
-            console.log('Saved site configuration to KV:', kvKey)
+            console.log(
+              'Saved legacy site configuration to KV:',
+              kvKey,
+              'with metaAreas:',
+              metaAreas,
+            )
           } catch (kvError) {
-            console.error('Error saving site config to KV:', kvError)
+            console.error('Error saving legacy site config to KV:', kvError)
             // Don't fail the main request if KV save fails
           }
         }

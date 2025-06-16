@@ -321,7 +321,32 @@ const currentSiteTitle = computed(() => {
 
 ## 🔍 Content Filtering System
 
-### 1. Domain-Based Filtering
+### 1. Dynamic Meta Area Selection
+
+**NEW**: The branding modal now uses actual meta areas from the knowledge graph system instead of hardcoded categories:
+
+```javascript
+// BrandingModal.vue - Real Meta Areas Integration
+computed: {
+  availableCategories() {
+    // Get meta areas from portfolio store and format them for the UI
+    return this.portfolioStore.allMetaAreas.map(metaArea => ({
+      value: metaArea,
+      label: this.formatMetaAreaLabel(metaArea),
+      description: `Content related to ${this.formatMetaAreaLabel(metaArea).toLowerCase()}`
+    }))
+  }
+}
+```
+
+**Key Improvements:**
+
+- Uses real meta areas extracted from existing knowledge graphs
+- No more hardcoded category lists
+- Dynamic updates as knowledge graphs are added/modified
+- Formatted labels automatically generated from meta area names
+
+### 2. Domain-Based Filtering
 
 Custom domains can have content restrictions applied:
 

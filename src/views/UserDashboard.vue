@@ -145,21 +145,72 @@
                 🎨 <span class="ms-2">Custom Domain Branding</span>
               </h5>
               <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
-                Create a fully branded experience with your own domain. Set up custom logos, domain
-                routing, and content filtering.
+                Create fully branded experiences with your own domains. Set up custom logos, domain
+                routing, and content filtering for each domain.
               </p>
-              <div class="d-flex align-items-center justify-content-between">
-                <div class="branding-status">
-                  <span v-if="mySite" class="badge bg-success"> ✓ {{ mySite }} </span>
-                  <span v-else class="badge bg-warning"> ⚠ Not Configured </span>
+
+              <!-- Multi-Domain Status -->
+              <div class="branding-status mb-3">
+                <div v-if="domainConfigs.length > 0" class="domain-list">
+                  <div class="d-flex flex-wrap gap-2">
+                    <span
+                      v-for="config in domainConfigs"
+                      :key="config.domain"
+                      class="badge bg-success d-flex align-items-center"
+                      style="
+                        background: rgba(255, 255, 255, 0.2) !important;
+                        backdrop-filter: blur(10px);
+                      "
+                    >
+                      ✓ {{ config.domain }}
+                      <small
+                        class="ms-1"
+                        v-if="config.selectedCategories && config.selectedCategories.length > 0"
+                      >
+                        ({{ config.selectedCategories.length }} filters)
+                      </small>
+                    </span>
+                  </div>
+                  <small class="text-light mt-2 d-block" style="opacity: 0.8">
+                    {{ domainConfigs.length }} custom domain{{
+                      domainConfigs.length !== 1 ? 's' : ''
+                    }}
+                    configured
+                  </small>
                 </div>
+
+                <!-- Legacy single domain display (for backward compatibility) -->
+                <div v-else-if="mySite" class="legacy-domain">
+                  <span
+                    class="badge bg-success"
+                    style="background: rgba(255, 255, 255, 0.2) !important"
+                  >
+                    ✓ {{ mySite }} (Legacy)
+                  </span>
+                  <small class="text-light mt-2 d-block" style="opacity: 0.8">
+                    Legacy single domain configuration
+                  </small>
+                </div>
+
+                <!-- No domains configured -->
+                <div v-else class="no-domains">
+                  <span
+                    class="badge bg-warning"
+                    style="background: rgba(255, 193, 7, 0.3) !important"
+                  >
+                    ⚠ No domains configured
+                  </span>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end">
                 <button
                   @click="openBrandingModal"
                   class="btn btn-light btn-sm"
                   style="font-weight: 600"
                 >
                   <i class="fas fa-cog me-1"></i>
-                  Setup Branding
+                  {{ domainConfigs.length > 0 ? 'Manage Domains' : 'Setup Branding' }}
                 </button>
               </div>
             </div>
@@ -216,6 +267,7 @@
     <!-- Branding Modal -->
     <BrandingModal
       :isOpen="showBrandingModal"
+      :existingDomainConfigs="domainConfigs"
       @close="closeBrandingModal"
       @saved="handleBrandingSaved"
     />
@@ -253,10 +305,11 @@ export default {
       mystmkraUserId: '',
       editingMystmkraUserId: false,
       newMystmkraUserId: '',
-      mySite: '',
-      myLogo: '',
+      mySite: '', // Legacy - kept for backward compatibility
+      myLogo: '', // Legacy - kept for backward compatibility
       logoError: false,
       showBrandingModal: false,
+      domainConfigs: [], // New: Array of domain configurations
     }
   },
   computed: {
@@ -395,12 +448,35 @@ export default {
           }
 
           // Extract site branding data
-          if (result.data && result.data.branding) {
+          if (
+            result.data &&
+            result.data.domainConfigs &&
+            Array.isArray(result.data.domainConfigs)
+          ) {
+            // New multi-domain structure
+            this.domainConfigs = result.data.domainConfigs
+            console.log('Loaded domain configs:', this.domainConfigs)
+          } else if (result.data && result.data.branding) {
+            // Legacy single domain structure - convert to new format
             this.mySite = result.data.branding.mySite || ''
             this.myLogo = result.data.branding.myLogo || ''
+
+            // If we have legacy branding data, create a single domain config for backward compatibility
+            if (this.mySite) {
+              this.domainConfigs = [
+                {
+                  domain: this.mySite,
+                  logo: this.myLogo,
+                  contentFilter: 'none', // Default for legacy
+                  selectedCategories: [],
+                },
+              ]
+              console.log('Converted legacy branding to domain config:', this.domainConfigs)
+            }
           } else {
             this.mySite = ''
             this.myLogo = ''
+            this.domainConfigs = []
           }
         } else {
           console.warn('No user data found')
@@ -459,6 +535,7 @@ export default {
               mySite: this.mySite,
               myLogo: this.myLogo,
             },
+            domainConfigs: this.domainConfigs, // New multi-domain structure
           },
           mystmkraUserId: this.mystmkraUserId, // Also send as top-level for backend robustness
         }
@@ -587,9 +664,15 @@ export default {
     closeBrandingModal() {
       this.showBrandingModal = false
     },
-    handleBrandingSaved(message) {
+    handleBrandingSaved(message, updatedDomainConfigs) {
       this.saveMessage = message
       this.isSaving = true
+
+      // Update domain configs if provided by the modal
+      if (updatedDomainConfigs) {
+        this.domainConfigs = updatedDomainConfigs
+        console.log('Updated domain configs from modal:', this.domainConfigs)
+      }
 
       // Refresh user data to show updated branding status
       this.fetchUserData()
