@@ -21,6 +21,9 @@ export const API_CONFIG = {
     getUserData: '/userdata',
     updateUserData: '/userdata',
     uploadFile: '/upload',
+    // Site configuration endpoints
+    saveSiteConfig: '/site-config',
+    getSiteConfig: '/site-config',
   },
 }
 
@@ -53,4 +56,8 @@ export const apiUrls = {
   getUserData: (email) => getApiUrl('getUserData', { email }),
   updateUserData: () => getApiUrl('updateUserData'),
   uploadFile: () => getApiUrl('uploadFile'),
+
+  // Site configuration endpoints (use main worker)
+  saveSiteConfig: () => getApiUrl('saveSiteConfig'),
+  getSiteConfig: (domain) => getApiUrl('getSiteConfig') + `/${domain}`,
 }

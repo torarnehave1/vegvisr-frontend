@@ -1848,12 +1848,98 @@ var index_default = {
         const userId = data.profile?.user_id || v4_default();
         const result = await db.prepare(query).bind(userId, email, bio, dataJson, profileimage, bio, dataJson, profileimage).run();
         console.log("Query result:", result);
+        if (data.branding && data.branding.mySite) {
+          try {
+            const siteConfig = {
+              domain: data.branding.mySite,
+              owner: email,
+              branding: data.branding,
+              contentFilter: {
+                metaAreas: data.branding.mySite === "sweet.norsegong.com" ? ["NORSEGONG", "NORSEMYTHOLOGY"] : []
+              },
+              updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+            };
+            const kvKey = `site-config:${data.branding.mySite}`;
+            await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig));
+            console.log("Saved site configuration to KV:", kvKey);
+          } catch (kvError) {
+            console.error("Error saving site config to KV:", kvError);
+          }
+        }
         return addCorsHeaders(
           new Response(
             JSON.stringify({ success: true, message: "User data updated successfully" }),
             { status: 200 }
           )
         );
+      }
+      if (path === "/site-config" && method === "PUT") {
+        try {
+          const body = await request.json();
+          const { domain, owner, branding, contentFilter } = body;
+          if (!domain || !owner || !branding) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: "Missing required fields: domain, owner, branding" }),
+                { status: 400 }
+              )
+            );
+          }
+          const siteConfig = {
+            domain,
+            owner,
+            branding,
+            contentFilter: contentFilter || { metaAreas: [] },
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          const kvKey = `site-config:${domain}`;
+          await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig));
+          console.log("Saved site configuration:", kvKey, siteConfig);
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: true, message: "Site configuration saved successfully" }),
+              { status: 200 }
+            )
+          );
+        } catch (error) {
+          console.error("Error saving site configuration:", error);
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: "Failed to save site configuration" }), {
+              status: 500
+            })
+          );
+        }
+      }
+      if (path.startsWith("/site-config/") && method === "GET") {
+        try {
+          const domain = path.split("/site-config/")[1];
+          if (!domain) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: "Domain parameter is required" }), {
+                status: 400
+              })
+            );
+          }
+          const kvKey = `site-config:${domain}`;
+          const siteConfigData = await env.SITE_CONFIGS.get(kvKey);
+          if (!siteConfigData) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: "Site configuration not found" }), {
+                status: 404
+              })
+            );
+          }
+          const siteConfig = JSON.parse(siteConfigData);
+          console.log("Retrieved site configuration:", kvKey, siteConfig);
+          return addCorsHeaders(new Response(JSON.stringify(siteConfig), { status: 200 }));
+        } catch (error) {
+          console.error("Error retrieving site configuration:", error);
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: "Failed to retrieve site configuration" }), {
+              status: 500
+            })
+          );
+        }
       }
       return addCorsHeaders(new Response("Not Found", { status: 404 }));
     } catch (error) {
@@ -1881,7 +1967,7 @@ var drainBody = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "drainBody");
 var middleware_ensure_req_body_drained_default = drainBody;
 
-// .wrangler/tmp/bundle-0TX7fQ/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-AMuoKw/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default
 ];
@@ -1912,7 +1998,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-0TX7fQ/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-AMuoKw/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

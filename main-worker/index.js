@@ -877,12 +877,118 @@ export default {
           .bind(userId, email, bio, dataJson, profileimage, bio, dataJson, profileimage)
           .run()
         console.log('Query result:', result)
+
+        // If branding data exists, also save to KV for site configuration
+        if (data.branding && data.branding.mySite) {
+          try {
+            const siteConfig = {
+              domain: data.branding.mySite,
+              owner: email,
+              branding: data.branding,
+              contentFilter: {
+                metaAreas:
+                  data.branding.mySite === 'sweet.norsegong.com'
+                    ? ['NORSEGONG', 'NORSEMYTHOLOGY']
+                    : [],
+              },
+              updatedAt: new Date().toISOString(),
+            }
+
+            const kvKey = `site-config:${data.branding.mySite}`
+            await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+            console.log('Saved site configuration to KV:', kvKey)
+          } catch (kvError) {
+            console.error('Error saving site config to KV:', kvError)
+            // Don't fail the main request if KV save fails
+          }
+        }
+
         return addCorsHeaders(
           new Response(
             JSON.stringify({ success: true, message: 'User data updated successfully' }),
             { status: 200 },
           ),
         )
+      }
+
+      if (path === '/site-config' && method === 'PUT') {
+        try {
+          const body = await request.json()
+          const { domain, owner, branding, contentFilter } = body
+
+          if (!domain || !owner || !branding) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Missing required fields: domain, owner, branding' }),
+                { status: 400 },
+              ),
+            )
+          }
+
+          const siteConfig = {
+            domain,
+            owner,
+            branding,
+            contentFilter: contentFilter || { metaAreas: [] },
+            updatedAt: new Date().toISOString(),
+          }
+
+          const kvKey = `site-config:${domain}`
+          await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+
+          console.log('Saved site configuration:', kvKey, siteConfig)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: true, message: 'Site configuration saved successfully' }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('Error saving site configuration:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to save site configuration' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
+      if (path.startsWith('/site-config/') && method === 'GET') {
+        try {
+          const domain = path.split('/site-config/')[1]
+
+          if (!domain) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Domain parameter is required' }), {
+                status: 400,
+              }),
+            )
+          }
+
+          const kvKey = `site-config:${domain}`
+          const siteConfigData = await env.SITE_CONFIGS.get(kvKey)
+
+          if (!siteConfigData) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Site configuration not found' }), {
+                status: 404,
+              }),
+            )
+          }
+
+          const siteConfig = JSON.parse(siteConfigData)
+          console.log('Retrieved site configuration:', kvKey, siteConfig)
+
+          return addCorsHeaders(new Response(JSON.stringify(siteConfig), { status: 200 }))
+        } catch (error) {
+          console.error('Error retrieving site configuration:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to retrieve site configuration' }), {
+              status: 500,
+            }),
+          )
+        }
       }
 
       // Handle other routes
