@@ -114,60 +114,53 @@
           </div>
         </div>
 
-        <!-- Site Branding Section -->
-        <div
-          class="mt-4"
-          style="background: #f8f9fa; border-radius: 8px; padding: 1rem; border: 1px solid #dee2e6"
-        >
-          <h5 class="mb-3">Site Branding</h5>
-
-          <!-- My Site -->
-          <div class="mb-3">
-            <label for="mySite" class="form-label"><strong>My Site:</strong></label>
-            <input
-              type="text"
-              id="mySite"
-              class="form-control"
-              v-model="mySite"
-              placeholder="e.g., sweet.norsegong.com"
-              autocomplete="off"
-            />
-            <div class="form-text text-start">Your custom domain or site identifier.</div>
-          </div>
-
-          <!-- My Logo -->
-          <div class="mb-3">
-            <label for="myLogo" class="form-label"><strong>My Logo URL:</strong></label>
-            <input
-              type="url"
-              id="myLogo"
-              class="form-control"
-              v-model="myLogo"
-              placeholder="https://example.com/logo.png"
-              autocomplete="off"
-            />
-            <div class="form-text text-start">URL to your custom logo image.</div>
-          </div>
-
-          <!-- Logo Preview -->
-          <div v-if="myLogo" class="mb-3">
-            <label class="form-label"><strong>Logo Preview:</strong></label>
-            <div>
-              <img
-                :src="myLogo"
-                alt="My Logo"
-                class="img-fluid"
-                style="
-                  max-width: 200px;
-                  max-height: 100px;
-                  border: 1px solid #dee2e6;
-                  border-radius: 4px;
-                "
-                @error="logoError = true"
-                @load="logoError = false"
-              />
-              <div v-if="logoError" class="text-danger small mt-1">
-                Unable to load logo from this URL
+        <!-- Custom Domain Branding Section - Admin/Superadmin Only -->
+        <div v-if="isAdminOrSuperadmin" class="mt-4">
+          <div
+            class="branding-card"
+            style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              border-radius: 12px;
+              padding: 1.5rem;
+              color: white;
+              position: relative;
+              overflow: hidden;
+            "
+          >
+            <div
+              class="branding-pattern"
+              style="
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 100px;
+                height: 100px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                transform: translate(30px, -30px);
+              "
+            ></div>
+            <div class="branding-content" style="position: relative; z-index: 2">
+              <h5 class="mb-3 d-flex align-items-center">
+                🎨 <span class="ms-2">Custom Domain Branding</span>
+              </h5>
+              <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
+                Create a fully branded experience with your own domain. Set up custom logos, domain
+                routing, and content filtering.
+              </p>
+              <div class="d-flex align-items-center justify-content-between">
+                <div class="branding-status">
+                  <span v-if="mySite" class="badge bg-success"> ✓ {{ mySite }} </span>
+                  <span v-else class="badge bg-warning"> ⚠ Not Configured </span>
+                </div>
+                <button
+                  @click="openBrandingModal"
+                  class="btn btn-light btn-sm"
+                  style="font-weight: 600"
+                >
+                  <i class="fas fa-cog me-1"></i>
+                  Setup Branding
+                </button>
               </div>
             </div>
           </div>
@@ -219,6 +212,13 @@
       <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
       {{ saveMessage }}
     </div>
+
+    <!-- Branding Modal -->
+    <BrandingModal
+      :isOpen="showBrandingModal"
+      @close="closeBrandingModal"
+      @saved="handleBrandingSaved"
+    />
   </div>
 </template>
 
@@ -227,8 +227,12 @@ import { useUserStore } from '@/stores/userStore' // Import Pinia store
 import { marked } from 'marked' // Import marked.js
 import { useRouter } from 'vue-router' // Import router
 import { apiUrls } from '@/config/api' // Import API configuration
+import BrandingModal from '@/components/BrandingModal.vue' // Import branding modal
 
 export default {
+  components: {
+    BrandingModal,
+  },
   data() {
     return {
       bio: '',
@@ -252,6 +256,7 @@ export default {
       mySite: '',
       myLogo: '',
       logoError: false,
+      showBrandingModal: false,
     }
   },
   computed: {
@@ -284,6 +289,10 @@ export default {
         return `${id.slice(0, 4)}...${id.slice(-4)}`
       }
       return id
+    },
+    isAdminOrSuperadmin() {
+      const role = this.userStore.role || ''
+      return role === 'admin' || role === 'superadmin'
     },
   },
   setup() {
@@ -571,6 +580,24 @@ export default {
         this.newMystmkraUserId = ''
         // Optionally, call saveAllData() here if you want to persist immediately
       }
+    },
+    openBrandingModal() {
+      this.showBrandingModal = true
+    },
+    closeBrandingModal() {
+      this.showBrandingModal = false
+    },
+    handleBrandingSaved(message) {
+      this.saveMessage = message
+      this.isSaving = true
+
+      // Refresh user data to show updated branding status
+      this.fetchUserData()
+
+      setTimeout(() => {
+        this.isSaving = false
+        this.saveMessage = ''
+      }, 2000)
     },
   },
 }
