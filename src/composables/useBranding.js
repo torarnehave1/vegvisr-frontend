@@ -12,19 +12,22 @@ export function useBranding() {
   const detectHostname = async () => {
     // First try to get the original hostname from a HEAD request to see response headers
     try {
-      const response = await fetch(window.location.href, { method: 'HEAD' })
-      const originalHostname = response.headers.get('x-original-hostname')
-      if (originalHostname) {
-        console.log('Detected original hostname from proxy:', originalHostname)
-        detectedHostname.value = originalHostname
-        return originalHostname
+      if (typeof window !== 'undefined' && window.location?.href) {
+        const response = await fetch(window.location.href, { method: 'HEAD' })
+        const originalHostname = response.headers.get('x-original-hostname')
+        if (originalHostname) {
+          console.log('Detected original hostname from proxy:', originalHostname)
+          detectedHostname.value = originalHostname
+          return originalHostname
+        }
       }
     } catch (error) {
       console.log('Could not detect original hostname from headers:', error)
     }
 
     // Fallback to window location hostname
-    const hostname = typeof window !== 'undefined' ? window.location.hostname : null
+    const hostname =
+      typeof window !== 'undefined' && window.location ? window.location.hostname : 'localhost'
     console.log('Using window location hostname:', hostname)
     detectedHostname.value = hostname
     return hostname
@@ -94,8 +97,12 @@ export function useBranding() {
       if (domain === 'sweet.norsegong.com') {
         return 'Sweet NorseGong'
       }
-      // Generic conversion for other domains
-      return domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1)
+      // Generic conversion for other domains - with null check
+      if (domain && typeof domain === 'string' && domain.includes('.')) {
+        const subdomain = domain.split('.')[0]
+        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      }
+      return 'Custom Site'
     }
 
     // Fallback to user store
@@ -104,7 +111,12 @@ export function useBranding() {
       if (domain === 'sweet.norsegong.com') {
         return 'Sweet NorseGong'
       }
-      return domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1)
+      // Generic conversion for other domains - with null check
+      if (domain && typeof domain === 'string' && domain.includes('.')) {
+        const subdomain = domain.split('.')[0]
+        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      }
+      return 'Custom Site'
     }
 
     return 'Vegvisr'
@@ -112,8 +124,8 @@ export function useBranding() {
 
   // Get domain-specific theme/styling
   const currentTheme = computed(() => {
-    if (isCustomDomain.value) {
-      const domain = siteConfig.value?.branding?.mySite || currentDomain.value
+    if (isCustomDomain.value && siteConfig.value?.branding?.mySite) {
+      const domain = siteConfig.value.branding.mySite
       if (domain === 'sweet.norsegong.com') {
         return {
           primaryColor: '#8B4513', // Norse brown
@@ -132,9 +144,18 @@ export function useBranding() {
 
   // Initialize hostname detection and fetch site config
   const initialize = async () => {
-    const hostname = await detectHostname()
-    if (hostname) {
-      await fetchSiteConfig(hostname)
+    try {
+      const hostname = await detectHostname()
+      if (hostname && hostname !== 'localhost') {
+        await fetchSiteConfig(hostname)
+      } else {
+        console.log('Skipping site config fetch for localhost or invalid hostname')
+      }
+    } catch (error) {
+      console.error('Error during branding initialization:', error)
+      // Set safe defaults
+      detectedHostname.value = 'localhost'
+      siteConfig.value = null
     }
   }
 
