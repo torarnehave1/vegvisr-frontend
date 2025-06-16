@@ -5,7 +5,8 @@
       <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
           <RouterLink class="navbar-brand" to="/">
-            <img src="../assets/logo.svg" alt="Vegvisr Logo" width="200" />
+            <img :src="currentLogo" :alt="currentSiteTitle + ' Logo'" width="200" />
+            <span v-if="isCustomDomain" class="ms-2 site-title">{{ currentSiteTitle }}</span>
           </RouterLink>
           <button
             class="navbar-toggler"
@@ -112,8 +113,10 @@
 <script setup>
 import { RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/userStore' // Import Pinia store
+import { useBranding } from '@/composables/useBranding' // Import branding composable
 
 const userStore = useUserStore() // Access Pinia store
+const { currentLogo, currentSiteTitle, isCustomDomain } = useBranding() // Use branding composable
 
 defineProps({
   theme: {
@@ -171,5 +174,12 @@ img {
   margin: 10px auto;
   border-radius: 4px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.site-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #2c3e50;
+  text-decoration: none;
 }
 </style>

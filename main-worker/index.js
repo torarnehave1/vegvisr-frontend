@@ -5,7 +5,11 @@ import { SignJWT } from 'jose' // Import jose for JWT handling
 function addCorsHeaders(response) {
   response.headers.set('Access-Control-Allow-Origin', '*')
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  response.headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With',
+  )
+  response.headers.set('Access-Control-Max-Age', '86400')
   return response
 }
 
@@ -862,7 +866,7 @@ export default {
         const query = `
           INSERT INTO config (user_id, email, bio, data, profileimage)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(user_id) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
+          ON CONFLICT(email) DO UPDATE SET bio = ?, data = ?, profileimage = ?;
         `
         console.log('Executing query with bio:', bio)
         // Generate a user_id if we don't have one
@@ -882,10 +886,10 @@ export default {
       }
 
       // Handle other routes
-      return new Response('Not Found', { status: 404 })
+      return addCorsHeaders(new Response('Not Found', { status: 404 }))
     } catch (error) {
       console.error('Error in fetch handler:', error)
-      return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+      return addCorsHeaders(new Response(JSON.stringify({ error: error.message }), { status: 500 }))
     }
   },
 }
