@@ -13,8 +13,13 @@ export default {
         if (siteConfigJson) {
           const siteConfig = JSON.parse(siteConfigJson)
           if (siteConfig.branding && siteConfig.branding.mySiteFrontPage) {
+            // Normalize front page path if it's just a Graph ID
+            let frontPagePath = siteConfig.branding.mySiteFrontPage
+            if (!frontPagePath.includes('/') && !frontPagePath.includes('?')) {
+              frontPagePath = `/graph-viewer?graphId=${frontPagePath}&template=Frontpage`
+              console.log(`Normalized front page path to: ${frontPagePath}`)
+            }
             // Redirect to the custom front page
-            const frontPagePath = siteConfig.branding.mySiteFrontPage
             console.log(`Redirecting to custom front page: ${frontPagePath}`)
             return Response.redirect(`https://${hostname}${frontPagePath}`, 302)
           }

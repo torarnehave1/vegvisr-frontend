@@ -144,19 +144,27 @@ export function useBranding() {
 
   // Get the appropriate front page
   const currentFrontPage = computed(() => {
+    let frontPage = ''
     if (isCustomDomain.value && siteConfig.value?.branding?.mySiteFrontPage) {
-      console.log(
-        'Using custom front page from KV site config:',
-        siteConfig.value.branding.mySiteFrontPage,
-      )
-      return siteConfig.value.branding.mySiteFrontPage
+      frontPage = siteConfig.value.branding.mySiteFrontPage
+      console.log('Using custom front page from KV site config:', frontPage)
+    } else if (
+      userStore.branding?.mySiteFrontPage &&
+      userStore.branding?.mySite === currentDomain.value
+    ) {
+      frontPage = userStore.branding.mySiteFrontPage
+      console.log('Using custom front page from user store:', frontPage)
+    } else {
+      console.log('Using default front page')
+      return '/' // Default landing page
     }
-    if (userStore.branding?.mySiteFrontPage && userStore.branding?.mySite === currentDomain.value) {
-      console.log('Using custom front page from user store:', userStore.branding.mySiteFrontPage)
-      return userStore.branding.mySiteFrontPage
+
+    // Normalize front page path if it's just a Graph ID
+    if (frontPage && !frontPage.includes('/') && !frontPage.includes('?')) {
+      frontPage = `/graph-viewer?graphId=${frontPage}&template=Frontpage`
+      console.log('Normalized front page path to:', frontPage)
     }
-    console.log('Using default front page')
-    return '/' // Default landing page
+    return frontPage
   })
 
   // Initialize hostname detection and fetch site config

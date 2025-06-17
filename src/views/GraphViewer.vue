@@ -3824,6 +3824,7 @@ const graphTitle = ref('')
 
 onMounted(() => {
   const frontPagePath = currentFrontPage.value
+  console.log('Front page path received:', frontPagePath)
   if (frontPagePath && frontPagePath.includes('graphId')) {
     const params = new URLSearchParams(frontPagePath.split('?')[1] || '')
     const graphId = params.get('graphId')
