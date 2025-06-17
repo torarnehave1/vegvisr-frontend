@@ -8,13 +8,19 @@ export default {
       const hostname = url.hostname
       // Check KV for site configuration
       const kvKey = `site-config:${hostname}`
+      console.log(`Checking KV store for key: ${kvKey}`)
       try {
         const siteConfigJson = await env.SITE_CONFIGS.get(kvKey)
+        console.log(
+          `KV store response for ${kvKey}: ${siteConfigJson ? 'Config found' : 'No config found'}`,
+        )
         if (siteConfigJson) {
           const siteConfig = JSON.parse(siteConfigJson)
+          console.log(`Site config for ${hostname}:`, JSON.stringify(siteConfig, null, 2))
           if (siteConfig.branding && siteConfig.branding.mySiteFrontPage) {
             // Normalize front page path if it's just a Graph ID
             let frontPagePath = siteConfig.branding.mySiteFrontPage
+            console.log(`Original front page path: ${frontPagePath}`)
             if (!frontPagePath.includes('/') && !frontPagePath.includes('?')) {
               frontPagePath = `/graph-viewer?graphId=${frontPagePath}&template=Frontpage`
               console.log(`Normalized front page path to: ${frontPagePath}`)
@@ -22,6 +28,8 @@ export default {
             // Redirect to the custom front page
             console.log(`Redirecting to custom front page: ${frontPagePath}`)
             return Response.redirect(`https://${hostname}${frontPagePath}`, 302)
+          } else {
+            console.log(`No mySiteFrontPage defined in branding for ${hostname}`)
           }
         }
       } catch (error) {
