@@ -607,6 +607,7 @@ export default {
         let currentData = {}
         if (currentResponse.ok) {
           currentData = await currentResponse.json()
+          console.log('Current user data:', JSON.stringify(currentData, null, 2))
         }
 
         const payload = {
@@ -627,7 +628,7 @@ export default {
           },
         }
 
-        console.log('Saving multi-domain configuration:', payload)
+        console.log('Saving domain configuration payload:', JSON.stringify(payload, null, 2))
 
         const response = await fetch(apiUrls.updateUserData(), {
           method: 'PUT',
@@ -638,6 +639,9 @@ export default {
         if (!response.ok) {
           throw new Error('Failed to save domain configurations')
         }
+
+        const result = await response.json()
+        console.log('Save domain configuration response:', JSON.stringify(result, null, 2))
 
         // Emit success with updated domain configs
         this.$emit('saved', 'All domain configurations saved successfully!', this.domainConfigs)
