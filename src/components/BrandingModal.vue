@@ -668,8 +668,8 @@ export default {
         const domainParts = this.formData.domain.split('.')
         const subdomain = domainParts[0]
 
-        // Use the new domain for testing
-        const testUrl = `https://${this.formData.domain}/create-custom-domain`
+        // Use the brand-worker for domain registration testing
+        const testUrl = 'https://brand-worker.torarnehave.workers.dev/create-custom-domain'
         console.log('Testing domain setup with URL:', testUrl)
 
         const response = await fetch(testUrl, {
@@ -681,6 +681,7 @@ export default {
         })
 
         const result = await response.json()
+        console.log('Domain setup test result:', result)
 
         if (response.ok && result.overallSuccess) {
           this.domainTestResult = {

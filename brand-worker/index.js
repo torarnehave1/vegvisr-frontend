@@ -12,10 +12,96 @@ export default {
     }
 
     try {
-      // Proxy all requests
       const url = new URL(request.url)
       const hostname = url.hostname
 
+      // Restore /create-custom-domain endpoint
+      if (url.pathname === '/create-custom-domain' && request.method === 'POST') {
+        const { subdomain } = await request.json()
+        if (!subdomain) {
+          return new Response(JSON.stringify({ error: 'Subdomain is required' }), {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        }
+        try {
+          // Create DNS record
+          const dnsResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${env.CF_API_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                type: 'CNAME',
+                name: subdomain,
+                content: 'brand-worker.torarnehave.workers.dev',
+                proxied: true,
+              }),
+            },
+          )
+          const dnsResult = await dnsResponse.json()
+          const dnsSetup = {
+            success: dnsResult.success,
+            errors: dnsResult.errors,
+          }
+          // Create worker route
+          const workerResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/workers/routes`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${env.CF_API_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                pattern: `${subdomain}.norsegong.com/*`,
+                script: 'brand-worker',
+              }),
+            },
+          )
+          const workerResult = await workerResponse.json()
+          const workerSetup = {
+            success: workerResult.success,
+            errors: workerResult.errors,
+          }
+          return new Response(
+            JSON.stringify({
+              overallSuccess: dnsSetup.success && workerSetup.success,
+              dnsSetup,
+              workerSetup,
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+            },
+          )
+        } catch (error) {
+          return new Response(
+            JSON.stringify({
+              error: error.message,
+              overallSuccess: false,
+            }),
+            {
+              status: 500,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+            },
+          )
+        }
+      }
+
+      // Proxy logic for other endpoints
       let targetUrl
       if (
         url.pathname.startsWith('/getknowgraphs') ||
