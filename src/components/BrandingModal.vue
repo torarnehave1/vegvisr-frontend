@@ -667,16 +667,18 @@ export default {
         // Extract subdomain (first part before the first dot)
         const domainParts = this.formData.domain.split('.')
         const subdomain = domainParts[0]
-        const response = await fetch(
-          'https://brand-worker.torarnehave.workers.dev/create-custom-domain',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ subdomain }),
+
+        // Use the new domain for testing
+        const testUrl = `https://${this.formData.domain}/create-custom-domain`
+        console.log('Testing domain setup with URL:', testUrl)
+
+        const response = await fetch(testUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        )
+          body: JSON.stringify({ subdomain }),
+        })
 
         const result = await response.json()
 
