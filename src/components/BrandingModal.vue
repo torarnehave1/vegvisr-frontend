@@ -660,7 +660,9 @@ export default {
       this.domainTestResult = null
 
       try {
-        const subdomain = this.getDomainSubdomain()
+        // Extract subdomain (first part before the first dot)
+        const domainParts = this.formData.domain.split('.')
+        const subdomain = domainParts[0]
         const response = await fetch(
           'https://brand-worker.torarnehave.workers.dev/create-custom-domain',
           {
@@ -674,24 +676,24 @@ export default {
 
         const result = await response.json()
 
-        if (response.ok && !result.error) {
+        if (response.ok && result.overallSuccess) {
           this.domainTestResult = {
             success: true,
-            message: `✅ Domain ${subdomain}.norsegong.com has been successfully configured!`,
+            message: `✅ Domain ${subdomain}.norsegong.com has been successfully configured!\nDNS: ${result.dnsSetup?.success ? 'OK' : 'Error'}\nWorker Route: ${result.workerSetup?.success ? 'OK' : 'Error'}`,
           }
         } else {
-          let errorMessage = result.error || 'Failed to configure domain'
-          // Check if error indicates domain already exists
-          if (errorMessage.includes('already exists')) {
-            this.domainTestResult = {
-              success: true,
-              message: `✅ Domain ${subdomain}.norsegong.com is already configured and ready to use!`,
-            }
-          } else {
-            this.domainTestResult = {
-              success: false,
-              message: `❌ Error: ${errorMessage}`,
-            }
+          let errorMessage =
+            (result.dnsSetup &&
+              !result.dnsSetup.success &&
+              result.dnsSetup.errors?.map((e) => e.message).join('; ')) ||
+            (result.workerSetup &&
+              !result.workerSetup.success &&
+              result.workerSetup.errors?.map((e) => e.message).join('; ')) ||
+            result.error ||
+            'Failed to configure domain'
+          this.domainTestResult = {
+            success: false,
+            message: `❌ Error: ${errorMessage}`,
           }
         }
       } catch (error) {
