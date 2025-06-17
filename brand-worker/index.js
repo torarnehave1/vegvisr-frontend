@@ -2,6 +2,29 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
 
+    // Check if request is to the root path
+    if (url.pathname === '/' || url.pathname === '') {
+      // Get the hostname
+      const hostname = url.hostname
+      // Check KV for site configuration
+      const kvKey = `site-config:${hostname}`
+      try {
+        const siteConfigJson = await env.SITE_CONFIGS.get(kvKey)
+        if (siteConfigJson) {
+          const siteConfig = JSON.parse(siteConfigJson)
+          if (siteConfig.branding && siteConfig.branding.mySiteFrontPage) {
+            // Redirect to the custom front page
+            const frontPagePath = siteConfig.branding.mySiteFrontPage
+            console.log(`Redirecting to custom front page: ${frontPagePath}`)
+            return Response.redirect(`https://${hostname}${frontPagePath}`, 302)
+          }
+        }
+      } catch (error) {
+        console.error(`Error checking KV for front page: ${error.message}`)
+        // Continue with default routing if error occurs
+      }
+    }
+
     // Proxy all other requests
     try {
       let targetUrl

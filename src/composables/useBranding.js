@@ -142,6 +142,23 @@ export function useBranding() {
     }
   })
 
+  // Get the appropriate front page
+  const currentFrontPage = computed(() => {
+    if (isCustomDomain.value && siteConfig.value?.branding?.mySiteFrontPage) {
+      console.log(
+        'Using custom front page from KV site config:',
+        siteConfig.value.branding.mySiteFrontPage,
+      )
+      return siteConfig.value.branding.mySiteFrontPage
+    }
+    if (userStore.branding?.mySiteFrontPage && userStore.branding?.mySite === currentDomain.value) {
+      console.log('Using custom front page from user store:', userStore.branding.mySiteFrontPage)
+      return userStore.branding.mySiteFrontPage
+    }
+    console.log('Using default front page')
+    return '/' // Default landing page
+  })
+
   // Initialize hostname detection and fetch site config
   const initialize = async () => {
     try {
@@ -174,5 +191,6 @@ export function useBranding() {
     loading,
     fetchSiteConfig,
     initialize,
+    currentFrontPage,
   }
 }

@@ -799,7 +799,7 @@ import TemplateSelector from '@/components/TemplateSelector.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import { Modal } from 'bootstrap'
-// import { useBranding } from '@/composables/useBranding' // Import for future use if needed
+import { useBranding } from '@/composables/useBranding'
 
 // Initialize Mermaid
 mermaid.initialize({
@@ -817,7 +817,7 @@ const knowledgeGraphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
 
 // Add branding composable for domain detection (only importing for potential future use)
-// const { currentDomain, isCustomDomain } = useBranding()
+const { currentDomain, isCustomDomain } = useBranding()
 
 // Dynamic API endpoint configuration
 const getApiEndpoint = (endpoint) => {
@@ -3816,6 +3816,55 @@ const handleImageInserted = async (nodeData) => {
       saveMessage.value = ''
     }, 3000)
   }
+}
+
+const { currentFrontPage } = useBranding()
+const graphStore = useKnowledgeGraphStore()
+const graphTitle = ref('')
+
+onMounted(() => {
+  const frontPagePath = currentFrontPage.value
+  if (frontPagePath && frontPagePath.includes('graphId')) {
+    const params = new URLSearchParams(frontPagePath.split('?')[1] || '')
+    const graphId = params.get('graphId')
+    const template = params.get('template')
+    if (graphId) {
+      console.log(
+        `Loading front page graph with ID: ${graphId}, Template: ${template || 'Default'}`,
+      )
+      loadGraph(graphId, template)
+    } else {
+      error.value = 'Invalid front page configuration: No graph ID found'
+    }
+  } else {
+    // Default graph loading logic if not a front page
+    loadDefaultGraph()
+  }
+})
+
+const loadGraph = async (graphId, template) => {
+  loading.value = true
+  error.value = null
+  try {
+    await graphStore.loadGraph(graphId)
+    graphTitle.value = graphStore.currentGraph?.metadata?.title || 'Untitled Graph'
+    // Apply template-specific styling if needed
+    if (template === 'Frontpage') {
+      console.log('Applying Frontpage template styling')
+      // Add any specific styling or layout adjustments for front page
+    }
+  } catch (err) {
+    error.value = `Failed to load graph: ${err.message}`
+    console.error('Error loading graph:', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadDefaultGraph = async () => {
+  // Existing logic to load a default or selected graph
+  console.log('Loading default graph')
+  // Implementation depends on current GraphViewer setup
 }
 </script>
 

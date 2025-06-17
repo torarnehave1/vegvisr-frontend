@@ -282,6 +282,32 @@
               <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
             </div>
           </div>
+
+          <div class="mb-3">
+            <label for="frontPage" class="form-label">Custom Front Page (Knowledge Graph ID)</label>
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control"
+                id="frontPage"
+                v-model="formData.mySiteFrontPage"
+                placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)"
+              />
+              <button
+                class="btn btn-outline-secondary dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
+                Select Graph
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li v-for="graph in userGraphs" :key="graph.id" @click="selectFrontPage(graph)">
+                  <a class="dropdown-item" href="#">{{ graph.title }} (ID: {{ graph.id }})</a>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -355,6 +381,7 @@ export default {
         logo: '',
         contentFilter: 'none',
         selectedCategories: [],
+        mySiteFrontPage: '',
       },
       domainError: '',
       logoError: '',
@@ -362,6 +389,7 @@ export default {
       logoLoaded: false,
       isTestingDomain: false,
       domainTestResult: null,
+      userGraphs: [],
     }
   },
   setup() {
@@ -391,6 +419,7 @@ export default {
   mounted() {
     this.loadExistingDomainConfigs()
     this.fetchMetaAreas()
+    this.loadUserGraphs()
   },
   methods: {
     loadExistingDomainConfigs() {
@@ -405,6 +434,7 @@ export default {
         logo: '',
         contentFilter: 'none',
         selectedCategories: [],
+        mySiteFrontPage: '',
       }
       this.viewMode = 'edit'
     },
@@ -416,6 +446,7 @@ export default {
         logo: config.logo || '',
         contentFilter: config.contentFilter || 'none',
         selectedCategories: config.selectedCategories || [],
+        mySiteFrontPage: config.mySiteFrontPage || '',
       }
       this.viewMode = 'edit'
     },
@@ -438,6 +469,7 @@ export default {
         logo: '',
         contentFilter: 'none',
         selectedCategories: [],
+        mySiteFrontPage: '',
       }
       this.domainError = ''
       this.logoError = ''
@@ -455,6 +487,7 @@ export default {
         logo: this.formData.logo,
         contentFilter: this.formData.contentFilter,
         selectedCategories: this.formData.selectedCategories,
+        mySiteFrontPage: this.formData.mySiteFrontPage,
       }
 
       if (this.editingDomainIndex !== null) {
@@ -623,6 +656,7 @@ export default {
                 ? {
                     mySite: this.domainConfigs[0].domain,
                     myLogo: this.domainConfigs[0].logo,
+                    mySiteFrontPage: this.domainConfigs[0].mySiteFrontPage || '',
                   }
                 : {},
           },
@@ -713,6 +747,17 @@ export default {
       } finally {
         this.isTestingDomain = false
       }
+    },
+    async loadUserGraphs() {
+      try {
+        const graphs = await this.portfolioStore.fetchGraphs()
+        this.userGraphs = graphs
+      } catch (error) {
+        console.error('Error loading user graphs:', error)
+      }
+    },
+    selectFrontPage(graph) {
+      this.formData.mySiteFrontPage = `/graph-viewer?graphId=${graph.id}&template=Frontpage`
     },
   },
 }

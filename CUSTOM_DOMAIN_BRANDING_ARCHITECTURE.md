@@ -25,13 +25,16 @@ Vegvisr.org implements a sophisticated custom domain and branding system that al
 
 ## 🎯 User Configuration Flow
 
-### 1. User Interface (UserDashboard.vue)
+### 1. User Interface (UserDashboard.vue & BrandingModal.vue)
 
 **Update (2024-06):**
 
 - The Custom Domain Branding section is now visible to all users by default (for testing and ease of access).
 - The dashboard always displays the "Custom Domain Branding" card and the "Manage Domains" button, regardless of user role.
-- Any user can open the modal to manage/add domains, logos, and content filtering.
+- Any user can open the `BrandingModal.vue` modal to manage/add domains, logos, and content filtering.
+- The modal supports managing multiple domains, allowing users to add, edit, and remove configurations with a user-friendly interface.
+- Features include live previews of branding, validation for domain and logo inputs, and deployment assistance.
+- **Meta Area Filtering in Portfolio**: The `GraphPortfolio.vue` component includes a `MetaAreaSidebar` for users to filter knowledge graphs by specific Meta Areas, enhancing content navigation and discovery.
 - (Optional) The admin-only restriction can be restored by re-adding the `v-if="isAdminOrSuperadmin"` condition in the template.
 
 ```vue
@@ -41,7 +44,13 @@ Vegvisr.org implements a sophisticated custom domain and branding system that al
 </div>
 ```
 
-### 2. Data Structure
+### 2. Multi-Domain Management
+
+- **Feature**: Users can configure multiple custom domains, each with unique branding and content filtering settings.
+- **Implementation**: The `BrandingModal.vue` provides a list view to see all configured domains and a form view to add or edit domain details, including domain name, logo URL, and content filters.
+- **User Experience**: Options to remove domains and save all configurations at once, with backward compatibility for legacy branding data.
+
+### 3. Data Structure
 
 The branding data is stored in the following structure:
 
@@ -76,6 +85,7 @@ const payload = {
     branding: {
       mySite: this.mySite,
       myLogo: this.myLogo,
+      mySiteFrontPage: this.mySiteFrontPage, // New field for custom front page
     },
   },
 }
@@ -87,14 +97,59 @@ Simultaneously, a site configuration is created in Cloudflare KV:
 
 ```javascript
 // KV Store Entry Creation (main-worker/index.js)
-if (data.branding && data.branding.mySite) {
+if (data.domainConfigs && Array.isArray(data.domainConfigs)) {
+  // New multi-domain structure
+  console.log('Processing multi-domain configurations:', data.domainConfigs.length, 'domains')
+
+  for (const domainConfig of data.domainConfigs) {
+    try {
+      // Determine metaAreas based on domain's content filter selection
+      let metaAreas = []
+      if (domainConfig.contentFilter === 'custom' && domainConfig.selectedCategories) {
+        metaAreas = domainConfig.selectedCategories
+        console.log(`Domain ${domainConfig.domain}: Using selected meta areas:`, metaAreas)
+      } else if (domainConfig.contentFilter === 'none') {
+        metaAreas = []
+        console.log(`Domain ${domainConfig.domain}: No content filtering`)
+      }
+
+      const siteConfig = {
+        domain: domainConfig.domain,
+        owner: email,
+        branding: {
+          mySite: domainConfig.domain,
+          myLogo: domainConfig.logo,
+          contentFilter: domainConfig.contentFilter,
+          selectedCategories: domainConfig.selectedCategories,
+          mySiteFrontPage: domainConfig.mySiteFrontPage, // New field for custom front page
+        },
+        contentFilter: {
+          metaAreas: metaAreas,
+        },
+        updatedAt: new Date().toISOString(),
+      }
+
+      const kvKey = `site-config:${domainConfig.domain}`
+      await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+      console.log(`Saved domain config to KV: ${kvKey} with ${metaAreas.length} meta areas`)
+    } catch (kvError) {
+      console.error(`Error saving domain config for ${domainConfig.domain}:`, kvError)
+      // Continue with other domains even if one fails
+    }
+  }
+} else if (data.branding && data.branding.mySite) {
+  // Legacy single domain support
   const siteConfig = {
     domain: data.branding.mySite, // "sweet.norsegong.com"
     owner: email, // "torarnehave@gmail.com"
-    branding: data.branding, // { mySite, myLogo }
+    branding: data.branding, // { mySite, myLogo, mySiteFrontPage }
     contentFilter: {
       metaAreas:
-        data.branding.mySite === 'sweet.norsegong.com' ? ['NORSEGONG', 'NORSEMYTHOLOGY'] : [],
+        data.branding.contentFilter === 'custom' && data.branding.selectedCategories
+          ? data.branding.selectedCategories
+          : data.branding.mySite === 'sweet.norsegong.com'
+            ? ['NORSEGONG', 'NORSEMYTHOLOGY']
+            : [],
     },
     updatedAt: new Date().toISOString(),
   }
@@ -104,22 +159,27 @@ if (data.branding && data.branding.mySite) {
 }
 ```
 
+**Note**: The system now supports multiple domain configurations through the `domainConfigs` array, allowing users to manage several branded domains in KV storage. Legacy single-domain support is maintained for backward compatibility. A new field `mySiteFrontPage` has been added to store the preferred startup page for each custom domain.
+
 ### 3. Example KV Store Entry
 
 ```json
 {
-  "key": "site-config:sweet.norsegong.com",
+  "key": "site-config:vegvisr.norsegong.com",
   "value": {
-    "domain": "sweet.norsegong.com",
+    "domain": "vegvisr.norsegong.com",
     "owner": "torarnehave@gmail.com",
     "branding": {
-      "mySite": "sweet.norsegong.com",
-      "myLogo": "https://vegvisr.imgix.net/1750096799594.png"
+      "mySite": "vegvisr.norsegong.com",
+      "myLogo": "https://vegvisr.imgix.net/1743603973605.png",
+      "contentFilter": "none",
+      "selectedCategories": [],
+      "mySiteFrontPage": "/graph-viewer?graphId=123&template=Frontpage"
     },
     "contentFilter": {
-      "metaAreas": ["NORSEGONG", "NORSEMYTHOLOGY"]
+      "metaAreas": []
     },
-    "updatedAt": "2025-06-16T19:12:11.551Z"
+    "updatedAt": "2025-06-17T16:49:27.318Z"
   }
 }
 ```
@@ -181,7 +241,11 @@ export default {
 }
 ```
 
-### 2. Key Features
+### 2. Automated Setup
+
+- **API Automation**: The setup of DNS records and worker routes for custom domains can be automated via the `/createCustomDomain` endpoint in `api-worker/index.js`. This endpoint creates a CNAME record pointing to `brand-worker.torarnehave.workers.dev` and sets up a route to direct traffic to the `brand-worker` script, specifically for subdomains under `norsegong.com`.
+
+### 3. Key Features
 
 - **Simple Proxy**: Forwards all requests with minimal processing
 - **Route-Based Targeting**: Different APIs can be routed to different workers
@@ -300,6 +364,55 @@ const currentSiteTitle = computed(() => {
 })
 ```
 
+### 5. Live Preview in Branding Modal
+
+- **Feature**: The `BrandingModal.vue` includes a live preview of the branding setup, displaying a browser mockup with the custom domain, logo, and generated site title.
+- **Purpose**: Allows users to see how their branded site will appear before saving or deploying, enhancing user experience and decision-making.
+
+### 6. Custom Front Page Redirection
+
+- **Feature**: A new field `mySiteFrontPage` in the branding configuration allows users to specify a custom startup page for their domain (e.g., `/graph-viewer?graphId=123&template=Frontpage`).
+- **Logic**: When a user accesses the root of a custom domain, the frontend checks `siteConfig.value?.branding?.mySiteFrontPage`. If defined, it redirects to the specified path or dynamically loads the content.
+- **Fallback**: If no custom front page is set, the default landing page for Vegvisr is shown.
+- **Implementation in GraphViewer.vue**: It is recommended to use `GraphViewer.vue` to display the front page content for custom domains. This component can be modified to automatically load a specific knowledge graph based on the `mySiteFrontPage` setting when a user accesses the root of a custom domain. This approach leverages existing functionality for graph display and maintains user experience consistency.
+
+```javascript
+// Front Page Redirection Logic (useBranding.js)
+const currentFrontPage = computed(() => {
+  if (isCustomDomain.value && siteConfig.value?.branding?.mySiteFrontPage) {
+    console.log(
+      'Using custom front page from KV site config:',
+      siteConfig.value.branding.mySiteFrontPage,
+    )
+    return siteConfig.value.branding.mySiteFrontPage
+  }
+  if (userStore.branding?.mySiteFrontPage && userStore.branding?.mySite === currentDomain.value) {
+    console.log('Using custom front page from user store:', userStore.branding.mySiteFrontPage)
+    return userStore.branding.mySiteFrontPage
+  }
+  console.log('Using default front page')
+  return '/' // Default landing page
+})
+```
+
+```javascript
+// Dynamic Graph Loading in GraphViewer.vue
+onMounted(() => {
+  const frontPagePath = currentFrontPage.value
+  if (frontPagePath && frontPagePath.includes('graphId')) {
+    const params = new URLSearchParams(frontPagePath.split('?')[1] || '')
+    const graphId = params.get('graphId')
+    const template = params.get('template')
+    if (graphId) {
+      console.log(
+        `Loading front page graph with ID: ${graphId}, Template: ${template || 'Default'}`,
+      )
+      loadGraph(graphId, template)
+    }
+  }
+})
+```
+
 ## 🔍 Content Filtering System
 
 ### 1. Dynamic Meta Area Selection
@@ -326,25 +439,28 @@ computed: {
 - No more hardcoded category lists
 - Dynamic updates as knowledge graphs are added/modified
 - Formatted labels automatically generated from meta area names
+- **API-Driven Meta Area Generation**: Superadmin users can auto-generate Meta Areas using the `/generate-meta-areas` endpoint, allowing AI (GROK AI) to suggest relevant Meta Areas based on existing content.
+- **Reset Functionality**: Superadmins can reset all Meta Areas to default or clear existing configurations via the `resetMetaAreas` API call.
+- **Autocomplete Feature**: During graph metadata editing in `GraphPortfolio.vue`, an autocomplete feature suggests Meta Areas as users type, pulling from the full list in `portfolioStore.allMetaAreas`.
 
 ### 2. Domain-Based Filtering
 
 Custom domains can have content restrictions applied:
 
 ```javascript
-// Content Filter Application (dev-worker)
-const hostname = request.headers.get('x-original-hostname') || new URL(request.url).hostname
-let allowedMetaAreas = null
-
-if (hostname === 'sweet.norsegong.com') {
-  allowedMetaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
-  console.log('Setting allowed meta areas for sweet.norsegong.com:', allowedMetaAreas)
-} else {
-  console.log('No filtering applied - hostname does not match sweet.norsegong.com')
+// Content Filter Application (main-worker/index.js)
+// Determine metaAreas based on domain's content filter selection
+let metaAreas = []
+if (domainConfig.contentFilter === 'custom' && domainConfig.selectedCategories) {
+  metaAreas = domainConfig.selectedCategories
+  console.log(`Domain ${domainConfig.domain}: Using selected meta areas:`, metaAreas)
+} else if (domainConfig.contentFilter === 'none') {
+  metaAreas = []
+  console.log(`Domain ${domainConfig.domain}: No content filtering`)
 }
 ```
 
-### 2. Header-Based Filtering
+### 3. Header-Based Filtering
 
 The main proxy worker also sets filtering headers:
 
@@ -403,18 +519,393 @@ graph TD
 2. Deploy custom domain worker with proxy logic
 3. Worker preserves hostname in x-original-hostname header
 
-### 3. Frontend Detection
+### 3. Automated Custom Domain Setup via API
+
+1. **API Endpoint**: The `/createCustomDomain` endpoint in `api-worker/index.js` automates the creation of DNS records and worker routes.
+2. **Process**:
+   - User or system sends a POST request with a subdomain (e.g., `subdomain.norsegong.com`).
+   - The API creates a CNAME DNS record pointing to `brand-worker.torarnehave.workers.dev` with Cloudflare proxying enabled.
+   - A worker route is set up for `${subdomain}.norsegong.com/*` to direct traffic to the `brand-worker` script.
+3. **Environment Variables**: Uses `CF_ZONE_ID` and `CF_API_TOKEN` for Cloudflare API authentication.
+4. **Domain Specificity**: Currently tailored for subdomains under `norsegong.com`.
+
+### 4. Deployment Assistance via Branding Modal
+
+1. **Quick Deployment Guide**: The `BrandingModal.vue` offers a guide for setting up custom domains, including copying pre-generated Cloudflare Worker code for proxy setup.
+2. **Domain Testing**: Users can test domain setup directly from the modal by triggering a request to the `/create-custom-domain` endpoint, which checks DNS and worker route configuration.
+3. **Feedback**: Provides immediate feedback on the success or failure of the domain setup process.
+
+### 5. Frontend Detection
 
 1. useBranding.js detects custom domain from headers
 2. Fetches site configuration from KV store
 3. Applies custom logo and site title
 4. Updates UI dynamically
 
-### 4. Content Filtering
+### 6. Content Filtering
 
 1. Backend workers receive x-original-hostname header
 2. Apply domain-specific content filtering rules
 3. Return filtered content appropriate for the domain
+
+### 7. Custom Front Page Configuration
+
+1. **Form Field in Branding Modal**: The `BrandingModal.vue` component includes a form field or selection mechanism for users to set their preferred front page for each custom domain.
+2. **Knowledge Graph ID Input**: Users can input a Knowledge Graph ID to specify a particular graph to be used as the front page (e.g., `/graph-viewer?graphId=123&template=Frontpage`). Alternatively, a dropdown or search interface can list available graphs from the user's portfolio for selection.
+3. **Saving Configuration**: Upon saving, the selected front page path or ID is stored in the `mySiteFrontPage` field of the branding configuration in both the user profile database and KV store.
+
+```vue
+<!-- Example Form Field in BrandingModal.vue -->
+<div class="mb-3">
+  <label for="frontPage" class="form-label">Custom Front Page (Knowledge Graph ID)</label>
+  <div class="input-group">
+    <input type="text" class="form-control" id="frontPage" v-model="branding.mySiteFrontPage" placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)">
+    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Select Graph</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li v-for="graph in userGraphs" :key="graph.id" @click="selectFrontPage(graph)">
+        <a class="dropdown-item" href="#">{{ graph.title }} (ID: {{ graph.id }})</a>
+      </li>
+    </ul>
+  </div>
+</div>
+```
+
+### 8. Implementation of Custom Front Page Redirection
+
+To implement the custom front page redirection for custom domains using `GraphViewer.vue`, follow these detailed steps:
+
+#### Step 1: Update Data Storage in `main-worker/index.js`
+
+- **Objective**: Ensure the `mySiteFrontPage` field is saved in both the user profile database and KV store.
+- **Action**: Modify the payload and KV store entry creation to include `mySiteFrontPage`.
+
+```javascript
+// User Profile Database Update
+const payload = {
+  email: this.email,
+  bio: this.bio,
+  profileimage: this.profileImage,
+  data: {
+    profile: {
+      user_id: this.userStore.user_id,
+      email: this.email,
+      mystmkraUserId: this.mystmkraUserId,
+    },
+    settings: {
+      /* user settings */
+    },
+    branding: {
+      mySite: this.mySite,
+      myLogo: this.myLogo,
+      mySiteFrontPage: this.mySiteFrontPage, // Include custom front page
+    },
+  },
+}
+
+// KV Store Entry Creation Update
+if (data.domainConfigs && Array.isArray(data.domainConfigs)) {
+  for (const domainConfig of data.domainConfigs) {
+    const siteConfig = {
+      domain: domainConfig.domain,
+      owner: email,
+      branding: {
+        mySite: domainConfig.domain,
+        myLogo: domainConfig.logo,
+        contentFilter: domainConfig.contentFilter,
+        selectedCategories: domainConfig.selectedCategories,
+        mySiteFrontPage: domainConfig.mySiteFrontPage, // Include custom front page
+      },
+      contentFilter: {
+        metaAreas: metaAreas,
+      },
+      updatedAt: new Date().toISOString(),
+    }
+    // Save to KV
+    const kvKey = `site-config:${domainConfig.domain}`
+    await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+  }
+} else if (data.branding && data.branding.mySite) {
+  const siteConfig = {
+    domain: data.branding.mySite,
+    owner: email,
+    branding: {
+      mySite: data.branding.mySite,
+      myLogo: data.branding.myLogo,
+      mySiteFrontPage: data.branding.mySiteFrontPage, // Include custom front page
+    },
+    contentFilter: {
+      metaAreas: // existing logic
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  const kvKey = `site-config:${data.branding.mySite}`
+  await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
+}
+```
+
+#### Step 2: Enhance `useBranding.js` for Front Page Detection
+
+- **Objective**: Add logic to detect and return the custom front page path.
+- **Action**: Update the composable to compute the current front page based on KV or user store data.
+
+```javascript
+// In useBranding.js
+const currentFrontPage = computed(() => {
+  if (isCustomDomain.value && siteConfig.value?.branding?.mySiteFrontPage) {
+    console.log(
+      'Using custom front page from KV site config:',
+      siteConfig.value.branding.mySiteFrontPage,
+    )
+    return siteConfig.value.branding.mySiteFrontPage
+  }
+  if (userStore.branding?.mySiteFrontPage && userStore.branding?.mySite === currentDomain.value) {
+    console.log('Using custom front page from user store:', userStore.branding.mySiteFrontPage)
+    return userStore.branding.mySiteFrontPage
+  }
+  console.log('Using default front page')
+  return '/' // Default landing page
+})
+```
+
+#### Step 3: Modify `BrandingModal.vue` for Front Page Configuration
+
+- **Objective**: Add a UI element for users to set their preferred front page.
+- **Action**: Implement a form field and selection dropdown for choosing a knowledge graph.
+
+```vue
+<!-- In BrandingModal.vue -->
+<template>
+  <div>
+    <!-- Existing branding fields -->
+    <div class="mb-3">
+      <label for="mySite" class="form-label">Custom Domain</label>
+      <input
+        type="text"
+        class="form-control"
+        id="mySite"
+        v-model="branding.mySite"
+        placeholder="e.g., mysite.norsegong.com"
+      />
+    </div>
+    <div class="mb-3">
+      <label for="myLogo" class="form-label">Logo URL</label>
+      <input
+        type="text"
+        class="form-control"
+        id="myLogo"
+        v-model="branding.myLogo"
+        placeholder="e.g., https://example.com/logo.png"
+      />
+    </div>
+    <!-- New front page field -->
+    <div class="mb-3">
+      <label for="frontPage" class="form-label">Custom Front Page (Knowledge Graph ID)</label>
+      <div class="input-group">
+        <input
+          type="text"
+          class="form-control"
+          id="frontPage"
+          v-model="branding.mySiteFrontPage"
+          placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)"
+        />
+        <button
+          class="btn btn-outline-secondary dropdown-toggle"
+          type="button"
+          data-bs-toggle="dropdown"
+          aria-expanded="false"
+        >
+          Select Graph
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li v-for="graph in userGraphs" :key="graph.id" @click="selectFrontPage(graph)">
+            <a class="dropdown-item" href="#">{{ graph.title }} (ID: {{ graph.id }})</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+    <!-- Save button -->
+    <button class="btn btn-primary" @click="saveBranding">Save Changes</button>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { usePortfolioStore } from '@/stores/portfolioStore'
+
+const branding = ref({
+  mySite: '',
+  myLogo: '',
+  mySiteFrontPage: '',
+})
+const userGraphs = ref([])
+const portfolioStore = usePortfolioStore()
+
+onMounted(async () => {
+  // Load user's graphs for selection
+  await loadUserGraphs()
+})
+
+const loadUserGraphs = async () => {
+  try {
+    const graphs = await portfolioStore.fetchGraphs()
+    userGraphs.value = graphs
+  } catch (error) {
+    console.error('Error loading user graphs:', error)
+  }
+}
+
+const selectFrontPage = (graph) => {
+  branding.value.mySiteFrontPage = `/graph-viewer?graphId=${graph.id}&template=Frontpage`
+}
+
+const saveBranding = async () => {
+  // Save branding including mySiteFrontPage to user store and KV
+  // Implementation depends on existing save logic
+  console.log('Saving branding:', branding.value)
+  // Call API or store update here
+}
+</script>
+```
+
+#### Step 4: Update `GraphViewer.vue` for Dynamic Graph Loading
+
+- **Objective**: Load a specific graph based on `mySiteFrontPage` when accessed as the front page.
+- **Action**: Add logic to parse the front page path and load the graph on component mount.
+
+```vue
+<!-- In GraphViewer.vue -->
+<template>
+  <div>
+    <!-- Existing graph viewer template -->
+    <div v-if="loading">Loading graph...</div>
+    <div v-else-if="error">Error: {{ error }}</div>
+    <div v-else>
+      <!-- Display graph -->
+      <h1>{{ graphTitle }}</h1>
+      <!-- Graph rendering logic -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useBranding } from '@/composables/useBranding'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+
+const { currentFrontPage } = useBranding()
+const graphStore = useKnowledgeGraphStore()
+const loading = ref(false)
+const error = ref(null)
+const graphTitle = ref('')
+
+onMounted(() => {
+  const frontPagePath = currentFrontPage.value
+  if (frontPagePath && frontPagePath.includes('graphId')) {
+    const params = new URLSearchParams(frontPagePath.split('?')[1] || '')
+    const graphId = params.get('graphId')
+    const template = params.get('template')
+    if (graphId) {
+      console.log(
+        `Loading front page graph with ID: ${graphId}, Template: ${template || 'Default'}`,
+      )
+      loadGraph(graphId, template)
+    } else {
+      error.value = 'Invalid front page configuration: No graph ID found'
+    }
+  } else {
+    // Default graph loading logic if not a front page
+    loadDefaultGraph()
+  }
+})
+
+const loadGraph = async (graphId, template) => {
+  loading.value = true
+  error.value = null
+  try {
+    await graphStore.loadGraph(graphId)
+    graphTitle.value = graphStore.currentGraph?.metadata?.title || 'Untitled Graph'
+    // Apply template-specific styling if needed
+    if (template === 'Frontpage') {
+      console.log('Applying Frontpage template styling')
+      // Add any specific styling or layout adjustments for front page
+    }
+  } catch (err) {
+    error.value = `Failed to load graph: ${err.message}`
+    console.error('Error loading graph:', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadDefaultGraph = async () => {
+  // Existing logic to load a default or selected graph
+  console.log('Loading default graph')
+  // Implementation depends on current GraphViewer setup
+}
+</script>
+```
+
+#### Step 5: Adjust Proxy Logic in `brand-worker/index.js`
+
+- **Objective**: Redirect root requests to the custom front page if defined.
+- **Action**: Add logic to check KV store for `mySiteFrontPage` on root path requests.
+
+```javascript
+// In brand-worker/index.js
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url)
+
+    // Check if request is to the root path
+    if (url.pathname === '/' || url.pathname === '') {
+      // Get the hostname
+      const hostname = url.hostname
+      // Check KV for site configuration
+      const kvKey = `site-config:${hostname}`
+      try {
+        const siteConfigJson = await env.SITE_CONFIGS.get(kvKey)
+        if (siteConfigJson) {
+          const siteConfig = JSON.parse(siteConfigJson)
+          if (siteConfig.branding && siteConfig.branding.mySiteFrontPage) {
+            // Redirect to the custom front page
+            const frontPagePath = siteConfig.branding.mySiteFrontPage
+            console.log(`Redirecting to custom front page: ${frontPagePath}`)
+            return Response.redirect(`https://${hostname}${frontPagePath}`, 302)
+          }
+        }
+      } catch (error) {
+        console.error(`Error checking KV for front page: ${error.message}`)
+        // Continue with default routing if error occurs
+      }
+    }
+
+    // Existing proxy logic for other paths
+    try {
+      let targetUrl
+      if (
+        url.pathname.startsWith('/getknowgraphs') ||
+        // other conditions
+      ) {
+        targetUrl = 'https://knowledge-graph-worker.torarnehave.workers.dev' + url.pathname + url.search
+      } else if (
+        url.pathname.startsWith('/mystmkrasave') ||
+        // other conditions
+      ) {
+        targetUrl = 'https://api.vegvisr.org' + url.pathname + url.search
+      } else {
+        targetUrl = 'https://www.vegvisr.org' + url.pathname + url.search
+      }
+
+      const headers = new Headers(request.headers)
+      headers.set('x-original-hostname', url.hostname)
+
+      // Rest of the existing fetch logic
+    } catch (error) {
+      // Existing error handling
+    }
+  }
+}
+```
 
 ## 🎯 Key Benefits
 

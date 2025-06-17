@@ -907,6 +907,7 @@ export default {
                   myLogo: domainConfig.logo,
                   contentFilter: domainConfig.contentFilter,
                   selectedCategories: domainConfig.selectedCategories,
+                  mySiteFrontPage: domainConfig.mySiteFrontPage,
                 },
                 contentFilter: {
                   metaAreas: metaAreas,
@@ -941,7 +942,11 @@ export default {
             const siteConfig = {
               domain: data.branding.mySite,
               owner: email,
-              branding: data.branding,
+              branding: {
+                mySite: data.branding.mySite,
+                myLogo: data.branding.myLogo,
+                mySiteFrontPage: data.branding.mySiteFrontPage,
+              },
               contentFilter: {
                 metaAreas: metaAreas,
               },
