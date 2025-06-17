@@ -15,6 +15,23 @@ const corsHeaders = {
     'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email',
 }
 
+// Domain to Zone ID mapping configuration
+const DOMAIN_ZONE_MAPPING = {
+  'norsegong.com': 'e577205b812b49d012af046535369808',
+  'xyzvibe.com': '602067f0cf860426a35860a8ab179a47',
+}
+
+// Helper function to determine Zone ID from domain
+function getZoneIdForDomain(domain) {
+  // Extract the root domain from subdomains
+  const domainParts = domain.split('.')
+  if (domainParts.length >= 2) {
+    const rootDomain = domainParts.slice(-2).join('.')
+    return DOMAIN_ZONE_MAPPING[rootDomain]
+  }
+  return null
+}
+
 const createResponse = (body, status = 200, headers = {}) => {
   return new Response(body, {
     status,
@@ -3219,21 +3236,59 @@ async function handleCreateCustomDomain(request, env) {
       },
     })
   }
+
   if (request.method === 'POST') {
     try {
-      const { subdomain } = await request.json()
+      const { subdomain, rootDomain, zoneId } = await request.json()
+
+      // Determine the domain to work with
+      let targetDomain
+      let targetZoneId
+
       if (!subdomain) {
-        return new Response(JSON.stringify({ error: 'Subdomain is required' }), {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
+        return new Response(
+          JSON.stringify({
+            error: 'Subdomain is required (e.g., "torarne" for torarne.xyzvibe.com)',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
           },
-        })
+        )
       }
+
+      // Determine root domain - default to norsegong.com for backward compatibility
+      const targetRootDomain = rootDomain || 'norsegong.com'
+
+      // Build the full domain
+      targetDomain = `${subdomain}.${targetRootDomain}`
+
+      // Get Zone ID for the root domain
+      targetZoneId = zoneId || DOMAIN_ZONE_MAPPING[targetRootDomain]
+
+      if (!targetZoneId) {
+        return new Response(
+          JSON.stringify({
+            error: `No Zone ID found for domain: ${targetDomain}. Supported domains: ${Object.keys(DOMAIN_ZONE_MAPPING).join(', ')}`,
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        )
+      }
+
+      console.log(`Setting up custom domain: ${targetDomain} with Zone ID: ${targetZoneId}`)
+
       // Create DNS record
       const dnsResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`,
+        `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/dns_records`,
         {
           method: 'POST',
           headers: {
@@ -3242,20 +3297,22 @@ async function handleCreateCustomDomain(request, env) {
           },
           body: JSON.stringify({
             type: 'CNAME',
-            name: subdomain,
+            name: targetDomain,
             content: 'brand-worker.torarnehave.workers.dev',
             proxied: true,
           }),
         },
       )
+
       const dnsResult = await dnsResponse.json()
       const dnsSetup = {
         success: dnsResult.success,
         errors: dnsResult.errors,
       }
+
       // Create worker route
       const workerResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/workers/routes`,
+        `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/workers/routes`,
         {
           method: 'POST',
           headers: {
@@ -3263,19 +3320,23 @@ async function handleCreateCustomDomain(request, env) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            pattern: `${subdomain}.norsegong.com/*`,
+            pattern: `${targetDomain}/*`,
             script: 'brand-worker',
           }),
         },
       )
+
       const workerResult = await workerResponse.json()
       const workerSetup = {
         success: workerResult.success,
         errors: workerResult.errors,
       }
+
       return new Response(
         JSON.stringify({
           overallSuccess: dnsSetup.success && workerSetup.success,
+          domain: targetDomain,
+          zoneId: targetZoneId,
           dnsSetup,
           workerSetup,
         }),
@@ -3303,6 +3364,7 @@ async function handleCreateCustomDomain(request, env) {
       )
     }
   }
+
   // Method not allowed
   return new Response('Method Not Allowed', { status: 405 })
 }
