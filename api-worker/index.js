@@ -3206,6 +3206,107 @@ const handleGooglePhotosRecent = async (request) => {
   }
 }
 
+// === Custom Domain Registration Endpoint ===
+async function handleCreateCustomDomain(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '86400',
+      },
+    })
+  }
+  if (request.method === 'POST') {
+    try {
+      const { subdomain } = await request.json()
+      if (!subdomain) {
+        return new Response(JSON.stringify({ error: 'Subdomain is required' }), {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        })
+      }
+      // Create DNS record
+      const dnsResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.CF_API_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'CNAME',
+            name: subdomain,
+            content: 'brand-worker.torarnehave.workers.dev',
+            proxied: true,
+          }),
+        },
+      )
+      const dnsResult = await dnsResponse.json()
+      const dnsSetup = {
+        success: dnsResult.success,
+        errors: dnsResult.errors,
+      }
+      // Create worker route
+      const workerResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/workers/routes`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.CF_API_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            pattern: `${subdomain}.norsegong.com/*`,
+            script: 'brand-worker',
+          }),
+        },
+      )
+      const workerResult = await workerResponse.json()
+      const workerSetup = {
+        success: workerResult.success,
+        errors: workerResult.errors,
+      }
+      return new Response(
+        JSON.stringify({
+          overallSuccess: dnsSetup.success && workerSetup.success,
+          dnsSetup,
+          workerSetup,
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error: error.message,
+          overallSuccess: false,
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    }
+  }
+  // Method not allowed
+  return new Response('Method Not Allowed', { status: 405 })
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -3396,6 +3497,10 @@ export default {
         queryParams: url.searchParams.toString(),
       })
       return await handleGoogleOAuthCallback()
+    }
+
+    if (url.pathname === '/create-custom-domain') {
+      return await handleCreateCustomDomain(request, env)
     }
 
     // Fallback - log unmatched routes

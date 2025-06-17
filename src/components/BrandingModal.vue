@@ -669,8 +669,8 @@ export default {
         const subdomain = domainParts[0]
 
         // Use the brand-worker for domain registration testing
-        const testUrl =
-          'https://brand-worker-production.torarnehave.workers.dev/create-custom-domain'
+        const testUrl = 'https://api.vegvisr.org/create-custom-domain'
+
         console.log('Testing domain setup with URL:', testUrl)
 
         const response = await fetch(testUrl, {
