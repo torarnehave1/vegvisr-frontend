@@ -261,6 +261,24 @@
               <br /><br />
               <strong>2. DNS Setup:</strong> Point {{ getDomainSubdomain() }} to your Cloudflare
               Worker<br />
+              <button
+                @click="testDomainSetup"
+                class="btn btn-primary btn-sm mt-2"
+                :disabled="isTestingDomain"
+              >
+                {{ isTestingDomain ? 'Testing...' : 'Test Domain Setup' }}
+              </button>
+              <div
+                v-if="domainTestResult"
+                :class="[
+                  'alert',
+                  domainTestResult.success ? 'alert-success' : 'alert-danger',
+                  'mt-2',
+                ]"
+              >
+                {{ domainTestResult.message }}
+              </div>
+              <br />
               <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
             </div>
           </div>
@@ -342,6 +360,8 @@ export default {
       logoError: '',
       viewMode: 'list', // 'list' or 'edit'
       logoLoaded: false,
+      isTestingDomain: false,
+      domainTestResult: null,
     }
   },
   setup() {
@@ -485,7 +505,7 @@ export default {
       return parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
     },
     getDomainSubdomain() {
-      if (!this.formData.domain) return 'your-subdomain'
+      if (!this.formData.domain) return ''
       return this.formData.domain.split('.')[0]
     },
     formatMetaAreaLabel(metaArea) {
@@ -634,6 +654,55 @@ export default {
       this.editingDomainIndex = null
       this.clearFormData()
       this.$emit('close')
+    },
+    async testDomainSetup() {
+      this.isTestingDomain = true
+      this.domainTestResult = null
+
+      try {
+        const subdomain = this.getDomainSubdomain()
+        const response = await fetch(
+          'https://brand-worker.torarnehave.workers.dev/create-custom-domain',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ subdomain }),
+          },
+        )
+
+        const result = await response.json()
+
+        if (response.ok && !result.error) {
+          this.domainTestResult = {
+            success: true,
+            message: `✅ Domain ${subdomain}.norsegong.com has been successfully configured!`,
+          }
+        } else {
+          let errorMessage = result.error || 'Failed to configure domain'
+          // Check if error indicates domain already exists
+          if (errorMessage.includes('already exists')) {
+            this.domainTestResult = {
+              success: true,
+              message: `✅ Domain ${subdomain}.norsegong.com is already configured and ready to use!`,
+            }
+          } else {
+            this.domainTestResult = {
+              success: false,
+              message: `❌ Error: ${errorMessage}`,
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error testing domain setup:', error)
+        this.domainTestResult = {
+          success: false,
+          message: `❌ Error: ${error.message}`,
+        }
+      } finally {
+        this.isTestingDomain = false
+      }
     },
   },
 }
