@@ -1,22 +1,23 @@
 export default {
   async fetch(request, env) {
-    // Handle CORS preflight requests
-    if (request.method === 'OPTIONS') {
+    const url = new URL(request.url)
+
+    // 1. Handle CORS preflight for /create-custom-domain
+    if (url.pathname === '/create-custom-domain' && request.method === 'OPTIONS') {
       return new Response(null, {
+        status: 204,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Max-Age': '86400',
         },
       })
     }
 
-    try {
-      const url = new URL(request.url)
-      const hostname = url.hostname
-
-      // Restore /create-custom-domain endpoint
-      if (url.pathname === '/create-custom-domain' && request.method === 'POST') {
+    // 2. Handle /create-custom-domain POST directly
+    if (url.pathname === '/create-custom-domain' && request.method === 'POST') {
+      try {
         const { subdomain } = await request.json()
         if (!subdomain) {
           return new Response(JSON.stringify({ error: 'Subdomain is required' }), {
@@ -27,81 +28,81 @@ export default {
             },
           })
         }
-        try {
-          // Create DNS record
-          const dnsResponse = await fetch(
-            `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${env.CF_API_TOKEN}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                type: 'CNAME',
-                name: subdomain,
-                content: 'brand-worker.torarnehave.workers.dev',
-                proxied: true,
-              }),
+        // Create DNS record
+        const dnsResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.CF_API_TOKEN}`,
+              'Content-Type': 'application/json',
             },
-          )
-          const dnsResult = await dnsResponse.json()
-          const dnsSetup = {
-            success: dnsResult.success,
-            errors: dnsResult.errors,
-          }
-          // Create worker route
-          const workerResponse = await fetch(
-            `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/workers/routes`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${env.CF_API_TOKEN}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                pattern: `${subdomain}.norsegong.com/*`,
-                script: 'brand-worker',
-              }),
-            },
-          )
-          const workerResult = await workerResponse.json()
-          const workerSetup = {
-            success: workerResult.success,
-            errors: workerResult.errors,
-          }
-          return new Response(
-            JSON.stringify({
-              overallSuccess: dnsSetup.success && workerSetup.success,
-              dnsSetup,
-              workerSetup,
+            body: JSON.stringify({
+              type: 'CNAME',
+              name: subdomain,
+              content: 'brand-worker.torarnehave.workers.dev',
+              proxied: true,
             }),
-            {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-              },
-            },
-          )
-        } catch (error) {
-          return new Response(
-            JSON.stringify({
-              error: error.message,
-              overallSuccess: false,
-            }),
-            {
-              status: 500,
-              headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-              },
-            },
-          )
+          },
+        )
+        const dnsResult = await dnsResponse.json()
+        const dnsSetup = {
+          success: dnsResult.success,
+          errors: dnsResult.errors,
         }
+        // Create worker route
+        const workerResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/workers/routes`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.CF_API_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              pattern: `${subdomain}.norsegong.com/*`,
+              script: 'brand-worker',
+            }),
+          },
+        )
+        const workerResult = await workerResponse.json()
+        const workerSetup = {
+          success: workerResult.success,
+          errors: workerResult.errors,
+        }
+        return new Response(
+          JSON.stringify({
+            overallSuccess: dnsSetup.success && workerSetup.success,
+            dnsSetup,
+            workerSetup,
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        )
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            error: error.message,
+            overallSuccess: false,
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        )
       }
+    }
 
-      // Proxy logic for other endpoints
+    // 3. Proxy all other requests
+    try {
       let targetUrl
       if (
         url.pathname.startsWith('/getknowgraphs') ||
@@ -126,7 +127,7 @@ export default {
       }
 
       const headers = new Headers(request.headers)
-      headers.set('x-original-hostname', hostname)
+      headers.set('x-original-hostname', url.hostname)
 
       const response = await fetch(targetUrl, {
         method: request.method,
