@@ -27,36 +27,17 @@ Vegvisr.org implements a sophisticated custom domain and branding system that al
 
 ### 1. User Interface (UserDashboard.vue)
 
-Users configure their custom branding through the "Site Branding" section:
+**Update (2024-06):**
+
+- The Custom Domain Branding section is now visible to all users by default (for testing and ease of access).
+- The dashboard always displays the "Custom Domain Branding" card and the "Manage Domains" button, regardless of user role.
+- Any user can open the modal to manage/add domains, logos, and content filtering.
+- (Optional) The admin-only restriction can be restored by re-adding the `v-if="isAdminOrSuperadmin"` condition in the template.
 
 ```vue
-<!-- Site Branding Section - Lines 116-166 -->
-<div class="mt-4" style="background: #f8f9fa; border-radius: 8px; padding: 1rem;">
-  <h5 class="mb-3">Site Branding</h5>
-
-  <!-- My Site -->
-  <div class="mb-3">
-    <label for="mySite" class="form-label"><strong>My Site:</strong></label>
-    <input
-      type="text"
-      id="mySite"
-      class="form-control"
-      v-model="mySite"
-      placeholder="e.g., sweet.norsegong.com"
-    />
-  </div>
-
-  <!-- My Logo -->
-  <div class="mb-3">
-    <label for="myLogo" class="form-label"><strong>My Logo URL:</strong></label>
-    <input
-      type="url"
-      id="myLogo"
-      class="form-control"
-      v-model="myLogo"
-      placeholder="https://example.com/logo.png"
-    />
-  </div>
+<!-- Custom Domain Branding Section - Always Visible -->
+<div class="mt-4">
+  <div class="branding-card"> ... </div>
 </div>
 ```
 
@@ -395,6 +376,18 @@ graph TD
     K --> L[Only NORSEGONG/NORSEMYTHOLOGY content shown]
 ```
 
+## 🛡️ Access Control (NEW)
+
+- **Current State:** The Custom Domain Branding section is visible to all users for testing and demonstration purposes.
+- **Original Design:** Previously, only users with the `admin` or `superadmin` role could see and use the branding management UI.
+- **How to Restrict Again:** To restore admin-only access, simply add back the following condition in `UserDashboard.vue`:
+  ```vue
+  <div v-if="isAdminOrSuperadmin" class="mt-4">
+    ...
+  </div>
+  ```
+- **Recommendation:** For production, restrict branding management to trusted users (admins/superadmins) to prevent abuse.
+
 ## 🛠️ Implementation Steps
 
 ### 1. User Configuration
@@ -476,3 +469,5 @@ graph TD
 ---
 
 This architecture enables users to create fully branded, content-filtered experiences on their custom domains while leveraging the powerful shared Vegvisr infrastructure.
+
+**This documentation now reflects the current open-access state of the Custom Domain Branding system.**

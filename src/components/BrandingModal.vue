@@ -330,7 +330,7 @@ export default {
     return {
       currentStep: 1,
       isSaving: false,
-      domainConfigs: [], // Array of domain configurations
+      domainConfigs: [...this.existingDomainConfigs], // Initialize with existing configs
       editingDomainIndex: null, // Index of domain being edited, null for new domain
       formData: {
         domain: '',
@@ -348,6 +348,15 @@ export default {
     const userStore = useUserStore()
     const portfolioStore = usePortfolioStore()
     return { userStore, portfolioStore }
+  },
+  watch: {
+    existingDomainConfigs: {
+      handler(newConfigs) {
+        console.log('Updating domain configs from props:', newConfigs)
+        this.domainConfigs = [...newConfigs]
+      },
+      immediate: true,
+    },
   },
   computed: {
     availableCategories() {
