@@ -90,8 +90,47 @@
 </template>
 
 <script>
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useBranding } from '@/composables/useBranding'
+
 export default {
   name: 'FrontPage',
+  setup() {
+    const router = useRouter()
+    const { currentFrontPage, isCustomDomain } = useBranding()
+
+    onMounted(async () => {
+      // Wait a bit for branding initialization
+      setTimeout(() => {
+        const frontPagePath = currentFrontPage.value
+        console.log('FrontPage: Checking for custom front page:', frontPagePath)
+        console.log('FrontPage: Is custom domain:', isCustomDomain.value)
+
+        if (isCustomDomain.value && frontPagePath && frontPagePath !== '/') {
+          console.log('FrontPage: Redirecting to custom front page:', frontPagePath)
+
+          // Handle different front page formats
+          if (frontPagePath.includes('graphId')) {
+            // It's already a full path like /graph-viewer?graphId=...
+            router.push(frontPagePath)
+          } else if (!frontPagePath.startsWith('/') && !frontPagePath.includes('?')) {
+            // It's just a graph ID, convert to full path
+            const fullPath = `/graph-viewer?graphId=${frontPagePath}&template=Frontpage`
+            console.log('FrontPage: Normalized path:', fullPath)
+            router.push(fullPath)
+          } else {
+            // Use as-is
+            router.push(frontPagePath)
+          }
+        } else {
+          console.log('FrontPage: Using default front page (no custom domain or front page)')
+        }
+      }, 1000) // Give time for branding initialization
+    })
+
+    return {}
+  },
 }
 </script>
 

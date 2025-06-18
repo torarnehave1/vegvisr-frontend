@@ -2,41 +2,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
 
-    // Check if request is to the root path
-    if (url.pathname === '/' || url.pathname === '') {
-      // Get the hostname
-      const hostname = url.hostname
-      // Check KV for site configuration
-      const kvKey = `site-config:${hostname}`
-      console.log(`Checking KV store for key: ${kvKey}`)
-      try {
-        const siteConfigJson = await env.SITE_CONFIGS.get(kvKey)
-        console.log(
-          `KV store response for ${kvKey}: ${siteConfigJson ? 'Config found' : 'No config found'}`,
-        )
-        if (siteConfigJson) {
-          const siteConfig = JSON.parse(siteConfigJson)
-          console.log(`Site config for ${hostname}:`, JSON.stringify(siteConfig, null, 2))
-          if (siteConfig.branding && siteConfig.branding.mySiteFrontPage) {
-            // Normalize front page path if it's just a Graph ID
-            let frontPagePath = siteConfig.branding.mySiteFrontPage
-            console.log(`Original front page path: ${frontPagePath}`)
-            if (!frontPagePath.includes('/') && !frontPagePath.includes('?')) {
-              frontPagePath = `/graph-viewer?graphId=${frontPagePath}&template=Frontpage`
-              console.log(`Normalized front page path to: ${frontPagePath}`)
-            }
-            // Redirect to the custom front page
-            console.log(`Redirecting to custom front page: ${frontPagePath}`)
-            return Response.redirect(`https://${hostname}${frontPagePath}`, 302)
-          } else {
-            console.log(`No mySiteFrontPage defined in branding for ${hostname}`)
-          }
-        }
-      } catch (error) {
-        console.error(`Error checking KV for front page: ${error.message}`)
-        // Continue with default routing if error occurs
-      }
-    }
+    // Log the request for debugging
+    console.log(`🌐 Brand worker handling request: ${url.pathname} for ${url.hostname}`)
 
     // Proxy all other requests
     try {
@@ -89,10 +56,14 @@ export default {
       } catch (jsonError) {
         // If not JSON, return the original response
         console.log('Response is not JSON, returning as-is:', jsonError.message)
+        const responseHeaders = Object.fromEntries(response.headers)
+        // Remove any existing CORS headers to avoid duplication
+        delete responseHeaders['access-control-allow-origin']
+
         return new Response(response.body, {
           status: response.status,
           headers: {
-            ...Object.fromEntries(response.headers),
+            ...responseHeaders,
             'Access-Control-Allow-Origin': '*',
           },
         })
