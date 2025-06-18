@@ -455,6 +455,17 @@ export default {
     this.fetchMetaAreas()
     this.loadUserGraphs()
   },
+  watch: {
+    isOpen: {
+      handler(newValue) {
+        if (newValue) {
+          // Fetch system-wide meta areas when modal opens
+          this.fetchMetaAreas()
+        }
+      },
+      immediate: false,
+    },
+  },
   methods: {
     loadExistingDomainConfigs() {
       // Load existing domain configurations from props
@@ -590,19 +601,64 @@ export default {
         .join(' ')
     },
     async fetchMetaAreas() {
-      // Fetch knowledge graphs to ensure meta areas are populated
+      // Fetch ALL knowledge graphs from the system to get all available meta areas
+      // We need to bypass content filtering to get meta areas from all graphs system-wide
       try {
-        const response = await fetch(apiUrls.getKnowledgeGraphs())
+        console.log('Fetching all meta areas from system-wide graphs...')
+
+        // Call the knowledge graph worker directly without hostname filtering
+        // This will return all graphs from all users in the system
+        const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs', {
+          headers: {
+            // Don't send x-original-hostname to avoid content filtering
+            'Content-Type': 'application/json',
+          },
+        })
+
         if (response.ok) {
           const data = await response.json()
+          console.log('Fetched system-wide graphs for meta areas:', data.results?.length || 0)
+
           if (data.results) {
-            // Process graphs to extract meta areas (simplified version of GraphPortfolio logic)
-            const graphs = data.results
-            this.portfolioStore.updateMetaAreas(graphs)
+            // Fetch complete data for each graph to get meta areas
+            const metaAreasSet = new Set()
+
+            for (const graph of data.results) {
+              try {
+                const graphResponse = await fetch(
+                  `https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`,
+                )
+                if (graphResponse.ok) {
+                  const graphData = await graphResponse.json()
+                  const metaAreaString = graphData.metadata?.metaArea || ''
+
+                  if (metaAreaString) {
+                    // Parse meta areas and add to set
+                    const metaAreas = metaAreaString
+                      .split('#')
+                      .map((area) => area.trim())
+                      .filter((area) => area.length > 0)
+
+                    metaAreas.forEach((area) => metaAreasSet.add(area))
+                  }
+                }
+              } catch (error) {
+                console.warn(`Error fetching graph ${graph.id}:`, error)
+              }
+            }
+
+            // Convert set to array and update the store
+            const allMetaAreas = Array.from(metaAreasSet).sort()
+            console.log('All system meta areas found:', allMetaAreas)
+
+            // Update portfolio store with all meta areas
+            this.portfolioStore.setAllMetaAreas(allMetaAreas)
           }
+        } else {
+          console.error('Failed to fetch system graphs:', response.status, response.statusText)
         }
       } catch (error) {
-        console.error('Error fetching meta areas:', error)
+        console.error('Error fetching system meta areas:', error)
       }
     },
     getSelectedCategoryNames() {

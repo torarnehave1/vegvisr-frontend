@@ -43,6 +43,29 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     return sorted
   })
 
+  // Method to directly set all meta areas (used for system-wide meta areas in branding)
+  const setAllMetaAreas = (metaAreas) => {
+    console.log('Setting all meta areas directly:', metaAreas)
+    allMetaAreas.value = metaAreas
+    // Reset frequencies since we're setting system-wide meta areas
+    metaAreaFrequencies.value = {}
+  }
+
+  // Method to fetch graphs (used by various components)
+  const fetchGraphs = async () => {
+    try {
+      const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
+      if (response.ok) {
+        const data = await response.json()
+        return data.results || []
+      }
+      throw new Error('Failed to fetch graphs')
+    } catch (error) {
+      console.error('Error fetching graphs:', error)
+      throw error
+    }
+  }
+
   return {
     viewMode,
     searchQuery,
@@ -52,5 +75,7 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     metaAreaFrequencies,
     sortedMetaAreas,
     updateMetaAreas,
+    setAllMetaAreas,
+    fetchGraphs,
   }
 })
