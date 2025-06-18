@@ -307,6 +307,33 @@
                 ]"
               >
                 {{ domainTestResult.message }}
+
+                <!-- Show delete button for DNS conflicts -->
+                <div
+                  v-if="!domainTestResult.success && isDnsConflict(domainTestResult)"
+                  class="mt-3"
+                >
+                  <hr />
+                  <p class="mb-2">
+                    <strong>💡 Solution:</strong> This domain has existing DNS records or worker
+                    routes. You can clean them up and try again.
+                  </p>
+                  <button
+                    class="btn btn-warning btn-sm me-2"
+                    @click="deleteExistingDomain"
+                    :disabled="isDeletingExisting"
+                  >
+                    <i
+                      class="bi"
+                      :class="isDeletingExisting ? 'bi-hourglass-split' : 'bi-trash'"
+                    ></i>
+                    {{ isDeletingExisting ? 'Deleting...' : 'Delete Existing & Retry' }}
+                  </button>
+                  <small class="text-muted">
+                    This will remove existing DNS records and worker routes, then try creating
+                    again.
+                  </small>
+                </div>
               </div>
               <br />
               <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
@@ -424,6 +451,7 @@ export default {
       showSuggestions: false,
       suggestionIndex: 0,
       filteredSuggestions: [],
+      isDeletingExisting: false,
     }
   },
   setup() {
@@ -1114,6 +1142,76 @@ export default {
 
       // Update selected categories with unique values
       this.formData.selectedCategories = [...new Set(areas)]
+    },
+    isDnsConflict(testResult) {
+      // Check if the error indicates DNS or worker route conflicts
+      const message = testResult.message || ''
+      return (
+        message.includes('A, AAAA, or CNAME record with that host already exists') ||
+        message.includes('route with the same pattern already exists') ||
+        message.includes('already exists')
+      )
+    },
+    async deleteExistingDomain() {
+      if (!this.formData.domain) {
+        alert('No domain specified to delete')
+        return
+      }
+
+      this.isDeletingExisting = true
+
+      try {
+        console.log('🗑️ Deleting existing domain infrastructure for:', this.formData.domain)
+
+        // Extract subdomain and root domain
+        const domainParts = this.formData.domain.split('.')
+        const subdomain = domainParts[0]
+        const rootDomain = domainParts.slice(1).join('.')
+
+        // Call delete API
+        const deleteResponse = await fetch('https://api.vegvisr.org/delete-custom-domain', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            subdomain,
+            rootDomain,
+          }),
+        })
+
+        const deleteResult = await deleteResponse.json()
+        console.log('🗑️ Delete result:', JSON.stringify(deleteResult, null, 2))
+
+        if (deleteResponse.ok) {
+          // Show what was deleted
+          let deletedItems = []
+          if (deleteResult.dnsSetup?.deleted) deletedItems.push('DNS record')
+          if (deleteResult.workerSetup?.deleted) deletedItems.push('Worker route')
+          if (deleteResult.kvSetup?.deleted) deletedItems.push('KV configuration')
+
+          const deletedText =
+            deletedItems.length > 0
+              ? `Deleted: ${deletedItems.join(', ')}`
+              : 'No existing infrastructure found to delete'
+
+          console.log('✅ Delete completed:', deletedText)
+
+          // Now try creating the domain again
+          console.log('🔄 Retrying domain creation...')
+          await this.testDomainSetup()
+        } else {
+          throw new Error(deleteResult.error || 'Failed to delete existing domain')
+        }
+      } catch (error) {
+        console.error('❌ Error during delete & retry:', error)
+        this.domainTestResult = {
+          success: false,
+          message: `❌ Failed to delete existing domain: ${error.message}`,
+        }
+      } finally {
+        this.isDeletingExisting = false
+      }
     },
   },
 }

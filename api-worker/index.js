@@ -3613,6 +3613,10 @@ async function handleDeleteCustomDomain(request, env) {
     let kvSetup = { success: true, errors: [], deleted: false }
 
     try {
+      if (!env.SITE_CONFIGS) {
+        throw new Error('SITE_CONFIGS KV namespace not available')
+      }
+
       await env.SITE_CONFIGS.delete(`site-config:${targetDomain}`)
       kvSetup.deleted = true
       kvSetup.message = 'KV entry deleted successfully'
