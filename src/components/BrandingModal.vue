@@ -128,16 +128,35 @@
             <label for="customLogo" class="form-label">
               <strong>Logo URL:</strong>
             </label>
+            <div class="logo-input-group">
+              <input
+                id="customLogo"
+                v-model="formData.logo"
+                type="url"
+                class="form-control"
+                placeholder="https://example.com/logo.png"
+                @input="validateLogo"
+              />
+              <button
+                type="button"
+                class="btn btn-outline-primary upload-btn"
+                @click="triggerLogoUpload"
+                :disabled="isUploadingLogo"
+              >
+                <i class="bi" :class="isUploadingLogo ? 'bi-hourglass-split' : 'bi-upload'"></i>
+                {{ isUploadingLogo ? 'Uploading...' : 'Upload' }}
+              </button>
+            </div>
             <input
-              id="customLogo"
-              v-model="formData.logo"
-              type="url"
-              class="form-control"
-              placeholder="https://example.com/logo.png"
-              @input="validateLogo"
+              ref="logoFileInput"
+              type="file"
+              accept="image/*"
+              style="display: none"
+              @change="handleLogoUpload"
             />
             <div class="form-text">
-              URL to your logo image. Recommended size: 200x80px or similar aspect ratio.
+              URL to your logo image or upload a new one. Recommended size: 200x80px or similar
+              aspect ratio.
             </div>
             <div v-if="logoError" class="error-message">{{ logoError }}</div>
           </div>
@@ -462,6 +481,7 @@ export default {
       suggestionIndex: 0,
       filteredSuggestions: [],
       isDeletingExisting: false,
+      isUploadingLogo: false,
     }
   },
   setup() {
@@ -1161,6 +1181,46 @@ export default {
         message.includes('route with the same pattern already exists') ||
         message.includes('already exists')
       )
+    },
+    triggerLogoUpload() {
+      this.$refs.logoFileInput.click()
+    },
+    async handleLogoUpload(event) {
+      const file = event.target.files[0]
+      if (!file || !file.type.startsWith('image/')) {
+        alert('Please select a valid image file.')
+        return
+      }
+
+      this.isUploadingLogo = true
+
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'image')
+
+      try {
+        const response = await fetch('https://api.vegvisr.org/upload', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to upload logo image')
+        }
+
+        const data = await response.json()
+        this.formData.logo = data.url
+        this.logoError = '' // Clear any previous errors
+
+        console.log('Logo uploaded successfully:', data.url)
+      } catch (error) {
+        console.error('Error uploading logo:', error)
+        alert('Failed to upload logo image. Please try again.')
+      } finally {
+        this.isUploadingLogo = false
+        // Clear the file input
+        event.target.value = ''
+      }
     },
     async deleteExistingDomain() {
       if (!this.formData.domain) {
@@ -1994,6 +2054,34 @@ export default {
 
 .selected-badges .btn-close:hover {
   opacity: 1;
+}
+
+.logo-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.logo-input-group .form-control {
+  flex: 1;
+}
+
+.logo-input-group .upload-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 12px 16px;
+  white-space: nowrap;
+}
+
+.logo-input-group .upload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.logo-input-group .upload-btn i {
+  font-size: 0.9rem;
 }
 
 @media (max-width: 768px) {
