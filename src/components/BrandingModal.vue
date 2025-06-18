@@ -617,12 +617,78 @@ export default {
       this.updateMetaAreaInput()
       this.viewMode = 'edit'
     },
-    removeDomain(index) {
+    async removeDomain(index) {
+      const domainConfig = this.domainConfigs[index]
+      const domainName = domainConfig.domain
+
       if (
-        confirm(`Are you sure you want to remove the domain "${this.domainConfigs[index].domain}"?`)
+        confirm(
+          `Are you sure you want to remove the domain "${domainName}"?\n\nThis will:\n- Delete the DNS record\n- Delete the worker route\n- Delete the site configuration\n\nThis action cannot be undone.`,
+        )
       ) {
-        this.domainConfigs.splice(index, 1)
-        console.log('Removed domain at index', index, 'remaining configs:', this.domainConfigs)
+        try {
+          console.log('🗑️ Starting domain deletion for:', domainName)
+
+          // Extract subdomain and root domain from the full domain
+          const domainParts = domainName.split('.')
+          const subdomain = domainParts[0]
+          const rootDomain = domainParts.slice(1).join('.') // e.g., "norsegong.com"
+
+          console.log('🎯 Parsed domain:', { subdomain, rootDomain, fullDomain: domainName })
+
+          // Call the delete API
+          const response = await fetch('https://api.vegvisr.org/delete-custom-domain', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              subdomain,
+              rootDomain,
+            }),
+          })
+
+          const result = await response.json()
+          console.log('🗑️ Delete API response:', JSON.stringify(result, null, 2))
+
+          if (response.ok && result.overallSuccess) {
+            // Success - remove from local array
+            this.domainConfigs.splice(index, 1)
+            console.log('✅ Domain successfully deleted and removed from list')
+
+            // Show success message
+            alert(
+              `✅ Domain "${domainName}" has been successfully removed!\n\nDeleted:\n- DNS Record: ${result.dnsSetup?.deleted ? 'Yes' : 'Not found'}\n- Worker Route: ${result.workerSetup?.deleted ? 'Yes' : 'Not found'}\n- KV Configuration: ${result.kvSetup?.deleted ? 'Yes' : 'Not found'}`,
+            )
+          } else {
+            // Partial success or failure
+            let errorMessage = `❌ Failed to completely remove domain "${domainName}"`
+
+            if (result.dnsSetup && !result.dnsSetup.success) {
+              errorMessage += `\n- DNS: ${result.dnsSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
+            }
+            if (result.workerSetup && !result.workerSetup.success) {
+              errorMessage += `\n- Worker Route: ${result.workerSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
+            }
+            if (result.kvSetup && !result.kvSetup.success) {
+              errorMessage += `\n- KV Store: ${result.kvSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
+            }
+
+            // Ask user if they want to remove from list anyway
+            const removeAnyway = confirm(
+              errorMessage + '\n\nDo you want to remove it from the list anyway?',
+            )
+            if (removeAnyway) {
+              this.domainConfigs.splice(index, 1)
+              console.log('⚠️ Domain removed from list despite deletion errors')
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error during domain deletion:', error)
+          alert(
+            `❌ Error removing domain "${domainName}": ${error.message}\n\nThe domain was not removed from the list.`,
+          )
+        }
       }
     },
     backToList() {

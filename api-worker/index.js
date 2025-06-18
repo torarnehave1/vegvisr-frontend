@@ -3446,6 +3446,234 @@ async function handleCreateCustomDomain(request, env) {
   return new Response('Method Not Allowed', { status: 405 })
 }
 
+// === Custom Domain Deletion Endpoint ===
+async function handleDeleteCustomDomain(request, env) {
+  console.log('🗑️ handleDeleteCustomDomain called')
+
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 })
+  }
+
+  try {
+    const requestBody = await request.json()
+    console.log('📥 Delete request body:', JSON.stringify(requestBody, null, 2))
+
+    const { subdomain, rootDomain } = requestBody
+
+    if (!subdomain || !rootDomain) {
+      return new Response(
+        JSON.stringify({
+          error: 'Missing required fields: subdomain and rootDomain',
+          overallSuccess: false,
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    }
+
+    const targetDomain = `${subdomain}.${rootDomain}`
+    console.log('🎯 Target domain to delete:', targetDomain)
+
+    // Get the zone ID for the root domain
+    const targetZoneId = getZoneIdForDomain(rootDomain)
+    if (!targetZoneId) {
+      return new Response(
+        JSON.stringify({
+          error: `Unsupported root domain: ${rootDomain}. Supported domains: ${Object.keys(DOMAIN_ZONE_MAPPING).join(', ')}`,
+          overallSuccess: false,
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    }
+
+    console.log('🏷️ Using zone ID:', targetZoneId)
+
+    // Step 1: Find and delete DNS record
+    console.log('🔍 Finding DNS record for:', targetDomain)
+
+    const dnsListResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/dns_records?name=${targetDomain}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${env.CF_API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+
+    const dnsListResult = await dnsListResponse.json()
+    console.log('📋 DNS list response:', JSON.stringify(dnsListResult, null, 2))
+
+    let dnsSetup = { success: true, errors: [], deleted: false }
+
+    if (dnsListResult.result && dnsListResult.result.length > 0) {
+      const dnsRecord = dnsListResult.result[0] // Get the first matching record
+      console.log('🎯 Found DNS record to delete:', dnsRecord.id)
+
+      const dnsDeleteResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/dns_records/${dnsRecord.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${env.CF_API_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+
+      const dnsDeleteResult = await dnsDeleteResponse.json()
+      console.log('🗑️ DNS delete response:', JSON.stringify(dnsDeleteResult, null, 2))
+
+      dnsSetup = {
+        success: dnsDeleteResult.success,
+        errors: dnsDeleteResult.errors || [],
+        deleted: dnsDeleteResult.success,
+        recordId: dnsRecord.id,
+      }
+    } else {
+      console.log('ℹ️ No DNS record found for domain:', targetDomain)
+      dnsSetup.deleted = false
+      dnsSetup.message = 'No DNS record found'
+    }
+
+    // Step 2: Find and delete worker route
+    console.log('🔍 Finding worker route for:', `${targetDomain}/*`)
+
+    const routesListResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/workers/routes`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${env.CF_API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+
+    const routesListResult = await routesListResponse.json()
+    console.log('📋 Routes list response:', JSON.stringify(routesListResult, null, 2))
+
+    let workerSetup = { success: true, errors: [], deleted: false }
+
+    if (routesListResult.result && routesListResult.result.length > 0) {
+      // Find the route that matches our domain pattern
+      const targetRoute = routesListResult.result.find(
+        (route) => route.pattern === `${targetDomain}/*`,
+      )
+
+      if (targetRoute) {
+        console.log('🎯 Found worker route to delete:', targetRoute.id)
+
+        const routeDeleteResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/workers/routes/${targetRoute.id}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${env.CF_API_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+
+        const routeDeleteResult = await routeDeleteResponse.json()
+        console.log('🗑️ Route delete response:', JSON.stringify(routeDeleteResult, null, 2))
+
+        workerSetup = {
+          success: routeDeleteResult.success,
+          errors: routeDeleteResult.errors || [],
+          deleted: routeDeleteResult.success,
+          routeId: targetRoute.id,
+        }
+      } else {
+        console.log('ℹ️ No worker route found for pattern:', `${targetDomain}/*`)
+        workerSetup.deleted = false
+        workerSetup.message = 'No worker route found'
+      }
+    } else {
+      console.log('ℹ️ No worker routes found in zone')
+      workerSetup.deleted = false
+      workerSetup.message = 'No worker routes found'
+    }
+
+    // Step 3: Delete KV store entry
+    console.log('🗑️ Deleting KV store entry for:', `site-config:${targetDomain}`)
+
+    let kvSetup = { success: true, errors: [], deleted: false }
+
+    try {
+      await env.SITE_CONFIGS.delete(`site-config:${targetDomain}`)
+      kvSetup.deleted = true
+      kvSetup.message = 'KV entry deleted successfully'
+      console.log('✅ KV entry deleted successfully')
+    } catch (kvError) {
+      console.error('❌ Error deleting KV entry:', kvError)
+      kvSetup.success = false
+      kvSetup.errors.push({ message: kvError.message })
+      kvSetup.message = 'Failed to delete KV entry'
+    }
+
+    const overallSuccess = dnsSetup.success && workerSetup.success && kvSetup.success
+    console.log('🎯 Overall deletion success:', overallSuccess)
+    console.log('  - DNS deletion success:', dnsSetup.success)
+    console.log('  - Worker deletion success:', workerSetup.success)
+    console.log('  - KV deletion success:', kvSetup.success)
+
+    const responseData = {
+      overallSuccess,
+      domain: targetDomain,
+      zoneId: targetZoneId,
+      dnsSetup,
+      workerSetup,
+      kvSetup,
+      debug: {
+        requestBody,
+        targetRootDomain: rootDomain,
+        availableDomains: Object.keys(DOMAIN_ZONE_MAPPING),
+      },
+    }
+
+    console.log('📤 Final deletion response:', JSON.stringify(responseData, null, 2))
+
+    return new Response(JSON.stringify(responseData), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+  } catch (error) {
+    console.log('❌ Error in handleDeleteCustomDomain:', error)
+    console.log('❌ Error stack:', error.stack)
+
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+        stack: error.stack,
+        overallSuccess: false,
+      }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      },
+    )
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -3640,6 +3868,10 @@ export default {
 
     if (url.pathname === '/create-custom-domain') {
       return await handleCreateCustomDomain(request, env)
+    }
+
+    if (url.pathname === '/delete-custom-domain') {
+      return await handleDeleteCustomDomain(request, env)
     }
 
     // Fallback - log unmatched routes
