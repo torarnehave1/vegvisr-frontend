@@ -439,6 +439,16 @@ export default {
       },
       immediate: true,
     },
+    isOpen: {
+      handler(newValue) {
+        if (newValue) {
+          // Fetch domain configs from KV and system-wide meta areas when modal opens
+          this.fetchDomainConfigsFromKV()
+          this.fetchMetaAreas()
+        }
+      },
+      immediate: false,
+    },
   },
   computed: {
     availableCategories() {
@@ -452,25 +462,106 @@ export default {
   },
   mounted() {
     this.loadExistingDomainConfigs()
+    this.fetchDomainConfigsFromKV()
     this.fetchMetaAreas()
     this.loadUserGraphs()
-  },
-  watch: {
-    isOpen: {
-      handler(newValue) {
-        if (newValue) {
-          // Fetch system-wide meta areas when modal opens
-          this.fetchMetaAreas()
-        }
-      },
-      immediate: false,
-    },
   },
   methods: {
     loadExistingDomainConfigs() {
       // Load existing domain configurations from props
       this.domainConfigs = [...this.existingDomainConfigs]
-      console.log('Loaded existing domain configs:', this.domainConfigs)
+      console.log('Loaded existing domain configs from props:', this.domainConfigs)
+    },
+    async fetchDomainConfigsFromKV() {
+      // Fetch domain configurations from user profile + KV store
+      try {
+        console.log(
+          'Fetching domain configs from user profile + KV for user:',
+          this.userStore.email,
+        )
+
+        // Step 1: Get the list of domains from user's profile data
+        const response = await fetch(apiUrls.getUserData(this.userStore.email))
+
+        if (!response.ok) {
+          console.error('Failed to fetch user data:', response.status, response.statusText)
+          return
+        }
+
+        const userData = await response.json()
+        console.log('Fetched user data:', userData)
+
+        let domainList = []
+
+        // Extract domain list from user data
+        if (
+          userData.data &&
+          userData.data.domainConfigs &&
+          Array.isArray(userData.data.domainConfigs)
+        ) {
+          // New multi-domain structure - extract domain names
+          domainList = userData.data.domainConfigs.map((config) => config.domain).filter(Boolean)
+          console.log('Found domains in user profile:', domainList)
+        } else if (userData.data && userData.data.branding && userData.data.branding.mySite) {
+          // Legacy single domain structure
+          domainList = [userData.data.branding.mySite]
+          console.log('Found legacy domain in user profile:', domainList)
+        }
+
+        if (domainList.length === 0) {
+          console.log('No domains found in user profile')
+          return
+        }
+
+        // Step 2: Fetch detailed configuration from KV for each domain
+        const domainConfigs = []
+
+        for (const domain of domainList) {
+          try {
+            console.log(`Fetching KV config for domain: ${domain}`)
+            const kvResponse = await fetch(apiUrls.getSiteConfig(domain))
+
+            if (kvResponse.ok) {
+              const siteConfig = await kvResponse.json()
+              console.log(`KV config for ${domain}:`, siteConfig)
+
+              // Convert KV format to modal format
+              const modalConfig = {
+                domain: siteConfig.domain,
+                logo: siteConfig.branding?.myLogo || '',
+                contentFilter: siteConfig.branding?.contentFilter || 'none',
+                selectedCategories: siteConfig.branding?.selectedCategories || [],
+                mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || '',
+              }
+
+              domainConfigs.push(modalConfig)
+            } else if (kvResponse.status === 404) {
+              console.log(`No KV config found for ${domain}, using fallback`)
+              // Create fallback config if KV entry doesn't exist
+              const fallbackConfig = {
+                domain: domain,
+                logo: '',
+                contentFilter: 'none',
+                selectedCategories: [],
+                mySiteFrontPage: '',
+              }
+              domainConfigs.push(fallbackConfig)
+            } else {
+              console.error(`Error fetching KV config for ${domain}:`, kvResponse.status)
+            }
+          } catch (error) {
+            console.error(`Error processing domain ${domain}:`, error)
+          }
+        }
+
+        // Step 3: Update the modal with the fetched configurations
+        if (domainConfigs.length > 0) {
+          this.domainConfigs = domainConfigs
+          console.log('Updated domain configs from KV:', this.domainConfigs)
+        }
+      } catch (error) {
+        console.error('Error fetching domain configs from KV:', error)
+      }
     },
     addNewDomain() {
       this.editingDomainIndex = null
