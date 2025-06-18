@@ -184,30 +184,60 @@
                 <strong>Select Meta Areas to Show:</strong>
               </label>
               <div class="form-text mb-3">
-                These are the actual meta areas currently used in your knowledge graphs.
+                Type # followed by meta area names. Use space to separate multiple areas.
                 <span v-if="availableCategories.length === 0" class="text-warning">
                   No meta areas found. Create some knowledge graphs with meta areas first.
                 </span>
               </div>
-              <div v-if="availableCategories.length > 0" class="category-grid">
-                <div
-                  v-for="category in availableCategories"
-                  :key="category.value"
-                  class="category-item"
-                >
-                  <input
-                    :id="`cat-${category.value}`"
-                    v-model="formData.selectedCategories"
-                    type="checkbox"
-                    :value="category.value"
-                    class="form-check-input"
-                  />
-                  <label :for="`cat-${category.value}`" class="form-check-label">
-                    {{ category.label }}
-                  </label>
-                  <small class="category-description">{{ category.description }}</small>
+
+              <!-- Meta Areas Input with Autocomplete -->
+              <div v-if="availableCategories.length > 0" class="mb-3 position-relative">
+                <input
+                  type="text"
+                  class="form-control"
+                  v-model="metaAreaInput"
+                  placeholder="e.g., #Technology #Management #WebDesign"
+                  @input="onMetaAreaInput"
+                  @keydown.tab.prevent="selectSuggestion"
+                  @keydown.enter.prevent="selectSuggestion"
+                  @keydown.down.prevent="moveSuggestion(1)"
+                  @keydown.up.prevent="moveSuggestion(-1)"
+                  @blur="handleBlur"
+                  @change="parseMetaAreaInput"
+                  autocomplete="off"
+                />
+                <ul v-if="showSuggestions" class="autocomplete-list">
+                  <li
+                    v-for="(suggestion, idx) in filteredSuggestions"
+                    :key="suggestion"
+                    :class="{ active: idx === suggestionIndex }"
+                    @mousedown.prevent="selectSuggestion(idx)"
+                  >
+                    {{ suggestion }}
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Selected Meta Areas Display -->
+              <div v-if="formData.selectedCategories.length > 0" class="selected-areas mt-2">
+                <label class="form-label"><strong>Selected Meta Areas:</strong></label>
+                <div class="selected-badges">
+                  <span
+                    v-for="(area, index) in formData.selectedCategories"
+                    :key="area"
+                    class="badge bg-primary me-2 mb-2"
+                  >
+                    {{ area }}
+                    <button
+                      type="button"
+                      class="btn-close btn-close-white ms-2"
+                      @click="removeMetaArea(index)"
+                      aria-label="Remove"
+                    ></button>
+                  </span>
                 </div>
               </div>
+
               <div v-else class="alert alert-info">
                 <i class="bi bi-info-circle"></i>
                 <strong>No meta areas available yet.</strong><br />
@@ -390,6 +420,10 @@ export default {
       isTestingDomain: false,
       domainTestResult: null,
       userGraphs: [],
+      metaAreaInput: '',
+      showSuggestions: false,
+      suggestionIndex: 0,
+      filteredSuggestions: [],
     }
   },
   setup() {
@@ -448,6 +482,8 @@ export default {
         selectedCategories: config.selectedCategories || [],
         mySiteFrontPage: config.mySiteFrontPage || '',
       }
+      // Update the meta area input to reflect selected categories
+      this.updateMetaAreaInput()
       this.viewMode = 'edit'
     },
     removeDomain(index) {
@@ -471,6 +507,7 @@ export default {
         selectedCategories: [],
         mySiteFrontPage: '',
       }
+      this.metaAreaInput = ''
       this.domainError = ''
       this.logoError = ''
     },
@@ -533,7 +570,7 @@ export default {
     },
     getDomainTitle() {
       if (!this.formData.domain) return 'Your Brand'
-      if (this.formData.domain === 'sweet.norsegong.com') return 'Sweet NorseGong'
+      // Generic title generation from domain (no hardcoded values)
       const parts = this.formData.domain.split('.')
       return parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
     },
@@ -768,6 +805,73 @@ export default {
     },
     selectFrontPage(graph) {
       this.formData.mySiteFrontPage = `/graph-viewer?graphId=${graph.id}&template=Frontpage`
+    },
+    onMetaAreaInput() {
+      const value = this.metaAreaInput || ''
+      const match = value.match(/#([\w-]*)$/)
+      if (match) {
+        const search = match[1].toLowerCase()
+        this.filteredSuggestions = this.availableCategories
+          .map((cat) => cat.value)
+          .filter((area) => area.toLowerCase().includes(search))
+        this.showSuggestions = this.filteredSuggestions.length > 0
+        this.suggestionIndex = 0
+      } else {
+        this.showSuggestions = false
+      }
+    },
+    selectSuggestion(idx = this.suggestionIndex) {
+      if (!this.showSuggestions || !this.filteredSuggestions.length) return
+
+      const value = this.metaAreaInput || ''
+      const match = value.match(/#([\w-]*)$/)
+
+      if (match) {
+        const before = value.slice(0, match.index + 1)
+        const after = value.slice(match.index + match[0].length)
+        const selectedArea = this.filteredSuggestions[idx]
+
+        if (selectedArea) {
+          this.metaAreaInput = before + selectedArea + ' ' + after
+          // Add to selected categories if not already present
+          if (!this.formData.selectedCategories.includes(selectedArea)) {
+            this.formData.selectedCategories.push(selectedArea)
+          }
+        }
+      }
+
+      this.showSuggestions = false
+    },
+    moveSuggestion(dir) {
+      if (!this.showSuggestions) return
+      this.suggestionIndex =
+        (this.suggestionIndex + dir + this.filteredSuggestions.length) %
+        this.filteredSuggestions.length
+    },
+    handleBlur() {
+      setTimeout(() => {
+        this.showSuggestions = false
+      }, 200)
+    },
+    removeMetaArea(index) {
+      this.formData.selectedCategories.splice(index, 1)
+      this.updateMetaAreaInput()
+    },
+    updateMetaAreaInput() {
+      // Update the input field to reflect the current selected categories
+      this.metaAreaInput = this.formData.selectedCategories.map((area) => '#' + area).join(' ')
+    },
+    parseMetaAreaInput() {
+      // Parse the input and extract meta areas
+      const areas = this.metaAreaInput
+        .split(/\s+/)
+        .map((area) => area.trim())
+        .filter((area) => area.startsWith('#'))
+        .map((area) => area.substring(1))
+        .filter((area) => area.length > 0)
+
+      // Update selected categories with unique values
+      this.formData.selectedCategories = [...new Set(areas)]
     },
   },
 }
@@ -1464,6 +1568,59 @@ export default {
   100% {
     transform: rotate(360deg);
   }
+}
+
+/* Autocomplete styles */
+.autocomplete-list {
+  position: absolute;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.autocomplete-list li {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.autocomplete-list li.active,
+.autocomplete-list li:hover {
+  background: #007bff;
+  color: #fff;
+}
+
+.selected-areas {
+  margin-top: 15px;
+}
+
+.selected-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.selected-badges .badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.selected-badges .btn-close {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.selected-badges .btn-close:hover {
+  opacity: 1;
 }
 
 @media (max-width: 768px) {

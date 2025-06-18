@@ -343,23 +343,35 @@ export default {
         try {
           console.log('[Worker] Fetching list of knowledge graphs')
 
-          // 1. Determine allowed meta areas based on hostname
+          // 1. Determine allowed meta areas based on KV store configuration
           const hostname =
             request.headers.get('x-original-hostname') || new URL(request.url).hostname
           console.log('[Worker] Request hostname:', hostname)
+
           let allowedMetaAreas = null
-          if (hostname === 'sweet.norsegong.com') {
-            allowedMetaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
-            console.log(
-              '[Worker] Setting allowed meta areas for sweet.norsegong.com:',
-              allowedMetaAreas,
-            )
-          } else {
-            console.log(
-              '[Worker] No filtering applied - hostname does not match sweet.norsegong.com',
-            )
+
+          // Check KV store for site configuration
+          try {
+            const kvKey = `site-config:${hostname}`
+            const siteConfigData = await env.SITE_CONFIGS.get(kvKey)
+
+            if (siteConfigData) {
+              const siteConfig = JSON.parse(siteConfigData)
+              if (siteConfig.contentFilter && Array.isArray(siteConfig.contentFilter.metaAreas)) {
+                allowedMetaAreas = siteConfig.contentFilter.metaAreas
+                console.log(
+                  `[Worker] Using KV-based meta area filter for ${hostname}:`,
+                  allowedMetaAreas,
+                )
+              } else {
+                console.log(`[Worker] No meta area filter found in KV for ${hostname}`)
+              }
+            } else {
+              console.log(`[Worker] No site configuration found in KV for ${hostname}`)
+            }
+          } catch (error) {
+            console.error(`[Worker] Error fetching site config from KV for ${hostname}:`, error)
           }
-          // Add more domains/filters as needed
 
           // 2. Fetch all graphs
           const query = `SELECT id, title, data FROM knowledge_graphs`

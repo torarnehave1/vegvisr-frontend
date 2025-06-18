@@ -24,12 +24,8 @@ export default {
     // Create headers for the request
     const headers = new Headers(request.headers)
 
-    // Set domain-specific headers for filtering
-    if (hostname === 'sweet.norsegong.com') {
-      console.log('Setting NORSEGONG and NORSEMYTHOLOGY filter for sweet.norsegong.com')
-      headers.set('x-meta-area-filter', 'NORSEGONG,NORSEMYTHOLOGY')
-      headers.set('x-custom-meta-area-filter', 'NORSEGONG,NORSEMYTHOLOGY')
-    }
+    // Set original hostname for KV-based filtering (no hardcoded filtering)
+    headers.set('x-original-hostname', hostname)
 
     console.log('Headers being sent:', Object.fromEntries(headers.entries()))
     console.log('Target URL:', targetUrl)
@@ -42,15 +38,7 @@ export default {
       redirect: 'follow',
     })
 
-    // Create a new response to ensure headers are preserved
-    const newResponse = new Response(response.body, response)
-    if (headers.has('x-meta-area-filter')) {
-      newResponse.headers.set('x-meta-area-filter', headers.get('x-meta-area-filter'))
-      newResponse.headers.set('x-custom-meta-area-filter', headers.get('x-custom-meta-area-filter'))
-    }
-
-    console.log('Final headers being sent:', Object.fromEntries(newResponse.headers.entries()))
-
-    return newResponse
+    // Return the response as-is (filtering handled by KV store)
+    return response
   },
 }

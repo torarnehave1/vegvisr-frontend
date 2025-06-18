@@ -933,10 +933,6 @@ export default {
             } else if (data.branding.contentFilter === 'none') {
               metaAreas = []
               console.log('Legacy: No content filtering')
-            } else if (data.branding.mySite === 'sweet.norsegong.com') {
-              // Legacy support for sweet.norsegong.com
-              metaAreas = ['NORSEGONG', 'NORSEMYTHOLOGY']
-              console.log('Legacy sweet.norsegong.com filtering applied:', metaAreas)
             }
 
             const siteConfig = {

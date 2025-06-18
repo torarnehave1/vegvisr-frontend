@@ -91,13 +91,15 @@ export function useBranding() {
 
   // Get the appropriate site title
   const currentSiteTitle = computed(() => {
-    // First check KV site configuration
+    // First check KV site configuration for custom title
+    if (isCustomDomain.value && siteConfig.value?.branding?.siteTitle) {
+      return siteConfig.value.branding.siteTitle
+    }
+
+    // If no custom title, generate from domain
     if (isCustomDomain.value && siteConfig.value?.branding?.mySite) {
       const domain = siteConfig.value.branding.mySite
-      if (domain === 'sweet.norsegong.com') {
-        return 'Sweet NorseGong'
-      }
-      // Generic conversion for other domains - with null check
+      // Generic conversion for domains - with null check
       if (domain && typeof domain === 'string' && domain.includes('.')) {
         const subdomain = domain.split('.')[0]
         return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
@@ -106,12 +108,13 @@ export function useBranding() {
     }
 
     // Fallback to user store
+    if (userStore.branding?.siteTitle) {
+      return userStore.branding.siteTitle
+    }
+
+    // Generate from user store domain if available
     if (userStore.branding?.mySite === currentDomain.value) {
       const domain = userStore.branding.mySite
-      if (domain === 'sweet.norsegong.com') {
-        return 'Sweet NorseGong'
-      }
-      // Generic conversion for other domains - with null check
       if (domain && typeof domain === 'string' && domain.includes('.')) {
         const subdomain = domain.split('.')[0]
         return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
@@ -124,16 +127,16 @@ export function useBranding() {
 
   // Get domain-specific theme/styling
   const currentTheme = computed(() => {
-    if (isCustomDomain.value && siteConfig.value?.branding?.mySite) {
-      const domain = siteConfig.value.branding.mySite
-      if (domain === 'sweet.norsegong.com') {
-        return {
-          primaryColor: '#8B4513', // Norse brown
-          secondaryColor: '#DAA520', // Gold
-          accentColor: '#2F4F4F', // Dark slate gray
-        }
-      }
+    // Check KV site configuration for custom theme
+    if (isCustomDomain.value && siteConfig.value?.branding?.theme) {
+      return siteConfig.value.branding.theme
     }
+
+    // Fallback to user store theme
+    if (userStore.branding?.theme) {
+      return userStore.branding.theme
+    }
+
     // Default Vegvisr theme
     return {
       primaryColor: '#007bff',
