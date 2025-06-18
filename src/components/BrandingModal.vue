@@ -442,6 +442,7 @@ export default {
     isOpen: {
       handler(newValue) {
         if (newValue) {
+          console.log('BrandingModal opened, current domainConfigs:', this.domainConfigs)
           // Fetch domain configs from KV and system-wide meta areas when modal opens
           this.fetchDomainConfigsFromKV()
           this.fetchMetaAreas()
@@ -461,6 +462,7 @@ export default {
     },
   },
   mounted() {
+    console.log('BrandingModal mounted with existingDomainConfigs:', this.existingDomainConfigs)
     this.loadExistingDomainConfigs()
     this.fetchDomainConfigsFromKV()
     this.fetchMetaAreas()
@@ -509,8 +511,35 @@ export default {
         }
 
         if (domainList.length === 0) {
-          console.log('No domains found in user profile')
-          return
+          console.log('No domains found in user profile, trying to detect from known domains')
+          // Fallback: try common domain patterns for this user
+          const knownDomains = [
+            'salt.norsegong.com',
+            'sweet.norsegong.com',
+            'torarne.xyzvibe.com',
+            'vegvisr.norsegong.com',
+          ]
+
+          // Check which of these domains exist in KV and belong to this user
+          for (const domain of knownDomains) {
+            try {
+              const kvResponse = await fetch(apiUrls.getSiteConfig(domain))
+              if (kvResponse.ok) {
+                const siteConfig = await kvResponse.json()
+                if (siteConfig.owner === this.userStore.email) {
+                  domainList.push(domain)
+                  console.log(`Found owned domain: ${domain}`)
+                }
+              }
+            } catch (error) {
+              console.log(`Could not check domain ${domain}:`, error)
+            }
+          }
+
+          if (domainList.length === 0) {
+            console.log('No domains found even with fallback detection')
+            return
+          }
         }
 
         // Step 2: Fetch detailed configuration from KV for each domain
