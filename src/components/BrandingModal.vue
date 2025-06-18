@@ -1048,7 +1048,7 @@ export default {
         if (response.ok && result.overallSuccess) {
           this.domainTestResult = {
             success: true,
-            message: `✅ Domain ${subdomain}.norsegong.com has been successfully configured!\nDNS: ${result.dnsSetup?.success ? 'OK' : 'Error'}\nWorker Route: ${result.workerSetup?.success ? 'OK' : 'Error'}`,
+            message: `✅ Domain ${this.formData.domain} has been successfully configured!\nDNS: ${result.dnsSetup?.success ? 'OK' : 'Error'}\nWorker Route: ${result.workerSetup?.success ? 'OK' : 'Error'}`,
           }
         } else {
           let errorMessage =

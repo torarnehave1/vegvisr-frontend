@@ -804,7 +804,15 @@ export default {
       if (path === '/userdata' && method === 'PUT') {
         const db = env.vegvisr_org
         const body = await request.json()
-        console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
+        console.log('📥 Received PUT /userdata request:', JSON.stringify(body, null, 2))
+        console.log(
+          '🔍 Checking for domainConfigs in body.data:',
+          body.data?.domainConfigs ? 'FOUND' : 'NOT FOUND',
+        )
+        if (body.data?.domainConfigs) {
+          console.log('📋 Domain configs array:', JSON.stringify(body.data.domainConfigs, null, 2))
+        }
+
         const { email, bio, data, profileimage } = body
         console.log('Bio from request:', bio)
         if (!email || !data || profileimage === undefined) {
@@ -882,21 +890,27 @@ export default {
         if (data.domainConfigs && Array.isArray(data.domainConfigs)) {
           // New multi-domain structure
           console.log(
-            'Processing multi-domain configurations:',
+            '🔄 Processing multi-domain configurations:',
             data.domainConfigs.length,
             'domains',
           )
+          console.log('🔍 Domain configs data:', JSON.stringify(data.domainConfigs, null, 2))
 
           for (const domainConfig of data.domainConfigs) {
             try {
+              console.log(`🏗️ Processing domain: ${domainConfig.domain}`)
+
               // Determine metaAreas based on domain's content filter selection
               let metaAreas = []
               if (domainConfig.contentFilter === 'custom' && domainConfig.selectedCategories) {
                 metaAreas = domainConfig.selectedCategories
-                console.log(`Domain ${domainConfig.domain}: Using selected meta areas:`, metaAreas)
+                console.log(
+                  `✅ Domain ${domainConfig.domain}: Using selected meta areas:`,
+                  metaAreas,
+                )
               } else if (domainConfig.contentFilter === 'none') {
                 metaAreas = []
-                console.log(`Domain ${domainConfig.domain}: No content filtering`)
+                console.log(`✅ Domain ${domainConfig.domain}: No content filtering`)
               }
 
               const siteConfig = {
@@ -916,10 +930,24 @@ export default {
               }
 
               const kvKey = `site-config:${domainConfig.domain}`
+              console.log(`💾 Attempting to save to KV: ${kvKey}`)
+              console.log(`📋 Site config data:`, JSON.stringify(siteConfig, null, 2))
+
               await env.SITE_CONFIGS.put(kvKey, JSON.stringify(siteConfig))
-              console.log(`Saved domain config to KV: ${kvKey} with ${metaAreas.length} meta areas`)
+              console.log(
+                `✅ Successfully saved domain config to KV: ${kvKey} with ${metaAreas.length} meta areas`,
+              )
+
+              // Verify the save by immediately reading it back
+              const verification = await env.SITE_CONFIGS.get(kvKey)
+              if (verification) {
+                console.log(`✅ KV verification successful for ${kvKey}`)
+              } else {
+                console.error(`❌ KV verification failed for ${kvKey} - data not found after save`)
+              }
             } catch (kvError) {
-              console.error(`Error saving domain config for ${domainConfig.domain}:`, kvError)
+              console.error(`❌ Error saving domain config for ${domainConfig.domain}:`, kvError)
+              console.error(`❌ KV Error details:`, kvError.message, kvError.stack)
               // Continue with other domains even if one fails
             }
           }
