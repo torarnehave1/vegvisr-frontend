@@ -23,7 +23,17 @@
               <div class="domain-card">
                 <div class="domain-header">
                   <div class="domain-info">
-                    <h5 class="domain-name">{{ config.domain }}</h5>
+                    <h5 class="domain-name">
+                      <a
+                        :href="`https://${config.domain}`"
+                        target="_blank"
+                        class="domain-link"
+                        :title="`Visit ${config.domain} (opens in new tab)`"
+                      >
+                        {{ config.domain }}
+                        <i class="bi bi-box-arrow-up-right ms-1"></i>
+                      </a>
+                    </h5>
                     <div class="domain-meta">
                       <span v-if="config.logo" class="badge bg-success">✓ Logo</span>
                       <span v-else class="badge bg-secondary">No Logo</span>
@@ -1531,6 +1541,29 @@ export default {
   font-weight: 600;
   color: #333;
   margin: 0 0 8px 0;
+}
+
+.domain-link {
+  color: #333;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.domain-link:hover {
+  color: #007bff;
+  text-decoration: underline;
+}
+
+.domain-link i {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.domain-link:hover i {
+  opacity: 1;
 }
 
 .domain-meta {
