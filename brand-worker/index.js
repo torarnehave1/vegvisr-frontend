@@ -86,8 +86,9 @@ export default {
             'Access-Control-Allow-Origin': '*',
           },
         })
-      } catch (e) {
+      } catch (jsonError) {
         // If not JSON, return the original response
+        console.log('Response is not JSON, returning as-is:', jsonError.message)
         return new Response(response.body, {
           status: response.status,
           headers: {

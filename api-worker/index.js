@@ -3225,7 +3225,12 @@ const handleGooglePhotosRecent = async (request) => {
 
 // === Custom Domain Registration Endpoint ===
 async function handleCreateCustomDomain(request, env) {
+  console.log('🔧 === Custom Domain Registration Request Started ===')
+  console.log('Request method:', request.method)
+  console.log('Request URL:', request.url)
+
   if (request.method === 'OPTIONS') {
+    console.log('✅ Handling CORS preflight request')
     return new Response(null, {
       status: 204,
       headers: {
@@ -3239,13 +3244,24 @@ async function handleCreateCustomDomain(request, env) {
 
   if (request.method === 'POST') {
     try {
-      const { subdomain, rootDomain, zoneId } = await request.json()
+      console.log('📥 Processing POST request for custom domain creation')
+
+      const requestBody = await request.json()
+      console.log('📋 Request body received:', JSON.stringify(requestBody, null, 2))
+
+      const { subdomain, rootDomain, zoneId } = requestBody
 
       // Determine the domain to work with
       let targetDomain
       let targetZoneId
 
+      console.log('🔍 Input validation:')
+      console.log('  - subdomain:', subdomain)
+      console.log('  - rootDomain:', rootDomain)
+      console.log('  - zoneId:', zoneId)
+
       if (!subdomain) {
+        console.log('❌ Subdomain validation failed - subdomain is required')
         return new Response(
           JSON.stringify({
             error: 'Subdomain is required (e.g., "torarne" for torarne.xyzvibe.com)',
@@ -3262,14 +3278,20 @@ async function handleCreateCustomDomain(request, env) {
 
       // Determine root domain - default to norsegong.com for backward compatibility
       const targetRootDomain = rootDomain || 'norsegong.com'
+      console.log('🎯 Target root domain determined:', targetRootDomain)
 
       // Build the full domain
       targetDomain = `${subdomain}.${targetRootDomain}`
+      console.log('🌐 Full target domain:', targetDomain)
 
       // Get Zone ID for the root domain
       targetZoneId = zoneId || DOMAIN_ZONE_MAPPING[targetRootDomain]
+      console.log('🔑 Zone ID lookup:')
+      console.log('  - Available zone mappings:', JSON.stringify(DOMAIN_ZONE_MAPPING, null, 2))
+      console.log('  - Resolved zone ID:', targetZoneId)
 
       if (!targetZoneId) {
+        console.log('❌ Zone ID validation failed - no zone ID found for domain')
         return new Response(
           JSON.stringify({
             error: `No Zone ID found for domain: ${targetDomain}. Supported domains: ${Object.keys(DOMAIN_ZONE_MAPPING).join(', ')}`,
@@ -3284,9 +3306,37 @@ async function handleCreateCustomDomain(request, env) {
         )
       }
 
-      console.log(`Setting up custom domain: ${targetDomain} with Zone ID: ${targetZoneId}`)
+      console.log(`✅ Setting up custom domain: ${targetDomain} with Zone ID: ${targetZoneId}`)
+
+      // Check if CF_API_TOKEN is available
+      if (!env.CF_API_TOKEN) {
+        console.log('❌ CF_API_TOKEN environment variable is missing')
+        return new Response(
+          JSON.stringify({
+            error: 'CF_API_TOKEN environment variable is not configured',
+            overallSuccess: false,
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        )
+      }
+      console.log('✅ CF_API_TOKEN is available')
 
       // Create DNS record
+      console.log('🔧 Creating DNS record...')
+      const dnsPayload = {
+        type: 'CNAME',
+        name: targetDomain,
+        content: 'brand-worker.torarnehave.workers.dev',
+        proxied: true,
+      }
+      console.log('📤 DNS payload:', JSON.stringify(dnsPayload, null, 2))
+
       const dnsResponse = await fetch(
         `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/dns_records`,
         {
@@ -3295,22 +3345,28 @@ async function handleCreateCustomDomain(request, env) {
             Authorization: `Bearer ${env.CF_API_TOKEN}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            type: 'CNAME',
-            name: targetDomain,
-            content: 'brand-worker.torarnehave.workers.dev',
-            proxied: true,
-          }),
+          body: JSON.stringify(dnsPayload),
         },
       )
 
+      console.log('📥 DNS response status:', dnsResponse.status, dnsResponse.statusText)
       const dnsResult = await dnsResponse.json()
+      console.log('📋 DNS response body:', JSON.stringify(dnsResult, null, 2))
+
       const dnsSetup = {
         success: dnsResult.success,
         errors: dnsResult.errors,
+        result: dnsResult.result,
       }
 
       // Create worker route
+      console.log('🔧 Creating worker route...')
+      const workerPayload = {
+        pattern: `${targetDomain}/*`,
+        script: 'brand-worker',
+      }
+      console.log('📤 Worker route payload:', JSON.stringify(workerPayload, null, 2))
+
       const workerResponse = await fetch(
         `https://api.cloudflare.com/client/v4/zones/${targetZoneId}/workers/routes`,
         {
@@ -3319,39 +3375,59 @@ async function handleCreateCustomDomain(request, env) {
             Authorization: `Bearer ${env.CF_API_TOKEN}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            pattern: `${targetDomain}/*`,
-            script: 'brand-worker',
-          }),
+          body: JSON.stringify(workerPayload),
         },
       )
 
+      console.log(
+        '📥 Worker route response status:',
+        workerResponse.status,
+        workerResponse.statusText,
+      )
       const workerResult = await workerResponse.json()
+      console.log('📋 Worker route response body:', JSON.stringify(workerResult, null, 2))
+
       const workerSetup = {
         success: workerResult.success,
         errors: workerResult.errors,
+        result: workerResult.result,
       }
+
+      const overallSuccess = dnsSetup.success && workerSetup.success
+      console.log('🎯 Overall success:', overallSuccess)
+      console.log('  - DNS setup success:', dnsSetup.success)
+      console.log('  - Worker setup success:', workerSetup.success)
+
+      const responseData = {
+        overallSuccess,
+        domain: targetDomain,
+        zoneId: targetZoneId,
+        dnsSetup,
+        workerSetup,
+        debug: {
+          requestBody,
+          targetRootDomain,
+          availableDomains: Object.keys(DOMAIN_ZONE_MAPPING),
+        },
+      }
+
+      console.log('📤 Final response:', JSON.stringify(responseData, null, 2))
+
+      return new Response(JSON.stringify(responseData), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    } catch (error) {
+      console.log('❌ Error in handleCreateCustomDomain:', error)
+      console.log('❌ Error stack:', error.stack)
 
       return new Response(
         JSON.stringify({
-          overallSuccess: dnsSetup.success && workerSetup.success,
-          domain: targetDomain,
-          zoneId: targetZoneId,
-          dnsSetup,
-          workerSetup,
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        },
-      )
-    } catch (error) {
-      return new Response(
-        JSON.stringify({
           error: error.message,
+          stack: error.stack,
           overallSuccess: false,
         }),
         {
@@ -3366,6 +3442,7 @@ async function handleCreateCustomDomain(request, env) {
   }
 
   // Method not allowed
+  console.log('❌ Method not allowed:', request.method)
   return new Response('Method Not Allowed', { status: 405 })
 }
 

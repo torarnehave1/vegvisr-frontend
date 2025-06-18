@@ -698,25 +698,35 @@ export default {
       this.domainTestResult = null
 
       try {
-        // Extract subdomain (first part before the first dot)
+        // Extract subdomain and root domain from the full domain
         const domainParts = this.formData.domain.split('.')
         const subdomain = domainParts[0]
+        const rootDomain = domainParts.slice(1).join('.') // e.g., "xyzvibe.com"
 
         // Use the brand-worker for domain registration testing
         const testUrl = 'https://api.vegvisr.org/create-custom-domain'
 
         console.log('Testing domain setup with URL:', testUrl)
+        console.log('Full domain:', this.formData.domain)
+        console.log('Subdomain:', subdomain)
+        console.log('Root domain:', rootDomain)
+
+        const payload = {
+          subdomain,
+          rootDomain, // This is crucial for xyzvibe.com
+        }
+        console.log('Request payload:', JSON.stringify(payload, null, 2))
 
         const response = await fetch(testUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ subdomain }),
+          body: JSON.stringify(payload),
         })
 
         const result = await response.json()
-        console.log('Domain setup test result:', result)
+        console.log('Domain setup test result:', JSON.stringify(result, null, 2))
 
         if (response.ok && result.overallSuccess) {
           this.domainTestResult = {
