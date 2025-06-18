@@ -21,15 +21,6 @@
           </button>
           <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/book">Book</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/soundstudio">Sound Studio</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
-              </li>
               <li class="nav-item" v-if="userStore.role !== 'ViewOnly'">
                 <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
               </li>
@@ -42,8 +33,9 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-portfolio">Graph Portfolio</RouterLink>
               </li>
+
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/r2-portfolio">Image Portfolio</RouterLink>
+                <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/github-issues">

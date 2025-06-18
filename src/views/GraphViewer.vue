@@ -36,6 +36,13 @@
     >
       AI IMAGE
     </button>
+    <button
+      v-if="userStore.loggedIn"
+      @click="navigateToR2Portfolio"
+      class="btn btn-secondary mb-3 ms-2"
+    >
+      📁 R2 Portfolio
+    </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -777,6 +784,7 @@
 
 <script setup>
 import { ref, onMounted, watch, nextTick, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
@@ -815,6 +823,7 @@ const error = ref(null)
 const saveMessage = ref('')
 const knowledgeGraphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
+const router = useRouter()
 
 // Add branding composable for domain detection (only importing for potential future use)
 const { currentDomain, isCustomDomain } = useBranding()
@@ -3749,6 +3758,11 @@ const handleAIImageClick = () => {
 
 const closeAIImageModal = () => {
   isAIImageModalOpen.value = false
+}
+
+// Navigation method for R2 Portfolio
+const navigateToR2Portfolio = () => {
+  router.push('/r2-portfolio')
 }
 
 const handleImageInserted = async (nodeData) => {
