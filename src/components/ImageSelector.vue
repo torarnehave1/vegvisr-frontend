@@ -173,6 +173,33 @@
       <div class="search-section" :class="{ 'search-section-compact': searchResults.length > 0 }">
         <h4>🔍 Search New Images</h4>
 
+        <!-- Upload and AI Generation Options -->
+        <div class="image-source-options">
+          <button
+            @click="triggerImageUpload"
+            class="btn btn-outline-primary btn-source"
+            :disabled="isUploadingImage"
+          >
+            <i class="bi" :class="isUploadingImage ? 'bi-hourglass-split' : 'bi-upload'"></i>
+            {{ isUploadingImage ? 'Uploading...' : 'Upload Image' }}
+          </button>
+          <button
+            @click="openAIImageModal"
+            class="btn btn-outline-success btn-source"
+            :disabled="isUploadingImage"
+          >
+            <i class="bi bi-magic"></i>
+            AI Generate
+          </button>
+          <input
+            ref="imageFileInput"
+            type="file"
+            accept="image/*"
+            style="display: none"
+            @change="handleImageUpload"
+          />
+        </div>
+
         <!-- Clipboard Paste Area -->
         <div class="clipboard-paste-area" v-if="!pastedImage && !pastedUrl">
           <div class="paste-info">
@@ -317,12 +344,21 @@
         </div>
       </div>
     </div>
+
+    <!-- AI Image Modal -->
+    <AIImageModal
+      :isOpen="isAIImageModalOpen"
+      :graphContext="{ type: 'image', imageType: props.imageType, nodeContent: props.nodeContent }"
+      @close="closeAIImageModal"
+      @image-inserted="handleAIImageGenerated"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
+import AIImageModal from './AIImageModal.vue'
 
 const props = defineProps({
   isOpen: {
@@ -362,6 +398,11 @@ const replacing = ref(false)
 const error = ref('')
 const pastedImage = ref(null)
 const uploading = ref(false)
+
+// Upload and AI Generation state
+const isUploadingImage = ref(false)
+const isAIImageModalOpen = ref(false)
+const imageFileInput = ref(null)
 
 // Dimensions state
 const currentDimensions = ref({ width: null, height: null })
@@ -877,6 +918,126 @@ const usePastedUrl = () => {
 const clearPastedUrl = () => {
   pastedUrl.value = null
   error.value = ''
+}
+
+// Upload functionality
+const triggerImageUpload = () => {
+  imageFileInput.value?.click()
+}
+
+const handleImageUpload = async (event) => {
+  const file = event.target.files[0]
+  if (!file || !file.type.startsWith('image/')) {
+    error.value = 'Please select a valid image file.'
+    return
+  }
+
+  isUploadingImage.value = true
+  error.value = ''
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('type', 'image')
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to upload image')
+    }
+
+    const data = await response.json()
+
+    // Create a selected image object from the uploaded image
+    selectedImage.value = {
+      id: 'uploaded-' + Date.now(),
+      url: data.url,
+      alt: file.name.replace(/\.[^/.]+$/, ''), // Remove file extension for alt text
+      photographer: 'Uploaded by user',
+    }
+
+    // Clear search results since we have an uploaded image
+    searchResults.value = []
+    pastedImage.value = null
+    pastedUrl.value = null
+
+    console.log('Image uploaded successfully:', data.url)
+  } catch (err) {
+    console.error('Error uploading image:', err)
+    error.value = 'Failed to upload image. Please try again.'
+  } finally {
+    isUploadingImage.value = false
+    // Clear the file input
+    event.target.value = ''
+  }
+}
+
+// AI Image Generation functionality
+const openAIImageModal = () => {
+  isAIImageModalOpen.value = true
+}
+
+const closeAIImageModal = () => {
+  isAIImageModalOpen.value = false
+}
+
+const handleAIImageGenerated = (imageData) => {
+  console.log('AI Image generated:', imageData)
+
+  try {
+    let imageUrl = null
+    let altText = 'AI generated image'
+
+    // Check if imageData is a simple URL string
+    if (typeof imageData === 'string' && imageData.startsWith('http')) {
+      imageUrl = imageData
+    } else if (typeof imageData === 'object') {
+      // Handle the node format
+      if (imageData.info) {
+        // Extract URL from markdown format: ![alt](url)
+        const match = imageData.info.match(/!\[.*?\]\((.+?)\)/)
+        imageUrl = match ? match[1] : null
+      } else if (imageData.label && imageData.label.includes('http')) {
+        // If the URL is directly in the label
+        const urlMatch = imageData.label.match(/(https?:\/\/[^\s\)]+)/)
+        imageUrl = urlMatch ? urlMatch[1] : null
+      }
+
+      // Try to get alt text from the data
+      if (imageData.label) {
+        altText = imageData.label
+      }
+    }
+
+    if (imageUrl) {
+      // Create a selected image object from the AI generated image
+      selectedImage.value = {
+        id: 'ai-generated-' + Date.now(),
+        url: imageUrl,
+        alt: altText,
+        photographer: 'AI Generated',
+      }
+
+      // Clear search results since we have an AI generated image
+      searchResults.value = []
+      pastedImage.value = null
+      pastedUrl.value = null
+
+      // Close the AI modal
+      closeAIImageModal()
+
+      console.log('AI image selected:', selectedImage.value)
+    } else {
+      console.error('Could not extract image URL from generated data:', imageData)
+      error.value = 'Failed to extract image URL from AI generated image.'
+    }
+  } catch (err) {
+    console.error('Error handling AI generated image:', err)
+    error.value = 'Failed to process AI generated image.'
+  }
 }
 
 // Google Photos functionality moved to dedicated GooglePhotosSelector component
@@ -1486,6 +1647,57 @@ watch(
   margin: 0 0 15px 0;
   font-size: 1.1rem;
   color: #333;
+}
+
+.image-source-options {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.btn-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border: 1px solid;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-source:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-source i {
+  font-size: 0.9rem;
+}
+
+.btn-outline-primary {
+  background: transparent;
+  color: #007bff;
+  border-color: #007bff;
+}
+
+.btn-outline-primary:hover:not(:disabled) {
+  background: #007bff;
+  color: white;
+}
+
+.btn-outline-success {
+  background: transparent;
+  color: #28a745;
+  border-color: #28a745;
+}
+
+.btn-outline-success:hover:not(:disabled) {
+  background: #28a745;
+  color: white;
 }
 
 .search-controls {
