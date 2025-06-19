@@ -7,6 +7,7 @@ export function useBranding() {
   const siteConfig = ref(null)
   const loading = ref(false)
   const detectedHostname = ref(null)
+  const mainLogo = ref(null)
 
   // Function to detect the original hostname from proxy headers or window location
   const detectHostname = async () => {
@@ -70,6 +71,26 @@ export function useBranding() {
     return siteConfig.value && siteConfig.value.domain === currentDomain.value
   })
 
+  // Fetch main logo from worker
+  const fetchMainLogo = async () => {
+    if (mainLogo.value) return // Already fetched
+
+    try {
+      const response = await fetch(apiUrls.getMainLogo())
+      if (response.ok) {
+        const data = await response.json()
+        mainLogo.value = data.logoUrl
+        console.log('Fetched main logo from worker:', mainLogo.value)
+      } else {
+        console.error('Failed to fetch main logo:', response.status)
+        mainLogo.value = 'https://vegvisr.imgix.net/vegvisr-logo.png' // fallback
+      }
+    } catch (error) {
+      console.error('Error fetching main logo:', error)
+      mainLogo.value = 'https://vegvisr.imgix.net/vegvisr-logo.png' // fallback
+    }
+  }
+
   // Get the appropriate logo
   const currentLogo = computed(() => {
     // First check KV site configuration
@@ -84,9 +105,9 @@ export function useBranding() {
       return userStore.branding.myLogo
     }
 
-    // Default Vegvisr logo (use a working URL)
-    console.log('Using default Vegvisr logo')
-    return 'https://vegvisr.imgix.net/vegvisr-logo.png'
+    // Default logo from worker or fallback
+    console.log('Using main logo from worker:', mainLogo.value)
+    return mainLogo.value || 'https://vegvisr.imgix.net/vegvisr-logo.png'
   })
 
   // Get the appropriate site title
@@ -173,6 +194,9 @@ export function useBranding() {
   // Initialize hostname detection and fetch site config
   const initialize = async () => {
     try {
+      // Always fetch main logo first
+      await fetchMainLogo()
+
       const hostname = await detectHostname()
       if (hostname && hostname !== 'localhost') {
         await fetchSiteConfig(hostname)

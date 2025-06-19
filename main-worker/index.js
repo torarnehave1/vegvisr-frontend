@@ -1079,6 +1079,27 @@ export default {
         }
       }
 
+      if (path === '/main-logo' && method === 'GET') {
+        try {
+          const logoUrl = env.MAIN_LOGO || 'https://vegvisr.imgix.net/vegvisr-logo.png'
+          console.log('Serving main logo URL:', logoUrl)
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ logoUrl }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error retrieving main logo:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Failed to retrieve main logo' }), {
+              status: 500,
+            }),
+          )
+        }
+      }
+
       // Handle other routes
       return addCorsHeaders(new Response('Not Found', { status: 404 }))
     } catch (error) {

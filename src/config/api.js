@@ -24,6 +24,8 @@ export const API_CONFIG = {
     // Site configuration endpoints
     saveSiteConfig: '/site-config',
     getSiteConfig: '/site-config',
+    // Main logo endpoint
+    getMainLogo: '/main-logo',
   },
 }
 
@@ -60,4 +62,7 @@ export const apiUrls = {
   // Site configuration endpoints (use main worker)
   saveSiteConfig: () => getApiUrl('saveSiteConfig'),
   getSiteConfig: (domain) => getApiUrl('getSiteConfig') + `/${domain}`,
+
+  // Main logo endpoint (use main worker)
+  getMainLogo: () => getApiUrl('getMainLogo'),
 }
