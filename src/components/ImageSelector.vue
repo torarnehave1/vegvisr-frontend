@@ -959,12 +959,19 @@ const handleImageUpload = async (event) => {
       photographer: 'Uploaded by user',
     }
 
+    // Update the URL field to show the new uploaded image URL
+    editableImageUrl.value = data.url
+    validateImageUrl()
+
     // Clear search results since we have an uploaded image
     searchResults.value = []
     pastedImage.value = null
     pastedUrl.value = null
 
     console.log('Image uploaded successfully:', data.url)
+
+    // Automatically replace the image with the uploaded one
+    replaceImage()
   } catch (err) {
     console.error('Error uploading image:', err)
     error.value = 'Failed to upload image. Please try again.'
@@ -1021,6 +1028,10 @@ const handleAIImageGenerated = (imageData) => {
         photographer: 'AI Generated',
       }
 
+      // Update the URL field to show the new AI generated image URL
+      editableImageUrl.value = imageUrl
+      validateImageUrl()
+
       // Clear search results since we have an AI generated image
       searchResults.value = []
       pastedImage.value = null
@@ -1030,6 +1041,9 @@ const handleAIImageGenerated = (imageData) => {
       closeAIImageModal()
 
       console.log('AI image selected:', selectedImage.value)
+
+      // Automatically replace the image with the AI generated one
+      replaceImage()
     } else {
       console.error('Could not extract image URL from generated data:', imageData)
       error.value = 'Failed to extract image URL from AI generated image.'
