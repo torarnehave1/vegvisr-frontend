@@ -19,6 +19,7 @@ const corsHeaders = {
 const DOMAIN_ZONE_MAPPING = {
   'norsegong.com': 'e577205b812b49d012af046535369808',
   'xyzvibe.com': '602067f0cf860426a35860a8ab179a47',
+  'vegvisr.org': '9178eccd3a7e3d71d8ae09defb09422a', // vegvisr.org zone ID
 }
 
 // Helper function to determine Zone ID from domain

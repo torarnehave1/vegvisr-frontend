@@ -11,6 +11,7 @@ export CF_API_TOKEN="your_cloudflare_api_token_here"
 # Zone IDs from your mapping
 export NORSEGONG_ZONE_ID="e577205b812b49d012af046535369808"
 export XYZVIBE_ZONE_ID="602067f0cf860426a35860a8ab179a47"
+export VEGVISR_ZONE_ID="9178eccd3a7e3d71d8ae09defb09422a"
 ```
 
 ## 1. Create DNS Record for norsegong.com subdomain
@@ -43,7 +44,22 @@ curl -X POST "https://api.cloudflare.com/client/v4/zones/${XYZVIBE_ZONE_ID}/dns_
   }'
 ```
 
-## 3. Create Worker Route for norsegong.com
+## 3. Create DNS Record for vegvisr.org subdomain
+
+```bash
+# Example: Create subdomain "test.vegvisr.org"
+curl -X POST "https://api.cloudflare.com/client/v4/zones/${VEGVISR_ZONE_ID}/dns_records" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "type": "CNAME",
+    "name": "test.vegvisr.org",
+    "content": "brand-worker.torarnehave.workers.dev",
+    "proxied": true
+  }'
+```
+
+## 4. Create Worker Route for norsegong.com
 
 ```bash
 # Create worker route for norsegong.com subdomain
@@ -56,7 +72,7 @@ curl -X POST "https://api.cloudflare.com/client/v4/zones/${NORSEGONG_ZONE_ID}/wo
   }'
 ```
 
-## 4. Create Worker Route for xyzvibe.com
+## 5. Create Worker Route for xyzvibe.com
 
 ```bash
 # Create worker route for xyzvibe.com subdomain
@@ -69,7 +85,20 @@ curl -X POST "https://api.cloudflare.com/client/v4/zones/${XYZVIBE_ZONE_ID}/work
   }'
 ```
 
-## 5. Test Using the API Endpoint
+## 6. Create Worker Route for vegvisr.org
+
+```bash
+# Create worker route for vegvisr.org subdomain
+curl -X POST "https://api.cloudflare.com/client/v4/zones/${VEGVISR_ZONE_ID}/workers/routes" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "pattern": "test.vegvisr.org/*",
+    "script": "brand-worker"
+  }'
+```
+
+## 7. Test Using the API Endpoint
 
 ```bash
 # Test creating a subdomain via your API (norsegong.com)
@@ -87,9 +116,17 @@ curl -X POST "https://api.vegvisr.org/create-custom-domain" \
     "subdomain": "test",
     "rootDomain": "xyzvibe.com"
   }'
+
+# Test creating a subdomain via your API (vegvisr.org)
+curl -X POST "https://api.vegvisr.org/create-custom-domain" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "subdomain": "test",
+    "rootDomain": "vegvisr.org"
+  }'
 ```
 
-## 6. List Existing DNS Records (for debugging)
+## 8. List Existing DNS Records (for debugging)
 
 ```bash
 # List DNS records for norsegong.com
@@ -101,9 +138,14 @@ curl -X GET "https://api.cloudflare.com/client/v4/zones/${NORSEGONG_ZONE_ID}/dns
 curl -X GET "https://api.cloudflare.com/client/v4/zones/${XYZVIBE_ZONE_ID}/dns_records" \
   -H "Authorization: Bearer ${CF_API_TOKEN}" \
   -H "Content-Type: application/json"
+
+# List DNS records for vegvisr.org
+curl -X GET "https://api.cloudflare.com/client/v4/zones/${VEGVISR_ZONE_ID}/dns_records" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json"
 ```
 
-## 7. List Existing Worker Routes (for debugging)
+## 9. List Existing Worker Routes (for debugging)
 
 ```bash
 # List worker routes for norsegong.com
@@ -113,6 +155,11 @@ curl -X GET "https://api.cloudflare.com/client/v4/zones/${NORSEGONG_ZONE_ID}/wor
 
 # List worker routes for xyzvibe.com
 curl -X GET "https://api.cloudflare.com/client/v4/zones/${XYZVIBE_ZONE_ID}/workers/routes" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json"
+
+# List worker routes for vegvisr.org
+curl -X GET "https://api.cloudflare.com/client/v4/zones/${VEGVISR_ZONE_ID}/workers/routes" \
   -H "Authorization: Bearer ${CF_API_TOKEN}" \
   -H "Content-Type: application/json"
 ```
@@ -158,7 +205,7 @@ curl -X GET "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/worke
 After creating the DNS record and worker route, test your subdomain:
 
 ```bash
-# Test if the subdomain resolves
+# Test if the subdomain resolves (xyzvibe.com)
 curl -I "https://test.xyzvibe.com/"
 
 # Check DNS resolution
@@ -166,4 +213,9 @@ nslookup test.xyzvibe.com
 
 # Test with verbose output
 curl -v "https://test.xyzvibe.com/"
+
+# Test vegvisr.org subdomain
+curl -I "https://test.vegvisr.org/"
+nslookup test.vegvisr.org
+curl -v "https://test.vegvisr.org/"
 ```
