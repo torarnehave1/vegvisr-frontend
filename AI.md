@@ -105,25 +105,22 @@
 
 **Testing Environment:**
 
-- **User environment:** Windows PowerShell
+- **User environment:** Linux Terminal
 - **Preferred testing method:** CURL commands
-- **Format CURL commands** for PowerShell compatibility
-- **Provide complete CURL examples** with proper escaping for Windows
+- **Format CURL commands** for Linux terminal compatibility
+- **Provide complete CURL examples** as single-line commands
 
-**CURL Command Examples for Windows PowerShell:**
+**CURL Command Examples for Linux Terminal:**
 
 ```bash
 # POST with JSON data
-curl -X POST https://auth.vegvisr.org/picker/get-credentials `
-  -H "Content-Type: application/json" `
-  -d '{"user_email": "user@example.com"}'
+curl -X POST https://auth.vegvisr.org/picker/get-credentials -H "Content-Type: application/json" -d '{"user_email": "user@example.com"}'
 
 # GET with authentication
 curl "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=TOKEN_HERE"
 
 # DELETE request
-curl -X DELETE https://api.example.com/endpoint `
-  -H "Authorization: Bearer TOKEN"
+curl -X DELETE https://api.example.com/endpoint -H "Authorization: Bearer TOKEN"
 ```
 
 ### 9. **Accountability and Language**

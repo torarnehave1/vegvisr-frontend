@@ -453,7 +453,30 @@ const usePreviousRequest = (item) => {
 
 const generateNode = async () => {
   try {
+    console.log('=== AI Node Generation Debug ===')
+    console.log('Request text:', aiNodeRequest.value)
+    console.log('Context type:', contextType.value)
+    console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
+    console.log('User email:', userStore.email)
+    console.log('API Token exists:', !!userStore.emailVerificationToken)
+    console.log('Selected template:', selectedTemplate.value)
+
     isGenerating.value = true
+
+    const requestPayload = {
+      userRequest: aiNodeRequest.value,
+      graphId: knowledgeGraphStore.currentGraphId || '',
+      username: userStore.email,
+      contextType: contextType.value,
+      contextData:
+        contextType.value === 'current'
+          ? currentNodeData()
+          : contextType.value === 'all'
+            ? { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges }
+            : null,
+    }
+
+    console.log('Request payload:', JSON.stringify(requestPayload, null, 2))
 
     const response = await fetch('https://api.vegvisr.org/ai-generate-node', {
       method: 'POST',
@@ -461,22 +484,14 @@ const generateNode = async () => {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken,
       },
-      body: JSON.stringify({
-        userRequest: aiNodeRequest.value,
-        graphId: knowledgeGraphStore.currentGraphId || '',
-        username: userStore.email,
-        contextType: contextType.value,
-        contextData:
-          contextType.value === 'current'
-            ? currentNodeData()
-            : contextType.value === 'all'
-              ? { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges }
-              : null,
-      }),
+      body: JSON.stringify(requestPayload),
     })
 
+    console.log('Response status:', response.status)
+    console.log('Response headers:', [...response.headers.entries()])
+
     const text = await response.text()
-    console.log('API Response:', text)
+    console.log('Raw API Response:', text)
 
     if (!response.ok) {
       try {
@@ -514,7 +529,11 @@ const generateNode = async () => {
       })
     }
   } catch (error) {
-    console.error('Error generating node:', error)
+    console.error('=== Generation Error Details ===')
+    console.error('Error type:', error.constructor.name)
+    console.error('Error message:', error.message)
+    console.error('Error stack:', error.stack)
+    console.error('Full error object:', error)
     alert(`Error: ${error.message}`)
   } finally {
     isGenerating.value = false
