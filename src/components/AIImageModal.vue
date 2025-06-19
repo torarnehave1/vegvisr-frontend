@@ -2,26 +2,53 @@
   <div v-if="isOpen" class="ai-image-modal">
     <div class="ai-image-modal-content">
       <div class="ai-image-header">
-        <h3>🎨 AI Image Generator</h3>
+        <h3>{{ isLogoGeneration ? '🎨 AI Logo Generator' : '🎨 AI Image Generator' }}</h3>
         <button class="ai-image-close" @click="closeModal" title="Close">&times;</button>
       </div>
 
       <div v-if="!generatedImage" class="ai-image-form">
+        <!-- Logo Prompt Suggestions -->
+        <div v-if="isLogoGeneration" class="logo-suggestions-section">
+          <label class="form-label">
+            <strong>💡 Logo Style Suggestions:</strong>
+          </label>
+          <div class="suggestion-buttons">
+            <button
+              v-for="(suggestion, index) in logoPromptSuggestions"
+              :key="index"
+              @click="imagePrompt = suggestion"
+              class="btn btn-outline-primary btn-sm suggestion-btn"
+              type="button"
+            >
+              {{ suggestion.split(',')[0] }}
+            </button>
+          </div>
+        </div>
+
         <!-- Prompt Input -->
         <div class="form-section">
           <label for="imagePrompt" class="form-label">
-            <strong>📝 Image Description:</strong>
+            <strong>{{
+              isLogoGeneration ? '📝 Logo Description:' : '📝 Image Description:'
+            }}</strong>
           </label>
           <textarea
             id="imagePrompt"
             v-model="imagePrompt"
             class="form-control prompt-textarea"
-            placeholder="Describe the image you want to generate... e.g., 'A beautiful sunset over a mountain landscape with vibrant colors'"
+            :placeholder="
+              isLogoGeneration
+                ? 'Describe the logo you want to generate... e.g., \'Professional logo for tech company, modern design, blue and white colors\''
+                : 'Describe the image you want to generate... e.g., \'A beautiful sunset over a mountain landscape with vibrant colors\''
+            "
             rows="4"
           ></textarea>
           <small class="form-text text-muted">
-            Be descriptive and specific for better results. Include details about style, colors,
-            composition, etc.
+            {{
+              isLogoGeneration
+                ? 'Be specific about style, colors, and branding elements for your logo.'
+                : 'Be descriptive and specific for better results. Include details about style, colors, composition, etc.'
+            }}
           </small>
         </div>
 
@@ -302,6 +329,24 @@ const availableQualities = computed(() => {
   return modelConfig[selectedModel.value]?.qualities || []
 })
 
+// Computed properties for logo generation
+const isLogoGeneration = computed(() => {
+  return props.graphContext?.type === 'logo'
+})
+
+const logoPromptSuggestions = computed(() => {
+  const domain = props.graphContext?.domain || 'your brand'
+  const baseName = domain.split('.')[0] || 'brand'
+
+  return [
+    `Professional logo for ${baseName}, modern and clean design, minimal style, corporate branding`,
+    `Creative logo for ${baseName}, abstract geometric shapes, vibrant colors, contemporary design`,
+    `Elegant logo for ${baseName}, typography-based, sophisticated and timeless`,
+    `Tech logo for ${baseName}, futuristic style, gradients and sleek lines`,
+    `Organic logo for ${baseName}, natural elements, earth tones, hand-drawn style`,
+  ]
+})
+
 // Methods
 const updateModelSettings = () => {
   const config = modelConfig[selectedModel.value]
@@ -445,6 +490,7 @@ const extractImageUrl = (markdown) => {
 const insertImageToGraph = async () => {
   console.log('=== Inserting Image to Graph ===')
   console.log('Generated image:', generatedImage.value)
+  console.log('Is logo generation:', isLogoGeneration.value)
 
   if (!generatedImage.value?.imageUrl) {
     errorMessage.value = 'No image data available for insertion.'
@@ -452,7 +498,7 @@ const insertImageToGraph = async () => {
   }
 
   try {
-    let finalNodeData = generatedImage.value.nodeData
+    let finalImageUrl = generatedImage.value.imageUrl
 
     // If image needs approval, save it to R2 first
     if (generatedImage.value.needsApproval) {
@@ -474,32 +520,53 @@ const insertImageToGraph = async () => {
         throw new Error(errorData.error || 'Failed to save approved image')
       }
 
-      finalNodeData = await saveResponse.json()
+      const finalNodeData = await saveResponse.json()
       console.log('✅ Image saved to R2 successfully:', finalNodeData)
+
+      // Extract the final image URL
+      if (finalNodeData.info) {
+        const match = finalNodeData.info.match(/!\[.*?\]\((.+?)\)/)
+        finalImageUrl = match ? match[1] : finalImageUrl
+      }
     }
 
-    // Create a proper markdown-image node
-    const newNode = {
-      id: crypto.randomUUID(),
-      label: finalNodeData.info || finalNodeData.label || 'Generated Image',
-      color: 'white',
-      type: 'markdown-image',
-      info: null,
-      bibl: finalNodeData.bibl || [],
-      imageWidth: finalNodeData.imageWidth || generatedImage.value.size?.split('x')[0] || '1024',
-      imageHeight: finalNodeData.imageHeight || generatedImage.value.size?.split('x')[1] || '1024',
-      visible: true,
-      path: null,
+    // Handle different types of image insertion
+    if (isLogoGeneration.value) {
+      // For logo generation, just emit the image URL
+      console.log('Emitting logo image URL:', finalImageUrl)
+      emit('image-inserted', finalImageUrl)
+    } else {
+      // For regular image generation, create a proper markdown-image node
+      const newNode = {
+        id: crypto.randomUUID(),
+        label:
+          generatedImage.value.nodeData?.info ||
+          generatedImage.value.nodeData?.label ||
+          'Generated Image',
+        color: 'white',
+        type: 'markdown-image',
+        info: null,
+        bibl: generatedImage.value.nodeData?.bibl || [],
+        imageWidth:
+          generatedImage.value.nodeData?.imageWidth ||
+          generatedImage.value.size?.split('x')[0] ||
+          '1024',
+        imageHeight:
+          generatedImage.value.nodeData?.imageHeight ||
+          generatedImage.value.size?.split('x')[1] ||
+          '1024',
+        visible: true,
+        path: null,
+      }
+
+      console.log('Created markdown-image node:', newNode)
+      emit('image-inserted', newNode)
     }
 
-    console.log('Created markdown-image node:', newNode)
-
-    // Emit the node data for insertion
-    emit('image-inserted', newNode)
     closeModal()
   } catch (error) {
-    console.error('Error inserting image to graph:', error)
-    errorMessage.value = error.message || 'Failed to insert image. Please try again.'
+    console.error('Error inserting image:', error)
+    errorMessage.value = error.message || 'Failed to process image. Please try again.'
   } finally {
     isGenerating.value = false
   }
@@ -532,6 +599,25 @@ const closeModal = () => {
 watch(selectedModel, () => {
   updateModelSettings()
 })
+
+// Watch for logo generation context
+watch(
+  () => props.graphContext,
+  (newContext) => {
+    if (newContext?.type === 'logo') {
+      // Set better defaults for logo generation
+      selectedSize.value = '1024x1024' // Square format works best for logos
+      selectedQuality.value = 'hd' // High quality for professional logos
+      selectedImageType.value = 'standalone' // Standalone works best for logos
+
+      // Suggest a logo prompt if no prompt is set
+      if (!imagePrompt.value && logoPromptSuggestions.value.length > 0) {
+        imagePrompt.value = logoPromptSuggestions.value[0]
+      }
+    }
+  },
+  { immediate: true },
+)
 
 // Initialize settings when component mounts
 updateModelSettings()
@@ -607,6 +693,38 @@ updateModelSettings()
   padding: 24px;
   overflow-y: auto;
   flex: 1;
+}
+
+.logo-suggestions-section {
+  margin-bottom: 25px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.logo-suggestions-section .form-label {
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.suggestion-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-btn {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  white-space: nowrap;
+  border-radius: 20px;
+  transition: all 0.2s ease;
+}
+
+.suggestion-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
 }
 
 .form-section {

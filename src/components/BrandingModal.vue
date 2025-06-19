@@ -146,6 +146,15 @@
                 <i class="bi" :class="isUploadingLogo ? 'bi-hourglass-split' : 'bi-upload'"></i>
                 {{ isUploadingLogo ? 'Uploading...' : 'Upload' }}
               </button>
+              <button
+                type="button"
+                class="btn btn-outline-success ai-generate-btn"
+                @click="openAILogoModal"
+                :disabled="isUploadingLogo"
+              >
+                <i class="bi bi-magic"></i>
+                AI Generate
+              </button>
             </div>
             <input
               ref="logoFileInput"
@@ -155,8 +164,8 @@
               @change="handleLogoUpload"
             />
             <div class="form-text">
-              URL to your logo image or upload a new one. Recommended size: 200x80px or similar
-              aspect ratio.
+              URL to your logo image, upload a new one, or generate one using AI. Recommended size:
+              200x80px or similar aspect ratio.
             </div>
             <div v-if="logoError" class="error-message">{{ logoError }}</div>
           </div>
@@ -434,6 +443,14 @@
           <p>Saving your branding configuration...</p>
         </div>
       </div>
+
+      <!-- AI Image Modal for Logo Generation -->
+      <AIImageModal
+        :isOpen="isAILogoModalOpen"
+        :graphContext="{ type: 'logo', domain: formData.domain }"
+        @close="closeAILogoModal"
+        @image-inserted="handleAILogoGenerated"
+      />
     </div>
   </div>
 </template>
@@ -442,9 +459,13 @@
 import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { apiUrls } from '@/config/api'
+import AIImageModal from './AIImageModal.vue'
 
 export default {
   name: 'BrandingModal',
+  components: {
+    AIImageModal,
+  },
   props: {
     isOpen: {
       type: Boolean,
@@ -482,6 +503,7 @@ export default {
       filteredSuggestions: [],
       isDeletingExisting: false,
       isUploadingLogo: false,
+      isAILogoModalOpen: false,
     }
   },
   setup() {
@@ -1283,6 +1305,53 @@ export default {
         this.isDeletingExisting = false
       }
     },
+    openAILogoModal() {
+      this.isAILogoModalOpen = true
+    },
+    closeAILogoModal() {
+      this.isAILogoModalOpen = false
+    },
+    handleAILogoGenerated(imageData) {
+      console.log('AI Logo generated:', imageData)
+
+      try {
+        let imageUrl = null
+
+        // Check if imageData is a simple URL string (for logo generation)
+        if (typeof imageData === 'string' && imageData.startsWith('http')) {
+          imageUrl = imageData
+        } else if (typeof imageData === 'object') {
+          // Handle the original node format for backward compatibility
+          if (imageData.info) {
+            // Extract URL from markdown format: ![alt](url)
+            const match = imageData.info.match(/!\[.*?\]\((.+?)\)/)
+            imageUrl = match ? match[1] : null
+          } else if (imageData.label && imageData.label.includes('http')) {
+            // If the URL is directly in the label
+            const urlMatch = imageData.label.match(/(https?:\/\/[^\s\)]+)/)
+            imageUrl = urlMatch ? urlMatch[1] : null
+          }
+        }
+
+        if (imageUrl) {
+          this.formData.logo = imageUrl
+          this.logoError = ''
+          console.log('Logo URL set to:', imageUrl)
+
+          // Close the AI modal
+          this.closeAILogoModal()
+
+          // Show success message
+          this.$emit('saved', '✅ AI logo generated successfully!')
+        } else {
+          console.error('Could not extract image URL from generated data:', imageData)
+          this.logoError = 'Failed to extract image URL from generated logo'
+        }
+      } catch (error) {
+        console.error('Error handling AI generated logo:', error)
+        this.logoError = 'Failed to process AI generated logo'
+      }
+    },
   },
 }
 </script>
@@ -2066,7 +2135,8 @@ export default {
   flex: 1;
 }
 
-.logo-input-group .upload-btn {
+.logo-input-group .upload-btn,
+.logo-input-group .ai-generate-btn {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -2075,13 +2145,32 @@ export default {
   white-space: nowrap;
 }
 
-.logo-input-group .upload-btn:disabled {
+.logo-input-group .upload-btn:disabled,
+.logo-input-group .ai-generate-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.logo-input-group .upload-btn i {
+.logo-input-group .upload-btn i,
+.logo-input-group .ai-generate-btn i {
   font-size: 0.9rem;
+}
+
+.ai-generate-btn {
+  background: transparent;
+  color: #28a745;
+  border: 1px solid #28a745;
+  transition: all 0.2s ease;
+}
+
+.ai-generate-btn:hover:not(:disabled) {
+  background: #28a745;
+  color: white;
+}
+
+.ai-generate-btn:disabled {
+  color: #6c757d;
+  border-color: #6c757d;
 }
 
 @media (max-width: 768px) {
