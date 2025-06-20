@@ -20,6 +20,36 @@ const DOMAIN_ZONE_MAPPING = {
   'norsegong.com': 'e577205b812b49d012af046535369808',
   'xyzvibe.com': '602067f0cf860426a35860a8ab179a47',
   'vegvisr.org': '9178eccd3a7e3d71d8ae09defb09422a', // vegvisr.org zone ID
+  'slowyou.training': '1417691852abd0e8220f60184b7f4eca', // vegvisr.org zone ID
+}
+
+// Protected subdomains configuration - SECURITY CRITICAL
+const PROTECTED_SUBDOMAINS = {
+  'vegvisr.org': [
+    'api', // API Worker - CRITICAL
+    'www', // Main website
+    'admin', // Admin interface
+    'mail', // Email services
+    'blog', // Blog subdomain
+    'knowledge', // Knowledge worker
+    'auth', // Auth worker
+    'brand', // Brand worker
+    'dash', // Dashboard worker
+    'dev', // Development
+    'test', // Testing
+    'staging', // Staging environment
+    'cdn', // CDN
+    'static', // Static assets
+  ],
+  'norsegong.com': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
+  'xyzvibe.com': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
+  'slowyou.training': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
+}
+
+// Security validation function for protected subdomains
+function isProtectedSubdomain(subdomain, rootDomain) {
+  const protectedList = PROTECTED_SUBDOMAINS[rootDomain]
+  return protectedList && protectedList.includes(subdomain.toLowerCase())
 }
 
 // Helper function to determine Zone ID from domain
@@ -1505,123 +1535,6 @@ const handleYouTubeSearch = async (request, env) => {
   } catch (error) {
     console.error('❌ YouTube Search Error:', error)
     return createErrorResponse('Failed to search YouTube videos: ' + error.message, 500)
-  }
-}
-
-// --- YouTube Audio Extraction Function ---
-const extractYouTubeAudio = async (videoId, env) => {
-  try {
-    console.log('🎵 Extracting audio for video:', videoId)
-
-    // Get video info first
-    const videoInfoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${env.YOUTUBE_API_KEY}`
-    const videoResponse = await fetch(videoInfoUrl)
-
-    if (!videoResponse.ok) {
-      throw new Error('Failed to get video information')
-    }
-
-    const videoData = await videoResponse.json()
-    const videoTitle = videoData.items?.[0]?.snippet?.title || 'Unknown Title'
-
-    // TODO: Implement audio extraction service
-    // This requires an external service that can run yt-dlp or similar tools
-    // Cloudflare Workers cannot run external binaries like yt-dlp
-
-    console.log('⚠️ Audio extraction not yet implemented')
-    return {
-      success: false,
-      error:
-        'Audio extraction service not yet configured. This requires an external service that can run yt-dlp, as Cloudflare Workers cannot execute external binaries.',
-      videoTitle: videoTitle,
-    }
-  } catch (error) {
-    console.error('❌ Audio extraction error:', error)
-    return {
-      success: false,
-      error: error.message,
-    }
-  }
-}
-
-// --- OpenAI Whisper Transcription Function ---
-const transcribeAudioWithWhisper = async (audioFileName, env) => {
-  try {
-    console.log('🎙️ Transcribing audio file:', audioFileName)
-
-    if (!env.OPENAI_API_KEY) {
-      throw new Error('OpenAI API key not configured')
-    }
-
-    // Get audio file from R2
-    const audioObject = await env.MY_R2_BUCKET.get(audioFileName)
-    if (!audioObject) {
-      throw new Error('Audio file not found in storage')
-    }
-
-    const audioBuffer = await audioObject.arrayBuffer()
-    console.log('📊 Audio file size:', audioBuffer.byteLength, 'bytes')
-
-    // Check file size (Whisper has 25MB limit)
-    const maxSize = 25 * 1024 * 1024 // 25MB
-    if (audioBuffer.byteLength > maxSize) {
-      throw new Error(
-        `Audio file too large: ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)}MB (max 25MB)`,
-      )
-    }
-
-    // Create form data for OpenAI API
-    const formData = new FormData()
-    formData.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), audioFileName)
-    formData.append('model', 'whisper-1')
-    formData.append('response_format', 'verbose_json') // Get timestamps
-    formData.append('language', 'auto') // Auto-detect language
-
-    console.log('🚀 Sending to OpenAI Whisper API...')
-
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: formData,
-    })
-
-    console.log('📥 Whisper API response status:', response.status)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ Whisper API error:', errorText)
-      throw new Error(`Whisper API error: ${response.status} - ${errorText}`)
-    }
-
-    const transcriptionData = await response.json()
-    console.log('✅ Whisper transcription received')
-    console.log('📊 Detected language:', transcriptionData.language)
-    console.log('📊 Duration:', transcriptionData.duration, 'seconds')
-    console.log('📊 Segments:', transcriptionData.segments?.length || 0)
-
-    // Convert Whisper segments to our format
-    const segments =
-      transcriptionData.segments?.map((segment) => ({
-        start: segment.start,
-        duration: segment.end - segment.start,
-        text: segment.text.trim(),
-      })) || []
-
-    return {
-      success: true,
-      segments: segments,
-      language: transcriptionData.language,
-      duration: transcriptionData.duration,
-      fullText: transcriptionData.text,
-    }
-  } catch (error) {
-    console.error('❌ Whisper transcription error:', error)
-    return {
-      success: false,
-      error: error.message,
-    }
   }
 }
 
@@ -3281,6 +3194,27 @@ async function handleCreateCustomDomain(request, env) {
       const targetRootDomain = rootDomain || 'norsegong.com'
       console.log('🎯 Target root domain determined:', targetRootDomain)
 
+      // SECURITY: Check if subdomain is protected
+      if (isProtectedSubdomain(subdomain, targetRootDomain)) {
+        console.log(
+          `🚨 SECURITY BLOCK: Attempted to create protected subdomain: ${subdomain}.${targetRootDomain}`,
+        )
+        return new Response(
+          JSON.stringify({
+            error: `Subdomain '${subdomain}' is protected and cannot be created. Protected subdomains: ${PROTECTED_SUBDOMAINS[targetRootDomain]?.join(', ') || 'none'}`,
+            protectedSubdomain: true,
+            availableProtectedList: PROTECTED_SUBDOMAINS[targetRootDomain] || [],
+          }),
+          {
+            status: 403,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          },
+        )
+      }
+
       // Build the full domain
       targetDomain = `${subdomain}.${targetRootDomain}`
       console.log('🌐 Full target domain:', targetDomain)
@@ -3479,6 +3413,27 @@ async function handleDeleteCustomDomain(request, env) {
 
     const targetDomain = `${subdomain}.${rootDomain}`
     console.log('🎯 Target domain to delete:', targetDomain)
+
+    // SECURITY: Check if subdomain is protected (prevent deletion of critical infrastructure)
+    if (isProtectedSubdomain(subdomain, rootDomain)) {
+      console.log(
+        `🚨 SECURITY BLOCK: Attempted to delete protected subdomain: ${subdomain}.${rootDomain}`,
+      )
+      return new Response(
+        JSON.stringify({
+          error: `Subdomain '${subdomain}' is protected and cannot be deleted. Protected subdomains: ${PROTECTED_SUBDOMAINS[rootDomain]?.join(', ') || 'none'}`,
+          protectedSubdomain: true,
+          overallSuccess: false,
+        }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    }
 
     // Get the zone ID for the root domain
     const targetZoneId = getZoneIdForDomain(rootDomain)
@@ -3803,20 +3758,8 @@ export default {
       return await handleYouTubeSearch(request, env)
     }
 
-    // YouTube Transcript IO (Third-party service)
-    if (pathname.startsWith('/youtube-transcript-io/') && request.method === 'GET') {
-      return handleYouTubeTranscriptIO(request, env)
-    }
-
-    // YouTube Whisper Transcript (Download Audio + Whisper)
-    if (pathname.startsWith('/youtube-whisper/') && request.method === 'GET') {
-      return handleYouTubeWhisperTranscript(request, env)
-    }
-
-    // YouTube Transcript (Official API - with restrictions)
-    if (pathname.startsWith('/youtube-transcript/') && request.method === 'GET') {
-      return handleYouTubeTranscript(request, env)
-    }
+    // YouTube Transcript endpoints (removed - functions not implemented)
+    // TODO: Re-implement YouTube transcript functionality when needed
 
     if (pathname === '/mystmkrasave' && request.method === 'POST') {
       return handleMystmkraProxy(request)

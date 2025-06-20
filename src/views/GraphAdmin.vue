@@ -150,10 +150,18 @@
                   <!-- NEW: Transcript Processor Button -->
                   <button
                     @click="showTranscriptProcessor = true"
-                    class="btn btn-success"
+                    class="btn btn-success me-2"
                     title="Process transcripts into Norwegian knowledge graphs - add to current graph or create new one"
                   >
                     🎙️ Process Transcript
+                  </button>
+                  <!-- NEW: Document Update Button -->
+                  <button
+                    @click="showDocumentUpdate = true"
+                    class="btn btn-info"
+                    title="Update knowledge graph from markdown document while preserving formatting"
+                  >
+                    📄 Update from Document
                   </button>
                 </div>
               </div>
@@ -246,6 +254,14 @@
       @new-graph-created="handleNewGraphCreated"
     />
 
+    <!-- Document Update Modal -->
+    <DocumentUpdateModal
+      :isOpen="showDocumentUpdate"
+      :currentGraphData="currentGraphData"
+      @close="showDocumentUpdate = false"
+      @graph-updated="handleDocumentUpdated"
+    />
+
     <!-- Action Test Loading Overlay -->
     <div v-if="isActionTestLoading" class="action-test-loading-overlay">
       <div class="loading-content">
@@ -271,6 +287,7 @@ import undoRedo from 'cytoscape-undo-redo'
 import TopBar from '../components/TopBar.vue' // Import TopBar
 import Sidebar from '../components/sidebar.vue'
 import TranscriptProcessorModal from '../components/TranscriptProcessorModal.vue'
+import DocumentUpdateModal from '../components/DocumentUpdateModal.vue'
 // Register the undo-redo extension only if it hasn't been registered already
 if (!cytoscape.prototype.undoRedo) {
   undoRedo(cytoscape)
@@ -858,14 +875,12 @@ const saveCurrentGraph = async () => {
         graphStore.setCurrentVersion(latestVersion)
       }
 
-      // Create graph data with updated metadata
+      // Create graph data with updated metadata - preserve all existing metadata fields
       const graphData = {
         id: graphStore.currentGraphId,
         metadata: {
-          title: latestGraph.metadata.title,
-          description: latestGraph.metadata.description,
-          createdBy: latestGraph.metadata.createdBy,
-          version: latestGraph.metadata.version,
+          ...latestGraph.metadata, // Preserve all existing metadata fields
+          version: latestGraph.metadata.version, // Keep current version (will be incremented by backend)
           updatedAt: new Date().toISOString(), // Always set to current time
         },
         nodes: graphStore.nodes.map((node) => ({
@@ -2631,6 +2646,7 @@ const contextMenuVisible = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextMenuOptions = ref([]) // Ensure contextMenuOptions is defined as a reactive variable
 const showTranscriptProcessor = ref(false)
+const showDocumentUpdate = ref(false)
 
 // Show context menu on right-click
 // In GraphAdmin.vue <script setup>, update showContextMenu
@@ -3167,6 +3183,32 @@ const handleNewGraphCreated = async (result) => {
     validationMessage.value = `Graph created but error loading: ${error.message}`
     validationMessageClass.value = 'alert-warning'
   }
+}
+
+// Document Update Handlers
+const currentGraphData = computed(() => ({
+  nodes: graphStore.nodes.map((node) => node.data),
+  edges: graphStore.edges.map((edge) => edge.data),
+  metadata: graphStore.graphMetadata || {},
+}))
+
+const handleDocumentUpdated = async (updateResult) => {
+  console.log('=== DOCUMENT UPDATE RESULT ===')
+  console.log('Updated nodes:', updateResult.updatedNodes)
+  console.log('Preserved nodes:', updateResult.preservedNodes)
+  console.log('New nodes:', updateResult.newNodes)
+
+  // Refresh the graph data after update
+  await loadSelectedGraph()
+
+  // Show success message
+  validationMessage.value = `Document updated successfully! Updated: ${updateResult.updatedNodes}, Preserved: ${updateResult.preservedNodes}, New: ${updateResult.newNodes}`
+  validationMessageClass.value = 'alert-success'
+  setTimeout(() => {
+    validationMessage.value = ''
+  }, 5000)
+
+  console.log('=== DOCUMENT UPDATE COMPLETE ===')
 }
 
 const userStore = useUserStore()

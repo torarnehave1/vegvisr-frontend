@@ -576,15 +576,21 @@ export default {
             console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
           }
 
-          // Update the main graph table
+          // Update the main graph table - sync both JSON data and separate columns
           const updateGraphQuery = `
             UPDATE knowledge_graphs
-            SET data = ?
+            SET data = ?, title = ?, description = ?, created_by = ?
             WHERE id = ?
           `
           await env.vegvisr_org
             .prepare(updateGraphQuery)
-            .bind(JSON.stringify(enrichedGraphData), id)
+            .bind(
+              JSON.stringify(enrichedGraphData),
+              enrichedGraphData.metadata.title,
+              enrichedGraphData.metadata.description,
+              enrichedGraphData.metadata.createdBy,
+              id,
+            )
             .run()
 
           console.log('[Worker] Graph with history saved successfully')

@@ -4,11 +4,241 @@ _This document will be updated with detailed architectural information as we pro
 
 ## Introduction
 
-Vegvisr.org is a web application designed to empower users with advanced tools for knowledge management, visualization, and integration with external services. The platform provides a personalized dashboard experience, allowing users to manage their profiles, customize settings, and interact with various data sources. Vegvisr.org aims to facilitate the creation, editing, and exploration of knowledge graphs, enabling users to organize information, collaborate, and gain insights through intuitive visual interfaces. Key features include the interactive Graph Viewer for exploring and exporting graphs, the Graph Portfolio for browsing and managing collections of knowledge graphs, a robust API Worker that powers AI, search, file upload, and integration features, a dedicated Dev Worker for advanced knowledge graph operations and versioning, a Main Worker that handles core application logic, user data, and profile image uploads, and a GitHub Issues View for tracking and managing project roadmap and feature requests. The application emphasizes user experience, flexibility, and extensibility, making it suitable for a wide range of use cases from personal knowledge management to collaborative research and education.
+Vegvisr.org is a web application designed to empower users with advanced tools for knowledge management, visualization, and integration with external services. The platform provides a personalized dashboard experience, allowing users to manage their profiles, customize settings, and interact with various data sources. Vegvisr.org aims to facilitate the creation, editing, and exploration of knowledge graphs, enabling users to organize information, collaborate, and gain insights through intuitive visual interfaces. Key features include the interactive Graph Viewer for exploring and exporting graphs, the Graph Portfolio for browsing and managing collections of knowledge graphs, a robust API Worker that powers AI, search, file upload, and integration features, a dedicated Dev Worker for advanced knowledge graph operations and versioning, a Main Worker that handles core application logic, user data, and profile image uploads, a GitHub Issues View for tracking and managing project roadmap and feature requests, and advanced Custom Domain Management capabilities for branded deployments. The application emphasizes user experience, flexibility, and extensibility, making it suitable for a wide range of use cases from personal knowledge management to collaborative research and education.
 
 ## Purpose of This Document
 
 This document is intended to give developers a high-level overview of the main components and structure of the Vegvisr.org frontend system. It serves as a starting point for understanding how the application is organized, how data flows, and where to find key features and integrations.
+
+## Custom Domain Management System
+
+Vegvisr.org features a sophisticated **Custom Domain Registration and Management System** that enables users to create personalized branded subdomains across multiple root domains. This system represents a major advancement in platform flexibility and white-label capabilities.
+
+### Core Domain Management Features
+
+#### 🌐 **Multi-Domain Support**
+
+- **Supported Root Domains**: vegvisr.org, norsegong.com, xyzvibe.com, slowyou.training
+- **Automatic Zone ID Resolution**: Intelligent mapping of domains to Cloudflare Zone IDs
+- **Dynamic DNS Management**: Automated CNAME record creation with Cloudflare API integration
+- **Worker Route Configuration**: Automatic routing setup for brand-worker integration
+
+#### 🔒 **Advanced Security Framework**
+
+- **Protected Subdomain System**: Critical infrastructure subdomains (api, www, admin, mail, blog, knowledge, auth, brand, dash, dev, test, staging, cdn, static) are protected from user registration
+- **Security Validation**: Real-time verification of subdomain availability and protection status
+- **Cross-Domain Protection**: Consistent security policies across all supported root domains
+- **Access Control**: Role-based domain management with comprehensive error handling
+
+#### ⚡ **Automated Deployment Pipeline**
+
+- **DNS Record Creation**: Automatic CNAME record setup pointing to brand-worker infrastructure
+- **Cloudflare Integration**: Direct API integration for DNS management and worker route configuration
+- **Real-time Validation**: Comprehensive validation and error reporting for all domain operations
+- **Rollback Capability**: Support for domain deletion and cleanup operations
+
+### Technical Architecture
+
+#### **API Endpoints**
+
+- **POST /create-custom-domain**: Create new custom subdomain with DNS and worker routing
+- **POST /delete-custom-domain**: Remove custom domain with complete cleanup
+- **Domain Validation**: Real-time subdomain availability checking and security validation
+
+#### **Integration Components**
+
+- **Cloudflare API Integration**: Direct DNS record management via Cloudflare API
+- **Brand Worker Routing**: Automatic routing configuration to brand-worker.torarnehave.workers.dev
+- **Security Middleware**: Protected subdomain validation and access control
+- **KV Store Management**: Domain configuration storage and retrieval
+
+### Domain Configuration
+
+#### **Supported Domains and Zone IDs**
+
+```javascript
+const DOMAIN_ZONE_MAPPING = {
+  'norsegong.com': 'ZONE_ID_NORSEGONG',
+  'xyzvibe.com': 'ZONE_ID_XYZVIBE',
+  'vegvisr.org': 'ZONE_ID_VEGVISR',
+  'slowyou.training': 'ZONE_ID_SLOWYOU',
+}
+```
+
+#### **Protected Infrastructure Subdomains**
+
+Critical subdomains protected from user registration across all domains:
+
+- `api` - API Worker infrastructure
+- `www` - Main website
+- `admin` - Administrative interface
+- `mail` - Email services
+- `blog` - Blog subdomain
+- `knowledge` - Knowledge worker
+- `auth` - Authentication worker
+- `brand` - Brand worker
+- `dash` - Dashboard worker
+- `dev` - Development environment
+- `test` - Testing environment
+- `staging` - Staging environment
+- `cdn` - Content delivery network
+- `static` - Static asset hosting
+
+## Google Photos Integration System
+
+Vegvisr.org now includes comprehensive **Google Photos OAuth Integration** enabling users to seamlessly access and embed their personal photo collections directly within knowledge graphs and content creation workflows.
+
+### Core Google Photos Features
+
+#### 🔐 **OAuth 2.0 Authentication Flow**
+
+- **Secure Authorization**: Complete OAuth 2.0 implementation with PKCE support
+- **Callback Handling**: Dedicated OAuth callback interface with user-friendly status updates
+- **Token Management**: Secure access token handling and refresh capabilities
+- **Cross-Origin Support**: Full CORS support for frontend integration
+
+#### 📷 **Photo Library Access**
+
+- **Recent Photos**: Access to user's most recent Google Photos
+- **Advanced Search**: Content-based photo search with filtering capabilities
+- **High-Quality Access**: Direct access to full-resolution images via Google Photos API
+- **Metadata Retrieval**: Complete photo metadata including creation dates, geolocation, and EXIF data
+
+#### 🖼️ **Content Integration**
+
+- **Direct Embedding**: Seamless photo embedding in knowledge graphs and blog posts
+- **Responsive Display**: Automatic image sizing and responsive display optimization
+- **Batch Operations**: Support for multiple photo selection and embedding
+- **Format Compatibility**: Support for all major image formats supported by Google Photos
+
+### Technical Implementation
+
+#### **OAuth Flow Components**
+
+- **Authorization Endpoint**: `/auth/google/callback.html` - Interactive OAuth callback handler
+- **Authentication API**: `/google-photos-auth` - Token exchange and validation
+- **Search API**: `/google-photos-search` - Content-based photo search
+- **Recent Photos API**: `/google-photos-recent` - Latest photos retrieval
+
+#### **Security Features**
+
+- **Secure Token Storage**: Encrypted token handling with environment variable protection
+- **CORS Compliance**: Comprehensive cross-origin resource sharing support
+- **Error Handling**: Robust error handling with user-friendly feedback
+- **Session Management**: Secure session handling and token lifecycle management
+
+## YouTube Integration System
+
+Vegvisr.org includes advanced **YouTube Search and Integration** capabilities enabling users to discover, analyze, and embed video content directly within their knowledge graphs and content workflows.
+
+### Core YouTube Features
+
+#### 🔍 **Advanced Video Search**
+
+- **YouTube Data API v3**: Direct integration with YouTube's official API
+- **Comprehensive Metadata**: Full video metadata including titles, descriptions, thumbnails, and channel information
+- **Search Optimization**: Advanced search parameters with result filtering and sorting
+- **Batch Processing**: Support for multiple video results with efficient API usage
+
+#### 📺 **Content Analysis**
+
+- **Full Description Access**: Complete video descriptions for content analysis
+- **Channel Integration**: Channel information and creator details
+- **Publication Metadata**: Video publication dates and engagement metrics
+- **Thumbnail Management**: Multiple thumbnail size support for various display contexts
+
+#### 🎯 **Knowledge Graph Integration**
+
+- **Video Node Creation**: Automatic creation of YouTube nodes in knowledge graphs
+- **Content Summarization**: AI-powered video content analysis and summarization
+- **Educational Workflows**: Optimized for educational and research content discovery
+- **Contextual Embedding**: Smart video embedding based on content relevance
+
+### API Endpoints
+
+- **GET /youtube-search**: Video search with query parameters and filtering
+- **Video Analysis**: Content extraction and metadata processing
+- **Integration Tools**: Direct embedding and knowledge graph node creation
+
+## Enhanced AI Image Generation System
+
+Vegvisr.org features a sophisticated **Multi-Model AI Image Generation System** supporting multiple AI providers and advanced image creation workflows with approval-based deployment.
+
+### Core AI Image Features
+
+#### 🤖 **Multi-Model Support**
+
+- **DALL-E 2**: Standard quality image generation with 256x256, 512x512, 1024x1024 sizes
+- **DALL-E 3**: High-definition image generation with 1024x1024, 1024x1792, 1792x1024 sizes and HD quality
+- **GPT-Image-1**: Advanced image generation with auto, high, medium, low quality settings and flexible sizing
+- **Quality Control**: Model-specific quality parameter validation and optimization
+
+#### 🎨 **Advanced Generation Pipeline**
+
+- **Preview System**: Non-destructive image preview before final deployment
+- **Approval Workflow**: User approval required before saving images to R2 storage
+- **Context-Aware Prompts**: AI-enhanced prompt generation based on content context
+- **Image Type Classification**: Specialized handling for header, leftside, rightside, and general images
+
+#### 📤 **Professional Deployment**
+
+- **R2 Storage Integration**: Automatic upload to Cloudflare R2 with optimized file naming
+- **Imgix Integration**: Professional image delivery via vegvisr.imgix.net CDN
+- **Markdown Generation**: Automatic markdown creation with proper sizing and positioning
+- **Metadata Tracking**: Complete generation metadata including model, quality, and prompt tracking
+
+### API Endpoints
+
+#### **Image Generation Pipeline**
+
+- **POST /gpt4-vision-image**: Multi-model image generation with preview support
+- **POST /save-approved-image**: Final image deployment after user approval
+- **POST /generate-header-image**: Specialized header image creation with DALL-E 3
+- **POST /generate-image-prompt**: AI-powered prompt enhancement and optimization
+- **GET /list-r2-images**: R2 storage image inventory and management
+
+## Transcript Processing System
+
+Vegvisr.org includes an advanced **AI-Powered Transcript Processing System** that transforms audio/video transcripts into comprehensive Norwegian knowledge graphs using sophisticated language processing and content structuring.
+
+### Core Transcript Features
+
+#### 🗣️ **Multi-Language Processing**
+
+- **Auto-Language Detection**: Intelligent source language identification
+- **Norwegian Translation**: High-quality translation to Norwegian with cultural context preservation
+- **Content Scaling**: Adaptive processing for both short and long-form transcripts
+- **Contextual Translation**: Nuanced translation maintaining technical accuracy and cultural relevance
+
+#### 🧠 **AI-Powered Structuring**
+
+- **Grok-3-Beta Integration**: Advanced AI model for content analysis and structuring
+- **Thematic Segmentation**: Intelligent content division into logical thematic sections
+- **Comprehensive Processing**: 6-15 detailed nodes for thorough content coverage
+- **Rich Formatting**: Full markdown formatting with headers, lists, emphasis, and citations
+
+#### 📚 **Knowledge Graph Generation**
+
+- **Structured Output**: Direct creation of Cytoscape-compatible knowledge graphs
+- **Node Optimization**: Substantial content nodes (150-800 words) with detailed explanations
+- **Metadata Integration**: Complete node metadata with visibility, path, and formatting controls
+- **Quality Assurance**: JSON validation and error handling for reliable output
+
+### Technical Implementation
+
+#### **Processing Pipeline**
+
+- **POST /process-transcript**: Main transcript processing endpoint
+- **Content Analysis**: AI-powered content theme identification and structuring
+- **Translation Engine**: Context-aware Norwegian translation with cultural preservation
+- **Graph Assembly**: Automated knowledge graph construction with full metadata
+
+#### **Quality Features**
+
+- **Error Handling**: Comprehensive error handling with detailed debugging information
+- **Content Validation**: JSON structure validation and node integrity checking
+- **Scalable Processing**: Adaptive token limits based on content length and complexity
+- **Performance Optimization**: Efficient processing for both small and large transcripts
 
 ## AI-Powered Content Enhancement System
 
@@ -106,9 +336,313 @@ The AI enhancement system follows a structured rollback versioning approach for 
 
 This versioning system ensures reliable deployment and easy rollback capabilities for all AI enhancement features.
 
+## Document Update System
+
+Vegvisr.org features an advanced **Document Update System** that enables users to intelligently update existing knowledge graphs by pasting new markdown documents. This system preserves existing node formatting, maintains non-document content, and creates new versions for comparison while preventing data loss.
+
+### Core Document Update Features
+
+#### 📄 **Intelligent Document Analysis**
+
+- **Smart Markdown Parsing**: Analyzes documents using major headers (# and ##) as section boundaries, filtering meaningful content over 200 characters
+- **Content Matching Algorithm**: Uses similarity scoring to match existing nodes with new document sections based on title similarity, content overlap, and content type analysis
+- **Format Detection**: Identifies different content types (architecture, bibliography, technical documentation) to prevent incorrect matching
+- **Section Optimization**: Creates 6-16 meaningful sections from documents rather than fragmenting into dozens of tiny pieces
+
+#### 🛡️ **Comprehensive Node Preservation**
+
+- **Formatting Preservation**: Maintains SECTION blocks, FANCY blocks, QUOTE blocks, header images, side images, and custom HTML elements
+- **Non-Text Node Protection**: Automatically preserves portfolio images, charts, maps, and other non-textual content
+- **Bibliography Content Handling**: Special handling for bibliographic references and citation content with heavy penalties to prevent incorrect matching
+- **Metadata Preservation**: Maintains all node properties including `bibl` arrays, image dimensions, visibility settings, colors, and node types
+
+#### 🔄 **Version Management Integration**
+
+- **Fresh Data Fetching**: Always fetches latest graph data from API to ensure current metadata is preserved
+- **History Creation**: Creates new versions using `saveGraphWithHistory` endpoint to maintain consistency between `knowledge_graphs` and `knowledge_graph_history` tables
+- **Metadata Synchronization**: Ensures portfolio metadata updates are properly preserved in document updates
+- **Rollback Support**: Maintains complete version history for easy rollback if updates don't meet expectations
+
+#### ⚡ **User Experience Design**
+
+- **Three-Step Process**: Input → Analysis → Processing with clear progress indicators
+- **Real-Time Analysis**: Shows matching confidence scores, preserved nodes, and new sections before applying changes
+- **Comprehensive Debugging**: Detailed console logging for troubleshooting and transparency
+- **Error Recovery**: Graceful error handling with specific user-friendly messages for different failure scenarios
+
+### Technical Architecture
+
+#### **Frontend Component (DocumentUpdateModal.vue)**
+
+- **Modal Interface**: Overlay modal integrated into GraphAdmin view with step-by-step workflow
+- **Analysis Engine**: Client-side content parsing and matching algorithms with intelligent scoring
+- **Preview System**: Shows users exactly what will be updated, preserved, and added before applying changes
+- **Progress Tracking**: Visual indicators and status messages throughout the update process
+
+#### **Intelligent Matching Algorithm**
+
+```javascript
+// Enhanced scoring system for content matching
+const calculateMatchScore = (existingNode, newSection) => {
+  let score = 0
+
+  // Architecture content detection
+  if (isArchitectureContent(node.info) && isArchitectureContent(section.content)) {
+    score += 0.4
+  }
+
+  // Title similarity with exact match boost
+  const titleSim = calculateSimilarity(node.label, section.title)
+  if (titleSim > 0.9) score += 0.4
+  else if (titleSim > 0.5) score += titleSim * 0.3
+
+  // Content similarity with formatting consideration
+  const contentSim = calculateContentSimilarity(node.info, section.content)
+  score += contentSim * 0.3
+
+  // Strong penalties for different content types
+  if (isDifferentContentType(node.info, section.content)) score -= 0.5
+  if (isBibliographyContent(node.info)) score -= 0.3
+
+  return score
+}
+```
+
+#### **Formatting Preservation System**
+
+- **Element Extraction**: Identifies and extracts header images, SECTION blocks, QUOTE blocks, side images, and custom HTML
+- **Intelligent Placement**: Rebuilds content with preserved elements in appropriate locations
+- **Structure Analysis**: Analyzes existing formatting patterns to maintain visual consistency
+- **Property Preservation**: Maintains all node properties including bibliographic references and metadata
+
+### Processing Workflow
+
+1. **Document Input**: User pastes new markdown document into the modal interface
+2. **Fresh Data Fetch**: System fetches latest graph data from API to ensure current metadata
+3. **Intelligent Parsing**: Document is parsed into meaningful sections using smart header detection
+4. **Content Matching**: Existing nodes are matched against new sections using multi-factor scoring
+5. **Preservation Analysis**: Non-matching nodes and non-text nodes are identified for preservation
+6. **User Review**: Analysis results are presented with match confidence scores and preservation details
+7. **Format-Aware Updates**: Matched nodes are updated while preserving all formatting and metadata
+8. **Version Creation**: New version is saved to history with preserved metadata and fresh timestamp
+
+### API Integration
+
+#### **Knowledge Graph Operations**
+
+- **GET /getknowgraph**: Fetches fresh graph data to ensure latest metadata is used
+- **POST /saveGraphWithHistory**: Creates new versions while maintaining table synchronization
+- **Metadata Preservation**: Ensures portfolio updates are reflected in document updates
+- **Error Handling**: Comprehensive error responses with specific guidance for different failure types
+
+#### **Quality Assurance Features**
+
+- **Version Mismatch Prevention**: Always fetches latest version before applying updates
+- **Table Synchronization**: Uses proper endpoints to maintain consistency between database tables
+- **Comprehensive Logging**: Detailed debugging information for troubleshooting and transparency
+- **Graceful Degradation**: Handles API failures and network issues with user-friendly error messages
+
+### Development History
+
+The Document Update System was developed through an iterative process with structured rollback versioning:
+
+- **Rollback ID: 2025-01-20-001** - Initial DocumentUpdateModal implementation with core parsing and matching
+- **Rollback ID: 2025-01-20-002** - GraphPortfolio metadata synchronization fix using saveGraphWithHistory
+- **Rollback ID: 2025-01-20-003** - Enhanced success handling with flexible version extraction
+- **Rollback ID: 2025-01-20-004** - Removed alert messages for cleaner user experience
+- **Rollback ID: 2025-01-20-005** - Fixed bibliographic reference preservation in node formatting
+- **Rollback ID: 2025-01-20-006** - Enhanced bibliography content detection with stronger preservation penalties
+- **Rollback ID: 2025-01-20-007** - Added comprehensive metadata preservation debugging and validation
+
+### Impact and Benefits
+
+#### **For Content Creators**
+
+- **Efficient Updates**: Update large documents without losing existing formatting and metadata
+- **Safe Iteration**: Preview changes before applying them with complete rollback capability
+- **Format Preservation**: Maintain professional styling and visual elements across updates
+- **Content Protection**: Automatic preservation of non-document content like images and charts
+
+#### **For Platform Quality**
+
+- **Data Integrity**: Prevents accidental loss of formatted content and metadata
+- **Version Control**: Complete history tracking for all document updates
+- **Metadata Consistency**: Ensures portfolio changes are properly reflected in updates
+- **User Confidence**: Transparent process with detailed analysis and preview capabilities
+
+This Document Update System represents a significant advancement in knowledge graph management, providing users with powerful tools to iterate on their content while maintaining the integrity and quality of their existing work.
+
+## Brand Worker Proxy System
+
+Vegvisr.org includes a sophisticated **Brand Worker Proxy System** that enables seamless white-label deployments and intelligent request routing for custom domains. This system provides the infrastructure layer that powers the custom domain management capabilities.
+
+### Core Proxy Features
+
+#### 🌐 **Intelligent Request Routing**
+
+- **Knowledge Graph Requests**: Automatically routes graph-related endpoints (`/getknowgraphs`, `/getknowgraph`, `/saveknowgraph`, `/updateknowgraph`, `/deleteknowgraph`, `/saveGraphWithHistory`) to the knowledge-graph-worker
+- **API Requests**: Routes API endpoints (`/mystmkrasave`, `/generate-header-image`, `/grok-ask`, `/grok-elaborate`, `/apply-style-template`) to api.vegvisr.org
+- **Frontend Requests**: Routes all other requests to the main frontend at www.vegvisr.org
+- **Hostname Preservation**: Adds `x-original-hostname` header to maintain domain context throughout the request chain
+
+#### 🔒 **Transparent Proxy Architecture**
+
+- **Method Preservation**: Maintains original HTTP methods (GET, POST, PUT, DELETE) across proxy calls
+- **Header Forwarding**: Forwards all original request headers while adding domain context
+- **Body Streaming**: Streams request bodies efficiently for large payloads
+- **Redirect Handling**: Follows redirects transparently while maintaining proxy context
+
+#### 🛡️ **CORS and Response Management**
+
+- **Automatic CORS Headers**: Adds `Access-Control-Allow-Origin: *` to all responses
+- **JSON Response Handling**: Intelligent JSON parsing and re-serialization for API responses
+- **Error Handling**: Comprehensive error handling with structured JSON error responses
+- **Content Type Management**: Preserves original content types while ensuring CORS compliance
+
+### Technical Implementation
+
+#### **Routing Logic**
+
+```javascript
+// Knowledge Graph Routes
+if (
+  url.pathname.startsWith('/getknowgraphs') ||
+  url.pathname.startsWith('/getknowgraph') ||
+  url.pathname.startsWith('/saveknowgraph')
+) {
+  targetUrl = 'https://knowledge-graph-worker.torarnehave.workers.dev' + url.pathname + url.search
+}
+// API Routes
+else if (
+  url.pathname.startsWith('/mystmkrasave') ||
+  url.pathname.startsWith('/generate-header-image')
+) {
+  targetUrl = 'https://api.vegvisr.org' + url.pathname + url.search
+}
+// Frontend Routes
+else {
+  targetUrl = 'https://www.vegvisr.org' + url.pathname + url.search
+}
+```
+
+#### **Domain Context Preservation**
+
+- **Original Hostname Header**: `x-original-hostname` header preserves the custom domain throughout the request chain
+- **Search Parameter Forwarding**: Maintains all query parameters across proxy calls
+- **Path Preservation**: Ensures exact path matching and forwarding
+
+## Branding Management Interface
+
+Vegvisr.org features a comprehensive **Branding Management Interface** implemented through the BrandingModal.vue component, providing users with an intuitive way to configure multiple custom domains with unique branding and content filtering.
+
+### Core Branding Features
+
+#### 🎨 **Multi-Domain Management**
+
+- **Domain List View**: Centralized dashboard for viewing and managing all configured custom domains
+- **Per-Domain Configuration**: Independent branding, logos, and content filtering for each domain
+- **Domain Actions**: Edit, remove, and test functionality for each configured domain
+- **Live Domain Links**: Direct links to visit and test configured domains
+
+#### 🖼️ **Advanced Logo Management**
+
+- **URL-Based Logos**: Support for external logo URLs with live preview
+- **File Upload**: Direct logo upload to Cloudflare R2 storage with automatic URL generation
+- **AI Logo Generation**: Integration with AI image generation for automated logo creation
+- **Logo Validation**: Real-time logo URL validation and error handling
+- **Responsive Preview**: Live preview showing how logos appear on the branded site
+
+#### 🎯 **Content Filtering System**
+
+- **Meta Area Filtering**: Filter content by specific knowledge graph meta areas
+- **Autocomplete Selection**: Intelligent autocomplete for selecting available meta areas
+- **Multiple Selections**: Support for multiple meta area filters per domain
+- **System-Wide Meta Areas**: Access to all meta areas across the entire platform
+- **Real-Time Updates**: Dynamic filtering based on current knowledge graph content
+
+#### 🚀 **Deployment & Testing**
+
+- **Live Domain Testing**: Real-time testing of domain DNS and worker route configuration
+- **Automated Setup**: One-click domain creation with DNS records and worker routes
+- **Worker Code Generation**: Automatic generation of custom worker code for manual deployment
+- **Conflict Resolution**: Intelligent handling of existing DNS records and worker routes
+- **Error Diagnostics**: Detailed error reporting and suggested solutions
+
+### User Interface Components
+
+#### **Domain List Management**
+
+- **Visual Domain Cards**: Rich cards showing domain status, logo, and filter configuration
+- **Quick Actions**: Edit and remove buttons with confirmation dialogs
+- **Status Indicators**: Visual badges showing logo status and filter configuration
+- **Empty State Handling**: Helpful guidance for users with no configured domains
+
+#### **Domain Configuration Form**
+
+- **Multi-Step Workflow**: Intuitive step-by-step domain configuration process
+- **Real-Time Validation**: Live validation of domain names and logo URLs
+- **Live Preview**: Browser mockup showing how the domain will appear
+- **Deployment Instructions**: Clear guidance for DNS setup and testing
+
+#### **Advanced Features**
+
+- **Front Page Configuration**: Custom front page selection from user's knowledge graphs
+- **Meta Area Management**: Visual selection and management of content filters
+- **AI Integration**: Direct integration with AI logo generation modal
+- **Responsive Design**: Mobile-friendly interface with adaptive layouts
+
+### Technical Architecture
+
+#### **API Integration**
+
+- **Custom Domain API**: Integration with `/create-custom-domain` and `/delete-custom-domain` endpoints
+- **KV Store Management**: Automatic saving and retrieval of domain configurations
+- **User Profile Integration**: Syncing domain configurations with user profile data
+- **Knowledge Graph API**: Fetching available meta areas and user graphs for filtering
+
+#### **State Management**
+
+- **Local State**: Component-level state for form data and UI interactions
+- **Portfolio Store Integration**: Access to system-wide meta areas and user graphs
+- **User Store Integration**: Integration with user authentication and profile data
+- **Reactive Updates**: Real-time updates based on user actions and API responses
+
+#### **Error Handling & UX**
+
+- **Comprehensive Validation**: Multi-level validation for domains, logos, and configurations
+- **Loading States**: Professional loading indicators during API operations
+- **Error Recovery**: Intelligent error handling with suggested solutions
+- **Confirmation Dialogs**: User-friendly confirmations for destructive actions
+
+### Integration Benefits
+
+#### **For Platform Users**
+
+- **White-Label Capability**: Complete branding customization for professional deployments
+- **Multi-Domain Support**: Manage multiple branded sites from a single interface
+- **Content Curation**: Filter and customize content for specific audiences
+- **Professional Appearance**: High-quality logos and consistent branding
+
+#### **For Platform Administration**
+
+- **Scalable Architecture**: Support for unlimited custom domains across multiple root domains
+- **Automated Infrastructure**: DNS and worker route management without manual intervention
+- **Security Controls**: Protected subdomain validation and access control
+- **Monitoring Capabilities**: Comprehensive logging and error tracking
+
+This branding system positions Vegvisr.org as a comprehensive white-label platform, enabling users to create professional, branded experiences while maintaining the powerful knowledge management capabilities of the core platform.
+
 ## Outline
 
 - AI-Powered Content Enhancement System
+- Document Update System
+- Custom Domain Management System
+- Google Photos Integration System
+- YouTube Integration System
+- Enhanced AI Image Generation System
+- Transcript Processing System
+- Brand Worker Proxy System
+- Branding Management Interface
 - Project Structure
 - Main Components
 - State Management
@@ -206,13 +740,17 @@ Object storage for files and images, such as user profile pictures and blog asse
 
 ### External Integrations
 
-- **OpenAI**: Provides AI-powered features such as text generation and summarization.
-- **XAI (Grok)**: Powers the Enhanced PagesStyleTemplates System with intelligent content formatting and analysis.
-- **Pexels API**: Provides contextual, professional-quality images for AI-enhanced content formatting.
+- **OpenAI**: Provides AI-powered features including text generation, summarization, and multi-model image generation (DALL-E 2, DALL-E 3, GPT-Image-1).
+- **XAI (Grok)**: Powers the Enhanced PagesStyleTemplates System with intelligent content formatting, transcript processing, and knowledge graph analysis.
+- **Google Gemini**: Advanced AI integration for content generation and analysis with Gemini-2.0-flash model.
+- **Pexels API**: Provides contextual, professional-quality images for AI-enhanced content formatting with real-time search capabilities.
+- **YouTube Data API v3**: Comprehensive video search, metadata extraction, and content analysis for educational and research workflows.
+- **Google Photos API**: OAuth 2.0 integration for photo library access, search, and embedding capabilities.
+- **Cloudflare API**: Direct DNS management and worker route configuration for custom domain management.
 - **GitHub**: Used for authentication, issue tracking, or integration with developer workflows.
 - **Twilio**: Enables SMS and phone-based notifications or verifications.
-- **Google API**: Used for various integrations, such as maps or authentication.
-- **Mystmkra.io**: External service for user ID integration and other features.
+- **Google API**: Used for various integrations, such as maps, authentication, and photo library access.
+- **Mystmkra.io**: External service for markdown content proxying and user ID integration.
 
 ### Dev Worker (knowledge-graph-worker)
 
@@ -229,6 +767,17 @@ The GitHub Issues View is a Vue.js component that provides a user-friendly inter
 ### GitHub Issues Component
 
 The GitHub Issues component is a reusable Vue.js component that fetches, displays, and sorts GitHub issues. It supports various sorting options (priority, date, issue number, title) and renders issue details using Markdown. This component is essential for maintaining an organized and accessible project roadmap within Vegvisr.org.
+
+### Branding Modal Component
+
+The Branding Modal is a comprehensive Vue.js component that provides a complete interface for managing custom domain branding and white-label deployments. It features:
+
+- **Multi-Domain Management**: Centralized dashboard for viewing and managing all configured custom domains with visual domain cards and quick actions
+- **Advanced Logo Management**: Support for URL-based logos, direct file upload to R2 storage, AI logo generation integration, and real-time logo validation with responsive preview
+- **Content Filtering System**: Meta area filtering with autocomplete selection, multiple filter support, and dynamic content updates based on knowledge graph meta areas
+- **Deployment & Testing**: Live domain testing, automated DNS and worker route setup, custom worker code generation, and comprehensive error diagnostics
+- **Professional UI Components**: Multi-step configuration workflow, real-time validation, browser mockup previews, and mobile-friendly responsive design
+- **Technical Integration**: Direct API integration with custom domain endpoints, KV store management, user profile synchronization, and comprehensive state management with loading states and error recovery
 
 ### Blog View
 
@@ -448,10 +997,16 @@ Vegvisr.org uses multiple Cloudflare Workers to provide a modular API for fronte
 - **/getcorsimage [HEAD]**: Get CORS image headers from R2.
 - **/list-r2-images [GET]**: List all images stored in R2 bucket.
 
+#### **Custom Domain Management**
+
+- **/create-custom-domain [POST]**: Create new custom subdomain with DNS and worker routing across multiple root domains.
+- **/delete-custom-domain [POST]**: Remove custom domain with complete DNS and worker route cleanup.
+
 #### **AI-Powered Content Enhancement**
 
 - **/summarize [POST]**: Summarize text using OpenAI.
 - **/groktest [POST]**: Run a Grok AI test and return a fulltext node.
+- **/gemini-test [POST]**: Test Google Gemini AI integration for content generation.
 - **/aiaction [POST]**: Flexible AI action endpoint for various providers (OpenAI, XAI, Google).
 - **/style-templates [GET]**: Retrieve available AI formatting templates filtered by node type.
 - **/apply-style-template [POST]**: Apply AI-powered content formatting with color themes and contextual image integration.
@@ -461,7 +1016,7 @@ Vegvisr.org uses multiple Cloudflare Workers to provide a modular API for fronte
 
 - **/createknowledgegraph [GET]**: Generate a knowledge graph using AI based on a subject.
 - **/ai-generate-node [POST]**: Generate knowledge graph nodes using AI with context awareness.
-- **/process-transcript [POST]**: Process audio/video transcripts into structured knowledge graphs.
+- **/process-transcript [POST]**: Process audio/video transcripts into structured Norwegian knowledge graphs.
 - **/suggest-title [POST]**: AI-powered graph title suggestions based on content analysis.
 - **/suggest-description [POST]**: AI-powered graph description generation.
 - **/suggest-categories [POST]**: AI-powered graph category suggestions.
@@ -471,16 +1026,28 @@ Vegvisr.org uses multiple Cloudflare Workers to provide a modular API for fronte
 
 - **/generate-header-image [POST]**: Generate header images using DALL-E based on content context.
 - **/generate-image-prompt [POST]**: Generate AI image prompts from content analysis.
-- **/gpt4-vision-image [POST]**: Generate images using GPT-4 Vision and various AI models.
+- **/gpt4-vision-image [POST]**: Multi-model image generation with DALL-E 2, DALL-E 3, and GPT-Image-1 support.
+- **/save-approved-image [POST]**: Deploy approved AI-generated images to R2 storage with professional CDN integration.
 
 #### **Advanced AI Tools**
 
 - **/grok-ask [POST]**: AI-powered Q&A functionality using Grok for content-based queries.
 - **/grok-issue-description [POST]**: AI-powered GitHub issue description enhancement and generation.
 
+#### **YouTube Integration**
+
+- **/youtube-search [GET]**: Search YouTube videos with comprehensive metadata and content analysis.
+
+#### **Google Photos Integration**
+
+- **/auth/google/callback.html [GET]**: OAuth 2.0 callback handler for Google Photos authentication.
+- **/google-photos-auth [POST]**: Exchange authorization code for Google Photos access token.
+- **/google-photos-search [POST]**: Search user's Google Photos library with content filtering.
+- **/google-photos-recent [POST]**: Retrieve user's most recent Google Photos.
+
 #### **External Integrations**
 
-- **/mystmkra-save [POST]**: Proxy to Mystmkra.io for saving markdown content.
+- **/mystmkrasave [POST]**: Proxy to Mystmkra.io for saving markdown content.
 - **/getGoogleApiKey [GET]**: Secure retrieval of Google API key for authenticated integrations.
 - **/updatekml [POST]**: Update KML files for geographic data and mapping features.
 
@@ -499,5 +1066,23 @@ Vegvisr.org uses multiple Cloudflare Workers to provide a modular API for fronte
 - **/getGraphWorkNotes [GET]**: Retrieve work notes for a graph.
 - **/insertWorkNoteIntoGraph [POST]**: Insert a work note as a node in a graph.
 - **/generateText [POST]**: Generate text using Workers AI.
+
+### Brand Worker (brand-worker)
+
+The Brand Worker serves as an intelligent proxy system that powers custom domain deployments and white-label functionality:
+
+#### **Proxy Routing**
+
+- **Knowledge Graph Endpoints**: Routes graph-related requests (`/getknowgraphs`, `/getknowgraph`, `/saveknowgraph`, `/updateknowgraph`, `/deleteknowgraph`, `/saveGraphWithHistory`) to knowledge-graph-worker
+- **API Endpoints**: Routes API requests (`/mystmkrasave`, `/generate-header-image`, `/grok-ask`, `/grok-elaborate`, `/apply-style-template`) to api.vegvisr.org
+- **Frontend Requests**: Routes all other requests to www.vegvisr.org main frontend
+
+#### **Proxy Features**
+
+- **Domain Context Preservation**: Adds `x-original-hostname` header to maintain custom domain context
+- **Method & Header Forwarding**: Preserves original HTTP methods, headers, and request bodies
+- **CORS Management**: Automatic CORS header injection for cross-origin compatibility
+- **JSON Response Handling**: Intelligent parsing and re-serialization of API responses
+- **Error Handling**: Structured JSON error responses with comprehensive error reporting
 
 _This overview provides a quick reference for developers and integrators to understand the main API surface of Vegvisr.org. For detailed request/response formats, see the relevant worker source files or API documentation._

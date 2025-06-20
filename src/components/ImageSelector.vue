@@ -757,18 +757,32 @@ const applyImageUrl = async () => {
 }
 
 const generateContextSearch = async () => {
-  // Simple keyword extraction from content
-  const words = props.nodeContent.toLowerCase().split(/\s+/)
+  // Clean markdown syntax from content
+  let cleanContent = props.nodeContent
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '') // Remove image syntax ![alt](url)
+    .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold **text**
+    .replace(/\*([^*]+)\*/g, '$1') // Remove italic *text*
+    .replace(/#{1,6}\s+/g, '') // Remove headers # ## ###
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links [text](url) -> text
+    .replace(/`([^`]+)`/g, '$1') // Remove inline code `text`
+    .trim()
+
+  // Simple keyword extraction from cleaned content
+  const words = cleanContent
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
   const relevantWords = words.filter(
     (word) =>
       word.length > 4 &&
       !['that', 'this', 'with', 'have', 'will', 'from', 'they', 'been'].includes(word),
   )
 
+  // Only set search query if we found meaningful words
   if (relevantWords.length > 0) {
     searchQuery.value = relevantWords.slice(0, 3).join(' ')
   } else {
-    searchQuery.value = 'abstract professional'
+    searchQuery.value = '' // Keep search box empty if no meaningful content
   }
 }
 
@@ -992,7 +1006,11 @@ const closeAIImageModal = () => {
 }
 
 const handleAIImageGenerated = (imageData) => {
-  console.log('AI Image generated:', imageData)
+  console.log('=== AI Image Generated Debug ===')
+  console.log('Raw imageData:', imageData)
+  console.log('Type of imageData:', typeof imageData)
+  console.log('imageData keys:', Object.keys(imageData || {}))
+  console.log('imageData stringified:', JSON.stringify(imageData, null, 2))
 
   try {
     let imageUrl = null
@@ -1000,17 +1018,36 @@ const handleAIImageGenerated = (imageData) => {
 
     // Check if imageData is a simple URL string
     if (typeof imageData === 'string' && imageData.startsWith('http')) {
+      console.log('=== Processing as URL string ===')
       imageUrl = imageData
+    } else if (typeof imageData === 'object' && imageData.info) {
+      console.log('=== Processing as node with markdown in info field ===')
+      console.log('imageData.info:', imageData.info)
+
+      // Extract URL from markdown format: ![alt](url)
+      const match = imageData.info.match(/!\[.*?\]\((.+?)\)/)
+      console.log('Markdown match result:', match)
+      imageUrl = match ? match[1] : null
+
+      // Extract alt text from markdown
+      const altMatch = imageData.info.match(/!\[([^\]]*)\]/)
+      if (altMatch && altMatch[1]) {
+        altText = altMatch[1]
+      }
     } else if (typeof imageData === 'object') {
-      // Handle the node format
-      if (imageData.info) {
-        // Extract URL from markdown format: ![alt](url)
-        const match = imageData.info.match(/!\[.*?\]\((.+?)\)/)
-        imageUrl = match ? match[1] : null
-      } else if (imageData.label && imageData.label.includes('http')) {
+      console.log('=== Processing as legacy object format ===')
+      console.log('imageData.label:', imageData.label)
+      console.log('imageData.url:', imageData.url)
+
+      if (imageData.label && imageData.label.includes('http')) {
+        console.log('=== Extracting from label field ===')
         // If the URL is directly in the label
         const urlMatch = imageData.label.match(/(https?:\/\/[^\s\)]+)/)
+        console.log('Label URL match result:', urlMatch)
         imageUrl = urlMatch ? urlMatch[1] : null
+      } else if (imageData.url) {
+        console.log('=== Using direct url field ===')
+        imageUrl = imageData.url
       }
 
       // Try to get alt text from the data
@@ -1018,6 +1055,10 @@ const handleAIImageGenerated = (imageData) => {
         altText = imageData.label
       }
     }
+
+    console.log('=== Final extracted URL ===')
+    console.log('imageUrl:', imageUrl)
+    console.log('altText:', altText)
 
     if (imageUrl) {
       // Create a selected image object from the AI generated image
@@ -1045,11 +1086,15 @@ const handleAIImageGenerated = (imageData) => {
       // Automatically replace the image with the AI generated one
       replaceImage()
     } else {
+      console.error('=== URL Extraction Failed ===')
       console.error('Could not extract image URL from generated data:', imageData)
       error.value = 'Failed to extract image URL from AI generated image.'
     }
   } catch (err) {
-    console.error('Error handling AI generated image:', err)
+    console.error('=== Error in handleAIImageGenerated ===')
+    console.error('Error details:', err)
+    console.error('Error message:', err.message)
+    console.error('Error stack:', err.stack)
     error.value = 'Failed to process AI generated image.'
   }
 }

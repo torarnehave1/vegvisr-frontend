@@ -21,17 +21,14 @@
           </button>
           <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
-              <li class="nav-item" v-if="userStore.role !== 'ViewOnly'">
-                <RouterLink class="nav-link" to="/editor">Editor</RouterLink>
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
               </li>
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/blog">Blog</RouterLink>
+                <RouterLink class="nav-link" to="/graph-portfolio">Portfolio</RouterLink>
               </li>
               <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-editor">Graph Editor</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-portfolio">Graph Portfolio</RouterLink>
+                <RouterLink class="nav-link" to="/graph-viewer">Viewer</RouterLink>
               </li>
 
               <li class="nav-item">

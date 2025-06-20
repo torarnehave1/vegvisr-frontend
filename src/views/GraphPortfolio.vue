@@ -472,7 +472,7 @@
               aria-labelledby="r2ImageModalLabel"
               aria-hidden="true"
             >
-              <div class="modal-dialog modal-lg" style="max-width: 800px">
+              <div class="modal-dialog modal-xl" style="max-width: 1000px">
                 <div
                   class="modal-content"
                   :class="{
@@ -489,7 +489,142 @@
                       aria-label="Close"
                     ></button>
                   </div>
-                  <div class="modal-body" style="max-height: 70vh; overflow-y: auto">
+                  <div class="modal-body" style="max-height: 80vh; overflow-y: auto">
+                    <!-- Quality Controls Section -->
+                    <div class="quality-controls mb-4 p-3 border rounded">
+                      <h6 class="mb-3">Image Quality & Size Settings</h6>
+
+                      <!-- Quality Presets -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Quality Preset:</label>
+                        <div class="btn-group w-100" role="group">
+                          <input
+                            type="radio"
+                            class="btn-check"
+                            name="qualityPreset"
+                            id="ultraFast"
+                            value="ultraFast"
+                            v-model="imageQualitySettings.preset"
+                            @change="updateImagePreview"
+                          />
+                          <label class="btn btn-outline-success" for="ultraFast">
+                            <i class="bi bi-lightning-fill"></i> Ultra Fast
+                          </label>
+
+                          <input
+                            type="radio"
+                            class="btn-check"
+                            name="qualityPreset"
+                            id="balanced"
+                            value="balanced"
+                            v-model="imageQualitySettings.preset"
+                            @change="updateImagePreview"
+                          />
+                          <label class="btn btn-outline-primary" for="balanced">
+                            <i class="bi bi-speedometer2"></i> Balanced
+                          </label>
+
+                          <input
+                            type="radio"
+                            class="btn-check"
+                            name="qualityPreset"
+                            id="highQuality"
+                            value="highQuality"
+                            v-model="imageQualitySettings.preset"
+                            @change="updateImagePreview"
+                          />
+                          <label class="btn btn-outline-warning" for="highQuality">
+                            <i class="bi bi-gem"></i> High Quality
+                          </label>
+                        </div>
+                      </div>
+
+                      <!-- Custom Size Controls -->
+                      <div class="row mb-3">
+                        <div class="col-12 mb-2">
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              id="lockAspectRatio"
+                              v-model="imageQualitySettings.lockAspectRatio"
+                            />
+                            <label class="form-check-label fw-bold" for="lockAspectRatio">
+                              <i
+                                class="bi bi-lock-fill"
+                                v-if="imageQualitySettings.lockAspectRatio"
+                              ></i>
+                              <i class="bi bi-unlock-fill" v-else></i>
+                              Lock Aspect Ratio ({{ aspectRatio }})
+                            </label>
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label fw-bold">Width:</label>
+                          <div class="input-group">
+                            <input
+                              type="range"
+                              class="form-range"
+                              min="50"
+                              max="800"
+                              v-model="imageQualitySettings.width"
+                              @input="onWidthChange"
+                            />
+                            <input
+                              type="number"
+                              class="form-control"
+                              style="max-width: 80px"
+                              v-model="imageQualitySettings.width"
+                              @input="onWidthChange"
+                              min="50"
+                              max="800"
+                            />
+                            <span class="input-group-text">px</span>
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label fw-bold">Height:</label>
+                          <div class="input-group">
+                            <input
+                              type="range"
+                              class="form-range"
+                              min="50"
+                              max="600"
+                              v-model="imageQualitySettings.height"
+                              @input="onHeightChange"
+                            />
+                            <input
+                              type="number"
+                              class="form-control"
+                              style="max-width: 80px"
+                              v-model="imageQualitySettings.height"
+                              @input="onHeightChange"
+                              min="50"
+                              max="600"
+                            />
+                            <span class="input-group-text">px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Preview URL Display -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Preview URL Parameters:</label>
+                        <div class="alert alert-info p-2">
+                          <small class="font-monospace">{{ previewUrlParams }}</small>
+                        </div>
+                      </div>
+
+                      <!-- Reset Button -->
+                      <button
+                        class="btn btn-sm btn-outline-secondary"
+                        @click="resetQualitySettings"
+                      >
+                        <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                      </button>
+                    </div>
+
+                    <!-- Image Grid -->
                     <div class="portfolio-grid">
                       <div
                         v-for="img in r2Images"
@@ -497,12 +632,28 @@
                         class="portfolio-card"
                         @click="selectR2Image(img)"
                       >
-                        <img :src="img.url" :alt="img.key" class="portfolio-thumb" loading="lazy" />
+                        <img
+                          :src="getOptimizedImageUrl(img.url)"
+                          :alt="img.key"
+                          class="portfolio-thumb"
+                          loading="lazy"
+                        />
                         <div class="portfolio-caption">{{ img.key }}</div>
                       </div>
                     </div>
                   </div>
                   <div class="modal-footer">
+                    <div class="me-auto">
+                      <small class="text-muted">
+                        <strong>{{ r2Images.length }}</strong> images • Quality:
+                        <strong>{{ imageQualitySettings.preset }}</strong> • Size:
+                        <strong
+                          >{{ imageQualitySettings.width }}×{{
+                            imageQualitySettings.height
+                          }}</strong
+                        >
+                      </small>
+                    </div>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                       Close
                     </button>
@@ -559,6 +710,26 @@ const isLoadingPortfolioImage = ref(false)
 const r2Images = ref([])
 const r2ImageModal = ref(null)
 const selectedImage = ref(null)
+
+// Image Quality Settings
+const imageQualitySettings = ref({
+  preset: 'balanced',
+  width: 150,
+  height: 94,
+  lockAspectRatio: true,
+  originalAspectRatio: 150 / 94,
+})
+
+// Computed property for preview URL parameters
+const previewUrlParams = computed(() => {
+  const settings = imageQualitySettings.value
+  const presets = {
+    ultraFast: `w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
+    balanced: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
+    highQuality: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
+  }
+  return presets[settings.preset] || presets.balanced
+})
 
 console.log('User role:', userStore.role)
 
@@ -827,30 +998,64 @@ const cancelEdit = () => {
 // Save edited graph
 const saveEdit = async (originalGraph) => {
   try {
-    const response = await fetch(apiUrls.updateKnowledgeGraph(), {
+    console.log('=== SAVING PORTFOLIO METADATA UPDATE ===')
+    console.log('Original metadata:', JSON.stringify(originalGraph.metadata, null, 2))
+    console.log('Updated metadata:', JSON.stringify(editingGraph.value.metadata, null, 2))
+
+    // Fetch latest graph data to ensure metadata preservation (same pattern as GraphAdmin)
+    const latestResponse = await fetch(
+      `https://knowledge.vegvisr.org/getknowgraph?id=${originalGraph.id}`,
+    )
+    if (!latestResponse.ok) {
+      throw new Error('Failed to fetch latest graph data')
+    }
+    const latestGraph = await latestResponse.json()
+    console.log('Latest graph metadata:', JSON.stringify(latestGraph.metadata, null, 2))
+
+    // Use saveGraphWithHistory to ensure metadata updates create new versions
+    // This fixes the table mismatch between knowledge_graphs and knowledge_graph_history
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
         id: originalGraph.id,
         graphData: {
-          ...originalGraph,
+          ...latestGraph, // Use latest graph data instead of stale originalGraph
           metadata: {
-            ...editingGraph.value.metadata,
-            metaArea: editingGraph.value.metadata.metaArea || '',
+            ...latestGraph.metadata, // Preserve all existing metadata fields
+            ...editingGraph.value.metadata, // Apply user edits
+            version: latestGraph.metadata.version, // Keep current version (backend will increment)
+            updatedAt: new Date().toISOString(), // Update timestamp
           },
         },
+        override: false, // Create new version
       }),
     })
 
     if (response.ok) {
+      const result = await response.json()
+      console.log('=== PORTFOLIO UPDATE SUCCESS ===')
+      console.log('Full API response:', JSON.stringify(result, null, 2))
+      console.log('Metadata saved to both knowledge_graphs and knowledge_graph_history tables')
+
+      // Extract version number from different possible response structures
+      const newVersion = result.version || result.newVersion || result.data?.version || 'unknown'
+      console.log('Extracted version:', newVersion)
+
       // Update the local graph data
       const index = graphs.value.findIndex((g) => g.id === originalGraph.id)
       if (index !== -1) {
         graphs.value[index] = {
           ...originalGraph,
-          metadata: editingGraph.value.metadata,
+          metadata: {
+            ...editingGraph.value.metadata,
+            version:
+              newVersion !== 'unknown' ? newVersion : (originalGraph.metadata?.version || 1) + 1,
+            updatedAt: new Date().toISOString(),
+          },
         }
       }
       editingGraphId.value = null
@@ -858,6 +1063,8 @@ const saveEdit = async (originalGraph) => {
 
       // Update meta areas in the store
       portfolioStore.updateMetaAreas(graphs.value)
+
+      // Success - no alert needed, console logs provide feedback
 
       // Scroll to the card after a short delay to ensure DOM update
       setTimeout(() => {
@@ -867,7 +1074,9 @@ const saveEdit = async (originalGraph) => {
         }
       }, 100)
     } else {
-      throw new Error('Failed to update graph')
+      const errorText = await response.text()
+      console.error('Portfolio update failed:', errorText)
+      throw new Error(`Failed to update graph: ${response.status} - ${errorText}`)
     }
   } catch (err) {
     error.value = err.message
@@ -1228,7 +1437,8 @@ const fetchR2Images = async () => {
 const selectR2Image = (img) => {
   selectedImage.value = img
   r2ImageModal.value.hide()
-  insertPortfolioImage(img.url)
+  const optimizedUrl = getOptimizedImageUrl(img.url)
+  insertPortfolioImage(optimizedUrl)
 }
 
 const insertPortfolioImage = async (imageUrl = null) => {
@@ -1305,6 +1515,88 @@ const openR2ImageModal = () => {
   fetchR2Images()
   r2ImageModal.value.show()
 }
+
+// Image Quality Control Functions
+const getOptimizedImageUrl = (baseUrl) => {
+  if (!baseUrl) return baseUrl
+
+  const settings = imageQualitySettings.value
+  const presets = {
+    ultraFast: `?w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
+    balanced: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
+    highQuality: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
+  }
+
+  const params = presets[settings.preset] || presets.balanced
+
+  // If URL already has parameters, replace them; otherwise add them
+  if (baseUrl.includes('?')) {
+    return baseUrl.split('?')[0] + params
+  }
+  return baseUrl + params
+}
+
+const updateImagePreview = () => {
+  // Force reactivity update by triggering computed property recalculation
+  // The images will automatically update due to the reactive getOptimizedImageUrl
+  console.log('Quality settings updated:', imageQualitySettings.value)
+  console.log('New URL params:', previewUrlParams.value)
+}
+
+const resetQualitySettings = () => {
+  imageQualitySettings.value = {
+    preset: 'balanced',
+    width: 150,
+    height: 94,
+    lockAspectRatio: true,
+    originalAspectRatio: 150 / 94,
+  }
+  updateImagePreview()
+}
+
+const onWidthChange = () => {
+  if (imageQualitySettings.value.lockAspectRatio) {
+    const newHeight = Math.round(
+      imageQualitySettings.value.width / imageQualitySettings.value.originalAspectRatio,
+    )
+    imageQualitySettings.value.height = Math.max(50, Math.min(600, newHeight))
+  } else {
+    // Update aspect ratio when not locked
+    updateAspectRatio()
+  }
+  updateImagePreview()
+}
+
+const onHeightChange = () => {
+  if (imageQualitySettings.value.lockAspectRatio) {
+    const newWidth = Math.round(
+      imageQualitySettings.value.height * imageQualitySettings.value.originalAspectRatio,
+    )
+    imageQualitySettings.value.width = Math.max(50, Math.min(800, newWidth))
+  } else {
+    // Update aspect ratio when not locked
+    updateAspectRatio()
+  }
+  updateImagePreview()
+}
+
+const updateAspectRatio = () => {
+  if (imageQualitySettings.value.width > 0 && imageQualitySettings.value.height > 0) {
+    imageQualitySettings.value.originalAspectRatio =
+      imageQualitySettings.value.width / imageQualitySettings.value.height
+  }
+}
+
+const aspectRatio = computed(() => {
+  const width = imageQualitySettings.value.width
+  const height = imageQualitySettings.value.height
+  const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b))
+  if (width > 0 && height > 0) {
+    const divisor = gcd(width, height)
+    return `${width / divisor}:${height / divisor}`
+  }
+  return '16:9'
+})
 
 onMounted(() => {
   console.log('GraphPortfolio mounted, fetching graphs...')
@@ -1432,5 +1724,82 @@ onMounted(() => {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* Quality Controls Styles */
+.quality-controls {
+  background: rgba(248, 249, 250, 0.8);
+  border: 1px solid #dee2e6 !important;
+}
+
+.quality-controls h6 {
+  color: #495057;
+  margin-bottom: 1rem;
+}
+
+.quality-controls .btn-group .btn {
+  flex: 1;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+}
+
+.quality-controls .btn-check:checked + .btn {
+  background-color: var(--bs-primary);
+  border-color: var(--bs-primary);
+  color: white;
+}
+
+.quality-controls .form-range {
+  flex: 1;
+  margin-right: 0.5rem;
+}
+
+.quality-controls .alert-info {
+  background-color: #e7f3ff;
+  border-color: #b3d7ff;
+  color: #0c5460;
+  font-size: 0.85rem;
+}
+
+/* Dark theme support for quality controls */
+.bg-dark .quality-controls {
+  background: rgba(52, 58, 64, 0.8);
+  border-color: #6c757d !important;
+}
+
+.bg-dark .quality-controls h6 {
+  color: #e9ecef;
+}
+
+.bg-dark .quality-controls .alert-info {
+  background-color: #1a2e3a;
+  border-color: #2a4a5a;
+  color: #7dd3fc;
+}
+
+/* Aspect Ratio Lock Styling */
+.quality-controls .form-check {
+  background: rgba(255, 255, 255, 0.5);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid #dee2e6;
+}
+
+.quality-controls .form-check-label {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.quality-controls .form-check-input:checked ~ .form-check-label {
+  color: #0d6efd;
+}
+
+.bg-dark .quality-controls .form-check {
+  background: rgba(108, 117, 125, 0.3);
+  border-color: #6c757d;
+}
+
+.bg-dark .quality-controls .form-check-input:checked ~ .form-check-label {
+  color: #6ea8fe;
 }
 </style>

@@ -536,30 +536,52 @@ const insertImageToGraph = async () => {
       console.log('Emitting logo image URL:', finalImageUrl)
       emit('image-inserted', finalImageUrl)
     } else {
+      // Generate proper markdown based on the selected image type
+      let markdown = ''
+      const imageType = generatedImage.value.imageType || selectedImageType.value
+
+      console.log('=== Generating Markdown for Image Type ===')
+      console.log('Image type:', imageType)
+      console.log('Final image URL:', finalImageUrl)
+
+      switch (imageType.toLowerCase()) {
+        case 'header':
+          markdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+          break
+        case 'leftside':
+          markdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+          break
+        case 'rightside':
+          markdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+          break
+        case 'standalone':
+        default:
+          markdown = `![Image|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${finalImageUrl})`
+      }
+
+      console.log('Generated markdown:', markdown)
+
       // For regular image generation, create a proper markdown-image node
       const newNode = {
         id: crypto.randomUUID(),
-        label:
-          generatedImage.value.nodeData?.info ||
-          generatedImage.value.nodeData?.label ||
-          'Generated Image',
+        label: `Generated ${imageType.charAt(0).toUpperCase() + imageType.slice(1)} Image`,
         color: 'white',
         type: 'markdown-image',
-        info: null,
-        bibl: generatedImage.value.nodeData?.bibl || [],
-        imageWidth:
-          generatedImage.value.nodeData?.imageWidth ||
-          generatedImage.value.size?.split('x')[0] ||
-          '1024',
-        imageHeight:
-          generatedImage.value.nodeData?.imageHeight ||
-          generatedImage.value.size?.split('x')[1] ||
-          '1024',
+        info: markdown,
+        bibl: [
+          `Generated using ${generatedImage.value.model} with prompt: "${generatedImage.value.prompt}"`,
+        ],
+        imageWidth: generatedImage.value.size?.split('x')[0] || '1024',
+        imageHeight: generatedImage.value.size?.split('x')[1] || '1024',
         visible: true,
         path: null,
       }
 
-      console.log('Created markdown-image node:', newNode)
+      console.log('=== Created Markdown-Image Node ===')
+      console.log('Node info (markdown):', newNode.info)
+      console.log('Node bibl:', newNode.bibl)
+      console.log('Full node:', newNode)
+
       emit('image-inserted', newNode)
     }
 
