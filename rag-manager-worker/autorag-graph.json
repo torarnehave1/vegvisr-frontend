@@ -1,0 +1,177 @@
+﻿{
+    "id":  "graph_1750490454266",
+    "metadata":  {
+                     "title":  "Introducing Autorag: Revolutionizing RAG with Cloudflare",
+                     "description":  "This knowledge graph centers on Cloudflare\u0027s innovative product, Autorag, designed to simplify the creation of Retrieval-Augmented Generation (RAG) pipelines for developers by integrating external data into language models (LLMs). It explores Autoragâs key processes, including data indexing with Cloudflareâs R2 storage, embedding via Workers AI, and semantic querying for precise, context-driven responses. The content highlights Autoragâs benefits, such as rapid application development, automation of complex tasks, and seamless integration with proprietary data, alongside practical guidance on implementation through dashboards and code.",
+                     "createdBy":  "Tor Arne HÃ¥ve ",
+                     "version":  2,
+                     "updatedAt":  "2025-06-21T07:28:25.376Z",
+                     "category":  "#Autorag #Cloudflare #RAGPipelines #DataIndexing #SemanticSearch",
+                     "metaArea":  "#CLOUDFLARE",
+                     "mystmkraUrl":  null,
+                     "mystmkraDocumentId":  null,
+                     "mystmkraNodeId":  null
+                 },
+    "nodes":  [
+                  {
+                      "id":  "del_1",
+                      "label":  "DEL 1: Introduksjon til Autorag og Cloudflare",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**Introduksjon til Autorag og Cloudflare**  \n\nHei, jeg heter Lizzie og jeg er utvikleradvokat hos Cloudflare. I denne delen vil jeg introdusere deg for et nytt og spennende Cloudflare-produkt kalt *Autorag*. Autorag er designet for Ã¥ gjÃ¸re det enklere for utviklere Ã¥ bygge sÃ¥kalte RAG-pipelines (Retrieval-Augmented Generation) og applikasjoner. FÃ¸r Autorag kom pÃ¥ markedet, opplevde jeg at det tok tid Ã¥ implementere RAG-lÃ¸sninger. Men nÃ¥, takket vÃ¦re Autorag, kan jeg lage mine egne RAG-applikasjoner pÃ¥ bare noen fÃ¥ minutter. Dette er en revolusjonerende lÃ¸sning for utviklere som Ã¸nsker Ã¥ integrere eksterne data i sprÃ¥kmodeller (LLMs).  \n\n**Hvorfor er RAG viktig?**  \n\nStore sprÃ¥kmodeller som Llama, GPT og Claude er trent pÃ¥ enorme mengder data. Men hva gjÃ¸r du nÃ¥r du vil stille spÃ¸rsmÃ¥l basert pÃ¥ data som ikke er en del av treningsdatasettet deres, for eksempel dine egne private data eller videotranskripsjoner? Med RAG kan du tilfÃ¸re sprÃ¥kmodellen ekstra data som den kan bruke til Ã¥ generere mer relevante og nÃ¸yaktige svar. Autorag forenkler denne prosessen ved Ã¥ automatisere mange av de komplekse trinnene som tidligere krevde manuell innsats.  \n\nI denne serien av artikler vil vi dykke dypere inn i hvordan Autorag fungerer, fra indeksering av data til spÃ¸rringsprosessen, og hvordan det kan integreres i applikasjoner. Vi starter med Ã¥ utforske de grunnleggende prinsippene og Cloudflare-verktÃ¸yene som ligger til grunn for Autorag, som R2-lagringsbÃ¸tter og Workers AI. MÃ¥let er Ã¥ gi deg en helhetlig forstÃ¥else av hvordan du kan dra nytte av denne teknologien for Ã¥ bygge kraftige, datadrevne applikasjoner.  \n\n**Om Cloudflare og min rolle**  \n\nSom utvikleradvokat hos Cloudflare jobber jeg med Ã¥ hjelpe utviklere med Ã¥ forstÃ¥ og implementere vÃ¥re lÃ¸sninger. Cloudflare er kjent for sine innovative produkter innen skylagring, sikkerhet og ytelse, og Autorag er et perfekt eksempel pÃ¥ hvordan vi stadig presser grensene for hva som er mulig. I de neste delene vil jeg guide deg gjennom de tekniske aspektene ved Autorag og vise deg hvordan du kan komme i gang med dine egne prosjekter.",
+                      "position":  {
+                                       "x":  100,
+                                       "y":  100
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "del_2",
+                      "label":  "DEL 2: Hva er indeksering i Autorag?",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**Hva er indeksering i Autorag?**  \n\nIndeksering er en kjerneprosess i Autorag som innebÃ¦rer Ã¥ innta, transformere og lagre data slik at de kan brukes av sprÃ¥kmodeller (LLMs) i RAG-applikasjoner. Denne prosessen starter med Cloudflares R2-lagringsbÃ¸tte, et produkt jeg personlig er svÃ¦rt begeistret for. R2 lar deg lagre ulike typer filer, som CSV, tekstfiler, PDF-er og til og med bilder. Dette mangfoldet av filtyper gjÃ¸r det enkelt Ã¥ arbeide med et bredt spekter av data.  \n\n**Trinnene i indekseringsprosessen**  \n\n1. **Datainntak via R2**: Alt starter med Ã¥ laste opp dataene dine til en R2-lagringsbÃ¸tte. Dette kan vÃ¦re alt fra strukturerte data i CSV-format til ustrukturerte data som bilder eller transkripsjoner.  \n2. **Markdown-konvertering**: Etter at dataene er lastet opp, standardiseres de gjennom en markdown-konverteringsprosess. Dette trinnet sÃ¸rger for at dataene blir konsistente og lettere Ã¥ behandle. For bilder er prosessen spesielt interessant â bildene sendes til en objektgjenkjenningsmodell som kjÃ¸rer pÃ¥ Cloudflare Workers. Modellen returnerer en liste over sannsynlige objekter i bildet, som deretter konverteres til tekst ved hjelp av en bilde-til-tekst-modell, ogsÃ¥ hostet pÃ¥ Workers.  \n3. **Databehandling og segmentering**: Etter konvertering deles dataene opp i mindre biter, eller Â«chunksÂ», som er enklere for sprÃ¥kmodellen Ã¥ hÃ¥ndtere. Disse bitene sendes deretter til AI Gateway for observasjon av input og output i LLM-applikasjoner.  \n4. **Embedding og lagring**: Tekstbitene konverteres til vektorer ved hjelp av en tekst-embedding-modell pÃ¥ Workers AI. Disse vektor-embeddingene, sammen med tilhÃ¸rende metadata, lagres i en Cloudflare Vector Database. Dette muliggjÃ¸r senere semantisk sÃ¸k.  \n\n**Hvorfor er dette viktig?**  \n\nIndeksering er avgjÃ¸rende for Ã¥ kunne utfÃ¸re effektive sÃ¸k i dataene dine. Ved Ã¥ konvertere tekst og bilder til vektorer, kan Autorag sammenligne semantisk likhet mellom ulike elementer. For eksempel, hvis du sÃ¸ker etter Â«bananÂ», kan systemet returnere Â«epleÂ» fordi de begge er frukter og dermed semantisk nÃ¦re i vektorrommet. PÃ¥ den annen side vil et sÃ¸k etter Â«basketballÂ» vÃ¦re lenger unna i dette rommet, da det ikke er relatert til frukt. Denne prosessen danner grunnlaget for hvordan Autorag kan levere relevante svar basert pÃ¥ dine data.",
+                      "position":  {
+                                       "x":  400,
+                                       "y":  100
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "del_3",
+                      "label":  "DEL 3: SpÃ¸rringsprosessen i Autorag",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**SpÃ¸rringsprosessen i Autorag**  \n\nI tillegg til indeksering, er spÃ¸rringsprosessen en sentral del av hvordan Autorag fungerer. Denne prosessen starter nÃ¥r en bruker sender et spÃ¸rsmÃ¥l eller en spÃ¸rring til Autorag. MÃ¥let er Ã¥ generere et relevant svar basert pÃ¥ de indekserte dataene. La oss gÃ¥ gjennom trinnene i denne prosessen.  \n\n**Hvordan fungerer spÃ¸rring i Autorag?**  \n\n1. **Mottak av spÃ¸rring**: NÃ¥r en bruker sender en spÃ¸rring til Autorag, kan systemet fÃ¸rst omskrive spÃ¸rringen for Ã¥ gjÃ¸re den mer effektiv og egnet for sÃ¸k. Dette sikrer at sÃ¸ket gir bedre resultater.  \n2. **Embedding av spÃ¸rring**: Den omskrevne spÃ¸rringen konverteres til en vektor ved hjelp av samme embedding-modell som ble brukt under indeksering.  \n3. **Sammenligning i vektordatabasen**: Vektoren fra spÃ¸rringen sammenlignes med de lagrede vektorene i Cloudflare Vector Database. Systemet henter deretter relevant metadata og innhold basert pÃ¥ semantisk likhet.  \n4. **Generering og retur av svar**: Til slutt genererer sprÃ¥kmodellen et svar basert pÃ¥ de hentede dataene og returnerer det til brukeren.  \n\n**Et eksempel pÃ¥ semantisk sÃ¸k**  \n\nLa oss si at en bruker skriver inn Â«bananÂ» i et chatteprogram. Autorag vil sammenligne vektoren for Â«bananÂ» med andre vektorer i databasen. Fordi Â«bananÂ» og Â«epleÂ» begge er frukter, vil de ligge nÃ¦r hverandre i vektorrommet, og systemet kan returnere Â«epleÂ» som et relevant resultat. PÃ¥ den annen side, hvis brukeren skriver Â«basketballÂ», vil dette vÃ¦re lenger unna fruktrelaterte termer, og resultatet vil reflektere denne forskjellen.  \n\n**Hvorfor er dette nyttig?**  \n\nSpÃ¸rringsprosessen i Autorag muliggjÃ¸r svÃ¦rt presise og kontekstuelle svar, selv nÃ¥r dataene ikke er en del av sprÃ¥kmodellens opprinnelige treningsdata. Ved Ã¥ utnytte eksterne datakilder som er indeksert i systemet, kan Autorag gi svar som er skreddersydd til brukerens behov. Dette er spesielt verdifullt for bedrifter og utviklere som Ã¸nsker Ã¥ bygge applikasjoner basert pÃ¥ proprietÃ¦re data, som interne dokumenter eller kundespesifikke transkripsjoner. I neste del vil vi se pÃ¥ hvordan dette fungerer i praksis ved Ã¥ utforske Autorag-dashbordet og konkrete eksempler.",
+                      "position":  {
+                                       "x":  700,
+                                       "y":  100
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "del_4",
+                      "label":  "DEL 4: Autorag i praksis â Dashbord og datakilder",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**Autorag i praksis â Dashbord og datakilder**  \n\nNÃ¥ som vi har forstÃ¥tt de teoretiske aspektene ved indeksering og spÃ¸rring i Autorag, la oss se pÃ¥ hvordan dette fungerer i praksis. Jeg tar deg med inn i Cloudflare Autorag-dashbordet, der du kan administrere datakilder, overvÃ¥ke indekseringslogger og utfÃ¸re spÃ¸rringer.  \n\n**Autorag-dashbordet**  \n\nI dashbordet mitt har jeg en datakilde koblet til en R2-lagringsbÃ¸tte kalt Â«FourthWaveÂ». FourthWave er en slags venturekapital-inkubator som stÃ¸tter kvinnelige grÃ¼ndere. Jeg har lastet opp transkripsjoner fra videoer relatert til kvinnelige grÃ¼ndere til denne bÃ¸tten. Disse transkripsjonene er tekstfiler som er lagret i R2 og koblet til Autorag.  \n\n**Indekseringslogger og utfordringer**  \n\nNÃ¥r jeg ser pÃ¥ indekseringsloggene, kan jeg se at jeg fÃ¸rst prÃ¸vde Ã¥ laste opp filene i et format som ikke stÃ¸ttes (VTT). Etter Ã¥ ha konvertert dem til tekstfiler, gikk opplastingen problemfritt. Dette viser hvor viktig det er Ã¥ forberede dataene dine riktig fÃ¸r indeksering. Autorag opprettet automatisk en vektordatabase for meg, kalt Â«Autorag FourthWave RAG Transcripts Query Latency Stored VectorsÂ». Navnet er langt, men det illustrerer hvor mange vektorer som er lagret og klare til bruk.  \n\n**AI Gateway og overvÃ¥king**  \n\nI dashbordet kan jeg ogsÃ¥ se AI Gateway, som lar meg overvÃ¥ke bruken av sprÃ¥kmodellen, inkludert input, output, kostnader og mer. Dette er en nyttig funksjon for utviklere som Ã¸nsker innsikt i hvordan applikasjonene deres presterer og hvor mye ressurser de bruker.  \n\n**Et praktisk eksempel**  \n\nLa oss si at jeg er en fÃ¸rstegangsgrÃ¼nder og lurer pÃ¥ hvem jeg bÃ¸r ansette fÃ¸rst. I Autorag-dashbordets Â«playgroundÂ»-funksjon kan jeg skrive inn spÃ¸rsmÃ¥let: *Â«Jeg er en fÃ¸rstegangsgrÃ¼nder. Hvem bÃ¸r vÃ¦re min fÃ¸rste ansettelse?Â»*. Systemet sÃ¸ker i de indekserte dataene, tenker seg om, og returnerer et svar basert pÃ¥ transkripsjonene fra FourthWave. Svaret inkluderer ogsÃ¥ referanser til hvilke datakilder som ble brukt, noe som gir transparens og troverdighet til resultatet.  \n\nDenne praktiske tilnÃ¦rmingen viser hvordan Autorag kan brukes til Ã¥ hente ut verdifull innsikt fra spesifikke datakilder, og hvordan dashbordet gir en brukervennlig mÃ¥te Ã¥ administrere hele prosessen pÃ¥.",
+                      "position":  {
+                                       "x":  100,
+                                       "y":  350
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "del_5",
+                      "label":  "DEL 5: Implementering av Autorag i kode",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**Implementering av Autorag i kode**  \n\nAutorag er ikke bare et verktÃ¸y du bruker gjennom et dashbord; det kan ogsÃ¥ integreres direkte i applikasjonene dine via kode. I denne delen vil jeg vise deg hvordan du kan bruke Autorag i en TypeScript-applikasjon, og hvor enkelt det faktisk er.  \n\n**Hvordan fungerer det i kode?**  \n\nI mitt eksempel har jeg en chatteapplikasjon der jeg har implementert Autorag. Alt jeg trengte Ã¥ gjÃ¸re var Ã¥ sette opp en AI-binding i en Workers-applikasjon kalt Â«AutoragÂ». Denne bindingen refererer til min Autorag-app, og jeg kan deretter utfÃ¸re AI-sÃ¸k direkte i koden. SÃ¸ket forsterkes av datakildene jeg har lastet opp til R2-lagringsbÃ¸tten min.  \n\n**Et kodeeksempel**  \n\nHer er et forenklet eksempel pÃ¥ hvordan dette ser ut i praksis:  \n```typescript  \nconst aiBinding = env.AUTORAG_AI_BINDING;  \nconst query = \u0027Jeg er en fÃ¸rstegangsgrÃ¼nder. Hvem bÃ¸r jeg ansette fÃ¸rst?\u0027;  \nconst result = await aiBinding.search(query);  \nconsole.log(result.response);  \n```  \nDette kodesnippetet viser hvordan jeg sender en spÃ¸rring til Autorag via AI-bindingen og mottar et svar som er forsterket av de indekserte dataene. Det er utrolig enkelt og kraftfullt.  \n\n**Fordeler med kodeintegrasjon**  \n\nVed Ã¥ integrere Autorag i koden din, kan du bygge skreddersydde applikasjoner som utnytter RAG-teknologi uten at brukerne trenger Ã¥ interagere med dashbordet. Dette er ideelt for utviklere som Ã¸nsker Ã¥ lage chatbots, kundestÃ¸tteverktÃ¸y eller andre datadrevne applikasjoner. For eksempel kan en bedrift bruke Autorag til Ã¥ bygge en intern kunnskapsbase der ansatte kan stille spÃ¸rsmÃ¥l og fÃ¥ svar basert pÃ¥ selskapets dokumenter.  \n\n**Hvorfor er dette sÃ¥ enkelt?**  \n\nCloudflare har gjort en fantastisk jobb med Ã¥ abstrahere kompleksiteten i RAG-prosessen. Du trenger ikke Ã¥ hÃ¥ndtere indeksering, embedding eller vektordatabaser manuelt â alt dette hÃ¥ndteres av Autorag i bakgrunnen. Som utvikler kan du fokusere pÃ¥ Ã¥ bygge funksjonalitet i stedet for Ã¥ bekymre deg for de tekniske detaljene.  \n\nI neste del vil jeg oppsummere fordelene med Autorag og gi deg noen tips til hvordan du kan komme i gang med dine egne prosjekter.",
+                      "position":  {
+                                       "x":  400,
+                                       "y":  350
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "del_6",
+                      "label":  "DEL 6: Fordeler med Autorag og hvordan komme i gang",
+                      "type":  "fulltext",
+                      "color":  "#f9f9f9",
+                      "info":  "**Fordeler med Autorag og hvordan komme i gang**  \n\nEtter Ã¥ ha utforsket hvordan Autorag fungerer bÃ¥de teoretisk og praktisk, la oss oppsummere de viktigste fordelene med dette verktÃ¸yet og gi noen tips til hvordan du kan komme i gang med dine egne prosjekter.  \n\n**Hovedfordelene med Autorag**  \n\n1. **Rask utvikling av RAG-applikasjoner**: FÃ¸r Autorag tok det tid Ã¥ bygge RAG-pipelines, men nÃ¥ kan du lage applikasjoner pÃ¥ bare noen fÃ¥ minutter. Dette sparer utviklere for verdifull tid og ressurser.  \n2. **Integrasjon med proprietÃ¦re data**: Autorag lar deg forsterke sprÃ¥kmodeller med dine egne data, som interne dokumenter, videotranskripsjoner eller kundedata. Dette gir mer relevante og nÃ¸yaktige svar.  \n3. **Automatisering av komplekse prosesser**: Fra indeksering til spÃ¸rring, hÃ¥ndterer Autorag de tekniske aspektene som databehandling, embedding og lagring i vektordatabaser. Dette reduserer kompleksiteten for utviklere.  \n4. **Brukervennlig dashbord**: Cloudflare Autorag-dashbordet gjÃ¸r det enkelt Ã¥ administrere datakilder, overvÃ¥ke AI-bruk og utfÃ¸re spÃ¸rringer uten Ã¥ mÃ¥tte skrive kode.  \n5. **Fleksibel kodeintegrasjon**: For de som foretrekker Ã¥ jobbe i kode, tilbyr Autorag enkel integrasjon i applikasjoner via AI-bindinger i Workers.  \n\n**Hvordan komme i gang med Autorag**  \n\n1. **Sett opp en Cloudflare-konto**: Hvis du ikke allerede har en konto, registrer deg pÃ¥ Cloudflare og fÃ¥ tilgang til tjenester som R2 og Workers AI.  \n2. **Last opp data til R2**: Start med Ã¥ laste opp dataene dine til en R2-lagringsbÃ¸tte. SÃ¸rg for at filene er i et stÃ¸ttet format (som tekst eller PDF).  \n3. **Konfigurer Autorag**: Koble R2-bÃ¸tten til Autorag via dashbordet og la systemet indeksere dataene dine automatisk.  \n4. **Test spÃ¸rringer i Playground**: Bruk Â«PlaygroundÂ»-funksjonen i dashbordet for Ã¥ teste spÃ¸rringer og se hvordan Autorag responderer.  \n5. **Integrer i applikasjoner**: Hvis du Ã¸nsker Ã¥ bygge en applikasjon, fÃ¸lg dokumentasjonen for Ã¥ sette opp AI-bindinger i Workers og integrere Autorag i koden din.  \n\n**Avsluttende tanker**  \n\nAutorag er et kraftfullt verktÃ¸y som democratiserer bruken av RAG-teknologi. Enten du er en utvikler som Ã¸nsker Ã¥ bygge avanserte applikasjoner eller en bedrift som vil utnytte interne data, tilbyr Autorag en enkel og effektiv lÃ¸sning. Jeg, Lizzie, er begeistret over mulighetene dette gir, og jeg hÃ¥per du ogsÃ¥ vil prÃ¸ve det ut. Ta det fÃ¸rste steget i dag og oppdag hvordan Autorag kan transformere mÃ¥ten du jobber med data pÃ¥!",
+                      "position":  {
+                                       "x":  700,
+                                       "y":  350
+                                   },
+                      "visible":  true,
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null,
+                      "path":  null
+                  },
+                  {
+                      "id":  "6b589d1d-d83b-4183-932b-9a2a45ab0f64",
+                      "label":  "Autorag Process Flow for Cloudflare",
+                      "type":  "mermaid-diagram",
+                      "color":  "gray",
+                      "info":  "graph TD\n    A[Start: User Request] --\u003e B[Data Upload to R2 Bucket]\n    B --\u003e C[Indexing Process]\n    C --\u003e D1[Markdown Conversion]\n    C --\u003e D2[Data Chunking]\n    C --\u003e D3[Embedding with Workers AI]\n    C --\u003e D4[Storage in Vector Database]\n    D4 --\u003e E[Query Process]\n    E --\u003e F1[Query Reception]\n    E --\u003e F2[Query Rewriting]\n    E --\u003e F3[Embedding Query]\n    E --\u003e F4[Comparison in Vector DB]\n    E --\u003e F5[Response Generation]\n    F5 --\u003e G[End: Return Response to User]",
+                      "position":  {
+                                       "x":  100,
+                                       "y":  100
+                                   },
+                      "visible":  true,
+                      "path":  "https://vegvisr.imgix.net/flowchart.png",
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  null,
+                      "imageHeight":  null
+                  },
+                  {
+                      "id":  "9739a6a9-8c6d-48be-9729-5f045824ad0e",
+                      "label":  "My Portfolio Image",
+                      "color":  "white",
+                      "type":  "portfolio-image",
+                      "bibl":  [
+
+                               ],
+                      "imageWidth":  "100%",
+                      "imageHeight":  "100%",
+                      "visible":  true,
+                      "path":  "https://vegvisr.imgix.net/1744094304861.png?w=150\u0026h=94\u0026fit=crop\u0026auto=format,compress\u0026q=30",
+                      "position":  {
+                                       "x":  0,
+                                       "y":  0
+                                   }
+                  }
+              ],
+    "edges":  [
+                  {
+                      "id":  "del_1_del_2",
+                      "source":  "del_1",
+                      "target":  "del_2"
+                  },
+                  {
+                      "id":  "del_2_del_3",
+                      "source":  "del_2",
+                      "target":  "del_3"
+                  },
+                  {
+                      "id":  "del_3_del_1",
+                      "source":  "del_3",
+                      "target":  "del_1"
+                  }
+              ]
+}

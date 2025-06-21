@@ -3814,6 +3814,26 @@ async function handleDeleteCustomDomain(request, env) {
   }
 }
 
+// RAG Manager Proxy Handler
+const handleRAGProxyRequest = async (request, endpoint, env) => {
+  try {
+    const ragManagerUrl = `https://rag-manager-worker.torarnehave.workers.dev${endpoint}`
+
+    console.log(`[API Worker] Proxying to RAG Manager: ${ragManagerUrl}`)
+
+    const response = await fetch(ragManagerUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+    })
+
+    return response
+  } catch (error) {
+    console.error('[API Worker] RAG proxy error:', error)
+    return createErrorResponse(`RAG proxy failed: ${error.message}`, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -4011,6 +4031,20 @@ export default {
       return await handleDeleteCustomDomain(request, env)
     }
 
+    // RAG Manager Proxy Endpoints
+    if (pathname === '/rag/analyze-graph' && request.method === 'POST') {
+      return await handleRAGProxyRequest(request, '/analyze-graph', env)
+    }
+    if (pathname === '/rag/create-index' && request.method === 'POST') {
+      return await handleRAGProxyRequest(request, '/create-rag-index', env)
+    }
+    if (pathname === '/rag/create-sandbox' && request.method === 'POST') {
+      return await handleRAGProxyRequest(request, '/create-rag-sandbox', env)
+    }
+    if (pathname === '/rag/list-sandboxes' && request.method === 'GET') {
+      return await handleRAGProxyRequest(request, '/list-sandboxes', env)
+    }
+
     // Fallback - log unmatched routes
     console.log('❌ No route matched, returning 404:', {
       pathname: pathname,
@@ -4020,6 +4054,10 @@ export default {
         '/google-photos-auth',
         '/google-photos-search',
         '/google-photos-recent',
+        '/rag/analyze-graph',
+        '/rag/create-index',
+        '/rag/create-sandbox',
+        '/rag/list-sandboxes',
         // ... other routes
       ],
     })
