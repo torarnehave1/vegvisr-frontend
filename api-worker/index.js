@@ -1538,6 +1538,125 @@ const handleYouTubeSearch = async (request, env) => {
   }
 }
 
+// --- YouTube Transcript IO Endpoint ---
+const handleYouTubeTranscriptIO = async (request, env) => {
+  const url = new URL(request.url)
+  const videoId = url.pathname.split('/').pop()
+
+  if (!videoId) {
+    return createErrorResponse('Video ID is required', 400)
+  }
+
+  const apiToken = env.YOUTUBE_TRANSCRIPT_IO_TOKEN
+  if (!apiToken) {
+    return createErrorResponse(
+      'Internal Server Error: YouTube Transcript IO API token missing',
+      500,
+    )
+  }
+
+  console.log('📺 YouTube Transcript IO Request:', { videoId })
+
+  try {
+    // Call the YouTube Transcript IO API exactly as documented
+    const response = await fetch('https://www.youtube-transcript.io/api/transcripts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ids: [videoId],
+      }),
+    })
+
+    console.log('📡 YouTube Transcript IO API Response Status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ YouTube Transcript IO API Error:', errorText)
+      return createErrorResponse(
+        `YouTube Transcript IO API error: ${response.status} - ${errorText}`,
+        response.status,
+      )
+    }
+
+    const data = await response.json()
+    console.log('✅ YouTube Transcript IO Results:', { videoId, hasData: !!data })
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        videoId: videoId,
+        transcript: data,
+      }),
+    )
+  } catch (error) {
+    console.error('❌ YouTube Transcript IO Error:', error)
+    return createErrorResponse('Failed to get YouTube transcript: ' + error.message, 500)
+  }
+}
+
+// --- DOWNSUB Transcript Endpoint ---
+const handleDownsubTranscript = async (request, env) => {
+  const url = new URL(request.url)
+  const videoId = url.pathname.split('/').pop()
+
+  if (!videoId) {
+    return createErrorResponse('Video ID is required', 400)
+  }
+
+  const apiToken = env.DOWNDUB_API_TOKEN
+  if (!apiToken) {
+    return createErrorResponse('Internal Server Error: DOWNSUB API token missing', 500)
+  }
+
+  // Construct full YouTube URL from video ID
+  const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`
+
+  console.log('🔽 DOWNSUB Request:', { videoId, youtubeUrl })
+
+  try {
+    // Call the DOWNSUB API exactly as documented
+    const response = await fetch('https://api.downsub.com/download', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: youtubeUrl,
+      }),
+    })
+
+    console.log('📡 DOWNSUB API Response Status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ DOWNSUB API Error:', errorText)
+      return createErrorResponse(
+        `DOWNSUB API error: ${response.status} - ${errorText}`,
+        response.status,
+      )
+    }
+
+    const data = await response.json()
+    console.log('✅ DOWNSUB Results:', { videoId, hasData: !!data })
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        videoId: videoId,
+        youtubeUrl: youtubeUrl,
+        transcript: data,
+      }),
+    )
+  } catch (error) {
+    console.error('❌ DOWNSUB Error:', error)
+    return createErrorResponse('Failed to get DOWNSUB transcript: ' + error.message, 500)
+  }
+}
+
 // Add new route handler for Mystmkra.io proxy
 async function handleMystmkraProxy(request) {
   const apiToken = request.headers.get('X-API-Token')
@@ -3758,8 +3877,13 @@ export default {
       return await handleYouTubeSearch(request, env)
     }
 
-    // YouTube Transcript endpoints (removed - functions not implemented)
-    // TODO: Re-implement YouTube transcript functionality when needed
+    if (pathname.startsWith('/youtube-transcript-io/') && request.method === 'GET') {
+      return await handleYouTubeTranscriptIO(request, env)
+    }
+
+    if (pathname.startsWith('/downsub-transcript/') && request.method === 'GET') {
+      return await handleDownsubTranscript(request, env)
+    }
 
     if (pathname === '/mystmkrasave' && request.method === 'POST') {
       return handleMystmkraProxy(request)

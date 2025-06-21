@@ -84,6 +84,14 @@
               >
                 {{ isLoadingTranscript ? '⏳' : '🌐' }} Transcribe
               </button>
+              <button
+                @click="fetchDownsubTranscript"
+                :disabled="!videoId || isLoadingTranscript"
+                class="btn btn-success"
+                title="DOWNSUB transcript service (alternative provider)"
+              >
+                {{ isLoadingTranscript ? '⏳' : '🔽' }} DOWNSUB
+              </button>
             </div>
           </div>
           <small v-if="videoId" class="video-id-display">Video ID: {{ videoId }}</small>
@@ -158,6 +166,90 @@
         <div v-if="isSearching" class="loading-state">
           <div class="spinner-border text-primary" role="status"></div>
           <p>Searching YouTube videos...</p>
+        </div>
+      </div>
+
+      <!-- Video Metadata Display -->
+      <div v-if="videoMetadata && transcriptText" class="video-metadata-section">
+        <h4>📹 Video Information</h4>
+        <div class="metadata-card">
+          <div class="metadata-header">
+            <div class="video-thumbnail-large">
+              <img
+                :src="videoMetadata.thumbnail"
+                :alt="videoMetadata.title"
+                @error="handleImageError"
+              />
+              <div class="video-overlay">
+                <a
+                  :href="`https://www.youtube.com/watch?v=${videoId}`"
+                  target="_blank"
+                  class="btn btn-sm btn-primary"
+                >
+                  🎬 Watch on YouTube
+                </a>
+              </div>
+            </div>
+            <div class="video-details">
+              <h5 class="video-title-meta">{{ videoMetadata.title }}</h5>
+              <div class="video-info-meta">
+                <div class="info-item">
+                  <i class="bi bi-person-circle"></i>
+                  <span>{{ videoMetadata.channelTitle || 'Unknown Channel' }}</span>
+                </div>
+                <div class="info-item" v-if="videoMetadata.duration">
+                  <i class="bi bi-clock"></i>
+                  <span>{{ formatDuration(videoMetadata.duration) }}</span>
+                </div>
+                <div class="info-item" v-if="videoMetadata.publishedAt">
+                  <i class="bi bi-calendar"></i>
+                  <span>{{ formatDate(videoMetadata.publishedAt) }}</span>
+                </div>
+                <div class="info-item">
+                  <i class="bi bi-translate"></i>
+                  <span>{{ videoMetadata.transcriptLanguage || 'Auto-detected' }}</span>
+                </div>
+                <div class="info-item">
+                  <i class="bi bi-file-text"></i>
+                  <span>{{ videoMetadata.transcriptFormat || 'TXT' }} format</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="videoMetadata.description" class="video-description-meta">
+            <div class="description-header">
+              <strong>📝 Description:</strong>
+              <button
+                @click="showFullDescription = !showFullDescription"
+                class="btn btn-sm btn-outline-secondary"
+              >
+                {{ showFullDescription ? 'Show Less' : 'Show More' }}
+              </button>
+            </div>
+            <div class="description-content" :class="{ expanded: showFullDescription }">
+              {{
+                showFullDescription
+                  ? videoMetadata.description
+                  : videoMetadata.description.slice(0, 300) + '...'
+              }}
+            </div>
+          </div>
+
+          <div class="transcript-stats">
+            <div class="stat-item">
+              <strong>{{ transcriptText.length.toLocaleString() }}</strong>
+              <span>Characters</span>
+            </div>
+            <div class="stat-item">
+              <strong>{{ Math.round(transcriptText.split(' ').length) }}</strong>
+              <span>Words</span>
+            </div>
+            <div class="stat-item">
+              <strong>{{ Math.round(transcriptText.length / 1000) }}</strong>
+              <span>KB Text</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -339,6 +431,7 @@ const selectedVideo = ref(null)
 const isLoadingTranscript = ref(false)
 const isSearching = ref(false)
 const showFullDescription = ref(false)
+const videoMetadata = ref(null)
 
 // YouTube functions
 const extractVideoId = () => {
@@ -489,13 +582,28 @@ const fetchYouTubeTranscript = async () => {
         console.log('🔍 Debug info:', errorData.debug)
       }
 
-      alert(
-        `Failed to get official captions.\n\nError: ${errorData.error || 'Unknown error'}\n\nTry the AI Whisper option for better compatibility!`,
-      )
+      // Check if this is a 404 - indicating the feature was removed
+      if (response.status === 404) {
+        alert(
+          `❌ YouTube Transcript Feature Temporarily Disabled\n\nThe automatic YouTube transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+        )
+      } else {
+        alert(
+          `Failed to get official captions.\n\nError: ${errorData.error || 'Unknown error'}\n\nTry the AI Whisper option for better compatibility!`,
+        )
+      }
     }
   } catch (error) {
     console.error('❌ YouTube transcript error:', error)
-    alert(`Error fetching official captions: ${error.message}`)
+
+    // Check if this is a fetch error that might indicate the endpoint doesn't exist
+    if (error.message.includes('404') || error.message.includes('Not Found')) {
+      alert(
+        `❌ YouTube Transcript Feature Temporarily Disabled\n\nThe automatic YouTube transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+      )
+    } else {
+      alert(`Error fetching official captions: ${error.message}`)
+    }
   } finally {
     isLoadingTranscript.value = false
   }
@@ -525,21 +633,83 @@ const fetchYouTubeTranscriptIO = async () => {
     if (response.ok) {
       const data = await response.json()
       console.log('✅ YouTube Transcript IO response:', data)
+      console.log(
+        '🔍 YouTube Transcript IO full response structure:',
+        JSON.stringify(data, null, 2),
+      )
 
-      if (data.success && data.transcript) {
-        // Convert transcript segments to text
-        const transcriptParts = data.transcript.map((segment) => segment.text).join(' ')
+      if (
+        data.success &&
+        data.transcript &&
+        Array.isArray(data.transcript) &&
+        data.transcript.length > 0
+      ) {
+        const transcriptEntry = data.transcript[0]
+        console.log('🔍 Transcript entry structure:', JSON.stringify(transcriptEntry, null, 2))
+
+        // Extract transcript text from the correct path
+        let transcriptParts = ''
+        let transcriptLanguage = 'Unknown'
+        let totalSegments = 0
+
+        if (
+          transcriptEntry.tracks &&
+          Array.isArray(transcriptEntry.tracks) &&
+          transcriptEntry.tracks.length > 0
+        ) {
+          const track = transcriptEntry.tracks[0] // Use first available track
+          transcriptLanguage = track.language || 'Unknown'
+
+          if (track.transcript && Array.isArray(track.transcript)) {
+            transcriptParts = track.transcript.map((segment) => segment.text).join(' ')
+            totalSegments = track.transcript.length
+          }
+        }
+
         transcriptText.value = transcriptParts
 
+        // Extract metadata from microformat
+        const microformat = transcriptEntry.microformat?.playerMicroformatRenderer
+        if (microformat) {
+          console.log('📺 Microformat data:', JSON.stringify(microformat, null, 2))
+
+          // Store video metadata for YouTube Transcript IO
+          videoMetadata.value = {
+            title:
+              microformat.title?.simpleText ||
+              transcriptEntry.title ||
+              `YouTube Video ${videoId.value}`,
+            description: microformat.description?.simpleText || '',
+            thumbnail: `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+            channelTitle: microformat.ownerChannelName || 'Unknown Channel',
+            channelId: microformat.externalChannelId || '',
+            channelUrl: microformat.externalChannelId
+              ? `https://www.youtube.com/channel/${microformat.externalChannelId}`
+              : '',
+            duration: microformat.lengthSeconds ? parseInt(microformat.lengthSeconds) : null,
+            publishedAt: microformat.publishDate || null,
+            category: microformat.category || '',
+            transcriptLanguage: transcriptLanguage,
+            transcriptFormat: 'YouTube Transcript IO',
+            source: 'YouTube Transcript IO',
+            videoId: videoId.value,
+            url: `https://www.youtube.com/watch?v=${videoId.value}`,
+          }
+
+          console.log('📊 YouTube Transcript IO metadata captured:', videoMetadata.value)
+        }
+
         console.log(`📝 Transcript IO extracted: ${transcriptParts.length} characters`)
+        console.log(`📊 Total segments: ${totalSegments}`)
+        console.log(`🌍 Language: ${transcriptLanguage}`)
 
         // Set source language if detected
-        if (data.language) {
-          sourceLanguage.value = data.language === 'en' ? 'english' : 'auto'
+        if (transcriptLanguage && transcriptLanguage !== 'Unknown') {
+          sourceLanguage.value = transcriptLanguage === 'en' ? 'english' : 'auto'
         }
 
         alert(
-          `✅ Third-party transcript fetched successfully!\n🌐 Service: ${data.service}\n📊 ${data.totalSegments} segments\n📝 ${transcriptParts.length} characters\n🌍 Language: ${data.language || 'auto'}`,
+          `✅ YouTube Transcript IO fetched successfully!\n🌐 Service: YouTube Transcript IO\n📊 ${totalSegments} segments\n📝 ${transcriptParts.length} characters\n🌍 Language: ${transcriptLanguage}\n🎬 Channel: ${microformat?.ownerChannelName || 'Unknown'}`,
         )
       } else {
         console.warn('⚠️ No Transcript IO data in response:', data)
@@ -549,13 +719,499 @@ const fetchYouTubeTranscriptIO = async () => {
       const errorData = await response.json()
       console.error('❌ YouTube Transcript IO failed:', errorData)
 
-      alert(
-        `Failed to get third-party transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThe video may not have transcripts available through this service.`,
-      )
+      // Check if this is a 404 - indicating the feature was removed
+      if (response.status === 404) {
+        alert(
+          `❌ YouTube Transcript Feature Temporarily Disabled\n\nThe automatic YouTube transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+        )
+      } else {
+        alert(
+          `Failed to get third-party transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThe video may not have transcripts available through this service.`,
+        )
+      }
     }
   } catch (error) {
     console.error('❌ YouTube Transcript IO error:', error)
-    alert(`Error fetching third-party transcript: ${error.message}`)
+
+    // Check if this is a fetch error that might indicate the endpoint doesn't exist
+    if (error.message.includes('404') || error.message.includes('Not Found')) {
+      alert(
+        `❌ YouTube Transcript Feature Temporarily Disabled\n\nThe automatic YouTube transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+      )
+    } else {
+      alert(`Error fetching third-party transcript: ${error.message}`)
+    }
+  } finally {
+    isLoadingTranscript.value = false
+  }
+}
+
+const fetchDownsubTranscript = async () => {
+  if (!videoId.value) {
+    alert('Please enter a valid YouTube URL or Video ID')
+    return
+  }
+
+  isLoadingTranscript.value = true
+  transcriptText.value = ''
+
+  try {
+    console.log('🔽 Fetching DOWNSUB transcript for video ID:', videoId.value)
+
+    const response = await fetch(`https://api.vegvisr.org/downsub-transcript/${videoId.value}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    console.log('📊 DOWNSUB response status:', response.status)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ DOWNSUB response:', data)
+
+      if (data.success && data.transcript && data.transcript.data) {
+        const transcriptData = data.transcript.data
+
+        console.log(
+          '🔍 DOWNSUB transcript data structure:',
+          JSON.stringify(transcriptData, null, 2),
+        )
+        console.log(
+          '📺 DOWNSUB metadata structure:',
+          JSON.stringify(transcriptData.metadata, null, 2),
+        )
+
+        // Look for English subtitles first (default language)
+        let targetSubtitles = null
+
+        // Try to find English subtitles in the main subtitles array
+        if (transcriptData.subtitles && Array.isArray(transcriptData.subtitles)) {
+          console.log(
+            '📋 Available subtitles:',
+            transcriptData.subtitles.map((sub) => ({
+              language: sub.language,
+              formats: Object.keys(sub).filter((key) => key !== 'language'),
+            })),
+          )
+
+          targetSubtitles = transcriptData.subtitles.find(
+            (sub) =>
+              sub.language === 'en' ||
+              sub.language === 'English' ||
+              sub.language.includes('English') ||
+              sub.language.includes('en') ||
+              sub.language === 'en-US' ||
+              sub.language === 'en-GB',
+          )
+        }
+
+        // If no English subtitles found, try the first available subtitle
+        if (!targetSubtitles && transcriptData.subtitles && transcriptData.subtitles.length > 0) {
+          targetSubtitles = transcriptData.subtitles[0]
+          console.log(
+            '🌐 No English subtitles found, using first available:',
+            targetSubtitles.language,
+          )
+        }
+
+        // If still no subtitles, check translatedSubtitles for English
+        if (
+          !targetSubtitles &&
+          transcriptData.translatedSubtitles &&
+          Array.isArray(transcriptData.translatedSubtitles)
+        ) {
+          console.log(
+            '📋 Available translated subtitles:',
+            transcriptData.translatedSubtitles.map((sub) => ({
+              language: sub.language,
+              formats: Object.keys(sub).filter((key) => key !== 'language'),
+            })),
+          )
+
+          targetSubtitles = transcriptData.translatedSubtitles.find(
+            (sub) =>
+              sub.language === 'en' ||
+              sub.language === 'English' ||
+              sub.language.includes('English') ||
+              sub.language.includes('en') ||
+              sub.language === 'en-US' ||
+              sub.language === 'en-GB',
+          )
+        }
+
+        // If still no subtitles found, try the first available from translatedSubtitles
+        if (
+          !targetSubtitles &&
+          transcriptData.translatedSubtitles &&
+          transcriptData.translatedSubtitles.length > 0
+        ) {
+          targetSubtitles = transcriptData.translatedSubtitles[0]
+          console.log('🌐 Using first available translated subtitle:', targetSubtitles.language)
+        }
+
+        if (targetSubtitles) {
+          console.log('🎯 Found subtitles for language:', targetSubtitles.language)
+          console.log('🔍 Subtitle object structure:', JSON.stringify(targetSubtitles, null, 2))
+
+          // Look for TXT format URL - check if formats object exists
+          let txtUrl = null
+
+          if (targetSubtitles.formats && typeof targetSubtitles.formats === 'object') {
+            console.log(
+              '📋 Found formats object:',
+              JSON.stringify(targetSubtitles.formats, null, 2),
+            )
+
+            // Check for TXT format in formats object
+            const possibleTxtKeys = ['TXT', 'txt', 'text', 'TEXT']
+            for (const key of possibleTxtKeys) {
+              if (targetSubtitles.formats[key] && targetSubtitles.formats[key].url) {
+                txtUrl = targetSubtitles.formats[key].url
+                console.log(`📋 Found TXT format with key: ${key}`)
+                break
+              }
+            }
+          } else {
+            // Fallback: check direct format keys (original approach)
+            const possibleTxtKeys = ['TXT', 'txt', 'text', 'TEXT']
+            for (const key of possibleTxtKeys) {
+              if (targetSubtitles[key] && targetSubtitles[key].url) {
+                txtUrl = targetSubtitles[key].url
+                console.log(`📋 Found TXT format with key: ${key}`)
+                break
+              }
+            }
+          }
+
+          if (txtUrl) {
+            console.log('📥 Downloading TXT file from:', txtUrl)
+
+            // Download the actual subtitle file
+            const txtResponse = await fetch(txtUrl)
+            if (txtResponse.ok) {
+              const txtContent = await txtResponse.text()
+
+              // Clean up the subtitle content to extract plain text
+              let cleanText = txtContent
+
+              // Remove SRT/VTT timing information if present
+              cleanText = cleanText
+                .replace(/\d+:\d+:\d+[,\.]\d+ --> \d+:\d+:\d+[,\.]\d+/g, '') // Remove timestamps
+                .replace(/^\d+$/gm, '') // Remove sequence numbers
+                .replace(/WEBVTT/g, '') // Remove WebVTT header
+                .replace(/NOTE.*/g, '') // Remove NOTE lines
+                .replace(/\n\s*\n/g, '\n') // Remove extra blank lines
+                .replace(/^\s+|\s+$/g, '') // Trim whitespace
+                .replace(/\n+/g, ' ') // Replace newlines with spaces
+                .trim()
+
+              transcriptText.value = cleanText
+
+              // Store video metadata
+              videoMetadata.value = {
+                title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                description: transcriptData.description || '',
+                thumbnail:
+                  transcriptData.thumbnail ||
+                  `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                channelTitle:
+                  transcriptData.metadata?.author ||
+                  transcriptData.channel ||
+                  transcriptData.channelTitle ||
+                  'Unknown Channel',
+                channelId: transcriptData.metadata?.channelId || '',
+                channelUrl: transcriptData.metadata?.channelUrl || '',
+                duration: transcriptData.duration || null,
+                publishedAt: transcriptData.publishedAt || null,
+                transcriptLanguage: targetSubtitles.language || 'Unknown',
+                transcriptFormat: 'TXT',
+                source: 'DOWNSUB',
+                videoId: videoId.value,
+                url: `https://www.youtube.com/watch?v=${videoId.value}`,
+              }
+
+              console.log(`📝 DOWNSUB TXT extracted: ${cleanText.length} characters`)
+              console.log('📄 Sample text:', cleanText.substring(0, 200) + '...')
+              console.log('📊 Video metadata captured:', videoMetadata.value)
+
+              alert(
+                `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+              )
+            } else {
+              throw new Error(`Failed to download TXT file: ${txtResponse.status}`)
+            }
+          } else {
+            // Fallback: try SRT or VTT format and extract text
+            let fallbackUrl = null
+            let fallbackFormat = null
+
+            // Try different possible format keys - check formats object first
+            const possibleSrtKeys = ['SRT', 'srt', 'SubRip']
+            const possibleVttKeys = ['VTT', 'vtt', 'WebVTT', 'webvtt']
+
+            if (targetSubtitles.formats && typeof targetSubtitles.formats === 'object') {
+              // Check for SRT formats in formats object
+              for (const key of possibleSrtKeys) {
+                if (targetSubtitles.formats[key] && targetSubtitles.formats[key].url) {
+                  fallbackUrl = targetSubtitles.formats[key].url
+                  fallbackFormat = 'SRT'
+                  console.log(`📋 Found SRT format with key: ${key}`)
+                  break
+                }
+              }
+
+              // If no SRT found, check for VTT formats in formats object
+              if (!fallbackUrl) {
+                for (const key of possibleVttKeys) {
+                  if (targetSubtitles.formats[key] && targetSubtitles.formats[key].url) {
+                    fallbackUrl = targetSubtitles.formats[key].url
+                    fallbackFormat = 'VTT'
+                    console.log(`📋 Found VTT format with key: ${key}`)
+                    break
+                  }
+                }
+              }
+            } else {
+              // Fallback: check direct format keys
+              // Check for SRT formats
+              for (const key of possibleSrtKeys) {
+                if (targetSubtitles[key] && targetSubtitles[key].url) {
+                  fallbackUrl = targetSubtitles[key].url
+                  fallbackFormat = 'SRT'
+                  console.log(`📋 Found SRT format with key: ${key}`)
+                  break
+                }
+              }
+
+              // If no SRT found, check for VTT formats
+              if (!fallbackUrl) {
+                for (const key of possibleVttKeys) {
+                  if (targetSubtitles[key] && targetSubtitles[key].url) {
+                    fallbackUrl = targetSubtitles[key].url
+                    fallbackFormat = 'VTT'
+                    console.log(`📋 Found VTT format with key: ${key}`)
+                    break
+                  }
+                }
+              }
+            }
+
+            if (fallbackUrl) {
+              console.log(
+                `📥 TXT not available, downloading ${fallbackFormat} file from:`,
+                fallbackUrl,
+              )
+
+              const fallbackResponse = await fetch(fallbackUrl)
+              if (fallbackResponse.ok) {
+                const fallbackContent = await fallbackResponse.text()
+
+                // Extract text from SRT/VTT format
+                let cleanText = fallbackContent
+                  .replace(/\d+:\d+:\d+[,\.]\d+ --> \d+:\d+:\d+[,\.]\d+/g, '') // Remove timestamps
+                  .replace(/^\d+$/gm, '') // Remove sequence numbers
+                  .replace(/WEBVTT/g, '') // Remove WebVTT header
+                  .replace(/NOTE.*/g, '') // Remove NOTE lines
+                  .replace(/<[^>]*>/g, '') // Remove HTML tags
+                  .replace(/\n\s*\n/g, '\n') // Remove extra blank lines
+                  .replace(/^\s+|\s+$/g, '') // Trim whitespace
+                  .replace(/\n+/g, ' ') // Replace newlines with spaces
+                  .trim()
+
+                transcriptText.value = cleanText
+
+                // Store video metadata for fallback format
+                videoMetadata.value = {
+                  title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                  description: transcriptData.description || '',
+                  thumbnail:
+                    transcriptData.thumbnail ||
+                    `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                  channelTitle:
+                    transcriptData.metadata?.author ||
+                    transcriptData.channel ||
+                    transcriptData.channelTitle ||
+                    'Unknown Channel',
+                  channelId: transcriptData.metadata?.channelId || '',
+                  channelUrl: transcriptData.metadata?.channelUrl || '',
+                  duration: transcriptData.duration || null,
+                  publishedAt: transcriptData.publishedAt || null,
+                  transcriptLanguage: targetSubtitles.language || 'Unknown',
+                  transcriptFormat: fallbackFormat,
+                  source: 'DOWNSUB',
+                  videoId: videoId.value,
+                  url: `https://www.youtube.com/watch?v=${videoId.value}`,
+                }
+
+                console.log(
+                  `📝 DOWNSUB ${fallbackFormat} extracted: ${cleanText.length} characters`,
+                )
+                console.log('📊 Video metadata captured:', videoMetadata.value)
+
+                alert(
+                  `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${fallbackFormat} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+                )
+              } else {
+                throw new Error(
+                  `Failed to download ${fallbackFormat} file: ${fallbackResponse.status}`,
+                )
+              }
+            } else {
+              // Last resort: try to find ANY format with a URL
+              console.log('🔍 No standard formats found, checking all available keys...')
+
+              let anyFormatUrl = null
+              let anyFormatKey = null
+
+              if (targetSubtitles.formats && typeof targetSubtitles.formats === 'object') {
+                // Check inside formats object
+                const formatKeys = Object.keys(targetSubtitles.formats)
+                console.log('📋 Available format keys in formats object:', formatKeys)
+
+                for (const key of formatKeys) {
+                  if (targetSubtitles.formats[key] && targetSubtitles.formats[key].url) {
+                    anyFormatUrl = targetSubtitles.formats[key].url
+                    anyFormatKey = key
+                    console.log(`📋 Found format with key: ${key}, URL: ${anyFormatUrl}`)
+                    break
+                  }
+                }
+              } else {
+                // Check direct keys
+                const availableKeys = Object.keys(targetSubtitles).filter(
+                  (key) => key !== 'language',
+                )
+                console.log('📋 Available format keys:', availableKeys)
+
+                for (const key of availableKeys) {
+                  if (
+                    targetSubtitles[key] &&
+                    typeof targetSubtitles[key] === 'object' &&
+                    targetSubtitles[key].url
+                  ) {
+                    anyFormatUrl = targetSubtitles[key].url
+                    anyFormatKey = key
+                    console.log(`📋 Found format with key: ${key}, URL: ${anyFormatUrl}`)
+                    break
+                  }
+                }
+              }
+
+              if (anyFormatUrl) {
+                console.log(`📥 Trying to download ${anyFormatKey} format from:`, anyFormatUrl)
+
+                const anyFormatResponse = await fetch(anyFormatUrl)
+                if (anyFormatResponse.ok) {
+                  const anyFormatContent = await anyFormatResponse.text()
+
+                  // Extract text from any subtitle format
+                  let cleanText = anyFormatContent
+                    .replace(/\d+:\d+:\d+[,\.]\d+ --> \d+:\d+:\d+[,\.]\d+/g, '') // Remove timestamps
+                    .replace(/^\d+$/gm, '') // Remove sequence numbers
+                    .replace(/WEBVTT/g, '') // Remove WebVTT header
+                    .replace(/NOTE.*/g, '') // Remove NOTE lines
+                    .replace(/<[^>]*>/g, '') // Remove HTML tags
+                    .replace(/\n\s*\n/g, '\n') // Remove extra blank lines
+                    .replace(/^\s+|\s+$/g, '') // Trim whitespace
+                    .replace(/\n+/g, ' ') // Replace newlines with spaces
+                    .trim()
+
+                  transcriptText.value = cleanText
+
+                  // Store video metadata for any format
+                  videoMetadata.value = {
+                    title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                    description: transcriptData.description || '',
+                    thumbnail:
+                      transcriptData.thumbnail ||
+                      `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                    channelTitle:
+                      transcriptData.metadata?.author ||
+                      transcriptData.channel ||
+                      transcriptData.channelTitle ||
+                      'Unknown Channel',
+                    channelId: transcriptData.metadata?.channelId || '',
+                    channelUrl: transcriptData.metadata?.channelUrl || '',
+                    duration: transcriptData.duration || null,
+                    publishedAt: transcriptData.publishedAt || null,
+                    transcriptLanguage: targetSubtitles.language || 'Unknown',
+                    transcriptFormat: anyFormatKey,
+                    source: 'DOWNSUB',
+                    videoId: videoId.value,
+                    url: `https://www.youtube.com/watch?v=${videoId.value}`,
+                  }
+
+                  console.log(
+                    `📝 DOWNSUB ${anyFormatKey} extracted: ${cleanText.length} characters`,
+                  )
+                  console.log('📊 Video metadata captured:', videoMetadata.value)
+
+                  alert(
+                    `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${anyFormatKey} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+                  )
+                } else {
+                  throw new Error(
+                    `Failed to download ${anyFormatKey} file: ${anyFormatResponse.status}`,
+                  )
+                }
+              } else {
+                if (targetSubtitles.formats && typeof targetSubtitles.formats === 'object') {
+                  const formatKeys = Object.keys(targetSubtitles.formats)
+                  console.error('❌ No subtitle formats found. Available format keys:', formatKeys)
+                  console.error('❌ Formats object:', targetSubtitles.formats)
+                  throw new Error(
+                    `No supported subtitle format found. Available format keys: ${formatKeys.join(', ')}`,
+                  )
+                } else {
+                  const availableKeys = Object.keys(targetSubtitles).filter(
+                    (key) => key !== 'language',
+                  )
+                  console.error('❌ No subtitle formats found. Available keys:', availableKeys)
+                  console.error('❌ Subtitle object:', targetSubtitles)
+                  throw new Error(
+                    `No supported subtitle format found. Available keys: ${availableKeys.join(', ')}`,
+                  )
+                }
+              }
+            }
+          }
+        } else {
+          throw new Error('No subtitles found in the DOWNSUB response')
+        }
+      } else {
+        console.warn('⚠️ No DOWNSUB data in response:', data)
+        alert(
+          `Failed to get DOWNSUB transcript.\n\nError: ${data.error || 'No transcript data found'}\n\nThe video may not have subtitles available.`,
+        )
+      }
+    } else {
+      const errorData = await response.json()
+      console.error('❌ DOWNSUB failed:', errorData)
+
+      // Check if this is a 404 - indicating the feature was removed
+      if (response.status === 404) {
+        alert(
+          `❌ DOWNSUB Transcript Feature Temporarily Disabled\n\nThe automatic DOWNSUB transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+        )
+      } else {
+        alert(
+          `Failed to get DOWNSUB transcript.\n\nError: ${errorData.error || 'Unknown error'}\n\nThe video may not have transcripts available through this service.`,
+        )
+      }
+    }
+  } catch (error) {
+    console.error('❌ DOWNSUB error:', error)
+
+    // Check if this is a fetch error that might indicate the endpoint doesn't exist
+    if (error.message.includes('404') || error.message.includes('Not Found')) {
+      alert(
+        `❌ DOWNSUB Transcript Feature Temporarily Disabled\n\nThe automatic DOWNSUB transcript extraction feature has been temporarily disabled due to technical issues.\n\nAs an alternative, you can:\n• Manually copy transcript text from YouTube (click "...More" → "Show transcript")\n• Use the "Paste Text" option to input transcript manually\n• Upload a transcript file`,
+      )
+    } else {
+      alert(`Error fetching DOWNSUB transcript: ${error.message}`)
+    }
   } finally {
     isLoadingTranscript.value = false
   }
@@ -564,6 +1220,44 @@ const fetchYouTubeTranscriptIO = async () => {
 const formatDate = (dateString) => {
   if (!dateString) return ''
   return new Date(dateString).toLocaleDateString()
+}
+
+const formatDuration = (duration) => {
+  if (!duration) return ''
+
+  // Handle different duration formats
+  if (typeof duration === 'string') {
+    // If it's already formatted (e.g., "10:23"), return as is
+    if (duration.includes(':')) return duration
+
+    // If it's seconds as string, convert to number
+    const seconds = parseInt(duration)
+    if (!isNaN(seconds)) {
+      const hours = Math.floor(seconds / 3600)
+      const minutes = Math.floor((seconds % 3600) / 60)
+      const secs = seconds % 60
+
+      if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      } else {
+        return `${minutes}:${secs.toString().padStart(2, '0')}`
+      }
+    }
+  }
+
+  if (typeof duration === 'number') {
+    const hours = Math.floor(duration / 3600)
+    const minutes = Math.floor((duration % 3600) / 60)
+    const secs = duration % 60
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    } else {
+      return `${minutes}:${secs.toString().padStart(2, '0')}`
+    }
+  }
+
+  return duration.toString()
 }
 
 const handleImageError = (event) => {
@@ -988,6 +1682,7 @@ const resetProcessor = () => {
   searchQuery.value = ''
   searchResults.value = []
   selectedVideo.value = null
+  videoMetadata.value = null
   inputMethod.value = 'upload'
   if (fileInput.value) {
     fileInput.value.value = ''
@@ -1485,6 +2180,170 @@ const close = () => {
   line-height: 1.5;
 }
 
+/* Video Metadata Styles */
+.video-metadata-section {
+  margin: 25px 0;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+  border-radius: 12px;
+  border: 1px solid #e3e9ff;
+}
+
+.video-metadata-section h4 {
+  margin-bottom: 20px;
+  color: #2c3e50;
+  text-align: center;
+  font-weight: 600;
+}
+
+.metadata-card {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.metadata-header {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  align-items: flex-start;
+}
+
+.video-thumbnail-large {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.video-thumbnail-large img {
+  width: 160px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.video-overlay {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+}
+
+.video-overlay .btn {
+  font-size: 0.75em;
+  padding: 4px 8px;
+  background: rgba(0, 123, 255, 0.9);
+  border: none;
+  color: white;
+  text-decoration: none;
+}
+
+.video-overlay .btn:hover {
+  background: rgba(0, 123, 255, 1);
+}
+
+.video-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-title-meta {
+  margin: 0 0 15px 0;
+  color: #2c3e50;
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.3;
+  word-wrap: break-word;
+}
+
+.video-info-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+.info-item i {
+  color: #007bff;
+  font-size: 1.1em;
+  width: 16px;
+  text-align: center;
+}
+
+.info-item span {
+  color: #495057;
+  font-weight: 500;
+}
+
+.video-description-meta {
+  margin: 20px 0;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.description-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.description-header strong {
+  color: #2c3e50;
+}
+
+.description-content {
+  color: #495057;
+  line-height: 1.5;
+  max-height: 100px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  white-space: pre-wrap;
+}
+
+.description-content.expanded {
+  max-height: none;
+}
+
+.transcript-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 20px;
+  padding: 15px;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border-radius: 8px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 10px;
+}
+
+.stat-item strong {
+  display: block;
+  font-size: 1.5em;
+  color: #2c3e50;
+  margin-bottom: 5px;
+}
+
+.stat-item span {
+  color: #6c757d;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 @media (max-width: 768px) {
   .modal-content {
     width: 95%;
@@ -1503,6 +2362,31 @@ const close = () => {
   .option-cards {
     flex-direction: column;
     gap: 10px;
+  }
+
+  .metadata-header {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .video-thumbnail-large {
+    align-self: center;
+  }
+
+  .video-info-meta {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .transcript-stats {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .description-header {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
   }
 }
 </style>
