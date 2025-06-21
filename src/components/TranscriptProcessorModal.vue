@@ -67,28 +67,28 @@
       <div v-if="inputMethod === 'youtube' && !transcriptText" class="youtube-section">
         <!-- YouTube URL Input -->
         <div class="form-group">
-          <label>🔗 YouTube URL or Video ID:</label>
+          <label>🔗 Video URL or YouTube Video ID:</label>
           <div class="url-input-group">
             <input
               v-model="youtubeUrl"
               @input="extractVideoId"
               class="form-control"
-              placeholder="https://www.youtube.com/watch?v=VIDEO_ID or just VIDEO_ID"
+              placeholder="https://www.youtube.com/watch?v=VIDEO_ID, https://vimeo.com/123456, or just VIDEO_ID"
             />
             <div class="transcript-method-buttons">
               <button
                 @click="fetchYouTubeTranscriptIO"
                 :disabled="!videoId || isLoadingTranscript"
                 class="btn btn-info"
-                title="Third-party transcript service (better availability)"
+                title="Third-party transcript service (YouTube only)"
               >
                 {{ isLoadingTranscript ? '⏳' : '🌐' }} Transcribe
               </button>
               <button
                 @click="fetchDownsubTranscript"
-                :disabled="!videoId || isLoadingTranscript"
+                :disabled="(!videoId && !youtubeUrl.trim()) || isLoadingTranscript"
                 class="btn btn-success"
-                title="DOWNSUB transcript service (alternative provider)"
+                title="DOWNSUB transcript service (supports YouTube, Vimeo, and other platforms)"
               >
                 {{ isLoadingTranscript ? '⏳' : '🔽' }} DOWNSUB
               </button>
@@ -433,6 +433,22 @@ const isSearching = ref(false)
 const showFullDescription = ref(false)
 const videoMetadata = ref(null)
 
+// Helper function to extract video ID from any YouTube URL
+const extractVideoIdFromUrl = (url) => {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
+  ]
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern)
+    if (match) {
+      return match[1]
+    }
+  }
+  return null
+}
+
 // YouTube functions
 const extractVideoId = () => {
   const url = youtubeUrl.value.trim()
@@ -747,23 +763,49 @@ const fetchYouTubeTranscriptIO = async () => {
 }
 
 const fetchDownsubTranscript = async () => {
-  if (!videoId.value) {
-    alert('Please enter a valid YouTube URL or Video ID')
+  // For DOWNSUB, we can use either videoId or the raw URL
+  const inputUrl = youtubeUrl.value.trim()
+  if (!inputUrl && !videoId.value) {
+    alert('Please enter a valid video URL (YouTube, Vimeo, etc.) or YouTube Video ID')
     return
   }
+
+  // Use the raw URL if available, otherwise construct YouTube URL from videoId
+  const targetUrl = inputUrl || `https://www.youtube.com/watch?v=${videoId.value}`
 
   isLoadingTranscript.value = true
   transcriptText.value = ''
 
   try {
-    console.log('🔽 Fetching DOWNSUB transcript for video ID:', videoId.value)
+    console.log('🔽 Fetching DOWNSUB transcript for URL:', targetUrl)
 
-    const response = await fetch(`https://api.vegvisr.org/downsub-transcript/${videoId.value}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+    // Define variables that will be used throughout the function
+    const isYouTubeUrl = targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be')
+    const displayVideoId =
+      videoId.value || (isYouTubeUrl ? extractVideoIdFromUrl(targetUrl) : 'N/A')
+
+    // For non-YouTube URLs, we need to send the URL in the request body
+    // For YouTube URLs, we can use the existing endpoint
+    let response
+    if (inputUrl && !inputUrl.includes('youtube.com') && !inputUrl.includes('youtu.be')) {
+      // Use POST request for non-YouTube URLs
+      response = await fetch(`https://api.vegvisr.org/downsub-url-transcript`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: targetUrl }),
+      })
+    } else {
+      // Use existing GET endpoint for YouTube URLs
+      const videoIdToUse = videoId.value || extractVideoIdFromUrl(targetUrl)
+      response = await fetch(`https://api.vegvisr.org/downsub-transcript/${videoIdToUse}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+    }
 
     console.log('📊 DOWNSUB response status:', response.status)
 
@@ -778,10 +820,14 @@ const fetchDownsubTranscript = async () => {
           '🔍 DOWNSUB transcript data structure:',
           JSON.stringify(transcriptData, null, 2),
         )
-        console.log(
-          '📺 DOWNSUB metadata structure:',
-          JSON.stringify(transcriptData.metadata, null, 2),
-        )
+        console.log('📺 Video Info:', {
+          title: transcriptData.title,
+          source: transcriptData.source,
+          duration: transcriptData.duration,
+          state: transcriptData.state,
+          subtitlesCount: transcriptData.subtitles?.length || 0,
+          translatedSubtitlesCount: transcriptData.translatedSubtitles?.length || 0,
+        })
 
         // Look for English subtitles first (default language)
         let targetSubtitles = null
@@ -909,13 +955,15 @@ const fetchDownsubTranscript = async () => {
 
               transcriptText.value = cleanText
 
-              // Store video metadata
+              // Store video metadata - handle both YouTube and non-YouTube URLs
               videoMetadata.value = {
-                title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                title: transcriptData.title || `Video ${displayVideoId}`,
                 description: transcriptData.description || '',
                 thumbnail:
                   transcriptData.thumbnail ||
-                  `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                  (isYouTubeUrl && displayVideoId !== 'N/A'
+                    ? `https://img.youtube.com/vi/${displayVideoId}/maxresdefault.jpg`
+                    : 'https://via.placeholder.com/480x360?text=Video+Thumbnail'),
                 channelTitle:
                   transcriptData.metadata?.author ||
                   transcriptData.channel ||
@@ -928,8 +976,9 @@ const fetchDownsubTranscript = async () => {
                 transcriptLanguage: targetSubtitles.language || 'Unknown',
                 transcriptFormat: 'TXT',
                 source: 'DOWNSUB',
-                videoId: videoId.value,
-                url: `https://www.youtube.com/watch?v=${videoId.value}`,
+                videoId: displayVideoId,
+                url: data.originalUrl || targetUrl,
+                platform: isYouTubeUrl ? 'YouTube' : 'Other',
               }
 
               console.log(`📝 DOWNSUB TXT extracted: ${cleanText.length} characters`)
@@ -937,7 +986,7 @@ const fetchDownsubTranscript = async () => {
               console.log('📊 Video metadata captured:', videoMetadata.value)
 
               alert(
-                `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+                `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${displayVideoId}\n🌐 Platform: ${videoMetadata.value.platform}`,
               )
             } else {
               throw new Error(`Failed to download TXT file: ${txtResponse.status}`)
@@ -1024,11 +1073,13 @@ const fetchDownsubTranscript = async () => {
 
                 // Store video metadata for fallback format
                 videoMetadata.value = {
-                  title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                  title: transcriptData.title || `Video ${displayVideoId}`,
                   description: transcriptData.description || '',
                   thumbnail:
                     transcriptData.thumbnail ||
-                    `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                    (isYouTubeUrl && displayVideoId !== 'N/A'
+                      ? `https://img.youtube.com/vi/${displayVideoId}/maxresdefault.jpg`
+                      : 'https://via.placeholder.com/480x360?text=Video+Thumbnail'),
                   channelTitle:
                     transcriptData.metadata?.author ||
                     transcriptData.channel ||
@@ -1041,8 +1092,9 @@ const fetchDownsubTranscript = async () => {
                   transcriptLanguage: targetSubtitles.language || 'Unknown',
                   transcriptFormat: fallbackFormat,
                   source: 'DOWNSUB',
-                  videoId: videoId.value,
-                  url: `https://www.youtube.com/watch?v=${videoId.value}`,
+                  videoId: displayVideoId,
+                  url: data.originalUrl || targetUrl,
+                  platform: isYouTubeUrl ? 'YouTube' : 'Other',
                 }
 
                 console.log(
@@ -1051,7 +1103,7 @@ const fetchDownsubTranscript = async () => {
                 console.log('📊 Video metadata captured:', videoMetadata.value)
 
                 alert(
-                  `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${fallbackFormat} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+                  `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${fallbackFormat} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${displayVideoId}\n🌐 Platform: ${videoMetadata.value.platform}`,
                 )
               } else {
                 throw new Error(
@@ -1122,11 +1174,13 @@ const fetchDownsubTranscript = async () => {
 
                   // Store video metadata for any format
                   videoMetadata.value = {
-                    title: transcriptData.title || `YouTube Video ${videoId.value}`,
+                    title: transcriptData.title || `Video ${displayVideoId}`,
                     description: transcriptData.description || '',
                     thumbnail:
                       transcriptData.thumbnail ||
-                      `https://img.youtube.com/vi/${videoId.value}/maxresdefault.jpg`,
+                      (isYouTubeUrl && displayVideoId !== 'N/A'
+                        ? `https://img.youtube.com/vi/${displayVideoId}/maxresdefault.jpg`
+                        : 'https://via.placeholder.com/480x360?text=Video+Thumbnail'),
                     channelTitle:
                       transcriptData.metadata?.author ||
                       transcriptData.channel ||
@@ -1139,8 +1193,9 @@ const fetchDownsubTranscript = async () => {
                     transcriptLanguage: targetSubtitles.language || 'Unknown',
                     transcriptFormat: anyFormatKey,
                     source: 'DOWNSUB',
-                    videoId: videoId.value,
-                    url: `https://www.youtube.com/watch?v=${videoId.value}`,
+                    videoId: displayVideoId,
+                    url: data.originalUrl || targetUrl,
+                    platform: isYouTubeUrl ? 'YouTube' : 'Other',
                   }
 
                   console.log(
@@ -1149,7 +1204,7 @@ const fetchDownsubTranscript = async () => {
                   console.log('📊 Video metadata captured:', videoMetadata.value)
 
                   alert(
-                    `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${anyFormatKey} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${videoId.value}`,
+                    `✅ DOWNSUB transcript fetched successfully!\n🔽 Service: DOWNSUB (${anyFormatKey} format)\n🌐 Language: ${targetSubtitles.language}\n📝 ${cleanText.length} characters\n🎬 Video: ${displayVideoId}\n🌐 Platform: ${videoMetadata.value.platform}`,
                   )
                 } else {
                   throw new Error(
@@ -1178,7 +1233,14 @@ const fetchDownsubTranscript = async () => {
             }
           }
         } else {
-          throw new Error('No subtitles found in the DOWNSUB response')
+          // Check if it's a "no_subtitles" state
+          if (transcriptData.state === 'no_subtitles') {
+            throw new Error(
+              `No subtitles available for this ${transcriptData.source || 'video'} video. The video creator has not provided captions or subtitles.`,
+            )
+          } else {
+            throw new Error('No subtitles found in the DOWNSUB response')
+          }
         }
       } else {
         console.warn('⚠️ No DOWNSUB data in response:', data)

@@ -1597,6 +1597,67 @@ const handleYouTubeTranscriptIO = async (request, env) => {
   }
 }
 
+// --- DOWNSUB URL Transcript Endpoint (for non-YouTube URLs) ---
+const handleDownsubUrlTranscript = async (request, env) => {
+  const apiToken = env.DOWNDUB_API_TOKEN
+  if (!apiToken) {
+    return createErrorResponse('Internal Server Error: DOWNSUB API token missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { url } = body
+  if (!url) {
+    return createErrorResponse('URL is required', 400)
+  }
+
+  console.log('🔽 DOWNSUB URL Request:', { url })
+
+  try {
+    // Call the DOWNSUB API with the provided URL
+    const response = await fetch('https://api.downsub.com/download', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: url,
+      }),
+    })
+
+    console.log('📡 DOWNSUB API Response Status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ DOWNSUB API Error:', errorText)
+      return createErrorResponse(
+        `DOWNSUB API error: ${response.status} - ${errorText}`,
+        response.status,
+      )
+    }
+
+    const data = await response.json()
+    console.log('✅ DOWNSUB URL Results:', { url, hasData: !!data })
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        originalUrl: url,
+        transcript: data,
+      }),
+    )
+  } catch (error) {
+    console.error('❌ DOWNSUB URL Error:', error)
+    return createErrorResponse('Failed to get DOWNSUB transcript: ' + error.message, 500)
+  }
+}
+
 // --- DOWNSUB Transcript Endpoint ---
 const handleDownsubTranscript = async (request, env) => {
   const url = new URL(request.url)
@@ -3883,6 +3944,10 @@ export default {
 
     if (pathname.startsWith('/downsub-transcript/') && request.method === 'GET') {
       return await handleDownsubTranscript(request, env)
+    }
+
+    if (pathname === '/downsub-url-transcript' && request.method === 'POST') {
+      return await handleDownsubUrlTranscript(request, env)
     }
 
     if (pathname === '/mystmkrasave' && request.method === 'POST') {
