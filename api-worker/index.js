@@ -4021,6 +4021,225 @@ const handleGetSandboxInfo = async (request, env) => {
   }
 }
 
+// Get Deployed Sandbox Code Handler
+const handleGetSandboxCode = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const userToken = url.searchParams.get('userToken')
+
+    if (!userToken) {
+      return createErrorResponse('Missing userToken parameter', 400)
+    }
+
+    // Get sandbox metadata from KV
+    const sandboxData = await env.BINDING_NAME.get(`sandbox:${userToken}`)
+    if (!sandboxData) {
+      return createErrorResponse('Sandbox not found. Please deploy your sandbox first.', 404)
+    }
+
+    const sandbox = JSON.parse(sandboxData)
+    const workerName = sandbox.workerName
+
+    const accountId = env.CF_ACCOUNT_ID
+    const apiToken = env.CF_API_TOKEN_SANDBOX
+
+    // Fetch the deployed worker code from Cloudflare API
+    console.log(`Fetching deployed code for worker: ${workerName}`)
+
+    const codeRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          Accept: 'application/javascript',
+        },
+      },
+    )
+
+    if (!codeRes.ok) {
+      const errorText = await codeRes.text()
+      console.error('Failed to fetch deployed code:', errorText)
+      return createErrorResponse(
+        `Failed to fetch deployed code: HTTP ${codeRes.status}`,
+        codeRes.status,
+      )
+    }
+
+    const deployedCode = await codeRes.text()
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        code: deployedCode,
+        workerName: sandbox.workerName,
+        endpoint: sandbox.endpoint,
+        lastUpdated: sandbox.lastUpdated,
+        fetchedAt: new Date().toISOString(),
+      }),
+      200,
+    )
+  } catch (e) {
+    console.error('Error fetching sandbox code:', e)
+    return createErrorResponse('Error fetching deployed code: ' + e.message, 500)
+  }
+}
+
+// AI Worker Generation Handler
+const handleGenerateWorker = async (request, env) => {
+  try {
+    const body = await request.json()
+    const { prompt, aiModel, selectedExamples, userPrompt } = body
+
+    if (!prompt || !aiModel) {
+      return createErrorResponse('Missing required parameters: prompt and aiModel', 400)
+    }
+
+    // Prepare context from selected examples
+    let exampleContext = ''
+    if (selectedExamples && selectedExamples.length > 0) {
+      exampleContext = `\n\nSelected Code Examples:\n${selectedExamples
+        .map((ex) => `// ${ex.title} (${ex.language})\n// ${ex.description}\n${ex.code}`)
+        .join('\n\n// ---\n\n')}`
+    }
+
+    const finalPrompt = `Generate a complete, production-ready Cloudflare Worker script based on the following requirements:
+
+User Request: ${userPrompt || 'Create a basic worker'}
+
+Context: This worker will be deployed to a RAG-enabled sandbox environment for knowledge graph operations.
+
+Requirements:
+- Must be a complete, working Cloudflare Worker
+- Should handle HTTP requests appropriately
+- Include proper error handling and CORS headers
+- Add helpful comments explaining the functionality
+- Make it production-ready and efficient
+- Return valid JavaScript code only
+
+${exampleContext}
+
+Please generate only the JavaScript code for the worker, without any markdown formatting, explanations, or additional text.`
+
+    let apiKey, baseURL, model, result
+
+    // Call the appropriate AI model
+    switch (aiModel) {
+      case 'grok':
+        apiKey = env.XAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('XAI API key not configured', 500)
+        }
+
+        const grokClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.x.ai/v1',
+        })
+
+        const grokCompletion = await grokClient.chat.completions.create({
+          model: 'grok-3-beta',
+          temperature: 0.7,
+          max_tokens: 3000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert Cloudflare Worker developer. Generate clean, production-ready JavaScript code without any markdown formatting or explanations.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = grokCompletion.choices[0].message.content.trim()
+        break
+
+      case 'openai':
+        apiKey = env.OPENAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('OpenAI API key not configured', 500)
+        }
+
+        const openaiClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.openai.com/v1',
+        })
+
+        const openaiCompletion = await openaiClient.chat.completions.create({
+          model: 'gpt-4',
+          temperature: 0.7,
+          max_tokens: 3000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert Cloudflare Worker developer. Generate clean, production-ready JavaScript code without any markdown formatting or explanations.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = openaiCompletion.choices[0].message.content.trim()
+        break
+
+      case 'gemini':
+        apiKey = env.GOOGLE_GEMINI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('Google Gemini API key not configured', 500)
+        }
+
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: finalPrompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 3000,
+              },
+            }),
+          },
+        )
+
+        if (!geminiResponse.ok) {
+          throw new Error(`Gemini API error: ${geminiResponse.status}`)
+        }
+
+        const geminiData = await geminiResponse.json()
+        result = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No code generated'
+        break
+
+      default:
+        return createErrorResponse('Invalid AI model specified', 400)
+    }
+
+    // Clean up the generated code
+    let cleanCode = result
+      .replace(/```javascript\n?/g, '')
+      .replace(/```js\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim()
+
+    // Ensure it starts with proper worker code
+    if (!cleanCode.includes('addEventListener') && !cleanCode.includes('export default')) {
+      cleanCode = `// Generated Cloudflare Worker\n${cleanCode}`
+    }
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        code: cleanCode,
+        model: aiModel,
+        timestamp: new Date().toISOString(),
+      }),
+    )
+  } catch (error) {
+    console.error('Worker generation error:', error)
+    return createErrorResponse(`Worker generation failed: ${error.message}`, 500)
+  }
+}
+
 // Removed handleCreateSandboxBrandDomain - using direct API calls instead
 
 export default {
@@ -4244,6 +4463,14 @@ export default {
 
     if (pathname === '/get-sandbox-info' && request.method === 'GET') {
       return await handleGetSandboxInfo(request, env)
+    }
+
+    if (pathname === '/get-sandbox-code' && request.method === 'GET') {
+      return await handleGetSandboxCode(request, env)
+    }
+
+    if (pathname === '/generate-worker' && request.method === 'POST') {
+      return await handleGenerateWorker(request, env)
     }
 
     // Fallback - log unmatched routes

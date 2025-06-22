@@ -5,7 +5,7 @@ export const API_CONFIG = {
   // Base URL for API calls
   baseUrl: isDevelopment
     ? 'http://127.0.0.1:8787' // Local main-worker in development
-    : 'https://www.vegvisr.org', // Production main worker URL
+    : 'https://vegvisr-frontend.torarnehave.workers.dev', // Production main worker URL
 
   // Knowledge graph worker URL (separate from main worker)
   knowledgeWorkerUrl: 'https://knowledge-graph-worker.torarnehave.workers.dev',
