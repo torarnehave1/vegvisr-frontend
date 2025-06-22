@@ -412,26 +412,36 @@ onMounted(async () => {
   }, 500)
 
   try {
-    // Load preferences and history
-    const prefsResponse = await fetch('https://api.vegvisr.org/user-preferences', {
-      headers: {
-        'X-API-Token': userStore.emailVerificationToken,
-      },
-    })
-    if (prefsResponse.ok) {
-      const prefs = await prefsResponse.json()
-      saveToHistory.value = prefs.default_save_history
-      shareWithCommunity.value = prefs.default_share_history
+    // Load preferences and history (gracefully handle missing endpoints)
+    try {
+      const prefsResponse = await fetch('https://api.vegvisr.org/user-preferences', {
+        headers: {
+          'X-API-Token': userStore.emailVerificationToken,
+        },
+      })
+      if (prefsResponse.ok) {
+        const prefs = await prefsResponse.json()
+        saveToHistory.value = prefs.default_save_history
+        shareWithCommunity.value = prefs.default_share_history
+      }
+    } catch (prefsError) {
+      // Silently handle missing user-preferences endpoint
+      console.log('User preferences endpoint not available, using defaults')
     }
 
-    const historyResponse = await fetch('https://api.vegvisr.org/ai-node-history', {
-      headers: {
-        'X-API-Token': userStore.emailVerificationToken,
-      },
-    })
-    if (historyResponse.ok) {
-      const data = await historyResponse.json()
-      nodeHistory.value = data.history || []
+    try {
+      const historyResponse = await fetch('https://api.vegvisr.org/ai-node-history', {
+        headers: {
+          'X-API-Token': userStore.emailVerificationToken,
+        },
+      })
+      if (historyResponse.ok) {
+        const data = await historyResponse.json()
+        nodeHistory.value = data.history || []
+      }
+    } catch (historyError) {
+      // Silently handle missing ai-node-history endpoint
+      console.log('AI node history endpoint not available, using empty history')
     }
   } catch (error) {
     console.error('Error loading data:', error)
@@ -514,19 +524,23 @@ const generateNode = async () => {
       throw new Error('Invalid response format from server')
     }
 
-    // Save preferences if requested
+    // Save preferences if requested (gracefully handle missing endpoint)
     if (rememberPreference.value) {
-      await fetch('https://api.vegvisr.org/user-preferences', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Token': userStore.emailVerificationToken,
-        },
-        body: JSON.stringify({
-          default_save_history: saveToHistory.value,
-          default_share_history: shareWithCommunity.value,
-        }),
-      })
+      try {
+        await fetch('https://api.vegvisr.org/user-preferences', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Token': userStore.emailVerificationToken,
+          },
+          body: JSON.stringify({
+            default_save_history: saveToHistory.value,
+            default_share_history: shareWithCommunity.value,
+          }),
+        })
+      } catch (prefsSaveError) {
+        console.log('User preferences save endpoint not available')
+      }
     }
   } catch (error) {
     console.error('=== Generation Error Details ===')

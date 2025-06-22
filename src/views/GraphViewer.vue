@@ -43,6 +43,13 @@
     >
       📁 R2 Portfolio
     </button>
+    <button
+      v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
+      @click="openRAGSandboxModal()"
+      class="btn btn-success mb-3 ms-2"
+    >
+      🧪 Create RAG Sandbox
+    </button>
     <!-- Success Message at the top -->
     <div v-if="saveMessage" class="alert alert-success text-center" role="alert">
       {{ saveMessage }}
@@ -64,6 +71,7 @@
               :total="totalVisibleNodes"
               :is-first="getNodePosition(node) === 1"
               :is-last="getNodePosition(node) === totalVisibleNodes"
+              :node-content="node.info || ''"
               @edit-label="openLabelEditor(node)"
               @edit-info="openMarkdownEditor(node)"
               @format-node="openTemplateSelector(node)"
@@ -142,6 +150,7 @@
                 :total="totalVisibleNodes"
                 :is-first="getNodePosition(node) === 1"
                 :is-last="getNodePosition(node) === totalVisibleNodes"
+                :node-content="node.info || ''"
                 @edit-label="openLabelEditor(node)"
                 @edit-info="openMarkdownEditor(node)"
                 @format-node="openTemplateSelector(node)"
@@ -199,6 +208,7 @@
                 :total="totalVisibleNodes"
                 :is-first="getNodePosition(node) === 1"
                 :is-last="getNodePosition(node) === totalVisibleNodes"
+                :node-content="node.info || ''"
                 @edit-label="openLabelEditor(node)"
                 @edit-info="openMarkdownEditor(node)"
                 @format-node="openTemplateSelector(node)"
@@ -240,6 +250,7 @@
                 :total="totalVisibleNodes"
                 :is-first="getNodePosition(node) === 1"
                 :is-last="getNodePosition(node) === totalVisibleNodes"
+                :node-content="node.info || ''"
                 @edit-label="openLabelEditor(node)"
                 @edit-info="openMarkdownEditor(node)"
                 @format-node="openTemplateSelector(node)"
@@ -253,6 +264,32 @@
               <div
                 v-html="convertToHtml(node.info || 'No additional information available.', node.id)"
               ></div>
+            </div>
+          </template>
+          <template v-else-if="node.type === 'worker-code'">
+            <h3 class="node-label">{{ node.label }}</h3>
+            <div class="node-info">
+              <NodeControlBar
+                v-if="
+                  userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)
+                "
+                :node-type="node.type"
+                :position="getNodePosition(node)"
+                :total="totalVisibleNodes"
+                :is-first="getNodePosition(node) === 1"
+                :is-last="getNodePosition(node) === totalVisibleNodes"
+                :node-content="node.info || ''"
+                @edit-label="openLabelEditor(node)"
+                @edit-info="openMarkdownEditor(node)"
+                @format-node="openTemplateSelector(node)"
+                @quick-format="handleQuickFormat(node, $event)"
+                @copy-node="openCopyNodeModal(node)"
+                @delete-node="deleteNode(node)"
+                @move-up="moveNodeUp(node)"
+                @move-down="moveNodeDown(node)"
+                @open-reorder="openReorderModal"
+              />
+              <pre class="worker-code-block">{{ node.info }}</pre>
             </div>
           </template>
           <template v-else>
@@ -269,6 +306,7 @@
                   :total="totalVisibleNodes"
                   :is-first="getNodePosition(node) === 1"
                   :is-last="getNodePosition(node) === totalVisibleNodes"
+                  :node-content="node.info || ''"
                   @edit-label="openLabelEditor(node)"
                   @edit-info="openMarkdownEditor(node)"
                   @format-node="openTemplateSelector(node)"
@@ -302,6 +340,7 @@
                   :total="totalVisibleNodes"
                   :is-first="getNodePosition(node) === 1"
                   :is-last="getNodePosition(node) === totalVisibleNodes"
+                  :node-content="node.info || ''"
                   @edit-label="openLabelEditor(node)"
                   @edit-info="openMarkdownEditor(node)"
                   @format-node="openTemplateSelector(node)"
@@ -335,6 +374,7 @@
                   :total="totalVisibleNodes"
                   :is-first="getNodePosition(node) === 1"
                   :is-last="getNodePosition(node) === totalVisibleNodes"
+                  :node-content="node.info || ''"
                   @edit-label="openLabelEditor(node)"
                   @edit-info="openMarkdownEditor(node)"
                   @format-node="openTemplateSelector(node)"
@@ -678,6 +718,16 @@
         @photo-selected="handleGooglePhotoSelected"
       />
 
+      <!-- RAG Sandbox Modal -->
+      <SandboxModal
+        :is-visible="isRAGSandboxModalOpen"
+        :graph-data="graphData"
+        :graph-id="knowledgeGraphStore.currentGraphId"
+        :user-id="userStore.user_id || 'anonymous'"
+        :user-token="userStore.emailVerificationToken"
+        @close="closeRAGSandboxModal"
+      />
+
       <!-- Quick Format Loading Overlay -->
       <div v-if="isQuickFormatLoading" class="quick-format-loading-overlay">
         <div class="loading-content">
@@ -806,6 +856,7 @@ import NodeControlBar from '@/components/NodeControlBar.vue'
 import TemplateSelector from '@/components/TemplateSelector.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
+import SandboxModal from '@/components/SandboxModal.vue'
 import { Modal } from 'bootstrap'
 import { useBranding } from '@/composables/useBranding'
 
@@ -882,6 +933,9 @@ const currentGooglePhotosData = ref({
   nodeId: '',
   nodeContent: '',
 })
+
+// RAG Sandbox modal functionality
+const isRAGSandboxModalOpen = ref(false)
 
 // Quick format loading state
 const isQuickFormatLoading = ref(false)
@@ -2345,6 +2399,21 @@ const closeGooglePhotosSelector = () => {
     nodeId: '',
     nodeContent: '',
   }
+}
+
+// RAG Sandbox Modal Functions
+const openRAGSandboxModal = (node = null) => {
+  console.log('=== Opening RAG Sandbox Modal ===')
+  console.log('Node:', node)
+  console.log('Graph data:', graphData.value)
+  console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
+  console.log('User ID:', userStore.user_id)
+
+  isRAGSandboxModalOpen.value = true
+}
+
+const closeRAGSandboxModal = () => {
+  isRAGSandboxModalOpen.value = false
 }
 
 const handleGooglePhotoSelected = async (selectionData) => {
@@ -5340,6 +5409,17 @@ img.leftside {
   background-size: 200% 100%;
   animation: progressSlide 2s ease-in-out infinite;
   border-radius: 3px;
+}
+
+.worker-code-block {
+  background: #23272e;
+  color: #f8f8f2;
+  padding: 1em;
+  border-radius: 6px;
+  font-family: 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.98em;
+  overflow-x: auto;
+  margin-top: 0.5em;
 }
 </style>
 

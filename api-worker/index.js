@@ -3834,6 +3834,195 @@ const handleRAGProxyRequest = async (request, endpoint, env) => {
   }
 }
 
+// Deploy Sandbox Handler
+const handleDeploySandbox = async (request, env) => {
+  try {
+    const { userToken, code } = await request.json()
+    if (!userToken || !code) {
+      return createErrorResponse('Missing userToken or code', 400)
+    }
+
+    // Create worker name from user token (sanitized and limited to 54 chars)
+    const sanitizedToken = userToken.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+    const workerName = `sandbox-${sanitizedToken}`.substring(0, 54)
+
+    const accountId = env.CF_ACCOUNT_ID
+    const apiToken = env.CF_API_TOKEN_SANDBOX
+    const workersSubdomain = env.CF_WORKERS_SUBDOMAIN
+
+    // Deploy/update the user's persistent sandbox worker
+    console.log(`Deploying persistent sandbox for user: ${workerName}`)
+    console.log('Worker code preview:', code.substring(0, 200) + '...')
+
+    const deployRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/javascript',
+        },
+        body: code,
+      },
+    )
+
+    const deployJson = await deployRes.json()
+    if (!deployJson.success) {
+      return createErrorResponse('Cloudflare API error: ' + JSON.stringify(deployJson.errors), 500)
+    }
+
+    const endpoint = `https://${workerName}.${workersSubdomain}.workers.dev`
+
+    // Save sandbox metadata to KV for user management
+    const sandboxMetadata = {
+      userToken,
+      workerName,
+      endpoint,
+      lastUpdated: new Date().toISOString(),
+      codePreview: code.substring(0, 500), // Store preview for debugging
+    }
+
+    await env.BINDING_NAME.put(`sandbox:${userToken}`, JSON.stringify(sandboxMetadata))
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        endpoint,
+        workerName,
+        message: 'Persistent sandbox updated successfully',
+      }),
+      200,
+    )
+  } catch (e) {
+    return createErrorResponse('Deploy error: ' + e.message, 500)
+  }
+}
+
+// Create Persistent Sandbox Domain Handler
+const handleCreateSandboxDomain = async (request, env) => {
+  try {
+    const { userToken } = await request.json()
+    if (!userToken) {
+      return createErrorResponse('Missing userToken', 400)
+    }
+
+    // Get sandbox metadata from KV
+    const sandboxData = await env.BINDING_NAME.get(`sandbox:${userToken}`)
+    if (!sandboxData) {
+      return createErrorResponse('Sandbox not found. Please deploy your sandbox first.', 404)
+    }
+
+    const sandbox = JSON.parse(sandboxData)
+    const workerName = sandbox.workerName
+
+    // Create a custom domain based on the worker name
+    const customSubdomain = workerName.replace('sandbox-', '') // Remove 'sandbox-' prefix
+    const domain = `${customSubdomain}.xyzvibe.com`
+    const zoneId = '602067f0cf860426a35860a8ab179a47' // xyzvibe.com zone ID
+    const accountId = env.CF_ACCOUNT_ID
+    const apiToken = env.CF_API_TOKEN // Use main token for domain operations
+    const workersSubdomain = env.CF_WORKERS_SUBDOMAIN
+
+    // 1. Create DNS record
+    const dnsRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'CNAME',
+        name: domain,
+        content: `${workerName}.${workersSubdomain}.workers.dev`,
+        proxied: true,
+      }),
+    })
+    const dnsJson = await dnsRes.json()
+    if (!dnsJson.success) {
+      return createErrorResponse('DNS error: ' + JSON.stringify(dnsJson.errors), 500)
+    }
+
+    // 2. Register the custom domain with the worker
+    const domainRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/domains`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          hostname: domain,
+          service: workerName,
+        }),
+      },
+    )
+    const domainJson = await domainRes.json()
+    if (!domainJson.success) {
+      return createErrorResponse('Domain error: ' + JSON.stringify(domainJson.errors), 500)
+    }
+
+    // Update sandbox metadata with custom domain
+    sandbox.customDomain = `https://${domain}`
+    sandbox.domainCreated = new Date().toISOString()
+    await env.BINDING_NAME.put(`sandbox:${userToken}`, JSON.stringify(sandbox))
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        url: `https://${domain}`,
+        workerUrl: sandbox.endpoint,
+        message: 'Custom domain created for persistent sandbox',
+      }),
+      200,
+    )
+  } catch (e) {
+    return createErrorResponse('Domain creation error: ' + e.message, 500)
+  }
+}
+
+// Get Sandbox Info Handler
+const handleGetSandboxInfo = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const userToken = url.searchParams.get('userToken')
+
+    if (!userToken) {
+      return createErrorResponse('Missing userToken parameter', 400)
+    }
+
+    const sandboxData = await env.BINDING_NAME.get(`sandbox:${userToken}`)
+    if (!sandboxData) {
+      return createResponse(
+        JSON.stringify({
+          exists: false,
+          message: 'No sandbox found for this user token',
+        }),
+        200,
+      )
+    }
+
+    const sandbox = JSON.parse(sandboxData)
+    return createResponse(
+      JSON.stringify({
+        exists: true,
+        sandbox: {
+          workerName: sandbox.workerName,
+          endpoint: sandbox.endpoint,
+          customDomain: sandbox.customDomain || null,
+          lastUpdated: sandbox.lastUpdated,
+          domainCreated: sandbox.domainCreated || null,
+        },
+      }),
+      200,
+    )
+  } catch (e) {
+    return createErrorResponse('Error retrieving sandbox info: ' + e.message, 500)
+  }
+}
+
+// Removed handleCreateSandboxBrandDomain - using direct API calls instead
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -4045,6 +4234,18 @@ export default {
       return await handleRAGProxyRequest(request, '/list-sandboxes', env)
     }
 
+    if (pathname === '/deploy-sandbox' && request.method === 'POST') {
+      return await handleDeploySandbox(request, env)
+    }
+
+    if (pathname === '/create-sandbox-domain' && request.method === 'POST') {
+      return await handleCreateSandboxDomain(request, env)
+    }
+
+    if (pathname === '/get-sandbox-info' && request.method === 'GET') {
+      return await handleGetSandboxInfo(request, env)
+    }
+
     // Fallback - log unmatched routes
     console.log('❌ No route matched, returning 404:', {
       pathname: pathname,
@@ -4058,6 +4259,9 @@ export default {
         '/rag/create-index',
         '/rag/create-sandbox',
         '/rag/list-sandboxes',
+        '/deploy-sandbox',
+        '/create-sandbox-domain',
+        '/get-sandbox-info',
         // ... other routes
       ],
     })

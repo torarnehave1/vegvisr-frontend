@@ -1,11 +1,11 @@
 // API Configuration for different environments
-const isDevelopment = import.meta.env.DEV && window.location.hostname === 'localhost'
+const isDevelopment = false // Force production mode to use production APIs
 
 export const API_CONFIG = {
   // Base URL for API calls
   baseUrl: isDevelopment
     ? 'http://127.0.0.1:8787' // Local main-worker in development
-    : 'https://vegvisr-frontend.torarnehave.workers.dev', // Production main worker URL
+    : 'https://www.vegvisr.org', // Production main worker URL
 
   // Knowledge graph worker URL (separate from main worker)
   knowledgeWorkerUrl: 'https://knowledge-graph-worker.torarnehave.workers.dev',

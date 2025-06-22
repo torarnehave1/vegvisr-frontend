@@ -3650,4 +3650,15 @@ watch(
     background-position: 200% 50%;
   }
 }
+
+.worker-code-block {
+  background: #23272e;
+  color: #f8f8f2;
+  padding: 1em;
+  border-radius: 6px;
+  font-family: 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.98em;
+  overflow-x: auto;
+  margin-top: 0.5em;
+}
 </style>

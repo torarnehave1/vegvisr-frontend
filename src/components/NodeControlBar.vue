@@ -51,19 +51,6 @@
       </button>
     </div>
 
-    <!-- RAG Sandbox Group (only when sandbox content detected) -->
-    <div v-if="hasSandboxContent" class="control-group sandbox-group">
-      <button
-        @click="$emit('open-rag-sandbox')"
-        class="control-btn sandbox-btn"
-        title="Create RAG Sandbox"
-        :aria-label="`Create RAG sandbox from ${nodeType} node`"
-      >
-        <span class="icon">🧪</span>
-        <span class="btn-text">RAG Sandbox</span>
-      </button>
-    </div>
-
     <!-- AI Action Group (only for action_test nodes) -->
     <div v-if="nodeType === 'action_test'" class="control-group ai-group">
       <button
@@ -180,34 +167,7 @@ const emit = defineEmits([
   'move-down',
   'open-reorder',
   'get-ai-response',
-  'open-rag-sandbox',
 ])
-
-// Detect if node contains executable/RAG-worthy content
-const hasSandboxContent = computed(() => {
-  if (!props.nodeContent) return false
-
-  // Check for code blocks
-  const hasCodeBlocks =
-    props.nodeContent.includes('```typescript') ||
-    props.nodeContent.includes('```javascript') ||
-    props.nodeContent.includes('```js') ||
-    props.nodeContent.includes('```ts')
-
-  // Check for configuration files
-  const hasConfig =
-    props.nodeContent.includes('wrangler.toml') || props.nodeContent.includes('package.json')
-
-  // Check for RAG/AI related keywords
-  const hasRAGKeywords =
-    props.nodeContent.includes('RAG') ||
-    props.nodeContent.includes('vector') ||
-    props.nodeContent.includes('embedding') ||
-    props.nodeContent.includes('AI.run') ||
-    props.nodeContent.includes('Workers AI')
-
-  return hasCodeBlocks || hasConfig || hasRAGKeywords
-})
 
 const getEditButtonText = computed(() => {
   switch (props.nodeType) {
