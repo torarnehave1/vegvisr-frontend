@@ -11,7 +11,8 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, x-user-role, X-API-Token, Accept, Origin',
+      'Access-Control-Allow-Headers':
+        'Content-Type, x-user-role, X-API-Token, Accept, Origin, Cache-Control',
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Max-Age': '86400',
     }
@@ -1653,9 +1654,15 @@ DO NOT use ESM or export default syntax. Return ONLY the corrected JavaScript co
 
           try {
             // Use Cloudflare Workers AI to generate code based on the prompt
-            const aiPrompt = `You are a Cloudflare Worker code generator. Generate ONLY valid Cloudflare Worker JavaScript code using the classic addEventListener syntax (NOT ESM export default).
+            const aiPrompt = `You are a Cloudflare Worker code generator. Generate ONLY raw JavaScript code - no markdown, no code fences, no explanations.
 
 User request: "${finalPrompt}"
+
+CRITICAL: Return ONLY JavaScript code. Do NOT include:
+- Triple backticks with javascript or plain backticks
+- Any markdown formatting
+- Explanations or comments
+- Code block indicators
 
 Requirements:
 - Use addEventListener('fetch', event => { event.respondWith(handleRequest(event.request)) })
@@ -1664,10 +1671,8 @@ Requirements:
 - Include OPTIONS handling
 - Return JSON responses with proper Content-Type headers
 - Keep the code simple and focused on the user's request
-- Do not include any explanations or comments outside the code
-- Make sure the response directly addresses what the user asked for
 
-Generate the complete worker code:`
+Return the complete worker code as plain JavaScript:`
 
             console.log('[Worker] Sending prompt to AI:', aiPrompt.substring(0, 200) + '...')
 
@@ -1686,6 +1691,12 @@ Generate the complete worker code:`
 
             if (aiResponse && aiResponse.response) {
               generatedCode = aiResponse.response.trim()
+
+              // Clean up any markdown formatting that might have slipped through
+              generatedCode = generatedCode.replace(/```javascript\n?/g, '')
+              generatedCode = generatedCode.replace(/```\n?/g, '')
+              generatedCode = generatedCode.trim()
+
               console.log('[Worker] Generated code length:', generatedCode.length)
               console.log(
                 '[Worker] Generated code preview:',

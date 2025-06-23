@@ -3925,7 +3925,7 @@ const handleDeploySandbox = async (request, env) => {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Type': 'application/javascript',
         },
         body: cleanCode,
       },
