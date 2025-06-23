@@ -96,31 +96,46 @@
 
 ### 8. **Deployment and Testing Preferences**
 
-**Wrangler Worker Deployment:**
+**Development and Deployment Workflow:**
 
-- **Always ask the user** if they want to deploy wrangler workers themselves
-- **Default assumption:** User will handle their own deployments
-- **Provide deployment commands** but don't assume automatic deployment
-- **Example:** "Ready to deploy? Run: `cd auth-worker && wrangler deploy`"
+- **Frontend development:** `npm run dev:vue`
+- **No local server testing:** User prefers direct deployment testing over local servers
+- **Worker deployment:** User handles all deployments themselves
+- **DO NOT suggest deployment commands** - User deploys workers manually
+- **Summary changes only:** When worker files are modified, mention it in the summary but do not provide deployment commands
+- **User manages deployments:** All wrangler deployments are handled by the user independently
 
 **Testing Environment:**
 
-- **User environment:** Linux Terminal
+- **User environment:** Windows PowerShell
 - **Preferred testing method:** CURL commands
-- **Format CURL commands** for Linux terminal compatibility
-- **Provide complete CURL examples** as single-line commands
+- **Format commands for PowerShell compatibility**
+- **Provide complete CURL examples** as PowerShell-compatible commands
 
-**CURL Command Examples for Linux Terminal:**
+**PowerShell Command Formatting:**
 
-```bash
+- **Command chaining:** Use `;` instead of `&&` for sequential commands
+- **Example:** `cd auth-worker; wrangler deploy` instead of `cd auth-worker && wrangler deploy`
+- **Alternative:** Provide separate commands on individual lines
+- **CURL commands:** Format for PowerShell compatibility
+
+**CURL Command Examples for PowerShell:**
+
+```powershell
 # POST with JSON data
-curl -X POST https://auth.vegvisr.org/picker/get-credentials -H "Content-Type: application/json" -d '{"user_email": "user@example.com"}'
+curl -X POST "https://auth.vegvisr.org/picker/get-credentials" -H "Content-Type: application/json" -d '{"user_email": "user@example.com"}'
 
 # GET with authentication
 curl "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=TOKEN_HERE"
 
 # DELETE request
-curl -X DELETE https://api.example.com/endpoint -H "Authorization: Bearer TOKEN"
+curl -X DELETE "https://api.example.com/endpoint" -H "Authorization: Bearer TOKEN"
+
+# User's specific development command
+npm run dev:vue
+
+# Note: User handles all worker deployments independently
+# Do not suggest deployment commands - mention changes in summary only
 ```
 
 ### 9. **Accountability and Language**

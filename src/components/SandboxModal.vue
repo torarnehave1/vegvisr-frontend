@@ -60,11 +60,7 @@
             <div v-if="isLoadingExamples">Loading code examples...</div>
             <div v-else-if="codeExamples.length === 0">No code examples found for this graph.</div>
             <ul v-else class="code-example-list">
-              <li
-                v-for="(example, idx) in codeExamples"
-                :key="example.id"
-                class="code-example-item"
-              >
+              <li v-for="example in codeExamples" :key="example.id" class="code-example-item">
                 <label>
                   <input type="checkbox" v-model="selectedExampleIds" :value="example.id" />
                   <strong>{{ example.title }}</strong> <span>({{ example.language }})</span>
@@ -102,6 +98,251 @@
             </select>
           </div>
 
+          <!-- Available Services Information -->
+          <div class="services-info-section">
+            <div class="services-header" @click="showServicesInfo = !showServicesInfo">
+              <h6>
+                <span v-if="showServicesInfo">🔽</span>
+                <span v-else>▶️</span>
+                🔧 Available Services & APIs
+              </h6>
+              <span class="toggle-hint"
+                >Click to {{ showServicesInfo ? 'hide' : 'show' }} details</span
+              >
+            </div>
+
+            <div v-if="showServicesInfo" class="services-details">
+              <div class="services-intro">
+                <p>
+                  <strong
+                    >Your sandbox workers have access to these pre-configured services:</strong
+                  >
+                </p>
+                <div class="r2-highlight">
+                  🗄️ <strong>R2 Storage:</strong> Each sandbox gets its own R2 bucket for file
+                  storage, accessible via <code>env.R2_BUCKET</code>
+                </div>
+              </div>
+
+              <div class="service-cards">
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('gemini')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🤖</span>
+                    <strong>Google Gemini AI</strong>
+                  </div>
+                  <div class="service-description">
+                    Generate text, analyze content, answer questions using Google's latest AI model
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Create a worker that uses Google Gemini API
+                    with env.GOOGLE_GEMINI_API_KEY to answer questions. Use the correct Gemini
+                    endpoint and include the env parameter in the handler function."
+                  </div>
+                  <div class="service-access">
+                    <strong>Access via:</strong> <code>env.GOOGLE_GEMINI_API_KEY</code><br />
+                    <strong>Endpoint:</strong> <code>generativelanguage.googleapis.com</code>
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('openai')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🧠</span>
+                    <strong>OpenAI GPT</strong>
+                  </div>
+                  <div class="service-description">
+                    Use GPT-4 and other OpenAI models for text generation and analysis
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Build a worker that uses GPT-4 to summarize
+                    documents"
+                  </div>
+                  <div class="service-access">
+                    <strong>Access via:</strong> <code>env.OPENAI_API_KEY</code>
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('pexels')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🖼️</span>
+                    <strong>Pexels Images</strong>
+                  </div>
+                  <div class="service-description">
+                    Search and retrieve high-quality stock photos and images
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Create an image search API using Pexels"
+                  </div>
+                  <div class="service-access">
+                    <strong>Access via:</strong> <code>env.PEXELS_API_KEY</code>
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('youtube')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">📺</span>
+                    <strong>YouTube Data API</strong>
+                  </div>
+                  <div class="service-description">
+                    Search YouTube videos, get video details and metadata
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Build a worker that searches YouTube for
+                    educational videos"
+                  </div>
+                  <div class="service-access">
+                    <strong>Access via:</strong> <code>env.YOUTUBE_API_KEY</code>
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div class="service-card clickable-service-card" @click="useServicePrompt('form')">
+                  <div class="service-header">
+                    <span class="service-icon">📝</span>
+                    <strong>HTML Form Handler</strong>
+                  </div>
+                  <div class="service-description">
+                    Create interactive HTML forms with validation and data processing
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Create a worker that serves an HTML contact
+                    form and processes form submissions with validation"
+                  </div>
+                  <div class="service-access">
+                    <strong>Features:</strong> Form validation, success pages, data processing<br />
+                    <strong>Methods:</strong> GET (serve form), POST (process submission)
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('upload')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">📁</span>
+                    <strong>R2 File Upload Service</strong>
+                  </div>
+                  <div class="service-description">
+                    Handle file uploads with R2 cloud storage, validation, and secure access
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Build a file upload worker that stores files
+                    in R2 bucket, validates file types, and returns secure access URLs"
+                  </div>
+                  <div class="service-access">
+                    <strong>Storage:</strong> <code>env.R2_BUCKET</code> (pre-configured)<br />
+                    <strong>Features:</strong> Secure URLs, file validation, metadata
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('r2manager')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🗂️</span>
+                    <strong>R2 File Manager</strong>
+                  </div>
+                  <div class="service-description">
+                    Complete file management system with upload, list, download, and delete
+                    operations
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Create an R2 file manager with web interface
+                    for uploading, listing, downloading, and deleting files"
+                  </div>
+                  <div class="service-access">
+                    <strong>Operations:</strong> CRUD operations on R2 files<br />
+                    <strong>Interface:</strong> HTML file browser with drag-drop
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('staticsite')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🌐</span>
+                    <strong>Static Site Hosting</strong>
+                  </div>
+                  <div class="service-description">
+                    Host static websites and files directly from R2 storage with caching
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Build a static site hosting worker that serves
+                    files from R2 with caching, custom domains, and directory listings"
+                  </div>
+                  <div class="service-access">
+                    <strong>Features:</strong> CDN caching, custom domains, directory browsing<br />
+                    <strong>Storage:</strong> R2 bucket integration
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+
+                <div
+                  class="service-card clickable-service-card"
+                  @click="useServicePrompt('imagegallery')"
+                >
+                  <div class="service-header">
+                    <span class="service-icon">🖼️</span>
+                    <strong>Image Gallery & Processing</strong>
+                  </div>
+                  <div class="service-description">
+                    Upload, resize, and display images with thumbnail generation and gallery
+                    interface
+                  </div>
+                  <div class="service-example">
+                    <strong>Example prompt:</strong> "Create an image gallery worker that uploads
+                    images to R2, generates thumbnails, and displays them in a responsive gallery"
+                  </div>
+                  <div class="service-access">
+                    <strong>Features:</strong> Image resizing, thumbnails, responsive gallery<br />
+                    <strong>Processing:</strong> Automatic optimization and metadata
+                  </div>
+                  <div class="click-hint">👆 Click to use this example</div>
+                </div>
+              </div>
+
+              <div class="services-tips">
+                <h6>💡 Tips for Better Results:</h6>
+                <ul>
+                  <li>Mention specific APIs you want to use (e.g., "using Gemini API")</li>
+                  <li>Specify the type of endpoints you need (GET, POST, etc.)</li>
+                  <li>Include CORS handling if you plan to call from browsers</li>
+                  <li>Ask for error handling and proper response formatting</li>
+                  <li>
+                    <strong>For R2 services:</strong> Mention file operations (upload, list, delete)
+                    and UI requirements
+                  </li>
+                  <li>
+                    <strong>For file uploads:</strong> Specify supported file types and size limits
+                  </li>
+                  <li>
+                    <strong>For static sites:</strong> Include caching strategy and directory
+                    structure needs
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
           <div class="user-prompt-section">
             <label for="user-prompt-textarea" class="prompt-label">
               📝 Describe Your Worker:
@@ -126,14 +367,24 @@ Examples:
               behavior for better results.
             </div>
           </div>
-          <button
-            class="primary-btn generate-worker-btn"
-            :disabled="isGeneratingWorker || !userPrompt.trim()"
-            @click="generateWorker"
-          >
-            <span v-if="isGeneratingWorker">🔄 Generating Worker...</span>
-            <span v-else>🤖 Generate AI Worker</span>
-          </button>
+          <div class="generation-buttons">
+            <button
+              class="primary-btn generate-worker-btn"
+              :disabled="isGeneratingWorker || !userPrompt.trim()"
+              @click="generateWorker"
+            >
+              <span v-if="isGeneratingWorker">🔄 Generating Worker...</span>
+              <span v-else>🤖 Generate AI Worker</span>
+            </button>
+            <button
+              v-if="generatedCode || codeValidation || aiAnalysisResult"
+              class="secondary-btn clear-all-btn"
+              @click="resetWorkerGenerationState"
+              title="Clear all generated code, validation results, and AI analysis"
+            >
+              🗑️ Clear All
+            </button>
+          </div>
           <div class="generation-info">
             <span v-if="selectedExampleIds.length > 0" class="examples-selected">
               ✅ {{ selectedExampleIds.length }} code example(s) selected
@@ -145,17 +396,185 @@ Examples:
           <div v-if="generatedCode" class="generated-code-section">
             <div class="code-header">
               <h6>Generated Worker Code</h6>
-              <div class="model-badge" :class="`model-${selectedAIModel}`">
-                <span v-if="selectedAIModel === 'openai'">🧠 GPT-4</span>
-                <span v-else-if="selectedAIModel === 'gemini'">⚡ Gemini-2.0</span>
+              <div class="header-badges">
+                <div class="model-badge" :class="`model-${selectedAIModel}`">
+                  <span v-if="selectedAIModel === 'openai'">🧠 GPT-4</span>
+                  <span v-else-if="selectedAIModel === 'gemini'">⚡ Gemini-2.0</span>
+                </div>
+                <div
+                  v-if="codeValidation"
+                  class="validation-badge"
+                  :class="
+                    codeValidation.isValid && codeValidation.syntaxValid !== false
+                      ? 'valid'
+                      : 'invalid'
+                  "
+                >
+                  <span v-if="codeValidation.isValid && codeValidation.syntaxValid !== false"
+                    >✅ Valid</span
+                  >
+                  <span v-else-if="codeValidation.syntaxValid === false">❌ Syntax Error</span>
+                  <span v-else>⚠️ Issues Found</span>
+                </div>
               </div>
             </div>
+
+            <!-- Validation Results -->
+            <div v-if="codeValidation" class="validation-results">
+              <div class="validation-score">
+                <span class="score-label">Quality Score:</span>
+                <span
+                  class="score-value"
+                  :class="
+                    getScoreClass(codeValidation.syntaxValid === false ? 0 : codeValidation.score)
+                  "
+                >
+                  {{ codeValidation.syntaxValid === false ? 0 : codeValidation.score }}/100
+                </span>
+                <span v-if="codeValidation.syntaxValid === false" class="syntax-error-note">
+                  (Syntax errors detected - code cannot run)
+                </span>
+              </div>
+
+              <div v-if="codeValidation.errors.length > 0" class="validation-errors">
+                <h6>🚨 Errors (Must Fix):</h6>
+                <ul>
+                  <li v-for="error in codeValidation.errors" :key="error" class="error-item">
+                    {{ error }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="codeValidation.warnings.length > 0" class="validation-warnings">
+                <h6>⚠️ Warnings (Recommended):</h6>
+                <ul>
+                  <li
+                    v-for="warning in codeValidation.warnings"
+                    :key="warning"
+                    class="warning-item"
+                  >
+                    {{ warning }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="validationRecommendations.length > 0" class="validation-recommendations">
+                <h6>💡 Recommendations:</h6>
+                <div
+                  v-for="rec in validationRecommendations"
+                  :key="rec.message"
+                  class="recommendation-item"
+                  :class="rec.type"
+                >
+                  <strong>{{ rec.message }}</strong>
+                  <div class="fix-suggestion">Fix: {{ rec.fix }}</div>
+                </div>
+              </div>
+
+              <!-- AI Analysis Button - Always Available -->
+              <div v-if="generatedCode && generatedCode.trim()" class="ai-fix-section">
+                <button
+                  @click="analyzeAndFixCode"
+                  :disabled="isAnalyzing || !generatedCode.trim()"
+                  class="ai-fix-btn"
+                >
+                  <span v-if="isAnalyzing">🔍 AI Analyzing Code...</span>
+                  <span v-else>🤖 AI Code Analysis</span>
+                </button>
+                <div class="ai-fix-hint">
+                  AI will analyze your code for syntax errors, security issues, and best practices
+                  using Cloudflare Workers AI
+                </div>
+              </div>
+            </div>
+
+            <!-- AI Analysis Results -->
+            <div v-if="aiAnalysisResult" class="ai-analysis-results">
+              <div class="analysis-header">
+                <h6>🤖 AI Analysis Results</h6>
+                <div class="score-improvement" v-if="aiAnalysisResult.fixed.score_improvement > 0">
+                  Score improved: +{{ aiAnalysisResult.fixed.score_improvement }} points
+                </div>
+              </div>
+
+              <div class="analysis-content">
+                <div class="analysis-section">
+                  <h6>🔍 Issues Found:</h6>
+                  <ul class="issue-list">
+                    <li v-for="issue in aiAnalysisResult.analysis.issues" :key="issue">
+                      {{ issue }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="analysis-section">
+                  <h6>🔧 Fixes Applied:</h6>
+                  <ul class="fix-list">
+                    <li v-for="fix in aiAnalysisResult.analysis.fixes" :key="fix">
+                      {{ fix }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="analysis-section">
+                  <h6>📝 Analysis:</h6>
+                  <p class="analysis-text">{{ aiAnalysisResult.analysis.analysis }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <h6>⚡ Improvements:</h6>
+                  <p class="improvements-text">{{ aiAnalysisResult.analysis.improvements }}</p>
+                </div>
+
+                <div class="analysis-actions">
+                  <div v-if="aiAnalysisResult.has_improvements" class="fixed-code-actions">
+                    <button @click="applyFixedCode" class="apply-fix-btn">
+                      ✅ Apply Improved Code
+                    </button>
+                    <button @click="showCodeComparison = !showCodeComparison" class="compare-btn">
+                      👁️ {{ showCodeComparison ? 'Hide' : 'Show' }} Comparison
+                    </button>
+                  </div>
+                  <div v-else class="analysis-note">
+                    💡 <strong>Note:</strong> This analysis provides insights and recommendations.
+                    Apply suggested fixes manually to your code above.
+                  </div>
+                </div>
+
+                <!-- Code Comparison - Show when improvements are available -->
+                <div
+                  v-if="showCodeComparison && aiAnalysisResult.has_improvements"
+                  class="code-comparison"
+                >
+                  <div class="comparison-header">
+                    <div class="original-header">❌ Original (Issues)</div>
+                    <div class="fixed-header">✅ Fixed Version</div>
+                  </div>
+                  <div class="comparison-content">
+                    <textarea
+                      class="original-code"
+                      :value="generatedCode"
+                      readonly
+                      rows="15"
+                    ></textarea>
+                    <textarea
+                      class="fixed-code"
+                      :value="aiAnalysisResult.analysis.fixedCode"
+                      readonly
+                      rows="15"
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <textarea
               v-model="generatedCode"
               class="generated-code-editor"
-              rows="12"
+              rows="15"
               spellcheck="false"
               placeholder="Generated worker code will appear here..."
+              @input="onCodeChange"
             ></textarea>
             <div class="code-editor-help">
               💡 <strong>Tip:</strong> You can edit the code above to fix any syntax errors before
@@ -163,6 +582,9 @@ Examples:
               <br />
               🔍 <strong>Common fixes:</strong> Remove trailing commas, check matching braces {},
               ensure proper function syntax.
+              <br />
+              ⚠️ <strong>CRITICAL:</strong> Do NOT use import statements - Cloudflare Workers don't
+              support them. Use addEventListener() instead.
             </div>
             <!-- Deploy and Test Buttons -->
             <div class="deploy-test-row">
@@ -244,6 +666,17 @@ Examples:
                 <button @click="compareWithGenerated" class="secondary-btn" v-if="generatedCode">
                   🔍 Compare
                 </button>
+                <button @click="analyzeDeployedCode" :disabled="isAnalyzing" class="primary-btn">
+                  <span v-if="isAnalyzing">🔍 Analyzing...</span>
+                  <span v-else>🤖 AI Analyze Deployed Code</span>
+                </button>
+              </div>
+              <div class="code-info-message">
+                <div class="info-icon">💡</div>
+                <div class="info-text">
+                  <strong>Endpoints Auto-Detection:</strong> API endpoints from this deployed code
+                  will be automatically detected and available for testing below.
+                </div>
               </div>
             </div>
 
@@ -269,6 +702,89 @@ Examples:
                   <li>Debug deployment issues</li>
                   <li>Compare with your generated code</li>
                 </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Analysis Results for Deployed Code -->
+          <div
+            v-if="aiAnalysisResult && aiAnalysisResult.source === 'deployed_code'"
+            class="ai-analysis-results"
+          >
+            <div class="analysis-header">
+              <h6>🤖 Deployed Code Analysis Results</h6>
+              <div class="score-improvement" v-if="aiAnalysisResult.fixed.score_improvement > 0">
+                Score improved: +{{ aiAnalysisResult.fixed.score_improvement }} points
+              </div>
+            </div>
+
+            <div class="analysis-content">
+              <div class="analysis-section">
+                <h6>🔍 Issues Found:</h6>
+                <ul class="issue-list">
+                  <li v-for="issue in aiAnalysisResult.analysis.issues" :key="issue">
+                    {{ issue }}
+                  </li>
+                </ul>
+              </div>
+
+              <div class="analysis-section">
+                <h6>🔧 Recommendations:</h6>
+                <ul class="fix-list">
+                  <li v-for="fix in aiAnalysisResult.analysis.fixes" :key="fix">
+                    {{ fix }}
+                  </li>
+                </ul>
+              </div>
+
+              <div class="analysis-section">
+                <h6>📝 Analysis:</h6>
+                <p class="analysis-text">{{ aiAnalysisResult.analysis.analysis }}</p>
+              </div>
+
+              <div class="analysis-section">
+                <h6>⚡ Improvements:</h6>
+                <p class="improvements-text">{{ aiAnalysisResult.analysis.improvements }}</p>
+              </div>
+
+              <div class="analysis-actions">
+                <div v-if="aiAnalysisResult.has_improvements" class="fixed-code-actions">
+                  <button @click="applyImprovedToGenerated" class="apply-fix-btn">
+                    ✅ Copy Improved Code to Create Tab
+                  </button>
+                  <button @click="showCodeComparison = !showCodeComparison" class="compare-btn">
+                    👁️ {{ showCodeComparison ? 'Hide' : 'Show' }} Comparison
+                  </button>
+                </div>
+                <div v-else class="analysis-note">
+                  💡 <strong>Note:</strong> Your deployed code analysis is complete. Use the
+                  insights above to improve future deployments.
+                </div>
+              </div>
+
+              <!-- Code Comparison for Deployed Code -->
+              <div
+                v-if="showCodeComparison && aiAnalysisResult.has_improvements"
+                class="code-comparison"
+              >
+                <div class="comparison-header">
+                  <div class="original-header">❌ Currently Deployed</div>
+                  <div class="fixed-header">✅ Improved Version</div>
+                </div>
+                <div class="comparison-content">
+                  <textarea
+                    class="original-code"
+                    :value="deployedCode"
+                    readonly
+                    rows="15"
+                  ></textarea>
+                  <textarea
+                    class="fixed-code"
+                    :value="aiAnalysisResult.analysis.fixedCode"
+                    readonly
+                    rows="15"
+                  ></textarea>
+                </div>
               </div>
             </div>
           </div>
@@ -320,10 +836,26 @@ Examples:
 
             <!-- Detected Endpoints -->
             <div v-if="detectedEndpoints.length > 0" class="endpoints-section">
-              <h5>📍 Detected Endpoints:</h5>
+              <div class="endpoints-header">
+                <h5>📍 Detected Endpoints</h5>
+                <div
+                  v-if="detectedEndpoints[0]?.source"
+                  class="endpoints-source-badge"
+                  :class="`source-${detectedEndpoints[0].source}`"
+                >
+                  <span v-if="detectedEndpoints[0].source === 'generated'"
+                    >🆕 From Generated Code</span
+                  >
+                  <span v-else-if="detectedEndpoints[0].source === 'deployed'"
+                    >🚀 From Deployed Code</span
+                  >
+                  <span v-else>📄 From Code</span>
+                </div>
+              </div>
               <div class="endpoints-help">
                 💡 <strong>Tip:</strong> These endpoints were automatically detected from your
-                worker code. Click on one to test it.
+                <strong>{{ detectedEndpoints[0]?.source || 'worker' }}</strong> code. Click on one
+                to test it.
               </div>
               <div class="endpoints-list">
                 <div
@@ -522,6 +1054,10 @@ Examples:
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+
+// Initialize the knowledge graph store
+const knowledgeGraphStore = useKnowledgeGraphStore()
 
 const props = defineProps({
   isVisible: Boolean,
@@ -562,13 +1098,19 @@ const userPrompt = ref('')
 const selectedAIModel = ref('openai') // Default to OpenAI
 const isGeneratingWorker = ref(false)
 const generatedCode = ref('')
-const isTestingSandbox = ref(false)
 const sandboxTestResult = ref(null)
 const isDeployingWorker = ref(false)
 const deployMessage = ref('')
 const isSavingWorker = ref(false)
 isSavingWorker.value = false
 const saveMessage = ref('')
+const showServicesInfo = ref(false) // Controls visibility of services information
+const codeValidation = ref(null) // Stores validation results
+const validationRecommendations = ref([]) // Stores validation recommendations
+const isValidating = ref(false) // Loading state for validation
+const isAnalyzing = ref(false) // Loading state for AI analysis
+const aiAnalysisResult = ref(null) // Stores AI analysis results
+const showCodeComparison = ref(false) // Controls code comparison visibility
 
 const graphNodeCount = computed(() => {
   return props.graphData?.nodes?.length || 0
@@ -582,12 +1124,50 @@ const closeModal = () => {
   ragResponse.value = ''
 }
 
+// Reset all state when modal becomes visible
+const resetWorkerGenerationState = () => {
+  // Reset worker generation state
+  generatedCode.value = ''
+  userPrompt.value = ''
+  selectedExampleIds.value = []
+
+  // Reset validation state
+  codeValidation.value = null
+  validationRecommendations.value = []
+  isValidating.value = false
+
+  // Reset AI analysis state
+  aiAnalysisResult.value = null
+  isAnalyzing.value = false
+  showCodeComparison.value = false
+
+  // Reset deployment state
+  deployMessage.value = ''
+  saveMessage.value = ''
+  isDeployingWorker.value = false
+  isSavingWorker.value = false
+
+  // Reset testing state
+  sandboxTestResult.value = null
+  detectedEndpoints.value = []
+  selectedEndpoint.value = null
+  testParams.value = {}
+  testRequestBody.value = ''
+  endpointResponse.value = null
+
+  // Reset other states
+  deployedCode.value = ''
+  codeError.value = ''
+  codeTimestamp.value = ''
+}
+
 // Reset to create tab when modal becomes visible
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
       activeTab.value = 'create'
+      resetWorkerGenerationState()
     }
   },
 )
@@ -691,7 +1271,7 @@ const analyzeCodeForEndpoints = (code) => {
   const endpoints = []
 
   try {
-    // Extract pathname checks and route patterns
+    // Extract pathname checks and route patterns - handles both old and modern formats
     const pathMatches = code.match(/pathname\s*===?\s*['"`]([^'"`]+)['"`]/g) || []
     const routeMatches = code.match(/if\s*\(\s*pathname\s*===?\s*['"`]([^'"`]+)['"`]/g) || []
 
@@ -808,7 +1388,7 @@ const testEndpoint = async () => {
       try {
         JSON.parse(testRequestBody.value) // Validate JSON
         requestOptions.body = testRequestBody.value
-      } catch (e) {
+      } catch {
         throw new Error('Invalid JSON in request body')
       }
     }
@@ -1089,24 +1669,57 @@ User Request: ${userPrompt.value.trim() || 'Create a basic worker'}
 
 Context: This worker will be deployed to a RAG-enabled sandbox environment for knowledge graph operations.
 
+AVAILABLE ENVIRONMENT VARIABLES & SERVICES:
+The worker has access to these pre-configured environment variables:
+- GOOGLE_GEMINI_API_KEY: Access to Google Gemini AI models (gemini-2.0-flash-thinking-exp, gemini-1.5-pro, etc.)
+- OPENAI_API_KEY: Access to OpenAI models (GPT-4, GPT-3.5-turbo, etc.)
+- XAI_API_KEY: Access to xAI Grok models
+- PEXELS_API_KEY: Access to Pexels image search API
+- YOUTUBE_API_KEY: Access to YouTube Data API v3
+
+GOOGLE GEMINI API USAGE EXAMPLE:
+async function callGemini(prompt, env) {
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': env.GOOGLE_GEMINI_API_KEY
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    })
+  })
+  return await response.json()
+}
+
+IMPORTANT: Always use the correct API endpoints and environment variables:
+- Google Gemini: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent
+- OpenAI: https://api.openai.com/v1/chat/completions
+- Pexels: https://api.pexels.com/v1/search
+- YouTube: https://www.googleapis.com/youtube/v3/search
+
 CRITICAL FORMAT REQUIREMENTS:
-- DO NOT use "export default" syntax - this will cause deployment errors
-- Use the addEventListener('fetch', event => {}) format instead
-- OR use the object format with fetch handler: addEventListener('fetch', event => { event.respondWith(handleRequest(event.request)) })
+- DO NOT use import statements - they will cause "Cannot use import statement outside a module" errors
+- ALWAYS use the modern export default { async fetch(request, env, ctx) { ... } } format
+- DO NOT use the old addEventListener('fetch', event => {}) format
+- ALWAYS include all three parameters: request, env, ctx in the fetch function
 - Include proper CORS headers for cross-origin requests
 - Handle OPTIONS requests for CORS preflight
 - Include proper error handling and status codes
 - Add helpful comments explaining the functionality
 - Make it production-ready
+- Access environment variables using: env.VARIABLE_NAME (e.g., env.GOOGLE_GEMINI_API_KEY)
+- NEVER hardcode API keys - always use environment variables
 
 CORRECT CLOUDFLARE WORKER FORMAT EXAMPLE:
-addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
-
-async function handleRequest(request) {
-  // Your worker code here
-  return new Response('Hello World', { status: 200 })
+export default {
+  async fetch(request, env, ctx) {
+    // ALWAYS include 'env' parameter to access environment variables
+    // Example: const apiKey = env.GOOGLE_GEMINI_API_KEY
+    return new Response('Hello World', { status: 200 })
+  }
 }
 
 ${exampleContext}
@@ -1156,49 +1769,53 @@ Please generate only the JavaScript code for the worker using the addEventListen
     // Remove any markdown code blocks if they slipped through
     cleanedCode = cleanedCode.replace(/```(?:javascript|js)?\n?/g, '').replace(/```/g, '')
 
-    // Fix export default syntax if present
-    if (cleanedCode.includes('export default')) {
-      console.log('🔧 Fixing export default syntax...')
+    // CRITICAL: Remove import statements that cause deployment errors
+    if (cleanedCode.includes('import')) {
+      console.log('🔧 Removing import statements...')
+      // Remove all import statements (single line and multiline)
+      cleanedCode = cleanedCode
+        .replace(/import\s+.*?from\s+['"][^'"]*['"]\s*;?\s*\n?/g, '')
+        .replace(/import\s+['"][^'"]*['"]\s*;?\s*\n?/g, '')
+        .replace(/import\s*\{[^}]*\}\s*from\s+['"][^'"]*['"]\s*;?\s*\n?/g, '')
+        .replace(/import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"]\s*;?\s*\n?/g, '')
+    }
 
-      // More robust conversion for export default object syntax
-      if (cleanedCode.match(/export\s+default\s*{[\s\S]*async\s+fetch/)) {
-        // Extract the fetch function body
-        const fetchMatch = cleanedCode.match(
-          /async\s+fetch\s*\(\s*request\s*(?:,\s*env\s*,\s*ctx\s*)?\)\s*{([\s\S]*?)}\s*(?:,|\s*})/,
-        )
+    // Handle old addEventListener format - convert to modern format if needed
+    if (cleanedCode.includes('addEventListener')) {
+      console.log('🔧 Converting old addEventListener format to modern export default format...')
 
-        if (fetchMatch) {
-          const fetchBody = fetchMatch[1]
-          cleanedCode = `addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
+      // Extract the handler function
+      const handlerMatch = cleanedCode.match(
+        /async\s+function\s+\w+\s*\(\s*request\s*(?:,\s*env\s*(?:,\s*ctx\s*)?)?\s*\)\s*{([\s\S]*?)}\s*$/,
+      )
 
-async function handleRequest(request) {${fetchBody}
+      if (handlerMatch) {
+        const handlerBody = handlerMatch[1]
+        cleanedCode = `export default {
+  async fetch(request, env, ctx) {${handlerBody}
+  }
 }`
-        } else {
-          // Fallback: just remove export default and wrap in addEventListener
-          cleanedCode = cleanedCode.replace(/export\s+default\s*{\s*/, '').replace(/}\s*$/, '')
-          cleanedCode = `addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
-
-async function handleRequest(request) {
-${cleanedCode}
-}`
-        }
       } else {
-        // Simple export default removal
-        cleanedCode = cleanedCode.replace(/export\s+default\s+/, '')
-        if (!cleanedCode.includes('addEventListener')) {
-          cleanedCode = `addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
-
-async function handleRequest(request) {
-  ${cleanedCode}
-}`
-        }
+        // Fallback: wrap everything in export default format
+        cleanedCode = cleanedCode
+          .replace(
+            /addEventListener\(['"]fetch['"],\s*(?:event\s*=>\s*{\s*)?event\.respondWith\([\w.()]+\)\s*(?:}\s*)?/g,
+            '',
+          )
+          .replace(/async\s+function\s+\w+\s*\(/g, 'async fetch(')
+          .replace(/^/, 'export default {\n  ')
+          .replace(/$/, '\n}')
       }
+    }
+
+    // Ensure modern export default format is used
+    if (!cleanedCode.includes('export default')) {
+      console.log('🔧 Adding export default wrapper...')
+      cleanedCode = `export default {
+  async fetch(request, env, ctx) {
+    ${cleanedCode}
+  }
+}`
     }
 
     // Fix common syntax issues
@@ -1227,6 +1844,15 @@ async function handleRequest(request) {
     }
 
     generatedCode.value = cleanedCode
+
+    // Extract validation info from API response if available
+    if (result.validation) {
+      codeValidation.value = result.validation
+    }
+
+    // Auto-validate the generated code
+    await validateGeneratedCode(cleanedCode)
+
     console.log('🎉 Worker code generated and cleaned successfully!')
     console.log('🔍 Cleaned code preview:', cleanedCode.substring(0, 300) + '...')
   } catch (e) {
@@ -1244,11 +1870,7 @@ async function handleRequest(request) {
   }
 }
 
-const testInSandbox = async () => {
-  // This function is no longer used for automatic testing
-  // Users will use the manual endpoint testing interface instead
-  console.log('testInSandbox called - redirecting to manual testing interface')
-}
+// testInSandbox function removed - users now use manual endpoint testing interface
 
 const deployWorker = async () => {
   if (!generatedCode.value || !generatedCode.value.trim()) {
@@ -1339,36 +1961,41 @@ const saveToKnowledgeGraph = async () => {
     return
   }
   isSavingWorker.value = true
-  saveMessage.value = ''
+  saveMessage.value = '💾 Saving worker to knowledge graph...'
+
   try {
-    // Step 1: Fetch current graph
-    const graphRes = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${props.graphId}`)
-    if (!graphRes.ok) throw new Error('Failed to fetch current graph')
-    const graphData = await graphRes.json()
-    // Step 2: Prompt for label/description (simple prompt for now)
+    // Step 1: Prompt for label/description
     let label = prompt('Enter a label for this worker node:', 'Generated Worker')
     if (!label) label = 'Generated Worker'
-    let description = userPrompt.value || ''
-    // Step 3: Add new node
+
+    // Step 2: Create new worker-code node with proper structure
     const newNode = {
       id: uuidv4(),
       label,
+      color: 'gray',
       type: 'worker-code',
       info: generatedCode.value,
-      description,
-      createdAt: new Date().toISOString(),
+      bibl: [],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: null,
     }
-    graphData.nodes.push(newNode)
-    // Step 4: Save updated graph
-    const updateRes = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: props.graphId, graphData }),
-    })
-    if (!updateRes.ok) throw new Error('Failed to update graph')
-    saveMessage.value = 'Worker node saved to Knowledge Graph!'
+
+    // Step 3: Add node to the knowledge graph store (this will handle API calls)
+    await knowledgeGraphStore.addNode(newNode)
+
+    saveMessage.value = '✅ Worker saved to knowledge graph as a reusable example!'
+
+    // Step 4: Refresh the code examples to include the newly saved worker
+    const workerCodeExamples = await fetchWorkerCodeNodes()
+    if (workerCodeExamples.length > 0) {
+      codeExamples.value = workerCodeExamples
+      console.log('📝 Code examples refreshed with new worker-code node')
+    }
   } catch (e) {
-    saveMessage.value = 'Error: ' + e.message
+    console.error('Error saving worker to knowledge graph:', e)
+    saveMessage.value = `❌ Save failed: ${e.message}`
   } finally {
     isSavingWorker.value = false
   }
@@ -1399,55 +2026,673 @@ watch(
   },
 )
 
+// Unified function to analyze endpoints from any code source
+const analyzeEndpointsFromCode = (code, source = 'unknown') => {
+  if (code && code.trim()) {
+    console.log(`🔍 Analyzing ${source} code for endpoints...`)
+    const endpoints = analyzeCodeForEndpoints(code)
+    console.log(`📍 Detected endpoints from ${source}:`, endpoints)
+
+    // Add source information to endpoints
+    const endpointsWithSource = endpoints.map((endpoint) => ({
+      ...endpoint,
+      source: source,
+    }))
+
+    detectedEndpoints.value = endpointsWithSource
+
+    // Auto-select first endpoint if available and no endpoint is currently selected
+    if (endpointsWithSource.length > 0 && !selectedEndpoint.value) {
+      selectEndpoint(endpointsWithSource[0])
+    }
+  } else {
+    detectedEndpoints.value = []
+    selectedEndpoint.value = null
+  }
+}
+
 // Analyze generated code for endpoints
 watch(
   () => generatedCode.value,
   (newCode) => {
-    if (newCode && newCode.trim()) {
-      console.log('🔍 Analyzing code for endpoints...')
-      detectedEndpoints.value = analyzeCodeForEndpoints(newCode)
-      console.log('📍 Detected endpoints:', detectedEndpoints.value)
-
-      // Auto-select first endpoint if available
-      if (detectedEndpoints.value.length > 0 && !selectedEndpoint.value) {
-        selectEndpoint(detectedEndpoints.value[0])
-      }
-    } else {
-      detectedEndpoints.value = []
-      selectedEndpoint.value = null
+    // Only analyze generated code if there's no deployed code or if we're on the create tab
+    if (activeTab.value === 'create' || !deployedCode.value) {
+      analyzeEndpointsFromCode(newCode, 'generated')
     }
   },
   { immediate: true },
 )
 
+// Analyze deployed code for endpoints when it's fetched
+watch(
+  () => deployedCode.value,
+  (newCode) => {
+    // Only analyze deployed code if we're on the test tab or if there's no generated code
+    if (activeTab.value === 'test' || !generatedCode.value) {
+      analyzeEndpointsFromCode(newCode, 'deployed')
+    }
+  },
+  { immediate: true },
+)
+
+// Switch endpoint source based on active tab
+watch(
+  () => activeTab.value,
+  (newTab) => {
+    if (newTab === 'create' && generatedCode.value) {
+      analyzeEndpointsFromCode(generatedCode.value, 'generated')
+    } else if (newTab === 'test' && deployedCode.value) {
+      analyzeEndpointsFromCode(deployedCode.value, 'deployed')
+    }
+  },
+)
+
 // Note: Removed auto-switch to test tab - let user manually switch when ready
 
-// Placeholder: Fetch code examples from the Knowledge Graph after sandbox creation
+// Function to fetch worker-code nodes from the current knowledge graph
+const fetchWorkerCodeNodes = async () => {
+  try {
+    // Get nodes from the knowledge graph store
+    const nodes = knowledgeGraphStore.nodes || []
+
+    // Filter nodes with type "worker-code"
+    const workerCodeNodes = nodes.filter(
+      (node) => node.data && node.data.type === 'worker-code' && node.data.info,
+    )
+
+    console.log('Found worker-code nodes:', workerCodeNodes.length)
+
+    // Convert nodes to code examples format
+    return workerCodeNodes.map((node) => ({
+      id: node.data.id,
+      title: node.data.label || 'Untitled Worker',
+      language: 'JavaScript',
+      description: `Worker code from knowledge graph node: ${node.data.label}`,
+      code: node.data.info,
+    }))
+  } catch (error) {
+    console.error('Error fetching worker-code nodes:', error)
+    return []
+  }
+}
+
+// Validation methods for generated worker code
+const validateGeneratedCode = async (code) => {
+  if (!code || !code.trim()) {
+    codeValidation.value = null
+    validationRecommendations.value = []
+    return
+  }
+
+  isValidating.value = true
+
+  try {
+    console.log('🔍 Validating generated worker code...')
+
+    const response = await fetch(
+      'https://vegvisr-api-worker.torarnehave.workers.dev/validate-worker',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Validation API error: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (result.success) {
+      codeValidation.value = result.validation
+      validationRecommendations.value = result.recommendations || []
+
+      console.log('✅ Code validation completed:', {
+        score: result.validation.score,
+        errors: result.validation.errors.length,
+        warnings: result.validation.warnings.length,
+        recommendations: result.recommendations.length,
+      })
+    } else {
+      console.error('Validation failed:', result)
+    }
+  } catch (error) {
+    console.error('❌ Code validation error:', error)
+    codeValidation.value = {
+      isValid: false,
+      errors: [`Validation service error: ${error.message}`],
+      warnings: [],
+      score: 0,
+    }
+    validationRecommendations.value = []
+  } finally {
+    isValidating.value = false
+  }
+}
+
+const onCodeChange = async () => {
+  // Debounce validation to avoid too many API calls
+  if (validateTimeout) {
+    clearTimeout(validateTimeout)
+  }
+
+  validateTimeout = setTimeout(() => {
+    validateGeneratedCode(generatedCode.value)
+  }, 1000) // Wait 1 second after user stops typing
+}
+
+const getScoreClass = (score) => {
+  if (score >= 80) return 'score-excellent'
+  if (score >= 60) return 'score-good'
+  if (score >= 40) return 'score-fair'
+  return 'score-poor'
+}
+
+let validateTimeout = null
+
+// AI Analysis and Fix methods
+const analyzeAndFixCode = async () => {
+  if (!generatedCode.value || !generatedCode.value.trim()) {
+    return
+  }
+
+  isAnalyzing.value = true
+  aiAnalysisResult.value = null
+
+  try {
+    console.log('🤖 Starting AI analysis and fix...')
+
+    const response = await fetch(
+      'https://knowledge-graph-worker.torarnehave.workers.dev/analyze-worker-code',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          code: generatedCode.value,
+          analysisType: 'comprehensive',
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Analysis API error: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (result.success) {
+      // Transform dev-worker response to match expected format
+      aiAnalysisResult.value = {
+        success: true,
+        analysis: {
+          analysis: result.analysis.summary || 'Code analysis completed',
+          issues: result.analysis.issues?.map((issue) => issue.message) || [],
+          fixes: result.analysis.recommendations?.map((rec) => rec.suggestion) || [],
+          fixedCode: result.improved_code || generatedCode.value, // Use improved code from dev-worker
+          improvements:
+            result.analysis.recommendations?.map((rec) => rec.suggestion).join('; ') ||
+            'No specific improvements suggested',
+        },
+        fixed: {
+          score_improvement: Math.max(0, (result.analysis.overall_score || 0) - 50), // Estimate improvement
+        },
+        has_improvements: result.has_improvements || false,
+      }
+
+      console.log('✅ AI analysis completed:', {
+        overall_score: result.analysis.overall_score,
+        issues_found: result.analysis.issues?.length || 0,
+        recommendations: result.analysis.recommendations?.length || 0,
+        deployment_ready: result.analysis.deployment_ready,
+      })
+    } else {
+      throw new Error(result.error || 'Analysis failed')
+    }
+  } catch (error) {
+    console.error('❌ AI analysis error:', error)
+    aiAnalysisResult.value = {
+      success: false,
+      error: error.message,
+      analysis: {
+        analysis: `Analysis failed: ${error.message}`,
+        issues: ['Unable to connect to analysis service'],
+        fixes: [],
+        fixedCode: generatedCode.value,
+        improvements: 'Please check your internet connection and try again.',
+      },
+    }
+  } finally {
+    isAnalyzing.value = false
+  }
+}
+
+const applyFixedCode = () => {
+  if (aiAnalysisResult.value?.analysis?.fixedCode) {
+    generatedCode.value = aiAnalysisResult.value.analysis.fixedCode
+
+    // Re-validate the improved code
+    validateGeneratedCode(generatedCode.value)
+
+    // Reset analysis result since we've applied the fix
+    aiAnalysisResult.value = null
+    showCodeComparison.value = false
+
+    console.log('✅ Improved code applied successfully!')
+  }
+}
+
+// AI Analysis for deployed code
+const analyzeDeployedCode = async () => {
+  if (!deployedCode.value || !deployedCode.value.trim()) {
+    alert('No deployed code available to analyze. Please fetch the current code first.')
+    return
+  }
+
+  isAnalyzing.value = true
+  aiAnalysisResult.value = null
+
+  try {
+    console.log('🤖 Starting AI analysis of deployed code...')
+
+    const response = await fetch(
+      'https://knowledge-graph-worker.torarnehave.workers.dev/analyze-worker-code',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          code: deployedCode.value,
+          analysisType: 'comprehensive',
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Analysis API error: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (result.success) {
+      // Transform dev-worker response to match expected format
+      aiAnalysisResult.value = {
+        success: true,
+        analysis: {
+          analysis: result.analysis.summary || 'Deployed code analysis completed',
+          issues: result.analysis.issues?.map((issue) => issue.message) || [],
+          fixes: result.analysis.recommendations?.map((rec) => rec.suggestion) || [],
+          fixedCode: result.improved_code || deployedCode.value, // Use improved code from dev-worker
+          improvements:
+            result.analysis.recommendations?.map((rec) => rec.suggestion).join('; ') ||
+            'No specific improvements suggested',
+        },
+        fixed: {
+          score_improvement: Math.max(0, (result.analysis.overall_score || 0) - 50), // Estimate improvement
+        },
+        has_improvements: result.has_improvements || false,
+        source: 'deployed_code', // Mark this as analysis of deployed code
+      }
+
+      console.log('✅ Deployed code analysis completed:', {
+        overall_score: result.analysis.overall_score,
+        issues_found: result.analysis.issues?.length || 0,
+        recommendations: result.analysis.recommendations?.length || 0,
+        deployment_ready: result.analysis.deployment_ready,
+      })
+
+      // Scroll to show the analysis results
+      setTimeout(() => {
+        const analysisSection = document.querySelector('.ai-analysis-results')
+        if (analysisSection) {
+          analysisSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 100)
+    } else {
+      throw new Error(result.error || 'Analysis failed')
+    }
+  } catch (error) {
+    console.error('❌ Deployed code analysis error:', error)
+    aiAnalysisResult.value = {
+      success: false,
+      error: error.message,
+      analysis: {
+        analysis: `Analysis failed: ${error.message}`,
+        issues: ['Unable to connect to analysis service'],
+        fixes: [],
+        fixedCode: deployedCode.value,
+        improvements: 'Please check your internet connection and try again.',
+      },
+      source: 'deployed_code',
+    }
+  } finally {
+    isAnalyzing.value = false
+  }
+}
+
+// Copy improved deployed code to the Create tab
+const applyImprovedToGenerated = () => {
+  if (aiAnalysisResult.value?.analysis?.fixedCode) {
+    generatedCode.value = aiAnalysisResult.value.analysis.fixedCode
+
+    // Switch to Create tab to show the improved code
+    activeTab.value = 'create'
+
+    // Reset analysis result and validation
+    aiAnalysisResult.value = null
+    showCodeComparison.value = false
+
+    // Re-validate the improved code
+    setTimeout(() => {
+      validateGeneratedCode(generatedCode.value)
+    }, 100)
+
+    console.log('✅ Improved deployed code copied to Create tab!')
+
+    // Scroll to the code editor in Create tab
+    setTimeout(() => {
+      const codeEditor = document.querySelector('.generated-code-editor')
+      if (codeEditor) {
+        codeEditor.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 200)
+  }
+}
+
+// Fetch code examples from the Knowledge Graph after sandbox creation
 watch(
   () => sandboxResult.value,
   async (newVal) => {
     if (newVal) {
       isLoadingExamples.value = true
       try {
-        // TODO: Replace with real API call to fetch code examples for this graph
-        // Example placeholder data:
-        codeExamples.value = [
-          {
-            id: 'ex1',
-            title: 'Basic Worker Example',
-            language: 'JavaScript',
-            description: 'A simple Cloudflare Worker that returns Hello World.',
-            code: "addEventListener('fetch', event => { event.respondWith(new Response('Hello World!')) })",
+        // First, try to fetch worker-code nodes from the current knowledge graph
+        const workerCodeExamples = await fetchWorkerCodeNodes()
+
+        // If we have worker-code nodes, use them
+        if (workerCodeExamples.length > 0) {
+          codeExamples.value = workerCodeExamples
+        } else {
+          // Fallback to default examples with pre-configured environment variables
+          codeExamples.value = [
+            {
+              id: 'gemini-api',
+              title: 'Google Gemini AI API',
+              language: 'JavaScript',
+              description:
+                'Worker that uses Google Gemini AI to generate responses from user queries.',
+              code: `export default {
+  async fetch(request, env, ctx) {
+    // Handle CORS
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      })
+    }
+
+    if (request.method === 'POST') {
+      try {
+        const { prompt } = await request.json()
+
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': env.GOOGLE_GEMINI_API_KEY
           },
-          {
-            id: 'ex2',
-            title: 'Graph Query Worker',
-            language: 'JavaScript',
-            description: 'Worker that queries the knowledge graph and returns node data.',
-            code: "addEventListener('fetch', event => { /* graph query logic */ })",
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }]
+          })
+        })
+
+        const data = await response.json()
+        return new Response(JSON.stringify(data), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      }
+    }
+
+    return new Response('Send POST request with {"prompt": "your question"}', {
+      headers: { 'Access-Control-Allow-Origin': '*' }
+    })
+  }
+}`,
+            },
+            {
+              id: 'openai-api',
+              title: 'OpenAI GPT API',
+              language: 'JavaScript',
+              description: 'Worker that uses OpenAI GPT models to process text requests.',
+              code: `export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      })
+    }
+
+    if (request.method === 'POST') {
+      try {
+        const { prompt, model = 'gpt-4' } = await request.json()
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': \`Bearer \${env.OPENAI_API_KEY}\`
           },
-        ]
-      } catch (e) {
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 500
+          })
+        })
+
+        const data = await response.json()
+        return new Response(JSON.stringify(data), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      }
+    }
+
+    return new Response('Send POST request with {"prompt": "your question", "model": "gpt-4"}')
+  }
+}`,
+            },
+            {
+              id: 'pexels-images',
+              title: 'Pexels Image Search',
+              language: 'JavaScript',
+              description: 'Worker that searches for images using the Pexels API.',
+              code: `export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      })
+    }
+
+    const url = new URL(request.url)
+    const query = url.searchParams.get('q') || 'nature'
+    const perPage = url.searchParams.get('per_page') || '10'
+
+    try {
+      const response = await fetch(\`https://api.pexels.com/v1/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}\`, {
+        headers: {
+          'Authorization': env.PEXELS_API_KEY
+        }
+      })
+
+      const data = await response.json()
+      return new Response(JSON.stringify(data), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+  }
+}`,
+            },
+            {
+              id: 'youtube-search',
+              title: 'YouTube Video Search',
+              language: 'JavaScript',
+              description: 'Worker that searches YouTube videos using the YouTube Data API.',
+              code: `export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      })
+    }
+
+    const url = new URL(request.url)
+    const query = url.searchParams.get('q') || 'cloudflare workers'
+    const maxResults = url.searchParams.get('maxResults') || '10'
+
+    try {
+      const response = await fetch(\`https://www.googleapis.com/youtube/v3/search?part=snippet&q=\${encodeURIComponent(query)}&maxResults=\${maxResults}&key=\${env.YOUTUBE_API_KEY}\`)
+
+      const data = await response.json()
+      return new Response(JSON.stringify(data), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+  }
+}`,
+            },
+            {
+              id: 'basic-worker',
+              title: 'Basic API Worker',
+              language: 'JavaScript',
+              description:
+                'A simple worker that demonstrates basic API structure with CORS support.',
+              code: `export default {
+  async fetch(request, env, ctx) {
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      })
+    }
+
+    const url = new URL(request.url)
+
+    // Simple routing
+    if (url.pathname === '/hello') {
+      return new Response(JSON.stringify({ message: 'Hello World!' }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+
+    if (url.pathname === '/time') {
+      return new Response(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        timezone: 'UTC'
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+
+    // Default response
+    return new Response(JSON.stringify({
+      endpoints: ['/hello', '/time'],
+      message: 'Welcome to your sandbox worker!'
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  }
+}`,
+            },
+          ]
+        }
+      } catch {
         codeExamples.value = []
       } finally {
         isLoadingExamples.value = false
@@ -1458,6 +2703,39 @@ watch(
     }
   },
 )
+
+// Method to populate prompt textarea when service card is clicked
+const useServicePrompt = (serviceType) => {
+  const servicePrompts = {
+    gemini:
+      'Create a Cloudflare Worker that uses Google Gemini API. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.GOOGLE_GEMINI_API_KEY for authentication. Use the endpoint https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent with x-goog-api-key header. Include CORS headers and handle OPTIONS requests. Accept POST requests with {"prompt": "text"} and return JSON responses.',
+    openai:
+      'Create a Cloudflare Worker that uses OpenAI GPT-4. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.OPENAI_API_KEY with Bearer token. Use https://api.openai.com/v1/chat/completions endpoint. Include CORS headers, handle OPTIONS requests. Accept POST with {"prompt": "text", "model": "gpt-4"} and return JSON.',
+    pexels:
+      'Create a Cloudflare Worker for Pexels image search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.PEXELS_API_KEY in Authorization header. Use https://api.pexels.com/v1/search endpoint with query and per_page parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for query parameter, and return JSON responses. CRITICAL: Add debugging route - if pathname is "/debug", return JSON with available environment variables like {pexels: env.PEXELS_API_KEY ? "available" : "missing", env_keys: Object.keys(env)}.',
+    youtube:
+      'Create a Cloudflare Worker for YouTube video search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.YOUTUBE_API_KEY. Use https://www.googleapis.com/youtube/v3/search endpoint with part=snippet, q, maxResults, and key parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for search terms.',
+    form: 'Create a Cloudflare Worker that serves HTML forms. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. For GET requests, return HTML form with name, email, message fields and proper CSS styling. For POST requests, parse formData, validate inputs, and return success/error HTML pages. Include CORS headers and handle OPTIONS requests.',
+    upload:
+      'Create a Cloudflare Worker for R2 file uploads. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING (R2 bucket binding) OR env.R2_BUCKET with env.R2_ACCESS_KEY_ID, env.R2_SECRET_ACCESS_KEY for direct access. For GET requests, serve HTML upload interface with drag-drop. For POST requests, validate file types (jpg,png,pdf,txt), check file sizes, upload to R2 using put() method, return JSON with file URLs. Include CORS headers.',
+    r2manager:
+      'Create a Cloudflare Worker for complete R2 file management. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING (R2 bucket binding) for direct access. Handle GET / (serve HTML file browser), GET /list (return JSON file list with list() method), POST /upload (handle file uploads with put() method), DELETE /delete (delete files with delete() method). Include responsive HTML interface with file icons and drag-drop upload.',
+    staticsite:
+      'Create a Cloudflare Worker for static site hosting from R2. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING for storage access. Parse URL pathname, fetch files from R2 using get() method, set proper Content-Type headers based on file extensions, add cache headers (max-age=3600), support index.html files for directories. Handle 404 errors gracefully with proper status codes.',
+    imagegallery:
+      'Create a Cloudflare Worker for image gallery with R2 storage. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING for storage access. For GET requests, serve HTML gallery interface with responsive grid, lightbox viewer, lazy loading. For POST /upload, accept image files, validate types (jpg,png,gif,webp), store in R2 using put() method, return JSON with image URLs and metadata.',
+  }
+
+  if (servicePrompts[serviceType]) {
+    userPrompt.value = servicePrompts[serviceType]
+    // Scroll to the prompt textarea to show it's been populated
+    const textarea = document.getElementById('user-prompt-textarea')
+    if (textarea) {
+      textarea.focus()
+      textarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -2021,6 +3299,28 @@ watch(
   border-top: 1px solid #ddd;
 }
 
+.code-info-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f0f7ff;
+  border-top: 1px solid #b3d9ff;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.info-icon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.info-text {
+  font-size: 13px;
+  color: #0056b3;
+  line-height: 1.4;
+}
+
 .code-error {
   background: #fff3cd;
   border: 1px solid #ffeaa7;
@@ -2388,6 +3688,37 @@ watch(
   margin-bottom: 20px;
 }
 
+.endpoints-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.endpoints-header h5 {
+  margin: 0;
+}
+
+.endpoints-source-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.endpoints-source-badge.source-generated {
+  background: #e8f5e8;
+  color: #2e7d32;
+  border-color: #4caf50;
+}
+
+.endpoints-source-badge.source-deployed {
+  background: #e3f2fd;
+  color: #1976d2;
+  border-color: #2196f3;
+}
+
 .endpoints-list {
   display: flex;
   flex-direction: column;
@@ -2602,5 +3933,616 @@ watch(
   white-space: pre-wrap;
   line-height: 1.5;
   border-left: 4px solid #4caf50;
+}
+
+/* Services Information Section */
+.services-info-section {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.services-header {
+  padding: 12px 16px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border-radius: 8px 8px 0 0;
+  transition: background 0.2s ease;
+}
+
+.services-header:hover {
+  background: linear-gradient(135deg, #bbdefb 0%, #e1bee7 100%);
+}
+
+.services-header h6 {
+  margin: 0;
+  color: #1976d2;
+  font-weight: 600;
+}
+
+.toggle-hint {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.services-details {
+  padding: 16px;
+  border-top: 1px solid #e9ecef;
+}
+
+.services-intro {
+  margin-bottom: 16px;
+}
+
+.services-intro p {
+  margin: 0;
+  color: #333;
+}
+
+.r2-highlight {
+  background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%);
+  border: 1px solid #4caf50;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.r2-highlight code {
+  background: #e8f5e8;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: #2e7d32;
+  font-size: 12px;
+}
+
+.service-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.service-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.service-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.clickable-service-card {
+  cursor: pointer;
+  position: relative;
+}
+
+.clickable-service-card:hover {
+  border-color: #1976d2;
+  box-shadow: 0 6px 20px rgba(25, 118, 210, 0.15);
+  transform: translateY(-3px);
+}
+
+.clickable-service-card:active {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.2);
+}
+
+.click-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: linear-gradient(135deg, #1976d2, #42a5f5);
+  color: white;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.clickable-service-card:hover .click-hint {
+  opacity: 1;
+}
+
+.service-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.service-icon {
+  font-size: 20px;
+}
+
+.service-description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.service-example {
+  background: #f8f9fa;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid #1976d2;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.service-example strong {
+  color: #1976d2;
+}
+
+.service-access {
+  font-size: 12px;
+  color: #666;
+}
+
+.service-access code {
+  background: #e8f5e8;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: #2e7d32;
+  font-size: 11px;
+}
+
+.services-tips {
+  background: #fff3e0;
+  border: 1px solid #ffcc02;
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.services-tips h6 {
+  margin: 0 0 12px 0;
+  color: #f57c00;
+}
+
+.services-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.services-tips li {
+  margin-bottom: 6px;
+  color: #333;
+  font-size: 14px;
+}
+
+/* Generation Buttons */
+.generation-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.clear-all-btn {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clear-all-btn:hover {
+  background: #d32f2f;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.2);
+}
+
+.clear-all-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(244, 67, 54, 0.2);
+}
+
+/* Validation Styles */
+.header-badges {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.validation-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.validation-badge.valid {
+  background: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #4caf50;
+}
+
+.validation-badge.invalid {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #f44336;
+}
+
+.validation-results {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.validation-score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.score-label {
+  font-weight: 500;
+  color: #333;
+}
+
+.score-value {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.score-excellent {
+  background: #e8f5e8;
+  color: #2e7d32;
+}
+
+.score-good {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.score-fair {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.score-poor {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.syntax-error-note {
+  font-size: 12px;
+  color: #c62828;
+  font-style: italic;
+  margin-left: 8px;
+}
+
+.validation-errors {
+  margin-bottom: 12px;
+}
+
+.validation-errors h6 {
+  margin: 0 0 8px 0;
+  color: #c62828;
+  font-size: 14px;
+}
+
+.validation-errors ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.error-item {
+  color: #c62828;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.validation-warnings {
+  margin-bottom: 12px;
+}
+
+.validation-warnings h6 {
+  margin: 0 0 8px 0;
+  color: #f57c00;
+  font-size: 14px;
+}
+
+.validation-warnings ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.warning-item {
+  color: #f57c00;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.validation-recommendations {
+  margin-top: 12px;
+}
+
+.validation-recommendations h6 {
+  margin: 0 0 8px 0;
+  color: #1976d2;
+  font-size: 14px;
+}
+
+.recommendation-item {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.recommendation-item.error {
+  border-left: 4px solid #f44336;
+}
+
+.recommendation-item.warning {
+  border-left: 4px solid #ff9800;
+}
+
+.fix-suggestion {
+  margin-top: 4px;
+  font-style: italic;
+  color: #666;
+  font-size: 12px;
+}
+
+/* AI Analysis and Fix Styles */
+.ai-fix-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%);
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.ai-fix-btn {
+  background: linear-gradient(135deg, #4caf50 0%, #2196f3 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ai-fix-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.ai-fix-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ai-fix-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #2e7d32;
+  font-style: italic;
+}
+
+.ai-analysis-results {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.analysis-header {
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  padding: 16px;
+  border-bottom: 1px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.analysis-header h6 {
+  margin: 0;
+  color: #1976d2;
+  font-size: 16px;
+}
+
+.score-improvement {
+  background: #e8f5e8;
+  color: #2e7d32;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.analysis-content {
+  padding: 16px;
+}
+
+.analysis-section {
+  margin-bottom: 16px;
+}
+
+.analysis-section h6 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 14px;
+}
+
+.issue-list,
+.fix-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.issue-list li {
+  color: #c62828;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.fix-list li {
+  color: #2e7d32;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.analysis-text,
+.improvements-text {
+  margin: 0;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.5;
+  background: white;
+  padding: 12px;
+  border-radius: 4px;
+  border-left: 4px solid #1976d2;
+}
+
+.improvements-text {
+  border-left-color: #4caf50;
+}
+
+.analysis-actions {
+  margin: 16px 0;
+}
+
+.analysis-note {
+  background: #f0f7ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+  padding: 12px;
+  color: #0056b3;
+  font-size: 14px;
+}
+
+.fixed-code-actions {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.apply-fix-btn {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.apply-fix-btn:hover {
+  background: #45a049;
+}
+
+.compare-btn {
+  background: #2196f3;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.compare-btn:hover {
+  background: #1976d2;
+}
+
+.code-comparison {
+  margin-top: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.comparison-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #f5f5f5;
+}
+
+.original-header,
+.fixed-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.original-header {
+  color: #c62828;
+  background: #ffebee;
+  border-right: 1px solid #e0e0e0;
+}
+
+.fixed-header {
+  color: #2e7d32;
+  background: #e8f5e8;
+}
+
+.comparison-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.original-code,
+.fixed-code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  border: none;
+  padding: 12px;
+  resize: none;
+  background: white;
+}
+
+.original-code {
+  border-right: 1px solid #e0e0e0;
+  background: #fffbfb;
+}
+
+.fixed-code {
+  background: #f8fff8;
 }
 </style>
