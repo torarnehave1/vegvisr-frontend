@@ -13,6 +13,7 @@ import GraphPortfolio from '@/views/GraphPortfolio.vue'
 import GitHubIssuesView from '@/views/GitHubIssuesView.vue'
 import R2Portfolio from '../views/R2Portfolio.vue'
 import ProxyTest from '../views/ProxyTest.vue'
+import SandboxWorkspace from '../components/SandboxWorkspace.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -159,6 +160,16 @@ const router = createRouter({
       component: ProxyTest,
       meta: { layout: null }, // No layout for clean testing
     },
+    {
+      path: '/sandbox',
+      name: 'sandbox',
+      component: SandboxWorkspace,
+      meta: {
+        requiresAuth: true,
+        requiresSuperadmin: true,
+        layout: null,
+      },
+    },
   ],
 })
 
@@ -170,6 +181,12 @@ router.beforeEach((to, from, next) => {
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {
+      // Check for Superadmin requirement
+      if (to.meta.requiresSuperadmin && userStore.role !== 'Superadmin') {
+        console.warn('[Router] User is not Superadmin. Access denied.')
+        next({ path: '/user' }) // Redirect to user dashboard
+        return
+      }
       console.log('[Router] User is authenticated. Proceeding.')
       next()
     } else {

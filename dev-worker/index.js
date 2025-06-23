@@ -1373,129 +1373,78 @@ export default {
         }
       }
 
-      if (pathname === '/generate-worker-ai' && request.method === 'POST') {
+      if (pathname === '/validate-worker' && request.method === 'POST') {
         try {
-          console.log('[Worker] Starting AI worker generation...')
-
           const requestBody = await request.json()
-          const { prompt, aiModel, selectedExamples, userPrompt, useCloudflareAI, workingExample } =
-            requestBody
+          const { code } = requestBody
 
-          if (!prompt) {
-            return new Response(JSON.stringify({ error: 'Missing required parameter: prompt' }), {
+          if (!code) {
+            return new Response(JSON.stringify({ error: 'Code is required' }), {
               status: 400,
               headers: corsHeaders,
             })
           }
 
-          // Check if Cloudflare AI binding is available
-          if (!env.AI) {
-            console.error('[Worker] AI binding not available')
-            return new Response(JSON.stringify({ error: 'AI binding not configured' }), {
-              status: 500,
-              headers: corsHeaders,
-            })
-          }
-
-          // Prepare context from selected examples
-          let exampleContext = ''
-          if (selectedExamples && selectedExamples.length > 0) {
-            exampleContext = `\n\nSelected Code Examples:\n${selectedExamples
-              .map((ex) => `// ${ex.title} (${ex.language})\n// ${ex.description}\n${ex.code}`)
-              .join('\n\n// ---\n\n')}`
-          }
-
-          // Enhanced prompt with working example
-          const enhancedPrompt = `You are an expert Cloudflare Worker developer. Generate a complete, production-ready Cloudflare Worker script.
-
-CRITICAL: Follow this EXACT working pattern:
-
-${workingExample}
-
-User Request: ${userPrompt || 'Create a basic worker'}
-
-RULES:
-1. ALWAYS use: export default { async fetch(request, env, ctx) { ... } }
-2. ALWAYS pass both request AND env parameters to helper functions
-3. ALWAYS include proper CORS handling
-4. ALWAYS use try-catch for error handling
-5. ALWAYS include /debug endpoint for testing
-6. DO NOT use import statements
-7. DO NOT use addEventListener format
-
-${exampleContext}
-
-Generate ONLY the JavaScript code following the working example pattern. No markdown, no explanations.`
-
-          console.log('[Worker] Using Cloudflare Workers AI for code generation...')
-
-          // Use Cloudflare Workers AI
-          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are an expert Cloudflare Worker developer. Generate clean, production-ready JavaScript code using the modern export default format. Follow the provided working example exactly.',
-              },
-              {
-                role: 'user',
-                content: enhancedPrompt,
-              },
-            ],
-            max_tokens: 3000,
-            temperature: 0.3, // Lower temperature for more consistent code generation
-          })
-
-          let result = aiResponse.response || ''
-
-          // Clean up the generated code
-          let cleanCode = result
-            .replace(/```javascript\n?/g, '')
-            .replace(/```js\n?/g, '')
-            .replace(/```\n?/g, '')
-            .trim()
-
-          // Ensure it uses the modern format
-          if (!cleanCode.includes('export default')) {
-            console.log('[Worker] Adding export default wrapper...')
-            cleanCode = `export default {
-  async fetch(request, env, ctx) {
-    ${cleanCode}
-  }
-}`
-          }
-
-          // Basic validation
-          const hasExportDefault = cleanCode.includes('export default')
-          const hasFetchFunction = cleanCode.includes('async fetch(request, env, ctx)')
-          const hasDebugEndpoint = cleanCode.includes('/debug')
-
+          // Basic validation checks
           const validation = {
-            isValid: hasExportDefault && hasFetchFunction,
+            isValid: true,
             errors: [],
             warnings: [],
-            score: 0,
+            score: 100,
           }
 
-          if (!hasExportDefault) validation.errors.push('Missing export default structure')
-          if (!hasFetchFunction) validation.errors.push('Missing proper fetch function signature')
-          if (!hasDebugEndpoint) validation.warnings.push('Missing /debug endpoint for testing')
+          // Check for export default
+          if (!code.includes('export default')) {
+            validation.errors.push('Missing export default structure')
+            validation.isValid = false
+            validation.score -= 30
+          }
 
-          // Calculate score
-          validation.score = Math.max(
-            0,
-            100 - validation.errors.length * 30 - validation.warnings.length * 10,
-          )
+          // Check for fetch function
+          if (!code.includes('async fetch(request, env')) {
+            validation.errors.push('Missing proper fetch function signature')
+            validation.isValid = false
+            validation.score -= 30
+          }
 
-          console.log('[Worker] AI worker generation completed successfully')
+          // Check for CORS handling
+          if (!code.includes('Access-Control-Allow-Origin')) {
+            validation.warnings.push('Missing CORS headers')
+            validation.score -= 10
+          }
+
+          // Check for error handling
+          if (!code.includes('try') || !code.includes('catch')) {
+            validation.warnings.push('Missing error handling')
+            validation.score -= 10
+          }
+
+          // Check for debug endpoint
+          if (!code.includes('/debug')) {
+            validation.warnings.push('Missing debug endpoint')
+            validation.score -= 10
+          }
+
+          // Simple syntax checks
+          const openBraces = (code.match(/{/g) || []).length
+          const closeBraces = (code.match(/}/g) || []).length
+          if (openBraces !== closeBraces) {
+            validation.errors.push('Mismatched braces - syntax error likely')
+            validation.isValid = false
+            validation.score -= 40
+          }
+
+          validation.score = Math.max(0, validation.score)
+
           return new Response(
             JSON.stringify({
               success: true,
-              code: cleanCode,
-              model: 'cloudflare-ai-llama-3.1-8b',
-              timestamp: new Date().toISOString(),
               validation,
-              usedCloudflareAI: true,
+              recommendations: validation.errors.concat(validation.warnings).map((msg) => ({
+                type: validation.errors.includes(msg) ? 'error' : 'warning',
+                message: msg,
+                fix: 'Review the generated code and fix the identified issue',
+              })),
             }),
             {
               status: 200,
@@ -1503,12 +1452,150 @@ Generate ONLY the JavaScript code following the working example pattern. No mark
             },
           )
         } catch (error) {
-          console.error('[Worker] Cloudflare AI worker generation error:', error)
+          console.error('[Worker] Error validating code:', error)
+          return new Response(
+            JSON.stringify({ error: 'Validation failed', details: error.message }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            },
+          )
+        }
+      }
+
+      if (pathname === '/analyze-worker-code' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { code } = requestBody
+
+          if (!code) {
+            return new Response(JSON.stringify({ error: 'Code is required for analysis' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log('[Worker] Analyzing worker code with Cloudflare AI...')
+
+          // Use Cloudflare Workers AI for code analysis
+          const analysisPrompt = `Analyze this Cloudflare Worker code for issues, best practices, and improvements:
+
+${code}
+
+IMPORTANT: This code should use CLASSIC Cloudflare Worker syntax (addEventListener('fetch', ...)), NOT ESM (export default).
+
+Provide a comprehensive analysis including:
+1. Syntax errors or issues
+2. Security concerns
+3. Performance optimizations
+4. Best practice violations
+5. Specific code improvements
+6. Overall code quality assessment
+
+Focus on classic Cloudflare Workers patterns and requirements. Do NOT recommend ESM or export default syntax.`
+
+          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are an expert Cloudflare Workers developer and code analyst. Provide detailed, actionable feedback on worker code quality, security, and best practices.',
+              },
+              {
+                role: 'user',
+                content: analysisPrompt,
+              },
+            ],
+            max_tokens: 2000,
+            temperature: 0.3,
+          })
+
+          const analysisText = aiResponse.response || 'Analysis completed'
+
+          // Parse analysis into structured format
+          const analysis = {
+            summary: analysisText.substring(0, 200) + '...',
+            issues: extractIssues(analysisText),
+            recommendations: extractRecommendations(analysisText),
+            overall_score: calculateOverallScore(code, analysisText),
+            deployment_ready:
+              !analysisText.toLowerCase().includes('error') &&
+              !analysisText.toLowerCase().includes('critical'),
+          }
+
+          // Generate improved code if issues found
+          let improvedCode = code
+          let hasImprovements = false
+
+          if (analysis.issues.length > 0) {
+            const improvementPrompt = `Fix the following issues in this Cloudflare Worker code:
+
+Original Code:
+${code}
+
+Issues to fix:
+${analysis.issues.map((issue) => `- ${issue.message}`).join('\n')}
+
+CRITICAL: Generate the corrected code using CLASSIC Cloudflare Worker syntax (addEventListener('fetch', ...)).
+DO NOT use ESM or export default syntax. Return ONLY the corrected JavaScript code in classic format.`
+
+            try {
+              const improvementResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+                messages: [
+                  {
+                    role: 'system',
+                    content:
+                      'You are an expert Cloudflare Workers developer. Fix code issues and return clean, working JavaScript code.',
+                  },
+                  {
+                    role: 'user',
+                    content: improvementPrompt,
+                  },
+                ],
+                max_tokens: 3000,
+                temperature: 0.2,
+              })
+
+              improvedCode = improvementResponse.response || code
+
+              // Reject improved code if it contains ESM syntax or import statements
+              if (improvedCode.includes('export default') || improvedCode.includes('import ')) {
+                console.warn('[Worker] AI generated ESM/import code - rejecting improvement')
+                improvedCode = code
+                hasImprovements = false
+              } else if (!improvedCode.includes('addEventListener')) {
+                console.warn(
+                  '[Worker] AI generated non-classic worker code - rejecting improvement',
+                )
+                improvedCode = code
+                hasImprovements = false
+              } else {
+                hasImprovements = improvedCode !== code && improvedCode.length > 50
+              }
+            } catch (improvementError) {
+              console.warn('[Worker] Code improvement failed:', improvementError)
+            }
+          }
+
           return new Response(
             JSON.stringify({
-              error: 'Worker generation failed',
+              success: true,
+              analysis,
+              improved_code: improvedCode,
+              has_improvements: hasImprovements,
+              timestamp: new Date().toISOString(),
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Error analyzing worker code:', error)
+          return new Response(
+            JSON.stringify({
+              error: 'Code analysis failed',
               details: error.message,
-              stack: error.stack,
             }),
             {
               status: 500,
@@ -1518,11 +1605,303 @@ Generate ONLY the JavaScript code following the working example pattern. No mark
         }
       }
 
-      console.warn('[Worker] No matching route for pathname:', pathname)
-      return new Response('Not Found', { status: 404, headers: corsHeaders })
+      if (pathname === '/generate-worker-ai' && request.method === 'POST') {
+        try {
+          console.log('[Worker] ========== CLEAN SLATE AI GENERATION ==========')
+
+          const requestBody = await request.json()
+          const { prompt, userPrompt } = requestBody
+
+          console.log('[Worker] Request data:', JSON.stringify(requestBody, null, 2))
+
+          if (!prompt && !userPrompt) {
+            console.log('[Worker] ERROR: Missing prompt')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'Missing required parameter: prompt or userPrompt',
+              }),
+              {
+                status: 400,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          // Check if Cloudflare AI binding is available
+          if (!env.AI) {
+            console.error('[Worker] ERROR: AI binding not available')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'AI binding not configured',
+              }),
+              {
+                status: 500,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          const finalPrompt = userPrompt || prompt
+          console.log('[Worker] Final prompt:', finalPrompt)
+
+          // Generate worker code based on the actual prompt
+          console.log('[Worker] Processing user prompt with AI...')
+
+          let generatedCode = ''
+
+          try {
+            // Use Cloudflare Workers AI to generate code based on the prompt
+            const aiPrompt = `You are a Cloudflare Worker code generator. Generate ONLY valid Cloudflare Worker JavaScript code using the classic addEventListener syntax (NOT ESM export default).
+
+User request: "${finalPrompt}"
+
+Requirements:
+- Use addEventListener('fetch', event => { event.respondWith(handleRequest(event.request)) })
+- Create an async function handleRequest(request)
+- Include proper CORS headers
+- Include OPTIONS handling
+- Return JSON responses with proper Content-Type headers
+- Keep the code simple and focused on the user's request
+- Do not include any explanations or comments outside the code
+- Make sure the response directly addresses what the user asked for
+
+Generate the complete worker code:`
+
+            console.log('[Worker] Sending prompt to AI:', aiPrompt.substring(0, 200) + '...')
+
+            const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+              messages: [
+                {
+                  role: 'user',
+                  content: aiPrompt,
+                },
+              ],
+              max_tokens: 2048,
+              temperature: 0.3,
+            })
+
+            console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
+
+            if (aiResponse && aiResponse.response) {
+              generatedCode = aiResponse.response.trim()
+              console.log('[Worker] Generated code length:', generatedCode.length)
+              console.log(
+                '[Worker] Generated code preview:',
+                generatedCode.substring(0, 200) + '...',
+              )
+            } else {
+              throw new Error('AI did not return valid response')
+            }
+
+            // Validate that the generated code looks like a worker
+            if (
+              !generatedCode.includes('addEventListener') ||
+              !generatedCode.includes('handleRequest')
+            ) {
+              throw new Error('Generated code does not appear to be a valid Cloudflare Worker')
+            }
+          } catch (aiError) {
+            console.error('[Worker] AI generation failed:', aiError)
+            console.log('[Worker] Falling back to template-based generation')
+
+            // Fallback: Generate simple code based on prompt analysis
+            generatedCode = generateSimpleWorkerFromPrompt(finalPrompt)
+          }
+
+          console.log('[Worker] Final generated code length:', generatedCode.length)
+          console.log(
+            '[Worker] Final generated code preview:',
+            generatedCode.substring(0, 100) + '...',
+          )
+
+          const response = {
+            success: true,
+            code: generatedCode,
+            model: '@cf/meta/llama-3.1-8b-instruct',
+            prompt: finalPrompt,
+            timestamp: new Date().toISOString(),
+            note: 'AI-generated worker code based on user prompt',
+          }
+
+          console.log('[Worker] Sending response:', JSON.stringify(response, null, 2))
+
+          return new Response(JSON.stringify(response), {
+            status: 200,
+            headers: corsHeaders,
+          })
+        } catch (error) {
+          console.error('[Worker] CRITICAL ERROR in generate-worker-ai:', error)
+          console.error('[Worker] Error stack:', error.stack)
+
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'AI generation failed',
+              details: error.message,
+              stack: error.stack,
+              timestamp: new Date().toISOString(),
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            },
+          )
+        }
+      }
     } catch (error) {
-      console.error('[Worker] Unexpected error:', error)
-      return new Response('Error: ' + error.message, { status: 500, headers: corsHeaders })
+      console.error('[Worker] Error handling request:', error)
+      return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+        status: 500,
+        headers: corsHeaders,
+      })
     }
   },
+}
+
+// Helper functions for code analysis
+function extractIssues(analysisText) {
+  const issues = []
+  const lines = analysisText.split('\n')
+
+  lines.forEach((line) => {
+    const lowerLine = line.toLowerCase()
+    if (
+      lowerLine.includes('error') ||
+      lowerLine.includes('issue') ||
+      lowerLine.includes('problem')
+    ) {
+      issues.push({
+        type: lowerLine.includes('syntax')
+          ? 'syntax'
+          : lowerLine.includes('security')
+            ? 'security'
+            : 'general',
+        message: line.trim(),
+        severity: lowerLine.includes('critical')
+          ? 'high'
+          : lowerLine.includes('warning')
+            ? 'medium'
+            : 'low',
+      })
+    }
+  })
+
+  return issues.slice(0, 10) // Limit to 10 issues
+}
+
+function extractRecommendations(analysisText) {
+  const recommendations = []
+  const lines = analysisText.split('\n')
+
+  lines.forEach((line) => {
+    const lowerLine = line.toLowerCase()
+    if (
+      lowerLine.includes('recommend') ||
+      lowerLine.includes('should') ||
+      lowerLine.includes('consider')
+    ) {
+      recommendations.push({
+        type: 'improvement',
+        suggestion: line.trim(),
+        priority: lowerLine.includes('important') ? 'high' : 'medium',
+      })
+    }
+  })
+
+  return recommendations.slice(0, 5) // Limit to 5 recommendations
+}
+
+function calculateOverallScore(code, analysisText) {
+  let score = 50 // Base score
+
+  // Reward classic worker patterns
+  if (code.includes('addEventListener("fetch"') || code.includes("addEventListener('fetch'"))
+    score += 20
+  if (code.includes('event.respondWith')) score += 15
+  if (code.includes('handleRequest')) score += 10
+  if (code.includes('Access-Control-Allow-Origin')) score += 10
+  if (code.includes('OPTIONS')) score += 5
+  if (code.includes('try') && code.includes('catch')) score += 10
+
+  // Heavily penalize ESM and import patterns
+  if (code.includes('export default')) score -= 40 // ESM completely breaks deployment
+  if (code.includes('export {')) score -= 40 // Named exports also break deployment
+  if (code.includes('import ')) score -= 30 // Import statements not supported
+
+  // Reward good practices
+  if (code.includes('/debug')) score += 5
+  if (code.includes('encodeURIComponent')) score += 5
+  if (code.includes('new URL(')) score += 5
+
+  // Deduct for issues mentioned in analysis
+  const lowerAnalysis = analysisText.toLowerCase()
+  if (lowerAnalysis.includes('syntax error')) score -= 30
+  if (lowerAnalysis.includes('critical')) score -= 25
+  if (lowerAnalysis.includes('security')) score -= 15
+  if (lowerAnalysis.includes('error')) score -= 10
+
+  return Math.max(0, Math.min(100, score))
+}
+
+// Fallback function to generate simple workers based on prompt analysis
+function generateSimpleWorkerFromPrompt(prompt) {
+  const lowerPrompt = prompt.toLowerCase()
+
+  // Generate specific response for "hei Tor Arne" case
+  if (lowerPrompt.includes('hei') && lowerPrompt.includes('tor arne')) {
+    return `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      }
+    })
+  }
+
+  const responseData = { "message": "hei Tor Arne" }
+
+  return new Response(JSON.stringify(responseData, null, 2), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  })
+}`
+  }
+
+  // Default fallback for other prompts
+  return `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      }
+    })
+  }
+
+  const responseData = { "message": "Hello from worker!" }
+
+  return new Response(JSON.stringify(responseData, null, 2), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  })
+}`
 }

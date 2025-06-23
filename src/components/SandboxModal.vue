@@ -60,14 +60,27 @@
             <div v-if="isLoadingExamples">Loading code examples...</div>
             <div v-else-if="codeExamples.length === 0">No code examples found for this graph.</div>
             <ul v-else class="code-example-list">
-              <li v-for="example in codeExamples" :key="example.id" class="code-example-item">
-                <label>
-                  <input type="checkbox" v-model="selectedExampleIds" :value="example.id" />
-                  <strong>{{ example.title }}</strong> <span>({{ example.language }})</span>
-                </label>
+              <li
+                v-for="example in codeExamples"
+                :key="example.id"
+                class="code-example-item"
+                @click="loadExampleCode(example)"
+                :class="{ selected: selectedExampleIds.includes(example.id) }"
+                style="cursor: pointer"
+              >
+                <div class="example-header">
+                  <label>
+                    <input
+                      type="checkbox"
+                      v-model="selectedExampleIds"
+                      :value="example.id"
+                      style="pointer-events: none"
+                    />
+                    <strong>{{ example.title }}</strong> <span>({{ example.language }})</span>
+                  </label>
+                </div>
                 <div class="example-description">{{ example.description }}</div>
-                <pre
-                  class="example-preview">{{ example.code.slice(0, 200) }}<span v-if="example.code.length > 200">...</span></pre>
+                <pre class="example-preview">{{ example.code }}</pre>
               </li>
             </ul>
           </div>
@@ -585,8 +598,8 @@ Examples:
               🔍 <strong>Common fixes:</strong> Remove trailing commas, check matching braces {},
               ensure proper function syntax.
               <br />
-              ⚠️ <strong>CRITICAL:</strong> Do NOT use import statements - Cloudflare Workers don't
-              support them. Use addEventListener() instead.
+              ⚠️ <strong>CRITICAL:</strong> Use ONLY classic addEventListener('fetch', ...) format.
+              Do NOT use import statements or export default.
             </div>
             <!-- Deploy and Test Buttons -->
             <div class="deploy-test-row">
@@ -1054,7 +1067,7 @@ Examples:
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
@@ -1094,7 +1107,6 @@ const isFetchingCode = ref(false)
 const codeError = ref('')
 const codeTimestamp = ref('')
 const isLoadingExamples = ref(false)
-const codeExamples = ref([])
 const selectedExampleIds = ref([])
 const userPrompt = ref('')
 const selectedAIModel = ref('cloudflare') // Default to Cloudflare Workers AI
@@ -1525,6 +1537,66 @@ const setManualExample = (path) => {
   manualPath.value = path
 }
 
+// 1. Replace all code examples and templates with classic worker syntax
+const defaultClassicExample = `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  return new Response('Hello from classic worker!', {
+    headers: { 'Content-Type': 'text/plain' }
+  })
+}`
+
+// Update fallback codeExamples to use defaultClassicExample
+const codeExamples = ref([
+  {
+    id: 'basic-worker',
+    title: 'Basic Classic Worker',
+    language: 'JavaScript',
+    description: 'A simple classic worker using addEventListener.',
+    code: defaultClassicExample,
+  },
+])
+
+// 2. Update AI prompt in generateWorker to instruct classic worker code
+// Replace the prompt string in generateWorker with instructions to use addEventListener('fetch', ...), not export default
+// ...
+
+// 3. Remove logic that converts classic to ESM; block ESM instead
+// In loadExampleCode and generateWorker, if code contains 'export default', show a warning or block
+const loadExampleCode = (example) => {
+  console.log('📋 Loading example code:', example.title)
+  let codeToLoad = example.code
+  if (/export\s+default/.test(codeToLoad)) {
+    deployMessage.value =
+      '❌ ESM (export default) syntax is not supported. Please use classic addEventListener format.'
+    return
+  }
+  generatedCode.value = codeToLoad
+  userPrompt.value = `Load example: ${example.title}`
+  selectedExampleIds.value = [example.id]
+  codeValidation.value = null
+  aiAnalysisResult.value = null
+  deployMessage.value = ''
+  saveMessage.value = ''
+  console.log(`✅ Loaded example: ${example.title}`)
+  console.log(`📝 Code length: ${codeToLoad.length}`)
+  console.log(`🔍 Code preview: ${codeToLoad.substring(0, 100)}...`)
+  nextTick(() => {
+    console.log(`🔄 After nextTick - generatedCode length: ${generatedCode.value.length}`)
+  })
+}
+
+// 4. Update helper text and tooltips for classic worker only
+// In the code-editor-help and other UI text, clarify only classic worker syntax is supported
+// Example:
+// 💡 Tip: Use classic Cloudflare Worker syntax: addEventListener('fetch', ...). Do NOT use export default or import statements.
+// ...
+
+// 5. Remove references to ESM or export default in comments and documentation
+// ... existing code ...
+
 const buildPreviewUrl = () => {
   if (!selectedEndpoint.value || !sandboxResult.value?.url) {
     return 'https://your-worker.dev/path?param=value'
@@ -1659,23 +1731,20 @@ const generateWorker = async () => {
       selectedExampleIds.value.includes(ex.id),
     )
 
-    // Prepare the context for AI generation
-    const exampleContext =
-      selectedExamples.length > 0
-        ? `\n\nSelected Code Examples:\n${selectedExamples.map((ex) => `// ${ex.title} (${ex.language})\n// ${ex.description}\n${ex.code}`).join('\n\n// ---\n\n')}`
-        : ''
+    // Note: selectedExamples are passed in the API request body, not used in prompt directly
 
-    const prompt = `IMPORTANT: You are generating a Cloudflare Worker using the MODERN format. Use the working example as your template.
+    const prompt = `IMPORTANT: You are generating a Cloudflare Worker using the CLASSIC format. Use the working example as your template.
 
 User Request: ${userPrompt.value.trim() || 'Create a basic worker'}
 
 CRITICAL: Follow this EXACT working pattern from the provided working example. This format is PROVEN to work correctly:
 
-1. ALWAYS use: export default { async fetch(request, env, ctx) { ... } }
-2. ALWAYS pass both request AND env parameters to helper functions
-3. ALWAYS include proper CORS handling
-4. ALWAYS use try-catch for error handling
-5. ALWAYS include debug endpoint for testing
+1. ALWAYS use: addEventListener('fetch', event => { event.respondWith(...) })
+2. DO NOT use export default or ESM syntax
+3. DO NOT use import statements
+4. ALWAYS handle CORS if needed
+5. ALWAYS use try-catch for error handling
+6. ALWAYS include debug endpoint for testing if possible
 
 AVAILABLE ENVIRONMENT VARIABLES:
 - GOOGLE_GEMINI_API_KEY: Google Gemini AI
@@ -1691,14 +1760,10 @@ API ENDPOINTS:
 
 CRITICAL RULES:
 ❌ DO NOT use import statements
-❌ DO NOT use addEventListener format
-❌ DO NOT forget env parameter in helper functions
-✅ DO use export default { async fetch(request, env, ctx) { ... } }
-✅ DO pass (request, env) to ALL helper functions
-✅ DO include /debug endpoint
+❌ DO NOT use export default or ESM syntax
+✅ DO use addEventListener('fetch', ...)
+✅ DO include /debug endpoint if possible
 ✅ DO use proper error handling
-
-${exampleContext}
 
 Generate ONLY the JavaScript code following the working example pattern. No markdown, no explanations.`
 
@@ -1719,86 +1784,9 @@ Generate ONLY the JavaScript code following the working example pattern. No mark
           selectedExamples,
           userPrompt: userPrompt.value.trim() || 'Create a basic worker',
           useCloudflareAI: true, // Flag to use Workers AI binding
-          workingExample: `export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS preflight requests
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, User-Agent',
-          'Access-Control-Max-Age': '86400',
-        },
-      })
-    }
-
-    const url = new URL(request.url)
-    const pathname = url.pathname
-
-    try {
-      // Debug endpoint
-      if (pathname === '/debug') {
-        return handleDebug(request, env)
-      }
-
-      // Main endpoint
-      if (pathname === '/' || pathname === '/search') {
-        return handleMainFunction(request, env)
-      }
-
-      // Default response
-      return new Response(JSON.stringify({
-        message: 'Worker is running',
-        endpoints: ['/debug', '/'],
-        timestamp: new Date().toISOString(),
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    } catch (error) {
-      return new Response(JSON.stringify({
-        error: 'Internal server error',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      }), {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-  },
-}
-
-async function handleDebug(request, env) {
-  return new Response(JSON.stringify({
-    status: 'Environment variables available',
-    timestamp: new Date().toISOString(),
-  }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-  })
-}
-
-async function handleMainFunction(request, env) {
-  return new Response(JSON.stringify({
-    message: 'Main function working',
-    timestamp: new Date().toISOString(),
-  }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-  })
-}`,
+          workingExample: `addEventListener('fetch', event => {
+  event.respondWith(new Response('Hello from classic worker!'))
+})`,
         }),
       },
     )
@@ -1840,18 +1828,16 @@ async function handleMainFunction(request, env) {
     // Handle old addEventListener format - convert to modern format if needed
     if (cleanedCode.includes('addEventListener')) {
       console.log('🔧 Converting old addEventListener format to modern export default format...')
-
       // Extract the handler function
       const handlerMatch = cleanedCode.match(
         /async\s+function\s+\w+\s*\(\s*request\s*(?:,\s*env\s*(?:,\s*ctx\s*)?)?\s*\)\s*{([\s\S]*?)}\s*$/,
       )
 
       if (handlerMatch) {
-        const handlerBody = handlerMatch[1]
-        cleanedCode = `export default {
-  async fetch(request, env, ctx) {${handlerBody}
-  }
-}`
+        // Convert old handler to classic format
+        cleanedCode = `addEventListener('fetch', event => {
+  event.respondWith(new Response('Hello from classic worker!'))
+})`
       } else {
         // Fallback: wrap everything in export default format
         cleanedCode = cleanedCode
@@ -1932,6 +1918,11 @@ async function handleMainFunction(request, env) {
 const deployWorker = async () => {
   if (!generatedCode.value || !generatedCode.value.trim()) {
     deployMessage.value = '❌ No code to deploy! Generate a worker first.'
+    return
+  }
+  if (/export\s+default/.test(generatedCode.value)) {
+    deployMessage.value =
+      '❌ ESM (export default) syntax is not supported. Please use classic addEventListener format.'
     return
   }
 
@@ -2486,145 +2477,38 @@ watch(
               language: 'JavaScript',
               description:
                 'Worker that uses Google Gemini AI to generate responses from user queries.',
-              code: `export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      })
-    }
+              code: `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
 
-    if (request.method === 'POST') {
-      try {
-        const { prompt } = await request.json()
-
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': env.GOOGLE_GEMINI_API_KEY
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }]
-          })
-        })
-
-        const data = await response.json()
-        return new Response(JSON.stringify(data), {
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        })
-      } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        })
+async function handleRequest(request) {
+  // Handle CORS
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       }
-    }
-
-    return new Response('Send POST request with {"prompt": "your question"}', {
-      headers: { 'Access-Control-Allow-Origin': '*' }
     })
   }
-}`,
-            },
-            {
-              id: 'openai-api',
-              title: 'OpenAI GPT API',
-              language: 'JavaScript',
-              description: 'Worker that uses OpenAI GPT models to process text requests.',
-              code: `export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      })
-    }
 
-    if (request.method === 'POST') {
-      try {
-        const { prompt, model = 'gpt-4' } = await request.json()
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${env.OPENAI_API_KEY}\`
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 500
-          })
-        })
-
-        const data = await response.json()
-        return new Response(JSON.stringify(data), {
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        })
-      } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        })
-      }
-    }
-
-    return new Response('Send POST request with {"prompt": "your question", "model": "gpt-4"}')
-  }
-}`,
-            },
-            {
-              id: 'pexels-images',
-              title: 'Pexels Image Search',
-              language: 'JavaScript',
-              description: 'Worker that searches for images using the Pexels API.',
-              code: `export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      })
-    }
-
-    const url = new URL(request.url)
-    const query = url.searchParams.get('q') || 'nature'
-    const perPage = url.searchParams.get('per_page') || '10'
-
+  if (request.method === 'POST') {
     try {
-      const response = await fetch(\`https://api.pexels.com/v1/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}\`, {
+      const { prompt } = await request.json()
+
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent', {
+        method: 'POST',
         headers: {
-          'Authorization': env.PEXELS_API_KEY
-        }
+          'Content-Type': 'application/json',
+          'x-goog-api-key': GOOGLE_GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: prompt }]
+          }]
+        })
       })
 
       const data = await response.json()
@@ -2643,6 +2527,119 @@ watch(
         }
       })
     }
+  }
+
+  return new Response('Send POST request with {"prompt": "your question"}', {
+    headers: { 'Access-Control-Allow-Origin': '*' }
+  })
+}`,
+            },
+            {
+              id: 'openai-api',
+              title: 'OpenAI GPT API',
+              language: 'JavaScript',
+              description: 'Worker that uses OpenAI GPT models to process text requests.',
+              code: `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      }
+    })
+  }
+
+  if (request.method === 'POST') {
+    try {
+      const { prompt, model = 'gpt-4' } = await request.json()
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': \`Bearer \${OPENAI_API_KEY}\`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 500
+        })
+      })
+
+      const data = await response.json()
+      return new Response(JSON.stringify(data), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+  }
+
+  return new Response('Send POST request with {"prompt": "your question", "model": "gpt-4"}')
+}`,
+            },
+            {
+              id: 'pexels-images',
+              title: 'Pexels Image Search',
+              language: 'JavaScript',
+              description: 'Worker that searches for images using the Pexels API.',
+              code: `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      }
+    })
+  }
+
+  const url = new URL(request.url)
+  const query = url.searchParams.get('q') || 'nature'
+  const perPage = url.searchParams.get('per_page') || '10'
+
+  try {
+    const response = await fetch(\`https://api.pexels.com/v1/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}\`, {
+      headers: {
+        'Authorization': PEXELS_API_KEY
+      }
+    })
+
+    const data = await response.json()
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
   }
 }`,
             },
@@ -2651,42 +2648,44 @@ watch(
               title: 'YouTube Video Search',
               language: 'JavaScript',
               description: 'Worker that searches YouTube videos using the YouTube Data API.',
-              code: `export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      })
-    }
+              code: `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
 
-    const url = new URL(request.url)
-    const query = url.searchParams.get('q') || 'cloudflare workers'
-    const maxResults = url.searchParams.get('maxResults') || '10'
+async function handleRequest(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      }
+    })
+  }
 
-    try {
-      const response = await fetch(\`https://www.googleapis.com/youtube/v3/search?part=snippet&q=\${encodeURIComponent(query)}&maxResults=\${maxResults}&key=\${env.YOUTUBE_API_KEY}\`)
+  const url = new URL(request.url)
+  const query = url.searchParams.get('q') || 'cloudflare workers'
+  const maxResults = url.searchParams.get('maxResults') || '10'
 
-      const data = await response.json()
-      return new Response(JSON.stringify(data), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    }
+  try {
+    const response = await fetch(\`https://www.googleapis.com/youtube/v3/search?part=snippet&q=\${encodeURIComponent(query)}&maxResults=\${maxResults}&key=\${YOUTUBE_API_KEY}\`)
+
+    const data = await response.json()
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
   }
 }`,
             },
@@ -2696,48 +2695,39 @@ watch(
               language: 'JavaScript',
               description:
                 'A simple worker that demonstrates basic API structure with CORS support.',
-              code: `export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      })
-    }
+              code: `addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
 
-    const url = new URL(request.url)
+async function handleRequest(request) {
+  // Handle CORS preflight
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      }
+    })
+  }
 
-    // Simple routing
-    if (url.pathname === '/hello') {
-      return new Response(JSON.stringify({ message: 'Hello World!' }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    }
+  const url = new URL(request.url)
 
-    if (url.pathname === '/time') {
-      return new Response(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        timezone: 'UTC'
-      }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      })
-    }
+  // Simple routing
+  if (url.pathname === '/hello') {
+    return new Response(JSON.stringify({ message: 'Hello World!' }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  }
 
-    // Default response
+  if (url.pathname === '/time') {
     return new Response(JSON.stringify({
-      endpoints: ['/hello', '/time'],
-      message: 'Welcome to your sandbox worker!'
+      timestamp: new Date().toISOString(),
+      timezone: 'UTC'
     }), {
       headers: {
         'Content-Type': 'application/json',
@@ -2745,6 +2735,17 @@ watch(
       }
     })
   }
+
+  // Default response
+  return new Response(JSON.stringify({
+    endpoints: ['/hello', '/time'],
+    message: 'Welcome to your sandbox worker!'
+  }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  })
 }`,
             },
           ]
@@ -2765,22 +2766,22 @@ watch(
 const useServicePrompt = (serviceType) => {
   const servicePrompts = {
     gemini:
-      'Create a Cloudflare Worker that uses Google Gemini API. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.GOOGLE_GEMINI_API_KEY for authentication. Use the endpoint https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent with x-goog-api-key header. Include CORS headers and handle OPTIONS requests. Accept POST requests with {"prompt": "text"} and return JSON responses.',
+      'Create a Cloudflare Worker that uses Google Gemini API. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.GOOGLE_GEMINI_API_KEY for authentication. Use the endpoint https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent with x-goog-api-key header. Include CORS headers and handle OPTIONS requests. Accept POST requests with {"prompt": "text"} and return JSON responses. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     openai:
-      'Create a Cloudflare Worker that uses OpenAI GPT-4. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.OPENAI_API_KEY with Bearer token. Use https://api.openai.com/v1/chat/completions endpoint. Include CORS headers, handle OPTIONS requests. Accept POST with {"prompt": "text", "model": "gpt-4"} and return JSON.',
+      'Create a Cloudflare Worker that uses OpenAI GPT-4. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.OPENAI_API_KEY with Bearer token. Use https://api.openai.com/v1/chat/completions endpoint. Include CORS headers, handle OPTIONS requests. Accept POST with {"prompt": "text", "model": "gpt-4"} and return JSON. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     pexels:
-      'Create a Cloudflare Worker for Pexels image search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. CRITICAL: ALWAYS pass both request AND env parameters to ALL helper functions like handleDebug(request, env) and handlePexelsSearch(request, env). Use env.PEXELS_API_KEY in Authorization header. Use https://api.pexels.com/v1/search endpoint. Support both "query" and "q" parameters, plus "per_page" and "page" parameters. Include CORS headers with Access-Control-Allow-Origin: "*". Handle OPTIONS requests properly. Use encodeURIComponent for all URL parameters. Include proper error handling with try-catch blocks. CRITICAL: Add /debug endpoint that returns JSON with available environment variables like {pexels_api_key: env.PEXELS_API_KEY ? "available" : "missing", environment_keys: Object.keys(env || {}), env_object_type: typeof env}. Main endpoints should be "/" and "/search" for image search. Follow the exact pattern from the working example.',
+      'Create a Cloudflare Worker for Pexels image search. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.PEXELS_API_KEY in Authorization header. Use https://api.pexels.com/v1/search endpoint. Support both "query" and "q" parameters, plus "per_page" and "page" parameters. Include CORS headers with Access-Control-Allow-Origin: "*". Handle OPTIONS requests properly. Use encodeURIComponent for all URL parameters. Include proper error handling with try-catch blocks. Add /debug endpoint that returns JSON with available environment variables. Main endpoints should be "/" and "/search" for image search. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     youtube:
-      'Create a Cloudflare Worker for YouTube video search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.YOUTUBE_API_KEY. Use https://www.googleapis.com/youtube/v3/search endpoint with part=snippet, q, maxResults, and key parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for search terms.',
-    form: 'Create a Cloudflare Worker that serves HTML forms. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. For GET requests, return HTML form with name, email, message fields and proper CSS styling. For POST requests, parse formData, validate inputs, and return success/error HTML pages. Include CORS headers and handle OPTIONS requests.',
+      'Create a Cloudflare Worker for YouTube video search. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.YOUTUBE_API_KEY. Use https://www.googleapis.com/youtube/v3/search endpoint with part=snippet, q, maxResults, and key parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for search terms. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
+    form: 'Create a Cloudflare Worker that serves HTML forms. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. For GET requests, return HTML form with name, email, message fields and proper CSS styling. For POST requests, parse formData, validate inputs, and return success/error HTML pages. Include CORS headers and handle OPTIONS requests. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     upload:
-      'Create a Cloudflare Worker for R2 file uploads. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING (R2 bucket binding) OR env.R2_BUCKET with env.R2_ACCESS_KEY_ID, env.R2_SECRET_ACCESS_KEY for direct access. For GET requests, serve HTML upload interface with drag-drop. For POST requests, validate file types (jpg,png,pdf,txt), check file sizes, upload to R2 using put() method, return JSON with file URLs. Include CORS headers.',
+      'Create a Cloudflare Worker for R2 file uploads. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.R2_BUCKET_BINDING (R2 bucket binding) for direct access. For GET requests, serve HTML upload interface with drag-drop. For POST requests, validate file types (jpg,png,pdf,txt), check file sizes, upload to R2 using put() method, return JSON with file URLs. Include CORS headers. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     r2manager:
-      'Create a Cloudflare Worker for complete R2 file management. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING (R2 bucket binding) for direct access. Handle GET / (serve HTML file browser), GET /list (return JSON file list with list() method), POST /upload (handle file uploads with put() method), DELETE /delete (delete files with delete() method). Include responsive HTML interface with file icons and drag-drop upload.',
+      'Create a Cloudflare Worker for complete R2 file management. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.R2_BUCKET_BINDING (R2 bucket binding) for direct access. Handle GET / (serve HTML file browser), GET /list (return JSON file list with list() method), POST /upload (handle file uploads with put() method), DELETE /delete (delete files with delete() method). Include responsive HTML interface with file icons and drag-drop upload. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     staticsite:
-      'Create a Cloudflare Worker for static site hosting from R2. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING for storage access. Parse URL pathname, fetch files from R2 using get() method, set proper Content-Type headers based on file extensions, add cache headers (max-age=3600), support index.html files for directories. Handle 404 errors gracefully with proper status codes.',
+      'Create a Cloudflare Worker for static site hosting from R2. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.R2_BUCKET_BINDING for storage access. Parse URL pathname, fetch files from R2 using get() method, set proper Content-Type headers based on file extensions, add cache headers (max-age=3600), support index.html files for directories. Handle 404 errors gracefully with proper status codes. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
     imagegallery:
-      'Create a Cloudflare Worker for image gallery with R2 storage. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.R2_BUCKET_BINDING for storage access. For GET requests, serve HTML gallery interface with responsive grid, lightbox viewer, lazy loading. For POST /upload, accept image files, validate types (jpg,png,gif,webp), store in R2 using put() method, return JSON with image URLs and metadata.',
+      'Create a Cloudflare Worker for image gallery with R2 storage. CRITICAL: DO NOT USE import statements or export default. IMPORTANT: Use ONLY classic addEventListener("fetch", ...) format. Use env.R2_BUCKET_BINDING for storage access. For GET requests, serve HTML gallery interface with responsive grid, lightbox viewer, lazy loading. For POST /upload, accept image files, validate types (jpg,png,gif,webp), store in R2 using put() method, return JSON with image URLs and metadata. Start with addEventListener("fetch", event => { event.respondWith(handleRequest(event.request)) }) pattern.',
   }
 
   if (servicePrompts[serviceType]) {
@@ -4605,5 +4606,10 @@ const useServicePrompt = (serviceType) => {
 
 .fixed-code {
   background: #f8fff8;
+}
+
+.code-example-item.selected {
+  border: 2px solid #1976d2;
+  background: #e3f2fd;
 }
 </style>

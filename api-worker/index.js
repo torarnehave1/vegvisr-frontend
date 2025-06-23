@@ -3850,19 +3850,84 @@ const handleDeploySandbox = async (request, env) => {
     const apiToken = env.CF_API_TOKEN_SANDBOX
     const workersSubdomain = env.CF_WORKERS_SUBDOMAIN
 
-    // Deploy/update the user's persistent sandbox worker
+    // Clean and validate the code before deployment
     console.log(`Deploying persistent sandbox for user: ${workerName}`)
     console.log('Worker code preview:', code.substring(0, 200) + '...')
 
+    // Enhanced debugging and cleaning
+    console.log('🔍 Original code analysis:')
+    console.log('- Length:', code.length)
+    console.log('- First 100 chars:', JSON.stringify(code.substring(0, 100)))
+    console.log('- Contains export default:', code.includes('export default'))
+    console.log('- Contains addEventListener:', code.includes('addEventListener'))
+
+    // Clean the code more conservatively
+    let cleanCode = code
+      .replace(/```javascript\n?/g, '')
+      .replace(/```js\n?/g, '')
+      .replace(/```\n?/g, '')
+      .replace(/\r\n/g, '\n') // Normalize line endings
+      .replace(/\r/g, '\n') // Convert any remaining \r to \n
+      .trim()
+
+    console.log('🧹 After cleaning:')
+    console.log('- Length:', cleanCode.length)
+    console.log('- First 100 chars:', JSON.stringify(cleanCode.substring(0, 100)))
+    console.log('- Contains export default:', cleanCode.includes('export default'))
+    console.log('- Contains addEventListener:', cleanCode.includes('addEventListener'))
+
+    // Reject ESM code
+    if (cleanCode.includes('export default')) {
+      return createErrorResponse(
+        "ESM (export default) syntax is not supported. Please use classic addEventListener('fetch', ...) syntax.",
+        400,
+      )
+    }
+    // Require classic worker code
+    if (
+      !cleanCode.includes('addEventListener("fetch"') &&
+      !cleanCode.includes("addEventListener('fetch'")
+    ) {
+      return createErrorResponse(
+        'Invalid worker code: must use addEventListener("fetch", ...) syntax.',
+        400,
+      )
+    }
+
+    // Final syntax check: basic braces check
+    const openBraces = (cleanCode.match(/{/g) || []).length
+    const closeBraces = (cleanCode.match(/}/g) || []).length
+    if (openBraces !== closeBraces) {
+      console.log('❌ Mismatched braces detected:', { openBraces, closeBraces })
+      return createErrorResponse(
+        `Invalid worker code: mismatched braces (${openBraces} open, ${closeBraces} close)`,
+        400,
+      )
+    }
+
+    console.log('✅ Code validation passed, deploying...')
+    console.log('📤 Final code to deploy:')
+    console.log('- Length:', cleanCode.length)
+    console.log('- Preview:', JSON.stringify(cleanCode.substring(0, 200) + '...'))
+    console.log('🔍 Character analysis around position 87:')
+    console.log('- Chars 80-90:', JSON.stringify(cleanCode.substring(80, 90)))
+    console.log('- Char at 87:', JSON.stringify(cleanCode.charAt(87)))
+    console.log('- Char code at 87:', cleanCode.charCodeAt(87))
+
+    // Debug log to confirm deployment URL
+    console.log(
+      'Deploying to:',
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+    )
     const deployRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
       {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/javascript',
+          'Content-Type': 'text/plain; charset=utf-8',
         },
-        body: code,
+        body: cleanCode,
       },
     )
 
@@ -3879,7 +3944,9 @@ const handleDeploySandbox = async (request, env) => {
       workerName,
       endpoint,
       lastUpdated: new Date().toISOString(),
-      codePreview: code.substring(0, 500), // Store preview for debugging
+      codePreview: cleanCode.substring(0, 500), // Store preview for debugging
+      originalCodeLength: code.length,
+      cleanCodeLength: cleanCode.length,
     }
 
     await env.BINDING_NAME.put(`sandbox:${userToken}`, JSON.stringify(sandboxMetadata))
@@ -4242,6 +4309,48 @@ Please generate only the JavaScript code for the worker, without any markdown fo
 
 // Removed handleCreateSandboxBrandDomain - using direct API calls instead
 
+// --- Update Sandman Worker Endpoint ---
+const handleUpdateSandman = async (request, env) => {
+  try {
+    const accountId = env.CF_ACCOUNT_ID
+    const apiToken = env.SANDMAN_API_TOKEN
+    const workerName = 'sandman'
+    const newCode = `addEventListener('fetch', event => { event.respondWith(new Response('Hello I am the Sandman')) })`
+
+    // Debug log
+    console.log(
+      'Updating sandman worker at:',
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+    )
+
+    const deployRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/javascript',
+        },
+        body: newCode,
+      },
+    )
+    const deployJson = await deployRes.json()
+    if (!deployJson.success) {
+      return createErrorResponse('Cloudflare API error: ' + JSON.stringify(deployJson.errors), 500)
+    }
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        message: 'Sandman worker updated successfully',
+        workerName,
+      }),
+      200,
+    )
+  } catch (e) {
+    return createErrorResponse('Update sandman error: ' + e.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -4471,6 +4580,10 @@ export default {
 
     if (pathname === '/generate-worker' && request.method === 'POST') {
       return await handleGenerateWorker(request, env)
+    }
+
+    if (pathname === '/update-sandman' && request.method === 'POST') {
+      return await handleUpdateSandman(request, env)
     }
 
     // Fallback - log unmatched routes

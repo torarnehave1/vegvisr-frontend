@@ -1,5 +1,12 @@
 # AI Coding Assistant Startup Prompt
 
+## CRITICAL USER RULES (MUST FOLLOW)
+
+- **NO CODE CHANGES WITHOUT EXPLICIT USER APPROVAL.**
+- **ALWAYS explain what you are suggesting, thinking, or assuming BEFORE any code changes, so the user can understand the premises for the change.**
+- **ALWAYS list the names of the files you have changed after making edits.**
+- **MANDATORY: After ANY code changes, provide a clear "Files Changed" section listing every file that was modified, created, or deleted.**
+
 ## Core Working Principles
 
 ### 1. **NO CODE CHANGES WITHOUT APPROVAL**
@@ -348,6 +355,10 @@ if (data.data && Array.isArray(data.data) && data.data[0]?.points) {
 I will [describe the change] to [file name] by [specific action].
 
 [Make the edit with edit_file tool]
+
+**Files Changed:**
+- `path/to/file1.js` - [brief description of what was changed]
+- `path/to/file2.vue` - [brief description of what was changed]
 
 For rollback purposes, I'm assigning a version identifier to this change: **Rollback ID: 2023-10-05-XXX**.
 ```
