@@ -93,6 +93,7 @@
           <div class="model-selection-row">
             <label for="ai-model-select" class="model-label">🤖 AI Model:</label>
             <select v-model="selectedAIModel" id="ai-model-select" class="model-select">
+              <option value="cloudflare">🔥 Cloudflare Workers AI (Built-in & Fast)</option>
               <option value="openai">🧠 OpenAI GPT-4 (Technical & Structured)</option>
               <option value="gemini">⚡ Google Gemini-2.0-Flash (Fast & Efficient)</option>
             </select>
@@ -398,7 +399,8 @@ Examples:
               <h6>Generated Worker Code</h6>
               <div class="header-badges">
                 <div class="model-badge" :class="`model-${selectedAIModel}`">
-                  <span v-if="selectedAIModel === 'openai'">🧠 GPT-4</span>
+                  <span v-if="selectedAIModel === 'cloudflare'">🔥 Cloudflare AI</span>
+                  <span v-else-if="selectedAIModel === 'openai'">🧠 GPT-4</span>
                   <span v-else-if="selectedAIModel === 'gemini'">⚡ Gemini-2.0</span>
                 </div>
                 <div
@@ -1095,7 +1097,7 @@ const isLoadingExamples = ref(false)
 const codeExamples = ref([])
 const selectedExampleIds = ref([])
 const userPrompt = ref('')
-const selectedAIModel = ref('openai') // Default to OpenAI
+const selectedAIModel = ref('cloudflare') // Default to Cloudflare Workers AI
 const isGeneratingWorker = ref(false)
 const generatedCode = ref('')
 const sandboxTestResult = ref(null)
@@ -1663,74 +1665,48 @@ const generateWorker = async () => {
         ? `\n\nSelected Code Examples:\n${selectedExamples.map((ex) => `// ${ex.title} (${ex.language})\n// ${ex.description}\n${ex.code}`).join('\n\n// ---\n\n')}`
         : ''
 
-    const prompt = `Generate a Cloudflare Worker script based on the following requirements:
+    const prompt = `IMPORTANT: You are generating a Cloudflare Worker using the MODERN format. Use the working example as your template.
 
 User Request: ${userPrompt.value.trim() || 'Create a basic worker'}
 
-Context: This worker will be deployed to a RAG-enabled sandbox environment for knowledge graph operations.
+CRITICAL: Follow this EXACT working pattern from the provided working example. This format is PROVEN to work correctly:
 
-AVAILABLE ENVIRONMENT VARIABLES & SERVICES:
-The worker has access to these pre-configured environment variables:
-- GOOGLE_GEMINI_API_KEY: Access to Google Gemini AI models (gemini-2.0-flash-thinking-exp, gemini-1.5-pro, etc.)
-- OPENAI_API_KEY: Access to OpenAI models (GPT-4, GPT-3.5-turbo, etc.)
-- XAI_API_KEY: Access to xAI Grok models
-- PEXELS_API_KEY: Access to Pexels image search API
-- YOUTUBE_API_KEY: Access to YouTube Data API v3
+1. ALWAYS use: export default { async fetch(request, env, ctx) { ... } }
+2. ALWAYS pass both request AND env parameters to helper functions
+3. ALWAYS include proper CORS handling
+4. ALWAYS use try-catch for error handling
+5. ALWAYS include debug endpoint for testing
 
-GOOGLE GEMINI API USAGE EXAMPLE:
-async function callGemini(prompt, env) {
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': env.GOOGLE_GEMINI_API_KEY
-    },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: prompt }]
-      }]
-    })
-  })
-  return await response.json()
-}
+AVAILABLE ENVIRONMENT VARIABLES:
+- GOOGLE_GEMINI_API_KEY: Google Gemini AI
+- OPENAI_API_KEY: OpenAI GPT models
+- PEXELS_API_KEY: Pexels image search
+- YOUTUBE_API_KEY: YouTube Data API
 
-IMPORTANT: Always use the correct API endpoints and environment variables:
-- Google Gemini: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent
-- OpenAI: https://api.openai.com/v1/chat/completions
-- Pexels: https://api.pexels.com/v1/search
-- YouTube: https://www.googleapis.com/youtube/v3/search
+API ENDPOINTS:
+- Gemini: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent (use x-goog-api-key header)
+- OpenAI: https://api.openai.com/v1/chat/completions (use Bearer token)
+- Pexels: https://api.pexels.com/v1/search (use Authorization header)
+- YouTube: https://www.googleapis.com/youtube/v3/search (use key parameter)
 
-CRITICAL FORMAT REQUIREMENTS:
-- DO NOT use import statements - they will cause "Cannot use import statement outside a module" errors
-- ALWAYS use the modern export default { async fetch(request, env, ctx) { ... } } format
-- DO NOT use the old addEventListener('fetch', event => {}) format
-- ALWAYS include all three parameters: request, env, ctx in the fetch function
-- Include proper CORS headers for cross-origin requests
-- Handle OPTIONS requests for CORS preflight
-- Include proper error handling and status codes
-- Add helpful comments explaining the functionality
-- Make it production-ready
-- Access environment variables using: env.VARIABLE_NAME (e.g., env.GOOGLE_GEMINI_API_KEY)
-- NEVER hardcode API keys - always use environment variables
-
-CORRECT CLOUDFLARE WORKER FORMAT EXAMPLE:
-export default {
-  async fetch(request, env, ctx) {
-    // ALWAYS include 'env' parameter to access environment variables
-    // Example: const apiKey = env.GOOGLE_GEMINI_API_KEY
-    return new Response('Hello World', { status: 200 })
-  }
-}
+CRITICAL RULES:
+❌ DO NOT use import statements
+❌ DO NOT use addEventListener format
+❌ DO NOT forget env parameter in helper functions
+✅ DO use export default { async fetch(request, env, ctx) { ... } }
+✅ DO pass (request, env) to ALL helper functions
+✅ DO include /debug endpoint
+✅ DO use proper error handling
 
 ${exampleContext}
 
-Please generate only the JavaScript code for the worker using the addEventListener format, without any markdown formatting or explanations. Do NOT use export default syntax.`
+Generate ONLY the JavaScript code following the working example pattern. No markdown, no explanations.`
 
-    console.log('📡 Calling worker generation API...')
+    console.log('📡 Calling worker generation API with Cloudflare AI...')
 
-    // Use the dedicated worker generation endpoint
+    // Use Cloudflare Workers AI binding for better, more consistent results
     const response = await fetch(
-      'https://vegvisr-api-worker.torarnehave.workers.dev/generate-worker',
+      'https://knowledge-graph-worker.torarnehave.workers.dev/generate-worker-ai',
       {
         method: 'POST',
         headers: {
@@ -1742,6 +1718,87 @@ Please generate only the JavaScript code for the worker using the addEventListen
           aiModel: selectedAIModel.value,
           selectedExamples,
           userPrompt: userPrompt.value.trim() || 'Create a basic worker',
+          useCloudflareAI: true, // Flag to use Workers AI binding
+          workingExample: `export default {
+  async fetch(request, env, ctx) {
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, User-Agent',
+          'Access-Control-Max-Age': '86400',
+        },
+      })
+    }
+
+    const url = new URL(request.url)
+    const pathname = url.pathname
+
+    try {
+      // Debug endpoint
+      if (pathname === '/debug') {
+        return handleDebug(request, env)
+      }
+
+      // Main endpoint
+      if (pathname === '/' || pathname === '/search') {
+        return handleMainFunction(request, env)
+      }
+
+      // Default response
+      return new Response(JSON.stringify({
+        message: 'Worker is running',
+        endpoints: ['/debug', '/'],
+        timestamp: new Date().toISOString(),
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    } catch (error) {
+      return new Response(JSON.stringify({
+        error: 'Internal server error',
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+  },
+}
+
+async function handleDebug(request, env) {
+  return new Response(JSON.stringify({
+    status: 'Environment variables available',
+    timestamp: new Date().toISOString(),
+  }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+}
+
+async function handleMainFunction(request, env) {
+  return new Response(JSON.stringify({
+    message: 'Main function working',
+    timestamp: new Date().toISOString(),
+  }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+}`,
         }),
       },
     )
@@ -2130,7 +2187,7 @@ const validateGeneratedCode = async (code) => {
     console.log('🔍 Validating generated worker code...')
 
     const response = await fetch(
-      'https://vegvisr-api-worker.torarnehave.workers.dev/validate-worker',
+      'https://knowledge-graph-worker.torarnehave.workers.dev/validate-worker',
       {
         method: 'POST',
         headers: {
@@ -2712,7 +2769,7 @@ const useServicePrompt = (serviceType) => {
     openai:
       'Create a Cloudflare Worker that uses OpenAI GPT-4. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.OPENAI_API_KEY with Bearer token. Use https://api.openai.com/v1/chat/completions endpoint. Include CORS headers, handle OPTIONS requests. Accept POST with {"prompt": "text", "model": "gpt-4"} and return JSON.',
     pexels:
-      'Create a Cloudflare Worker for Pexels image search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.PEXELS_API_KEY in Authorization header. Use https://api.pexels.com/v1/search endpoint with query and per_page parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for query parameter, and return JSON responses. CRITICAL: Add debugging route - if pathname is "/debug", return JSON with available environment variables like {pexels: env.PEXELS_API_KEY ? "available" : "missing", env_keys: Object.keys(env)}.',
+      'Create a Cloudflare Worker for Pexels image search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. CRITICAL: ALWAYS pass both request AND env parameters to ALL helper functions like handleDebug(request, env) and handlePexelsSearch(request, env). Use env.PEXELS_API_KEY in Authorization header. Use https://api.pexels.com/v1/search endpoint. Support both "query" and "q" parameters, plus "per_page" and "page" parameters. Include CORS headers with Access-Control-Allow-Origin: "*". Handle OPTIONS requests properly. Use encodeURIComponent for all URL parameters. Include proper error handling with try-catch blocks. CRITICAL: Add /debug endpoint that returns JSON with available environment variables like {pexels_api_key: env.PEXELS_API_KEY ? "available" : "missing", environment_keys: Object.keys(env || {}), env_object_type: typeof env}. Main endpoints should be "/" and "/search" for image search. Follow the exact pattern from the working example.',
     youtube:
       'Create a Cloudflare Worker for YouTube video search. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. Use env.YOUTUBE_API_KEY. Use https://www.googleapis.com/youtube/v3/search endpoint with part=snippet, q, maxResults, and key parameters. Include CORS headers, handle OPTIONS requests, use encodeURIComponent for search terms.',
     form: 'Create a Cloudflare Worker that serves HTML forms. CRITICAL: DO NOT USE import statements. IMPORTANT: Use the modern export default { async fetch(request, env, ctx) { ... } } format. For GET requests, return HTML form with name, email, message fields and proper CSS styling. For POST requests, parse formData, validate inputs, and return success/error HTML pages. Include CORS headers and handle OPTIONS requests.',
@@ -3106,6 +3163,10 @@ const useServicePrompt = (serviceType) => {
   font-size: 0.8em;
   font-weight: 600;
   color: white;
+}
+
+.model-badge.model-cloudflare {
+  background: linear-gradient(135deg, #f38020, #f56500);
 }
 
 .model-badge.model-openai {

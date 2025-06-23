@@ -1373,6 +1373,151 @@ export default {
         }
       }
 
+      if (pathname === '/generate-worker-ai' && request.method === 'POST') {
+        try {
+          console.log('[Worker] Starting AI worker generation...')
+
+          const requestBody = await request.json()
+          const { prompt, aiModel, selectedExamples, userPrompt, useCloudflareAI, workingExample } =
+            requestBody
+
+          if (!prompt) {
+            return new Response(JSON.stringify({ error: 'Missing required parameter: prompt' }), {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          // Check if Cloudflare AI binding is available
+          if (!env.AI) {
+            console.error('[Worker] AI binding not available')
+            return new Response(JSON.stringify({ error: 'AI binding not configured' }), {
+              status: 500,
+              headers: corsHeaders,
+            })
+          }
+
+          // Prepare context from selected examples
+          let exampleContext = ''
+          if (selectedExamples && selectedExamples.length > 0) {
+            exampleContext = `\n\nSelected Code Examples:\n${selectedExamples
+              .map((ex) => `// ${ex.title} (${ex.language})\n// ${ex.description}\n${ex.code}`)
+              .join('\n\n// ---\n\n')}`
+          }
+
+          // Enhanced prompt with working example
+          const enhancedPrompt = `You are an expert Cloudflare Worker developer. Generate a complete, production-ready Cloudflare Worker script.
+
+CRITICAL: Follow this EXACT working pattern:
+
+${workingExample}
+
+User Request: ${userPrompt || 'Create a basic worker'}
+
+RULES:
+1. ALWAYS use: export default { async fetch(request, env, ctx) { ... } }
+2. ALWAYS pass both request AND env parameters to helper functions
+3. ALWAYS include proper CORS handling
+4. ALWAYS use try-catch for error handling
+5. ALWAYS include /debug endpoint for testing
+6. DO NOT use import statements
+7. DO NOT use addEventListener format
+
+${exampleContext}
+
+Generate ONLY the JavaScript code following the working example pattern. No markdown, no explanations.`
+
+          console.log('[Worker] Using Cloudflare Workers AI for code generation...')
+
+          // Use Cloudflare Workers AI
+          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are an expert Cloudflare Worker developer. Generate clean, production-ready JavaScript code using the modern export default format. Follow the provided working example exactly.',
+              },
+              {
+                role: 'user',
+                content: enhancedPrompt,
+              },
+            ],
+            max_tokens: 3000,
+            temperature: 0.3, // Lower temperature for more consistent code generation
+          })
+
+          let result = aiResponse.response || ''
+
+          // Clean up the generated code
+          let cleanCode = result
+            .replace(/```javascript\n?/g, '')
+            .replace(/```js\n?/g, '')
+            .replace(/```\n?/g, '')
+            .trim()
+
+          // Ensure it uses the modern format
+          if (!cleanCode.includes('export default')) {
+            console.log('[Worker] Adding export default wrapper...')
+            cleanCode = `export default {
+  async fetch(request, env, ctx) {
+    ${cleanCode}
+  }
+}`
+          }
+
+          // Basic validation
+          const hasExportDefault = cleanCode.includes('export default')
+          const hasFetchFunction = cleanCode.includes('async fetch(request, env, ctx)')
+          const hasDebugEndpoint = cleanCode.includes('/debug')
+
+          const validation = {
+            isValid: hasExportDefault && hasFetchFunction,
+            errors: [],
+            warnings: [],
+            score: 0,
+          }
+
+          if (!hasExportDefault) validation.errors.push('Missing export default structure')
+          if (!hasFetchFunction) validation.errors.push('Missing proper fetch function signature')
+          if (!hasDebugEndpoint) validation.warnings.push('Missing /debug endpoint for testing')
+
+          // Calculate score
+          validation.score = Math.max(
+            0,
+            100 - validation.errors.length * 30 - validation.warnings.length * 10,
+          )
+
+          console.log('[Worker] AI worker generation completed successfully')
+          return new Response(
+            JSON.stringify({
+              success: true,
+              code: cleanCode,
+              model: 'cloudflare-ai-llama-3.1-8b',
+              timestamp: new Date().toISOString(),
+              validation,
+              usedCloudflareAI: true,
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Cloudflare AI worker generation error:', error)
+          return new Response(
+            JSON.stringify({
+              error: 'Worker generation failed',
+              details: error.message,
+              stack: error.stack,
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            },
+          )
+        }
+      }
+
       console.warn('[Worker] No matching route for pathname:', pathname)
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {
