@@ -785,7 +785,7 @@ const addEdge = () => {
   cyInstance.value.add(newEdge)
 }
 
-// Save graph
+// Save graph - FIXED to preserve all metadata including metaArea
 const saveGraph = async () => {
   if (cyInstance.value) {
     cyInstance.value.nodes().forEach((node) => {
@@ -796,8 +796,33 @@ const saveGraph = async () => {
     })
   }
 
+  // Build metadata: Use existing graphStore metadata but ensure all fields are preserved
+  const metadata = {
+    title: graphStore.graphMetadata.title || 'Untitled Graph',
+    description: graphStore.graphMetadata.description || '',
+    createdBy: graphStore.graphMetadata.createdBy || 'Unknown',
+    category: graphStore.graphMetadata.category || '', // Preserve category
+    metaArea: graphStore.graphMetadata.metaArea || '', // Preserve metaArea - CRITICAL!
+    version: graphStore.graphMetadata.version || 1,
+    createdAt: graphStore.graphMetadata.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    // Preserve any other fields that might exist
+    ...graphStore.graphMetadata,
+    // Ensure these core fields are always set correctly
+    updatedAt: new Date().toISOString(),
+  }
+
+  console.log(
+    '💾 [GraphAdmin] saveGraph() - Preserving metadata:',
+    JSON.stringify(metadata, null, 2),
+  )
+  console.log(
+    '💾 [GraphAdmin] saveGraph() - Meta area being saved:',
+    metadata.metaArea || 'NO META AREA',
+  )
+
   const graphData = {
-    metadata: graphStore.graphMetadata,
+    metadata: metadata,
     nodes: graphStore.nodes.map((node) => ({
       ...node.data,
       position: node.position,
@@ -863,6 +888,16 @@ const saveCurrentGraph = async () => {
       const latestGraph = await response.json()
       const latestVersion = latestGraph.metadata.version
 
+      // Debug: Log the metadata being fetched
+      console.log(
+        '🔍 [GraphAdmin] Latest graph metadata from API:',
+        JSON.stringify(latestGraph.metadata, null, 2),
+      )
+      console.log(
+        '🔍 [GraphAdmin] Meta area in fetched graph:',
+        latestGraph.metadata?.metaArea || 'NO META AREA FOUND',
+      )
+
       if (graphStore.currentVersion !== latestVersion) {
         const userConfirmed = confirm(
           `Version mismatch detected. The current version is ${latestVersion}, but you are working on version ${graphStore.currentVersion}. Do you want to overwrite it?`,
@@ -895,7 +930,14 @@ const saveCurrentGraph = async () => {
         })),
       }
 
-      console.log('Saving graph with metadata:', graphData.metadata) // Debug log
+      console.log(
+        '💾 [GraphAdmin] Saving graph with metadata:',
+        JSON.stringify(graphData.metadata, null, 2),
+      ) // Debug log
+      console.log(
+        '💾 [GraphAdmin] Meta area being saved:',
+        graphData.metadata?.metaArea || 'NO META AREA IN SAVE DATA',
+      )
 
       const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
         method: 'POST',

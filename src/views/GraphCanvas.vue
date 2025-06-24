@@ -696,7 +696,7 @@ const redoAction = () => {
   }
 }
 
-// Save graph (position updates only)
+// Save graph (position updates only) - FIXED to preserve metadata
 const saveGraph = async () => {
   if (!cyInstance.value || !selectedGraphId.value) {
     showStatus('No graph selected to save', 'warning')
@@ -705,6 +705,26 @@ const saveGraph = async () => {
 
   try {
     showStatus('Saving positions...', 'info')
+
+    // CRITICAL FIX: Fetch the current graph data to preserve metadata
+    console.log('🔍 [GraphCanvas] Fetching current graph to preserve metadata...')
+    const currentGraphResponse = await fetch(
+      `https://knowledge.vegvisr.org/getknowgraph?id=${selectedGraphId.value}`,
+    )
+
+    if (!currentGraphResponse.ok) {
+      throw new Error(`Failed to fetch current graph: ${currentGraphResponse.status}`)
+    }
+
+    const currentGraph = await currentGraphResponse.json()
+    console.log(
+      '🔍 [GraphCanvas] Current graph metadata:',
+      JSON.stringify(currentGraph.metadata, null, 2),
+    )
+    console.log(
+      '🔍 [GraphCanvas] Meta area in current graph:',
+      currentGraph.metadata?.metaArea || 'NO META AREA FOUND',
+    )
 
     // Get current positions from Cytoscape
     const updatedNodes = cyInstance.value.nodes().map((node) => ({
@@ -723,14 +743,27 @@ const saveGraph = async () => {
       updatedNodes.slice(0, 2).map((n) => ({ id: n.id, position: n.position })),
     )
 
-    // Use the same format as GraphAdmin's updateknowgraph call
+    // CRITICAL FIX: Include metadata in the payload to preserve it
     const payload = {
       id: selectedGraphId.value,
       graphData: {
+        metadata: {
+          ...currentGraph.metadata, // Preserve ALL existing metadata including metaArea
+          updatedAt: new Date().toISOString(), // Update timestamp
+        },
         nodes: updatedNodes,
         edges: updatedEdges,
       },
     }
+
+    console.log(
+      '💾 [GraphCanvas] Saving with preserved metadata:',
+      JSON.stringify(payload.graphData.metadata, null, 2),
+    )
+    console.log(
+      '💾 [GraphCanvas] Meta area being saved:',
+      payload.graphData.metadata?.metaArea || 'NO META AREA IN SAVE DATA',
+    )
 
     const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
       method: 'POST',
@@ -741,15 +774,15 @@ const saveGraph = async () => {
     })
 
     if (response.ok) {
-      console.log('Position update successful')
+      console.log('✅ [GraphCanvas] Position update successful with metadata preserved')
       showStatus('Positions saved successfully!', 'success')
     } else {
       const errorText = await response.text()
-      console.error('Save failed:', response.status, errorText)
+      console.error('❌ [GraphCanvas] Save failed:', response.status, errorText)
       showStatus(`Error saving positions: ${response.status}`, 'error')
     }
   } catch (error) {
-    console.error('Error saving positions:', error)
+    console.error('❌ [GraphCanvas] Error saving positions:', error)
     showStatus('Error saving positions: ' + error.message, 'error')
   }
 }
