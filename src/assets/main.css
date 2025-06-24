@@ -140,6 +140,21 @@ img.leftside {
     line-height: 1.1 !important;
   }
 
+  .graph-viewer {
+    padding: 10px 5px !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .graph-container {
+    padding: 0 8px !important;
+  }
+
+  .node-content-inner {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
   .node {
     padding: 10px;
   }

@@ -4578,6 +4578,16 @@ img.leftside {
     margin: 0.5em 0 !important;
     line-height: 1.1 !important;
   }
+
+  .graph-viewer {
+    padding: 10px 5px !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .graph-container {
+    padding: 0 8px !important;
+  }
 }
 
 .node-content-inner {
