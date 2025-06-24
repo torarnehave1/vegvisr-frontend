@@ -98,6 +98,30 @@
                 </div>
               </div>
             </div>
+
+            <!-- Language Preservation Section -->
+            <div class="language-preservation-section">
+              <h4>🌍 Language Options</h4>
+              <div class="language-options">
+                <label class="language-radio">
+                  <input type="radio" v-model="languageMode" value="auto-detect" />
+                  🔍 Auto-detect and keep current language
+                  <span
+                    v-if="detectedLanguage && detectedLanguage !== 'Unknown'"
+                    class="detected-lang"
+                  >
+                    (Detected: {{ detectedLanguage }})
+                  </span>
+                  <span v-else-if="detectedLanguage === 'Unknown'" class="detected-lang">
+                    (Language unclear - will preserve as-is)
+                  </span>
+                </label>
+                <label class="language-radio">
+                  <input type="radio" v-model="languageMode" value="keep-current" />
+                  🔒 Keep current language as-is
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -207,6 +231,10 @@ const options = ref({
   preserveStructure: false,
 })
 
+// NEW: Language detection state
+const languageMode = ref('auto-detect')
+const detectedLanguage = ref('')
+
 // Computed
 const filteredTemplates = computed(() => {
   return templates.value.filter((template) => template.nodeTypes.includes(props.nodeType))
@@ -229,6 +257,21 @@ const fetchTemplates = async () => {
     const data = await response.json()
     templates.value = data.templates || []
 
+    // DEBUG: Log template information
+    console.log('=== Template Fetch Debug ===')
+    console.log('Node Type:', props.nodeType)
+    console.log('Total templates received:', templates.value.length)
+    console.log(
+      'Templates:',
+      templates.value.map((t) => ({
+        id: t.id,
+        name: t.name,
+        category: t.category,
+        nodeTypes: t.nodeTypes,
+      })),
+    )
+    console.log('Filtered templates:', filteredTemplates.value.length)
+
     // Auto-select first template if available
     if (templates.value.length > 0) {
       selectedTemplate.value = templates.value[0]
@@ -243,6 +286,74 @@ const fetchTemplates = async () => {
 
 const selectTemplate = (template) => {
   selectedTemplate.value = template
+}
+
+// NEW: Simple language detection function
+const detectLanguage = (text) => {
+  if (!text || text.trim().length === 0) return 'Unknown'
+
+  // Norwegian common words
+  const norwegianWords = [
+    'og',
+    'er',
+    'på',
+    'med',
+    'til',
+    'av',
+    'for',
+    'ikke',
+    'som',
+    'det',
+    'den',
+    'de',
+    'å',
+    'i',
+    'har',
+    'var',
+    'kan',
+    'skal',
+    'vil',
+    'må',
+  ]
+  // English common words
+  const englishWords = [
+    'the',
+    'and',
+    'is',
+    'in',
+    'to',
+    'of',
+    'for',
+    'not',
+    'as',
+    'it',
+    'with',
+    'that',
+    'this',
+    'have',
+    'was',
+    'can',
+    'will',
+    'would',
+    'could',
+    'should',
+  ]
+
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word.length > 1)
+  const norwegianCount = words.filter((word) => norwegianWords.includes(word)).length
+  const englishCount = words.filter((word) => englishWords.includes(word)).length
+
+  console.log('=== Language Detection ===')
+  console.log('Text length:', text.length)
+  console.log('Norwegian matches:', norwegianCount)
+  console.log('English matches:', englishCount)
+
+  if (norwegianCount > englishCount && norwegianCount > 2) return 'Norwegian'
+  if (englishCount > norwegianCount && englishCount > 2) return 'English'
+  return 'Unknown'
 }
 
 const applyTemplate = async () => {
@@ -264,6 +375,11 @@ const applyTemplate = async () => {
         colorTheme: {
           id: selectedColorTheme.value,
           ...colorThemes.value[selectedColorTheme.value],
+        },
+        // NEW: Language preservation options
+        languageOptions: {
+          mode: languageMode.value,
+          detectedLanguage: detectedLanguage.value,
         },
       }),
     })
@@ -302,6 +418,22 @@ watch(
   (newValue) => {
     if (newValue) {
       fetchTemplates()
+      // NEW: Detect language when modal opens
+      if (props.nodeContent) {
+        detectedLanguage.value = detectLanguage(props.nodeContent)
+        console.log('Detected language for template selector:', detectedLanguage.value)
+      }
+    }
+  },
+)
+
+// NEW: Watch for content changes to re-detect language
+watch(
+  () => props.nodeContent,
+  (newContent) => {
+    if (newContent && props.isOpen) {
+      detectedLanguage.value = detectLanguage(newContent)
+      console.log('Re-detected language:', detectedLanguage.value)
     }
   },
 )
@@ -661,6 +793,51 @@ onMounted(() => {
 .theme-selected .theme-name {
   color: #6f42c1;
   font-weight: 600;
+}
+
+/* Language Preservation Styles */
+.language-preservation-section {
+  margin-top: 20px;
+}
+
+.language-preservation-section h4 {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 1rem;
+}
+
+.language-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.language-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.language-radio:hover {
+  border-color: #6f42c1;
+  background: #f8f5ff;
+}
+
+.language-radio input[type='radio'] {
+  margin: 0;
+}
+
+.detected-lang {
+  color: #28a745;
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-left: 4px;
 }
 
 /* Mobile Responsiveness */

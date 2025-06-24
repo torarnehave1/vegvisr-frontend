@@ -1606,6 +1606,208 @@ DO NOT use ESM or export default syntax. Return ONLY the corrected JavaScript co
         }
       }
 
+      if (pathname === '/generate-share-summary' && request.method === 'POST') {
+        try {
+          console.log('[Worker] ========== GENERATING SHARE SUMMARY ==========')
+
+          const requestBody = await request.json()
+          const { graphData, graphMetadata } = requestBody
+
+          console.log(
+            '[Worker] Request data:',
+            JSON.stringify({
+              nodeCount: graphData?.nodes?.length || 0,
+              edgeCount: graphData?.edges?.length || 0,
+              hasMetadata: !!graphMetadata,
+            }),
+          )
+
+          if (!graphData || !graphData.nodes) {
+            console.log('[Worker] ERROR: Missing graph data')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'Missing required parameter: graphData with nodes',
+              }),
+              {
+                status: 400,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          // Check if Cloudflare AI binding is available
+          if (!env.AI) {
+            console.error('[Worker] ERROR: AI binding not available')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'AI binding not configured',
+              }),
+              {
+                status: 500,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          // Extract content from graph nodes for analysis
+          const nodeContents = graphData.nodes
+            .filter((node) => node.visible !== false)
+            .map((node) => {
+              const parts = []
+              if (node.label) parts.push(`Title: ${node.label}`)
+              if (node.info) parts.push(`Content: ${node.info}`)
+              return parts.join('\n')
+            })
+            .filter((content) => content.trim().length > 0)
+
+          const graphTitle = graphMetadata?.title || 'Untitled Graph'
+          const graphDescription = graphMetadata?.description || ''
+          const categories = graphMetadata?.category || ''
+
+          // Combine all content for language detection and summary generation
+          const allContent = [graphTitle, graphDescription, categories, ...nodeContents]
+            .join('\n')
+            .trim()
+
+          console.log('[Worker] Content length for analysis:', allContent.length)
+          console.log('[Worker] Content preview:', allContent.substring(0, 200) + '...')
+
+          try {
+            // Generate engaging share summary using AI
+            const aiPrompt = `You are a social media content creator. Analyze this knowledge graph content and create an engaging social media summary.
+
+GRAPH CONTENT:
+Title: ${graphTitle}
+Description: ${graphDescription}
+Categories: ${categories}
+Nodes: ${graphData.nodes.length}
+Edges: ${graphData.edges.length}
+
+NODE CONTENTS:
+${nodeContents.join('\n\n')}
+
+CRITICAL REQUIREMENTS:
+1. DETECT the primary language used in the content (Norwegian, English, etc.)
+2. Write the ENTIRE response in that SAME language
+3. Start with an engaging hook like "Look here! I think this might be interesting for you" (but in the detected language)
+4. Create a compelling 2-3 sentence summary of what this knowledge graph is about
+5. Make it sound personal and engaging for social media sharing
+6. Keep it under 200 words
+7. DO NOT translate - use the original language throughout
+
+If content is in Norwegian, use Norwegian phrases like "Se her! Jeg tror dette kan være interessant for deg"
+If content is in English, use "Look here! I think this might be interesting for you"
+
+Return ONLY the social media summary text, no explanations or metadata.`
+
+            console.log('[Worker] Sending prompt to AI for share summary generation')
+
+            const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+              messages: [
+                {
+                  role: 'user',
+                  content: aiPrompt,
+                },
+              ],
+              max_tokens: 512,
+              temperature: 0.7,
+            })
+
+            console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
+
+            let summary = ''
+            if (aiResponse && aiResponse.response) {
+              summary = aiResponse.response.trim()
+              console.log('[Worker] Generated summary length:', summary.length)
+              console.log('[Worker] Generated summary:', summary)
+            } else {
+              throw new Error('AI did not return valid response')
+            }
+
+            // Fallback summary if AI fails
+            if (!summary || summary.length < 10) {
+              console.log('[Worker] AI summary too short, using fallback')
+              // Simple language detection for fallback
+              const isNorwegian =
+                /\b(og|er|på|med|til|av|for|som|ikke|det|en|et|jeg|du|han|hun|vi|de)\b/gi.test(
+                  allContent,
+                )
+
+              if (isNorwegian) {
+                summary = `Se her! Jeg tror dette kan være interessant for deg. ${graphTitle ? `Dette er en kunnskapsgraf om "${graphTitle}"` : 'Dette er en interessant kunnskapsgraf'} med ${graphData.nodes.length} noder og ${graphData.edges.length} forbindelser. ${graphDescription || 'Den inneholder verdifull informasjon som kan være nyttig.'}`
+              } else {
+                summary = `Look here! I think this might be interesting for you. ${graphTitle ? `This is a knowledge graph about "${graphTitle}"` : 'This is an interesting knowledge graph'} with ${graphData.nodes.length} nodes and ${graphData.edges.length} connections. ${graphDescription || 'It contains valuable information that might be useful.'}`
+              }
+            }
+
+            const response = {
+              success: true,
+              summary: summary,
+              model: '@cf/meta/llama-3.1-8b-instruct',
+              nodeCount: graphData.nodes.length,
+              edgeCount: graphData.edges.length,
+              timestamp: new Date().toISOString(),
+            }
+
+            console.log('[Worker] Sending share summary response')
+
+            return new Response(JSON.stringify(response), {
+              status: 200,
+              headers: corsHeaders,
+            })
+          } catch (aiError) {
+            console.error('[Worker] AI summary generation failed:', aiError)
+
+            // Fallback summary generation
+            const isNorwegian =
+              /\b(og|er|på|med|til|av|for|som|ikke|det|en|et|jeg|du|han|hun|vi|de)\b/gi.test(
+                allContent,
+              )
+
+            let fallbackSummary
+            if (isNorwegian) {
+              fallbackSummary = `Se her! Jeg tror dette kan være interessant for deg. ${graphTitle ? `Dette er en kunnskapsgraf om "${graphTitle}"` : 'Dette er en interessant kunnskapsgraf'} med ${graphData.nodes.length} noder og ${graphData.edges.length} forbindelser. ${graphDescription || 'Den inneholder verdifull informasjon som kan være nyttig.'}`
+            } else {
+              fallbackSummary = `Look here! I think this might be interesting for you. ${graphTitle ? `This is a knowledge graph about "${graphTitle}"` : 'This is an interesting knowledge graph'} with ${graphData.nodes.length} nodes and ${graphData.edges.length} connections. ${graphDescription || 'It contains valuable information that might be useful.'}`
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                summary: fallbackSummary,
+                model: 'fallback',
+                nodeCount: graphData.nodes.length,
+                edgeCount: graphData.edges.length,
+                timestamp: new Date().toISOString(),
+                note: 'Generated using fallback due to AI error',
+              }),
+              {
+                status: 200,
+                headers: corsHeaders,
+              },
+            )
+          }
+        } catch (error) {
+          console.error('[Worker] CRITICAL ERROR in generate-share-summary:', error)
+          console.error('[Worker] Error stack:', error.stack)
+
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Share summary generation failed',
+              details: error.message,
+              timestamp: new Date().toISOString(),
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            },
+          )
+        }
+      }
+
       if (pathname === '/generate-worker-ai' && request.method === 'POST') {
         try {
           console.log('[Worker] ========== CLEAN SLATE AI GENERATION ==========')

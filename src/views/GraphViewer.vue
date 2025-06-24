@@ -8,6 +8,9 @@
     <!-- ============================= -->
     <button @click="printGraph" class="btn btn-primary mb-3">Print</button>
     <button @click="saveAsHtml2Pdf" class="btn btn-warning mb-3 ms-2">Save as PDF</button>
+    <button @click="openShareModal" class="btn btn-success mb-3 ms-2">
+      <i class="bi bi-share"></i> Share
+    </button>
     <button
       v-if="userStore.loggedIn && ['Admin', 'Superadmin'].includes(userStore.role)"
       @click="saveToMystmkraFromMenu"
@@ -828,6 +831,84 @@
           <small>This may take a few seconds. Please don't navigate away.</small>
         </div>
       </div>
+
+      <!-- Share Modal -->
+      <div
+        class="modal fade"
+        id="shareModal"
+        tabindex="-1"
+        aria-labelledby="shareModalLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="shareModalLabel">Share Knowledge Graph</h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              ></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label for="shareContent" class="form-label">
+                  Share Content
+                  <span v-if="shareContent.includes('Generating')" class="text-muted">
+                    <i class="bi bi-hourglass-split"></i> AI is creating an engaging summary...
+                  </span>
+                </label>
+                <textarea
+                  class="form-control"
+                  id="shareContent"
+                  rows="6"
+                  v-model="shareContent"
+                  readonly
+                  :class="{ 'text-muted': shareContent.includes('Generating') }"
+                ></textarea>
+              </div>
+              <div class="share-buttons d-flex gap-2 justify-content-center flex-wrap">
+                <button
+                  class="btn btn-outline-primary share-btn instagram-btn"
+                  @click="shareToInstagram"
+                  :disabled="shareContent.includes('Generating')"
+                  title="Share to Instagram"
+                >
+                  <i class="bi bi-instagram"></i> Instagram
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn linkedin-btn"
+                  @click="shareToLinkedIn"
+                  :disabled="shareContent.includes('Generating')"
+                  title="Share to LinkedIn"
+                >
+                  <i class="bi bi-linkedin"></i> LinkedIn
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn twitter-btn"
+                  @click="shareToTwitter"
+                  :disabled="shareContent.includes('Generating')"
+                  title="Share to Twitter"
+                >
+                  <i class="bi bi-twitter-x"></i> Twitter
+                </button>
+                <button
+                  class="btn btn-outline-primary share-btn facebook-btn"
+                  @click="shareToFacebook"
+                  :disabled="shareContent.includes('Generating')"
+                  title="Share to Facebook"
+                >
+                  <i class="bi bi-facebook"></i> Facebook
+                </button>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -936,6 +1017,10 @@ const currentGooglePhotosData = ref({
 
 // RAG Sandbox modal functionality
 const isRAGSandboxModalOpen = ref(false)
+
+// Sharing functionality
+const shareContent = ref('')
+const shareModal = ref(null)
 
 // Quick format loading state
 const isQuickFormatLoading = ref(false)
@@ -3832,6 +3917,111 @@ const closeAIImageModal = () => {
 // Navigation method for R2 Portfolio
 const navigateToR2Portfolio = () => {
   router.push('/r2-portfolio')
+}
+
+// Sharing functionality
+const openShareModal = async () => {
+  // Show loading content initially
+  shareContent.value = 'Generating engaging summary... Please wait.'
+
+  if (!shareModal.value) {
+    shareModal.value = new Modal(document.getElementById('shareModal'))
+  }
+  shareModal.value.show()
+
+  try {
+    // Get graph metadata
+    const graphMetadata = knowledgeGraphStore.currentGraph?.metadata || {}
+
+    // Call AI endpoint to generate engaging summary
+    const response = await fetch(
+      'https://knowledge-graph-worker.torarnehave.workers.dev/generate-share-summary',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          graphData: graphData.value,
+          graphMetadata: graphMetadata,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to generate summary: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.success && data.summary) {
+      // Use AI-generated engaging summary with branded domain
+      const shareUrl = `https://${currentDomain}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
+      shareContent.value = `${data.summary}\n\n${shareUrl}`
+
+      console.log('AI-generated share summary:', data.summary)
+      console.log('Used model:', data.model)
+      console.log('Share URL with branded domain:', shareUrl)
+    } else {
+      throw new Error('AI response was not successful')
+    }
+  } catch (error) {
+    console.error('Error generating AI summary:', error)
+
+    // Fallback to basic summary if AI fails
+    const nodeCount = Array.isArray(graphData.value.nodes) ? graphData.value.nodes.length : 0
+    const edgeCount = Array.isArray(graphData.value.edges) ? graphData.value.edges.length : 0
+    const graphMetadata = knowledgeGraphStore.currentGraph?.metadata || {}
+    const graphTitle = graphMetadata.title || 'Untitled Graph'
+    const graphDescription = graphMetadata.description || ''
+    const categories = graphMetadata.category || ''
+    const categoryText = categories ? `Categories: ${categories}` : ''
+
+    shareContent.value =
+      `${graphTitle}\n\n` +
+      `${graphDescription}\n\n` +
+      `Nodes: ${nodeCount}\n` +
+      `Edges: ${edgeCount}\n` +
+      `${categoryText}\n\n` +
+      `View this knowledge graph: https://${currentDomain}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
+  }
+}
+
+const shareToInstagram = () => {
+  const instagramUrl = `https://www.instagram.com/create/story`
+  window.open(instagramUrl, '_blank', 'width=600,height=400')
+
+  // Show a message to the user
+  alert('Please copy the text from the text area above and paste it into your Instagram story.')
+}
+
+const shareToLinkedIn = () => {
+  const title = encodeURIComponent(shareContent.value.split('\n')[0])
+  const summary = encodeURIComponent(shareContent.value)
+  const graphId = knowledgeGraphStore.currentGraphId || ''
+  const url = encodeURIComponent(`https://${currentDomain}/graph-viewer?graphId=${graphId}`)
+
+  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
+  window.open(linkedInUrl, '_blank', 'width=600,height=400')
+}
+
+const shareToTwitter = () => {
+  const title = shareContent.value.split('\n')[0]
+  const graphId = knowledgeGraphStore.currentGraphId || ''
+  const url = `https://${currentDomain}/graph-viewer?graphId=${graphId}`
+
+  // Twitter has a 280 character limit, so we'll create a shorter message
+  const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${tweetText}`
+  window.open(twitterUrl, '_blank', 'width=600,height=400')
+}
+
+const shareToFacebook = () => {
+  const graphId = knowledgeGraphStore.currentGraphId || ''
+  const url = encodeURIComponent(`https://${currentDomain}/graph-viewer?graphId=${graphId}`)
+
+  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
+  window.open(facebookUrl, '_blank', 'width=600,height=400')
 }
 
 const handleImageInserted = async (nodeData) => {

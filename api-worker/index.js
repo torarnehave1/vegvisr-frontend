@@ -2536,6 +2536,20 @@ const handleGetStyleTemplates = async (request) => {
       category: 'structure',
       isActive: true,
     },
+    {
+      id: 'text_only_basic',
+      name: 'Text Only Basic',
+      description:
+        'Simple formatting with FANCY headers, SECTION blocks, and QUOTE citations - no images',
+      nodeTypes: ['fulltext', 'title', 'worknote', 'markdown-image'],
+      transformationRules: {
+        addFancyHeaders: true,
+        addSections: true,
+        addQuotes: true,
+      },
+      category: 'basic',
+      isActive: true,
+    },
   ]
 
   // Filter by node type if specified
@@ -2560,7 +2574,14 @@ const handleApplyStyleTemplate = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { nodeContent, templateId, nodeType, options = {}, colorTheme = null } = body
+  const {
+    nodeContent,
+    templateId,
+    nodeType,
+    options = {},
+    colorTheme = null,
+    languageOptions = null,
+  } = body
 
   if (!nodeContent || !templateId || !nodeType) {
     return createErrorResponse(
@@ -2575,6 +2596,7 @@ const handleApplyStyleTemplate = async (request, env) => {
   console.log('Content length:', nodeContent.length)
   console.log('Options:', JSON.stringify(options))
   console.log('Color Theme:', colorTheme ? colorTheme.name : 'Default')
+  console.log('Language Options:', JSON.stringify(languageOptions))
 
   // Get the template configuration
   const templates = [
@@ -2647,6 +2669,37 @@ BASIC FORMATTING:
 
 Focus on clear structure and readability.`,
     },
+    {
+      id: 'text_only_basic',
+      aiInstructions: `Transform this content with clean, simple text formatting - NO IMAGES:
+
+TEXT-ONLY FORMATTING REQUIREMENTS:
+1. Add a FANCY header with attractive styling:
+   [FANCY | font-size: 2.5em; color: #2c3e50; background: linear-gradient(45deg, #f8f9fa, #e9ecef); text-align: center; padding: 15px; border-radius: 8px; margin-bottom: 20px]Your Title Here[END FANCY]
+
+2. Structure content into clear SECTION blocks:
+   [SECTION | background-color: '#f8f9fa'; color: '#333'; padding: 15px; border-radius: 6px; margin: 10px 0; border-left: 4px solid #007bff]
+   Main content section here
+   [END SECTION]
+
+3. Add relevant QUOTE blocks with proper citations:
+   [QUOTE | Cited='Author Name or Source']
+   Meaningful quote text that supports the content
+   [END QUOTE]
+
+4. Use different section colors for variety:
+   - Light blue: background-color: '#e3f2fd'
+   - Light green: background-color: '#e8f5e8'
+   - Light yellow: background-color: '#fff8e1'
+   - Light purple: background-color: '#f3e5f5'
+
+IMPORTANT:
+- Do NOT add any images, WNOTE blocks, or visual elements
+- Do NOT add explanatory text, comments, or formatting notes
+- Do NOT include introductory or concluding commentary
+- Focus purely on clean text formatting with headers, sections, and quotes
+- Return ONLY the formatted content, nothing else`,
+    },
   ]
 
   const template = templates.find((t) => t.id === templateId)
@@ -2679,16 +2732,59 @@ Apply these colors to:
 `
     }
 
+    // Build language preservation instructions
+    let languageInstructions = ''
+    if (languageOptions?.mode === 'auto-detect' && languageOptions.detectedLanguage) {
+      if (languageOptions.detectedLanguage !== 'Unknown') {
+        languageInstructions = `
+CRITICAL LANGUAGE REQUIREMENT: The original content is in ${languageOptions.detectedLanguage}.
+You MUST preserve this language exactly. Do not translate or change the language in any way.
+Apply the formatting while keeping all text in ${languageOptions.detectedLanguage}.
+All headings, sections, and content must remain in ${languageOptions.detectedLanguage}.
+`
+      } else {
+        languageInstructions = `
+CRITICAL LANGUAGE REQUIREMENT: Preserve the exact original language of the content.
+Do not translate, change language, or assume any specific language.
+Keep the original language throughout the formatted content.
+`
+      }
+    } else if (languageOptions?.mode === 'keep-current') {
+      languageInstructions = `
+CRITICAL LANGUAGE REQUIREMENT: Keep the exact same language as the original content.
+Do not translate, change language, or assume any specific language.
+Preserve the original language throughout the formatted content.
+`
+    }
+
     const prompt = `${template.aiInstructions}
 
 ${colorInstructions}
+
+${languageInstructions}
 
 ORIGINAL CONTENT TO TRANSFORM:
 ${nodeContent}
 
 ADDITIONAL OPTIONS: ${JSON.stringify(options)}
 
-Return the transformed content with all the requested formatting applied. Use the placeholder URLs exactly as specified (HEADER_IMAGE_PLACEHOLDER, LEFTSIDE_IMAGE_PLACEHOLDER, RIGHTSIDE_IMAGE_PLACEHOLDER) - these will be replaced with real contextual images. Apply the color theme consistently throughout all formatting elements. Preserve the core meaning while enhancing the presentation with the specified markdown formatting patterns.`
+CRITICAL OUTPUT REQUIREMENTS:
+- Return ONLY the formatted content with the requested formatting applied
+- Do NOT add any explanatory text, comments, or meta-commentary
+- Do NOT include phrases like "Below is the transformed content..." or "Notes on formatting:"
+- Do NOT explain your formatting choices or decisions
+- Do NOT add any text that was not in the original content
+- Simply return the clean, formatted version of the original content
+
+Use the placeholder URLs exactly as specified (HEADER_IMAGE_PLACEHOLDER, LEFTSIDE_IMAGE_PLACEHOLDER, RIGHTSIDE_IMAGE_PLACEHOLDER) - these will be replaced with real contextual images. Apply the color theme consistently throughout all formatting elements. Preserve the core meaning while enhancing the presentation with the specified markdown formatting patterns.`
+
+    console.log('=== Language Processing Info ===')
+    if (languageInstructions) {
+      console.log('Language preservation active:', languageOptions.mode)
+      console.log('Detected/Target language:', languageOptions.detectedLanguage || 'N/A')
+    } else {
+      console.log('No language preservation applied')
+    }
 
     console.log('Sending prompt to Grok:', prompt)
 
@@ -2700,7 +2796,7 @@ Return the transformed content with all the requested formatting applied. Use th
         {
           role: 'system',
           content:
-            'You are an expert content formatter specializing in rich markdown formatting for knowledge graphs. Apply the requested formatting patterns precisely while preserving content meaning and enhancing readability.',
+            'You are an expert content formatter specializing in rich markdown formatting for knowledge graphs. Apply the requested formatting patterns precisely while preserving content meaning and enhancing readability. CRITICAL: Return ONLY the formatted content without any explanatory text, comments, introductions, or meta-commentary. Do not explain your formatting choices.',
         },
         { role: 'user', content: prompt },
       ],
