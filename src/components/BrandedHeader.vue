@@ -10,14 +10,6 @@
             @error="onLogoError"
           />
         </div>
-        <div class="col">
-          <h1 class="site-title mb-0" :style="titleStyle">
-            {{ currentSiteTitle }}
-          </h1>
-          <p v-if="isCustomDomain" class="site-subtitle mb-0" :style="subtitleStyle">
-            Powered by Vegvisr
-          </p>
-        </div>
         <div class="col-auto">
           <slot name="actions"></slot>
         </div>

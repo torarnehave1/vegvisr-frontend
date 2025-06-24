@@ -6,7 +6,6 @@
         <div class="container-fluid">
           <RouterLink class="navbar-brand" to="/">
             <img :src="currentLogo" :alt="currentSiteTitle + ' Logo'" width="200" />
-            <span v-if="isCustomDomain" class="ms-2 site-title">{{ currentSiteTitle }}</span>
           </RouterLink>
           <button
             class="navbar-toggler"
