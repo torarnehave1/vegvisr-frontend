@@ -4096,6 +4096,22 @@ const graphStore = useKnowledgeGraphStore()
 const graphTitle = ref('')
 
 onMounted(() => {
+  // First check URL parameters for direct graph access (shared links)
+  const urlParams = new URLSearchParams(window.location.search)
+  const urlGraphId = urlParams.get('graphId')
+  const urlTemplate = urlParams.get('template')
+
+  if (urlGraphId) {
+    console.log(
+      `Loading graph from URL parameter: ${urlGraphId}, Template: ${urlTemplate || 'Default'}`,
+    )
+    // Set the graph ID in the store for shared links
+    knowledgeGraphStore.setCurrentGraphId(urlGraphId)
+    loadGraph(urlGraphId, urlTemplate)
+    return
+  }
+
+  // If no URL parameters, check for branded front page configuration
   const frontPagePath = currentFrontPage.value
   console.log('Front page path received:', frontPagePath)
   if (frontPagePath && frontPagePath.includes('graphId')) {
@@ -4106,12 +4122,13 @@ onMounted(() => {
       console.log(
         `Loading front page graph with ID: ${graphId}, Template: ${template || 'Default'}`,
       )
+      knowledgeGraphStore.setCurrentGraphId(graphId)
       loadGraph(graphId, template)
     } else {
       error.value = 'Invalid front page configuration: No graph ID found'
     }
   } else {
-    // Default graph loading logic if not a front page
+    // Default graph loading logic if not a front page and no URL params
     loadDefaultGraph()
   }
 })
@@ -4120,13 +4137,19 @@ const loadGraph = async (graphId, template) => {
   loading.value = true
   error.value = null
   try {
-    await graphStore.loadGraph(graphId)
-    graphTitle.value = graphStore.currentGraph?.metadata?.title || 'Untitled Graph'
+    // Set the graph ID in the store
+    knowledgeGraphStore.setCurrentGraphId(graphId)
+
+    // Fetch the graph data using the existing fetchGraphData function
+    await fetchGraphData()
+
     // Apply template-specific styling if needed
     if (template === 'Frontpage') {
       console.log('Applying Frontpage template styling')
       // Add any specific styling or layout adjustments for front page
     }
+
+    console.log(`Successfully loaded graph: ${graphId}`)
   } catch (err) {
     error.value = `Failed to load graph: ${err.message}`
     console.error('Error loading graph:', err)
@@ -4136,9 +4159,22 @@ const loadGraph = async (graphId, template) => {
 }
 
 const loadDefaultGraph = async () => {
-  // Existing logic to load a default or selected graph
-  console.log('Loading default graph')
-  // Implementation depends on current GraphViewer setup
+  // Check if there's already a graph ID in the store (from previous navigation)
+  const existingGraphId = knowledgeGraphStore.currentGraphId
+
+  if (existingGraphId) {
+    console.log('Loading existing graph from store:', existingGraphId)
+    try {
+      await fetchGraphData()
+    } catch (err) {
+      console.error('Failed to load existing graph:', err)
+      error.value = 'No graph selected. Please navigate to a specific graph or use a shared link.'
+    }
+  } else {
+    // No graph ID available - show a helpful message
+    console.log('No graph ID available - showing selection message')
+    error.value = 'No graph selected. Please navigate to a specific graph or use a shared link.'
+  }
 }
 </script>
 
