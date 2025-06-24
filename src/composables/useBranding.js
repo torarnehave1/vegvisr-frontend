@@ -31,6 +31,13 @@ export function useBranding() {
       typeof window !== 'undefined' && window.location ? window.location.hostname : 'localhost'
     console.log('Using window location hostname:', hostname)
     detectedHostname.value = hostname
+
+    // Check if this is a main domain that doesn't need site config
+    const mainDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
+    if (mainDomains.includes(hostname)) {
+      console.log('Detected main domain - no site config needed:', hostname)
+    }
+
     return hostname
   }
 
@@ -42,6 +49,14 @@ export function useBranding() {
   // Fetch site configuration from KV
   const fetchSiteConfig = async (domain) => {
     if (!domain || loading.value) return
+
+    // Skip site config fetch for main domains that don't need custom configuration
+    const mainDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
+    if (mainDomains.includes(domain)) {
+      console.log('Skipping site config fetch for main domain:', domain)
+      siteConfig.value = null
+      return
+    }
 
     loading.value = true
     try {
@@ -203,7 +218,8 @@ export function useBranding() {
       if (hostname && hostname !== 'localhost') {
         await fetchSiteConfig(hostname)
       } else {
-        console.log('Skipping site config fetch for localhost or invalid hostname')
+        console.log('Detected localhost - using default configuration')
+        siteConfig.value = null
       }
     } catch (error) {
       console.error('Error during branding initialization:', error)

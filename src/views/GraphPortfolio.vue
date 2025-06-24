@@ -1017,6 +1017,10 @@ const saveEdit = async (originalGraph) => {
     console.log('Latest graph metadata:', JSON.stringify(existingMetadata, null, 2))
     console.log('Meta area in latest graph:', existingMetadata.metaArea || 'NO META AREA FOUND')
 
+    // Get the current version from the latest graph data
+    const currentVersion = existingMetadata.version || 1
+    console.log('Current version from latest graph:', currentVersion)
+
     // Build safe metadata with explicit defaults
     const preservedMetadata = {
       title: existingMetadata.title || 'Untitled Graph',
@@ -1035,6 +1039,8 @@ const saveEdit = async (originalGraph) => {
           ([key]) => !['version', 'updatedAt'].includes(key),
         ),
       ),
+      // Set version LAST to ensure it's not overwritten by spreads above
+      version: currentVersion, // Use the current version from latest fetch
       // Let backend handle version control and timestamps entirely
     }
 
@@ -1046,6 +1052,7 @@ const saveEdit = async (originalGraph) => {
       '💾 [Portfolio] Meta area being saved:',
       preservedMetadata.metaArea || 'NO META AREA',
     )
+    console.log('💾 [Portfolio] Version being sent to backend:', preservedMetadata.version)
 
     // Use saveGraphWithHistory to ensure metadata updates create new versions
     // This fixes the table mismatch between knowledge_graphs and knowledge_graph_history
@@ -1072,7 +1079,8 @@ const saveEdit = async (originalGraph) => {
       console.log('Metadata saved to both knowledge_graphs and knowledge_graph_history tables')
 
       // Extract version number from different possible response structures
-      const newVersion = result.version || result.newVersion || result.data?.version || 'unknown'
+      const newVersion =
+        result.version || result.newVersion || result.data?.version || currentVersion + 1
       console.log('Extracted version:', newVersion)
 
       // Update the local graph data
@@ -1082,8 +1090,7 @@ const saveEdit = async (originalGraph) => {
           ...originalGraph,
           metadata: {
             ...editingGraph.value.metadata,
-            version:
-              newVersion !== 'unknown' ? newVersion : (originalGraph.metadata?.version || 1) + 1,
+            version: newVersion,
             updatedAt: new Date().toISOString(),
           },
         }
