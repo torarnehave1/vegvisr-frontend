@@ -1352,6 +1352,10 @@ const processLeftRightImages = (text) => {
 }
 
 const preprocessMarkdown = (text) => {
+  console.log('=== preprocessMarkdown called ===')
+  console.log('Input text contains FANCY:', text.includes('[FANCY'))
+  console.log('Text length:', text.length)
+
   // First, process [pb] page breaks
   let processedText = preprocessPageBreaks(text)
 
@@ -1392,7 +1396,13 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim())
+          // Split only on the first colon to handle URLs with colons
+          const colonIndex = s.indexOf(':')
+          if (colonIndex === -1) return ''
+
+          const k = s.substring(0, colonIndex).trim()
+          const v = s.substring(colonIndex + 1).trim()
+
           if (!k || !v) return ''
 
           // Special handling for background-image to preserve url() quotes
@@ -1437,7 +1447,13 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim())
+          // Split only on the first colon to handle URLs with colons
+          const colonIndex = s.indexOf(':')
+          if (colonIndex === -1) return ''
+
+          const k = s.substring(0, colonIndex).trim()
+          const v = s.substring(colonIndex + 1).trim()
+
           if (!k || !v) return ''
 
           // Special handling for background-image to preserve url() quotes
@@ -1480,8 +1496,16 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
   // Clean up extra whitespace
   processedText = processedText.replace(/\n\s*\n\s*\n/g, '\n\n')
 
+  console.log('=== Final processed text before marked.parse ===')
+  console.log(processedText)
+
   // Process the final text with marked
-  return marked.parse(processedText)
+  const finalHtml = marked.parse(processedText)
+
+  console.log('=== Final HTML after marked.parse ===')
+  console.log(finalHtml)
+
+  return finalHtml
 }
 
 const convertToHtml = (text, nodeId = null) => {
