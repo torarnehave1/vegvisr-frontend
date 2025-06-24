@@ -74,17 +74,31 @@ export function useMenuConfig(menuConfigRef = null) {
       return item.roles.includes(userStore.role || 'user')
     })
 
-    // Apply domain-specific menu configuration if provided
+    // Apply domain-specific menu configuration ONLY if explicitly provided and enabled
     const menuConfig = menuConfigRef?.value || menuConfigRef
-    if (menuConfig && menuConfig.enabled) {
+    if (menuConfig && menuConfig.enabled === true) {
+      console.log('Applying custom menu configuration:', menuConfig)
       // If visibleItems is specified, only show those items
       if (menuConfig.visibleItems && menuConfig.visibleItems.length > 0) {
         items = items.filter((item) => menuConfig.visibleItems.includes(item.id))
+        console.log(
+          'Filtered menu items to visible items:',
+          items.map((i) => i.id),
+        )
       }
       // Convert visibleItems to hiddenItems logic for backward compatibility
       else if (menuConfig.hiddenItems && menuConfig.hiddenItems.length > 0) {
         items = items.filter((item) => !menuConfig.hiddenItems.includes(item.id))
+        console.log(
+          'Filtered menu items by hidden items:',
+          items.map((i) => i.id),
+        )
       }
+    } else {
+      console.log(
+        'Using default menu items (no custom config):',
+        items.map((i) => i.id),
+      )
     }
 
     return items

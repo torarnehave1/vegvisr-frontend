@@ -52,14 +52,16 @@ export function useBranding() {
         siteConfig.value = config
         console.log('Loaded site configuration for', domain, config)
       } else if (response.status === 404) {
-        // No custom configuration found, use defaults
+        // No custom configuration found, use defaults - this is normal for main sites
         siteConfig.value = null
-        console.log('No site configuration found for', domain)
+        console.log('No site configuration found for', domain, '- using defaults')
       } else {
         console.error('Error fetching site configuration:', response.status)
+        siteConfig.value = null
       }
     } catch (error) {
-      console.error('Error fetching site configuration:', error)
+      // Handle network errors gracefully
+      console.log('Could not fetch site configuration for', domain, '- using defaults')
       siteConfig.value = null
     } finally {
       loading.value = false
@@ -230,7 +232,8 @@ export function useBranding() {
       return userStore.branding.menuConfig
     }
 
-    // Default - no custom menu configuration
+    // Default - no custom menu configuration (shows all default items)
+    console.log('No custom menu configuration found - using default menu')
     return null
   })
 
