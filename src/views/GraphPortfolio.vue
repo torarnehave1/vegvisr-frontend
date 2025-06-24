@@ -1025,16 +1025,17 @@ const saveEdit = async (originalGraph) => {
       category: existingMetadata.category || '',
       metaArea: existingMetadata.metaArea || '',
       createdAt: existingMetadata.createdAt || new Date().toISOString(),
-      // Preserve any other existing fields
-      ...existingMetadata,
-      // Apply user edits BUT exclude version to prevent conflicts
+      // Preserve any other existing fields (excluding version and updatedAt)
       ...Object.fromEntries(
-        Object.entries(editingGraph.value.metadata).filter(([key]) => key !== 'version'),
+        Object.entries(existingMetadata).filter(([key]) => !['version', 'updatedAt'].includes(key)),
       ),
-      // Keep the latest version from database (critical for version control)
-      version: existingMetadata.version || 1,
-      // Always update timestamp
-      updatedAt: new Date().toISOString(),
+      // Apply user edits BUT exclude version and updatedAt (let backend handle these)
+      ...Object.fromEntries(
+        Object.entries(editingGraph.value.metadata).filter(
+          ([key]) => !['version', 'updatedAt'].includes(key),
+        ),
+      ),
+      // Let backend handle version control and timestamps entirely
     }
 
     console.log(
