@@ -1024,12 +1024,15 @@ const saveEdit = async (originalGraph) => {
       createdBy: existingMetadata.createdBy || 'Unknown',
       category: existingMetadata.category || '',
       metaArea: existingMetadata.metaArea || '',
-      version: existingMetadata.version || 1,
       createdAt: existingMetadata.createdAt || new Date().toISOString(),
       // Preserve any other existing fields
       ...existingMetadata,
-      // Apply user edits on top
-      ...editingGraph.value.metadata,
+      // Apply user edits BUT exclude version to prevent conflicts
+      ...Object.fromEntries(
+        Object.entries(editingGraph.value.metadata).filter(([key]) => key !== 'version'),
+      ),
+      // Keep the latest version from database (critical for version control)
+      version: existingMetadata.version || 1,
       // Always update timestamp
       updatedAt: new Date().toISOString(),
     }
