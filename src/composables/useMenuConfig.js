@@ -60,7 +60,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/sandbox',
       icon: '',
       requiresAuth: false,
-      roles: ['superadmin'], // Only superadmin can see sandbox
+      roles: ['Superadmin'], // Only Superadmin can see sandbox
     },
   ]
 

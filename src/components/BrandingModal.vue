@@ -290,7 +290,7 @@
           </div>
 
           <!-- Menu Configuration - Superadmin Only -->
-          <div v-if="userStore.role === 'superadmin'" class="form-group">
+          <div v-if="userStore.role === 'Superadmin'" class="form-group">
             <label class="form-label">
               <strong>Menu Configuration:</strong>
             </label>
@@ -652,7 +652,7 @@ export default {
           id: 'sandbox',
           label: '🔧 Sandbox',
           path: '/sandbox',
-          roles: ['superadmin'],
+          roles: ['Superadmin'],
         },
       ]
     },
