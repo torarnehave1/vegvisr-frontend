@@ -1383,16 +1383,33 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
   processedText = processedText.replace(
     /\[FANCY\s*\|([^\]]+)\]([\s\S]*?)\[END FANCY\]/g,
     (match, style, content) => {
+      console.log('=== FANCY Processing ===')
+      console.log('Original style:', style)
+
       // Convert style string to inline CSS
       const css = style
         .split(';')
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          return k && v ? `${k}:${v}` : ''
+          const [k, v] = s.split(':').map((x) => x.trim())
+          if (!k || !v) return ''
+
+          // Special handling for background-image to preserve url() quotes
+          if (k === 'background-image' && v.includes('url(')) {
+            console.log(`✅ Preserving background-image: ${k}:${v}`)
+            return `${k}:${v}`
+          }
+
+          // For other properties, remove outer quotes but preserve inner content
+          const cleanValue = v.replace(/^['"]|['"]$/g, '')
+          return `${k}:${cleanValue}`
         })
         .join(';')
+
+      console.log('Final CSS:', css)
+      console.log('=== End FANCY Processing ===')
+
       return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
     },
   )
@@ -1420,8 +1437,17 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => {
-          const [k, v] = s.split(':').map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
-          return k && v ? `${k}:${v}` : ''
+          const [k, v] = s.split(':').map((x) => x.trim())
+          if (!k || !v) return ''
+
+          // Special handling for background-image to preserve url() quotes
+          if (k === 'background-image' && v.includes('url(')) {
+            return `${k}:${v}`
+          }
+
+          // For other properties, remove outer quotes but preserve inner content
+          const cleanValue = v.replace(/^['"]|['"]$/g, '')
+          return `${k}:${cleanValue}`
         })
         .join(';')
       // Process the content through marked first to handle any markdown inside the section
