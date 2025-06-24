@@ -8,6 +8,7 @@
       </p>
       <div class="cta-buttons">
         <router-link to="/graph-admin" class="cta primary">Start a New Graph</router-link>
+        <router-link to="/graph-canvas" class="cta canvas">🎨 Graph Canvas</router-link>
         <router-link to="/graph-portfolio" class="cta secondary">See Example Graphs</router-link>
       </div>
     </div>
@@ -187,6 +188,13 @@ export default {
 }
 .cta.secondary:hover {
   background: #e8d8e8;
+}
+.cta.canvas {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+.cta.canvas:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 }
 .features,
 .use-cases,

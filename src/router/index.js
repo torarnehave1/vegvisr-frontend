@@ -130,6 +130,15 @@ const router = createRouter({
       meta: { layout: null }, // Ensure no default layout is applied
     },
     {
+      path: '/graph-canvas',
+      name: 'GraphCanvas',
+      component: () => import('../views/GraphCanvas.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
       path: '/graph-viewer',
       name: 'GraphViewer',
       component: GraphViewer,

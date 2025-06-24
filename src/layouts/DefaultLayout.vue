@@ -24,6 +24,9 @@
                 <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
               </li>
               <li class="nav-item">
+                <RouterLink class="nav-link" to="/graph-canvas">🎨 Canvas</RouterLink>
+              </li>
+              <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-portfolio">Portfolio</RouterLink>
               </li>
               <li class="nav-item">

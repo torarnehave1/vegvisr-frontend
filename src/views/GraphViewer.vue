@@ -4571,6 +4571,13 @@ img.leftside {
     width: 200px;
     min-width: 0 !important;
   }
+
+  .fancy-title {
+    font-size: 2em !important;
+    padding: 0.3em !important;
+    margin: 0.5em 0 !important;
+    line-height: 1.1 !important;
+  }
 }
 
 .node-content-inner {
