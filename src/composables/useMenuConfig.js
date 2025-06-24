@@ -68,11 +68,26 @@ export function useMenuConfig(menuConfigRef = null) {
   const visibleMenuItems = computed(() => {
     let items = [...defaultMenuItems]
 
-    // Apply role-based filtering first
+    // Apply role-based filtering first - be more permissive for admin roles
+    const userRole = userStore.role || 'user'
+    console.log('Filtering menu items for role:', userRole)
+
     items = items.filter((item) => {
       if (!item.roles || item.roles.length === 0) return true
-      return item.roles.includes(userStore.role || 'user')
+
+      // Superadmin and admin can see everything
+      if (userRole === 'Superadmin' || userRole === 'admin') {
+        return true
+      }
+
+      // Otherwise check if role is in the allowed roles
+      return item.roles.includes(userRole)
     })
+
+    console.log(
+      'After role filtering, showing items:',
+      items.map((i) => i.label),
+    )
 
     // Apply domain-specific menu configuration ONLY if explicitly provided and enabled
     const menuConfig = menuConfigRef?.value || menuConfigRef
@@ -97,7 +112,7 @@ export function useMenuConfig(menuConfigRef = null) {
     } else {
       console.log(
         'Using default menu items (no custom config):',
-        items.map((i) => i.id),
+        items.map((i) => i.label),
       )
     }
 
