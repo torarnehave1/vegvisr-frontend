@@ -1010,7 +1010,38 @@ const saveEdit = async (originalGraph) => {
       throw new Error('Failed to fetch latest graph data')
     }
     const latestGraph = await latestResponse.json()
-    console.log('Latest graph metadata:', JSON.stringify(latestGraph.metadata, null, 2))
+
+    // Handle case where metadata doesn't exist at all
+    const existingMetadata = latestGraph.metadata || {}
+
+    console.log('Latest graph metadata:', JSON.stringify(existingMetadata, null, 2))
+    console.log('Meta area in latest graph:', existingMetadata.metaArea || 'NO META AREA FOUND')
+
+    // Build safe metadata with explicit defaults
+    const preservedMetadata = {
+      title: existingMetadata.title || 'Untitled Graph',
+      description: existingMetadata.description || '',
+      createdBy: existingMetadata.createdBy || 'Unknown',
+      category: existingMetadata.category || '',
+      metaArea: existingMetadata.metaArea || '',
+      version: existingMetadata.version || 1,
+      createdAt: existingMetadata.createdAt || new Date().toISOString(),
+      // Preserve any other existing fields
+      ...existingMetadata,
+      // Apply user edits on top
+      ...editingGraph.value.metadata,
+      // Always update timestamp
+      updatedAt: new Date().toISOString(),
+    }
+
+    console.log(
+      '💾 [Portfolio] Saving with preserved metadata:',
+      JSON.stringify(preservedMetadata, null, 2),
+    )
+    console.log(
+      '💾 [Portfolio] Meta area being saved:',
+      preservedMetadata.metaArea || 'NO META AREA',
+    )
 
     // Use saveGraphWithHistory to ensure metadata updates create new versions
     // This fixes the table mismatch between knowledge_graphs and knowledge_graph_history
@@ -1024,12 +1055,7 @@ const saveEdit = async (originalGraph) => {
         id: originalGraph.id,
         graphData: {
           ...latestGraph, // Use latest graph data instead of stale originalGraph
-          metadata: {
-            ...latestGraph.metadata, // Preserve all existing metadata fields
-            ...editingGraph.value.metadata, // Apply user edits
-            version: latestGraph.metadata.version, // Keep current version (backend will increment)
-            updatedAt: new Date().toISOString(), // Update timestamp
-          },
+          metadata: preservedMetadata,
         },
         override: false, // Create new version
       }),

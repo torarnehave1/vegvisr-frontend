@@ -717,13 +717,17 @@ const saveGraph = async () => {
     }
 
     const currentGraph = await currentGraphResponse.json()
+
+    // Ensure metadata exists with fallback defaults
+    const existingMetadata = currentGraph.metadata || {}
+
     console.log(
       '🔍 [GraphCanvas] Current graph metadata:',
-      JSON.stringify(currentGraph.metadata, null, 2),
+      JSON.stringify(existingMetadata, null, 2),
     )
     console.log(
       '🔍 [GraphCanvas] Meta area in current graph:',
-      currentGraph.metadata?.metaArea || 'NO META AREA FOUND',
+      existingMetadata.metaArea || 'NO META AREA FOUND',
     )
 
     // Get current positions from Cytoscape
@@ -744,13 +748,24 @@ const saveGraph = async () => {
     )
 
     // CRITICAL FIX: Include metadata in the payload to preserve it
+    const preservedMetadata = {
+      title: existingMetadata.title || 'Untitled Graph',
+      description: existingMetadata.description || '',
+      createdBy: existingMetadata.createdBy || 'Unknown',
+      category: existingMetadata.category || '',
+      metaArea: existingMetadata.metaArea || '', // Preserve metaArea - CRITICAL!
+      version: existingMetadata.version || 1,
+      createdAt: existingMetadata.createdAt || new Date().toISOString(),
+      // Preserve any other existing fields
+      ...existingMetadata,
+      // Always update timestamp
+      updatedAt: new Date().toISOString(),
+    }
+
     const payload = {
       id: selectedGraphId.value,
       graphData: {
-        metadata: {
-          ...currentGraph.metadata, // Preserve ALL existing metadata including metaArea
-          updatedAt: new Date().toISOString(), // Update timestamp
-        },
+        metadata: preservedMetadata,
         nodes: updatedNodes,
         edges: updatedEdges,
       },
@@ -758,11 +773,11 @@ const saveGraph = async () => {
 
     console.log(
       '💾 [GraphCanvas] Saving with preserved metadata:',
-      JSON.stringify(payload.graphData.metadata, null, 2),
+      JSON.stringify(preservedMetadata, null, 2),
     )
     console.log(
       '💾 [GraphCanvas] Meta area being saved:',
-      payload.graphData.metadata?.metaArea || 'NO META AREA IN SAVE DATA',
+      preservedMetadata.metaArea || 'NO META AREA IN SAVE DATA',
     )
 
     const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
