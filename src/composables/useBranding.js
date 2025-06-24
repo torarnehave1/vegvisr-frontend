@@ -216,6 +216,24 @@ export function useBranding() {
     initialize()
   })
 
+  // Get domain-specific menu configuration
+  const currentMenuConfig = computed(() => {
+    // Check KV site configuration for menu config
+    if (isCustomDomain.value && siteConfig.value?.menuConfig) {
+      console.log('Using menu config from KV site config:', siteConfig.value.menuConfig)
+      return siteConfig.value.menuConfig
+    }
+
+    // Fallback to user store menu config
+    if (userStore.branding?.menuConfig && userStore.branding?.mySite === currentDomain.value) {
+      console.log('Using menu config from user store:', userStore.branding.menuConfig)
+      return userStore.branding.menuConfig
+    }
+
+    // Default - no custom menu configuration
+    return null
+  })
+
   return {
     currentDomain,
     isCustomDomain,
@@ -227,5 +245,6 @@ export function useBranding() {
     fetchSiteConfig,
     initialize,
     currentFrontPage,
+    currentMenuConfig,
   }
 }

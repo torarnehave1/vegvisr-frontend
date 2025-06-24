@@ -20,31 +20,11 @@
           </button>
           <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-canvas">🎨 Canvas</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-portfolio">Portfolio</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-viewer">Viewer</RouterLink>
-              </li>
-
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/github-issues">
-                  <span class="material-icons">map</span>
-                  Roadmap
+              <li v-for="menuItem in visibleMenuItems" :key="menuItem.id" class="nav-item">
+                <RouterLink class="nav-link" :to="menuItem.path">
+                  <span v-if="menuItem.icon" class="me-1">{{ menuItem.icon }}</span>
+                  {{ menuItem.label }}
                 </RouterLink>
-              </li>
-              <!-- Sandbox link - only for Superadmin users -->
-              <li v-if="userStore.role === 'Superadmin'" class="nav-item">
-                <RouterLink class="nav-link" to="/sandbox"> 🔧 Sandbox </RouterLink>
               </li>
             </ul>
 
@@ -109,9 +89,13 @@
 import { RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/userStore' // Import Pinia store
 import { useBranding } from '@/composables/useBranding' // Import branding composable
+import { useMenuConfig } from '@/composables/useMenuConfig' // Import menu config composable
 
 const userStore = useUserStore() // Access Pinia store
-const { currentLogo, currentSiteTitle, isCustomDomain } = useBranding() // Use branding composable
+const { currentLogo, currentSiteTitle, isCustomDomain, currentMenuConfig } = useBranding() // Use branding composable
+
+// Initialize menu configuration with domain-specific settings
+const { visibleMenuItems } = useMenuConfig(currentMenuConfig)
 
 defineProps({
   theme: {

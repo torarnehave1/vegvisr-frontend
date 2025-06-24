@@ -289,6 +289,63 @@
             </div>
           </div>
 
+          <!-- Menu Configuration - Superadmin Only -->
+          <div v-if="userStore.role === 'superadmin'" class="form-group">
+            <label class="form-label">
+              <strong>Menu Configuration:</strong>
+            </label>
+            <div class="menu-config-section">
+              <div class="form-check mb-3">
+                <input
+                  id="enableMenuConfig"
+                  v-model="formData.menuConfig.enabled"
+                  type="checkbox"
+                  class="form-check-input"
+                />
+                <label for="enableMenuConfig" class="form-check-label">
+                  Enable custom menu configuration for this domain
+                </label>
+              </div>
+
+              <div v-if="formData.menuConfig.enabled" class="menu-items-config">
+                <label class="form-label">
+                  <strong>Menu Items to Show:</strong>
+                </label>
+                <div class="form-text mb-3">
+                  Uncheck items to hide them from the navigation menu on this domain.
+                </div>
+
+                <div class="row">
+                  <div
+                    v-for="menuItem in availableMenuItems"
+                    :key="menuItem.id"
+                    class="col-md-6 col-lg-4 mb-3"
+                  >
+                    <div class="menu-item-config">
+                      <input
+                        :id="`menu-${menuItem.id}`"
+                        v-model="formData.menuConfig.visibleItems"
+                        type="checkbox"
+                        :value="menuItem.id"
+                        class="form-check-input"
+                      />
+                      <label :for="`menu-${menuItem.id}`" class="form-check-label">
+                        {{ menuItem.label }}
+                      </label>
+                      <small class="menu-item-path">{{ menuItem.path }}</small>
+                      <small
+                        v-if="menuItem.roles.includes('superadmin')"
+                        class="badge bg-warning ms-2"
+                      >
+                        Admin Only
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Live Preview for Edit Mode -->
           <div v-if="formData.domain" class="preview-section mt-4">
             <h5>Live Preview</h5>
@@ -489,6 +546,18 @@ export default {
         contentFilter: 'none',
         selectedCategories: [],
         mySiteFrontPage: '',
+        menuConfig: {
+          enabled: false,
+          visibleItems: [
+            'graph-editor',
+            'graph-canvas',
+            'graph-portfolio',
+            'graph-viewer',
+            'user-dashboard',
+            'github-issues',
+            'sandbox',
+          ],
+        },
       },
       domainError: '',
       logoError: '',
@@ -539,6 +608,53 @@ export default {
         label: this.formatMetaAreaLabel(metaArea),
         description: `Content related to ${this.formatMetaAreaLabel(metaArea).toLowerCase()}`,
       }))
+    },
+    availableMenuItems() {
+      // Menu items available for configuration
+      return [
+        {
+          id: 'graph-editor',
+          label: 'Editor',
+          path: '/graph-editor',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'graph-canvas',
+          label: '🎨 Canvas',
+          path: '/graph-canvas',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'graph-portfolio',
+          label: 'Portfolio',
+          path: '/graph-portfolio',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'graph-viewer',
+          label: 'Viewer',
+          path: '/graph-viewer',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'user-dashboard',
+          label: 'Dashboard',
+          path: '/user',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'github-issues',
+          label: '🗺️ Roadmap',
+          path: '/github-issues',
+          roles: ['user', 'admin', 'superadmin'],
+        },
+        {
+          id: 'sandbox',
+          label: '🔧 Sandbox',
+          path: '/sandbox',
+          roles: ['superadmin'],
+        },
+      ]
     },
   },
   mounted() {
@@ -641,6 +757,18 @@ export default {
                 contentFilter: siteConfig.branding?.contentFilter || 'none',
                 selectedCategories: siteConfig.branding?.selectedCategories || [],
                 mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || '',
+                menuConfig: siteConfig.menuConfig || {
+                  enabled: false,
+                  visibleItems: [
+                    'graph-editor',
+                    'graph-canvas',
+                    'graph-portfolio',
+                    'graph-viewer',
+                    'user-dashboard',
+                    'github-issues',
+                    'sandbox',
+                  ],
+                },
               }
 
               domainConfigs.push(modalConfig)
@@ -680,6 +808,18 @@ export default {
         contentFilter: 'none',
         selectedCategories: [],
         mySiteFrontPage: '',
+        menuConfig: {
+          enabled: false,
+          visibleItems: [
+            'graph-editor',
+            'graph-canvas',
+            'graph-portfolio',
+            'graph-viewer',
+            'user-dashboard',
+            'github-issues',
+            'sandbox',
+          ],
+        },
       }
       this.viewMode = 'edit'
     },
@@ -692,6 +832,18 @@ export default {
         contentFilter: config.contentFilter || 'none',
         selectedCategories: config.selectedCategories || [],
         mySiteFrontPage: config.mySiteFrontPage || '',
+        menuConfig: config.menuConfig || {
+          enabled: false,
+          visibleItems: [
+            'graph-editor',
+            'graph-canvas',
+            'graph-portfolio',
+            'graph-viewer',
+            'user-dashboard',
+            'github-issues',
+            'sandbox',
+          ],
+        },
       }
       // Update the meta area input to reflect selected categories
       this.updateMetaAreaInput()
@@ -802,6 +954,7 @@ export default {
         contentFilter: this.formData.contentFilter,
         selectedCategories: this.formData.selectedCategories,
         mySiteFrontPage: this.formData.mySiteFrontPage,
+        menuConfig: this.formData.menuConfig,
       }
 
       if (this.editingDomainIndex !== null) {
@@ -2171,6 +2324,56 @@ export default {
 .ai-generate-btn:disabled {
   color: #6c757d;
   border-color: #6c757d;
+}
+
+/* Menu Configuration Styles */
+.menu-config-section {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 15px;
+}
+
+.menu-items-config {
+  margin-top: 15px;
+}
+
+.menu-item-config {
+  background: white;
+  border: 2px solid #e9ecef;
+  border-radius: 6px;
+  padding: 12px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.menu-item-config:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.menu-item-config:has(.form-check-input:checked) {
+  border-color: #007bff;
+  background: rgba(0, 123, 255, 0.05);
+}
+
+.menu-item-config .form-check-input {
+  margin-bottom: 4px;
+}
+
+.menu-item-config .form-check-label {
+  font-weight: 600;
+  color: #333;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.menu-item-path {
+  color: #6c757d;
+  font-size: 0.8rem;
+  display: block;
+  margin-bottom: 4px;
 }
 
 @media (max-width: 768px) {
