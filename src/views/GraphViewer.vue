@@ -3956,7 +3956,7 @@ const openShareModal = async () => {
 
     if (data.success && data.summary) {
       // Use AI-generated engaging summary with branded domain
-      const shareUrl = `https://${currentDomain}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
+      const shareUrl = `https://${currentDomain.value}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
       shareContent.value = `${data.summary}\n\n${shareUrl}`
 
       console.log('AI-generated share summary:', data.summary)
@@ -3983,7 +3983,7 @@ const openShareModal = async () => {
       `Nodes: ${nodeCount}\n` +
       `Edges: ${edgeCount}\n` +
       `${categoryText}\n\n` +
-      `View this knowledge graph: https://${currentDomain}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
+      `View this knowledge graph: https://${currentDomain.value}/graph-viewer?graphId=${knowledgeGraphStore.currentGraphId}`
   }
 }
 
@@ -3999,7 +3999,7 @@ const shareToLinkedIn = () => {
   const title = encodeURIComponent(shareContent.value.split('\n')[0])
   const summary = encodeURIComponent(shareContent.value)
   const graphId = knowledgeGraphStore.currentGraphId || ''
-  const url = encodeURIComponent(`https://${currentDomain}/graph-viewer?graphId=${graphId}`)
+  const url = encodeURIComponent(`https://${currentDomain.value}/graph-viewer?graphId=${graphId}`)
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
   window.open(linkedInUrl, '_blank', 'width=600,height=400')
@@ -4008,7 +4008,7 @@ const shareToLinkedIn = () => {
 const shareToTwitter = () => {
   const title = shareContent.value.split('\n')[0]
   const graphId = knowledgeGraphStore.currentGraphId || ''
-  const url = `https://${currentDomain}/graph-viewer?graphId=${graphId}`
+  const url = `https://${currentDomain.value}/graph-viewer?graphId=${graphId}`
 
   // Twitter has a 280 character limit, so we'll create a shorter message
   const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
@@ -4018,7 +4018,7 @@ const shareToTwitter = () => {
 
 const shareToFacebook = () => {
   const graphId = knowledgeGraphStore.currentGraphId || ''
-  const url = encodeURIComponent(`https://${currentDomain}/graph-viewer?graphId=${graphId}`)
+  const url = encodeURIComponent(`https://${currentDomain.value}/graph-viewer?graphId=${graphId}`)
 
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
   window.open(facebookUrl, '_blank', 'width=600,height=400')
