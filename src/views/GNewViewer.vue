@@ -429,8 +429,47 @@
               </div>
             </div>
 
-            <!-- Node Selection for Insertion -->
+            <!-- IMAGEQUOTE Type Selection -->
             <div class="row">
+              <div class="col-md-12">
+                <div class="form-group">
+                  <label class="form-label">IMAGEQUOTE Type:</label>
+                  <div class="imagequote-type-selection">
+                    <label class="form-check">
+                      <input
+                        v-model="imageQuoteType"
+                        type="radio"
+                        value="static"
+                        class="form-check-input"
+                      />
+                      <span class="form-check-label">
+                        <strong>📄 Static Content</strong><br />
+                        <small class="text-muted"
+                          >Insert as formatted content within existing node text</small
+                        >
+                      </span>
+                    </label>
+                    <label class="form-check">
+                      <input
+                        v-model="imageQuoteType"
+                        type="radio"
+                        value="standalone"
+                        class="form-check-input"
+                      />
+                      <span class="form-check-label">
+                        <strong>🎨 Standalone Node</strong><br />
+                        <small class="text-muted"
+                          >Create dedicated IMAGEQUOTE node with full export functionality</small
+                        >
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Node Selection for Static Insertion -->
+            <div v-if="imageQuoteType === 'static'" class="row">
               <div class="col-md-12">
                 <div class="form-group">
                   <label class="form-label">Insert into Node:</label>
@@ -491,9 +530,13 @@
             <button
               @click="saveImageQuote"
               class="btn btn-primary"
-              :disabled="!selectedNodeForInsertion"
+              :disabled="imageQuoteType === 'static' && !selectedNodeForInsertion"
             >
-              Insert IMAGEQUOTE into Node
+              {{
+                imageQuoteType === 'standalone'
+                  ? 'Create IMAGEQUOTE Node'
+                  : 'Insert IMAGEQUOTE into Node'
+              }}
             </button>
             <button @click="closeImageQuoteCreator" class="btn btn-secondary">Cancel</button>
           </div>
@@ -869,6 +912,7 @@ const quoteSuggestionsError = ref('')
 
 // Node insertion functionality
 const selectedNodeForInsertion = ref('')
+const imageQuoteType = ref('static') // 'static' or 'standalone'
 
 // Image Quality Settings
 const imageQualitySettings = ref({
@@ -920,6 +964,18 @@ const availableNodesForInsertion = computed(() => {
       node.visible !== false && (node.type === 'fulltext' || node.type === 'title' || !node.type),
   )
 })
+
+// Aspect ratio dimension calculator
+const calculateDimensionsFromAspectRatio = (aspectRatio) => {
+  const baseHeight = 1024
+  const ratios = {
+    '16/9': { width: Math.round(baseHeight * (16 / 9)), height: baseHeight }, // 1536×1024
+    '1/1': { width: baseHeight, height: baseHeight }, // 1024×1024
+    '4/3': { width: Math.round(baseHeight * (4 / 3)), height: baseHeight }, // 1365×1024
+    '9/16': { width: Math.round(baseHeight * (9 / 16)), height: baseHeight }, // 576×1024
+  }
+  return ratios[aspectRatio] || ratios['16/9']
+}
 
 // Enhanced status bar computed properties
 const graphTitle = computed(() => {
@@ -1189,6 +1245,7 @@ const closeImageQuoteCreator = () => {
   isGeneratingQuotes.value = false
   // Reset node selection
   selectedNodeForInsertion.value = ''
+  imageQuoteType.value = 'static'
   removePasteListener()
 }
 
@@ -1198,7 +1255,7 @@ const saveImageQuote = async () => {
     return
   }
 
-  if (!selectedNodeForInsertion.value) {
+  if (imageQuoteType.value === 'static' && !selectedNodeForInsertion.value) {
     alert('Please select a node to insert the IMAGEQUOTE into')
     return
   }
@@ -1217,8 +1274,50 @@ const saveImageQuote = async () => {
 
     let targetNode
 
-    // Check if creating a new node
-    if (selectedNodeForInsertion.value === '__CREATE_NEW__') {
+    // Check if creating standalone IMAGEQUOTE node
+    if (imageQuoteType.value === 'standalone') {
+      console.log('🎨 Creating standalone IMAGEQUOTE node')
+
+      // Generate new UUID for the node
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = (Math.random() * 16) | 0
+          const v = c == 'x' ? r : (r & 0x3) | 0x8
+          return v.toString(16)
+        })
+      }
+
+      const newNodeId = generateUUID()
+      const quoteText = newImageQuote.value.text.substring(0, 50) // First 50 chars for title
+      const nodeTitle = `${quoteText}${quoteText.length > 50 ? '...' : ''}`
+
+      // Calculate dimensions based on aspect ratio
+      const dimensions = calculateDimensionsFromAspectRatio(newImageQuote.value.aspectRatio)
+
+      // Create new IMAGEQUOTE node
+      targetNode = {
+        id: newNodeId,
+        label: nodeTitle,
+        color: '#e6f3ff', // Light blue for IMAGEQUOTE nodes
+        type: 'imagequote',
+        info: imageQuoteDefinition, // IMAGEQUOTE definition as content
+        bibl: [],
+        imageWidth: `${dimensions.width}px`,
+        imageHeight: `${dimensions.height}px`,
+        visible: true,
+        path: newImageQuote.value.backgroundImage || null, // Store background image in path
+      }
+
+      // Add to graph data
+      graphData.value.nodes.push(targetNode)
+
+      console.log('✅ Standalone IMAGEQUOTE node created:', {
+        id: targetNode.id,
+        label: targetNode.label,
+        type: targetNode.type,
+        contentLength: targetNode.info.length,
+      })
+    } else if (selectedNodeForInsertion.value === '__CREATE_NEW__') {
       console.log('🆕 Creating new Fulltext node for IMAGEQUOTE')
 
       // Generate new UUID for the node
@@ -1345,10 +1444,14 @@ const saveImageQuote = async () => {
     knowledgeGraphStore.updateGraphFromJson(graphData.value)
 
     // Show success message
-    const actionText =
-      selectedNodeForInsertion.value === '__CREATE_NEW__'
-        ? 'created new node with IMAGEQUOTE'
-        : `inserted IMAGEQUOTE into "${targetNode.label}"`
+    let actionText
+    if (imageQuoteType.value === 'standalone') {
+      actionText = 'created standalone IMAGEQUOTE node'
+    } else if (selectedNodeForInsertion.value === '__CREATE_NEW__') {
+      actionText = 'created new node with IMAGEQUOTE'
+    } else {
+      actionText = `inserted IMAGEQUOTE into "${targetNode.label}"`
+    }
     statusMessage.value = `✅ Successfully ${actionText}!`
     setTimeout(() => {
       statusMessage.value = ''
@@ -2104,6 +2207,58 @@ onMounted(() => {
 .bg-warning {
   background-color: #ffc107;
   color: #000;
+}
+
+.imagequote-type-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.imagequote-type-selection .form-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.imagequote-type-selection .form-check:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.imagequote-type-selection .form-check-input:checked + .form-check-label {
+  color: #007bff;
+}
+
+.imagequote-type-selection .form-check-input:checked {
+  background-color: #007bff;
+  border-color: #007bff;
+}
+
+.imagequote-type-selection .form-check:has(.form-check-input:checked) {
+  border-color: #007bff;
+  background: #f0f8ff;
+}
+
+.imagequote-type-selection .form-check-label {
+  flex: 1;
+  margin: 0;
+  cursor: pointer;
+}
+
+.imagequote-type-selection .form-check-input {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .status-message {

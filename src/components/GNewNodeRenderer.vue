@@ -17,6 +17,7 @@ import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
 import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
 import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
+import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
 
 // Props
 const props = defineProps({
@@ -45,6 +46,7 @@ const nodeComponents = {
   'portfolio-image': GNewImageNode,
   'youtube-video': GNewVideoNode,
   title: GNewTitleNode,
+  imagequote: GNewImageQuoteNode,
   // Chart types (will be added in Phase 3.2)
   chart: GNewDefaultNode,
   piechart: GNewDefaultNode,
