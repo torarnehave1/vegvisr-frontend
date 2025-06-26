@@ -62,6 +62,14 @@ export function useMenuConfig(menuConfigRef = null) {
       requiresAuth: false,
       roles: ['Superadmin'], // Only Superadmin can see sandbox
     },
+    {
+      id: 'gnew',
+      label: '🧪 GNew Viewer',
+      path: '/gnew',
+      icon: '',
+      requiresAuth: false,
+      roles: ['Superadmin'], // Only Superadmin can see GNew
+    },
   ]
 
   // Process menu items based on configuration

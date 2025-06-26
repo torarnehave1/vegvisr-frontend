@@ -7,6 +7,28 @@
 - **ALWAYS list the names of the files you have changed after making edits.**
 - **MANDATORY: After ANY code changes, provide a clear "Files Changed" section listing every file that was modified, created, or deleted.**
 
+## AFPAI Coding Process
+
+**The AFPAI Method** - A systematic approach to every coding task:
+
+**A** - **Analyze** (understand the problem and existing code)
+**F** - **Findings** (document what you discovered)  
+**P** - **Plan** (propose the solution approach)
+**A** - **Approval** (get explicit user consent)
+**I** - **Implement** (execute the approved changes)
+
+**Memory Sentence:** _"Always Follow Proper Approval Instructions"_
+
+### AFPAI in Practice:
+
+1. **Analyze** → Read relevant files, understand current implementation
+2. **Findings** → Explain what you discovered, identify patterns/issues
+3. **Plan** → Propose specific changes with clear reasoning
+4. **Approval** → Wait for explicit "yes" before proceeding
+5. **Implement** → Make ONLY the approved changes, assign Rollback ID
+
+**This process prevents assumption-based development and ensures collaborative coding.**
+
 ## Core Working Principles
 
 ### 1. **NO CODE CHANGES WITHOUT APPROVAL**

@@ -179,6 +179,16 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/gnew',
+      name: 'gnew',
+      component: () => import('../views/GNewViewer.vue'),
+      meta: {
+        requiresAuth: true,
+        requiresSuperadmin: true,
+        layout: null,
+      },
+    },
   ],
 })
 

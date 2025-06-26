@@ -263,7 +263,7 @@ img.leftside {
   background-color: #f9f9f9;
   padding: 0.5em;
   margin: 0.5em 0;
-  border-radius: 4px;
+  border-radius: 12px;
   box-sizing: border-box;
   font-weight: bold;
   text-align: right;
@@ -275,6 +275,13 @@ img.leftside {
   min-height: 10px;
   height: auto;
   display: block;
+  overflow: hidden;
+}
+
+/* Enhanced FANCY element styles for GNew system */
+.fancy-element {
+  border-radius: 12px !important;
+  overflow: hidden !important;
 }
 
 /* Ensure images in .node .image-wrapper are centered and 90% width of the card */
@@ -333,4 +340,79 @@ img.leftside {
 .change-image-btn:active {
   transform: translateY(0) !important;
   box-shadow: 0 2px 4px rgba(111, 66, 193, 0.4) !important;
+}
+
+/* IMAGEQUOTE Element Styles */
+.imagequote-element {
+  position: relative;
+  margin: 20px auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  /* Ensure width/height are respected */
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.imagequote-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 2rem;
+  color: white;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+  height: 100%;
+  min-height: 200px;
+}
+
+.imagequote-citation {
+  position: absolute;
+  bottom: 15px;
+  right: 15px;
+  font-size: 0.9em;
+  opacity: 0.9;
+  font-style: italic;
+  z-index: 3;
+}
+
+/* GNew IMAGEQUOTE Container Styles */
+.gnew-imagequote-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.gnew-imagequote-container .imagequote {
+  /* This ensures the width/height props work correctly */
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .imagequote-element {
+    margin: 15px auto;
+    width: 95% !important; /* Override width on mobile for better fit */
+  }
+
+  .imagequote-content {
+    padding: 1.5rem;
+    min-height: 150px;
+  }
+
+  .imagequote-citation {
+    bottom: 10px;
+    right: 10px;
+    font-size: 0.8em;
+  }
 }

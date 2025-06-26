@@ -2459,6 +2459,115 @@ Return a JSON object with the following structure:
   }
 }
 
+// --- AI Generate Quotes Endpoint ---
+const handleAIGenerateQuotes = async (request, env) => {
+  try {
+    const { graphContext, userRequest, graphId, username } = await request.json()
+
+    console.log('=== AI Generate Quotes Debug ===')
+    console.log('userRequest:', userRequest)
+    console.log('graphId:', graphId)
+    console.log('username:', username)
+    console.log('graphContext nodes:', graphContext ? graphContext.length : 'null/undefined')
+    console.log('================================')
+
+    if (!graphContext || !Array.isArray(graphContext) || graphContext.length === 0) {
+      return createErrorResponse('Missing or empty graphContext parameter', 400)
+    }
+
+    // Extract meaningful content from graph nodes
+    const contextContent = graphContext
+      .map((node) => {
+        const nodeContent = `Title: ${node.label || 'Untitled'}\nContent: ${node.info || 'No content'}`
+        return nodeContent
+      })
+      .join('\n\n---\n\n')
+
+    console.log('Extracted context content length:', contextContent.length)
+
+    // Create the prompt for quote generation
+    const prompt = `Based on the following knowledge graph content, generate 4-5 inspirational and meaningful quotes that capture the essence and wisdom from the material.
+
+Knowledge Graph Content:
+${contextContent}
+
+${userRequest ? `Additional context: ${userRequest}` : ''}
+${username ? `Username: @${username}` : ''}
+
+Requirements:
+- Generate 4-5 unique quotes
+- Each quote should be meaningful and inspirational
+- Quotes should reflect the themes and wisdom from the provided content
+- Include potential attribution/citation when relevant
+- Make quotes suitable for social media sharing
+
+Return a JSON object with the following structure:
+{
+  "quotes": [
+    {
+      "text": "The actual quote text here",
+      "citation": "Optional author or source attribution",
+      "source": "Brief description of which part of the content inspired this quote"
+    }
+  ]
+}`
+
+    console.log('Generated prompt length:', prompt.length)
+
+    // Generate quotes using AI
+    const client = new OpenAI({
+      apiKey: env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.8, // Higher temperature for more creative quotes
+      max_tokens: 1500,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert at creating inspirational quotes and extracting wisdom from complex content. You excel at distilling key insights into memorable, shareable quotes that resonate with people.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    console.log('AI response received, parsing...')
+
+    const result = JSON.parse(completion.choices[0].message.content.trim())
+
+    // Validate the response structure
+    if (!result.quotes || !Array.isArray(result.quotes)) {
+      throw new Error('Invalid AI response: missing quotes array')
+    }
+
+    // Ensure each quote has required fields
+    const processedQuotes = result.quotes.map((quote, index) => ({
+      text: quote.text || quote.quote || `Quote ${index + 1}`,
+      citation: quote.citation || quote.author || '',
+      source: quote.source || `Content analysis ${index + 1}`,
+    }))
+
+    console.log('✅ Successfully generated quotes:', processedQuotes.length)
+
+    return createResponse(
+      JSON.stringify({
+        quotes: processedQuotes,
+        metadata: {
+          sourceNodes: graphContext.length,
+          generatedAt: new Date().toISOString(),
+          model: 'grok-3-beta',
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('Error in handleAIGenerateQuotes:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
+  }
+}
+
 // --- Style Templates Handler ---
 const handleGetStyleTemplates = async (request) => {
   const url = new URL(request.url)
@@ -4597,6 +4706,10 @@ export default {
 
     if (pathname === '/ai-generate-node' && request.method === 'POST') {
       return await handleAIGenerateNode(request, env)
+    }
+
+    if (pathname === '/ai-generate-quotes' && request.method === 'POST') {
+      return await handleAIGenerateQuotes(request, env)
     }
 
     if (pathname === '/process-transcript' && request.method === 'POST') {

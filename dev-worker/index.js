@@ -710,6 +710,105 @@ export default {
         }
       }
 
+      if (pathname === '/duplicateknowgraph' && request.method === 'POST') {
+        try {
+          const requestBody = await request.json()
+          const { graphData } = requestBody
+
+          if (!graphData || !graphData.metadata || !graphData.nodes || !graphData.edges) {
+            return new Response(
+              JSON.stringify({
+                error: 'Complete graph data with metadata, nodes, and edges is required.',
+              }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log('[Worker] Duplicating knowledge graph')
+          console.log('[Worker] Original title:', graphData.metadata.title)
+          console.log('[Worker] Number of nodes to duplicate:', graphData.nodes.length)
+          console.log('[Worker] Number of edges to duplicate:', graphData.edges.length)
+
+          // Generate new unique graph ID
+          const newGraphId = crypto.randomUUID()
+
+          // Prepare the graph data with version 1
+          const duplicatedGraphData = {
+            ...graphData,
+            metadata: {
+              ...graphData.metadata,
+              version: 1,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          }
+
+          console.log('[Worker] Generated new graph ID:', newGraphId)
+          console.log('[Worker] New graph title:', duplicatedGraphData.metadata.title)
+
+          if (!env.vegvisr_org || !env.vegvisr_org.prepare) {
+            console.error('[Worker] vegvisr_org is not defined or improperly configured.')
+            return new Response(
+              JSON.stringify({ error: 'Database connection is not available.' }),
+              { status: 500, headers: corsHeaders },
+            )
+          }
+
+          // Step 1: Insert into main knowledge_graphs table
+          const insertMainQuery = `
+            INSERT INTO knowledge_graphs (id, title, description, created_by, data)
+            VALUES (?, ?, ?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(insertMainQuery)
+            .bind(
+              newGraphId,
+              duplicatedGraphData.metadata.title,
+              duplicatedGraphData.metadata.description,
+              duplicatedGraphData.metadata.createdBy,
+              JSON.stringify(duplicatedGraphData),
+            )
+            .run()
+
+          console.log('[Worker] Main graph record created successfully')
+
+          // Step 2: Insert into knowledge_graph_history table (version 1)
+          const insertHistoryQuery = `
+            INSERT INTO knowledge_graph_history (id, graph_id, version, data)
+            VALUES (?, ?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(insertHistoryQuery)
+            .bind(
+              crypto.randomUUID(), // History entry ID
+              newGraphId, // Graph ID
+              1, // Version 1
+              JSON.stringify(duplicatedGraphData),
+            )
+            .run()
+
+          console.log('[Worker] Graph history record created successfully')
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              id: newGraphId,
+              message: 'Graph duplicated successfully',
+              title: duplicatedGraphData.metadata.title,
+              nodesCount: graphData.nodes.length,
+              edgesCount: graphData.edges.length,
+            }),
+            { status: 200, headers: corsHeaders },
+          )
+        } catch (error) {
+          console.error('[Worker] Error duplicating knowledge graph:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       if (pathname === '/addTemplate' && request.method === 'POST') {
         try {
           const requestBody = await request.json()

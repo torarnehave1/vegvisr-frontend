@@ -46,6 +46,10 @@
               <li v-if="userStore.role === 'Superadmin'" class="nav-item">
                 <RouterLink class="nav-link" to="/sandbox"> 🔧 Sandbox </RouterLink>
               </li>
+              <!-- GNew link - only for Superadmin users -->
+              <li v-if="userStore.role === 'Superadmin'" class="nav-item">
+                <RouterLink class="nav-link" to="/gnew"> 🧪 GNew Viewer </RouterLink>
+              </li>
             </ul>
 
             <div class="dropdown me-3">
