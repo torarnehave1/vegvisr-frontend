@@ -2166,12 +2166,39 @@ const handleProcessTranscript = async (request, env) => {
     let prompt
     let maxTokens = 12000 // Grok has larger context window
 
-    if (transcriptWords > 3000) {
-      // For very long transcripts, use comprehensive processing
-      console.log('Large transcript detected, using comprehensive processing')
-      maxTokens = 16000 // Use Grok's full capacity for large transcripts
+    if (targetLanguage === 'original') {
+      // --- PROMPT FOR ORIGINAL LANGUAGE ---
+      console.log('Processing in original language.')
+      maxTokens = 16000
 
-      prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph. Create 8-15 detailed thematic sections as nodes.
+      prompt = `Transform this transcript into a comprehensive knowledge graph in its ORIGINAL language. DO NOT TRANSLATE. Create 8-15 detailed thematic sections as nodes.
+
+SOURCE LANGUAGE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
+TARGET LANGUAGE: Original (No Translation)
+
+RULES:
+1.  DO NOT TRANSLATE the content. Keep it in the original language.
+2.  Create nodes with structure: {"id": "del_X", "label": "PART X: [Descriptive Title in Original Language]", "color": "#f9f9f9", "type": "fulltext", "info": "comprehensive content in original language", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
+3.  Split into logical thematic sections. Be thorough.
+4.  Use rich markdown formatting in the "info" field with headers, lists, and emphasis.
+5.  Each node should contain substantial content (200-800 words).
+6.  Include key quotes, important details, and context from the original text.
+7.  Create a comprehensive knowledge graph that captures the full essence of the original transcript.
+
+TRANSCRIPT (full content):
+${transcript}
+
+Return ONLY valid JSON: {"nodes": [...], "edges": []}`
+    } else {
+      // --- PROMPT FOR NORWEGIAN TRANSLATION (Existing Logic) ---
+      if (transcriptWords > 3000) {
+        // For very long transcripts, use comprehensive processing
+        console.log(
+          'Large transcript detected, using comprehensive processing for Norwegian translation',
+        )
+        maxTokens = 16000 // Use Grok's full capacity for large transcripts
+
+        prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph. Create 8-15 detailed thematic sections as nodes.
 
 SOURCE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
 TARGET: Norwegian
@@ -2189,11 +2216,13 @@ TRANSCRIPT (full content):
 ${transcript}
 
 Return JSON: {"nodes": [...], "edges": []}`
-    } else {
-      // For shorter transcripts, use detailed processing
-      console.log('Standard transcript length, using detailed processing')
+      } else {
+        // For shorter transcripts, use detailed processing
+        console.log(
+          'Standard transcript length, using detailed processing for Norwegian translation',
+        )
 
-      prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph JSON.
+        prompt = `Transform this transcript into a comprehensive Norwegian knowledge graph JSON.
 
 SOURCE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
 TARGET: Norwegian
@@ -2214,6 +2243,7 @@ TRANSCRIPT:
 ${transcript}
 
 Return only JSON: {"nodes": [...], "edges": []}`
+      }
     }
 
     console.log('Calling Grok AI API...')

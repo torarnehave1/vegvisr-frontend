@@ -7,27 +7,28 @@
 - **ALWAYS list the names of the files you have changed after making edits.**
 - **MANDATORY: After ANY code changes, provide a clear "Files Changed" section listing every file that was modified, created, or deleted.**
 
-## AFPAI Coding Process
+## The VEGVISR Protocol
 
-**The AFPAI Method** - A systematic approach to every coding task:
+**The VEGVISR Protocol** is our systematic approach to every coding task, named after the project itself.
 
-**A** - **Analyze** (understand the problem and existing code)
-**F** - **Findings** (document what you discovered)  
-**P** - **Plan** (propose the solution approach)
-**A** - **Approval** (get explicit user consent)
-**I** - **Implement** (execute the approved changes)
+- **V** - **Verify & Examine**: Analyze the request and the existing code.
+- **E** - **Establish Findings**: Report on what was discovered.
+- **G** - **Generate a Plan**: Propose the solution.
+- **V** - **Validate with User**: Get explicit user approval.
+- **I** - **Implement**: Execute the approved changes.
+- **S** - **Summarize**: Report results and assign a Rollback ID.
+- **R** - **Record**: Finalize the process.
 
-**Memory Sentence:** _"Always Follow Proper Approval Instructions"_
+### The VEGVISR Protocol in Practice:
 
-### AFPAI in Practice:
+1.  **Verify & Examine** → Read relevant files to understand the current implementation and the user's request.
+2.  **Establish Findings** → Explain what was discovered and identify any relevant patterns or issues.
+3.  **Generate a Plan** → Propose specific changes with clear reasoning.
+4.  **Validate with User** → Wait for an explicit "yes" or "proceed" before continuing.
+5.  **Implement** → Make ONLY the approved changes.
+6.  **Summarize & Record** → List the modified files and assign a Rollback ID.
 
-1. **Analyze** → Read relevant files, understand current implementation
-2. **Findings** → Explain what you discovered, identify patterns/issues
-3. **Plan** → Propose specific changes with clear reasoning
-4. **Approval** → Wait for explicit "yes" before proceeding
-5. **Implement** → Make ONLY the approved changes, assign Rollback ID
-
-**This process prevents assumption-based development and ensures collaborative coding.**
+**This protocol prevents assumption-based development and ensures collaborative coding.**
 
 ## Core Working Principles
 

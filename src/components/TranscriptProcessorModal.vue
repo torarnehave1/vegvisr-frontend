@@ -352,6 +352,21 @@
         </div>
       </div>
 
+      <!-- Processing Options -->
+      <div v-if="transcriptText && !knowledgeGraphPreview" class="processing-options mt-3">
+        <div class="form-check">
+          <input
+            type="checkbox"
+            class="form-check-input"
+            id="keepOriginalLanguage"
+            v-model="keepOriginalLanguage"
+          />
+          <label class="form-check-label" for="keepOriginalLanguage">
+            Keep Original Language (Do not translate to Norwegian)
+          </label>
+        </div>
+      </div>
+
       <!-- Action Buttons -->
       <div class="modal-actions">
         <button
@@ -362,32 +377,24 @@
         >
           🚀 Generate Knowledge Graph
         </button>
-
-        <button
-          v-if="transcriptText && !isProcessing && !knowledgeGraphPreview"
-          @click="testApiConnection"
-          class="btn btn-outline-info ms-2"
-        >
-          🔍 Test API
-        </button>
-
-        <button v-if="knowledgeGraphPreview" @click="importToGraph" class="btn btn-success me-2">
-          📥 Add to Current Graph
-        </button>
-
-        <button v-if="knowledgeGraphPreview" @click="createNewGraph" class="btn btn-info">
-          ➕ Create New Graph
-        </button>
-
-        <button
-          v-if="transcriptText && !isProcessing"
-          @click="resetProcessor"
-          class="btn btn-warning"
-        >
-          🔄 Start Over
-        </button>
-
-        <button @click="close" class="btn btn-secondary">Cancel</button>
+        <div v-if="isProcessing" class="processing-indicator">
+          <div class="spinner-border spinner-border-sm" role="status"></div>
+          <span class="ms-2">{{ processingStage || 'Processing...' }}</span>
+        </div>
+        <div v-if="knowledgeGraphPreview" class="post-processing-actions">
+          <button @click="importToGraph" class="btn btn-success me-2">
+            📥 Add to Current Graph
+          </button>
+          <button @click="createNewGraph" class="btn btn-info">➕ Create New Graph</button>
+          <button
+            v-if="transcriptText && !isProcessing"
+            @click="resetProcessor"
+            class="btn btn-warning"
+          >
+            🔄 Start Over
+          </button>
+          <button @click="close" class="btn btn-secondary">Cancel</button>
+        </div>
       </div>
     </div>
   </div>
@@ -432,6 +439,7 @@ const isLoadingTranscript = ref(false)
 const isSearching = ref(false)
 const showFullDescription = ref(false)
 const videoMetadata = ref(null)
+const keepOriginalLanguage = ref(false)
 
 // Helper function to extract video ID from any YouTube URL
 const extractVideoIdFromUrl = (url) => {
@@ -1462,7 +1470,7 @@ const processTranscript = async () => {
     const requestPayload = {
       transcript: transcriptText.value,
       sourceLanguage: sourceLanguage.value,
-      targetLanguage: 'norwegian',
+      targetLanguage: keepOriginalLanguage.value ? 'original' : 'norwegian',
     }
 
     console.log('=== TRANSCRIPT API REQUEST ===')
@@ -1472,7 +1480,7 @@ const processTranscript = async () => {
     console.log('API Token Length:', userStore.emailVerificationToken?.length || 0)
     console.log('Transcript Length:', transcriptText.value.length)
     console.log('Source Language:', sourceLanguage.value)
-    console.log('Target Language:', 'norwegian')
+    console.log('Target Language:', keepOriginalLanguage.value ? 'original' : 'norwegian')
     console.log('Full Payload:', JSON.stringify(requestPayload, null, 2))
     console.log('===============================')
 
