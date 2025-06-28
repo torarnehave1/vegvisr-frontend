@@ -421,19 +421,8 @@ const pastedUrl = ref(null)
 // Use userStore for user management
 const userStore = useUserStore()
 
-// Environment-aware API base URL
-const API_BASE =
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://127.0.0.1:8789'
-    : 'https://api.vegvisr.org'
-
-console.log(
-  '🌍 Environment detected:',
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'LOCAL'
-    : 'PRODUCTION',
-)
-console.log('📡 API Base URL:', API_BASE)
+// Always use production API base URL
+const API_BASE = 'https://api.vegvisr.org'
 
 // Quick search suggestions based on image type
 const quickSearchTags = computed(() => {

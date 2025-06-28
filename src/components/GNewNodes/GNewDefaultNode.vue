@@ -1,7 +1,7 @@
 <template>
   <div class="gnew-default-node" :class="nodeTypeClass">
-    <!-- Node Header -->
-    <div v-if="node.label" class="node-header">
+    <!-- Node Header (Logged-in Users Only) -->
+    <div v-if="showControls && node.label" class="node-header">
       <div class="node-title-section">
         <h3 class="node-title">{{ node.label }}</h3>
         <!-- Node Type Badge in Header -->
@@ -9,7 +9,7 @@
           {{ nodeTypeDisplay }}
         </div>
       </div>
-      <div v-if="showControls && !isPreview" class="node-controls">
+      <div v-if="!isPreview" class="node-controls">
         <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">
           ✏️
         </button>
@@ -47,12 +47,16 @@
         <div
           v-else-if="contentPart.type === 'IMAGEQUOTE'"
           class="imagequote-element"
-          :style="contentPart.containerStyles"
+          :style="convertStylesToString(contentPart.containerStyles)"
         >
-          <div class="imagequote-content" :style="contentPart.contentStyles">
+          <div class="imagequote-content" :style="convertStylesToString(contentPart.contentStyles)">
             {{ contentPart.content }}
           </div>
-          <div v-if="contentPart.citation" class="imagequote-citation">
+          <div
+            v-if="contentPart.citation"
+            class="imagequote-citation"
+            style="position: absolute; bottom: 10px; right: 15px; font-size: 0.9em; opacity: 0.9"
+          >
             — {{ contentPart.citation }}
           </div>
         </div>
@@ -78,10 +82,10 @@
       </div>
     </div>
 
-    <!-- Empty State -->
-    <div v-else-if="!node.label" class="node-empty-state">
+    <!-- Empty State (Logged-in Users Only) -->
+    <div v-else-if="!node.label && showControls" class="node-empty-state">
       <p class="text-muted">Empty node - no content available</p>
-      <button v-if="showControls && !isPreview" @click="editNode" class="btn btn-sm btn-primary">
+      <button v-if="!isPreview" @click="editNode" class="btn btn-sm btn-primary">
         Add Content
       </button>
     </div>
@@ -322,51 +326,7 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
     },
   )
 
-  // 8. Process IMAGEQUOTE elements (no markdown - just content)
-  processedText = processedText.replace(
-    /\[IMAGEQUOTE\s*([^\]]*)\]([\s\S]*?)\[END\s+IMAGEQUOTE\]/gs,
-    (match, params, content) => {
-      console.log('=== Processing IMAGEQUOTE Element ===')
-      console.log('Raw params:', params)
-      console.log('Raw content:', content)
-
-      const imageQuoteParams = parseImageQuoteParams(params)
-      console.log('Parsed params:', imageQuoteParams)
-
-      // IMAGEQUOTE elements do NOT process markdown - just use content.trim()
-      const processedContent = content.trim()
-      console.log('Processed content:', processedContent)
-
-      const styles = {
-        backgroundImage: imageQuoteParams.backgroundImage
-          ? `url('${imageQuoteParams.backgroundImage}')`
-          : 'none',
-        aspectRatio: imageQuoteParams.aspectRatio || '16/9',
-        textAlign: imageQuoteParams.textAlign || 'center',
-        padding: imageQuoteParams.padding || '2rem',
-        fontSize: imageQuoteParams.fontSize || '1.5rem',
-        width: imageQuoteParams.width || '100%',
-        height: imageQuoteParams.height || 'auto',
-      }
-
-      const styleString = Object.entries(styles)
-        .map(([key, value]) => `${camelToKebab(key)}: ${value}`)
-        .join('; ')
-
-      console.log('Generated styles:', styles)
-      console.log('Style string:', styleString)
-
-      const finalHtml = `<div class="imagequote-element" style="${styleString}; display: flex; align-items: center; justify-content: center; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); background-size: cover; background-position: center; border-radius: 8px; margin: 15px 0;">
-        <div class="imagequote-content">${processedContent}</div>
-        ${imageQuoteParams.cited ? `<div class="imagequote-citation" style="position: absolute; bottom: 10px; right: 15px; font-size: 0.9em; opacity: 0.9;">— ${imageQuoteParams.cited}</div>` : ''}
-      </div>`
-
-      console.log('✅ IMAGEQUOTE rendered successfully')
-      console.log('Final HTML:', finalHtml)
-
-      return finalHtml
-    },
-  )
+  // Note: IMAGEQUOTE elements are now handled separately in parsedContent to create structured objects
 
   return processedText
 }
@@ -443,21 +403,90 @@ const parsedContent = computed(() => {
   if (!nodeContent.value) return []
 
   try {
-    // First process formatted elements
-    let processedHtml = parseFormattedElements(nodeContent.value)
+    const parts = []
+    let remainingText = nodeContent.value
 
-    // Check if the content contains already-processed HTML elements
-    const hasProcessedElements = /<div class="[^"]*-element"/.test(processedHtml)
+    // Extract IMAGEQUOTE elements first and create structured objects
+    const imagequoteRegex = /\[IMAGEQUOTE\s*([^\]]*)\]([\s\S]*?)\[END\s+IMAGEQUOTE\]/gs
+    let lastIndex = 0
+    let match
 
-    if (hasProcessedElements) {
-      // If we have processed elements, don't run markdown again to avoid escaping
-      console.log('✅ Content contains processed elements, skipping markdown processing')
-      return [{ type: 'text', content: processedHtml }]
-    } else {
-      // If no processed elements, we can safely run markdown
-      const finalHtml = marked(processedHtml, { breaks: true })
-      return [{ type: 'text', content: finalHtml }]
+    while ((match = imagequoteRegex.exec(nodeContent.value)) !== null) {
+      // Add any text before this IMAGEQUOTE as regular content
+      if (match.index > lastIndex) {
+        const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
+        if (beforeText) {
+          const processedBefore = parseFormattedElements(beforeText)
+          parts.push({ type: 'text', content: marked(processedBefore, { breaks: true }) })
+        }
+      }
+
+      // Parse IMAGEQUOTE parameters
+      const params = match[1]
+      const content = match[2].trim()
+      const imageQuoteParams = parseImageQuoteParams(params)
+
+      // Create structured IMAGEQUOTE object
+      const containerStyles = {
+        backgroundImage: imageQuoteParams.backgroundImage
+          ? `url('${imageQuoteParams.backgroundImage}')`
+          : 'none',
+        aspectRatio: imageQuoteParams.aspectRatio || '16/9',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        borderRadius: '8px',
+        margin: '15px 0',
+        position: 'relative',
+        width: imageQuoteParams.width || '100%',
+        height: imageQuoteParams.height || 'auto',
+        minHeight: '200px',
+      }
+
+      const contentStyles = {
+        color: 'white',
+        textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+        textAlign: imageQuoteParams.textAlign || 'center',
+        padding: imageQuoteParams.padding || '2rem',
+        fontSize: imageQuoteParams.fontSize || '1.5rem',
+      }
+
+      parts.push({
+        type: 'IMAGEQUOTE',
+        content: content,
+        citation: imageQuoteParams.cited || null,
+        containerStyles: containerStyles,
+        contentStyles: contentStyles,
+      })
+
+      lastIndex = imagequoteRegex.lastIndex
     }
+
+    // Add any remaining text after the last IMAGEQUOTE
+    if (lastIndex < nodeContent.value.length) {
+      const afterText = nodeContent.value.slice(lastIndex).trim()
+      if (afterText) {
+        const processedAfter = parseFormattedElements(afterText)
+        parts.push({ type: 'text', content: marked(processedAfter, { breaks: true }) })
+      }
+    }
+
+    // If no IMAGEQUOTE elements were found, process the entire content normally
+    if (parts.length === 0) {
+      const processedHtml = parseFormattedElements(nodeContent.value)
+      const hasProcessedElements = /<div class="[^"]*-element"/.test(processedHtml)
+
+      if (hasProcessedElements) {
+        return [{ type: 'text', content: processedHtml }]
+      } else {
+        const finalHtml = marked(processedHtml, { breaks: true })
+        return [{ type: 'text', content: finalHtml }]
+      }
+    }
+
+    return parts
   } catch (error) {
     console.error('Error parsing formatted content:', error)
     return [{ type: 'text', content: nodeContent.value }]
@@ -496,6 +525,14 @@ const deleteNode = () => {
   if (confirm('Are you sure you want to delete this node?')) {
     emit('node-deleted', props.node.id)
   }
+}
+
+const convertStylesToString = (styleObj) => {
+  if (!styleObj || typeof styleObj !== 'object') return ''
+
+  return Object.entries(styleObj)
+    .map(([key, value]) => `${camelToKebab(key)}: ${value}`)
+    .join('; ')
 }
 </script>
 
@@ -640,6 +677,22 @@ const deleteNode = () => {
 
 .node-type-info .node-type-badge-inline {
   background: #17a2b8;
+}
+
+/* IMAGEQUOTE element styling */
+.imagequote-element {
+  position: relative;
+  overflow: hidden;
+}
+
+.imagequote-content {
+  z-index: 2;
+  position: relative;
+}
+
+.imagequote-citation {
+  z-index: 2;
+  position: absolute;
 }
 
 .node-type-chart,

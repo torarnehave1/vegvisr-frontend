@@ -1,11 +1,23 @@
 # AI Coding Assistant Startup Prompt
 
+Basic Prompt:
+Follow complete VEGVISR Protocol:
+
+- V: Examine the code
+- E: Report findings
+- G: Propose the plan
+- V: STOP & VALIDATE - Get my approval first
+- I: Only implement after approval
+- S: Summarize changes
+- R: Record completion
+
 ## CRITICAL USER RULES (MUST FOLLOW)
 
 - **NO CODE CHANGES WITHOUT EXPLICIT USER APPROVAL.**
 - **ALWAYS explain what you are suggesting, thinking, or assuming BEFORE any code changes, so the user can understand the premises for the change.**
 - **ALWAYS list the names of the files you have changed after making edits.**
 - **MANDATORY: After ANY code changes, provide a clear "Files Changed" section listing every file that was modified, created, or deleted.**
+- **PRODUCTION ENDPOINTS ONLY: NEVER introduce localhost detection logic or environment-specific endpoint switching. ALWAYS use production API endpoints regardless of development environment. Do not complicate with localhost logic.**
 
 ## The VEGVISR Protocol
 
@@ -135,6 +147,14 @@
 - **Summary changes only:** When worker files are modified, mention it in the summary but do not provide deployment commands
 - **User manages deployments:** All wrangler deployments are handled by the user independently
 
+**CRITICAL: Production Endpoints Policy:**
+
+- **ALWAYS use production API endpoints** - never introduce localhost detection
+- **NEVER add environment-specific logic** like `if (hostname === 'localhost')`
+- **NEVER complicate with development vs production switching**
+- **User works exclusively with production APIs** regardless of development environment
+- **Remove any existing localhost detection logic** if found in code
+
 **Testing Environment:**
 
 - **User environment:** Windows PowerShell
@@ -185,6 +205,7 @@ Before making ANY code change, ALWAYS:
 - [ ] Did I get explicit user approval?
 - [ ] Am I making ONLY the approved changes?
 - [ ] Will I assign a Rollback ID after completion?
+- [ ] **Production Endpoints:** Am I avoiding localhost detection and using production endpoints only?
 
 **If ANY checkbox is unchecked, DO NOT PROCEED.**
 

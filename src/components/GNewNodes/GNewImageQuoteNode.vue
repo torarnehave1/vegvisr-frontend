@@ -1,7 +1,7 @@
 <template>
   <div class="gnew-imagequote-node">
-    <!-- Node Header -->
-    <div v-if="node.label" class="node-header">
+    <!-- Node Header (Logged-in Users Only) -->
+    <div v-if="showControls && node.label" class="node-header">
       <div class="node-title-section">
         <h3 class="node-title">{{ node.label }}</h3>
         <div class="node-type-badge-inline">IMAGEQUOTE</div>

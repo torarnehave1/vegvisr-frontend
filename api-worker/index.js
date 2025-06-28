@@ -558,7 +558,7 @@ const handleGrokTest = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { prompt } = body
+  const { prompt, returnType = 'fulltext', graphContext } = body
   if (!prompt || typeof prompt !== 'string') {
     return createErrorResponse('Prompt input is missing or invalid', 400)
   }
@@ -569,14 +569,25 @@ const handleGrokTest = async (request, env) => {
   })
 
   try {
+    // Prepare the user message with optional graph context
+    let userMessage = prompt
+    if (graphContext && graphContext.trim()) {
+      userMessage = `Context from knowledge graph:\n${graphContext}\n\nQuestion: ${prompt}`
+    }
+
     // Generate main content
     const completion = await client.chat.completions.create({
       model: 'grok-3-beta',
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [
-        { role: 'system', content: 'You are a philosophical AI providing deep insights.' },
-        { role: 'user', content: prompt },
+        {
+          role: 'system',
+          content: graphContext
+            ? 'You are a philosophical AI providing deep insights. Use the provided knowledge graph context to inform your response when relevant, but focus on answering the specific question asked.'
+            : 'You are a philosophical AI providing deep insights.',
+        },
+        { role: 'user', content: userMessage },
       ],
     })
 
@@ -607,25 +618,98 @@ const handleGrokTest = async (request, env) => {
       .filter((ref) => ref.trim())
       .map((ref) => ref.trim())
 
-    return new Response(
-      JSON.stringify({
-        id: `fulltext_${Date.now()}`,
-        label: 'Summary',
-        type: 'fulltext',
-        info: responseText,
-        color: '#f9f9f9',
-        bibl: biblReferences,
-      }),
-      {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
+    // Handle different return types
+    if (returnType === 'action') {
+      // Return action_test node
+      return new Response(
+        JSON.stringify({
+          id: `action_${Date.now()}`,
+          label: 'https://api.vegvisr.org/groktest',
+          type: 'action_test',
+          info: responseText,
+          color: '#ffe6cc',
+          bibl: biblReferences,
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
         },
-      },
-    )
-  } catch {
-    return createErrorResponse(`Grok API error:`, 500)
+      )
+    } else if (returnType === 'both') {
+      // Generate follow-up question
+      const followUpCompletion = await client.chat.completions.create({
+        model: 'grok-3-beta',
+        temperature: 0.8,
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a philosophical AI. Based on the previous answer, generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.',
+          },
+          {
+            role: 'user',
+            content: `Previous answer: ${responseText}\n\nGenerate a follow-up question:`,
+          },
+        ],
+      })
+
+      const followUpQuestion = followUpCompletion.choices[0].message.content.trim()
+
+      // Return both fulltext and action nodes
+      return new Response(
+        JSON.stringify({
+          type: 'both',
+          fulltext: {
+            id: `fulltext_${Date.now()}`,
+            label: 'Grok Answer',
+            type: 'fulltext',
+            info: responseText,
+            color: '#f9f9f9',
+            bibl: biblReferences,
+          },
+          action: {
+            id: `action_${Date.now() + 1}`,
+            label: 'https://api.vegvisr.org/groktest',
+            type: 'action_test',
+            info: followUpQuestion,
+            color: '#ffe6cc',
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    } else {
+      // Default: return fulltext node
+      return new Response(
+        JSON.stringify({
+          id: `fulltext_${Date.now()}`,
+          label: 'Grok Answer',
+          type: 'fulltext',
+          info: responseText,
+          color: '#f9f9f9',
+          bibl: biblReferences,
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+  } catch (error) {
+    console.error('Grok API error details:', error)
+    return createErrorResponse(`Grok API error: ${error.message || 'Unknown error'}`, 500)
   }
 }
 
@@ -642,13 +726,19 @@ const handleGeminiTest = async (request, env) => {
     return createErrorResponse('Invalid JSON body', 400)
   }
 
-  const { text, prompt } = body
+  const { text, prompt, returnType = 'fulltext', graphContext } = body
   const inputText = text || prompt // Accept both 'text' and 'prompt' for compatibility
   if (!inputText || typeof inputText !== 'string') {
     return createErrorResponse('Text or prompt input is missing or invalid', 400)
   }
 
   try {
+    // Prepare the input text with optional graph context
+    let finalInputText = inputText
+    if (graphContext && graphContext.trim()) {
+      finalInputText = `Context from knowledge graph:\n${graphContext}\n\nQuestion: ${inputText}`
+    }
+
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
@@ -661,7 +751,7 @@ const handleGeminiTest = async (request, env) => {
             {
               parts: [
                 {
-                  text: inputText,
+                  text: finalInputText,
                 },
               ],
             },
@@ -680,21 +770,227 @@ const handleGeminiTest = async (request, env) => {
     // Extract the generated text from Gemini's response format
     const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated'
 
-    return createResponse(
-      JSON.stringify({
-        id: `gemini_${Date.now()}`,
-        label: 'Gemini Response',
-        type: 'fulltext',
-        info: generatedText,
-        color: '#e8f4fd',
-        model: 'gemini-2.0-flash',
-        prompt: inputText,
-      }),
-    )
+    // Handle different return types
+    if (returnType === 'action') {
+      // Return action_test node
+      return createResponse(
+        JSON.stringify({
+          id: `action_${Date.now()}`,
+          label: 'https://api.vegvisr.org/gemini-test',
+          type: 'action_test',
+          info: generatedText,
+          color: '#ffe6cc',
+          model: 'gemini-2.0-flash',
+          prompt: inputText,
+        }),
+      )
+    } else if (returnType === 'both') {
+      // Generate follow-up question
+      const followUpResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
+                  },
+                ],
+              },
+            ],
+          }),
+        },
+      )
+
+      let followUpQuestion = 'What would you like to explore further?'
+      if (followUpResponse.ok) {
+        const followUpData = await followUpResponse.json()
+        followUpQuestion =
+          followUpData.candidates?.[0]?.content?.parts?.[0]?.text || followUpQuestion
+      }
+
+      // Return both fulltext and action nodes
+      return createResponse(
+        JSON.stringify({
+          type: 'both',
+          fulltext: {
+            id: `fulltext_${Date.now()}`,
+            label: 'Gemini Answer',
+            type: 'fulltext',
+            info: generatedText,
+            color: '#e8f4fd',
+            model: 'gemini-2.0-flash',
+            prompt: inputText,
+          },
+          action: {
+            id: `action_${Date.now() + 1}`,
+            label: 'https://api.vegvisr.org/gemini-test',
+            type: 'action_test',
+            info: followUpQuestion,
+            color: '#ffe6cc',
+          },
+        }),
+      )
+    } else {
+      // Default: return fulltext node
+      return createResponse(
+        JSON.stringify({
+          id: `gemini_${Date.now()}`,
+          label: 'Gemini Answer',
+          type: 'fulltext',
+          info: generatedText,
+          color: '#e8f4fd',
+          model: 'gemini-2.0-flash',
+          prompt: inputText,
+        }),
+      )
+    }
   } catch (error) {
     return createErrorResponse(`Gemini API error: ${error.message}`, 500)
   }
 }
+
+const handleClaudeTest = async (request, env) => {
+  const apiKey = env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: Anthropic API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { prompt, returnType = 'fulltext', graphContext } = body
+  if (!prompt || typeof prompt !== 'string') {
+    return createErrorResponse('Prompt input is missing or invalid', 400)
+  }
+
+  try {
+    // Prepare the message content with optional graph context
+    let messageContent = prompt
+    if (graphContext && graphContext.trim()) {
+      messageContent = `Context from knowledge graph:\n${graphContext}\n\nQuestion: ${prompt}\n\nPlease use the provided context to inform your response when relevant, but focus on answering the specific question asked.`
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 2000,
+        messages: [
+          {
+            role: 'user',
+            content: messageContent,
+          },
+        ],
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      return createErrorResponse(`Claude API error: ${response.status} - ${errorText}`, 500)
+    }
+
+    const data = await response.json()
+
+    // Extract the generated text from Claude's response format
+    const generatedText = data.content?.[0]?.text || 'No response generated'
+
+    // Handle different return types
+    if (returnType === 'action') {
+      // Return action_test node
+      return createResponse(
+        JSON.stringify({
+          id: `action_${Date.now()}`,
+          label: 'https://api.vegvisr.org/claude-test',
+          type: 'action_test',
+          info: generatedText,
+          color: '#ffe6cc',
+          model: 'claude-3-5-sonnet',
+          prompt: prompt,
+        }),
+      )
+    } else if (returnType === 'both') {
+      // Generate follow-up question
+      const followUpResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 200,
+          messages: [
+            {
+              role: 'user',
+              content: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
+            },
+          ],
+        }),
+      })
+
+      let followUpQuestion = 'What would you like to explore further?'
+      if (followUpResponse.ok) {
+        const followUpData = await followUpResponse.json()
+        followUpQuestion = followUpData.content?.[0]?.text || followUpQuestion
+      }
+
+      // Return both fulltext and action nodes
+      return createResponse(
+        JSON.stringify({
+          type: 'both',
+          fulltext: {
+            id: `fulltext_${Date.now()}`,
+            label: 'Claude Answer',
+            type: 'fulltext',
+            info: generatedText,
+            color: '#f4e5d3',
+            model: 'claude-3-5-sonnet',
+            prompt: prompt,
+          },
+          action: {
+            id: `action_${Date.now() + 1}`,
+            label: 'https://api.vegvisr.org/claude-test',
+            type: 'action_test',
+            info: followUpQuestion,
+            color: '#ffe6cc',
+          },
+        }),
+      )
+    } else {
+      // Default: return fulltext node
+      return createResponse(
+        JSON.stringify({
+          id: `claude_${Date.now()}`,
+          label: 'Claude Answer',
+          type: 'fulltext',
+          info: generatedText,
+          color: '#f4e5d3',
+          model: 'claude-3-5-sonnet',
+          prompt: prompt,
+        }),
+      )
+    }
+  } catch (error) {
+    return createErrorResponse(`Claude API error: ${error.message}`, 500)
+  }
+}
+
 // Updated endpoint for versatile AI action with response format
 const handleAIAction = async (request, env) => {
   let body
@@ -774,8 +1070,9 @@ const handleAIAction = async (request, env) => {
       }),
       200,
     )
-  } catch {
-    return createErrorResponse(`AI API error:`, 500)
+  } catch (error) {
+    console.error('AI API error details:', error)
+    return createErrorResponse(`AI API error: ${error.message || 'Unknown error'}`, 500)
   }
 }
 
@@ -4669,6 +4966,9 @@ export default {
     if (pathname === '/gemini-test' && request.method === 'POST') {
       return await handleGeminiTest(request, env)
     }
+    if (pathname === '/claude-test' && request.method === 'POST') {
+      return await handleClaudeTest(request, env)
+    }
     if (pathname === '/aiaction' && request.method === 'POST') {
       return await handleAIAction(request, env)
     }
@@ -4777,6 +5077,27 @@ export default {
         queryParams: url.searchParams.toString(),
       })
       return await handleGoogleOAuthCallback()
+    }
+
+    // Placeholder endpoints to prevent 404 errors
+    if (pathname === '/user-preferences') {
+      return createResponse(
+        JSON.stringify({
+          message: 'User preferences endpoint not yet implemented',
+          preferences: {},
+        }),
+        200,
+      )
+    }
+
+    if (pathname === '/ai-node-history') {
+      return createResponse(
+        JSON.stringify({
+          message: 'AI node history endpoint not yet implemented',
+          history: [],
+        }),
+        200,
+      )
     }
 
     if (url.pathname === '/create-custom-domain') {

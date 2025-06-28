@@ -7,6 +7,7 @@
       :showControls="showControls"
       @node-updated="handleNodeUpdated"
       @node-deleted="handleNodeDeleted"
+      @node-created="handleNodeCreated"
     />
   </div>
 </template>
@@ -18,6 +19,15 @@ import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
 import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
 import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
+import GNewButtonRowNode from './GNewNodes/GNewButtonRowNode.vue'
+import GNewActionTestNode from './GNewNodes/GNewActionTestNode.vue'
+// Phase 3.2 Chart Components
+import GNewChartNode from './GNewNodes/GNewChartNode.vue'
+import GNewPieChartNode from './GNewNodes/GNewPieChartNode.vue'
+import GNewLineChartNode from './GNewNodes/GNewLineChartNode.vue'
+import GNewTimelineNode from './GNewNodes/GNewTimelineNode.vue'
+import GNewBubbleChartNode from './GNewNodes/GNewBubbleChartNode.vue'
+import GNewSWOTNode from './GNewNodes/GNewSWOTNode.vue'
 
 // Props
 const props = defineProps({
@@ -36,7 +46,7 @@ const props = defineProps({
 })
 
 // Emits
-const emit = defineEmits(['node-updated', 'node-deleted'])
+const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
 // Dynamic component mapping
 const nodeComponents = {
@@ -47,13 +57,16 @@ const nodeComponents = {
   'youtube-video': GNewVideoNode,
   title: GNewTitleNode,
   imagequote: GNewImageQuoteNode,
-  // Chart types (will be added in Phase 3.2)
-  chart: GNewDefaultNode,
-  piechart: GNewDefaultNode,
-  linechart: GNewDefaultNode,
-  timeline: GNewDefaultNode,
-  bubblechart: GNewDefaultNode,
-  swot: GNewDefaultNode,
+  button_row: GNewButtonRowNode,
+  // AI Action node
+  action_test: GNewActionTestNode,
+  // Chart types (Phase 3.2 ✅ COMPLETE)
+  chart: GNewChartNode,
+  piechart: GNewPieChartNode,
+  linechart: GNewLineChartNode,
+  timeline: GNewTimelineNode,
+  bubblechart: GNewBubbleChartNode,
+  swot: GNewSWOTNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
@@ -75,6 +88,10 @@ const handleNodeUpdated = (updatedNode) => {
 
 const handleNodeDeleted = (nodeId) => {
   emit('node-deleted', nodeId)
+}
+
+const handleNodeCreated = (newNode) => {
+  emit('node-created', newNode)
 }
 </script>
 

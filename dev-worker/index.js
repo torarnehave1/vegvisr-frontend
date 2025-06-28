@@ -1912,7 +1912,7 @@ Return ONLY the social media summary text, no explanations or metadata.`
           console.log('[Worker] ========== CLEAN SLATE AI GENERATION ==========')
 
           const requestBody = await request.json()
-          const { prompt, userPrompt } = requestBody
+          const { prompt, userPrompt, returnType = 'fulltext', graphContext } = requestBody
 
           console.log('[Worker] Request data:', JSON.stringify(requestBody, null, 2))
 
@@ -1945,8 +1945,14 @@ Return ONLY the social media summary text, no explanations or metadata.`
             )
           }
 
-          const finalPrompt = userPrompt || prompt
-          console.log('[Worker] Final prompt:', finalPrompt)
+          let finalPrompt = userPrompt || prompt
+          console.log('[Worker] Base prompt:', finalPrompt)
+
+          // Add graph context if provided
+          if (graphContext && graphContext.trim()) {
+            finalPrompt = `Context from knowledge graph:\n${graphContext}\n\nUser request: ${finalPrompt}`
+            console.log('[Worker] Added graph context, final prompt length:', finalPrompt.length)
+          }
 
           // Generate worker code based on the actual prompt
           console.log('[Worker] Processing user prompt with AI...')
@@ -1957,7 +1963,7 @@ Return ONLY the social media summary text, no explanations or metadata.`
             // Use Cloudflare Workers AI to generate code based on the prompt
             const aiPrompt = `You are a Cloudflare Worker code generator. Generate ONLY raw JavaScript code - no markdown, no code fences, no explanations.
 
-User request: "${finalPrompt}"
+${graphContext ? 'Use the provided knowledge graph context to inform your code generation when relevant.\n\n' : ''}User request: "${finalPrompt}"`
 
 CRITICAL: Return ONLY JavaScript code. Do NOT include:
 - Triple backticks with javascript or plain backticks
@@ -2028,21 +2034,94 @@ Return the complete worker code as plain JavaScript:`
             generatedCode.substring(0, 100) + '...',
           )
 
-          const response = {
-            success: true,
-            code: generatedCode,
-            model: '@cf/meta/llama-3.1-8b-instruct',
-            prompt: finalPrompt,
-            timestamp: new Date().toISOString(),
-            note: 'AI-generated worker code based on user prompt',
+          // Handle different return types
+          if (returnType === 'action') {
+            // Return action_test node
+            const response = {
+              id: `action_${Date.now()}`,
+              label: 'https://knowledge.vegvisr.org/generate-worker-ai',
+              type: 'action_test',
+              info: generatedCode,
+              color: '#ffe6cc',
+              model: '@cf/meta/llama-3.1-8b-instruct',
+              prompt: finalPrompt,
+            }
+
+            return new Response(JSON.stringify(response), {
+              status: 200,
+              headers: corsHeaders,
+            })
+          } else if (returnType === 'both') {
+            // Generate follow-up question using AI
+            let followUpQuestion = 'What additional features would you like to add to this worker?'
+
+            try {
+              const followUpPrompt = `Based on this generated code, create ONE brief follow-up question that would help the user enhance or expand this Cloudflare Worker. Return ONLY the question, no explanations.
+
+Generated code summary: Worker that handles "${finalPrompt}"
+
+Question:`
+
+              const followUpAI = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+                messages: [
+                  {
+                    role: 'user',
+                    content: followUpPrompt,
+                  },
+                ],
+                max_tokens: 100,
+                temperature: 0.7,
+              })
+
+              if (followUpAI && followUpAI.response) {
+                followUpQuestion = followUpAI.response.trim()
+              }
+            } catch (error) {
+              console.log('[Worker] Follow-up generation failed, using default')
+            }
+
+            // Return both fulltext and action nodes
+            const response = {
+              type: 'both',
+              fulltext: {
+                id: `fulltext_${Date.now()}`,
+                label: 'Worker Code',
+                type: 'fulltext',
+                info: generatedCode,
+                color: '#e8f4fd',
+                model: '@cf/meta/llama-3.1-8b-instruct',
+                prompt: finalPrompt,
+              },
+              action: {
+                id: `action_${Date.now() + 1}`,
+                label: 'https://knowledge.vegvisr.org/generate-worker-ai',
+                type: 'action_test',
+                info: followUpQuestion,
+                color: '#ffe6cc',
+              },
+            }
+
+            return new Response(JSON.stringify(response), {
+              status: 200,
+              headers: corsHeaders,
+            })
+          } else {
+            // Default: return fulltext node
+            const response = {
+              id: `fulltext_${Date.now()}`,
+              label: 'Worker Code',
+              type: 'fulltext',
+              info: generatedCode,
+              color: '#e8f4fd',
+              model: '@cf/meta/llama-3.1-8b-instruct',
+              prompt: finalPrompt,
+            }
+
+            return new Response(JSON.stringify(response), {
+              status: 200,
+              headers: corsHeaders,
+            })
           }
-
-          console.log('[Worker] Sending response:', JSON.stringify(response, null, 2))
-
-          return new Response(JSON.stringify(response), {
-            status: 200,
-            headers: corsHeaders,
-          })
         } catch (error) {
           console.error('[Worker] CRITICAL ERROR in generate-worker-ai:', error)
           console.error('[Worker] Error stack:', error.stack)

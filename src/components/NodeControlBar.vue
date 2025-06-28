@@ -53,14 +53,66 @@
 
     <!-- AI Action Group (only for action_test nodes) -->
     <div v-if="nodeType === 'action_test'" class="control-group ai-group">
+      <div class="ai-endpoint-selector">
+        <label for="ai-endpoint-select" class="endpoint-label">🤖 AI Provider:</label>
+        <select
+          id="ai-endpoint-select"
+          v-model="selectedEndpoint"
+          @change="updateEndpoint"
+          class="endpoint-dropdown"
+          title="Select AI Provider"
+        >
+          <option value="https://knowledge.vegvisr.org/generate-worker-ai">
+            🔥 Cloudflare Workers AI (Fast & Free)
+          </option>
+          <option value="https://api.vegvisr.org/claude-test">
+            🧠 Claude AI (Advanced Reasoning)
+          </option>
+          <option value="https://api.vegvisr.org/groktest">
+            🤔 Grok AI (Philosophical Insights)
+          </option>
+          <option value="https://api.vegvisr.org/gemini-test">
+            ⚡ Google Gemini (Fast Responses)
+          </option>
+          <option value="https://api.vegvisr.org/aiaction">
+            ⚙️ Generic AI (Custom Formatting)
+          </option>
+        </select>
+      </div>
+      <div class="ai-return-type-selector">
+        <label for="return-type-select" class="return-type-label">📋 Return Type:</label>
+        <select
+          id="return-type-select"
+          v-model="selectedReturnType"
+          @change="updateReturnType"
+          class="return-type-dropdown"
+          title="Select Response Type"
+        >
+          <option value="fulltext">📄 Fulltext (Final Answer)</option>
+          <option value="action">🔄 Action (Continue Chain)</option>
+          <option value="both">📄+🔄 Both (Answer + Follow-up)</option>
+        </select>
+      </div>
+      <div class="ai-context-selector">
+        <label class="context-checkbox-label">
+          <input
+            type="checkbox"
+            v-model="includeGraphContext"
+            @change="updateGraphContext"
+            class="context-checkbox"
+            title="Include knowledge graph context in AI request"
+          />
+          <span class="context-label-text">🧠 Include Graph Context</span>
+        </label>
+      </div>
       <button
         @click="$emit('get-ai-response')"
         class="control-btn ai-btn"
         title="Get Response from AI"
         :aria-label="`Get AI response for ${nodeType} node`"
       >
-        <span class="icon">🤖</span>
-        <span class="btn-text">AI Response</span>
+        <span class="icon">🚀</span>
+        <span class="btn-text">Get Response</span>
       </button>
     </div>
 
@@ -127,7 +179,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   nodeType: {
@@ -154,6 +206,18 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  currentEndpoint: {
+    type: String,
+    default: 'https://knowledge.vegvisr.org/generate-worker-ai',
+  },
+  currentReturnType: {
+    type: String,
+    default: 'fulltext',
+  },
+  currentGraphContext: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits([
@@ -167,7 +231,54 @@ const emit = defineEmits([
   'move-down',
   'open-reorder',
   'get-ai-response',
+  'update-endpoint',
+  'update-return-type',
+  'update-graph-context',
 ])
+
+// AI endpoint management
+const selectedEndpoint = ref(props.currentEndpoint)
+const selectedReturnType = ref(props.currentReturnType)
+const includeGraphContext = ref(props.currentGraphContext)
+
+// Watch for changes in currentEndpoint prop
+watch(
+  () => props.currentEndpoint,
+  (newEndpoint) => {
+    selectedEndpoint.value = newEndpoint
+  },
+  { immediate: true },
+)
+
+// Watch for changes in currentReturnType prop
+watch(
+  () => props.currentReturnType,
+  (newReturnType) => {
+    selectedReturnType.value = newReturnType
+  },
+  { immediate: true },
+)
+
+// Watch for changes in currentGraphContext prop
+watch(
+  () => props.currentGraphContext,
+  (newGraphContext) => {
+    includeGraphContext.value = newGraphContext
+  },
+  { immediate: true },
+)
+
+const updateEndpoint = () => {
+  emit('update-endpoint', selectedEndpoint.value)
+}
+
+const updateReturnType = () => {
+  emit('update-return-type', selectedReturnType.value)
+}
+
+const updateGraphContext = () => {
+  emit('update-graph-context', includeGraphContext.value)
+}
 
 const getEditButtonText = computed(() => {
   switch (props.nodeType) {
@@ -229,6 +340,141 @@ const getEditButtonText = computed(() => {
 .ai-group {
   background-color: rgba(255, 149, 0, 0.05);
   border-left: 3px solid #ff9500;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.ai-endpoint-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ai-return-type-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.endpoint-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff9500;
+  white-space: nowrap;
+}
+
+.endpoint-dropdown {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #ff9500;
+  border-radius: 4px;
+  background-color: #fff;
+  font-size: 12px;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.endpoint-dropdown:hover {
+  border-color: #e88400;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.1);
+}
+
+.endpoint-dropdown:focus {
+  outline: none;
+  border-color: #e88400;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.2);
+}
+
+.return-type-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff9500;
+  white-space: nowrap;
+}
+
+.return-type-dropdown {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #ff9500;
+  border-radius: 4px;
+  background-color: #fff;
+  font-size: 12px;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.return-type-dropdown:hover {
+  border-color: #e88400;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.1);
+}
+
+.return-type-dropdown:focus {
+  outline: none;
+  border-color: #e88400;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.2);
+}
+
+.ai-context-selector {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.context-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #ff9500;
+  transition: all 0.2s ease;
+}
+
+.context-checkbox-label:hover {
+  color: #e88400;
+}
+
+.context-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ff9500;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  background-color: #fff;
+  position: relative;
+}
+
+.context-checkbox:checked {
+  background-color: #ff9500;
+  border-color: #ff9500;
+}
+
+.context-checkbox:checked::after {
+  content: '✓';
+  position: absolute;
+  top: -2px;
+  left: 2px;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.context-checkbox:hover {
+  border-color: #e88400;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.1);
+}
+
+.context-label-text {
+  user-select: none;
 }
 
 .sandbox-group {
