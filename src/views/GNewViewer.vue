@@ -811,16 +811,36 @@
         </ul>
       </div>
     </div>
+
+    <!-- Image Editing Modals -->
+    <ImageSelector
+      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      :is-open="isImageSelectorOpen"
+      :image-data="currentImageData"
+      :graph-context="{ type: 'image-replacement' }"
+      @close="closeImageSelector"
+      @image-replaced="handleImageReplaced"
+    />
+
+    <GooglePhotosSelector
+      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      :is-open="isGooglePhotosSelectorOpen"
+      :google-photos-data="currentGooglePhotosData"
+      @close="closeGooglePhotosSelector"
+      @photo-selected="handleGooglePhotoSelected"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useBranding } from '@/composables/useBranding'
 import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
+import ImageSelector from '@/components/ImageSelector.vue'
+import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 
@@ -864,6 +884,27 @@ const loading = ref(false)
 const error = ref(null)
 const statusMessage = ref('')
 const duplicatingGraph = ref(false)
+
+// Image editing modal state
+const isImageSelectorOpen = ref(false)
+const currentImageData = ref({
+  url: '',
+  alt: '',
+  type: '',
+  context: '',
+  nodeId: '',
+  nodeContent: '',
+})
+
+const isGooglePhotosSelectorOpen = ref(false)
+const currentGooglePhotosData = ref({
+  url: '',
+  alt: '',
+  type: '',
+  context: '',
+  nodeId: '',
+  nodeContent: '',
+})
 
 // IMAGEQUOTE functionality
 const showImageQuoteCreator = ref(false)
@@ -1048,6 +1089,15 @@ const loadGraph = async () => {
       ...data,
       nodes: uniqueNodes.filter((node) => node.visible !== false),
     }
+
+    console.log(
+      `✅ Graph auto-loaded: ${graphData.value.metadata?.title || 'Untitled'} - Nodes: ${graphData.value.nodes.length}`,
+    )
+
+    // Attach image change listeners after DOM is ready
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
   } catch (err) {
     error.value = err.message
     console.error('❌ GNew: Error loading graph:', err)
@@ -1458,6 +1508,12 @@ const saveImageQuote = async () => {
     }, 4000)
 
     console.log('✅ IMAGEQUOTE saved to node and database successfully')
+
+    // Reattach image change listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+
     closeImageQuoteCreator()
   } catch (error) {
     console.error('❌ Error saving IMAGEQUOTE:', error)
@@ -2101,10 +2157,332 @@ watch(
   { deep: true },
 )
 
+// Watch for changes to the graph data nodes to reattach listeners when new content is added
+watch(
+  () => graphData.value.nodes.length,
+  () => {
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+  },
+)
+
+// Helper function to escape special regex characters
+const escapeRegExp = (string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Image editing modal functions
+const openImageSelector = (imageData) => {
+  if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+    console.log('Image editing access denied - requires Superadmin role')
+    return
+  }
+
+  console.log('=== GNew: Opening Image Selector ===')
+  console.log('Image data:', imageData)
+
+  currentImageData.value = {
+    url: imageData.url,
+    alt: imageData.alt || '',
+    type: imageData.type || 'Unknown',
+    context: imageData.context || 'No context provided',
+    nodeId: imageData.nodeId,
+    nodeContent: imageData.nodeContent || '',
+  }
+  isImageSelectorOpen.value = true
+}
+
+const closeImageSelector = () => {
+  isImageSelectorOpen.value = false
+  currentImageData.value = {
+    url: '',
+    alt: '',
+    type: '',
+    context: '',
+    nodeId: '',
+    nodeContent: '',
+  }
+}
+
+const openGooglePhotosSelector = (googlePhotosData) => {
+  if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+    console.log('Google Photos access denied - requires Superadmin role')
+    return
+  }
+
+  console.log('=== GNew: Opening Google Photos Selector ===')
+  console.log('Google Photos data:', googlePhotosData)
+
+  currentGooglePhotosData.value = {
+    url: googlePhotosData.url || '',
+    alt: googlePhotosData.alt || '',
+    type: googlePhotosData.type || 'Unknown',
+    context: googlePhotosData.context || 'No context provided',
+    nodeId: googlePhotosData.nodeId,
+    nodeContent: googlePhotosData.nodeContent || '',
+  }
+  isGooglePhotosSelectorOpen.value = true
+}
+
+const closeGooglePhotosSelector = () => {
+  isGooglePhotosSelectorOpen.value = false
+  currentGooglePhotosData.value = {
+    url: '',
+    alt: '',
+    type: '',
+    context: '',
+    nodeId: '',
+    nodeContent: '',
+  }
+}
+
+// Image replacement handler
+const handleImageReplaced = async (replacementData) => {
+  console.log('=== GNew: Image Replaced ===')
+  console.log('Replacement data:', replacementData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = graphData.value.nodes.find(
+      (node) => node.id === currentImageData.value.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for image replacement')
+    }
+
+    let updatedContent = nodeToUpdate.info || ''
+    const oldUrl = replacementData.oldUrl
+    const newUrl = replacementData.newUrl
+
+    // Replace the image URL in the node's info content
+    updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+
+    // Update the node
+    nodeToUpdate.info = updatedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with updated image.')
+    }
+
+    await response.json()
+
+    // Update store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Update local state
+    graphData.value = updatedGraphData
+
+    statusMessage.value = `✅ Image replaced successfully! New image by ${replacementData.photographer || 'Unknown'}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+    console.log('GNew: Image update saved successfully')
+
+    // Reattach image change listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+  } catch (error) {
+    console.error('GNew: Error updating image:', error)
+    statusMessage.value = '❌ Failed to update the image. Please try again.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+
+  closeImageSelector()
+}
+
+// Google Photo selection handler
+const handleGooglePhotoSelected = async (selectionData) => {
+  console.log('=== GNew: Google Photo Selected ===')
+  console.log('Selection data:', selectionData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = graphData.value.nodes.find(
+      (node) => node.id === currentGooglePhotosData.value.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for Google photo replacement')
+    }
+
+    const photo = selectionData.photo
+    let photoMarkdown = ''
+    const imageUrl = photo.permanentUrl || photo.url
+
+    // Create markdown for the selected Google photo
+    switch (selectionData.imageType) {
+      case 'Header':
+        photoMarkdown = `![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      case 'Leftside':
+        photoMarkdown = `![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      case 'Rightside':
+        photoMarkdown = `![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+        break
+      default:
+        photoMarkdown = `![Image|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'](${imageUrl})`
+    }
+
+    let updatedContent = nodeToUpdate.info || ''
+    const oldUrl = currentGooglePhotosData.value.url
+
+    if (oldUrl && updatedContent.includes(oldUrl)) {
+      updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), imageUrl)
+    } else {
+      if (updatedContent.trim()) {
+        updatedContent += '\n\n' + photoMarkdown
+      } else {
+        updatedContent = photoMarkdown
+      }
+    }
+
+    // Update the node
+    nodeToUpdate.info = updatedContent
+
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: graphData.value.nodes.map((node) =>
+        node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with Google photo.')
+    }
+
+    await response.json()
+
+    // Update store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Update local state
+    graphData.value = updatedGraphData
+
+    statusMessage.value = '✅ Google Photo added successfully from your Google Photos!'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+    console.log('GNew: Google photo saved successfully')
+
+    // Reattach image change listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+  } catch (error) {
+    console.error('GNew: Error adding Google photo:', error)
+    statusMessage.value = '❌ Failed to add the Google photo. Please try again.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+
+  closeGooglePhotosSelector()
+}
+
+// Event listener attachment for image edit buttons
+const attachImageChangeListeners = () => {
+  console.log('=== GNew: Attaching Change Image Button Listeners ===')
+
+  // Regular change image button listeners
+  const changeImageButtons = document.querySelectorAll('.change-image-btn')
+  console.log('Found change image buttons:', changeImageButtons.length)
+  changeImageButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const btn = event.target
+      const imageData = {
+        url: btn.getAttribute('data-image-url'),
+        alt: btn.getAttribute('data-image-alt'),
+        type: btn.getAttribute('data-image-type'),
+        context: btn.getAttribute('data-image-context'),
+        nodeId: btn.getAttribute('data-node-id'),
+        nodeContent: btn.getAttribute('data-node-content'),
+      }
+      openImageSelector(imageData)
+    })
+  })
+
+  // Google Photos button listeners
+  const googlePhotosButtons = document.querySelectorAll('.google-photos-btn')
+  console.log('Found Google Photos buttons:', googlePhotosButtons.length)
+  googlePhotosButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const btn = event.target
+      const googlePhotosData = {
+        url: btn.getAttribute('data-image-url'),
+        alt: btn.getAttribute('data-image-alt'),
+        type: btn.getAttribute('data-image-type'),
+        context: btn.getAttribute('data-image-context'),
+        nodeId: btn.getAttribute('data-node-id'),
+        nodeContent: btn.getAttribute('data-node-content'),
+      }
+      openGooglePhotosSelector(googlePhotosData)
+    })
+  })
+
+  // IMAGEQUOTE image button listeners
+  const imagequoteImageButtons = document.querySelectorAll('.imagequote-image-btn')
+  console.log('Found IMAGEQUOTE image buttons:', imagequoteImageButtons.length)
+  imagequoteImageButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const btn = event.target
+      // For now, just log - IMAGEQUOTE editing can be implemented later
+      console.log('IMAGEQUOTE image button clicked - implement IMAGEQUOTE image editing modal')
+      console.log('Node ID:', btn.getAttribute('data-node-id'))
+      console.log('IMAGEQUOTE index:', btn.getAttribute('data-imagequote-index'))
+    })
+  })
+
+  console.log('GNew: Change image and Google Photos button listeners attached successfully')
+}
+
 // Lifecycle
 onMounted(() => {
+  console.log('GNewViewer mounted')
+
   // Auto-load if graph is selected
   if (currentGraphId.value) {
+    console.log('Auto-loading graph:', currentGraphId.value)
     loadGraph()
   }
 })

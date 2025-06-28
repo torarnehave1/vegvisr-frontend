@@ -95,6 +95,10 @@
 <script setup>
 import { computed } from 'vue'
 import { marked } from 'marked'
+import { useUserStore } from '@/stores/userStore'
+
+// Store access
+const userStore = useUserStore()
 
 // Props
 const props = defineProps({
@@ -394,6 +398,158 @@ const parseQuoteParams = (style) => {
   return 'Unknown'
 }
 
+// Add change image buttons for regular images (Leftside, Rightside, Header, markdown) - matches GraphViewer
+const addChangeImageButtons = (html, nodeId, originalContent) => {
+  console.log('=== GNew: Adding Change Image Buttons ===')
+  console.log('User role:', userStore.role)
+  console.log('User logged in:', userStore.loggedIn)
+  console.log('Node ID:', nodeId)
+
+  // Create a temporary DOM element to parse the HTML
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = html
+
+  // Find all images EXCEPT those in IMAGEQUOTE elements
+  const images = tempDiv.querySelectorAll('img')
+  console.log('Found images:', images.length)
+
+  images.forEach((img) => {
+    // Skip images that are inside IMAGEQUOTE elements
+    const isInImagequote = img.closest('.imagequote-element')
+    if (isInImagequote) {
+      console.log('Skipping image in IMAGEQUOTE element')
+      return
+    }
+
+    const imageUrl = img.src
+    const imageAlt = img.alt || ''
+
+    // Determine image type from alt text or class
+    let imageType = 'Unknown'
+    let imageContext = 'Image in content'
+
+    if (imageAlt.toLowerCase().includes('header')) {
+      imageType = 'Header'
+      imageContext = 'Header image for visual impact'
+    } else if (imageAlt.toLowerCase().includes('leftside')) {
+      imageType = 'Leftside'
+      imageContext = 'Left-aligned contextual image'
+    } else if (imageAlt.toLowerCase().includes('rightside')) {
+      imageType = 'Rightside'
+      imageContext = 'Right-aligned contextual image'
+    } else if (img.classList.contains('header-image')) {
+      imageType = 'Header'
+      imageContext = 'Header image for visual impact'
+    } else if (img.classList.contains('leftside')) {
+      imageType = 'Leftside'
+      imageContext = 'Left-aligned contextual image'
+    } else if (img.classList.contains('rightside')) {
+      imageType = 'Rightside'
+      imageContext = 'Right-aligned contextual image'
+    }
+
+    // Wrap the image for change button positioning
+    const imageWrapper = document.createElement('div')
+    imageWrapper.className = 'image-change-wrapper'
+    imageWrapper.setAttribute('data-node-id', nodeId)
+    imageWrapper.setAttribute('data-node-content', originalContent)
+    imageWrapper.setAttribute('data-image-type', imageType)
+
+    // Wrap the image
+    img.parentNode.insertBefore(imageWrapper, img)
+    imageWrapper.appendChild(img)
+
+    // Create button container
+    const buttonContainer = document.createElement('div')
+    buttonContainer.className = 'image-button-container'
+
+    // Create change image button
+    const changeButton = document.createElement('button')
+    changeButton.className = 'change-image-btn'
+    changeButton.innerHTML = '🔄 Change Image'
+    changeButton.title = 'Change this image'
+
+    // Add click handler data
+    changeButton.setAttribute('data-image-url', imageUrl)
+    changeButton.setAttribute('data-image-alt', imageAlt)
+    changeButton.setAttribute('data-image-type', imageType)
+    changeButton.setAttribute('data-image-context', imageContext)
+    changeButton.setAttribute('data-node-id', nodeId)
+    changeButton.setAttribute('data-node-content', originalContent)
+
+    // Create Google Photos button
+    const googleButton = document.createElement('button')
+    googleButton.className = 'google-photos-btn'
+    googleButton.innerHTML = '📷 Google'
+    googleButton.title = 'Select from Google Photos'
+
+    // Add click handler data for Google button
+    googleButton.setAttribute('data-image-url', imageUrl)
+    googleButton.setAttribute('data-image-alt', imageAlt)
+    googleButton.setAttribute('data-image-type', imageType)
+    googleButton.setAttribute('data-image-context', imageContext)
+    googleButton.setAttribute('data-node-id', nodeId)
+    googleButton.setAttribute('data-node-content', originalContent)
+
+    // Add buttons to container
+    buttonContainer.appendChild(changeButton)
+    buttonContainer.appendChild(googleButton)
+
+    // Insert button container after the image wrapper
+    if (imageWrapper.parentNode) {
+      // If wrapper is in a container, add button container to container
+      if (
+        imageWrapper.parentNode.classList.contains('header-image-container') ||
+        imageWrapper.parentNode.classList.contains('rightside-image') ||
+        imageWrapper.parentNode.classList.contains('leftside-image')
+      ) {
+        imageWrapper.parentNode.appendChild(buttonContainer)
+      } else {
+        // Insert after the wrapper
+        imageWrapper.parentNode.insertBefore(buttonContainer, imageWrapper.nextSibling)
+      }
+    }
+  })
+
+  return tempDiv.innerHTML
+}
+
+// Add IMAGEQUOTE image change buttons for IMAGEQUOTE elements
+const addImagequoteChangeButtons = (html, nodeId, originalContent) => {
+  console.log('=== GNew: Adding IMAGEQUOTE Change Buttons ===')
+
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = html
+
+  // Find all IMAGEQUOTE elements
+  const imagequoteElements = tempDiv.querySelectorAll('.imagequote-element')
+  console.log('Found IMAGEQUOTE elements:', imagequoteElements.length)
+
+  imagequoteElements.forEach((element, index) => {
+    // Create IMAGEQUOTE image change button
+    const buttonContainer = document.createElement('div')
+    buttonContainer.className = 'imagequote-button-container'
+
+    const changeImageButton = document.createElement('button')
+    changeImageButton.className = 'imagequote-image-btn'
+    changeImageButton.innerHTML = '🖼️ Change Background'
+    changeImageButton.title = 'Change IMAGEQUOTE background image'
+
+    // Add data attributes for IMAGEQUOTE editing
+    changeImageButton.setAttribute('data-node-id', nodeId)
+    changeImageButton.setAttribute('data-node-content', originalContent)
+    changeImageButton.setAttribute('data-imagequote-index', index)
+    changeImageButton.setAttribute('data-editing-type', 'imagequote')
+
+    buttonContainer.appendChild(changeImageButton)
+
+    // Insert button container after the IMAGEQUOTE element
+    element.parentNode.insertBefore(buttonContainer, element.nextSibling)
+  })
+
+  return tempDiv.innerHTML
+}
+
 // Computed properties
 const nodeContent = computed(() => {
   return props.node.info || ''
@@ -417,7 +573,21 @@ const parsedContent = computed(() => {
         const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
         if (beforeText) {
           const processedBefore = parseFormattedElements(beforeText)
-          parts.push({ type: 'text', content: marked(processedBefore, { breaks: true }) })
+          let finalContent = marked(processedBefore, { breaks: true })
+
+          // Add image edit buttons for Superadmin users
+          if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+            // First add regular image buttons (excluding IMAGEQUOTE images)
+            finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
+            // Then add IMAGEQUOTE-specific buttons
+            finalContent = addImagequoteChangeButtons(
+              finalContent,
+              props.node.id,
+              nodeContent.value,
+            )
+          }
+
+          parts.push({ type: 'text', content: finalContent })
         }
       }
 
@@ -469,7 +639,17 @@ const parsedContent = computed(() => {
       const afterText = nodeContent.value.slice(lastIndex).trim()
       if (afterText) {
         const processedAfter = parseFormattedElements(afterText)
-        parts.push({ type: 'text', content: marked(processedAfter, { breaks: true }) })
+        let finalContent = marked(processedAfter, { breaks: true })
+
+        // Add image edit buttons for Superadmin users
+        if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+          // First add regular image buttons (excluding IMAGEQUOTE images)
+          finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
+          // Then add IMAGEQUOTE-specific buttons
+          finalContent = addImagequoteChangeButtons(finalContent, props.node.id, nodeContent.value)
+        }
+
+        parts.push({ type: 'text', content: finalContent })
       }
     }
 
@@ -478,12 +658,19 @@ const parsedContent = computed(() => {
       const processedHtml = parseFormattedElements(nodeContent.value)
       const hasProcessedElements = /<div class="[^"]*-element"/.test(processedHtml)
 
-      if (hasProcessedElements) {
-        return [{ type: 'text', content: processedHtml }]
-      } else {
-        const finalHtml = marked(processedHtml, { breaks: true })
-        return [{ type: 'text', content: finalHtml }]
+      let finalContent = hasProcessedElements
+        ? processedHtml
+        : marked(processedHtml, { breaks: true })
+
+      // Add image edit buttons for Superadmin users
+      if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+        // First add regular image buttons (excluding IMAGEQUOTE images)
+        finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
+        // Then add IMAGEQUOTE-specific buttons
+        finalContent = addImagequoteChangeButtons(finalContent, props.node.id, nodeContent.value)
       }
+
+      return [{ type: 'text', content: finalContent }]
     }
 
     return parts
@@ -891,5 +1078,120 @@ const convertStylesToString = (styleObj) => {
 
 .imagequote-citation {
   z-index: 1;
+}
+
+/* Image editing button styles - matches GraphViewer */
+.node-content :deep(.image-change-wrapper) {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.node-content :deep(.image-button-container) {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 15px;
+}
+
+.node-content :deep(.change-image-btn),
+.node-content :deep(.google-photos-btn) {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.node-content :deep(.change-image-btn:hover),
+.node-content :deep(.google-photos-btn:hover) {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.node-content :deep(.change-image-btn:active),
+.node-content :deep(.google-photos-btn:active) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.node-content :deep(.google-photos-btn) {
+  background: #28a745;
+}
+
+.node-content :deep(.google-photos-btn:hover) {
+  background: #1e7e34;
+}
+
+/* Specific positioning for image containers */
+.node-content :deep(.header-image-container .image-button-container),
+.node-content :deep(.rightside-image .image-button-container),
+.node-content :deep(.leftside-image .image-button-container) {
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.node-content :deep(.rightside-container .rightside-image .image-button-container),
+.node-content :deep(.leftside-container .leftside-image .image-button-container) {
+  width: 100%;
+  justify-content: center;
+  padding: 0 5px;
+}
+
+/* IMAGEQUOTE editing button styles */
+.node-content :deep(.imagequote-button-container) {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+  margin-bottom: 15px;
+}
+
+.node-content :deep(.imagequote-image-btn) {
+  background: #6f42c1;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.node-content :deep(.imagequote-image-btn:hover) {
+  background: #5a2d91;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.node-content :deep(.imagequote-image-btn:active) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* Mobile responsiveness for image buttons */
+@media (max-width: 768px) {
+  .node-content :deep(.image-button-container) {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .node-content :deep(.change-image-btn),
+  .node-content :deep(.google-photos-btn) {
+    width: 100%;
+    font-size: 0.8rem;
+    padding: 8px 10px;
+  }
+
+  .node-content :deep(.imagequote-image-btn) {
+    width: 100%;
+    font-size: 0.8rem;
+    padding: 10px 12px;
+  }
 }
 </style>

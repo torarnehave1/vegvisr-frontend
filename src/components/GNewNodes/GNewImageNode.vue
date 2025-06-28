@@ -57,6 +57,37 @@
       </div>
     </div>
 
+    <!-- Image Edit Buttons (Superadmin only) -->
+    <div
+      v-if="showControls && !isPreview && imageUrl && userStore.role === 'Superadmin'"
+      class="image-edit-buttons"
+    >
+      <button
+        class="change-image-btn"
+        :data-image-url="imageUrl"
+        :data-image-alt="imageAlt"
+        :data-image-type="node.type"
+        :data-image-context="`${nodeTypeDisplay} node image`"
+        :data-node-id="node.id"
+        :data-node-content="node.label || ''"
+        title="Change this image"
+      >
+        🔄 Change Image
+      </button>
+      <button
+        class="google-photos-btn"
+        :data-image-url="imageUrl"
+        :data-image-alt="imageAlt"
+        :data-image-type="node.type"
+        :data-image-context="`${nodeTypeDisplay} node image`"
+        :data-node-id="node.id"
+        :data-node-content="node.label || ''"
+        title="Select from Google Photos"
+      >
+        📷 Google
+      </button>
+    </div>
+
     <!-- Image Caption/Info -->
     <div v-if="nodeContent" class="image-caption">
       <div v-html="formattedContent"></div>
@@ -81,6 +112,10 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { marked } from 'marked'
+import { useUserStore } from '@/stores/userStore'
+
+// Store access
+const userStore = useUserStore()
 
 // Props
 const props = defineProps({
@@ -392,6 +427,49 @@ onMounted(() => {
   background: #fd7e14;
 }
 
+/* Image editing buttons */
+.image-edit-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+  margin-bottom: 15px;
+}
+
+.change-image-btn,
+.google-photos-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.change-image-btn:hover,
+.google-photos-btn:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.change-image-btn:active,
+.google-photos-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.google-photos-btn {
+  background: #28a745;
+}
+
+.google-photos-btn:hover {
+  background: #1e7e34;
+}
+
 @media (max-width: 768px) {
   .gnew-image-node {
     padding: 15px;
@@ -422,6 +500,19 @@ onMounted(() => {
   .error-icon,
   .empty-icon {
     font-size: 2.5rem;
+  }
+
+  /* Mobile responsiveness for image edit buttons */
+  .image-edit-buttons {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .change-image-btn,
+  .google-photos-btn {
+    width: 100%;
+    font-size: 0.8rem;
+    padding: 8px 10px;
   }
 }
 </style>
