@@ -1963,9 +1963,9 @@ Return ONLY the social media summary text, no explanations or metadata.`
             // Use Cloudflare Workers AI to generate code based on the prompt
             const aiPrompt = `You are a Cloudflare Worker code generator. Generate ONLY raw JavaScript code - no markdown, no code fences, no explanations.
 
-${graphContext ? 'Use the provided knowledge graph context to inform your code generation when relevant.\n\n' : ''}User request: "${finalPrompt}"`
+${graphContext ? 'Use the provided knowledge graph context to inform your code generation when relevant.\n\n' : ''}User request: "${finalPrompt}"
 
-CRITICAL: Return ONLY JavaScript code. Do NOT include:
+Return raw JavaScript code without any formatting or explanations. Requirements:
 - Triple backticks with javascript or plain backticks
 - Any markdown formatting
 - Explanations or comments

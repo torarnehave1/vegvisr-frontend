@@ -135,7 +135,9 @@
                   🗑️
                 </button>
                 <div
-                  v-html="convertToHtml(node.info || 'No additional information available.')"
+                  v-html="
+                    convertToHtml(node.info || 'No additional information available.', node.id)
+                  "
                 ></div>
               </div>
             </div>
