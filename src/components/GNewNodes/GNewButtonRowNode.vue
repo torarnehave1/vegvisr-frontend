@@ -1,12 +1,12 @@
 <template>
   <div class="gnew-buttonrow-node">
-    <!-- Node Header -->
-    <div v-if="node.label" class="node-header">
+    <!-- Node Header (only for logged users) -->
+    <div v-if="node.label && showControls" class="node-header">
       <div class="node-title-section">
         <h3 class="node-title">{{ node.label }}</h3>
         <div class="node-type-badge-inline">BUTTON ROW</div>
       </div>
-      <div v-if="showControls && !isPreview" class="node-controls">
+      <div v-if="!isPreview" class="node-controls">
         <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">
           ✏️
         </button>
@@ -235,11 +235,6 @@ const deleteNode = () => {
 
 <style scoped>
 .gnew-buttonrow-node {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: #ffffff;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   margin-bottom: 1rem;
 }
 

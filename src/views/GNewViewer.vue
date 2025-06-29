@@ -1,741 +1,8 @@
 <template>
   <div class="gnew-viewer">
-    <!-- Header Section -->
-    <div class="gnew-header">
-      <h1>🧪 GNew Graph Viewer</h1>
-      <p class="gnew-subtitle">
-        Next-generation graph viewer for Superadmins • Clean Architecture • Modern Features
-      </p>
-    </div>
-
-    <!-- Access Verification -->
-    <div v-if="!userStore.loggedIn || userStore.role !== 'Superadmin'" class="access-denied">
-      <div class="alert alert-danger">
-        <h4>⛔ Access Denied</h4>
-        <p>This feature is only available to Superadmin users.</p>
-      </div>
-    </div>
-
-    <!-- Main Content (Superadmin Only) -->
-    <div v-else class="gnew-content">
-      <!-- Status Bar -->
-      <div class="status-bar">
-        <!-- First Row - Basic Info -->
-        <div class="status-row">
-          <div class="status-item">
-            <span class="label">Current Graph:</span>
-            <span class="value">{{ currentGraphId || 'None selected' }}</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Title:</span>
-            <span class="value">{{ graphTitle }}</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Nodes:</span>
-            <span class="value">{{ graphData.nodes.length }}</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Status:</span>
-            <span class="value" :class="statusClass">{{ statusText }}</span>
-          </div>
-        </div>
-
-        <!-- Second Row - Metadata -->
-        <div class="status-row" v-if="hasMetadata">
-          <div class="status-item" v-if="graphCategories.length > 0">
-            <span class="label">Categories:</span>
-            <div class="badge-container">
-              <span v-for="category in graphCategories" :key="category" class="badge bg-success">
-                {{ category }}
-              </span>
-            </div>
-          </div>
-          <div class="status-item" v-if="graphMetaAreas.length > 0">
-            <span class="label">Meta Areas:</span>
-            <div class="badge-container">
-              <span v-for="area in graphMetaAreas" :key="area" class="badge bg-warning">
-                {{ area }}
-              </span>
-            </div>
-          </div>
-          <div class="status-item" v-if="graphCreatedBy">
-            <span class="label">Created By:</span>
-            <span class="value">{{ graphCreatedBy }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Status Message -->
-      <div v-if="statusMessage" class="status-message">
-        {{ statusMessage }}
-      </div>
-
-      <!-- Action Toolbar -->
-      <div class="action-toolbar">
-        <button @click="loadGraph" class="btn btn-primary" :disabled="loading">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-          {{ loading ? 'Loading...' : 'Load Graph' }}
-        </button>
-        <button @click="refreshData" class="btn btn-outline-secondary">🔄 Refresh</button>
-        <button
-          @click="duplicateKnowledgeGraph"
-          class="btn btn-outline-info"
-          :disabled="!graphData.nodes.length || duplicatingGraph"
-        >
-          <span v-if="duplicatingGraph" class="spinner-border spinner-border-sm me-2"></span>
-          {{ duplicatingGraph ? 'Duplicating...' : '📋 Duplicate Graph' }}
-        </button>
-        <button @click="openImageQuoteCreator" class="btn btn-success">🎨 Create IMAGEQUOTE</button>
-      </div>
-
-      <!-- Node Edit Modal -->
-      <div v-if="showNodeEditModal" class="modal-overlay">
-        <div class="node-edit-modal">
-          <div class="modal-header">
-            <h4>✏️ Edit Node Content</h4>
-            <button @click="closeNodeEditModal" class="btn-close">&times;</button>
-          </div>
-
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">Node Title:</label>
-              <input
-                v-model="editingNode.label"
-                type="text"
-                class="form-control"
-                placeholder="Enter node title..."
-              />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Node Content:</label>
-              <textarea
-                v-model="editingNode.info"
-                class="form-control node-content-textarea"
-                rows="20"
-                placeholder="Enter node content... You can use formatted elements like [SECTION], [QUOTE], [FANCY], etc."
-              ></textarea>
-              <small class="form-text text-muted">
-                Supports markdown and formatted elements: [SECTION], [QUOTE], [FANCY], [WNOTE],
-                [COMMENT], [IMAGEQUOTE]
-              </small>
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <button @click="saveNodeChanges" class="btn btn-primary" :disabled="savingNode">
-              <span v-if="savingNode" class="spinner-border spinner-border-sm me-2"></span>
-              {{ savingNode ? 'Saving...' : 'Save Changes' }}
-            </button>
-            <button @click="closeNodeEditModal" class="btn btn-secondary">Cancel</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- IMAGEQUOTE Creator Modal -->
-      <div v-if="showImageQuoteCreator" class="modal-overlay">
-        <div class="imagequote-creator-modal">
-          <div class="modal-header">
-            <h4>🎨 Create IMAGEQUOTE</h4>
-            <button @click="closeImageQuoteCreator" class="btn-close">&times;</button>
-          </div>
-
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">Quote Text:</label>
-              <div class="quote-input-section">
-                <textarea
-                  v-model="newImageQuote.text"
-                  class="form-control"
-                  rows="3"
-                  placeholder="Enter your quote text here..."
-                ></textarea>
-                <div class="quote-actions">
-                  <button
-                    @click="generateQuoteSuggestions"
-                    class="btn btn-outline-primary btn-sm"
-                    :disabled="isGeneratingQuotes || !hasGraphContext"
-                  >
-                    <span
-                      v-if="isGeneratingQuotes"
-                      class="spinner-border spinner-border-sm me-1"
-                    ></span>
-                    {{ isGeneratingQuotes ? 'Generating...' : '💡 Suggest Quotes' }}
-                  </button>
-                  <small v-if="!hasGraphContext" class="text-muted">
-                    (Requires graph content for suggestions)
-                  </small>
-                </div>
-              </div>
-
-              <!-- Quote Suggestions -->
-              <div v-if="quoteSuggestions.length > 0" class="quote-suggestions">
-                <h6>💡 Suggested Quotes:</h6>
-                <div class="suggestions-list">
-                  <div
-                    v-for="(suggestion, index) in quoteSuggestions"
-                    :key="index"
-                    class="suggestion-item"
-                    @click="applySuggestion(suggestion)"
-                  >
-                    <div class="suggestion-text">{{ suggestion.text }}</div>
-                    <div v-if="suggestion.citation" class="suggestion-citation">
-                      — {{ suggestion.citation }}
-                    </div>
-                    <div class="suggestion-source">
-                      <small class="text-muted">From: {{ suggestion.source }}</small>
-                    </div>
-                  </div>
-                </div>
-                <button @click="clearSuggestions" class="btn btn-sm btn-outline-secondary mt-2">
-                  Clear Suggestions
-                </button>
-              </div>
-
-              <!-- Error Message -->
-              <div v-if="quoteSuggestionsError" class="alert alert-danger mt-2">
-                <strong>❌ Error:</strong> {{ quoteSuggestionsError }}
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Background Image:</label>
-              <div class="image-selection-area">
-                <!-- Current Image Preview -->
-                <div v-if="newImageQuote.backgroundImage" class="current-image-preview">
-                  <img :src="newImageQuote.backgroundImage" alt="Background preview" />
-                  <div class="image-actions">
-                    <button @click="clearCreatorImage" class="btn btn-sm btn-outline-danger">
-                      🗑️ Remove
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Image Selection Methods -->
-                <div class="image-source-section">
-                  <div class="image-source-options">
-                    <button
-                      @click="triggerCreatorImageUpload"
-                      class="btn btn-outline-primary btn-source"
-                      :disabled="isUploadingCreatorImage"
-                    >
-                      <i
-                        class="bi"
-                        :class="isUploadingCreatorImage ? 'bi-hourglass-split' : 'bi-upload'"
-                      ></i>
-                      {{ isUploadingCreatorImage ? 'Uploading...' : 'Upload Image' }}
-                    </button>
-
-                    <button
-                      @click="openCreatorAIImageModal"
-                      class="btn btn-outline-success btn-source"
-                      :disabled="isUploadingCreatorImage"
-                    >
-                      <i class="bi bi-magic"></i>
-                      AI Generate
-                    </button>
-
-                    <button
-                      @click="showCreatorUrlInput = !showCreatorUrlInput"
-                      class="btn btn-outline-info btn-source"
-                      :class="{ active: showCreatorUrlInput }"
-                    >
-                      <i class="bi bi-link-45deg"></i>
-                      Image URL
-                    </button>
-
-                    <button
-                      @click="openPortfolioImageModal"
-                      class="btn btn-outline-warning btn-source"
-                      :disabled="isUploadingCreatorImage"
-                    >
-                      <i class="bi bi-collection"></i>
-                      Portfolio Images
-                    </button>
-                  </div>
-
-                  <!-- Hidden file input -->
-                  <input
-                    ref="creatorImageFileInput"
-                    type="file"
-                    accept="image/*"
-                    style="display: none"
-                    @change="handleCreatorImageUpload"
-                  />
-
-                  <!-- URL Input Section -->
-                  <div v-if="showCreatorUrlInput" class="url-input-section">
-                    <div class="form-group">
-                      <label class="form-label">Image URL:</label>
-                      <div class="url-input-group">
-                        <input
-                          v-model="creatorImageUrl"
-                          type="url"
-                          class="form-control"
-                          placeholder="https://example.com/image.jpg"
-                          @paste="handleCreatorUrlPaste"
-                          @input="validateCreatorImageUrl"
-                        />
-                        <button
-                          @click="useCreatorImageUrl"
-                          :disabled="!isCreatorValidUrl || isLoadingCreatorUrl"
-                          class="btn btn-primary"
-                        >
-                          {{ isLoadingCreatorUrl ? 'Loading...' : 'Use URL' }}
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- URL Preview -->
-                    <div v-if="creatorUrlPreviewImage" class="url-preview">
-                      <img :src="creatorUrlPreviewImage" alt="URL preview" />
-                      <button @click="applyCreatorUrlImage" class="btn btn-success btn-sm">
-                        ✅ Use This Image
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Clipboard Paste Area -->
-                  <div
-                    v-if="
-                      !creatorPastedImage && !showCreatorUrlInput && !newImageQuote.backgroundImage
-                    "
-                    class="clipboard-paste-area"
-                  >
-                    <div class="paste-info">
-                      <span class="paste-icon">📋</span>
-                      <span class="paste-text">Or paste an image from clipboard (Ctrl+V)</span>
-                    </div>
-                  </div>
-
-                  <!-- Pasted Image Preview -->
-                  <div v-if="creatorPastedImage" class="pasted-image-preview">
-                    <h5>📋 Pasted Image</h5>
-                    <div class="pasted-preview-container">
-                      <img :src="creatorPastedImage.url" alt="Pasted image" />
-                      <div class="pasted-actions">
-                        <button @click="useCreatorPastedImage" class="btn btn-primary btn-sm">
-                          Use This Image
-                        </button>
-                        <button @click="clearCreatorPastedImage" class="btn btn-secondary btn-sm">
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Error Display -->
-                  <div v-if="creatorImageError" class="alert alert-danger mt-3">
-                    <strong>❌ Error:</strong> {{ creatorImageError }}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Aspect Ratio:</label>
-                  <select v-model="newImageQuote.aspectRatio" class="form-control">
-                    <option value="16/9">16:9 (Widescreen)</option>
-                    <option value="1/1">1:1 (Square)</option>
-                    <option value="4/3">4:3 (Standard)</option>
-                    <option value="9/16">9:16 (Portrait)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Text Alignment:</label>
-                  <select v-model="newImageQuote.textAlign" class="form-control">
-                    <option value="left">Left</option>
-                    <option value="center">Center</option>
-                    <option value="right">Right</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Padding:</label>
-                  <select v-model="newImageQuote.padding" class="form-control">
-                    <option value="1em">Small (1em)</option>
-                    <option value="2em">Medium (2em)</option>
-                    <option value="3em">Large (3em)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Font Size:</label>
-                  <select v-model="newImageQuote.fontSize" class="form-control">
-                    <option value="1rem">Small (1rem)</option>
-                    <option value="1.5rem">Medium (1.5rem)</option>
-                    <option value="2rem">Large (2rem)</option>
-                    <option value="2.5rem">Extra Large (2.5rem)</option>
-                    <option value="3rem">Huge (3rem)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Width:</label>
-                  <select v-model="newImageQuote.width" class="form-control">
-                    <option value="100%">Full Width (100%)</option>
-                    <option value="90%">90%</option>
-                    <option value="80%">80%</option>
-                    <option value="75%">75%</option>
-                    <option value="66%">Two-thirds (66%)</option>
-                    <option value="50%">Half Width (50%)</option>
-                    <option value="33%">One-third (33%)</option>
-                    <option value="25%">Quarter (25%)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="form-group">
-                  <label class="form-label">Height:</label>
-                  <select v-model="newImageQuote.height" class="form-control">
-                    <option value="auto">Auto (Aspect Ratio)</option>
-                    <option value="200px">Small (200px)</option>
-                    <option value="300px">Medium (300px)</option>
-                    <option value="400px">Large (400px)</option>
-                    <option value="500px">Extra Large (500px)</option>
-                    <option value="20vh">20% of viewport</option>
-                    <option value="30vh">30% of viewport</option>
-                    <option value="40vh">40% of viewport</option>
-                    <option value="50vh">50% of viewport</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="col-md-12">
-                <div class="form-group">
-                  <label class="form-label">Citation (optional):</label>
-                  <input
-                    v-model="newImageQuote.citation"
-                    type="text"
-                    class="form-control"
-                    placeholder="Author name"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- IMAGEQUOTE Type Selection -->
-            <div class="row">
-              <div class="col-md-12">
-                <div class="form-group">
-                  <label class="form-label">IMAGEQUOTE Type:</label>
-                  <div class="imagequote-type-selection">
-                    <label class="form-check">
-                      <input
-                        v-model="imageQuoteType"
-                        type="radio"
-                        value="static"
-                        class="form-check-input"
-                      />
-                      <span class="form-check-label">
-                        <strong>📄 Static Content</strong><br />
-                        <small class="text-muted"
-                          >Insert as formatted content within existing node text</small
-                        >
-                      </span>
-                    </label>
-                    <label class="form-check">
-                      <input
-                        v-model="imageQuoteType"
-                        type="radio"
-                        value="standalone"
-                        class="form-check-input"
-                      />
-                      <span class="form-check-label">
-                        <strong>🎨 Standalone Node</strong><br />
-                        <small class="text-muted"
-                          >Create dedicated IMAGEQUOTE node with full export functionality</small
-                        >
-                      </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Node Selection for Static Insertion -->
-            <div v-if="imageQuoteType === 'static'" class="row">
-              <div class="col-md-12">
-                <div class="form-group">
-                  <label class="form-label">Insert into Node:</label>
-                  <select v-model="selectedNodeForInsertion" class="form-control" required>
-                    <option value="">Select a node to insert IMAGEQUOTE into...</option>
-                    <option value="__CREATE_NEW__">🆕 Insert into a new Fulltext node</option>
-                    <option
-                      v-for="node in availableNodesForInsertion"
-                      :key="node.id"
-                      :value="node.id"
-                    >
-                      {{ node.label }} ({{ node.type }})
-                    </option>
-                  </select>
-                  <small class="form-text text-muted">
-                    IMAGEQUOTE will be inserted into the selected node's content and saved to the
-                    graph.
-                  </small>
-                </div>
-              </div>
-            </div>
-
-            <!-- Live Preview -->
-            <div v-if="newImageQuote.text" class="preview-section">
-              <h5>Preview:</h5>
-              <GNewImageQuote
-                :quote-text="newImageQuote.text"
-                :background-image="newImageQuote.backgroundImage"
-                :aspect-ratio="newImageQuote.aspectRatio"
-                :text-align="newImageQuote.textAlign"
-                :padding="newImageQuote.padding"
-                :font-size="newImageQuote.fontSize"
-                :width="newImageQuote.width"
-                :height="newImageQuote.height"
-                :citation="newImageQuote.citation"
-                :show-controls="false"
-              />
-
-              <!-- Formatted Definition -->
-              <div class="formatted-definition-section">
-                <label class="form-label">IMAGEQUOTE Definition:</label>
-                <textarea
-                  v-model="formattedDefinition"
-                  class="form-control formatted-definition-textarea"
-                  rows="3"
-                  placeholder="Formatted IMAGEQUOTE definition will appear here..."
-                  @input="parseFormattedDefinition"
-                ></textarea>
-                <small class="form-text text-muted">
-                  Editable format for use in other parts of the system. Changes here will update the
-                  preview above.
-                </small>
-              </div>
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <button
-              @click="saveImageQuote"
-              class="btn btn-primary"
-              :disabled="imageQuoteType === 'static' && !selectedNodeForInsertion"
-            >
-              {{
-                imageQuoteType === 'standalone'
-                  ? 'Create IMAGEQUOTE Node'
-                  : 'Insert IMAGEQUOTE into Node'
-              }}
-            </button>
-            <button @click="closeImageQuoteCreator" class="btn btn-secondary">Cancel</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- AI Image Modal (only for AI generation) -->
-      <AIImageModal
-        :isOpen="isCreatorAIImageModalOpen"
-        :graphContext="{ type: 'imagequote-background' }"
-        @close="closeCreatorAIImageModal"
-        @image-inserted="handleCreatorAIImageGenerated"
-      />
-
-      <!-- Portfolio Image Selection Modal -->
-      <div v-if="showPortfolioImageModal" class="modal-overlay">
-        <div class="portfolio-image-modal">
-          <div class="modal-header">
-            <h4>🎨 Select Portfolio Image</h4>
-            <button @click="closePortfolioImageModal" class="btn-close">&times;</button>
-          </div>
-
-          <div class="modal-body">
-            <!-- Quality Controls Section -->
-            <div class="quality-controls mb-4 p-3 border rounded">
-              <h6 class="mb-3">Image Quality & Size Settings</h6>
-
-              <!-- Quality Presets -->
-              <div class="mb-3">
-                <label class="form-label fw-bold">Quality Preset:</label>
-                <div class="btn-group w-100" role="group">
-                  <input
-                    type="radio"
-                    class="btn-check"
-                    name="qualityPreset"
-                    id="ultraFast"
-                    value="ultraFast"
-                    v-model="imageQualitySettings.preset"
-                    @change="updateImagePreview"
-                  />
-                  <label class="btn btn-outline-success" for="ultraFast">
-                    <i class="bi bi-lightning-fill"></i> Ultra Fast
-                  </label>
-
-                  <input
-                    type="radio"
-                    class="btn-check"
-                    name="qualityPreset"
-                    id="balanced"
-                    value="balanced"
-                    v-model="imageQualitySettings.preset"
-                    @change="updateImagePreview"
-                  />
-                  <label class="btn btn-outline-primary" for="balanced">
-                    <i class="bi bi-speedometer2"></i> Balanced
-                  </label>
-
-                  <input
-                    type="radio"
-                    class="btn-check"
-                    name="qualityPreset"
-                    id="highQuality"
-                    value="highQuality"
-                    v-model="imageQualitySettings.preset"
-                    @change="updateImagePreview"
-                  />
-                  <label class="btn btn-outline-warning" for="highQuality">
-                    <i class="bi bi-gem"></i> High Quality
-                  </label>
-                </div>
-              </div>
-
-              <!-- Custom Size Controls -->
-              <div class="row mb-3">
-                <div class="col-12 mb-2">
-                  <div class="form-check">
-                    <input
-                      class="form-check-input"
-                      type="checkbox"
-                      id="lockAspectRatio"
-                      v-model="imageQualitySettings.lockAspectRatio"
-                    />
-                    <label class="form-check-label fw-bold" for="lockAspectRatio">
-                      <i class="bi bi-lock-fill" v-if="imageQualitySettings.lockAspectRatio"></i>
-                      <i class="bi bi-unlock-fill" v-else></i>
-                      Lock Aspect Ratio ({{ aspectRatio }})
-                    </label>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Width:</label>
-                  <div class="input-group">
-                    <input
-                      type="range"
-                      class="form-range"
-                      min="50"
-                      max="800"
-                      v-model="imageQualitySettings.width"
-                      @input="onWidthChange"
-                    />
-                    <input
-                      type="number"
-                      class="form-control"
-                      style="max-width: 80px"
-                      v-model="imageQualitySettings.width"
-                      @input="onWidthChange"
-                      min="50"
-                      max="800"
-                    />
-                    <span class="input-group-text">px</span>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Height:</label>
-                  <div class="input-group">
-                    <input
-                      type="range"
-                      class="form-range"
-                      min="50"
-                      max="600"
-                      v-model="imageQualitySettings.height"
-                      @input="onHeightChange"
-                    />
-                    <input
-                      type="number"
-                      class="form-control"
-                      style="max-width: 80px"
-                      v-model="imageQualitySettings.height"
-                      @input="onHeightChange"
-                      min="50"
-                      max="600"
-                    />
-                    <span class="input-group-text">px</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Reset Button -->
-              <div class="text-center">
-                <button @click="resetQualitySettings" class="btn btn-outline-secondary btn-sm">
-                  <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
-                </button>
-              </div>
-            </div>
-
-            <!-- Portfolio Images Grid -->
-            <div v-if="portfolioImages.length > 0">
-              <div class="portfolio-grid">
-                <div
-                  v-for="img in portfolioImages"
-                  :key="img.key"
-                  class="portfolio-card"
-                  @click="selectPortfolioImage(img)"
-                >
-                  <img
-                    :src="getOptimizedImageUrl(img.url)"
-                    :alt="img.key"
-                    class="portfolio-thumb"
-                    loading="lazy"
-                  />
-                  <div class="portfolio-caption">{{ img.key }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Loading State -->
-            <div v-else-if="loadingPortfolioImages" class="text-center py-4">
-              <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading portfolio images...</span>
-              </div>
-              <p class="mt-2">Loading portfolio images...</p>
-            </div>
-
-            <!-- Error State -->
-            <div v-else class="text-center py-4">
-              <p class="text-muted">No portfolio images found.</p>
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <div class="me-auto">
-              <small class="text-muted">
-                <strong>{{ portfolioImages.length }}</strong> images • Quality:
-                <strong>{{ imageQualitySettings.preset }}</strong> • Size:
-                <strong>{{ imageQualitySettings.width }}×{{ imageQualitySettings.height }}</strong>
-              </small>
-            </div>
-            <button @click="closePortfolioImageModal" class="btn btn-secondary">Close</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Error Display -->
-      <div v-if="error" class="alert alert-danger">
-        <h5>❌ Error</h5>
-        <p>{{ error }}</p>
-      </div>
-
-      <!-- Loading State -->
+    <!-- Ultra-Clean Interface for Non-Logged Users -->
+    <div v-if="!userStore.loggedIn" class="public-viewer">
+      <!-- Only Graph Content -->
       <div v-if="loading" class="loading-state">
         <div class="spinner-border text-primary" role="status">
           <span class="visually-hidden">Loading...</span>
@@ -743,76 +10,891 @@
         <p>Loading graph data...</p>
       </div>
 
-      <!-- Graph Content -->
+      <div v-else-if="error" class="alert alert-danger">
+        <h5>❌ Error</h5>
+        <p>{{ error }}</p>
+      </div>
+
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
-        <h3>🔗 Graph Nodes</h3>
         <div class="nodes-container">
           <GNewNodeRenderer
             v-for="node in graphData.nodes"
             :key="node.id"
             :node="node"
-            :showControls="true"
+            :showControls="false"
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
           />
         </div>
       </div>
 
-      <!-- Empty State -->
       <div v-else class="empty-state">
-        <h4>📊 No Graph Data</h4>
-        <p>Load a graph to begin using the GNew Viewer.</p>
-        <p class="text-muted">
-          This viewer uses the same data as the current GraphViewer but with a modern, clean
-          architecture for new features.
-        </p>
-      </div>
-
-      <!-- IMAGEQUOTE Instructions -->
-      <div class="imagequote-instructions">
-        <h3>🎨 IMAGEQUOTE Creation</h3>
-        <p>
-          IMAGEQUOTE elements are inserted directly into graph nodes and rendered within the
-          content. Use the "Create IMAGEQUOTE" button above to generate a new IMAGEQUOTE and insert
-          it into a selected node.
-        </p>
-        <p class="text-muted">
-          Once inserted, IMAGEQUOTE elements will appear in the node content and be rendered by the
-          GNew node renderer. The quotes are permanently saved in the graph database.
-        </p>
-      </div>
-
-      <!-- Development Info -->
-      <div class="dev-info">
-        <h5>🚧 Development Status</h5>
-        <ul>
-          <li>✅ Menu integration complete</li>
-          <li>✅ Superadmin access control</li>
-          <li>✅ Basic graph data loading</li>
-          <li>✅ IMAGEQUOTE component with comprehensive image handling</li>
-          <li>✅ Consolidated IMAGEQUOTE creation interface</li>
-          <li>✅ Upload, AI Generate, URL paste functionality</li>
-          <li>✅ Portfolio image selection with quality controls</li>
-          <li>✅ Export functionality with multiple formats</li>
-          <li>✅ Live preview in creator modal</li>
-          <li>✅ Font size control</li>
-          <li>✅ Edit functionality for created IMAGEQUOTES</li>
-          <li>🚧 Modern node rendering (Phase 3.1 - Basic Framework)</li>
-          <li>✅ GNewNodeRenderer dynamic component loader</li>
-          <li>✅ GNewDefaultNode with formatted element parsing</li>
-          <li>✅ [FANCY] element support with styling</li>
-          <li>✅ [SECTION] element support</li>
-          <li>✅ [IMAGEQUOTE] element support</li>
-          <li>✅ [QUOTE] element support with citations</li>
-          <li>✅ GNewImageNode for images</li>
-          <li>✅ GNewVideoNode for YouTube videos</li>
-          <li>✅ GNewTitleNode for title content</li>
-          <li>⏳ Chart node components (Phase 3.2)</li>
-        </ul>
+        <h4>📊 No Graph Data Available</h4>
+        <p class="text-muted">No content to display at this time.</p>
       </div>
     </div>
 
-    <!-- Image Editing Modals -->
+    <!-- Full Interface for Logged Users -->
+    <div v-else class="admin-viewer">
+      <!-- Header Section -->
+      <div class="gnew-header">
+        <h1>🧪 GNew Graph Viewer</h1>
+        <p class="gnew-subtitle">
+          Next-generation graph viewer • Clean Architecture • Modern Features
+        </p>
+      </div>
+
+      <!-- Main Content -->
+      <div class="gnew-content">
+        <!-- Status Bar -->
+        <div class="status-bar">
+          <!-- First Row - Basic Info -->
+          <div class="status-row">
+            <div class="status-item">
+              <span class="label">Current Graph:</span>
+              <span class="value">{{ currentGraphId || 'None selected' }}</span>
+            </div>
+            <div class="status-item">
+              <span class="label">Title:</span>
+              <span class="value">{{ graphTitle }}</span>
+            </div>
+            <div class="status-item">
+              <span class="label">Nodes:</span>
+              <span class="value">{{ graphData.nodes.length }}</span>
+            </div>
+            <div class="status-item">
+              <span class="label">Status:</span>
+              <span class="value" :class="statusClass">{{ statusText }}</span>
+            </div>
+          </div>
+
+          <!-- Second Row - Metadata -->
+          <div class="status-row" v-if="hasMetadata">
+            <div class="status-item" v-if="graphCategories.length > 0">
+              <span class="label">Categories:</span>
+              <div class="badge-container">
+                <span v-for="category in graphCategories" :key="category" class="badge bg-success">
+                  {{ category }}
+                </span>
+              </div>
+            </div>
+            <div class="status-item" v-if="graphMetaAreas.length > 0">
+              <span class="label">Meta Areas:</span>
+              <div class="badge-container">
+                <span v-for="area in graphMetaAreas" :key="area" class="badge bg-warning">
+                  {{ area }}
+                </span>
+              </div>
+            </div>
+            <div class="status-item" v-if="graphCreatedBy">
+              <span class="label">Created By:</span>
+              <span class="value">{{ graphCreatedBy }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Message -->
+        <div v-if="statusMessage" class="status-message">
+          {{ statusMessage }}
+        </div>
+
+        <!-- Action Toolbar -->
+        <div class="action-toolbar">
+          <button @click="loadGraph" class="btn btn-primary" :disabled="loading">
+            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+            {{ loading ? 'Loading...' : 'Load Graph' }}
+          </button>
+          <button @click="refreshData" class="btn btn-outline-secondary">🔄 Refresh</button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="duplicateKnowledgeGraph"
+            class="btn btn-outline-info"
+            :disabled="!graphData.nodes.length || duplicatingGraph"
+          >
+            <span v-if="duplicatingGraph" class="spinner-border spinner-border-sm me-2"></span>
+            {{ duplicatingGraph ? 'Duplicating...' : '📋 Duplicate Graph' }}
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="openImageQuoteCreator"
+            class="btn btn-success"
+          >
+            🎨 Create IMAGEQUOTE
+          </button>
+        </div>
+
+        <!-- Node Edit Modal (Admin Only) -->
+        <div
+          v-if="showNodeEditModal && userStore.loggedIn && userStore.role === 'Superadmin'"
+          class="modal-overlay"
+        >
+          <div class="node-edit-modal">
+            <div class="modal-header">
+              <h4>✏️ Edit Node Content</h4>
+              <button @click="closeNodeEditModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Node Title:</label>
+                <input
+                  v-model="editingNode.label"
+                  type="text"
+                  class="form-control"
+                  placeholder="Enter node title..."
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Node Content:</label>
+                <div class="textarea-container">
+                  <textarea
+                    ref="nodeContentTextarea"
+                    v-model="editingNode.info"
+                    class="form-control node-content-textarea"
+                    rows="20"
+                    placeholder="Enter node content... Type [ to see available elements..."
+                    @input="handleTextareaInput"
+                    @keydown="handleTextareaKeydown"
+                    @blur="hideAutocomplete"
+                  ></textarea>
+
+                  <!-- Autocomplete Dropdown -->
+                  <div
+                    v-if="showAutocomplete && filteredElements.length > 0"
+                    class="autocomplete-dropdown"
+                    :style="{
+                      top: autocompletePosition.top + 'px',
+                      left: autocompletePosition.left + 'px',
+                    }"
+                  >
+                    <div class="autocomplete-header">
+                      <span class="autocomplete-title">✨ Formatted Elements</span>
+                      <span class="autocomplete-hint">Press Tab or Enter to insert</span>
+                    </div>
+                    <div
+                      v-for="(element, index) in filteredElements"
+                      :key="element.trigger"
+                      class="autocomplete-item"
+                      :class="{ 'autocomplete-item-active': index === selectedElementIndex }"
+                      @mouseenter="selectedElementIndex = index"
+                      @click="insertElement(element)"
+                    >
+                      <div class="element-trigger">{{ element.trigger }}</div>
+                      <div class="element-description">{{ element.description }}</div>
+                      <div class="element-category">{{ element.category }}</div>
+                    </div>
+                  </div>
+                </div>
+                <small class="form-text text-muted">
+                  Type <code>[</code> or <code>![</code> to see available formatted elements with
+                  autocomplete
+                </small>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button @click="saveNodeChanges" class="btn btn-primary" :disabled="savingNode">
+                <span v-if="savingNode" class="spinner-border spinner-border-sm me-2"></span>
+                {{ savingNode ? 'Saving...' : 'Save Changes' }}
+              </button>
+              <button @click="closeNodeEditModal" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- IMAGEQUOTE Creator Modal (Admin Only) -->
+        <div
+          v-if="showImageQuoteCreator && userStore.loggedIn && userStore.role === 'Superadmin'"
+          class="modal-overlay"
+        >
+          <div class="imagequote-creator-modal">
+            <div class="modal-header">
+              <h4>🎨 Create IMAGEQUOTE</h4>
+              <button @click="closeImageQuoteCreator" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Quote Text:</label>
+                <div class="quote-input-section">
+                  <textarea
+                    v-model="newImageQuote.text"
+                    class="form-control"
+                    rows="3"
+                    placeholder="Enter your quote text here..."
+                  ></textarea>
+                  <div class="quote-actions">
+                    <button
+                      @click="generateQuoteSuggestions"
+                      class="btn btn-outline-primary btn-sm"
+                      :disabled="isGeneratingQuotes || !hasGraphContext"
+                    >
+                      <span
+                        v-if="isGeneratingQuotes"
+                        class="spinner-border spinner-border-sm me-1"
+                      ></span>
+                      {{ isGeneratingQuotes ? 'Generating...' : '💡 Suggest Quotes' }}
+                    </button>
+                    <small v-if="!hasGraphContext" class="text-muted">
+                      (Requires graph content for suggestions)
+                    </small>
+                  </div>
+                </div>
+
+                <!-- Quote Suggestions -->
+                <div v-if="quoteSuggestions.length > 0" class="quote-suggestions">
+                  <h6>💡 Suggested Quotes:</h6>
+                  <div class="suggestions-list">
+                    <div
+                      v-for="(suggestion, index) in quoteSuggestions"
+                      :key="index"
+                      class="suggestion-item"
+                      @click="applySuggestion(suggestion)"
+                    >
+                      <div class="suggestion-text">{{ suggestion.text }}</div>
+                      <div v-if="suggestion.citation" class="suggestion-citation">
+                        — {{ suggestion.citation }}
+                      </div>
+                      <div class="suggestion-source">
+                        <small class="text-muted">From: {{ suggestion.source }}</small>
+                      </div>
+                    </div>
+                  </div>
+                  <button @click="clearSuggestions" class="btn btn-sm btn-outline-secondary mt-2">
+                    Clear Suggestions
+                  </button>
+                </div>
+
+                <!-- Error Message -->
+                <div v-if="quoteSuggestionsError" class="alert alert-danger mt-2">
+                  <strong>❌ Error:</strong> {{ quoteSuggestionsError }}
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Background Image:</label>
+                <div class="image-selection-area">
+                  <!-- Current Image Preview -->
+                  <div v-if="newImageQuote.backgroundImage" class="current-image-preview">
+                    <img :src="newImageQuote.backgroundImage" alt="Background preview" />
+                    <div class="image-actions">
+                      <button @click="clearCreatorImage" class="btn btn-sm btn-outline-danger">
+                        🗑️ Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Image Selection Methods -->
+                  <div class="image-source-section">
+                    <div class="image-source-options">
+                      <button
+                        @click="triggerCreatorImageUpload"
+                        class="btn btn-outline-primary btn-source"
+                        :disabled="isUploadingCreatorImage"
+                      >
+                        <i
+                          class="bi"
+                          :class="isUploadingCreatorImage ? 'bi-hourglass-split' : 'bi-upload'"
+                        ></i>
+                        {{ isUploadingCreatorImage ? 'Uploading...' : 'Upload Image' }}
+                      </button>
+
+                      <button
+                        @click="openCreatorAIImageModal"
+                        class="btn btn-outline-success btn-source"
+                        :disabled="isUploadingCreatorImage"
+                      >
+                        <i class="bi bi-magic"></i>
+                        AI Generate
+                      </button>
+
+                      <button
+                        @click="showCreatorUrlInput = !showCreatorUrlInput"
+                        class="btn btn-outline-info btn-source"
+                        :class="{ active: showCreatorUrlInput }"
+                      >
+                        <i class="bi bi-link-45deg"></i>
+                        Image URL
+                      </button>
+
+                      <button
+                        @click="openPortfolioImageModal"
+                        class="btn btn-outline-warning btn-source"
+                        :disabled="isUploadingCreatorImage"
+                      >
+                        <i class="bi bi-collection"></i>
+                        Portfolio Images
+                      </button>
+                    </div>
+
+                    <!-- Hidden file input -->
+                    <input
+                      ref="creatorImageFileInput"
+                      type="file"
+                      accept="image/*"
+                      style="display: none"
+                      @change="handleCreatorImageUpload"
+                    />
+
+                    <!-- URL Input Section -->
+                    <div v-if="showCreatorUrlInput" class="url-input-section">
+                      <div class="form-group">
+                        <label class="form-label">Image URL:</label>
+                        <div class="url-input-group">
+                          <input
+                            v-model="creatorImageUrl"
+                            type="url"
+                            class="form-control"
+                            placeholder="https://example.com/image.jpg"
+                            @paste="handleCreatorUrlPaste"
+                            @input="validateCreatorImageUrl"
+                          />
+                          <button
+                            @click="useCreatorImageUrl"
+                            :disabled="!isCreatorValidUrl || isLoadingCreatorUrl"
+                            class="btn btn-primary"
+                          >
+                            {{ isLoadingCreatorUrl ? 'Loading...' : 'Use URL' }}
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- URL Preview -->
+                      <div v-if="creatorUrlPreviewImage" class="url-preview">
+                        <img :src="creatorUrlPreviewImage" alt="URL preview" />
+                        <button @click="applyCreatorUrlImage" class="btn btn-success btn-sm">
+                          ✅ Use This Image
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Clipboard Paste Area -->
+                    <div
+                      v-if="
+                        !creatorPastedImage &&
+                        !showCreatorUrlInput &&
+                        !newImageQuote.backgroundImage
+                      "
+                      class="clipboard-paste-area"
+                    >
+                      <div class="paste-info">
+                        <span class="paste-icon">📋</span>
+                        <span class="paste-text">Or paste an image from clipboard (Ctrl+V)</span>
+                      </div>
+                    </div>
+
+                    <!-- Pasted Image Preview -->
+                    <div v-if="creatorPastedImage" class="pasted-image-preview">
+                      <h5>📋 Pasted Image</h5>
+                      <div class="pasted-preview-container">
+                        <img :src="creatorPastedImage.url" alt="Pasted image" />
+                        <div class="pasted-actions">
+                          <button @click="useCreatorPastedImage" class="btn btn-primary btn-sm">
+                            Use This Image
+                          </button>
+                          <button @click="clearCreatorPastedImage" class="btn btn-secondary btn-sm">
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Error Display -->
+                    <div v-if="creatorImageError" class="alert alert-danger mt-3">
+                      <strong>❌ Error:</strong> {{ creatorImageError }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Aspect Ratio:</label>
+                    <select v-model="newImageQuote.aspectRatio" class="form-control">
+                      <option value="16/9">16:9 (Widescreen)</option>
+                      <option value="1/1">1:1 (Square)</option>
+                      <option value="4/3">4:3 (Standard)</option>
+                      <option value="9/16">9:16 (Portrait)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Text Alignment:</label>
+                    <select v-model="newImageQuote.textAlign" class="form-control">
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Padding:</label>
+                    <select v-model="newImageQuote.padding" class="form-control">
+                      <option value="1em">Small (1em)</option>
+                      <option value="2em">Medium (2em)</option>
+                      <option value="3em">Large (3em)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Font Size:</label>
+                    <select v-model="newImageQuote.fontSize" class="form-control">
+                      <option value="1rem">Small (1rem)</option>
+                      <option value="1.5rem">Medium (1.5rem)</option>
+                      <option value="2rem">Large (2rem)</option>
+                      <option value="2.5rem">Extra Large (2.5rem)</option>
+                      <option value="3rem">Huge (3rem)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Width:</label>
+                    <select v-model="newImageQuote.width" class="form-control">
+                      <option value="100%">Full Width (100%)</option>
+                      <option value="90%">90%</option>
+                      <option value="80%">80%</option>
+                      <option value="75%">75%</option>
+                      <option value="66%">Two-thirds (66%)</option>
+                      <option value="50%">Half Width (50%)</option>
+                      <option value="33%">One-third (33%)</option>
+                      <option value="25%">Quarter (25%)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label class="form-label">Height:</label>
+                    <select v-model="newImageQuote.height" class="form-control">
+                      <option value="auto">Auto (Aspect Ratio)</option>
+                      <option value="200px">Small (200px)</option>
+                      <option value="300px">Medium (300px)</option>
+                      <option value="400px">Large (400px)</option>
+                      <option value="500px">Extra Large (500px)</option>
+                      <option value="20vh">20% of viewport</option>
+                      <option value="30vh">30% of viewport</option>
+                      <option value="40vh">40% of viewport</option>
+                      <option value="50vh">50% of viewport</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-12">
+                  <div class="form-group">
+                    <label class="form-label">Citation (optional):</label>
+                    <input
+                      v-model="newImageQuote.citation"
+                      type="text"
+                      class="form-control"
+                      placeholder="Author name"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- IMAGEQUOTE Type Selection -->
+              <div class="row">
+                <div class="col-md-12">
+                  <div class="form-group">
+                    <label class="form-label">IMAGEQUOTE Type:</label>
+                    <div class="imagequote-type-selection">
+                      <label class="form-check">
+                        <input
+                          v-model="imageQuoteType"
+                          type="radio"
+                          value="static"
+                          class="form-check-input"
+                        />
+                        <span class="form-check-label">
+                          <strong>📄 Static Content</strong><br />
+                          <small class="text-muted"
+                            >Insert as formatted content within existing node text</small
+                          >
+                        </span>
+                      </label>
+                      <label class="form-check">
+                        <input
+                          v-model="imageQuoteType"
+                          type="radio"
+                          value="standalone"
+                          class="form-check-input"
+                        />
+                        <span class="form-check-label">
+                          <strong>🎨 Standalone Node</strong><br />
+                          <small class="text-muted"
+                            >Create dedicated IMAGEQUOTE node with full export functionality</small
+                          >
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Node Selection for Static Insertion -->
+              <div v-if="imageQuoteType === 'static'" class="row">
+                <div class="col-md-12">
+                  <div class="form-group">
+                    <label class="form-label">Insert into Node:</label>
+                    <select v-model="selectedNodeForInsertion" class="form-control" required>
+                      <option value="">Select a node to insert IMAGEQUOTE into...</option>
+                      <option value="__CREATE_NEW__">🆕 Insert into a new Fulltext node</option>
+                      <option
+                        v-for="node in availableNodesForInsertion"
+                        :key="node.id"
+                        :value="node.id"
+                      >
+                        {{ node.label }} ({{ node.type }})
+                      </option>
+                    </select>
+                    <small class="form-text text-muted">
+                      IMAGEQUOTE will be inserted into the selected node's content and saved to the
+                      graph.
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live Preview -->
+              <div v-if="newImageQuote.text" class="preview-section">
+                <h5>Preview:</h5>
+                <GNewImageQuote
+                  :quote-text="newImageQuote.text"
+                  :background-image="newImageQuote.backgroundImage"
+                  :aspect-ratio="newImageQuote.aspectRatio"
+                  :text-align="newImageQuote.textAlign"
+                  :padding="newImageQuote.padding"
+                  :font-size="newImageQuote.fontSize"
+                  :width="newImageQuote.width"
+                  :height="newImageQuote.height"
+                  :citation="newImageQuote.citation"
+                  :show-controls="false"
+                />
+
+                <!-- Formatted Definition -->
+                <div class="formatted-definition-section">
+                  <label class="form-label">IMAGEQUOTE Definition:</label>
+                  <textarea
+                    v-model="formattedDefinition"
+                    class="form-control formatted-definition-textarea"
+                    rows="3"
+                    placeholder="Formatted IMAGEQUOTE definition will appear here..."
+                    @input="parseFormattedDefinition"
+                  ></textarea>
+                  <small class="form-text text-muted">
+                    Editable format for use in other parts of the system. Changes here will update
+                    the preview above.
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button
+                @click="saveImageQuote"
+                class="btn btn-primary"
+                :disabled="imageQuoteType === 'static' && !selectedNodeForInsertion"
+              >
+                {{
+                  imageQuoteType === 'standalone'
+                    ? 'Create IMAGEQUOTE Node'
+                    : 'Insert IMAGEQUOTE into Node'
+                }}
+              </button>
+              <button @click="closeImageQuoteCreator" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Image Modal (only for AI generation) -->
+        <AIImageModal
+          :isOpen="isCreatorAIImageModalOpen"
+          :graphContext="{ type: 'imagequote-background' }"
+          @close="closeCreatorAIImageModal"
+          @image-inserted="handleCreatorAIImageGenerated"
+        />
+
+        <!-- Portfolio Image Selection Modal -->
+        <div v-if="showPortfolioImageModal" class="modal-overlay">
+          <div class="portfolio-image-modal">
+            <div class="modal-header">
+              <h4>🎨 Select Portfolio Image</h4>
+              <button @click="closePortfolioImageModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+              <!-- Quality Controls Section -->
+              <div class="quality-controls mb-4 p-3 border rounded">
+                <h6 class="mb-3">Image Quality & Size Settings</h6>
+
+                <!-- Quality Presets -->
+                <div class="mb-3">
+                  <label class="form-label fw-bold">Quality Preset:</label>
+                  <div class="btn-group w-100" role="group">
+                    <input
+                      type="radio"
+                      class="btn-check"
+                      name="qualityPreset"
+                      id="ultraFast"
+                      value="ultraFast"
+                      v-model="imageQualitySettings.preset"
+                      @change="updateImagePreview"
+                    />
+                    <label class="btn btn-outline-success" for="ultraFast">
+                      <i class="bi bi-lightning-fill"></i> Ultra Fast
+                    </label>
+
+                    <input
+                      type="radio"
+                      class="btn-check"
+                      name="qualityPreset"
+                      id="balanced"
+                      value="balanced"
+                      v-model="imageQualitySettings.preset"
+                      @change="updateImagePreview"
+                    />
+                    <label class="btn btn-outline-primary" for="balanced">
+                      <i class="bi bi-speedometer2"></i> Balanced
+                    </label>
+
+                    <input
+                      type="radio"
+                      class="btn-check"
+                      name="qualityPreset"
+                      id="highQuality"
+                      value="highQuality"
+                      v-model="imageQualitySettings.preset"
+                      @change="updateImagePreview"
+                    />
+                    <label class="btn btn-outline-warning" for="highQuality">
+                      <i class="bi bi-gem"></i> High Quality
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Custom Size Controls -->
+                <div class="row mb-3">
+                  <div class="col-12 mb-2">
+                    <div class="form-check">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        id="lockAspectRatio"
+                        v-model="imageQualitySettings.lockAspectRatio"
+                      />
+                      <label class="form-check-label fw-bold" for="lockAspectRatio">
+                        <i class="bi bi-lock-fill" v-if="imageQualitySettings.lockAspectRatio"></i>
+                        <i class="bi bi-unlock-fill" v-else></i>
+                        Lock Aspect Ratio ({{ aspectRatio }})
+                      </label>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label fw-bold">Width:</label>
+                    <div class="input-group">
+                      <input
+                        type="range"
+                        class="form-range"
+                        min="50"
+                        max="800"
+                        v-model="imageQualitySettings.width"
+                        @input="onWidthChange"
+                      />
+                      <input
+                        type="number"
+                        class="form-control"
+                        style="max-width: 80px"
+                        v-model="imageQualitySettings.width"
+                        @input="onWidthChange"
+                        min="50"
+                        max="800"
+                      />
+                      <span class="input-group-text">px</span>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label fw-bold">Height:</label>
+                    <div class="input-group">
+                      <input
+                        type="range"
+                        class="form-range"
+                        min="50"
+                        max="600"
+                        v-model="imageQualitySettings.height"
+                        @input="onHeightChange"
+                      />
+                      <input
+                        type="number"
+                        class="form-control"
+                        style="max-width: 80px"
+                        v-model="imageQualitySettings.height"
+                        @input="onHeightChange"
+                        min="50"
+                        max="600"
+                      />
+                      <span class="input-group-text">px</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Reset Button -->
+                <div class="text-center">
+                  <button @click="resetQualitySettings" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                  </button>
+                </div>
+              </div>
+
+              <!-- Portfolio Images Grid -->
+              <div v-if="portfolioImages.length > 0">
+                <div class="portfolio-grid">
+                  <div
+                    v-for="img in portfolioImages"
+                    :key="img.key"
+                    class="portfolio-card"
+                    @click="selectPortfolioImage(img)"
+                  >
+                    <img
+                      :src="getOptimizedImageUrl(img.url)"
+                      :alt="img.key"
+                      class="portfolio-thumb"
+                      loading="lazy"
+                    />
+                    <div class="portfolio-caption">{{ img.key }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Loading State -->
+              <div v-else-if="loadingPortfolioImages" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                  <span class="visually-hidden">Loading portfolio images...</span>
+                </div>
+                <p class="mt-2">Loading portfolio images...</p>
+              </div>
+
+              <!-- Error State -->
+              <div v-else class="text-center py-4">
+                <p class="text-muted">No portfolio images found.</p>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <div class="me-auto">
+                <small class="text-muted">
+                  <strong>{{ portfolioImages.length }}</strong> images • Quality:
+                  <strong>{{ imageQualitySettings.preset }}</strong> • Size:
+                  <strong
+                    >{{ imageQualitySettings.width }}×{{ imageQualitySettings.height }}</strong
+                  >
+                </small>
+              </div>
+              <button @click="closePortfolioImageModal" class="btn btn-secondary">Close</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error Display -->
+        <div v-if="error" class="alert alert-danger">
+          <h5>❌ Error</h5>
+          <p>{{ error }}</p>
+        </div>
+
+        <!-- Loading State -->
+        <div v-if="loading" class="loading-state">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p>Loading graph data...</p>
+        </div>
+
+        <!-- Graph Content -->
+        <div v-else-if="graphData.nodes.length > 0" class="graph-content">
+          <h3>🔗 Graph Nodes</h3>
+          <div class="nodes-container">
+            <GNewNodeRenderer
+              v-for="node in graphData.nodes"
+              :key="node.id"
+              :node="node"
+              :showControls="userStore.loggedIn && userStore.role === 'Superadmin'"
+              @node-updated="handleNodeUpdated"
+              @node-deleted="handleNodeDeleted"
+            />
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else class="empty-state">
+          <h4>📊 No Graph Data</h4>
+          <p>Load a graph to begin using the GNew Viewer.</p>
+          <p class="text-muted">
+            This viewer uses the same data as the current GraphViewer but with a modern, clean
+            architecture for new features.
+          </p>
+        </div>
+
+        <!-- IMAGEQUOTE Instructions (Admin Only) -->
+        <div
+          v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+          class="imagequote-instructions"
+        >
+          <h3>🎨 IMAGEQUOTE Creation</h3>
+          <p>
+            IMAGEQUOTE elements are inserted directly into graph nodes and rendered within the
+            content. Use the "Create IMAGEQUOTE" button above to generate a new IMAGEQUOTE and
+            insert it into a selected node.
+          </p>
+          <p class="text-muted">
+            Once inserted, IMAGEQUOTE elements will appear in the node content and be rendered by
+            the GNew node renderer. The quotes are permanently saved in the graph database.
+          </p>
+        </div>
+
+        <!-- Development Info (Admin Only) -->
+        <div v-if="userStore.loggedIn && userStore.role === 'Superadmin'" class="dev-info">
+          <h5>🚧 Development Status</h5>
+          <ul>
+            <li>✅ Menu integration complete</li>
+            <li>✅ Superadmin access control</li>
+            <li>✅ Basic graph data loading</li>
+            <li>✅ IMAGEQUOTE component with comprehensive image handling</li>
+            <li>✅ Consolidated IMAGEQUOTE creation interface</li>
+            <li>✅ Upload, AI Generate, URL paste functionality</li>
+            <li>✅ Portfolio image selection with quality controls</li>
+            <li>✅ Export functionality with multiple formats</li>
+            <li>✅ Live preview in creator modal</li>
+            <li>✅ Font size control</li>
+            <li>✅ Edit functionality for created IMAGEQUOTES</li>
+            <li>🚧 Modern node rendering (Phase 3.1 - Basic Framework)</li>
+            <li>✅ GNewNodeRenderer dynamic component loader</li>
+            <li>✅ GNewDefaultNode with formatted element parsing</li>
+            <li>✅ [FANCY] element support with styling</li>
+            <li>✅ [SECTION] element support</li>
+            <li>✅ [IMAGEQUOTE] element support</li>
+            <li>✅ [QUOTE] element support with citations</li>
+            <li>✅ GNewImageNode for images</li>
+            <li>✅ GNewVideoNode for YouTube videos</li>
+            <li>✅ GNewTitleNode for title content</li>
+            <li>⏳ Chart node components (Phase 3.2)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image Editing Modals (Admin Only) -->
     <ImageSelector
       v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
       :is-open="isImageSelectorOpen"
@@ -962,6 +1044,131 @@ const imageQualitySettings = ref({
   height: 94,
   lockAspectRatio: true,
   originalAspectRatio: 150 / 94,
+})
+
+// Autocomplete functionality
+const showAutocomplete = ref(false)
+const selectedElementIndex = ref(0)
+const autocompletePosition = ref({ top: 0, left: 0 })
+const currentTrigger = ref('')
+const nodeContentTextarea = ref(null)
+
+// Comprehensive formatted elements data
+const formatElements = [
+  // SECTION variations
+  {
+    trigger: '[SECTION]',
+    description: '📦 Styled section with background, alignment & sizing',
+    template:
+      "[SECTION | background-color: 'lightblue'; color: 'black'; text-align: 'center'; font-size: '1.1em']\nYour content here\n[END SECTION]",
+    category: 'Layout',
+  },
+
+  // QUOTE elements
+  {
+    trigger: '[QUOTE]',
+    description: '💬 Quote block with attribution',
+    template: "[QUOTE | Cited='Author']\nYour quote here\n[END QUOTE]",
+    category: 'Content',
+  },
+
+  // FANCY element variations
+  {
+    trigger: '[FANCY]',
+    description: '✨ Simple fancy text styling',
+    template:
+      '[FANCY | font-size: 4.5em; color: #2c3e50; text-align: center]\nYour title here\n[END FANCY]',
+    category: 'Typography',
+  },
+  {
+    trigger: '[FANCY-IMG]',
+    description: '🖼️✨ Fancy text with background image',
+    template:
+      "[FANCY | font-size: 4.5em; color: lightblue; background-image: url('https://vegvisr.imgix.net/FANCYIMG.png'); text-align: center]\nYour fancy content here\n[END FANCY]",
+    category: 'Typography',
+  },
+  {
+    trigger: '[FANCY-GRAD]',
+    description: '🌈✨ Fancy text with gradient background',
+    template:
+      '[FANCY | font-size: 3em; color: #2c3e50; background: linear-gradient(45deg, #f0f8ff, #e6f3ff); text-align: center; padding: 20px; border-radius: 10px]\nYour title here\n[END FANCY]',
+    category: 'Typography',
+  },
+
+  // WNOTE elements
+  {
+    trigger: '[WNOTE]',
+    description: '📝 Work note with attribution',
+    template: "[WNOTE | Cited='Author']\nYour work note here\n[END WNOTE]",
+    category: 'Annotation',
+  },
+
+  // COMMENT elements
+  {
+    trigger: '[COMMENT]',
+    description: '💭 Comment block with styling',
+    template:
+      "[COMMENT | author: 'Author'; color: 'gray'; background-color: '#f9f9f9']\nYour comment here\n[END COMMENT]",
+    category: 'Annotation',
+  },
+
+  // Image elements
+  {
+    trigger: '![Header',
+    description: '🖼️ Header image with full width',
+    template:
+      "![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/HEADERIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside',
+    description: '➡️ Right side image with text wrapping',
+    template:
+      "![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside',
+    description: '⬅️ Left side image with text wrapping',
+    template:
+      "![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+
+  // IMAGEQUOTE elements
+  {
+    trigger: '[IMAGEQUOTE]',
+    description: '🖼️💬 Image quote with background',
+    template:
+      "[IMAGEQUOTE backgroundImage:'url' fontFamily:'Arial' fontSize:'24px' textColor:'#333']\nYour image quote text\n[END IMAGEQUOTE]",
+    category: 'Media',
+  },
+
+  // YouTube elements
+  {
+    trigger: '![YOUTUBE',
+    description: '📺 YouTube video embed',
+    template: '![YOUTUBE src=https://www.youtube.com/embed/VIDEO_ID]Video Title[END YOUTUBE]',
+    category: 'Media',
+  },
+
+  // Page break
+  {
+    trigger: '[pb]',
+    description: '📄 Page break for printing/PDF',
+    template: '[pb]',
+    category: 'Layout',
+  },
+]
+
+// Computed property for filtered elements
+const filteredElements = computed(() => {
+  if (!currentTrigger.value) return []
+
+  const trigger = currentTrigger.value.toLowerCase()
+  return formatElements
+    .filter((element) => element.trigger.toLowerCase().includes(trigger))
+    .slice(0, 8) // Limit to 8 results
 })
 
 // Computed properties
@@ -2476,6 +2683,143 @@ const attachImageChangeListeners = () => {
   console.log('GNew: Change image and Google Photos button listeners attached successfully')
 }
 
+// Autocomplete Methods
+const handleTextareaInput = (event) => {
+  const textarea = event.target
+  const cursorPos = textarea.selectionStart
+  const text = textarea.value
+
+  // Look backwards from cursor position to find trigger
+  let triggerStart = -1
+  let triggerText = ''
+
+  // Check for [ or ![ triggers
+  for (let i = cursorPos - 1; i >= 0; i--) {
+    const char = text[i]
+    if (char === '[') {
+      triggerStart = i
+      triggerText = text.substring(i, cursorPos)
+      break
+    } else if (char === '!' && i > 0 && text[i - 1] === '[') {
+      triggerStart = i - 1
+      triggerText = text.substring(i - 1, cursorPos)
+      break
+    } else if (char === ' ' || char === '\n' || char === '\t') {
+      // Stop at whitespace
+      break
+    }
+  }
+
+  // Show autocomplete if we found a trigger
+  if (triggerStart >= 0 && triggerText.length > 0) {
+    currentTrigger.value = triggerText
+    updateAutocompletePosition(textarea, triggerStart)
+    showAutocomplete.value = true
+    selectedElementIndex.value = 0
+  } else {
+    showAutocomplete.value = false
+  }
+}
+
+const handleTextareaKeydown = (event) => {
+  if (!showAutocomplete.value || filteredElements.value.length === 0) return
+
+  switch (event.key) {
+    case 'ArrowDown':
+      event.preventDefault()
+      selectedElementIndex.value = Math.min(
+        selectedElementIndex.value + 1,
+        filteredElements.value.length - 1,
+      )
+      break
+
+    case 'ArrowUp':
+      event.preventDefault()
+      selectedElementIndex.value = Math.max(selectedElementIndex.value - 1, 0)
+      break
+
+    case 'Tab':
+    case 'Enter':
+      event.preventDefault()
+      if (filteredElements.value[selectedElementIndex.value]) {
+        insertElement(filteredElements.value[selectedElementIndex.value])
+      }
+      break
+
+    case 'Escape':
+      event.preventDefault()
+      hideAutocomplete()
+      break
+  }
+}
+
+const updateAutocompletePosition = (textarea, triggerStart) => {
+  // Get line height and character dimensions for position calculation
+  const style = window.getComputedStyle(textarea)
+  const lineHeight = parseInt(style.lineHeight) || 20
+  const charWidth = 8 // Approximate character width
+
+  // Count lines and characters to cursor position
+  const textBeforeCursor = textarea.value.substring(0, triggerStart)
+  const lines = textBeforeCursor.split('\n')
+  const currentLine = lines.length - 1
+  const currentColumn = lines[lines.length - 1].length
+
+  // Calculate position relative to textarea
+  const top = currentLine * lineHeight + 25 // Add offset for line height
+  const left = currentColumn * charWidth + 10 // Add small offset
+
+  autocompletePosition.value = { top, left }
+}
+
+const insertElement = (element) => {
+  const textarea = nodeContentTextarea.value
+  if (!textarea) return
+
+  const cursorPos = textarea.selectionStart
+  const text = textarea.value
+
+  // Find the trigger start position
+  let triggerStart = cursorPos
+  for (let i = cursorPos - 1; i >= 0; i--) {
+    const char = text[i]
+    if (char === '[' || (char === '!' && i > 0 && text[i - 1] === '[')) {
+      if (char === '!') {
+        triggerStart = i - 1
+      } else {
+        triggerStart = i
+      }
+      break
+    }
+  }
+
+  // Replace the trigger text with the template
+  const beforeTrigger = text.substring(0, triggerStart)
+  const afterCursor = text.substring(cursorPos)
+  const newText = beforeTrigger + element.template + afterCursor
+
+  // Update the textarea value and model
+  editingNode.value.info = newText
+
+  // Position cursor after inserted template
+  nextTick(() => {
+    const newCursorPos = triggerStart + element.template.length
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+    textarea.focus()
+  })
+
+  hideAutocomplete()
+}
+
+const hideAutocomplete = () => {
+  // Small delay to allow click events to process
+  setTimeout(() => {
+    showAutocomplete.value = false
+    currentTrigger.value = ''
+    selectedElementIndex.value = 0
+  }, 150)
+}
+
 // Lifecycle
 onMounted(() => {
   console.log('GNewViewer mounted')
@@ -2494,6 +2838,44 @@ onMounted(() => {
   margin: 0 auto;
   padding: 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Public Viewer Styles - Ultra Clean */
+.public-viewer {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.public-viewer .graph-content {
+  background: transparent;
+  border-radius: 0;
+  padding: 20px;
+  box-shadow: none;
+  margin-bottom: 0;
+}
+
+.public-viewer .nodes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.public-viewer .loading-state,
+.public-viewer .empty-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.public-viewer .empty-state h4 {
+  color: #6c757d;
+  margin-bottom: 10px;
+}
+
+/* Admin Viewer Styles - Full Interface */
+.admin-viewer {
+  /* Inherits from .gnew-viewer styles */
 }
 
 .gnew-header {
@@ -2516,12 +2898,6 @@ onMounted(() => {
   margin: 0;
   font-size: 1.1rem;
   opacity: 0.9;
-}
-
-.access-denied {
-  max-width: 500px;
-  margin: 50px auto;
-  text-align: center;
 }
 
 .status-bar {
@@ -3182,6 +3558,19 @@ onMounted(() => {
     padding: 15px;
   }
 
+  .public-viewer {
+    padding: 10px;
+  }
+
+  .public-viewer .graph-content {
+    padding: 15px;
+  }
+
+  .public-viewer .loading-state,
+  .public-viewer .empty-state {
+    padding: 20px 15px;
+  }
+
   .gnew-header h1 {
     font-size: 2rem;
   }
@@ -3429,6 +3818,117 @@ onMounted(() => {
 
   .suggestion-text {
     font-size: 0.9rem;
+  }
+}
+
+/* Autocomplete Styles */
+.textarea-container {
+  position: relative;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 350px;
+  max-width: 500px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.autocomplete-header {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.autocomplete-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.autocomplete-hint {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.autocomplete-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item-active {
+  background: #f8f9ff;
+  border-left: 4px solid #667eea;
+}
+
+.autocomplete-item:last-child {
+  border-bottom: none;
+  border-radius: 0 0 8px 8px;
+}
+
+.element-trigger {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #667eea;
+  background: #f8f9ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  max-width: fit-content;
+}
+
+.element-description {
+  font-size: 0.85rem;
+  color: #4a5568;
+  line-height: 1.3;
+}
+
+.element-category {
+  font-size: 0.75rem;
+  color: #718096;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 768px) {
+  .autocomplete-dropdown {
+    min-width: 280px;
+    max-width: 90vw;
+  }
+
+  .autocomplete-header {
+    padding: 10px 12px;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+  }
+
+  .autocomplete-item {
+    padding: 10px 12px;
+  }
+
+  .element-trigger {
+    font-size: 0.8rem;
+  }
+
+  .element-description {
+    font-size: 0.8rem;
   }
 }
 </style>

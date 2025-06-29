@@ -1,0 +1,236 @@
+{
+  "metadata": {
+    "title": "Vegvisr Frontend Landing Page",
+    "description": "Knowledge graph recreation of the FrontPage.vue content using GNewViewer node system",
+    "category": "#frontend #marketing #landing-page #vegvisr",
+    "metaArea": "#user-interface #content-strategy #knowledge-graph",
+    "createdBy": "vegvisr-admin",
+    "version": 1,
+    "created": "2025-01-20T00:00:00Z",
+    "lastModified": "2025-01-20T00:00:00Z"
+  },
+  "nodes": [
+    {
+      "id": "hero_title_001",
+      "label": "Turn Your Knowledge Into Beautiful, Shareable Graphs Instantly",
+      "type": "title",
+      "info": "Create, visualize, and publish knowledge graphs with AI-powered formatting and one-click web publishing.",
+      "color": "#8b5a8c",
+      "visible": true,
+      "position": { "x": 100, "y": 100 },
+      "bibl": [],
+      "titleSize": "h1",
+      "textAlign": "center"
+    },
+    {
+      "id": "hero_buttons_002",
+      "label": "Get Started Actions",
+      "type": "button_row",
+      "info": "{\"layout\":\"horizontal\",\"gap\":\"1rem\",\"justifyContent\":\"center\",\"padding\":\"1.5rem\",\"backgroundColor\":\"transparent\",\"buttons\":[{\"id\":\"start_new_graph\",\"text\":\"Start a New Graph\",\"action\":\"navigate\",\"target\":\"/graph-admin\",\"style\":\"primary\",\"backgroundColor\":\"#8b5a8c\",\"color\":\"#fff\",\"padding\":\"0.75rem 1.5rem\",\"borderRadius\":\"6px\",\"fontWeight\":\"600\"},{\"id\":\"graph_canvas\",\"text\":\"🎨 Graph Canvas\",\"action\":\"navigate\",\"target\"/graph-canvas\",\"style\":\"gradient\",\"background\":\"linear-gradient(135deg, #667eea 0%, #764ba2 100%)\",\"color\":\"#fff\",\"padding\":\"0.75rem 1.5rem\",\"borderRadius\":\"6px\",\"fontWeight\":\"600\"},{\"id\":\"see_examples\",\"text\":\"See Example Graphs\",\"action\":\"navigate\",\"target\":\"/graph-portfolio\",\"style\":\"secondary\",\"backgroundColor\":\"#f0e8f0\",\"color\":\"#8b5a8c\",\"border\":\"1px solid #8b5a8c\",\"padding\":\"0.75rem 1.5rem\",\"borderRadius\":\"6px\",\"fontWeight\":\"600\"}]}",
+      "color": "#667eea",
+      "visible": true,
+      "position": { "x": 100, "y": 250 },
+      "bibl": []
+    },
+    {
+      "id": "features_section_003",
+      "label": "Why Vegvisr?",
+      "type": "fulltext",
+      "info": "## Why Vegvisr?\n\n- **AI-Enhanced Formatting:** Instantly transform your notes into stunning, professional graphs.\n- **One-Click Web Publishing:** Share your knowledge as a beautiful website—no coding required.\n- **Custom Branding & Themes:** Make it yours with logos, colors, and custom domains.\n- **Export & Share:** Download, print, or embed your graphs anywhere.",
+      "color": "#2ecc71",
+      "visible": true,
+      "position": { "x": 100, "y": 400 },
+      "bibl": []
+    },
+    {
+      "id": "use_cases_section_004",
+      "label": "Who Uses Vegvisr?",
+      "type": "fulltext",
+      "info": "## Who Uses Vegvisr?\n\n- **Educators:** Visualize complex topics for students.\n- **Researchers:** Organize and share findings.\n- **Teams:** Collaborate on knowledge and insights.\n\nVegvisr serves knowledge workers across academia, research institutions, and collaborative teams who need to transform complex information into clear, shareable visual formats.",
+      "color": "#3498db",
+      "visible": true,
+      "position": { "x": 100, "y": 550 },
+      "bibl": []
+    },
+    {
+      "id": "testimonials_header_005",
+      "label": "What Our Users Say",
+      "type": "title",
+      "info": "Real feedback from educators, researchers, and knowledge professionals using Vegvisr.",
+      "color": "#9b59b6",
+      "visible": true,
+      "position": { "x": 100, "y": 700 },
+      "bibl": [],
+      "titleSize": "h2",
+      "textAlign": "center"
+    },
+    {
+      "id": "testimonial_001_006",
+      "label": "Customer Testimonial - Dr. Jane Smith",
+      "type": "fulltext",
+      "info": "> \"Vegvisr made it so easy to turn my research into a shareable website!\"\n> \n> — **Dr. Jane Smith**, University of Oslo",
+      "color": "#9b59b6",
+      "visible": true,
+      "position": { "x": 50, "y": 850 },
+      "bibl": ["University of Oslo", "Academic Research"],
+      "backgroundColor": "#f8f5f8",
+      "borderLeft": "4px solid #8b5a8c",
+      "padding": "1rem 1.5rem",
+      "fontStyle": "italic"
+    },
+    {
+      "id": "testimonial_002_007",
+      "label": "Customer Testimonial - Prof. Lars Nilsen",
+      "type": "fulltext",
+      "info": "> \"The AI formatting is a game changer for my teaching materials.\"\n>\n> — **Prof. Lars Nilsen**, NTNU",
+      "color": "#9b59b6",
+      "visible": true,
+      "position": { "x": 400, "y": 850 },
+      "bibl": ["NTNU", "Education Technology"],
+      "backgroundColor": "#f8f5f8",
+      "borderLeft": "4px solid #8b5a8c",
+      "padding": "1rem 1.5rem",
+      "fontStyle": "italic"
+    },
+    {
+      "id": "faq_section_008",
+      "label": "Frequently Asked Questions",
+      "type": "fulltext",
+      "info": "## Frequently Asked Questions\n\n**What is Vegvisr?**\n\nVegvisr is a platform that lets you create, visualize, and publish knowledge graphs with professional design and AI-powered enhancements.\n\n**Is it free to use?**\n\nYes! Get started for free. Upgrade for custom branding, more graphs, and advanced features.\n\n**How do I publish my graph?**\n\nWith one click, you can publish your graph as a beautiful, shareable web page.\n\n**Can I use my own branding?**\n\nYes, paid plans let you add your logo, colors, and even use your own domain.\n\n**What file formats can I export?**\n\nYou can export as PDF, PNG, SVG, or share directly to social media platforms.\n\n**Is there API access?**\n\nYes, premium plans include API access for integration with your existing tools and workflows.",
+      "color": "#f39c12",
+      "visible": true,
+      "position": { "x": 100, "y": 1000 },
+      "bibl": ["Product Documentation", "User Support"]
+    },
+    {
+      "id": "cta_footer_009",
+      "label": "Final Call to Action",
+      "type": "button_row",
+      "info": "{\"layout\":\"horizontal\",\"gap\":\"1rem\",\"justifyContent\":\"center\",\"padding\":\"2rem 1rem\",\"backgroundColor\":\"transparent\",\"buttons\":[{\"id\":\"get_started_free\",\"text\":\"Get Started Free\",\"action\":\"navigate\",\"target\":\"/register\",\"style\":\"primary\",\"backgroundColor\":\"#8b5a8c\",\"color\":\"#fff\",\"padding\":\"0.75rem 1.5rem\",\"borderRadius\":\"6px\",\"fontWeight\":\"600\",\"fontSize\":\"1rem\"},{\"id\":\"contact_support\",\"text\":\"Contact Support\",\"action\":\"navigate\",\"target\":\"/contact\",\"style\":\"secondary\",\"backgroundColor\":\"#f0e8f0\",\"color\":\"#8b5a8c\",\"border\":\"1px solid #8b5a8c\",\"padding\":\"0.75rem 1.5rem\",\"borderRadius\":\"6px\",\"fontWeight\":\"600\",\"fontSize\":\"1rem\"}]}",
+      "color": "#8b5a8c",
+      "visible": true,
+      "position": { "x": 100, "y": 1200 },
+      "bibl": []
+    },
+    {
+      "id": "trusted_footer_010",
+      "label": "Trust Statement",
+      "type": "fulltext",
+      "info": "*Trusted by educators, researchers, and creators worldwide.*\n\nJoin thousands of knowledge professionals who use Vegvisr to transform their expertise into beautiful, shareable knowledge graphs.",
+      "color": "#6b4c6b",
+      "visible": true,
+      "position": { "x": 100, "y": 1350 },
+      "bibl": [],
+      "textAlign": "center",
+      "fontStyle": "italic",
+      "marginTop": "2rem"
+    },
+    {
+      "id": "demo_action_011",
+      "label": "Try AI Assistant",
+      "type": "action_test",
+      "info": "Experience Vegvisr's AI capabilities by asking questions about knowledge graphs, data visualization, or content creation. This interactive demo shows how our AI can help enhance your knowledge graphs.",
+      "color": "#ff9500",
+      "visible": true,
+      "position": { "x": 500, "y": 400 },
+      "bibl": ["AI Technology", "Interactive Demo"],
+      "endpoint": "/groktest",
+      "model": "grok-beta",
+      "prompt": "You are a helpful assistant for Vegvisr, a knowledge graph platform. Help users understand how to create better knowledge graphs and visualizations.",
+      "returnType": "fulltext"
+    },
+    {
+      "id": "feature_image_012",
+      "label": "Platform Screenshot",
+      "type": "markdown-image",
+      "info": "Visual demonstration of the Vegvisr platform interface showing graph creation and editing capabilities.",
+      "path": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=600&fit=crop&crop=center",
+      "color": "#34495e",
+      "visible": true,
+      "position": { "x": 500, "y": 550 },
+      "bibl": ["Platform Demo", "User Interface"],
+      "imageWidth": "100%",
+      "borderRadius": "8px",
+      "boxShadow": "0 4px 8px rgba(0,0,0,0.1)"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_001",
+      "from": "hero_title_001",
+      "to": "hero_buttons_002",
+      "label": "call-to-action",
+      "color": "#8b5a8c"
+    },
+    {
+      "id": "edge_002",
+      "from": "hero_buttons_002",
+      "to": "features_section_003",
+      "label": "leads-to",
+      "color": "#2ecc71"
+    },
+    {
+      "id": "edge_003",
+      "from": "features_section_003",
+      "to": "use_cases_section_004",
+      "label": "explains",
+      "color": "#3498db"
+    },
+    {
+      "id": "edge_004",
+      "from": "use_cases_section_004",
+      "to": "testimonials_header_005",
+      "label": "supports",
+      "color": "#9b59b6"
+    },
+    {
+      "id": "edge_005",
+      "from": "testimonials_header_005",
+      "to": "testimonial_001_006",
+      "label": "includes",
+      "color": "#9b59b6"
+    },
+    {
+      "id": "edge_006",
+      "from": "testimonials_header_005",
+      "to": "testimonial_002_007",
+      "label": "includes",
+      "color": "#9b59b6"
+    },
+    {
+      "id": "edge_007",
+      "from": "testimonial_001_006",
+      "to": "faq_section_008",
+      "label": "addresses-concerns",
+      "color": "#f39c12"
+    },
+    {
+      "id": "edge_008",
+      "from": "faq_section_008",
+      "to": "cta_footer_009",
+      "label": "concludes-with",
+      "color": "#8b5a8c"
+    },
+    {
+      "id": "edge_009",
+      "from": "cta_footer_009",
+      "to": "trusted_footer_010",
+      "label": "reinforces",
+      "color": "#6b4c6b"
+    },
+    {
+      "id": "edge_010",
+      "from": "features_section_003",
+      "to": "demo_action_011",
+      "label": "demonstrates",
+      "color": "#ff9500"
+    },
+    {
+      "id": "edge_011",
+      "from": "use_cases_section_004",
+      "to": "feature_image_012",
+      "label": "visualizes",
+      "color": "#34495e"
+    }
+  ]
+}
