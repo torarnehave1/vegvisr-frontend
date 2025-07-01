@@ -34,13 +34,27 @@
       </div>
     </div>
 
+    <!-- Template Sidebar (Admin Only) -->
+    <GNewTemplateSidebar
+      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      @template-added="handleTemplateAdded"
+      @sidebar-toggled="handleSidebarToggled"
+    />
+
     <!-- Full Interface for Logged Users -->
-    <div v-else class="admin-viewer">
+    <div
+      v-if="userStore.loggedIn"
+      class="admin-viewer"
+      :class="{
+        'with-sidebar': userStore.role === 'Superadmin' && !sidebarCollapsed,
+        'sidebar-collapsed': userStore.role === 'Superadmin' && sidebarCollapsed,
+      }"
+    >
       <!-- Header Section -->
       <div class="gnew-header">
         <h1>🧪 GNew Graph Viewer</h1>
         <p class="gnew-subtitle">
-          Next-generation graph viewer • Clean Architecture • Modern Features
+          Next-generation graph viewer • Clean Architecture • Modern Features • Template Sidebar
         </p>
       </div>
 
@@ -888,7 +902,9 @@
             <li>✅ GNewImageNode for images</li>
             <li>✅ GNewVideoNode for YouTube videos</li>
             <li>✅ GNewTitleNode for title content</li>
-            <li>⏳ Chart node components (Phase 3.2)</li>
+            <li>✅ Chart node components (Phase 3.2) - All 6 chart types complete</li>
+            <li>✅ Template Sidebar Infrastructure (Phase 3.3) - Complete with all features</li>
+            <li>⏳ Mermaid Diagram Support (Phase 3.4) - Next phase</li>
           </ul>
         </div>
       </div>
@@ -918,6 +934,7 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useTemplateStore } from '@/stores/templateStore'
 import { useBranding } from '@/composables/useBranding'
 import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
@@ -925,10 +942,12 @@ import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
+import GNewTemplateSidebar from '@/components/GNewTemplateSidebar.vue'
 
 // Store access
 const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
+const templateStore = useTemplateStore()
 
 // Branding composable
 const { currentDomain, isCustomDomain } = useBranding()
@@ -1027,6 +1046,10 @@ const creatorImageError = ref('')
 const showPortfolioImageModal = ref(false)
 const portfolioImages = ref([])
 const loadingPortfolioImages = ref(false)
+
+// Template sidebar state
+const showTemplateSidebar = ref(true)
+const sidebarCollapsed = ref(false)
 
 // Quote suggestions functionality
 const isGeneratingQuotes = ref(false)
@@ -2820,6 +2843,67 @@ const hideAutocomplete = () => {
   }, 150)
 }
 
+// Template Sidebar handlers
+const handleTemplateAdded = async ({ template, node }) => {
+  console.log('=== Template Added Event ===')
+  console.log('Template:', template)
+  console.log('Node:', node)
+
+  try {
+    // Add the new node to the graph data
+    graphData.value.nodes.push(node)
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: graphData.value,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with new template node.')
+    }
+
+    await response.json()
+
+    // Update the knowledge graph store
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    // Show success message
+    statusMessage.value = `✅ ${template.label} added successfully!`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+    console.log('Template node saved and added to graph')
+  } catch (error) {
+    console.error('Error adding template node:', error)
+    // Remove the node from local state on error
+    const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === node.id)
+    if (nodeIndex > -1) {
+      graphData.value.nodes.splice(nodeIndex, 1)
+    }
+
+    statusMessage.value = 'Failed to add template node. Please try again.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+  }
+}
+
+const handleSidebarToggled = ({ collapsed }) => {
+  console.log('=== Sidebar Toggled ===')
+  console.log('Collapsed:', collapsed)
+  sidebarCollapsed.value = collapsed
+}
+
 // Lifecycle
 onMounted(() => {
   console.log('GNewViewer mounted')
@@ -2876,6 +2960,23 @@ onMounted(() => {
 /* Admin Viewer Styles - Full Interface */
 .admin-viewer {
   /* Inherits from .gnew-viewer styles */
+  transition: margin-left 0.3s ease;
+}
+
+.admin-viewer.with-sidebar {
+  margin-left: 300px; /* Width of expanded sidebar + padding */
+}
+
+/* Sidebar collapsed state adjustment */
+.admin-viewer.with-sidebar.sidebar-collapsed {
+  margin-left: 80px; /* Width of collapsed sidebar + padding */
+}
+
+/* Mobile responsive sidebar layout */
+@media (max-width: 767px) {
+  .admin-viewer.with-sidebar {
+    margin-left: 0; /* No margin on mobile */
+  }
 }
 
 .gnew-header {

@@ -170,6 +170,12 @@ const router = createRouter({
       meta: { layout: null }, // No layout for clean testing
     },
     {
+      path: '/whisper-test',
+      name: 'whisper-test',
+      component: () => import('../views/WhisperTestView.vue'),
+      meta: { layout: null }, // No layout for clean testing
+    },
+    {
       path: '/sandbox',
       name: 'sandbox',
       component: SandboxWorkspace,

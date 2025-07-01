@@ -49,6 +49,7 @@ Follow complete VEGVISR Protocol:
 - **NEVER** make any code edits before the user approves the plan
 - Always explain what you intend to do and get explicit approval first
 - If user says "DO not change code before i approve ok" - respect this completely
+- **CRITICAL: ALWAYS STOP FOR VALIDATION** - Even if the fix seems obvious, simple, or the user directly requests a specific change (like "use auto-detect" or "fix the bug"), you MUST still present your specific implementation plan and wait for explicit approval ("yes", "proceed", "approved"). Never assume direct requests are approval to implement.
 
 ### 2. **Rollback Versioning System**
 
