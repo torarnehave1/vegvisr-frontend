@@ -21,6 +21,7 @@ import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
 import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
 import GNewButtonRowNode from './GNewNodes/GNewButtonRowNode.vue'
 import GNewActionTestNode from './GNewNodes/GNewActionTestNode.vue'
+import GNewStripeButtonNode from './GNewNodes/GNewStripeButtonNode.vue'
 // Phase 3.2 Chart Components
 import GNewChartNode from './GNewNodes/GNewChartNode.vue'
 import GNewPieChartNode from './GNewNodes/GNewPieChartNode.vue'
@@ -28,6 +29,7 @@ import GNewLineChartNode from './GNewNodes/GNewLineChartNode.vue'
 import GNewTimelineNode from './GNewNodes/GNewTimelineNode.vue'
 import GNewBubbleChartNode from './GNewNodes/GNewBubbleChartNode.vue'
 import GNewSWOTNode from './GNewNodes/GNewSWOTNode.vue'
+import GNewWhisperNode from './GNewNodes/GNewWhisperNode.vue'
 
 // Props
 const props = defineProps({
@@ -60,6 +62,8 @@ const nodeComponents = {
   button_row: GNewButtonRowNode,
   // AI Action node
   action_test: GNewActionTestNode,
+  // Stripe Button (NEW)
+  'stripe-button': GNewStripeButtonNode,
   // Chart types (Phase 3.2 ✅ COMPLETE)
   chart: GNewChartNode,
   piechart: GNewPieChartNode,
@@ -67,6 +71,8 @@ const nodeComponents = {
   timeline: GNewTimelineNode,
   bubblechart: GNewBubbleChartNode,
   swot: GNewSWOTNode,
+  // Audio transcription
+  'audio-transcription': GNewWhisperNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,

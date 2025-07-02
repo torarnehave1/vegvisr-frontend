@@ -85,9 +85,11 @@ GNewNodes/ (Type-Specific Components)
 ├── GNewTitleNode.vue        (title)
 ├── GNewActionTestNode.vue   (action_test - AI endpoints)
 ├── GNewButtonRowNode.vue    (button_row)
+├── GNewStripeButtonNode.vue (stripe-button - Payment processing) ✅
 ├── GNewImageQuoteNode.vue   (imagequote)
+├── GNewWhisperNode.vue      (audio-transcription - AI audio transcription) ✅ NEW
 ├── [Chart Components] (Phase 3.2 ✅ COMPLETE)
-└── [GNewMermaidNode.vue] (Phase 3.3 - mermaid-diagram support)
+└── [GNewMermaidNode.vue] (Phase 3.4 - mermaid-diagram support)
 ```
 
 ### Data Flow
@@ -106,6 +108,8 @@ const nodeComponents = {
   'youtube-video': GNewVideoNode,
   title: GNewTitleNode,
   action_test: GNewActionTestNode,
+  button_row: GNewButtonRowNode,
+  'stripe-button': GNewStripeButtonNode,
   imagequote: GNewImageQuoteNode,
   // Chart types (Phase 3.2 ✅ COMPLETE)
   chart: GNewChartNode,
@@ -114,7 +118,9 @@ const nodeComponents = {
   timeline: GNewTimelineNode,
   bubblechart: GNewBubbleChartNode,
   swot: GNewSWOTNode,
-  // Mermaid diagrams (Phase 3.3 ⏳ PENDING)
+  // Audio transcription (✅ COMPLETE)
+  'audio-transcription': GNewWhisperNode,
+  // Mermaid diagrams (Phase 3.4 ⏳ PENDING)
   'mermaid-diagram': GNewMermaidNode, // ⚠️ MISSING - defaults to GNewDefaultNode
   // Fallback
   [nodeType]: nodeComponents[nodeType] || nodeComponents['default'],
@@ -409,6 +415,49 @@ const nodeComponents = {
 - **Mobile Responsive** - Collapsible design with mobile-optimized interactions
 - **Template Preview System** - Visual representations of each node type
 
+### Phase 3.3b: Audio Transcription Integration ✅ COMPLETE
+
+**Advanced Interactive Node:** Audio transcription capability integrated seamlessly into the GNew template system, leveraging existing whisper-worker infrastructure.
+
+**GNewWhisperNode.vue Implementation:**
+
+- **Dual AI Service Support** - Cloudflare Workers AI (`@cf/openai/whisper`) and OpenAI Direct API integration
+- **Multiple OpenAI Models** - whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe with advanced configuration
+- **Audio Input Methods** - File upload (drag & drop) and browser microphone recording
+- **Professional UI** - Modern gradient design with real-time progress indicators
+- **Automatic Node Creation** - Transcribed text automatically creates fulltext nodes in the knowledge graph
+- **R2 Storage Integration** - Leverages existing whisper-worker upload and transcription workflow
+
+**Key Features:**
+
+- Service selection between Cloudflare Workers AI and OpenAI API
+- Language and temperature controls for OpenAI models
+- Real-time microphone recording with MediaRecorder API
+- Audio preview with file format detection
+- Progress tracking for chunked transcription
+- Error handling and success feedback
+- Mobile responsive design
+
+### Phase 3.3c: Stripe Payment Integration ✅ COMPLETE
+
+**E-commerce Node:** Stripe payment processing capability integrated into the GNew template system for monetization and payment collection.
+
+**GNewStripeButtonNode.vue Implementation:**
+
+- **Stripe Embedded Checkout** - Direct integration with Stripe's secure payment processing
+- **Buy Button Configuration** - Customizable buy button ID and publishable key settings
+- **Professional Payment UI** - Clean, branded payment interface matching Stripe's design standards
+- **Secure Transaction Processing** - Leverages Stripe's PCI-compliant payment infrastructure
+- **Template Integration** - Seamlessly integrated into Interactive template category
+
+**Key Features:**
+
+- Configurable Stripe buy button with custom product IDs
+- Secure publishable key management for live payment processing
+- Professional payment UI with Stripe branding
+- Template-based configuration for easy deployment
+- Mobile responsive payment forms
+
 **Template Integration Framework:**
 
 ```javascript
@@ -423,6 +472,13 @@ const nodeTemplates = {
     { id: 'chart', icon: '📊', label: 'Bar Chart', template: {...} },
     { id: 'piechart', icon: '🥧', label: 'Pie Chart', template: {...} },
     // ... all current chart types
+  ],
+  'Interactive': [
+    { id: 'button-row', icon: '🎮', label: 'Button Row', template: {...} },
+    { id: 'stripe-button', icon: '💳', label: 'Stripe Button', template: {...} },
+    { id: 'ai-test', icon: '🤖', label: 'AI Test Node', template: {...} },
+    { id: 'audio-transcription', icon: '🎤', label: 'Audio Transcription', template: {...} },
+    // ... other interactive types
   ]
   // ... additional categories
 }
@@ -446,16 +502,17 @@ const nodeTemplates = {
 
 **Success Metrics:**
 
-- All 12+ current node types accessible via sidebar
+- All 16+ current node types accessible via sidebar (including audio transcription and Stripe payments)
 - Mobile responsive collapse/expand functionality
 - Sub-300ms template insertion performance
 - Foundation ready for Phase 3.4 template additions
+- Advanced interactive nodes (AI actions, audio transcription, payment processing) fully integrated
 
 ### Phase 3.4: Core Visualization Support ⏳ PRIORITY
 
 **Mermaid Diagram Integration** (Critical missing functionality)
 
-With the Template Sidebar infrastructure in place, Phase 3.4 focuses on adding advanced visualization capabilities that plug directly into the established template system.
+With the Template Sidebar infrastructure and audio transcription capabilities in place, Phase 3.4 focuses on adding advanced visualization capabilities that plug directly into the established template system.
 
 **Implementation Components:**
 
@@ -596,32 +653,34 @@ These gaps represent the most significant barriers to production readiness. The 
 
 ### Feature Compatibility Matrix
 
-| Feature                     | GraphViewer | GNewViewer | Status    | Details                                  |
-| --------------------------- | ----------- | ---------- | --------- | ---------------------------------------- |
-| Basic Node Display          | ✅          | ✅         | Complete  | All node types render correctly          |
-| Node Editing                | ✅          | ✅         | Complete  | Edit, delete, copy functionality         |
-| AI Integration              | ✅          | ✅         | Complete  | AI node generation working               |
-| Image Nodes                 | ✅          | ✅         | Complete  | Markdown-image, background support       |
-| Video Nodes                 | ✅          | ✅         | Complete  | YouTube video embedding                  |
-| Chart Nodes                 | ✅          | ✅         | Complete  | All 6 chart types implemented            |
-| IMAGEQUOTE System           | ✅          | ✅         | Complete  | Image quote generation and export        |
-| **Template Sidebar**        | ❌          | ✅         | Complete  | Visual template browser and insertion    |
-| **Mermaid Diagrams**        | ✅          | ❌         | Phase 3.4 | Flowcharts, Gantt, Quadrant, Timeline    |
-| **Export Functions**        |             |            |           |                                          |
-| - Print Functionality       | ✅          | ❌         | Phase 3.5 | `window.print()` integration             |
-| - PDF Export                | ✅          | ❌         | Phase 3.5 | html2pdf with advanced options           |
-| - AI Share Modal            | ✅          | ❌         | Phase 3.5 | Cloudflare Worker content generation     |
-| - Social Media Sharing      | ✅          | ❌         | Phase 3.5 | Instagram, LinkedIn, Twitter, Facebook   |
-| **Admin Functions**         |             |            |           |                                          |
-| - Enhanced AI Node          | ✅          | ❌         | Phase 3.5 | Advanced AI node generation              |
-| - AI Image Generation       | ✅          | ❌         | Phase 3.5 | AI-powered image creation                |
-| - Mystmkra.io Integration   | ✅          | ❌         | Phase 3.5 | External platform document saving        |
-| - RAG Sandbox               | ✅          | ❌         | Phase 3.5 | Retrieval-Augmented Generation workspace |
-| **Node Operations**         |             |            |           |                                          |
-| - Copy to Other Graphs      | ✅          | ❌         | Phase 3.5 | Cross-graph node duplication             |
-| - Node Reordering           | ✅          | ❌         | Phase 3.5 | Move up/down, drag-drop, bulk reorder    |
-| - Template Formatting       | ✅          | ❌         | Phase 3.5 | Quick format and template selection      |
-| - Google Photos Integration | ✅          | ❌         | Phase 3.5 | Direct image replacement workflow        |
+| Feature                     | GraphViewer | GNewViewer | Status    | Details                                            |
+| --------------------------- | ----------- | ---------- | --------- | -------------------------------------------------- |
+| Basic Node Display          | ✅          | ✅         | Complete  | All node types render correctly                    |
+| Node Editing                | ✅          | ✅         | Complete  | Edit, delete, copy functionality                   |
+| AI Integration              | ✅          | ✅         | Complete  | AI node generation working                         |
+| Image Nodes                 | ✅          | ✅         | Complete  | Markdown-image, background support                 |
+| Video Nodes                 | ✅          | ✅         | Complete  | YouTube video embedding                            |
+| Chart Nodes                 | ✅          | ✅         | Complete  | All 6 chart types implemented                      |
+| IMAGEQUOTE System           | ✅          | ✅         | Complete  | Image quote generation and export                  |
+| **Template Sidebar**        | ❌          | ✅         | Complete  | Visual template browser and insertion              |
+| **Audio Transcription**     | ❌          | ✅         | Complete  | AI-powered audio-to-text with dual service support |
+| **Stripe Payment**          | ❌          | ✅         | Complete  | Secure payment processing with Stripe integration  |
+| **Mermaid Diagrams**        | ✅          | ❌         | Phase 3.4 | Flowcharts, Gantt, Quadrant, Timeline              |
+| **Export Functions**        |             |            |           |                                                    |
+| - Print Functionality       | ✅          | ❌         | Phase 3.5 | `window.print()` integration                       |
+| - PDF Export                | ✅          | ❌         | Phase 3.5 | html2pdf with advanced options                     |
+| - AI Share Modal            | ✅          | ❌         | Phase 3.5 | Cloudflare Worker content generation               |
+| - Social Media Sharing      | ✅          | ❌         | Phase 3.5 | Instagram, LinkedIn, Twitter, Facebook             |
+| **Admin Functions**         |             |            |           |                                                    |
+| - Enhanced AI Node          | ✅          | ❌         | Phase 3.5 | Advanced AI node generation                        |
+| - AI Image Generation       | ✅          | ❌         | Phase 3.5 | AI-powered image creation                          |
+| - Mystmkra.io Integration   | ✅          | ❌         | Phase 3.5 | External platform document saving                  |
+| - RAG Sandbox               | ✅          | ❌         | Phase 3.5 | Retrieval-Augmented Generation workspace           |
+| **Node Operations**         |             |            |           |                                                    |
+| - Copy to Other Graphs      | ✅          | ❌         | Phase 3.5 | Cross-graph node duplication                       |
+| - Node Reordering           | ✅          | ❌         | Phase 3.5 | Move up/down, drag-drop, bulk reorder              |
+| - Template Formatting       | ✅          | ❌         | Phase 3.5 | Quick format and template selection                |
+| - Google Photos Integration | ✅          | ❌         | Phase 3.5 | Direct image replacement workflow                  |
 
 ### Risk Mitigation
 
@@ -761,4 +820,4 @@ The transition from GraphViewer to GNewViewer is not just a technical migration�
 
 **Document Maintenance:** This guide should be updated whenever significant architectural changes are made to the GNew system. All developers working on the system should be familiar with these patterns and guidelines.
 
-**Last Updated:** January 20, 2025 - Version 1.4: **PHASE 3.3 COMPLETE** - Template Sidebar Infrastructure fully implemented with comprehensive template store, collapsible sidebar component, and seamless GNewViewer integration. Added 14 node templates across 4 categories (Content Nodes, Charts & Data, Visual Elements, Interactive) with search/filter functionality, mobile responsive design, and click-to-add template insertion. **SIDEBAR POSITIONING OPTIMIZED** - Updated positioning to screen-edge fixed positioning with proper header clearance (140px top offset), ensuring sidebar appears at left screen edge starting below complete site header/navigation/logo without covering any global UI elements. Updated Feature Compatibility Matrix to reflect Phase 3.3 completion. Phase 3.4 (Mermaid Diagrams) is now the priority focus, with the sidebar infrastructure ready to seamlessly integrate new diagram templates.
+**Last Updated:** January 20, 2025 - Version 1.6: **PHASE 3.3c COMPLETE** - Stripe Payment Integration documented. Added comprehensive documentation for `GNewStripeButtonNode.vue` component with secure Stripe embedded checkout, buy button configuration, and professional payment UI. Also completed documentation for Phase 3.3b Audio Transcription Integration with `GNewWhisperNode.vue` component featuring dual AI service support (Cloudflare Workers AI and OpenAI Direct API), multiple model selection, file upload and microphone recording capabilities. Updated Feature Compatibility Matrix and component hierarchy documentation. **INTERACTIVE NODES FULLY EXPANDED** - Template system now supports 16+ node types including advanced AI-powered transcription and secure payment processing functionality. Phase 3.4 (Mermaid Diagrams) remains the next priority focus.

@@ -3,6 +3,8 @@
 Basic Prompt:
 Follow complete VEGVISR Protocol:
 
+DO NOT CHANGE ANY CODE BEFORE I APPROVE
+
 - V: Examine the code
 - E: Report findings
 - G: Propose the plan

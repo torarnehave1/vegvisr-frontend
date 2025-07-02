@@ -149,6 +149,7 @@ const popularTemplates = computed(() => {
     templateStore.getTemplateById('image-markdown'),
     templateStore.getTemplateById('button-row'),
     templateStore.getTemplateById('ai-test'),
+    templateStore.getTemplateById('audio-transcription'),
   ].filter(Boolean)
 })
 
@@ -240,9 +241,9 @@ onUnmounted(() => {
 <style scoped>
 .gnew-template-sidebar {
   position: fixed;
-  top: 250px; /* Start below complete site header including navigation */
+  top: 0px; /* Align with GNewViewer content area */
   left: 0; /* At actual screen edge */
-  height: calc(100vh - 140px); /* Full height minus header area */
+  height: calc(100vh - 60px); /* Adjusted for new positioning */
   min-height: 500px;
   background: #ffffff;
   border-right: 1px solid #e0e0e0;
@@ -528,8 +529,8 @@ onUnmounted(() => {
   .gnew-template-sidebar {
     width: 100%;
     max-width: 320px;
-    height: calc(100vh - 140px); /* Consistent with desktop */
-    top: 250px; /* Ensure mobile matches desktop positioning */
+    height: calc(100vh - 160px); /* Consistent with desktop */
+    top: 0px; /* Align with desktop positioning */
   }
 
   .sidebar-collapsed {
