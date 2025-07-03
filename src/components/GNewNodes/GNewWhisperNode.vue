@@ -17,25 +17,14 @@
       </div>
     </div>
 
-    <!-- Service Selection Section -->
+    <!-- OpenAI Configuration Section -->
     <div class="control-section service-section">
       <h6 class="section-title">
         <span class="section-icon">🤖</span>
-        Transcription Service
+        OpenAI Configuration
       </h6>
-      <div class="service-dropdown">
-        <select
-          v-model="selectedService"
-          @change="updateService"
-          class="form-control service-select"
-        >
-          <option value="cloudflare">🔥 Cloudflare Workers AI (@cf/openai/whisper)</option>
-          <option value="openai">🤖 OpenAI Direct API (Multiple Models)</option>
-        </select>
-      </div>
 
-      <!-- OpenAI Model Selection -->
-      <div v-if="selectedService === 'openai'" class="openai-options">
+      <div class="openai-options">
         <div class="option-group">
           <label>Model:</label>
           <select v-model="openaiModel" class="option-select">
@@ -66,6 +55,10 @@
             class="temperature-slider"
           />
           <span class="temperature-value">{{ openaiTemperature }}</span>
+          <div class="temperature-hint">
+            Controls transcription focus: 0 = most accurate, 1 = most creative. Recommended: 0-0.3
+            for accuracy.
+          </div>
         </div>
       </div>
     </div>
@@ -147,14 +140,44 @@
       </h6>
 
       <div class="transcription-options">
-        <label class="option-checkbox">
-          <input type="checkbox" v-model="createFulltextNode" />
-          <span class="option-label">📄 Create fulltext node with transcript</span>
-        </label>
-        <label class="option-checkbox">
-          <input type="checkbox" v-model="saveToR2" />
-          <span class="option-label">💾 Keep audio file in R2 storage</span>
-        </label>
+        <div class="node-type-selection">
+          <label class="option-label-header">🎯 Node Type for Transcript:</label>
+          <div class="node-type-options">
+            <label
+              v-for="nodeType in nodeTypeOptions"
+              :key="nodeType.type"
+              class="node-type-option"
+              :class="{ selected: selectedNodeType === nodeType.type }"
+            >
+              <input
+                type="radio"
+                :value="nodeType.type"
+                v-model="selectedNodeType"
+                @change="saveNodeTypePreference"
+              />
+              <div class="node-type-info">
+                <div class="node-type-header">
+                  <span class="node-type-icon">{{ nodeType.icon }}</span>
+                  <span class="node-type-title">{{ nodeType.title }}</span>
+                </div>
+                <div class="node-type-description">{{ nodeType.description }}</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="additional-options">
+          <label class="option-checkbox">
+            <input type="checkbox" v-model="createNodeFromTranscription" />
+            <span class="option-label"
+              >📝 Create {{ selectedNodeTypeInfo.title.toLowerCase() }} node with transcript</span
+            >
+          </label>
+          <label class="option-checkbox">
+            <input type="checkbox" v-model="saveToR2" />
+            <span class="option-label">💾 Keep audio file in R2 storage</span>
+          </label>
+        </div>
       </div>
 
       <button
@@ -228,6 +251,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 // Props
 const props = defineProps({
@@ -248,8 +272,10 @@ const props = defineProps({
 // Emits
 const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
+// Store access
+const userStore = useUserStore()
+
 // Reactive data
-const selectedService = ref('cloudflare') // Default to Cloudflare Workers AI
 const openaiModel = ref('whisper-1')
 const openaiLanguage = ref('auto')
 const openaiTemperature = ref(0)
@@ -268,7 +294,54 @@ const loadingMessage = ref('')
 const isChunking = ref(false)
 const chunkProgress = ref({ current: 0, total: 0 })
 
-const createFulltextNode = ref(true)
+// Node type configuration options
+const nodeTypeOptions = ref([
+  {
+    type: 'fulltext',
+    icon: '📄',
+    title: 'Fulltext',
+    description: 'Rich text content with formatting support',
+    color: '#f9f9f9',
+    useFormatting: false,
+  },
+  {
+    type: 'notes',
+    icon: '📋',
+    title: 'Notes',
+    description: 'Simple note content for observations and insights',
+    color: '#f4e2d8',
+    useFormatting: false,
+  },
+  {
+    type: 'worknote',
+    icon: '🗒️',
+    title: 'Work Note',
+    description: 'Structured work notes with attribution and date',
+    color: '#FFD580',
+    useFormatting: true,
+  },
+  {
+    type: 'action_test',
+    icon: '🤖',
+    title: 'Action Test',
+    description: 'AI action node that can trigger further processing',
+    color: '#ffcc00',
+    useFormatting: false,
+  },
+])
+
+// Load user preference from localStorage or default to 'fulltext'
+const loadNodeTypePreference = () => {
+  try {
+    return localStorage.getItem('whisper-node-type-preference') || 'fulltext'
+  } catch (error) {
+    console.log('Could not load node type preference from localStorage:', error)
+    return 'fulltext'
+  }
+}
+
+const selectedNodeType = ref(loadNodeTypePreference())
+const createNodeFromTranscription = ref(true)
 const saveToR2 = ref(false)
 
 const transcriptionResult = ref(null)
@@ -283,6 +356,13 @@ const audioPreviewUrl = computed(() => {
     return URL.createObjectURL(recordedBlob.value)
   }
   return ''
+})
+
+const selectedNodeTypeInfo = computed(() => {
+  return (
+    nodeTypeOptions.value.find((option) => option.type === selectedNodeType.value) ||
+    nodeTypeOptions.value[0]
+  )
 })
 
 // Whisper Worker endpoints
@@ -313,8 +393,13 @@ onUnmounted(() => {
 })
 
 // Methods
-const updateService = () => {
-  console.log('Service changed to:', selectedService.value)
+const saveNodeTypePreference = () => {
+  try {
+    localStorage.setItem('whisper-node-type-preference', selectedNodeType.value)
+    console.log('Node type preference saved:', selectedNodeType.value)
+  } catch (error) {
+    console.log('Could not save node type preference to localStorage:', error)
+  }
 }
 
 const handleFileSelect = (event) => {
@@ -418,16 +503,13 @@ const transcribeAudio = async () => {
     const uploadResult = await uploadResponse.json()
     console.log('Upload result:', uploadResult)
 
-    // Step 2: Transcribe from R2 URL
+    // Step 2: Transcribe from R2 URL using OpenAI
     loadingMessage.value = 'Starting transcription...'
 
-    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe?url=${encodeURIComponent(uploadResult.audioUrl)}&service=${selectedService.value}`
+    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe-openai?url=${encodeURIComponent(uploadResult.audioUrl)}&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
 
-    if (selectedService.value === 'openai') {
-      transcribeUrl += `&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
-      if (openaiLanguage.value !== 'auto') {
-        transcribeUrl += `&language=${openaiLanguage.value}`
-      }
+    if (openaiLanguage.value !== 'auto') {
+      transcribeUrl += `&language=${openaiLanguage.value}`
     }
 
     const transcribeResponse = await fetch(transcribeUrl)
@@ -442,12 +524,12 @@ const transcribeAudio = async () => {
     transcriptionResult.value = result
     loadingMessage.value = 'Creating nodes...'
 
-    // Create fulltext node if requested
-    if (createFulltextNode.value && result.text) {
+    // Create node if requested
+    if (createNodeFromTranscription.value && result.text) {
       await createTranscriptionNode(result.text, result)
     }
 
-    successMessage.value = `Audio transcribed successfully using ${selectedService.value === 'cloudflare' ? 'Cloudflare Workers AI' : 'OpenAI API'}`
+    successMessage.value = `Audio transcribed successfully using OpenAI API`
   } catch (err) {
     console.error('Transcription Error:', err)
     error.value = err.message || 'Failed to transcribe audio'
@@ -459,12 +541,29 @@ const transcribeAudio = async () => {
 }
 
 const createTranscriptionNode = async (transcriptText, apiResult) => {
+  const nodeTypeInfo = selectedNodeTypeInfo.value
+  let formattedContent = transcriptText
+
+  // Apply special formatting based on node type
+  if (nodeTypeInfo.useFormatting && nodeTypeInfo.type === 'worknote') {
+    const currentDate = new Date().toISOString().split('T')[0]
+    const filename = selectedFile.value?.name || 'Recording'
+
+    // Extract username from user's email, fallback to 'user' if not available
+    let username = 'user'
+    if (userStore.email) {
+      username = userStore.email.split('@')[0]
+    }
+
+    formattedContent = `${currentDate}: @${username} - Audio transcription from ${filename}\n\n${transcriptText}`
+  }
+
   const newNode = {
     id: `transcript_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    label: `Transcript: ${selectedFile.value?.name || 'Recording'}`,
-    info: transcriptText,
-    type: 'fulltext',
-    color: '#e8f5e8',
+    label: `${nodeTypeInfo.title}: ${selectedFile.value?.name || 'Recording'}`,
+    info: formattedContent,
+    type: nodeTypeInfo.type,
+    color: nodeTypeInfo.color,
     visible: true,
     x: (props.node.x || 0) + 250,
     y: (props.node.y || 0) + 50,
@@ -701,6 +800,12 @@ const formatFileSize = (bytes) => {
   color: #6c757d;
 }
 
+.temperature-hint {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-top: 4px;
+}
+
 .recording-controls {
   display: flex;
   gap: 12px;
@@ -759,6 +864,87 @@ const formatFileSize = (bytes) => {
 
 .transcription-options {
   margin-bottom: 16px;
+}
+
+.node-type-selection {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.option-label-header {
+  display: block;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+}
+
+.node-type-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.node-type-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: white;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.node-type-option:hover {
+  border-color: #6f42c1;
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.1);
+}
+
+.node-type-option.selected {
+  border-color: #6f42c1;
+  background: linear-gradient(135deg, #f8f4ff 0%, #fff 100%);
+  box-shadow: 0 2px 8px rgba(111, 66, 193, 0.15);
+}
+
+.node-type-option input[type='radio'] {
+  margin: 4px 0 0 0;
+  accent-color: #6f42c1;
+}
+
+.node-type-info {
+  flex: 1;
+}
+
+.node-type-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.node-type-icon {
+  font-size: 1.1rem;
+}
+
+.node-type-title {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.95rem;
+}
+
+.node-type-description {
+  font-size: 0.85rem;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.additional-options {
+  margin-top: 16px;
 }
 
 .option-checkbox {

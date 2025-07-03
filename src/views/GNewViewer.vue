@@ -24,6 +24,7 @@
             :showControls="false"
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
+            @node-created="handleNodeCreated"
           />
         </div>
       </div>
@@ -846,6 +847,7 @@
               :showControls="userStore.loggedIn && userStore.role === 'Superadmin'"
               @node-updated="handleNodeUpdated"
               @node-deleted="handleNodeDeleted"
+              @node-created="handleNodeCreated"
             />
           </div>
         </div>
@@ -2369,10 +2371,151 @@ const handleNodeUpdated = (updatedNode) => {
   }
 }
 
-const handleNodeDeleted = (nodeId) => {
-  // TODO: Implement node deletion
-  // For now, just log the event
-  // Future: Call API to delete node and refresh graph
+const handleNodeDeleted = async (nodeId) => {
+  console.log('=== GNew: Node Deletion ===')
+  console.log('Node ID to delete:', nodeId)
+
+  try {
+    // Find the node to delete
+    const nodeToDelete = graphData.value.nodes.find((node) => node.id === nodeId)
+    if (!nodeToDelete) {
+      throw new Error('Node not found in graph data')
+    }
+
+    const nodeDisplayName = getNodeDisplayName(nodeToDelete)
+    console.log('Node to delete:', nodeToDelete)
+
+    // Remove the node from graphData
+    const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === nodeId)
+    if (nodeIndex === -1) {
+      throw new Error('Node not found in graph data')
+    }
+
+    // Remove from local data
+    graphData.value.nodes.splice(nodeIndex, 1)
+
+    // Reassign order values to maintain sequence
+    const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+    visibleNodes.forEach((n, index) => {
+      n.order = index + 1
+    })
+
+    console.log('Updated graph data after deletion:', graphData.value)
+
+    // Create updated graph data
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: [...graphData.value.nodes],
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save graph after node deletion.')
+    }
+
+    await response.json()
+
+    // Update the store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Update local state
+    graphData.value = updatedGraphData
+
+    // Show success message
+    statusMessage.value = `✅ Node "${nodeDisplayName}" deleted successfully!`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+    console.log('GNew: Node deleted successfully')
+
+    // Reattach image change listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+  } catch (error) {
+    console.error('GNew: Error deleting node:', error)
+    statusMessage.value = `❌ Failed to delete node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+
+    // Reload the graph data to ensure consistency
+    await fetchGraphData()
+  }
+}
+
+const handleNodeCreated = async (newNode) => {
+  console.log('=== GNew: Node Created ===')
+  console.log('New node data:', newNode)
+
+  try {
+    // Add the new node to the local graph data
+    graphData.value.nodes.push(newNode)
+
+    // Create updated graph data
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: [...graphData.value.nodes],
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph with new node.')
+    }
+
+    await response.json()
+
+    // Update store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Update local state
+    graphData.value = updatedGraphData
+
+    statusMessage.value = `✅ New node "${newNode.label}" created successfully!`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+    console.log('GNew: New node saved successfully')
+
+    // Reattach image change listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+  } catch (error) {
+    console.error('GNew: Error creating new node:', error)
+    statusMessage.value = '❌ Failed to create new node. Please try again.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
 }
 
 // Watchers
@@ -2400,6 +2543,14 @@ watch(
 // Helper function to escape special regex characters
 const escapeRegExp = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Helper function to get node display name for dialogs
+const getNodeDisplayName = (node) => {
+  if (node.type === 'title') {
+    return node.label || 'Untitled'
+  }
+  return node.label || `${node.type} node`
 }
 
 // Image editing modal functions
