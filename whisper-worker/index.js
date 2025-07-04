@@ -142,7 +142,7 @@ const handleUpload = async (request, env) => {
       ? `temp/${uploadId}/chunk-${chunkIndex}.part`
       : `audio/${timestamp}-${fileName}`
 
-    // Upload to R2
+    // Upload to R2 - back to working direct file method
     const audioBuffer = await request.arrayBuffer()
     await env.WHISPER_BUCKET.put(r2Key, audioBuffer, {
       httpMetadata: {

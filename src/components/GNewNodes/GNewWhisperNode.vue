@@ -233,6 +233,33 @@
           {{ transcriptionResult.metadata?.processingTime || 'N/A' }}
         </small>
       </div>
+
+      <!-- Portfolio Integration - Optional feature -->
+      <div
+        v-if="transcriptionResult && !portfolioSaved && userStore.email"
+        class="portfolio-section"
+      >
+        <div class="portfolio-controls">
+          <button
+            @click="saveToPortfolio"
+            :disabled="savingToPortfolio"
+            class="btn btn-outline-primary portfolio-btn"
+          >
+            <span v-if="savingToPortfolio" class="spinner-border spinner-border-sm me-2"></span>
+            <span class="btn-icon">📁</span>
+            {{ savingToPortfolio ? 'Saving...' : 'Save to Portfolio' }}
+          </button>
+          <div class="portfolio-hint">
+            Save this recording and transcription to your audio portfolio
+          </div>
+        </div>
+      </div>
+
+      <!-- Portfolio Success -->
+      <div v-if="portfolioSaved" class="alert alert-success portfolio-success">
+        <strong>📁 Saved to Portfolio:</strong> Recording saved successfully!
+        <small class="text-muted d-block">Recording ID: {{ portfolioRecordingId }}</small>
+      </div>
     </div>
 
     <!-- Error Display -->
@@ -277,7 +304,7 @@ const userStore = useUserStore()
 
 // Reactive data
 const openaiModel = ref('whisper-1')
-const openaiLanguage = ref('auto')
+const openaiLanguage = ref('no')
 const openaiTemperature = ref(0)
 
 const selectedFile = ref(null)
@@ -347,6 +374,11 @@ const saveToR2 = ref(false)
 const transcriptionResult = ref(null)
 const error = ref('')
 const successMessage = ref('')
+
+// Portfolio functionality
+const savingToPortfolio = ref(false)
+const portfolioSaved = ref(false)
+const portfolioRecordingId = ref('')
 
 // Computed properties
 const audioPreviewUrl = computed(() => {
@@ -478,19 +510,26 @@ const transcribeAudio = async () => {
   }
 
   transcribing.value = true
-  loadingMessage.value = 'Uploading audio...'
   error.value = ''
   successMessage.value = ''
+  transcriptionResult.value = null
+
+  // Reset portfolio state for new transcription
+  portfolioSaved.value = false
+  portfolioRecordingId.value = ''
 
   try {
+    console.log('Starting transcription process...')
+    loadingMessage.value = 'Preparing audio file...'
+
     const audioBlob = selectedFile.value || recordedBlob.value
     const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
-    // Step 1: Upload audio to R2
-    loadingMessage.value = 'Uploading audio to storage...'
+    // Step 1: Upload to R2 using working direct file method
     const uploadResponse = await fetch(`${WHISPER_BASE_URL}/upload`, {
       method: 'POST',
       headers: {
+        'Content-Type': audioBlob.type || 'audio/wav',
         'X-File-Name': fileName,
       },
       body: audioBlob,
@@ -506,7 +545,7 @@ const transcribeAudio = async () => {
     // Step 2: Transcribe from R2 URL using OpenAI
     loadingMessage.value = 'Starting transcription...'
 
-    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe-openai?url=${encodeURIComponent(uploadResult.audioUrl)}&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
+    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe?url=${encodeURIComponent(uploadResult.audioUrl)}&service=openai&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
 
     if (openaiLanguage.value !== 'auto') {
       transcribeUrl += `&language=${openaiLanguage.value}`
@@ -520,6 +559,8 @@ const transcribeAudio = async () => {
 
     const result = await transcribeResponse.json()
     console.log('Transcription result:', result)
+
+    // No metadata enhancement needed - keeping it simple
 
     transcriptionResult.value = result
     loadingMessage.value = 'Creating nodes...'
@@ -544,10 +585,12 @@ const createTranscriptionNode = async (transcriptText, apiResult) => {
   const nodeTypeInfo = selectedNodeTypeInfo.value
   let formattedContent = transcriptText
 
+  // Get filename from either uploaded file or recorded blob
+  const filename = selectedFile.value?.name || apiResult.metadata?.fileName || 'Recording'
+
   // Apply special formatting based on node type
   if (nodeTypeInfo.useFormatting && nodeTypeInfo.type === 'worknote') {
     const currentDate = new Date().toISOString().split('T')[0]
-    const filename = selectedFile.value?.name || 'Recording'
 
     // Extract username from user's email, fallback to 'user' if not available
     let username = 'user'
@@ -560,7 +603,7 @@ const createTranscriptionNode = async (transcriptText, apiResult) => {
 
   const newNode = {
     id: `transcript_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    label: `${nodeTypeInfo.title}: ${selectedFile.value?.name || 'Recording'}`,
+    label: `${nodeTypeInfo.title}: ${filename}`,
     info: formattedContent,
     type: nodeTypeInfo.type,
     color: nodeTypeInfo.color,
@@ -572,8 +615,77 @@ const createTranscriptionNode = async (transcriptText, apiResult) => {
     ],
   }
 
+  // Create and emit the node directly
+
   // Emit the new node to parent component
   emit('node-created', newNode)
+}
+
+// Save to Portfolio - Optional feature (separate service)
+const saveToPortfolio = async () => {
+  if (!transcriptionResult.value || !userStore.email) {
+    error.value = 'Cannot save to portfolio: missing transcription or user not logged in'
+    return
+  }
+
+  try {
+    savingToPortfolio.value = true
+    error.value = ''
+
+    // Get file information
+    const audioFile = selectedFile.value || recordedBlob.value
+    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+
+    // Prepare portfolio data
+    const portfolioData = {
+      userEmail: userStore.email,
+      fileName: fileName,
+      displayName: fileName.replace(/\.[^/.]+$/, ''), // Remove extension
+      transcriptionText: transcriptionResult.value.text,
+      fileSize: audioFile ? audioFile.size : 0,
+      duration: recordingDuration.value || 0,
+      tags: ['transcription', 'whisper'],
+      category: 'general',
+      aiService: transcriptionResult.value.metadata?.service || 'openai',
+      aiModel: openaiModel.value,
+      processingTime: transcriptionResult.value.metadata?.processingTime || 0,
+      // R2 information would come from upload result if available
+      r2Key: transcriptionResult.value.metadata?.r2Key || null,
+      r2Url: transcriptionResult.value.metadata?.r2Url || null,
+    }
+
+    console.log('🎵 Saving to audio portfolio:', portfolioData)
+
+    // Call the separate audio-portfolio-worker
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(portfolioData),
+      },
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `HTTP ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('📁 Portfolio save result:', result)
+
+    // Show success
+    portfolioSaved.value = true
+    portfolioRecordingId.value = result.recordingId
+    successMessage.value = `Recording saved to portfolio with ID: ${result.recordingId}`
+  } catch (err) {
+    console.error('❌ Portfolio save failed:', err)
+    error.value = `Failed to save to portfolio: ${err.message}`
+  } finally {
+    savingToPortfolio.value = false
+  }
 }
 
 const editNode = () => {
@@ -735,6 +847,48 @@ const formatFileSize = (bytes) => {
 }
 
 .results-section {
+  border-left: 4px solid #20c997;
+}
+
+.portfolio-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e9ecef;
+}
+
+.portfolio-controls {
+  text-align: center;
+}
+
+.portfolio-btn {
+  background: linear-gradient(45deg, #6f42c1, #8e44ad);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.portfolio-btn:hover:not(:disabled) {
+  background: linear-gradient(45deg, #5a36a1, #7d3c98);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(111, 66, 193, 0.3);
+}
+
+.portfolio-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.portfolio-hint {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-top: 8px;
+}
+
+.portfolio-success {
+  margin-top: 12px;
   border-left: 4px solid #20c997;
 }
 

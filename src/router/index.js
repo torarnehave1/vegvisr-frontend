@@ -10,6 +10,7 @@ import BlogView from '../views/BlogView.vue'
 import GraphAdmin from '@/views/GraphAdmin.vue' // Ensure the path is correct
 import GraphViewer from '@/views/GraphViewer.vue' // Import the GraphViewer component
 import GraphPortfolio from '@/views/GraphPortfolio.vue'
+import AudioPortfolio from '@/views/AudioPortfolio.vue'
 import GitHubIssuesView from '@/views/GitHubIssuesView.vue'
 import R2Portfolio from '../views/R2Portfolio.vue'
 import ProxyTest from '../views/ProxyTest.vue'
@@ -148,6 +149,14 @@ const router = createRouter({
       path: '/graph-portfolio',
       name: 'graph-portfolio',
       component: GraphPortfolio,
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/audio-portfolio',
+      name: 'audio-portfolio',
+      component: AudioPortfolio,
       meta: {
         requiresAuth: true,
       },
