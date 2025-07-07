@@ -5,7 +5,7 @@ Follow complete VEGVISR Protocol:
 
 DO NOT CHANGE ANY CODE BEFORE I APPROVE
 
-VERY IMPORTANT!!!! IF any functionaly Code is removed explain why.
+VERY IMPORTANT!!!! IF any functional Code is removed explain why.
 
 - V: Examine the code
 - E: Report findings

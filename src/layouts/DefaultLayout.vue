@@ -7,6 +7,34 @@
           <RouterLink class="navbar-brand" to="/">
             <img :src="currentLogo" :alt="currentSiteTitle + ' Logo'" width="200" />
           </RouterLink>
+
+          <!-- Global Search Bar (Mobile and Desktop) -->
+          <div class="global-search-container d-none d-md-block me-3">
+            <div class="global-search">
+              <div class="input-group">
+                <input
+                  type="text"
+                  class="form-control"
+                  v-model="globalSearchQuery"
+                  placeholder="Search knowledge graphs..."
+                  @keyup.enter="performGlobalSearch"
+                  @focus="showSearchHint = true"
+                  @blur="showSearchHint = false"
+                />
+                <button
+                  class="btn btn-outline-primary"
+                  @click="performGlobalSearch"
+                  :disabled="!globalSearchQuery.trim()"
+                >
+                  <i class="bi bi-search"></i>
+                </button>
+              </div>
+              <div v-if="showSearchHint" class="search-hint">
+                <small class="text-muted">🧠 Semantic search across all graphs</small>
+              </div>
+            </div>
+          </div>
+
           <button
             class="navbar-toggler"
             type="button"
@@ -18,7 +46,30 @@
           >
             <span class="navbar-toggler-icon"></span>
           </button>
+
           <div class="collapse navbar-collapse" id="navbarNav">
+            <!-- Mobile Search Bar -->
+            <div class="mobile-search-container d-block d-md-none mb-3">
+              <div class="global-search">
+                <div class="input-group">
+                  <input
+                    type="text"
+                    class="form-control"
+                    v-model="globalSearchQuery"
+                    placeholder="Search knowledge graphs..."
+                    @keyup.enter="performGlobalSearch"
+                  />
+                  <button
+                    class="btn btn-outline-primary"
+                    @click="performGlobalSearch"
+                    :disabled="!globalSearchQuery.trim()"
+                  >
+                    <i class="bi bi-search"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <ul class="navbar-nav me-auto">
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
@@ -32,7 +83,9 @@
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-viewer">Viewer</RouterLink>
               </li>
-
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/search">🔍 Search</RouterLink>
+              </li>
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
               </li>
@@ -110,12 +163,32 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useUserStore } from '@/stores/userStore' // Import Pinia store
-import { useBranding } from '@/composables/useBranding' // Import branding composable
+import { useUserStore } from '@/stores/userStore'
+import { useRouter } from 'vue-router'
+import { useBranding } from '@/composables/useBranding'
 
-const userStore = useUserStore() // Access Pinia store
-const { currentLogo, currentSiteTitle, isCustomDomain } = useBranding() // Use branding composable
+const userStore = useUserStore()
+const router = useRouter()
+const { currentLogo, currentSiteTitle, isCustomDomain } = useBranding()
+
+// Global search functionality
+const globalSearchQuery = ref('')
+const showSearchHint = ref(false)
+
+const performGlobalSearch = () => {
+  if (!globalSearchQuery.value.trim()) return
+
+  // Navigate to search view with query
+  router.push({
+    name: 'search',
+    query: { q: globalSearchQuery.value },
+  })
+
+  // Clear the search input
+  globalSearchQuery.value = ''
+}
 
 defineProps({
   theme: {
@@ -131,8 +204,8 @@ defineProps({
 const emit = defineEmits(['set-theme', 'logout'])
 
 function handleLogout() {
-  userStore.logout() // Call Pinia store logout action
-  emit('logout') // Emit logout event
+  userStore.logout()
+  emit('logout')
 }
 </script>
 
@@ -180,5 +253,78 @@ img {
   font-weight: 600;
   color: #2c3e50;
   text-decoration: none;
+}
+
+/* Global Search Styles */
+.global-search-container {
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.global-search {
+  position: relative;
+}
+
+.global-search .form-control {
+  border-radius: 20px 0 0 20px;
+  border-right: none;
+  font-size: 0.9rem;
+}
+
+.global-search .btn {
+  border-radius: 0 20px 20px 0;
+  border-left: none;
+}
+
+.global-search .form-control:focus {
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  border-color: #007bff;
+}
+
+.search-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 0.5rem;
+  z-index: 1001;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-search-container {
+  padding: 0.5rem 0;
+}
+
+.mobile-search-container .global-search .form-control {
+  border-radius: 4px 0 0 4px;
+}
+
+.mobile-search-container .global-search .btn {
+  border-radius: 0 4px 4px 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .global-search-container {
+    min-width: 250px;
+  }
+
+  .search-hint {
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .global-search-container {
+    min-width: 200px;
+  }
+
+  .global-search .form-control {
+    font-size: 0.8rem;
+  }
 }
 </style>

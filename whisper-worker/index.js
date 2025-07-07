@@ -197,7 +197,7 @@ const handleUpload = async (request, env) => {
         return createErrorResponse('Server configuration error: ACCOUNT_ID not configured', 500)
       }
 
-      const audioUrl = `https://whisper-audio-temp.${env.ACCOUNT_ID}.r2.cloudflarestorage.com/${finalKey}`
+      const audioUrl = `https://audio.vegvisr.org/${finalKey}`
 
       console.log('✅ Generated R2 URL for combined chunks:', {
         accountId: env.ACCOUNT_ID,
@@ -223,7 +223,7 @@ const handleUpload = async (request, env) => {
       return createErrorResponse('Server configuration error: ACCOUNT_ID not configured', 500)
     }
 
-    const audioUrl = `https://whisper-audio-temp.${env.ACCOUNT_ID}.r2.cloudflarestorage.com/${r2Key}`
+    const audioUrl = `https://audio.vegvisr.org/${r2Key}`
 
     console.log('✅ Generated R2 URL:', {
       accountId: env.ACCOUNT_ID,
@@ -407,16 +407,19 @@ const transcribeFromUrl = async (audioUrl, env, options = {}) => {
       timestamp: new Date().toISOString(),
     })
 
-    // Extract R2 key from URL
-    if (!audioUrl.includes('.r2.cloudflarestorage.com/')) {
-      console.error('Invalid R2 URL format:', audioUrl)
+    // Extract R2 key from URL (supports both custom domain and R2 direct URLs)
+    let r2Key
+    if (audioUrl.includes('audio.vegvisr.org/')) {
+      r2Key = audioUrl.split('audio.vegvisr.org/')[1]
+    } else if (audioUrl.includes('.r2.cloudflarestorage.com/')) {
+      r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
+    } else {
+      console.error('Invalid audio URL format:', audioUrl)
       return createErrorResponse(
-        `Invalid R2 URL format. Expected format: https://bucket.account_id.r2.cloudflarestorage.com/path`,
+        `Invalid audio URL format. Expected: https://audio.vegvisr.org/... or R2 direct URL`,
         400,
       )
     }
-
-    const r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
     if (!r2Key) {
       console.error('Could not extract R2 key from URL:', audioUrl)
       return createErrorResponse('Invalid R2 URL: could not extract file key', 400)
@@ -517,8 +520,15 @@ const transcribeFromUrlWithOpenAI = async (audioBuffer, audioUrl, env, options) 
     temperature,
   })
 
-  // Extract filename from R2 URL for proper content type detection
-  const r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
+  // Extract filename from URL for proper content type detection (supports custom domain)
+  let r2Key
+  if (audioUrl.includes('audio.vegvisr.org/')) {
+    r2Key = audioUrl.split('audio.vegvisr.org/')[1]
+  } else if (audioUrl.includes('.r2.cloudflarestorage.com/')) {
+    r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
+  } else {
+    r2Key = 'audio-from-unknown-source.wav'
+  }
   const originalFileName = r2Key ? r2Key.split('/').pop() : 'audio-from-r2.wav'
 
   // Detect actual audio format from buffer content

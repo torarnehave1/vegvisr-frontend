@@ -125,7 +125,7 @@
                       <input
                         type="text"
                         class="form-control"
-                        :value="editingRecording.metadata.tags.join(', ')"
+                        :value="(editingRecording.metadata?.tags || []).join(', ')"
                         @input="updateTags"
                         placeholder="e.g., work, project, important"
                       />
@@ -172,20 +172,52 @@
 
                     <!-- Audio Player -->
                     <div class="audio-player mt-3 mb-3">
-                      <audio controls class="w-100" :src="recording.r2Url">
-                        Your browser does not support the audio element.
-                      </audio>
+                      <div v-if="recording.r2Url" class="audio-container">
+                        <audio
+                          controls
+                          class="w-100"
+                          :src="recording.r2Url"
+                          @error="handleAudioError($event, recording)"
+                          @loadstart="console.log('Audio loading started for:', recording.r2Url)"
+                          @loadeddata="console.log('Audio loaded successfully for:', recording.id)"
+                          preload="metadata"
+                        >
+                          Your browser does not support the audio element.
+                        </audio>
+                        <small class="text-muted d-block mt-1">
+                          Audio URL:
+                          <a
+                            :href="recording.r2Url"
+                            target="_blank"
+                            class="text-truncate d-inline-block"
+                            style="max-width: 200px"
+                            >{{ recording.r2Url }}</a
+                          >
+                        </small>
+                      </div>
+                      <div v-else class="alert alert-warning">
+                        <strong>⚠️ Audio Unavailable:</strong> No audio URL found for this
+                        recording.
+                        <small class="d-block">Recording ID: {{ recording.id }}</small>
+                      </div>
                     </div>
 
                     <!-- Recording Info -->
                     <div class="recording-info">
                       <div class="d-flex justify-content-between text-muted small mb-2">
-                        <span>🕐 {{ formatDuration(recording.estimatedDuration) }}</span>
+                        <span
+                          >🕐
+                          {{
+                            formatDuration(recording.estimatedDuration || recording.duration)
+                          }}</span
+                        >
                         <span>📁 {{ formatFileSize(recording.fileSize) }}</span>
                       </div>
-                      <span class="badge bg-primary">{{ recording.metadata.category }}</span>
+                      <span class="badge bg-primary">{{
+                        recording.metadata?.category || recording.category || 'Uncategorized'
+                      }}</span>
                       <span
-                        v-for="tag in recording.metadata.tags"
+                        v-for="tag in recording.metadata?.tags || recording.tags || []"
                         :key="tag"
                         class="badge bg-secondary ms-1"
                       >
@@ -197,7 +229,11 @@
                     <div class="transcription-excerpt mt-3">
                       <h6 class="text-muted">Transcription:</h6>
                       <p class="small text-muted mb-2">
-                        {{ recording.transcription.excerpt }}
+                        {{
+                          recording.transcription?.excerpt ||
+                          recording.transcriptionText?.substring(0, 200) + '...' ||
+                          'No transcription available'
+                        }}
                       </p>
                       <button
                         class="btn btn-outline-info btn-sm"
@@ -209,13 +245,13 @@
 
                     <!-- Connected Graphs -->
                     <div
-                      v-if="recording.metadata.connectedGraphIds.length > 0"
+                      v-if="(recording.metadata?.connectedGraphIds || []).length > 0"
                       class="connected-graphs mt-3"
                     >
                       <h6 class="text-muted">Connected Graphs:</h6>
                       <div class="d-flex flex-wrap gap-1">
                         <span
-                          v-for="graphId in recording.metadata.connectedGraphIds"
+                          v-for="graphId in recording.metadata?.connectedGraphIds || []"
                           :key="graphId"
                           class="badge bg-success"
                         >
@@ -227,9 +263,14 @@
                     <!-- Metadata -->
                     <div class="metadata mt-3">
                       <small class="text-muted">
-                        📅 Uploaded: {{ formatDate(recording.metadata.uploadedAt) }}<br />
-                        🤖 Service: {{ recording.transcription.service }}<br />
-                        🎯 Model: {{ recording.transcription.model }}
+                        📅 Uploaded:
+                        {{ formatDate(recording.metadata?.uploadedAt || recording.createdAt)
+                        }}<br />
+                        🤖 Service:
+                        {{ recording.transcription?.service || recording.aiService || 'Unknown'
+                        }}<br />
+                        🎯 Model:
+                        {{ recording.transcription?.model || recording.aiModel || 'Unknown' }}
                       </small>
                     </div>
                   </template>
@@ -267,10 +308,14 @@
                 <div class="d-flex justify-content-between mb-3">
                   <div>
                     <span class="badge bg-info">{{
-                      selectedRecording?.transcription.service
+                      selectedRecording?.transcription?.service ||
+                      selectedRecording?.aiService ||
+                      'Unknown'
                     }}</span>
                     <span class="badge bg-info ms-1">{{
-                      selectedRecording?.transcription.model
+                      selectedRecording?.transcription?.model ||
+                      selectedRecording?.aiModel ||
+                      'Unknown'
                     }}</span>
                   </div>
                   <button class="btn btn-outline-primary btn-sm" @click="copyTranscription">
@@ -278,7 +323,13 @@
                   </button>
                 </div>
                 <div class="transcription-text" style="max-height: 400px; overflow-y: auto">
-                  <p class="text-break">{{ selectedRecording?.transcription.text }}</p>
+                  <p class="text-break">
+                    {{
+                      selectedRecording?.transcription?.text ||
+                      selectedRecording?.transcriptionText ||
+                      'No transcription available'
+                    }}
+                  </p>
                 </div>
               </div>
               <div class="modal-footer">
@@ -297,6 +348,22 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+
+// Ensure Bootstrap is available globally
+if (typeof window !== 'undefined') {
+  // Import Bootstrap if not already available
+  if (typeof window.bootstrap === 'undefined') {
+    import('bootstrap/dist/js/bootstrap.bundle.min.js')
+      .then(() => {
+        console.log('Bootstrap imported dynamically')
+      })
+      .catch((error) => {
+        console.error('Failed to import Bootstrap:', error)
+      })
+  } else {
+    console.log('Bootstrap already available')
+  }
+}
 
 // Props
 const props = defineProps({
@@ -326,19 +393,28 @@ const filteredRecordings = computed(() => {
 
   // Apply category filter
   if (selectedCategory.value) {
-    filtered = filtered.filter((r) => r.metadata.category === selectedCategory.value)
+    filtered = filtered.filter((r) => {
+      const category = r.metadata?.category || r.category || 'Uncategorized'
+      return category === selectedCategory.value
+    })
   }
 
   // Apply search filter
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     filtered = filtered.filter((recording) => {
+      const category = recording.metadata?.category || recording.category || 'Uncategorized'
+      const tags = recording.metadata?.tags || recording.tags || []
+      const transcriptionText = recording.transcription?.text || recording.transcriptionText || ''
+      const displayName = recording.displayName || recording.fileName || ''
+      const fileName = recording.fileName || ''
+
       return (
-        recording.displayName.toLowerCase().includes(query) ||
-        recording.fileName.toLowerCase().includes(query) ||
-        recording.transcription.text.toLowerCase().includes(query) ||
-        recording.metadata.category.toLowerCase().includes(query) ||
-        recording.metadata.tags.some((tag) => tag.toLowerCase().includes(query))
+        displayName.toLowerCase().includes(query) ||
+        fileName.toLowerCase().includes(query) ||
+        transcriptionText.toLowerCase().includes(query) ||
+        category.toLowerCase().includes(query) ||
+        tags.some((tag) => tag.toLowerCase().includes(query))
       )
     })
   }
@@ -347,17 +423,23 @@ const filteredRecordings = computed(() => {
   return filtered.sort((a, b) => {
     switch (sortBy.value) {
       case 'date-desc':
-        return new Date(b.metadata.uploadedAt) - new Date(a.metadata.uploadedAt)
+        const dateB = new Date(b.metadata?.uploadedAt || b.createdAt || 0)
+        const dateA = new Date(a.metadata?.uploadedAt || a.createdAt || 0)
+        return dateB - dateA
       case 'date-asc':
-        return new Date(a.metadata.uploadedAt) - new Date(b.metadata.uploadedAt)
+        const dateA2 = new Date(a.metadata?.uploadedAt || a.createdAt || 0)
+        const dateB2 = new Date(b.metadata?.uploadedAt || b.createdAt || 0)
+        return dateA2 - dateB2
       case 'name-asc':
-        return a.displayName.localeCompare(b.displayName)
+        return (a.displayName || a.fileName || '').localeCompare(b.displayName || b.fileName || '')
       case 'name-desc':
-        return b.displayName.localeCompare(a.displayName)
+        return (b.displayName || b.fileName || '').localeCompare(a.displayName || a.fileName || '')
       case 'duration':
-        return b.estimatedDuration - a.estimatedDuration
+        return (b.estimatedDuration || b.duration || 0) - (a.estimatedDuration || a.duration || 0)
       case 'category':
-        return a.metadata.category.localeCompare(b.metadata.category)
+        const catA = a.metadata?.category || a.category || 'Uncategorized'
+        const catB = b.metadata?.category || b.category || 'Uncategorized'
+        return catA.localeCompare(catB)
       default:
         return 0
     }
@@ -367,7 +449,9 @@ const filteredRecordings = computed(() => {
 const availableCategories = computed(() => {
   const categories = new Set()
   recordings.value.forEach((recording) => {
-    categories.add(recording.metadata.category)
+    // Add null checks for metadata and category
+    const category = recording.metadata?.category || recording.category || 'Uncategorized'
+    categories.add(category)
   })
   return Array.from(categories).sort()
 })
@@ -393,7 +477,32 @@ const fetchRecordings = async () => {
 
     const data = await response.json()
     recordings.value = data.recordings || []
-    console.log('Fetched audio recordings:', data)
+
+    // === AUDIO PORTFOLIO DEBUG ANALYSIS ===
+    console.log('=== AUDIO PORTFOLIO DATA ANALYSIS ===')
+    console.log('Raw API Response:', JSON.stringify(data, null, 2))
+    console.log('Number of recordings:', recordings.value.length)
+
+    if (recordings.value.length > 0) {
+      console.log('First recording structure:', JSON.stringify(recordings.value[0], null, 2))
+      console.log('r2Url check for first recording:', recordings.value[0]?.r2Url)
+      console.log('Transcription data for first recording:', recordings.value[0]?.transcription)
+      console.log('Alternative transcription field:', recordings.value[0]?.transcriptionText)
+    }
+
+    recordings.value.forEach((recording, index) => {
+      console.log(`Recording ${index + 1}:`)
+      console.log('  - ID:', recording.id)
+      console.log('  - Display Name:', recording.displayName || recording.fileName)
+      console.log('  - R2 URL:', recording.r2Url)
+      console.log('  - Has transcription object:', !!recording.transcription)
+      console.log('  - Has transcriptionText:', !!recording.transcriptionText)
+      console.log(
+        '  - Metadata structure:',
+        recording.metadata ? Object.keys(recording.metadata) : 'No metadata',
+      )
+    })
+    console.log('=======================================')
   } catch (err) {
     console.error('Error fetching recordings:', err)
     error.value = err.message
@@ -413,10 +522,10 @@ const sortRecordings = () => {
 const startEdit = (recording) => {
   editingRecordingId.value = recording.id
   editingRecording.value = {
-    displayName: recording.displayName,
+    displayName: recording.displayName || recording.fileName || '',
     metadata: {
-      category: recording.metadata.category,
-      tags: [...recording.metadata.tags],
+      category: recording.metadata?.category || recording.category || 'Uncategorized',
+      tags: [...(recording.metadata?.tags || recording.tags || [])],
     },
   }
 }
@@ -459,6 +568,10 @@ const saveEdit = async (recording) => {
     const recordingIndex = recordings.value.findIndex((r) => r.id === recording.id)
     if (recordingIndex !== -1) {
       recordings.value[recordingIndex].displayName = editingRecording.value.displayName
+      // Ensure metadata object exists
+      if (!recordings.value[recordingIndex].metadata) {
+        recordings.value[recordingIndex].metadata = {}
+      }
       recordings.value[recordingIndex].metadata.category = editingRecording.value.metadata.category
       recordings.value[recordingIndex].metadata.tags = editingRecording.value.metadata.tags
     }
@@ -511,16 +624,61 @@ const deleteRecording = async (recording) => {
 }
 
 const showFullTranscription = (recording) => {
+  console.log('=== MODAL DEBUG: showFullTranscription called ===')
+  console.log('Recording data:', JSON.stringify(recording, null, 2))
+  console.log('Transcription text:', recording.transcription?.text || recording.transcriptionText)
+  console.log('Modal element exists:', !!document.getElementById('transcriptionModal'))
+
   selectedRecording.value = recording
-  // Bootstrap modal show
-  const modal = new bootstrap.Modal(document.getElementById('transcriptionModal'))
-  modal.show()
+
+  try {
+    // Check if Bootstrap is available
+    const Bootstrap = window.bootstrap || bootstrap
+    if (typeof Bootstrap !== 'undefined' && Bootstrap.Modal) {
+      console.log('Bootstrap Modal available, attempting to show modal')
+      const modalElement = document.getElementById('transcriptionModal')
+      if (modalElement) {
+        const modal = new Bootstrap.Modal(modalElement)
+        modal.show()
+        console.log('Bootstrap modal shown successfully')
+      } else {
+        console.error('Modal element not found in DOM')
+        throw new Error('Modal element not found')
+      }
+    } else {
+      console.warn('Bootstrap not available, using fallback')
+      throw new Error('Bootstrap not available')
+    }
+  } catch (error) {
+    console.error('Modal error:', error)
+    // Fallback: Create a simple alert with transcription text
+    const transcriptionText =
+      recording.transcription?.text || recording.transcriptionText || 'No transcription available'
+    const truncatedText =
+      transcriptionText.length > 500
+        ? transcriptionText.substring(0, 500) + '...\n\n[Full text copied to clipboard]'
+        : transcriptionText
+
+    // Copy full text to clipboard
+    if (transcriptionText !== 'No transcription available') {
+      navigator.clipboard
+        .writeText(transcriptionText)
+        .then(() => console.log('Transcription copied to clipboard as fallback'))
+        .catch((err) => console.error('Failed to copy to clipboard:', err))
+    }
+
+    alert(`Full Transcription: ${recording.displayName || recording.fileName}\n\n${truncatedText}`)
+  }
+
+  console.log('=== END MODAL DEBUG ===')
 }
 
 const copyTranscription = () => {
-  if (selectedRecording.value?.transcription.text) {
+  const transcriptionText =
+    selectedRecording.value?.transcription?.text || selectedRecording.value?.transcriptionText
+  if (transcriptionText) {
     navigator.clipboard
-      .writeText(selectedRecording.value.transcription.text)
+      .writeText(transcriptionText)
       .then(() => {
         alert('Transcription copied to clipboard!')
       })
@@ -528,6 +686,8 @@ const copyTranscription = () => {
         console.error('Failed to copy text:', err)
         alert('Failed to copy text to clipboard')
       })
+  } else {
+    alert('No transcription text available to copy')
   }
 }
 
@@ -556,6 +716,45 @@ const formatDate = (dateString) => {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+const handleAudioError = (event, recording) => {
+  console.error('=== AUDIO ERROR DEBUG ===')
+  console.error('Audio error event:', event)
+  console.error('Error target:', event.target)
+  console.error('Error code:', event.target?.error?.code)
+  console.error('Error message:', event.target?.error?.message)
+  console.error('Recording r2Url:', recording.r2Url)
+  console.error('Recording ID:', recording.id)
+
+  // Provide specific error messages based on error code
+  let errorMessage = 'Failed to load audio.'
+  const errorCode = event.target?.error?.code
+
+  switch (errorCode) {
+    case 1: // MEDIA_ERR_ABORTED
+      errorMessage = 'Audio loading was aborted.'
+      break
+    case 2: // MEDIA_ERR_NETWORK
+      errorMessage = 'Network error while loading audio. Check your connection.'
+      break
+    case 3: // MEDIA_ERR_DECODE
+      errorMessage = 'Audio file is corrupted or in an unsupported format.'
+      break
+    case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+      errorMessage = 'Audio format not supported or file not found.'
+      break
+    default:
+      errorMessage = 'Unknown audio error occurred.'
+  }
+
+  console.error('Processed error message:', errorMessage)
+  console.error('========================')
+
+  // Show user-friendly error
+  alert(
+    `${errorMessage}\n\nRecording: ${recording.displayName || recording.fileName}\nPlease try again later or contact support.`,
+  )
 }
 
 // Lifecycle

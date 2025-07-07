@@ -162,6 +162,14 @@ const router = createRouter({
       },
     },
     {
+      path: '/search',
+      name: 'search',
+      component: () => import('../views/SearchView.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
       path: '/github-issues',
       name: 'github-issues',
       component: GitHubIssuesView,
@@ -200,7 +208,6 @@ const router = createRouter({
       component: () => import('../views/GNewViewer.vue'),
       meta: {
         requiresAuth: true,
-        requiresSuperadmin: true,
         layout: null,
       },
     },

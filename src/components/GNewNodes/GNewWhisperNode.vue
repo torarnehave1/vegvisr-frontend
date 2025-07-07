@@ -40,6 +40,7 @@
             <option value="nb">Norwegian Bokmål (nb)</option>
             <option value="nn">Norwegian Nynorsk (nn)</option>
             <option value="en">English (en)</option>
+            <option value="tr">🇹🇷 Turkish (tr)</option>
             <option value="auto">Auto-detect</option>
           </select>
         </div>
@@ -372,6 +373,7 @@ const createNodeFromTranscription = ref(true)
 const saveToR2 = ref(false)
 
 const transcriptionResult = ref(null)
+const uploadResult = ref(null)
 const error = ref('')
 const successMessage = ref('')
 
@@ -517,6 +519,7 @@ const transcribeAudio = async () => {
   // Reset portfolio state for new transcription
   portfolioSaved.value = false
   portfolioRecordingId.value = ''
+  uploadResult.value = null
 
   try {
     console.log('Starting transcription process...')
@@ -539,13 +542,16 @@ const transcribeAudio = async () => {
       throw new Error(`Upload failed: ${uploadResponse.statusText}`)
     }
 
-    const uploadResult = await uploadResponse.json()
-    console.log('Upload result:', uploadResult)
+    const uploadData = await uploadResponse.json()
+    console.log('Upload result:', uploadData)
+
+    // Store upload result for portfolio save
+    uploadResult.value = uploadData
 
     // Step 2: Transcribe from R2 URL using OpenAI
     loadingMessage.value = 'Starting transcription...'
 
-    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe?url=${encodeURIComponent(uploadResult.audioUrl)}&service=openai&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
+    let transcribeUrl = `${WHISPER_BASE_URL}/transcribe?url=${encodeURIComponent(uploadData.audioUrl)}&service=openai&model=${openaiModel.value}&temperature=${openaiTemperature.value}`
 
     if (openaiLanguage.value !== 'auto') {
       transcribeUrl += `&language=${openaiLanguage.value}`
@@ -649,9 +655,9 @@ const saveToPortfolio = async () => {
       aiService: transcriptionResult.value.metadata?.service || 'openai',
       aiModel: openaiModel.value,
       processingTime: transcriptionResult.value.metadata?.processingTime || 0,
-      // R2 information would come from upload result if available
-      r2Key: transcriptionResult.value.metadata?.r2Key || null,
-      r2Url: transcriptionResult.value.metadata?.r2Url || null,
+      // R2 information from upload result
+      r2Key: uploadResult.value?.r2Key || null,
+      r2Url: uploadResult.value?.audioUrl || null,
     }
 
     console.log('🎵 Saving to audio portfolio:', portfolioData)

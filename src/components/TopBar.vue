@@ -8,6 +8,34 @@
             <span class="material-icons"> menu </span>
           </button>
         </div>
+
+        <!-- Global Search Bar -->
+        <div class="col-md-3 col-sm-6">
+          <div class="global-search">
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control"
+                v-model="globalSearchQuery"
+                placeholder="Search knowledge graphs..."
+                @keyup.enter="performGlobalSearch"
+                @focus="showSearchHint = true"
+                @blur="showSearchHint = false"
+              />
+              <button
+                class="btn btn-outline-primary"
+                @click="performGlobalSearch"
+                :disabled="!globalSearchQuery.trim()"
+              >
+                <i class="bi bi-search"></i>
+              </button>
+            </div>
+            <div v-if="showSearchHint" class="search-hint">
+              <small class="text-muted">🧠 Semantic search across all graphs</small>
+            </div>
+          </div>
+        </div>
+
         <!-- GitHub Issues Button -->
         <div class="col-auto">
           <RouterLink to="/github-issues" class="btn btn-outline-primary">
@@ -15,15 +43,17 @@
             <span class="ms-1">Roadmap</span>
           </RouterLink>
         </div>
+
         <!-- Logged-in User -->
-        <div class="col-md-4 col-sm-12">
+        <div class="col-md-3 col-sm-12">
           <p class="mb-0">
             <strong>Logged in as:</strong>
             <span>{{ userStore.email || 'Guest' }}</span>
           </p>
         </div>
+
         <!-- Graph Selector -->
-        <div class="col-md-4 col-sm-12">
+        <div class="col-md-3 col-sm-12">
           <label for="graphDropdown" class="form-label">
             <strong>Select Knowledge Graph:</strong>
           </label>
@@ -40,16 +70,18 @@
             </option>
           </select>
         </div>
+
         <!-- Current Graph ID -->
-        <div class="col-md-4 col-sm-12 text-center">
+        <div class="col-md-3 col-sm-12 text-center">
           <p class="mb-0">
             <strong>Current Graph ID:</strong>
             <span>{{ currentGraphId || 'Not saved yet' }}</span>
           </p>
         </div>
+
         <!-- Validation Errors -->
-        <div class="col-md-4 col-sm-12">
-          <div v-if="validationErrors.length" class="alert alert-danger mb-0" role="alert">
+        <div class="col-md-12 col-sm-12">
+          <div v-if="validationErrors.length" class="alert alert-danger mb-0 mt-2" role="alert">
             <strong>Graph Validation Errors:</strong>
             <ul class="mb-0">
               <li v-for="(error, index) in validationErrors" :key="index">{{ error }}</li>
@@ -62,9 +94,14 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { defineProps, defineEmits } from 'vue'
-import { useUserStore } from '@/stores/userStore' // Import user store
-import { RouterLink } from 'vue-router' // Import RouterLink
+import { useUserStore } from '@/stores/userStore'
+import { useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
+
+const router = useRouter()
+const userStore = useUserStore()
 
 defineProps({
   selectedGraphId: String,
@@ -75,12 +112,70 @@ defineProps({
 
 defineEmits(['update:selectedGraphId', 'toggle-sidebar'])
 
-const userStore = useUserStore() // Access user store
+// Global search functionality
+const globalSearchQuery = ref('')
+const showSearchHint = ref(false)
+
+const performGlobalSearch = () => {
+  if (!globalSearchQuery.value.trim()) return
+
+  // Navigate to search view with query
+  router.push({
+    name: 'search',
+    query: { q: globalSearchQuery.value },
+  })
+
+  // Clear the search input
+  globalSearchQuery.value = ''
+}
 </script>
 
 <style scoped>
 .top-bar {
   z-index: 1000;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.global-search {
+  position: relative;
+}
+
+.global-search .form-control {
+  border-radius: 20px 0 0 20px;
+  border-right: none;
+}
+
+.global-search .btn {
+  border-radius: 0 20px 20px 0;
+  border-left: none;
+}
+
+.global-search .form-control:focus {
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  border-color: #007bff;
+}
+
+.search-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 0.5rem;
+  z-index: 1001;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .global-search {
+    margin-bottom: 1rem;
+  }
+
+  .search-hint {
+    font-size: 0.8rem;
+  }
 }
 </style>

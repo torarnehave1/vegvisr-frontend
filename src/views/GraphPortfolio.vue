@@ -38,9 +38,12 @@
                       type="text"
                       v-model="portfolioStore.searchQuery"
                       class="form-control"
-                      placeholder="Search graphs..."
+                      placeholder="🔍 Filter your portfolio graphs..."
                       @input="filterGraphs"
                     />
+                    <small class="text-muted">
+                      Portfolio Filter • For global search, use the search bar above
+                    </small>
                   </div>
                   <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
                     <label class="mb-0">Sort:</label>
@@ -289,6 +292,14 @@
                           <span class="badge bg-info ms-2" v-if="graph.metadata?.version">
                             v{{ graph.metadata.version }}
                           </span>
+                          <span
+                            v-if="graph.vectorization?.isVectorized"
+                            class="badge bg-success ms-2"
+                            title="Graph is vectorized for semantic search"
+                          >
+                            <i class="bi bi-search"></i>
+                            {{ graph.vectorization.vectorCount }} Vectors
+                          </span>
                           <template v-if="graph.metadata?.category">
                             <span
                               v-for="(cat, index) in getCategories(graph.metadata.category)"
@@ -335,9 +346,38 @@
                     </div>
                     <div class="card-footer">
                       <div class="d-flex justify-content-between">
-                        <button class="btn btn-primary btn-sm" @click="viewGraph(graph)">
-                          View Graph
-                        </button>
+                        <div class="d-flex gap-2">
+                          <button class="btn btn-primary btn-sm" @click="viewGraph(graph)">
+                            View Graph
+                          </button>
+                          <!-- Vectorization Button -->
+                          <button
+                            v-if="
+                              !graph.vectorization?.isVectorized &&
+                              !graph.vectorization?.isVectorizing
+                            "
+                            class="btn btn-outline-success btn-sm"
+                            @click="vectorizeGraph(graph)"
+                            title="Enable semantic search for this graph"
+                          >
+                            <i class="bi bi-search"></i> Vectorize
+                          </button>
+                          <button
+                            v-if="graph.vectorization?.isVectorizing"
+                            class="btn btn-outline-warning btn-sm"
+                            disabled
+                            title="Vectorization in progress..."
+                          >
+                            <i class="bi bi-hourglass-split"></i> Vectorizing...
+                          </button>
+                          <span
+                            v-if="graph.vectorization?.isVectorized"
+                            class="btn btn-success btn-sm"
+                            title="Graph is vectorized and searchable"
+                          >
+                            <i class="bi bi-check-circle"></i> Vectorized
+                          </span>
+                        </div>
                         <div
                           class="btn-group"
                           v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
@@ -736,6 +776,94 @@ console.log('User role:', userStore.role)
 // Add the allMetaAreas computed property
 const allMetaAreas = computed(() => portfolioStore.allMetaAreas)
 
+// Check vectorization status for multiple graphs
+const checkVectorizationStatus = async (graphIds) => {
+  try {
+    const response = await fetch(
+      'https://vector-search-worker.torarnehave.workers.dev/vectorization-status',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ graphIds }),
+      },
+    )
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.statusMap
+    }
+  } catch (error) {
+    console.error('Failed to check vectorization status:', error)
+  }
+  return {}
+}
+
+// Vectorize a single graph
+const vectorizeGraph = async (graph) => {
+  // Set vectorizing state
+  graph.vectorization = {
+    isVectorized: false,
+    isVectorizing: true,
+    vectorCount: 0,
+  }
+
+  try {
+    const response = await fetch(
+      'https://vector-search-worker.torarnehave.workers.dev/index-graph',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ graphId: graph.id }),
+      },
+    )
+
+    if (response.ok) {
+      const result = await response.json()
+
+      if (result.alreadyVectorized) {
+        // Graph was already vectorized
+        graph.vectorization = {
+          isVectorized: true,
+          isVectorizing: false,
+          vectorCount: parseInt(result.message.match(/(\d+) vectors/)?.[1] || 0),
+        }
+        console.log(`Graph ${graph.id} was already vectorized`)
+      } else {
+        // Graph was newly vectorized
+        graph.vectorization = {
+          isVectorized: true,
+          isVectorizing: false,
+          vectorCount: result.vectorsCreated || 0,
+        }
+        console.log(`Graph ${graph.id} vectorized successfully: ${result.vectorsCreated} vectors`)
+      }
+    } else {
+      const errorData = await response.text()
+      console.error('Vectorization failed:', errorData)
+      // Reset state on failure
+      graph.vectorization = {
+        isVectorized: false,
+        isVectorizing: false,
+        vectorCount: 0,
+      }
+      error.value = `Failed to vectorize graph: ${errorData}`
+    }
+  } catch (err) {
+    console.error('Vectorization error:', err)
+    // Reset state on failure
+    graph.vectorization = {
+      isVectorized: false,
+      isVectorizing: false,
+      vectorCount: 0,
+    }
+    error.value = `Vectorization error: ${err.message}`
+  }
+}
+
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
   loading.value = true
@@ -808,10 +936,27 @@ const fetchGraphs = async () => {
         // Apply KV-based content filtering
         graphs.value = contentFilter.filterGraphsByMetaAreas(validGraphs)
 
+        // Check vectorization status for all graphs
+        const graphIds = graphs.value.map((g) => g.id)
+        const vectorizationStatus = await checkVectorizationStatus(graphIds)
+
+        // Add vectorization status to each graph
+        graphs.value.forEach((graph) => {
+          const status = vectorizationStatus[graph.id] || { isVectorized: false, vectorCount: 0 }
+          graph.vectorization = {
+            isVectorized: status.isVectorized,
+            isVectorizing: false,
+            vectorCount: status.vectorCount,
+          }
+        })
+
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)
 
-        console.log('Final processed graphs:', JSON.stringify(graphs.value, null, 2))
+        console.log(
+          'Final processed graphs with vectorization status:',
+          JSON.stringify(graphs.value, null, 2),
+        )
       } else {
         console.warn('No results found in API response')
         graphs.value = []
@@ -846,12 +991,40 @@ const filteredGraphs = computed(() => {
             .join(' ')
             .toLowerCase()
         : ''
+
+      // Collect all node labels (titles) as a string
+      const nodeLabels = Array.isArray(graph.nodes)
+        ? graph.nodes
+            .map((node) => node.label || '')
+            .join(' ')
+            .toLowerCase()
+        : ''
+
+      // Collect all node info content as a string
+      const nodeInfoContent = Array.isArray(graph.nodes)
+        ? graph.nodes
+            .map((node) => {
+              // Handle different types of node.info content
+              if (typeof node.info === 'string') {
+                return node.info
+              } else if (typeof node.info === 'object' && node.info !== null) {
+                // For structured data (charts, etc.), convert to searchable string
+                return JSON.stringify(node.info)
+              }
+              return ''
+            })
+            .join(' ')
+            .toLowerCase()
+        : ''
+
       return (
         graph.metadata?.title?.toLowerCase().includes(query) ||
         graph.metadata?.description?.toLowerCase().includes(query) ||
         categories.some((cat) => cat.toLowerCase().includes(query)) ||
         graph.id?.toLowerCase().includes(query) ||
-        nodeTypes.includes(query) // Enable node type search
+        nodeTypes.includes(query) || // Enable node type search
+        nodeLabels.includes(query) || // Enable node label search
+        nodeInfoContent.includes(query) // Enable node content search
       )
     })
   }
@@ -1838,5 +2011,35 @@ onMounted(() => {
 
 .bg-dark .quality-controls .form-check-input:checked ~ .form-check-label {
   color: #6ea8fe;
+}
+
+/* Vectorization Button Styling */
+.btn-group .btn-sm {
+  font-size: 0.8rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.vectorization-badge {
+  font-size: 0.75rem;
+}
+
+.vectorization-badge .bi {
+  font-size: 0.7rem;
+}
+
+/* Card footer responsive layout */
+@media (max-width: 768px) {
+  .card-footer .d-flex {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .card-footer .d-flex .d-flex {
+    justify-content: center;
+  }
+
+  .card-footer .btn-group {
+    justify-content: center;
+  }
 }
 </style>
