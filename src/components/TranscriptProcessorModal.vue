@@ -1547,6 +1547,29 @@ const processTranscript = async () => {
     console.log('Sample node:', result.knowledgeGraph?.nodes?.[0])
     console.log('===========================')
 
+    // Add YouTube node if video metadata exists
+    console.log('=== YOUTUBE NODE CREATION DEBUG ===')
+    console.log('inputMethod.value:', inputMethod.value)
+    console.log('videoMetadata.value:', videoMetadata.value)
+    console.log('selectedVideo.value:', selectedVideo.value)
+    console.log('videoId.value:', videoId.value)
+    console.log('=====================================')
+
+    if (inputMethod.value === 'youtube' && (videoMetadata.value || selectedVideo.value)) {
+      console.log('🎬 Creating YouTube node...')
+      const youtubeNode = createYouTubeNode()
+      console.log('Generated YouTube node:', youtubeNode)
+      if (youtubeNode) {
+        result.knowledgeGraph.nodes.push(youtubeNode)
+        console.log('✅ YouTube node added to knowledge graph')
+        console.log('Total nodes now:', result.knowledgeGraph.nodes.length)
+      } else {
+        console.log('❌ YouTube node creation failed')
+      }
+    } else {
+      console.log('❌ YouTube node creation skipped - conditions not met')
+    }
+
     setTimeout(() => {
       knowledgeGraphPreview.value = result.knowledgeGraph
       console.log('knowledgeGraphPreview.value set to:', knowledgeGraphPreview.value)
@@ -1608,6 +1631,28 @@ const createLocalKnowledgeGraph = async () => {
       path: null,
     }))
 
+    // Add YouTube node if video metadata exists
+    console.log('=== FALLBACK YOUTUBE NODE DEBUG ===')
+    console.log('inputMethod.value:', inputMethod.value)
+    console.log('videoMetadata.value:', videoMetadata.value)
+    console.log('selectedVideo.value:', selectedVideo.value)
+    console.log('videoId.value:', videoId.value)
+    console.log('===================================')
+
+    if (inputMethod.value === 'youtube' && (videoMetadata.value || selectedVideo.value)) {
+      console.log('🎬 Creating YouTube node in fallback...')
+      const youtubeNode = createYouTubeNode()
+      console.log('Generated YouTube node in fallback:', youtubeNode)
+      if (youtubeNode) {
+        nodes.push(youtubeNode)
+        console.log('✅ YouTube node added to fallback nodes')
+      } else {
+        console.log('❌ YouTube node creation failed in fallback')
+      }
+    } else {
+      console.log('❌ YouTube node creation skipped in fallback - conditions not met')
+    }
+
     return {
       nodes,
       edges: [],
@@ -1617,6 +1662,79 @@ const createLocalKnowledgeGraph = async () => {
     console.error('Local processing failed:', error)
     return null
   }
+}
+
+// Helper function to create YouTube node
+const createYouTubeNode = () => {
+  console.log('=== createYouTubeNode DEBUG ===')
+  console.log('videoMetadata.value:', videoMetadata.value)
+  console.log('selectedVideo.value:', selectedVideo.value)
+  console.log('videoId.value:', videoId.value)
+
+  if (!videoMetadata.value && !selectedVideo.value) {
+    console.log('❌ No video metadata or selected video available')
+    return null
+  }
+
+  const metadata = videoMetadata.value || selectedVideo.value
+  console.log('Using metadata:', metadata)
+
+  const videoTitle = metadata.title || `YouTube Video ${videoId.value}`
+  const channelTitle = metadata.channelTitle || 'Unknown Channel'
+  const description = metadata.description || ''
+  const duration = metadata.duration || null
+  const publishedAt = metadata.publishedAt || null
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId.value}`
+  const embedUrl = `https://www.youtube.com/embed/${videoId.value}`
+
+  console.log('Video details:', {
+    videoTitle,
+    channelTitle,
+    description: description.substring(0, 100) + '...',
+    duration,
+    publishedAt,
+    videoUrl,
+    embedUrl,
+  })
+
+  // Format duration if available
+  const durationText = duration
+    ? formatDuration(duration) || 'Unknown duration'
+    : 'Unknown duration'
+
+  // Format publish date if available
+  const publishText = publishedAt ? formatDate(publishedAt) || 'Unknown date' : 'Unknown date'
+
+  // Create rich info content
+  const infoContent = `[SECTION | background-color:'#FFF'; color:'#333']
+**${videoTitle}**
+
+**Channel:** ${channelTitle}
+**Duration:** ${durationText}
+**Published:** ${publishText}
+
+${description ? `**Description:**\n${description.length > 500 ? description.substring(0, 500) + '...' : description}` : ''}
+
+**Source:** [Watch on YouTube](${videoUrl})
+[END SECTION]`
+
+  const youtubeNode = {
+    id: `youtube_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    label: `![YOUTUBE src=${embedUrl}]${videoTitle}[END YOUTUBE]`,
+    color: '#FF0000',
+    type: 'youtube-video',
+    info: infoContent,
+    bibl: [videoUrl],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+  }
+
+  console.log('✅ YouTube node created:', youtubeNode)
+  console.log('==============================')
+
+  return youtubeNode
 }
 
 const importToGraph = () => {
