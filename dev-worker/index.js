@@ -6,6 +6,151 @@ import { generateText } from 'ai'
  * @property {Ai} AI
  */
 
+// Helper function to generate error HTML
+function generateErrorHtml(message) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Knowledge Graph</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f8f9fa; }
+        .error-container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .error-title { color: #dc3545; font-size: 24px; margin-bottom: 20px; }
+        .error-message { color: #6c757d; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1 class="error-title">Error</h1>
+        <p class="error-message">${message}</p>
+    </div>
+</body>
+</html>`
+}
+
+// Helper function to generate knowledge graph HTML
+function generateGraphHtml(graphData, graphId) {
+  const metadata = graphData.metadata || {}
+  const title = metadata.title || 'Untitled Knowledge Graph'
+  const description = metadata.description || 'No description provided'
+  const createdBy = metadata.createdBy || 'Unknown'
+  const createdAt = metadata.createdAt || ''
+  const category = metadata.category || 'Uncategorized'
+  const metaArea = metadata.metaArea || 'General'
+  const nodes = graphData.nodes || []
+  const edges = graphData.edges || []
+
+  // Generate nodes list
+  const nodesHtml = nodes
+    .map((node) => {
+      const nodeContent = node.content || ''
+      const nodeType = node.type || 'default'
+      const nodeId = node.id || ''
+      return `
+    <div class="node">
+        <h3 class="node-title">Node: ${nodeId}</h3>
+        <div class="node-type">Type: ${nodeType}</div>
+        <div class="node-content">${nodeContent}</div>
+    </div>`
+    })
+    .join('')
+
+  // Generate edges list
+  const edgesHtml = edges
+    .map((edge) => {
+      return `
+    <div class="edge">
+        <span class="edge-source">${edge.source}</span>
+        <span class="edge-arrow"> → </span>
+        <span class="edge-target">${edge.target}</span>
+    </div>`
+    })
+    .join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title} - Knowledge Graph</title>
+    <meta name="description" content="${description}">
+    <meta name="author" content="${createdBy}">
+    <meta name="keywords" content="knowledge graph, ${category}, ${metaArea}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 40px; background-color: #f8f9fa; line-height: 1.6; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { border-bottom: 2px solid #007bff; padding-bottom: 20px; margin-bottom: 30px; }
+        .graph-title { color: #007bff; font-size: 32px; margin-bottom: 10px; }
+        .graph-description { color: #6c757d; font-size: 18px; margin-bottom: 20px; }
+        .graph-metadata { display: flex; gap: 20px; flex-wrap: wrap; }
+        .metadata-item { background: #e9ecef; padding: 5px 10px; border-radius: 4px; font-size: 14px; }
+        .section { margin: 30px 0; }
+        .section-title { color: #343a40; font-size: 24px; margin-bottom: 15px; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; }
+        .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+        .stat-item { background: #007bff; color: white; padding: 10px 20px; border-radius: 4px; text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; display: block; }
+        .stat-label { font-size: 14px; }
+        .node { border: 1px solid #dee2e6; margin: 10px 0; padding: 15px; border-radius: 4px; background: #f8f9fa; }
+        .node-title { color: #007bff; font-size: 16px; margin-bottom: 5px; }
+        .node-type { color: #6c757d; font-size: 12px; margin-bottom: 10px; }
+        .node-content { color: #343a40; }
+        .edge { padding: 8px; margin: 5px 0; background: #e9ecef; border-radius: 4px; }
+        .edge-source, .edge-target { font-weight: bold; color: #007bff; }
+        .edge-arrow { color: #6c757d; }
+        .api-link { margin-top: 30px; padding: 20px; background: #e7f3ff; border-radius: 4px; border-left: 4px solid #007bff; }
+        .api-link-title { font-weight: bold; color: #007bff; margin-bottom: 10px; }
+        .api-url { font-family: monospace; background: #f8f9fa; padding: 5px 10px; border-radius: 4px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="graph-title">${title}</h1>
+            <p class="graph-description">${description}</p>
+            <div class="graph-metadata">
+                <div class="metadata-item"><strong>Created by:</strong> ${createdBy}</div>
+                <div class="metadata-item"><strong>Category:</strong> ${category}</div>
+                <div class="metadata-item"><strong>Meta Area:</strong> ${metaArea}</div>
+                <div class="metadata-item"><strong>Graph ID:</strong> ${graphId}</div>
+                ${createdAt ? `<div class="metadata-item"><strong>Created:</strong> ${new Date(createdAt).toLocaleDateString()}</div>` : ''}
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-number">${nodes.length}</span>
+                    <span class="stat-label">Nodes</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">${edges.length}</span>
+                    <span class="stat-label">Edges</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Nodes</h2>
+            ${nodesHtml || '<p>No nodes found in this graph.</p>'}
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Connections</h2>
+            ${edgesHtml || '<p>No connections found in this graph.</p>'}
+        </div>
+
+        <div class="api-link">
+            <div class="api-link-title">API Access</div>
+            <p>For programmatic access to this knowledge graph data, use:</p>
+            <div class="api-url">https://knowledge.vegvisr.org/getknowgraph?id=${graphId}</div>
+        </div>
+    </div>
+</body>
+</html>`
+}
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -484,6 +629,46 @@ export default {
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,
+          })
+        }
+      }
+
+      // NEW: Public HTML version of knowledge graph for AI crawling
+      if (pathname === '/public-graph' && request.method === 'GET') {
+        try {
+          const id = url.searchParams.get('id')
+          if (!id) {
+            return new Response(generateErrorHtml('Graph ID is required.'), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'text/html' },
+            })
+          }
+
+          console.log(`[Worker] Fetching public graph with ID: ${id}`)
+
+          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
+          const result = await env.vegvisr_org.prepare(query).bind(id).first()
+
+          if (!result) {
+            return new Response(generateErrorHtml('Graph not found.'), {
+              status: 404,
+              headers: { ...corsHeaders, 'Content-Type': 'text/html' },
+            })
+          }
+
+          const graphData = sanitizeGraphData(JSON.parse(result.data))
+          const html = generateGraphHtml(graphData, id)
+
+          console.log('[Worker] Public graph HTML generated successfully')
+          return new Response(html, {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'text/html' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error fetching public graph:', error)
+          return new Response(generateErrorHtml(`Server error: ${error.message}`), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'text/html' },
           })
         }
       }

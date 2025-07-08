@@ -136,6 +136,13 @@
           >
             🎨 Create IMAGEQUOTE
           </button>
+          <button
+            @click="openShareModal"
+            class="btn btn-outline-success"
+            :disabled="!graphData.nodes.length"
+          >
+            <i class="bi bi-share"></i> Share
+          </button>
         </div>
 
         <!-- Node Edit Modal (Admin Only) -->
@@ -929,6 +936,16 @@
       @close="closeGooglePhotosSelector"
       @photo-selected="handleGooglePhotoSelected"
     />
+
+    <!-- ShareModal -->
+    <ShareModal
+      v-if="showShareModal"
+      :graph-data="graphData"
+      :current-graph-id="currentGraphId"
+      :current-domain="currentDomain"
+      :show-ai-share="showAIShare"
+      @close="closeShareModal"
+    />
   </div>
 </template>
 
@@ -942,6 +959,7 @@ import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
+import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewTemplateSidebar from '@/components/GNewTemplateSidebar.vue'
@@ -1028,6 +1046,9 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+
+// Sharing functionality
+const showShareModal = ref(false)
 
 // Formatted definition functionality
 const formattedDefinition = ref('')
@@ -1198,6 +1219,18 @@ const filteredElements = computed(() => {
 
 // Computed properties
 const currentGraphId = computed(() => knowledgeGraphStore.currentGraphId)
+
+// Reactive showAIShare - watch for userStore changes
+const showAIShare = ref(false)
+
+// Watch for userStore role changes
+watch(
+  () => userStore.role,
+  (newRole) => {
+    showAIShare.value = newRole === 'Superadmin'
+  },
+  { immediate: true },
+)
 
 const statusText = computed(() => {
   if (error.value) return 'Error'
@@ -1529,6 +1562,16 @@ const closeImageQuoteCreator = () => {
   selectedNodeForInsertion.value = ''
   imageQuoteType.value = 'static'
   removePasteListener()
+}
+
+// Share Modal methods
+const openShareModal = () => {
+  console.log('Opening share modal for user role:', userStore.role)
+  showShareModal.value = true
+}
+
+const closeShareModal = () => {
+  showShareModal.value = false
 }
 
 const saveImageQuote = async () => {
