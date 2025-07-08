@@ -72,7 +72,8 @@
 
         <!-- AI Share Success Message -->
         <div v-if="aiShareSuccess" class="alert alert-success mt-3" role="alert">
-          <i class="bi bi-check-circle"></i> AI crawlable page link copied to clipboard!
+          <i class="bi bi-check-circle"></i> AI crawlable page link copied! AI systems can now read
+          the full graph content, including node details, connections, and metadata.
         </div>
       </div>
 
@@ -242,7 +243,7 @@ const shareToAI = async () => {
       aiShareSuccess.value = false
     }, 3000)
 
-    console.log('AI crawlable page link copied to clipboard:', publicUrl)
+    console.log('AI link copied:', publicUrl)
   } catch (error) {
     console.error('Failed to copy AI link to clipboard:', error)
 
@@ -255,9 +256,6 @@ const shareToAI = async () => {
 // Generate content when component mounts
 onMounted(() => {
   generateShareContent()
-
-  // Debug AI Share button visibility
-  console.log('ShareModal: AI Share available =', showAIShareComputed.value)
 })
 
 // Watch for changes in graphId to regenerate content

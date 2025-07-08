@@ -45,14 +45,53 @@ function generateGraphHtml(graphData, graphId) {
   // Generate nodes list
   const nodesHtml = nodes
     .map((node) => {
-      const nodeContent = node.content || ''
+      const nodeInfo = node.info || ''
+      const nodeLabel = node.label || 'Untitled Node'
       const nodeType = node.type || 'default'
       const nodeId = node.id || ''
+      const nodeColor = node.color || '#ffffff'
+      const nodeBibl = node.bibl || []
+
+      // Process the info content to remove special formatting for HTML display
+      let processedContent = nodeInfo
+        .replace(/\[SECTION[^\]]*\](.*?)\[END SECTION\]/gs, '$1')
+        .replace(/\[QUOTE[^\]]*\](.*?)\[END QUOTE\]/gs, '<blockquote>$1</blockquote>')
+        .replace(/\[FANCY[^\]]*\](.*?)\[END FANCY\]/gs, '<strong>$1</strong>')
+        .replace(
+          /!\[([^\]]*)\|[^\]]*\]\(([^)]+)\)/g,
+          '<img src="$2" alt="$1" style="max-width: 100%; height: auto;" />',
+        )
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/_(.*?)_/g, '<em>$1</em>')
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>')
+
+      // Wrap in paragraph tags if content exists
+      if (processedContent.trim()) {
+        processedContent = '<p>' + processedContent + '</p>'
+      }
+
+      // Generate bibliography
+      const biblHtml =
+        nodeBibl.length > 0
+          ? `
+        <div class="node-bibliography">
+          <h4>References:</h4>
+          <ul>
+            ${nodeBibl.map((ref) => `<li>${ref}</li>`).join('')}
+          </ul>
+        </div>`
+          : ''
+
       return `
-    <div class="node">
-        <h3 class="node-title">Node: ${nodeId}</h3>
-        <div class="node-type">Type: ${nodeType}</div>
-        <div class="node-content">${nodeContent}</div>
+    <div class="node" style="border-left: 4px solid ${nodeColor}">
+        <h3 class="node-title">${nodeLabel}</h3>
+        <div class="node-meta">
+          <span class="node-id">ID: ${nodeId}</span>
+          <span class="node-type">Type: ${nodeType}</span>
+        </div>
+        <div class="node-content">${processedContent || '<em>No content available</em>'}</div>
+        ${biblHtml}
     </div>`
     })
     .join('')
@@ -92,10 +131,18 @@ function generateGraphHtml(graphData, graphId) {
         .stat-item { background: #007bff; color: white; padding: 10px 20px; border-radius: 4px; text-align: center; }
         .stat-number { font-size: 24px; font-weight: bold; display: block; }
         .stat-label { font-size: 14px; }
-        .node { border: 1px solid #dee2e6; margin: 10px 0; padding: 15px; border-radius: 4px; background: #f8f9fa; }
-        .node-title { color: #007bff; font-size: 16px; margin-bottom: 5px; }
-        .node-type { color: #6c757d; font-size: 12px; margin-bottom: 10px; }
-        .node-content { color: #343a40; }
+                 .node { border: 1px solid #dee2e6; margin: 15px 0; padding: 20px; border-radius: 6px; background: #f8f9fa; }
+         .node-title { color: #007bff; font-size: 18px; margin-bottom: 8px; font-weight: bold; }
+         .node-meta { margin-bottom: 12px; }
+         .node-id, .node-type { color: #6c757d; font-size: 12px; margin-right: 15px; background: #e9ecef; padding: 2px 6px; border-radius: 3px; }
+         .node-content { color: #343a40; line-height: 1.6; margin-bottom: 15px; }
+         .node-content p { margin-bottom: 10px; }
+         .node-content blockquote { background: #e7f3ff; border-left: 4px solid #007bff; padding: 10px 15px; margin: 10px 0; font-style: italic; }
+         .node-content img { margin: 10px 0; border-radius: 4px; }
+         .node-bibliography { margin-top: 15px; }
+         .node-bibliography h4 { color: #495057; font-size: 14px; margin-bottom: 8px; }
+         .node-bibliography ul { margin-left: 20px; }
+         .node-bibliography li { color: #6c757d; font-size: 13px; margin-bottom: 5px; }
         .edge { padding: 8px; margin: 5px 0; background: #e9ecef; border-radius: 4px; }
         .edge-source, .edge-target { font-weight: bold; color: #007bff; }
         .edge-arrow { color: #6c757d; }

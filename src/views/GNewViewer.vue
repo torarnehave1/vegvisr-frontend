@@ -1566,7 +1566,6 @@ const closeImageQuoteCreator = () => {
 
 // Share Modal methods
 const openShareModal = () => {
-  console.log('Opening share modal for user role:', userStore.role)
   showShareModal.value = true
 }
 
