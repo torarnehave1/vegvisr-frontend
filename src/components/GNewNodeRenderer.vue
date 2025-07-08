@@ -30,6 +30,7 @@ import GNewTimelineNode from './GNewNodes/GNewTimelineNode.vue'
 import GNewBubbleChartNode from './GNewNodes/GNewBubbleChartNode.vue'
 import GNewSWOTNode from './GNewNodes/GNewSWOTNode.vue'
 import GNewWhisperNode from './GNewNodes/GNewWhisperNode.vue'
+import GNewImageAnalysisNode from './GNewNodes/GNewImageAnalysisNode.vue'
 
 // Props
 const props = defineProps({
@@ -73,6 +74,8 @@ const nodeComponents = {
   swot: GNewSWOTNode,
   // Audio transcription
   'audio-transcription': GNewWhisperNode,
+  // Image analysis
+  'image-analysis': GNewImageAnalysisNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,

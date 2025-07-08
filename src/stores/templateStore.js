@@ -285,6 +285,22 @@ export const useTemplateStore = defineStore('template', () => {
         bibl: [],
       },
     },
+    {
+      id: 'image-analysis',
+      category: 'Interactive',
+      icon: '🔍',
+      label: 'Image Analysis',
+      description: 'Analyze images using AI vision models (OpenAI GPT-4o)',
+      template: {
+        type: 'image-analysis',
+        label: 'Image Analysis',
+        info: 'Upload an image to analyze with AI vision models',
+        color: '#e8f5e8',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+      },
+    },
   ])
 
   // Computed properties for template organization
