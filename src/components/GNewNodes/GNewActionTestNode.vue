@@ -48,9 +48,9 @@
         AI Query
       </h6>
       <div class="query-preview">
-        <div class="query-text">{{ truncatedQuery }}</div>
+        <div class="query-text">{{ displayQuery }}</div>
         <button
-          v-if="node.info && node.info.length > 150"
+          v-if="hasLongQuery || showFullQuery"
           @click="showFullQuery = !showFullQuery"
           class="btn-expand"
         >
@@ -60,10 +60,11 @@
       <div v-if="showFullQuery" class="full-query">
         <textarea
           v-model="localQuery"
+          @input="updateQuery"
           @blur="updateQuery"
           class="form-control query-textarea"
           rows="4"
-          placeholder="Enter your AI query or prompt..."
+          placeholder="Enter your AI query or prompt here..."
         ></textarea>
       </div>
     </div>
@@ -110,7 +111,7 @@
       <div class="action-buttons">
         <button
           @click="triggerAIResponse"
-          :disabled="isLoading || !node.info"
+          :disabled="isLoading || (!localQuery && !node.info)"
           class="btn btn-primary ai-response-btn"
         >
           <span v-if="isLoading" class="spinner-border spinner-border-sm me-2"></span>
@@ -215,9 +216,17 @@ const currentEndpoint = computed(() => {
   return aiProviders[selectedProvider.value]?.endpoint || props.node.label
 })
 
-const truncatedQuery = computed(() => {
-  const query = props.node.info || 'No query set'
+const displayQuery = computed(() => {
+  const query = localQuery.value || props.node.info
+  if (!query || query.trim() === '') {
+    return 'No query set - click "Edit Query" to add your AI prompt'
+  }
   return query.length > 150 ? query.substring(0, 150) + '...' : query
+})
+
+const hasLongQuery = computed(() => {
+  const query = localQuery.value || props.node.info
+  return query && query.length > 150
 })
 
 // Initialize component state
@@ -268,7 +277,7 @@ const updateEndpoint = () => {
 const updateQuery = () => {
   const updatedNode = {
     ...props.node,
-    info: localQuery.value,
+    info: localQuery.value.trim(),
   }
   emit('node-updated', updatedNode)
 }
@@ -291,6 +300,13 @@ const updateGraphContext = () => {
 
 const editQuery = () => {
   showFullQuery.value = true
+  // Focus on the textarea after it's rendered
+  setTimeout(() => {
+    const textarea = document.querySelector('.query-textarea')
+    if (textarea) {
+      textarea.focus()
+    }
+  }, 100)
 }
 
 const editNode = () => {
@@ -313,7 +329,10 @@ const clearSuccess = () => {
 }
 
 const triggerAIResponse = async () => {
-  if (!props.node.info || !props.node.info.trim()) {
+  // Use current localQuery value (user's actual input) instead of potentially stale node.info
+  const currentQuery = localQuery.value || props.node.info
+
+  if (!currentQuery || !currentQuery.trim()) {
     error.value = 'Please enter a query before getting AI response'
     return
   }
@@ -324,9 +343,9 @@ const triggerAIResponse = async () => {
     error.value = ''
     successMessage.value = ''
 
-    // Prepare the request payload
+    // Prepare the request payload with current query
     const payload = {
-      prompt: props.node.info,
+      prompt: currentQuery.trim(),
       returnType: returnType.value,
       includeGraphContext: includeGraphContext.value,
       nodeId: props.node.id,
@@ -340,6 +359,9 @@ const triggerAIResponse = async () => {
     }
 
     loadingMessage.value = 'Processing AI response...'
+
+    // Debug log to verify correct query is being sent
+    console.log('🚀 Sending AI Query:', currentQuery.trim())
 
     // Make API call
     const response = await fetch(currentEndpoint.value, {
