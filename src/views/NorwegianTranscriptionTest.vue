@@ -4,7 +4,7 @@
       <h1>🇳🇴 Norwegian Audio Transcription Test</h1>
       <p>Test the Norwegian transcription service with audio files</p>
       <div class="service-info">
-        <span class="service-badge">Server: <code>transcribe.vegvisr.org</code></span>
+        <span class="service-badge">Worker: <code>norwegian-transcription-worker</code></span>
         <span class="language-badge">Language: Norwegian (no)</span>
       </div>
     </div>
@@ -101,9 +101,12 @@
         <div class="info-card">
           <h4>🛠️ Service Details</h4>
           <ul>
-            <li><strong>Endpoint:</strong> Norwegian Transcription Server (Direct HTTPS)</li>
+            <li><strong>Endpoint:</strong> Norwegian Transcription Worker (Complete Workflow)</li>
             <li><strong>Language:</strong> Norwegian (no)</li>
-            <li><strong>Processing:</strong> Direct HTTPS → Norwegian Transcription Server</li>
+            <li>
+              <strong>Processing:</strong> Worker → Hetzner Server → Cloudflare AI → Text
+              Enhancement
+            </li>
             <li><strong>Supported Formats:</strong> WAV, MP3, M4A, FLAC</li>
           </ul>
         </div>
@@ -143,8 +146,21 @@
 
         <div class="transcription-text">
           <h4>Transcribed Text:</h4>
-          <div class="text-content">
-            {{ transcriptionResult.transcription?.raw_text || transcriptionResult.text }}
+
+          <!-- Show improved text if available -->
+          <div v-if="transcriptionResult.transcription?.improved_text" class="improved-text">
+            <h5>✨ AI Enhanced Text:</h5>
+            <div class="text-content enhanced">
+              {{ transcriptionResult.transcription.improved_text }}
+            </div>
+          </div>
+
+          <!-- Always show raw transcription -->
+          <div class="raw-text">
+            <h5>🎤 Raw Transcription:</h5>
+            <div class="text-content raw">
+              {{ transcriptionResult.transcription?.raw_text || transcriptionResult.text }}
+            </div>
           </div>
         </div>
 
@@ -190,9 +206,8 @@ const loadingMessage = ref('')
 const transcriptionResult = ref(null)
 const error = ref(null)
 
-// Base URL for Norwegian transcription server (direct HTTPS)
-const NORWEGIAN_BASE_URL = 'https://transcribe.vegvisr.org'
-const API_TOKEN = 'vegvisr_transcribe_2024_secure_token'
+// Base URL for Norwegian transcription worker (complete workflow)
+const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
 // Computed properties
 const audioPreviewUrl = computed(() => {
@@ -322,12 +337,8 @@ const checkHealth = async () => {
   healthStatus.value = null
 
   try {
-    console.log('🏥 Checking Norwegian service health...')
-    const response = await fetch(`${NORWEGIAN_BASE_URL}/health`, {
-      headers: {
-        'X-API-Token': API_TOKEN,
-      },
-    })
+    console.log('🏥 Checking Norwegian worker health...')
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/health`)
 
     if (response.ok) {
       const healthData = await response.json()
@@ -368,22 +379,19 @@ const transcribeAudio = async () => {
     const audioBlob = selectedFile.value || recordedBlob.value
     const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
-    console.log('🇳🇴 Starting Norwegian transcription (direct server call):', {
+    console.log('🇳🇴 Starting Norwegian transcription (worker orchestration):', {
       fileName,
       size: audioBlob.size,
       type: audioBlob.type,
     })
 
-    // Call server directly via HTTPS
+    // Call Norwegian transcription worker for complete workflow
     const formData = new FormData()
     formData.append('audio', audioBlob, fileName)
     formData.append('model', 'nb-whisper-small')
 
-    const transcribeResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
+    const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
       method: 'POST',
-      headers: {
-        'X-API-Token': API_TOKEN,
-      },
       body: formData,
     })
 
@@ -394,25 +402,30 @@ const transcribeAudio = async () => {
     }
 
     const result = await transcribeResponse.json()
-    console.log('✅ Norwegian transcription result (direct):', result)
-    console.log('🔍 Raw transcription text:', result.transcription?.text)
+    console.log('✅ Norwegian transcription result (worker):', result)
+    console.log('🔍 Raw transcription text:', result.transcription?.raw_text)
+    console.log('🔍 Improved transcription text:', result.transcription?.improved_text)
     console.log('🔍 Direct text field:', result.text)
 
     // Format response to match expected structure
     transcriptionResult.value = {
       success: true,
       transcription: {
-        raw_text: result.transcription?.text || result.text,
+        raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
+        improved_text: result.transcription?.improved_text,
         language: result.transcription?.language || 'no',
         chunks: result.transcription?.chunks || 1,
         processing_time: result.transcription?.processing_time || 0,
+        improvement_time: result.transcription?.improvement_time || 0,
         timestamp: new Date().toISOString(),
       },
       metadata: {
         filename: fileName,
         model: result.metadata?.model || 'nb-whisper-small',
         total_processing_time: result.metadata?.total_processing_time || 0,
-        transcription_server: 'Hetzner (HTTPS Direct)',
+        transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
+        text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
+        cloudflare_ai_available: !!result.transcription?.improved_text,
       },
     }
 

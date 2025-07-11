@@ -263,12 +263,12 @@ const handleNorwegianTranscribe = async (request, env) => {
       audioSize: audioBuffer.byteLength,
     })
 
-    // Call the Norwegian transcription service with API token
+    // Call the Norwegian transcription service with API token from environment
     console.log('📤 Sending FormData to Norwegian service...')
     const norwegianResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
       headers: {
-        'X-API-Token': 'vegvisr_transcribe_2024_secure_token',
+        'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         Accept: '*/*',
@@ -328,15 +328,34 @@ const handleNorwegianTranscribe = async (request, env) => {
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url)
+
     // Handle CORS
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         },
       })
+    }
+
+    // Health check endpoint
+    if (request.method === 'GET' && url.pathname === '/health') {
+      return createResponse(
+        JSON.stringify({
+          status: 'healthy',
+          service: 'Norwegian Transcription Worker',
+          version: '2.0.0',
+          features: ['transcription', 'text_improvement'],
+          timestamp: new Date().toISOString(),
+          endpoints: {
+            transcribe: '/ (POST)',
+            health: '/health (GET)',
+          },
+        }),
+      )
     }
 
     if (request.method !== 'POST') {
@@ -372,7 +391,7 @@ export default {
       const transcriptionResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
         method: 'POST',
         headers: {
-          'X-API-Token': 'vegvisr_transcribe_2024_secure_token',
+          'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           Accept: '*/*',
