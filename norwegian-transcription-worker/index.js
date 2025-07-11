@@ -336,7 +336,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, X-File-Name',
         },
       })
     }
@@ -348,16 +348,28 @@ export default {
           status: 'healthy',
           service: 'Norwegian Transcription Worker',
           version: '2.0.0',
-          features: ['transcription', 'text_improvement'],
+          features: ['transcription', 'text_improvement', 'upload'],
           timestamp: new Date().toISOString(),
           endpoints: {
             transcribe: '/ (POST)',
+            upload: '/upload (POST)',
             health: '/health (GET)',
           },
         }),
       )
     }
 
+    // Upload endpoint - for uploading audio files to R2
+    if (request.method === 'POST' && url.pathname === '/upload') {
+      return handleUpload(request, env)
+    }
+
+    // Transcription endpoint - transcribe from R2 URL
+    if (request.method === 'POST' && url.pathname === '/transcribe-from-url') {
+      return handleNorwegianTranscribe(request, env)
+    }
+
+    // Main transcription endpoint (default behavior)
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 })
     }

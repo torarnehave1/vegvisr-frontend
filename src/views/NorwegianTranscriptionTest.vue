@@ -552,6 +552,11 @@ const handleFileSelect = (event) => {
     recordedBlob.value = null // Clear any recorded audio
     error.value = null
     transcriptionResult.value = null
+
+    // Reset portfolio save state for new file
+    portfolioSaved.value = false
+    portfolioError.value = null
+
     console.log('File selected:', file.name, file.size, file.type)
   }
 }
@@ -565,6 +570,11 @@ const handleFileDrop = (event) => {
       recordedBlob.value = null
       error.value = null
       transcriptionResult.value = null
+
+      // Reset portfolio save state for new file
+      portfolioSaved.value = false
+      portfolioError.value = null
+
       console.log('File dropped:', file.name, file.size, file.type)
     } else {
       error.value = { message: 'Please drop an audio file' }
@@ -587,6 +597,11 @@ const startRecording = async () => {
       selectedFile.value = null // Clear any selected file
       error.value = null
       transcriptionResult.value = null
+
+      // Reset portfolio save state for new recording
+      portfolioSaved.value = false
+      portfolioError.value = null
+
       stream.getTracks().forEach((track) => track.stop()) // Stop microphone
     }
 
@@ -664,6 +679,11 @@ const transcribeAudio = async () => {
   transcribing.value = true
   error.value = null
   transcriptionResult.value = null
+
+  // Reset portfolio save state for new transcription
+  portfolioSaved.value = false
+  portfolioError.value = null
+
   resetChunkedState()
 
   const audioBlob = selectedFile.value || recordedBlob.value
@@ -841,6 +861,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
 
 const clearError = () => {
   error.value = null
+  portfolioError.value = null
 }
 
 // Utility functions
@@ -867,6 +888,10 @@ const resetChunkedState = () => {
   totalChunks.value = 0
   chunkResults.value = []
   processingAborted.value = false
+
+  // Reset portfolio save state for new transcription
+  portfolioSaved.value = false
+  portfolioError.value = null
 }
 
 // Portfolio saving functions
@@ -882,13 +907,37 @@ const saveToPortfolio = async () => {
     const audioBlob = selectedFile.value || recordedBlob.value
     const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
-    // Create recording data for the audio-portfolio-worker
+    console.log('=== UPLOADING AUDIO TO R2 ===')
+    console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
+
+    // Step 1: Upload audio file to R2 using Norwegian transcription worker
+    const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
+      method: 'POST',
+      headers: {
+        'X-File-Name': fileName,
+      },
+      body: audioBlob,
+    })
+
+    if (!uploadResponse.ok) {
+      const uploadError = await uploadResponse.json()
+      throw new Error(uploadError.error || `Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadResult = await uploadResponse.json()
+    console.log('✅ Audio uploaded to R2:', uploadResult)
+
+    // Step 2: Create recording data for the audio-portfolio-worker with R2 URL
     const recordingData = {
       userEmail: userStore.email,
       fileName: fileName,
       displayName: fileName.replace(/\.[^/.]+$/, ''), // Remove extension for display name
       fileSize: audioBlob.size,
       duration: recordingDuration.value || 0,
+
+      // R2 Information from upload
+      r2Key: uploadResult.r2Key,
+      r2Url: uploadResult.audioUrl,
 
       // Norwegian transcription data - support both raw and improved text
       transcriptionText:
@@ -929,7 +978,7 @@ const saveToPortfolio = async () => {
     console.log('=== SAVING TO PORTFOLIO ===')
     console.log('Recording data:', JSON.stringify(recordingData, null, 2))
 
-    // Call the audio-portfolio-worker API
+    // Step 3: Call the audio-portfolio-worker API
     const response = await fetch(
       'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
       {
@@ -971,7 +1020,27 @@ const saveChunkedToPortfolio = async () => {
     const audioBlob = selectedFile.value || recordedBlob.value
     const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
-    // Combine all chunk results
+    console.log('=== UPLOADING CHUNKED AUDIO TO R2 ===')
+    console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
+
+    // Step 1: Upload audio file to R2 using Norwegian transcription worker
+    const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
+      method: 'POST',
+      headers: {
+        'X-File-Name': fileName,
+      },
+      body: audioBlob,
+    })
+
+    if (!uploadResponse.ok) {
+      const uploadError = await uploadResponse.json()
+      throw new Error(uploadError.error || `Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadResult = await uploadResponse.json()
+    console.log('✅ Chunked audio uploaded to R2:', uploadResult)
+
+    // Step 2: Combine all chunk results
     const combinedRawText = chunkResults.value.map((chunk) => chunk.raw_text).join(' ')
     const combinedImprovedText = chunkResults.value
       .map((chunk) => chunk.improved_text || chunk.raw_text)
@@ -983,13 +1052,17 @@ const saveChunkedToPortfolio = async () => {
       0,
     )
 
-    // Create recording data for the audio-portfolio-worker
+    // Step 3: Create recording data for the audio-portfolio-worker with R2 URL
     const recordingData = {
       userEmail: userStore.email,
       fileName: fileName,
       displayName: fileName.replace(/\.[^/.]+$/, '') + ' (Chunked Processing)', // Add chunked indicator
       fileSize: audioBlob.size,
       duration: recordingDuration.value || 0,
+
+      // R2 Information from upload
+      r2Key: uploadResult.r2Key,
+      r2Url: uploadResult.audioUrl,
 
       // Norwegian transcription data - combined from all chunks
       transcriptionText: combinedImprovedText,
@@ -1038,7 +1111,7 @@ const saveChunkedToPortfolio = async () => {
     console.log('=== SAVING CHUNKED TRANSCRIPTION TO PORTFOLIO ===')
     console.log('Recording data:', JSON.stringify(recordingData, null, 2))
 
-    // Call the audio-portfolio-worker API
+    // Step 4: Call the audio-portfolio-worker API
     const response = await fetch(
       'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
       {
