@@ -108,11 +108,20 @@
     <!-- Mobile Overlay -->
     <div v-if="isMobile && !isCollapsed" class="mobile-overlay" @click="closeMobileSidebar"></div>
   </div>
+
+  <!-- Audio Recording Selector Modal -->
+  <AudioRecordingSelector
+    :isVisible="showAudioModal"
+    :transcriptionType="selectedTranscriptionType"
+    @close="closeAudioModal"
+    @node-created="handleAudioNodeCreated"
+  />
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useTemplateStore } from '@/stores/templateStore'
+import AudioRecordingSelector from './AudioRecordingSelector.vue'
 
 // Props
 const props = defineProps({
@@ -133,6 +142,10 @@ const isCollapsed = ref(false)
 const isMobile = ref(false)
 const searchQuery = ref('')
 const expandedCategories = ref(['Content Nodes', 'Charts & Data']) // Default expanded categories
+
+// Audio modal state
+const showAudioModal = ref(false)
+const selectedTranscriptionType = ref('')
 
 // Computed properties
 const filteredTemplates = computed(() => {
@@ -196,7 +209,19 @@ const addTemplate = (template) => {
   console.log('=== Template Sidebar: Adding template ===')
   console.log('Template:', template.label, template.id)
 
-  // Create node from template
+  // Handle audio templates by opening modal
+  if (template.isAudioTemplate) {
+    selectedTranscriptionType.value = template.transcriptionType
+    showAudioModal.value = true
+
+    // Close mobile sidebar after opening modal
+    if (isMobile.value) {
+      closeMobileSidebar()
+    }
+    return
+  }
+
+  // Handle regular templates
   const newNode = templateStore.createNodeFromTemplate(template.id)
   if (!newNode) {
     console.error('Failed to create node from template:', template.id)
@@ -213,6 +238,31 @@ const addTemplate = (template) => {
   if (isMobile.value) {
     closeMobileSidebar()
   }
+}
+
+const closeAudioModal = () => {
+  showAudioModal.value = false
+  selectedTranscriptionType.value = ''
+}
+
+const handleAudioNodeCreated = (node) => {
+  // Create appropriate template info based on transcription type
+  const templateInfo = {
+    id: `audio-${selectedTranscriptionType.value}-transcription`,
+    label: `${selectedTranscriptionType.value === 'enhanced' ? 'Enhanced' : selectedTranscriptionType.value === 'raw' ? 'Raw' : 'Both'} Audio Transcription`,
+    icon:
+      selectedTranscriptionType.value === 'enhanced'
+        ? '✨'
+        : selectedTranscriptionType.value === 'raw'
+          ? '🎤'
+          : '📋',
+  }
+
+  emit('template-added', {
+    template: templateInfo,
+    node: node,
+  })
+  closeAudioModal()
 }
 
 // Responsive handling

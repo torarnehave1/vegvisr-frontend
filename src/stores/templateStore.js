@@ -54,6 +54,62 @@ export const useTemplateStore = defineStore('template', () => {
       },
     },
 
+    // Audio Transcription Templates
+    {
+      id: 'audio-enhanced-transcription',
+      category: 'Content Nodes',
+      icon: '✨',
+      label: 'Enhanced Audio Transcription',
+      description: 'Insert AI-enhanced transcription from your audio recordings',
+      isAudioTemplate: true,
+      transcriptionType: 'enhanced',
+      template: {
+        type: 'fulltext',
+        label: 'Enhanced Audio Transcription',
+        info: 'Enhanced transcription content will be inserted here',
+        color: '#e8f5e8',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+      },
+    },
+    {
+      id: 'audio-raw-transcription',
+      category: 'Content Nodes',
+      icon: '🎤',
+      label: 'Raw Audio Transcription',
+      description: 'Insert raw transcription from your audio recordings',
+      isAudioTemplate: true,
+      transcriptionType: 'raw',
+      template: {
+        type: 'fulltext',
+        label: 'Raw Audio Transcription',
+        info: 'Raw transcription content will be inserted here',
+        color: '#f8f9fa',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+      },
+    },
+    {
+      id: 'audio-both-transcriptions',
+      category: 'Content Nodes',
+      icon: '📋',
+      label: 'Both Audio Transcriptions',
+      description: 'Insert both enhanced and raw transcriptions as separate nodes',
+      isAudioTemplate: true,
+      transcriptionType: 'both',
+      template: {
+        type: 'fulltext',
+        label: 'Audio Transcriptions',
+        info: 'Both transcription nodes will be created',
+        color: '#f0f8ff',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+      },
+    },
+
     // Charts & Data Category
     {
       id: 'chart-bar',
