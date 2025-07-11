@@ -141,7 +141,7 @@ const templateStore = useTemplateStore()
 const isCollapsed = ref(false)
 const isMobile = ref(false)
 const searchQuery = ref('')
-const expandedCategories = ref(['Content Nodes', 'Charts & Data']) // Default expanded categories
+const expandedCategories = ref(['Content Nodes', 'Charts & Data', 'Visual Elements']) // Default expanded categories
 
 // Audio modal state
 const showAudioModal = ref(false)
