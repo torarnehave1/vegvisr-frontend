@@ -365,12 +365,12 @@ const transcribeAudio = async () => {
       type: audioBlob.type,
     })
 
-    // Call server directly
+    // Call server directly via HTTPS
     const formData = new FormData()
     formData.append('audio', audioBlob, fileName)
     formData.append('model', 'nb-whisper-small')
 
-    const transcribeResponse = await fetch('http://46.62.149.157/transcribe', {
+    const transcribeResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
       body: formData,
     })
@@ -398,7 +398,7 @@ const transcribeAudio = async () => {
         filename: fileName,
         model: result.metadata?.model || 'nb-whisper-small',
         total_processing_time: result.metadata?.total_processing_time || 0,
-        transcription_server: 'Hetzner (Direct)',
+        transcription_server: 'Hetzner (HTTPS Direct)',
       },
     }
 
