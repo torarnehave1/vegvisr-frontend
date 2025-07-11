@@ -146,11 +146,95 @@
       <div v-if="transcribing" class="loading">
         <div class="loading-spinner"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
+
+        <!-- Chunked processing progress -->
+        <div v-if="isChunkedProcessing" class="chunk-progress">
+          <div class="progress-info">
+            <h4>📊 Processing Large Audio File</h4>
+            <div class="progress-stats">
+              <span class="chunk-counter">Chunk {{ currentChunk }}/{{ totalChunks }}</span>
+              <span class="progress-percentage"
+                >{{ Math.round((currentChunk / totalChunks) * 100) }}%</span
+              >
+            </div>
+            <div class="progress-bar">
+              <div
+                class="progress-fill"
+                :style="{ width: (currentChunk / totalChunks) * 100 + '%' }"
+              ></div>
+            </div>
+          </div>
+
+          <div class="chunk-controls">
+            <button @click="abortProcessing" class="btn btn-danger abort-btn">
+              🛑 Abort Processing
+            </button>
+            <div class="context-quick-edit">
+              <label>💡 Adjust context for remaining chunks:</label>
+              <textarea
+                v-model="transcriptionContext"
+                class="context-quick-input"
+                placeholder="Update context based on results so far..."
+                rows="2"
+              ></textarea>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Results Section -->
-    <div v-if="transcriptionResult" class="test-section">
+    <!-- Chunked Results Section -->
+    <div v-if="chunkResults.length > 0" class="test-section">
+      <h2>📝 Progressive Transcription Results</h2>
+
+      <div class="chunk-results-container">
+        <div v-for="(chunkResult, index) in chunkResults" :key="index" class="chunk-result">
+          <div class="chunk-header">
+            <h4>
+              🎵 Chunk {{ index + 1 }} ({{ formatTime(chunkResult.startTime) }} -
+              {{ formatTime(chunkResult.endTime) }})
+            </h4>
+            <div class="chunk-meta">
+              <span class="processing-time">⏱️ {{ chunkResult.processingTime }}s</span>
+              <span v-if="chunkResult.improved_text" class="enhancement-indicator"
+                >✨ Enhanced</span
+              >
+            </div>
+          </div>
+
+          <!-- Enhanced text if available -->
+          <div v-if="chunkResult.improved_text" class="chunk-text enhanced">
+            <h5>✨ AI Enhanced:</h5>
+            <div class="text-content">{{ chunkResult.improved_text }}</div>
+          </div>
+
+          <!-- Raw transcription -->
+          <div class="chunk-text raw">
+            <h5>🎤 Raw:</h5>
+            <div class="text-content">{{ chunkResult.raw_text }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Combined results summary -->
+      <div v-if="!isChunkedProcessing && chunkResults.length > 0" class="combined-results">
+        <h3>📋 Complete Transcription</h3>
+        <div class="combined-text">
+          <h4>✨ Full Enhanced Text:</h4>
+          <div class="text-content enhanced-combined">
+            {{ chunkResults.map((chunk) => chunk.improved_text || chunk.raw_text).join(' ') }}
+          </div>
+
+          <h4>🎤 Full Raw Text:</h4>
+          <div class="text-content raw-combined">
+            {{ chunkResults.map((chunk) => chunk.raw_text).join(' ') }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Single File Results Section -->
+    <div v-if="transcriptionResult && !isChunkedProcessing" class="test-section">
       <h2>📝 Transcription Results</h2>
 
       <div class="result-card">
@@ -230,6 +314,13 @@ const transcriptionResult = ref(null)
 const error = ref(null)
 const transcriptionContext = ref('')
 
+// Chunked processing state
+const isChunkedProcessing = ref(false)
+const currentChunk = ref(0)
+const totalChunks = ref(0)
+const chunkResults = ref([])
+const processingAborted = ref(false)
+
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
@@ -276,6 +367,121 @@ const formatFileSize = (bytes) => {
   const sizes = ['Bytes', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// Audio chunking utilities
+const getAudioDuration = (audioBlob) => {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio()
+    audio.onloadedmetadata = () => {
+      resolve(audio.duration)
+    }
+    audio.onerror = reject
+    audio.src = URL.createObjectURL(audioBlob)
+  })
+}
+
+const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120) => {
+  return new Promise((resolve, reject) => {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+    const fileReader = new FileReader()
+
+    fileReader.onload = async (e) => {
+      try {
+        const arrayBuffer = e.target.result
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+        const sampleRate = audioBuffer.sampleRate
+        const chunkSamples = chunkDurationSeconds * sampleRate
+        const totalSamples = audioBuffer.length
+        const numChunks = Math.ceil(totalSamples / chunkSamples)
+
+        const chunks = []
+
+        for (let i = 0; i < numChunks; i++) {
+          const startSample = i * chunkSamples
+          const endSample = Math.min(startSample + chunkSamples, totalSamples)
+
+          // Create new audio buffer for this chunk
+          const chunkBuffer = audioContext.createBuffer(
+            audioBuffer.numberOfChannels,
+            endSample - startSample,
+            sampleRate,
+          )
+
+          // Copy audio data to chunk buffer
+          for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+            const originalData = audioBuffer.getChannelData(channel)
+            const chunkData = chunkBuffer.getChannelData(channel)
+            for (let sample = 0; sample < chunkBuffer.length; sample++) {
+              chunkData[sample] = originalData[startSample + sample]
+            }
+          }
+
+          // Convert chunk buffer to blob
+          const chunkBlob = await audioBufferToBlob(chunkBuffer)
+          chunks.push({
+            blob: chunkBlob,
+            index: i,
+            startTime: i * chunkDurationSeconds,
+            endTime: Math.min((i + 1) * chunkDurationSeconds, totalSamples / sampleRate),
+          })
+        }
+
+        resolve(chunks)
+      } catch (error) {
+        reject(error)
+      }
+    }
+
+    fileReader.onerror = reject
+    fileReader.readAsArrayBuffer(audioBlob)
+  })
+}
+
+const audioBufferToBlob = (audioBuffer) => {
+  return new Promise((resolve) => {
+    const numberOfChannels = audioBuffer.numberOfChannels
+    const sampleRate = audioBuffer.sampleRate
+    const length = audioBuffer.length
+
+    // Create WAV file
+    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2)
+    const view = new DataView(arrayBuffer)
+
+    // WAV header
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + length * numberOfChannels * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numberOfChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numberOfChannels * 2, true)
+    view.setUint16(32, numberOfChannels * 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, length * numberOfChannels * 2, true)
+
+    // Audio data
+    let offset = 44
+    for (let i = 0; i < length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(channel)[i]))
+        view.setInt16(offset, sample * 0x7fff, true)
+        offset += 2
+      }
+    }
+
+    resolve(new Blob([arrayBuffer], { type: 'audio/wav' }))
+  })
 }
 
 const handleFileSelect = (event) => {
@@ -397,69 +603,32 @@ const transcribeAudio = async () => {
   transcribing.value = true
   error.value = null
   transcriptionResult.value = null
-  loadingMessage.value = 'Transcribing with Norwegian service...'
+  resetChunkedState()
+
+  const audioBlob = selectedFile.value || recordedBlob.value
+  const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
   try {
-    const audioBlob = selectedFile.value || recordedBlob.value
-    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
-
-    console.log('🇳🇴 Starting Norwegian transcription (worker orchestration):', {
+    console.log('🇳🇴 Starting Norwegian transcription analysis:', {
       fileName,
       size: audioBlob.size,
       type: audioBlob.type,
     })
 
-    // Call Norwegian transcription worker for complete workflow
-    const formData = new FormData()
-    formData.append('audio', audioBlob, fileName)
-    formData.append('model', 'nb-whisper-small')
+    // Check audio duration to determine if chunking is needed
+    loadingMessage.value = 'Analyzing audio file...'
+    const audioDuration = await getAudioDuration(audioBlob)
+    const CHUNK_THRESHOLD = 300 // 5 minutes
 
-    // Add context if provided
-    if (transcriptionContext.value.trim()) {
-      formData.append('context', transcriptionContext.value.trim())
+    console.log(`📊 Audio duration: ${Math.round(audioDuration)}s (${formatTime(audioDuration)})`)
+
+    if (audioDuration > CHUNK_THRESHOLD) {
+      // Use chunked processing for files > 5 minutes
+      await processAudioInChunks(audioBlob, fileName, audioDuration)
+    } else {
+      // Use single file processing for smaller files
+      await processSingleAudioFile(audioBlob, fileName)
     }
-
-    const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!transcribeResponse.ok) {
-      throw new Error(
-        `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
-      )
-    }
-
-    const result = await transcribeResponse.json()
-    console.log('✅ Norwegian transcription result (worker):', result)
-    console.log('🔍 Raw transcription text:', result.transcription?.raw_text)
-    console.log('🔍 Improved transcription text:', result.transcription?.improved_text)
-    console.log('🔍 Direct text field:', result.text)
-
-    // Format response to match expected structure
-    transcriptionResult.value = {
-      success: true,
-      transcription: {
-        raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
-        improved_text: result.transcription?.improved_text,
-        language: result.transcription?.language || 'no',
-        chunks: result.transcription?.chunks || 1,
-        processing_time: result.transcription?.processing_time || 0,
-        improvement_time: result.transcription?.improvement_time || 0,
-        timestamp: new Date().toISOString(),
-      },
-      metadata: {
-        filename: fileName,
-        model: result.metadata?.model || 'nb-whisper-small',
-        total_processing_time: result.metadata?.total_processing_time || 0,
-        transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
-        text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
-        cloudflare_ai_available: !!result.transcription?.improved_text,
-      },
-    }
-
-    console.log('📊 Final transcriptionResult structure:', transcriptionResult.value)
-    loadingMessage.value = ''
   } catch (err) {
     console.error('Norwegian transcription error:', err)
     error.value = {
@@ -469,11 +638,174 @@ const transcribeAudio = async () => {
   } finally {
     transcribing.value = false
     loadingMessage.value = ''
+    isChunkedProcessing.value = false
+  }
+}
+
+const processSingleAudioFile = async (audioBlob, fileName) => {
+  loadingMessage.value = 'Transcribing with Norwegian service...'
+
+  console.log('📄 Processing single file')
+
+  const formData = new FormData()
+  formData.append('audio', audioBlob, fileName)
+  formData.append('model', 'nb-whisper-small')
+
+  if (transcriptionContext.value.trim()) {
+    formData.append('context', transcriptionContext.value.trim())
+  }
+
+  const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!transcribeResponse.ok) {
+    throw new Error(
+      `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
+    )
+  }
+
+  const result = await transcribeResponse.json()
+  console.log('✅ Single file transcription result:', result)
+
+  transcriptionResult.value = {
+    success: true,
+    transcription: {
+      raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
+      improved_text: result.transcription?.improved_text,
+      language: result.transcription?.language || 'no',
+      chunks: result.transcription?.chunks || 1,
+      processing_time: result.transcription?.processing_time || 0,
+      improvement_time: result.transcription?.improvement_time || 0,
+      timestamp: new Date().toISOString(),
+    },
+    metadata: {
+      filename: fileName,
+      model: result.metadata?.model || 'nb-whisper-small',
+      total_processing_time: result.metadata?.total_processing_time || 0,
+      transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
+      text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
+      cloudflare_ai_available: !!result.transcription?.improved_text,
+    },
+  }
+}
+
+const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
+  loadingMessage.value = 'Splitting audio into 2-minute chunks...'
+  isChunkedProcessing.value = true
+
+  console.log('🧩 Processing in chunks - splitting audio...')
+
+  // Split audio into 2-minute chunks
+  const chunks = await splitAudioIntoChunks(audioBlob, 120) // 2 minutes
+  totalChunks.value = chunks.length
+
+  console.log(`📊 Split into ${chunks.length} chunks of ~2 minutes each`)
+
+  // Process each chunk sequentially
+  for (let i = 0; i < chunks.length; i++) {
+    if (processingAborted.value) {
+      console.log('🛑 Processing aborted by user')
+      break
+    }
+
+    currentChunk.value = i + 1
+    loadingMessage.value = `Processing chunk ${i + 1}/${chunks.length} (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+
+    try {
+      const chunkStart = performance.now()
+
+      // Process this chunk
+      const formData = new FormData()
+      formData.append('audio', chunks[i].blob, `${fileName}_chunk_${i + 1}.wav`)
+      formData.append('model', 'nb-whisper-small')
+
+      if (transcriptionContext.value.trim()) {
+        formData.append('context', transcriptionContext.value.trim())
+      }
+
+      const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!transcribeResponse.ok) {
+        throw new Error(`Chunk ${i + 1} failed: ${transcribeResponse.status}`)
+      }
+
+      const result = await transcribeResponse.json()
+      const chunkProcessingTime = Math.round((performance.now() - chunkStart) / 1000)
+
+      console.log(
+        `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s:`,
+        result.transcription?.raw_text?.substring(0, 100),
+      )
+
+      // Add to results
+      chunkResults.value.push({
+        index: i,
+        startTime: chunks[i].startTime,
+        endTime: chunks[i].endTime,
+        raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
+        improved_text: result.transcription?.improved_text,
+        processingTime: chunkProcessingTime,
+        metadata: result.metadata,
+      })
+    } catch (err) {
+      console.error(`Error processing chunk ${i + 1}:`, err)
+
+      // Add failed chunk to results
+      chunkResults.value.push({
+        index: i,
+        startTime: chunks[i].startTime,
+        endTime: chunks[i].endTime,
+        raw_text: `[Error processing chunk ${i + 1}: ${err.message}]`,
+        improved_text: null,
+        processingTime: 0,
+        error: true,
+      })
+    }
+  }
+
+  if (!processingAborted.value) {
+    loadingMessage.value = `Completed processing ${chunkResults.value.length} chunks!`
+    console.log('🎉 All chunks processed successfully')
+
+    setTimeout(() => {
+      loadingMessage.value = ''
+    }, 3000)
   }
 }
 
 const clearError = () => {
   error.value = null
+}
+
+// Utility functions
+const formatTime = (seconds) => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const abortProcessing = () => {
+  processingAborted.value = true
+  transcribing.value = false
+  isChunkedProcessing.value = false
+  loadingMessage.value = 'Processing aborted by user'
+
+  setTimeout(() => {
+    loadingMessage.value = ''
+  }, 3000)
+}
+
+const resetChunkedState = () => {
+  isChunkedProcessing.value = false
+  currentChunk.value = 0
+  totalChunks.value = 0
+  chunkResults.value = []
+  processingAborted.value = false
 }
 </script>
 
@@ -659,6 +991,199 @@ const clearError = () => {
   margin: 2px 0;
   color: #666;
   font-size: 0.85rem;
+}
+
+/* Chunked Processing Styles */
+.chunk-progress {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f0f8ff;
+  border-radius: 8px;
+  border: 1px solid #87ceeb;
+}
+
+.progress-info h4 {
+  margin: 0 0 15px 0;
+  color: #1e40af;
+}
+
+.progress-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.chunk-counter {
+  font-weight: bold;
+  color: #1e40af;
+}
+
+.progress-percentage {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #059669;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 20px;
+  background: #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 15px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  transition: width 0.3s ease;
+}
+
+.chunk-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.abort-btn {
+  background: #dc2626;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.abort-btn:hover {
+  background: #b91c1c;
+}
+
+.context-quick-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-quick-edit label {
+  font-weight: 500;
+  color: #374151;
+}
+
+.context-quick-input {
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+/* Chunk Results Styles */
+.chunk-results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chunk-result {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  background: white;
+}
+
+.chunk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.chunk-header h4 {
+  margin: 0;
+  color: #1f2937;
+}
+
+.chunk-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.processing-time {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.enhancement-indicator {
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.chunk-text {
+  margin-bottom: 15px;
+}
+
+.chunk-text h5 {
+  margin: 0 0 8px 0;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.chunk-text.enhanced .text-content {
+  background: #f0fdf4;
+  border-left: 4px solid #10b981;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.chunk-text.raw .text-content {
+  background: #fafafa;
+  border-left: 4px solid #6b7280;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.combined-results {
+  margin-top: 30px;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.combined-results h3 {
+  margin: 0 0 20px 0;
+  color: #1f2937;
+}
+
+.combined-text h4 {
+  margin: 15px 0 10px 0;
+  color: #374151;
+}
+
+.enhanced-combined {
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  line-height: 1.6;
+}
+
+.raw-combined {
+  background: #f5f5f5;
+  border: 1px solid #6b7280;
+  padding: 15px;
+  border-radius: 6px;
+  line-height: 1.6;
 }
 
 .file-info {
