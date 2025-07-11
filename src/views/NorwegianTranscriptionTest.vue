@@ -192,6 +192,7 @@ const error = ref(null)
 
 // Base URL for Norwegian transcription server (direct HTTPS)
 const NORWEGIAN_BASE_URL = 'https://transcribe.vegvisr.org'
+const API_TOKEN = 'vegvisr_transcribe_2024_secure_token'
 
 // Computed properties
 const audioPreviewUrl = computed(() => {
@@ -322,7 +323,11 @@ const checkHealth = async () => {
 
   try {
     console.log('🏥 Checking Norwegian service health...')
-    const response = await fetch(`${NORWEGIAN_BASE_URL}/health`)
+    const response = await fetch(`${NORWEGIAN_BASE_URL}/health`, {
+      headers: {
+        'X-API-Token': API_TOKEN,
+      },
+    })
 
     if (response.ok) {
       const healthData = await response.json()
@@ -376,6 +381,9 @@ const transcribeAudio = async () => {
 
     const transcribeResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
+      headers: {
+        'X-API-Token': API_TOKEN,
+      },
       body: formData,
     })
 

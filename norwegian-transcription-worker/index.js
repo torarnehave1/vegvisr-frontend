@@ -263,11 +263,12 @@ const handleNorwegianTranscribe = async (request, env) => {
       audioSize: audioBuffer.byteLength,
     })
 
-    // Call the Norwegian transcription service with browser-like headers
+    // Call the Norwegian transcription service with API token
     console.log('📤 Sending FormData to Norwegian service...')
-    const norwegianResponse = await fetch('http://46.62.149.157/transcribe', {
+    const norwegianResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
       headers: {
+        'X-API-Token': 'vegvisr_transcribe_2024_secure_token',
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         Accept: '*/*',
@@ -314,7 +315,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
           service: 'Norwegian Transcription Service',
-          endpoint: 'http://46.62.149.157/transcribe',
+          endpoint: 'https://transcribe.vegvisr.org/transcribe',
           language: 'Norwegian',
         },
       }),
@@ -362,15 +363,16 @@ export default {
       transcriptionFormData.append('model', model)
 
       console.log('About to call transcription service:', {
-        url: 'https://46.62.149.157/transcribe',
+        url: 'https://transcribe.vegvisr.org/transcribe',
         hasAudio: !!audioFile,
         model: model,
         timestamp: new Date().toISOString(),
       })
 
-      const transcriptionResponse = await fetch('http://46.62.149.157/transcribe', {
+      const transcriptionResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
         method: 'POST',
         headers: {
+          'X-API-Token': 'vegvisr_transcribe_2024_secure_token',
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           Accept: '*/*',
