@@ -217,6 +217,16 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/gnew-viewer',
+      name: 'gnew-viewer',
+      component: () => import('../views/GNewViewer.vue'),
+      props: (route) => ({ graphId: route.query.graphId || '' }), // Pass graphId as a prop
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
   ],
 })
 

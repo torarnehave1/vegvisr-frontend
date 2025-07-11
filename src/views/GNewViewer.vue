@@ -964,6 +964,14 @@ import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewTemplateSidebar from '@/components/GNewTemplateSidebar.vue'
 
+// Props
+const props = defineProps({
+  graphId: {
+    type: String,
+    default: '',
+  },
+})
+
 // Store access
 const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
@@ -3112,6 +3120,15 @@ onMounted(() => {
     )
     // Set the graph ID in the store for shared links
     knowledgeGraphStore.setCurrentGraphId(urlGraphId)
+    loadGraph()
+    return
+  }
+
+  // Second check prop graphId (from router)
+  if (props.graphId) {
+    console.log(`Loading graph from prop: ${props.graphId}`)
+    // Set the graph ID in the store for prop-based access
+    knowledgeGraphStore.setCurrentGraphId(props.graphId)
     loadGraph()
     return
   }
