@@ -4,9 +4,7 @@
       <h1>🇳🇴 Norwegian Audio Transcription Test</h1>
       <p>Test the Norwegian transcription service with audio files</p>
       <div class="service-info">
-        <span class="service-badge"
-          >Worker: <code>norwegian-transcription-worker.torarnehave.workers.dev</code></span
-        >
+        <span class="service-badge">Server: <code>transcribe.vegvisr.org</code></span>
         <span class="language-badge">Language: Norwegian (no)</span>
       </div>
     </div>
@@ -103,9 +101,9 @@
         <div class="info-card">
           <h4>🛠️ Service Details</h4>
           <ul>
-            <li><strong>Endpoint:</strong> Norwegian Transcription Worker</li>
+            <li><strong>Endpoint:</strong> Norwegian Transcription Server (Direct HTTPS)</li>
             <li><strong>Language:</strong> Norwegian (no)</li>
-            <li><strong>Processing:</strong> Upload → R2 Storage → Norwegian Service</li>
+            <li><strong>Processing:</strong> Direct HTTPS → Norwegian Transcription Server</li>
             <li><strong>Supported Formats:</strong> WAV, MP3, M4A, FLAC</li>
           </ul>
         </div>
@@ -186,8 +184,8 @@ const loadingMessage = ref('')
 const transcriptionResult = ref(null)
 const error = ref(null)
 
-// Base URL for Norwegian transcription worker
-const NORWEGIAN_BASE_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
+// Base URL for Norwegian transcription server (direct HTTPS)
+const NORWEGIAN_BASE_URL = 'https://transcribe.vegvisr.org'
 
 // Computed properties
 const audioPreviewUrl = computed(() => {
