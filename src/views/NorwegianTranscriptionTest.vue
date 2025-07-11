@@ -353,43 +353,27 @@ const transcribeAudio = async () => {
   transcribing.value = true
   error.value = null
   transcriptionResult.value = null
-  loadingMessage.value = 'Preparing audio file...'
+  loadingMessage.value = 'Transcribing with Norwegian service...'
 
   try {
     const audioBlob = selectedFile.value || recordedBlob.value
     const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
 
-    console.log('🇳🇴 Starting Norwegian transcription:', {
+    console.log('🇳🇴 Starting Norwegian transcription (direct server call):', {
       fileName,
       size: audioBlob.size,
       type: audioBlob.type,
     })
 
-    // Step 1: Upload to Norwegian transcription worker
-    loadingMessage.value = 'Uploading audio file...'
+    // Call server directly
+    const formData = new FormData()
+    formData.append('audio', audioBlob, fileName)
+    formData.append('model', 'nb-whisper-small')
 
-    const uploadResponse = await fetch(`${NORWEGIAN_BASE_URL}/upload`, {
+    const transcribeResponse = await fetch('http://46.62.149.157/transcribe', {
       method: 'POST',
-      headers: {
-        'Content-Type': audioBlob.type || 'audio/wav',
-        'X-File-Name': fileName,
-      },
-      body: audioBlob,
+      body: formData,
     })
-
-    if (!uploadResponse.ok) {
-      throw new Error(`Upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`)
-    }
-
-    const uploadData = await uploadResponse.json()
-    console.log('✅ Upload result:', uploadData)
-
-    // Step 2: Transcribe using Norwegian service
-    loadingMessage.value = 'Transcribing with Norwegian service...'
-
-    const transcribeResponse = await fetch(
-      `${NORWEGIAN_BASE_URL}/transcribe-norwegian?url=${encodeURIComponent(uploadData.audioUrl)}`,
-    )
 
     if (!transcribeResponse.ok) {
       throw new Error(
@@ -398,9 +382,26 @@ const transcribeAudio = async () => {
     }
 
     const result = await transcribeResponse.json()
-    console.log('✅ Norwegian transcription result:', result)
+    console.log('✅ Norwegian transcription result (direct):', result)
 
-    transcriptionResult.value = result
+    // Format response to match expected structure
+    transcriptionResult.value = {
+      success: true,
+      transcription: {
+        raw_text: result.transcription?.text || result.text,
+        language: result.transcription?.language || 'no',
+        chunks: result.transcription?.chunks || 1,
+        processing_time: result.transcription?.processing_time || 0,
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        filename: fileName,
+        model: result.metadata?.model || 'nb-whisper-small',
+        total_processing_time: result.metadata?.total_processing_time || 0,
+        transcription_server: 'Hetzner (Direct)',
+      },
+    }
+
     loadingMessage.value = ''
   } catch (err) {
     console.error('Norwegian transcription error:', err)

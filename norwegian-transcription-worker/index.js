@@ -48,6 +48,45 @@ const isValidAudioFormat = (contentType, fileName) => {
   return false
 }
 
+// Helper function to detect actual audio format from buffer headers
+const detectAudioFormat = (audioBuffer) => {
+  const audioArray = new Uint8Array(audioBuffer)
+  const header = Array.from(audioArray.slice(0, 12))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  // WebM container (EBML header)
+  if (header.startsWith('1a45dfa3')) {
+    return { contentType: 'audio/webm', extension: '.webm', format: 'WebM' }
+  }
+
+  // WAV format (RIFF header)
+  if (header.startsWith('52494646')) {
+    // "RIFF"
+    return { contentType: 'audio/wav', extension: '.wav', format: 'WAV' }
+  }
+
+  // MP3 format (ID3 or direct MP3 header)
+  if (header.startsWith('494433') || header.startsWith('fffb') || header.startsWith('fff3')) {
+    return { contentType: 'audio/mpeg', extension: '.mp3', format: 'MP3' }
+  }
+
+  // M4A/MP4 format (ftyp header)
+  if (header.includes('66747970')) {
+    // "ftyp"
+    return { contentType: 'audio/mp4', extension: '.m4a', format: 'M4A' }
+  }
+
+  // FLAC format
+  if (header.startsWith('664c6143')) {
+    // "fLaC"
+    return { contentType: 'audio/flac', extension: '.flac', format: 'FLAC' }
+  }
+
+  // Default fallback
+  return { contentType: 'audio/wav', extension: '.wav', format: 'Unknown' }
+}
+
 // Helper function to get audio content type from file extension
 const getAudioContentType = (fileName) => {
   if (!fileName) return 'audio/wav'
@@ -116,7 +155,8 @@ const handleUpload = async (request, env) => {
       return createErrorResponse('Server configuration error: ACCOUNT_ID not configured', 500)
     }
 
-    const audioUrl = `https://norwegian-audio.vegvisr.org/${r2Key}`
+    // Use the existing audio.vegvisr.org domain for consistency with whisper-worker
+    const audioUrl = `https://audio.vegvisr.org/${r2Key}`
 
     return createResponse(
       JSON.stringify({
@@ -158,19 +198,24 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     // Extract R2 key from URL
     let r2Key
-    if (audioUrl.includes('norwegian-audio.vegvisr.org/')) {
-      r2Key = audioUrl.split('norwegian-audio.vegvisr.org/')[1]
+    if (audioUrl.includes('audio.vegvisr.org/')) {
+      r2Key = audioUrl.split('audio.vegvisr.org/')[1]
     } else if (audioUrl.includes('.r2.cloudflarestorage.com/')) {
       r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
     } else {
-      return createErrorResponse('Invalid audio URL format', 400)
+      console.error('URL parsing failed:', {
+        audioUrl,
+        expectedPatterns: ['audio.vegvisr.org/', '.r2.cloudflarestorage.com/'],
+      })
+      return createErrorResponse(`Invalid audio URL format: ${audioUrl}`, 400)
     }
 
     // Download audio file from R2
-    console.log('📥 Downloading audio from R2:', r2Key)
+    console.log('📥 Downloading audio from R2:', { r2Key, bucketBinding: 'NORWEGIAN_AUDIO_BUCKET' })
     const audioObject = await env.NORWEGIAN_AUDIO_BUCKET.get(r2Key)
 
     if (!audioObject) {
+      console.error('R2 file not found:', { r2Key, bucketBinding: 'NORWEGIAN_AUDIO_BUCKET' })
       return createErrorResponse(`Audio file not found: ${r2Key}`, 404)
     }
 
@@ -180,25 +225,57 @@ const handleNorwegianTranscribe = async (request, env) => {
       sizeMB: (audioBuffer.byteLength / 1024 / 1024).toFixed(2),
     })
 
-    // Prepare FormData for Norwegian transcription service
-    const formData = new FormData()
-    const audioBlob = new Blob([audioBuffer], { type: 'audio/wav' })
+    // Detect actual audio format from buffer headers
+    const detectedFormat = detectAudioFormat(audioBuffer)
+    console.log('📝 Detected audio format:', {
+      format: detectedFormat.format,
+      contentType: detectedFormat.contentType,
+      extension: detectedFormat.extension,
+    })
 
     // Get original filename from metadata or use default
     const originalFileName = audioObject.customMetadata?.originalFileName || 'audio.wav'
+    const correctedFileName = originalFileName.replace(/\.[^.]+$/, detectedFormat.extension)
 
-    formData.append('audio', audioBlob, originalFileName)
+    // Prepare FormData for Norwegian transcription service
+    const formData = new FormData()
+    const audioBlob = new Blob([audioBuffer], { type: detectedFormat.contentType })
+
+    // Add debugging logs similar to whisper-worker
+    console.log('🎯 Audio blob details:', {
+      originalFileName,
+      correctedFileName,
+      r2Key,
+      detectedFormat: detectedFormat.format,
+      detectedContentType: detectedFormat.contentType,
+      blobSize: audioBuffer.byteLength,
+      blobType: audioBlob.type,
+    })
+
+    formData.append('audio', audioBlob, correctedFileName)
     formData.append('language', 'no') // Norwegian language code
 
     console.log('🚀 Calling Norwegian transcription service:', {
       endpoint: 'http://46.62.149.157/transcribe',
-      fileName: originalFileName,
+      fileName: correctedFileName,
+      detectedFormat: detectedFormat.format,
+      contentType: detectedFormat.contentType,
       audioSize: audioBuffer.byteLength,
     })
 
-    // Call the Norwegian transcription service
+    // Call the Norwegian transcription service with browser-like headers
+    console.log('📤 Sending FormData to Norwegian service...')
     const norwegianResponse = await fetch('http://46.62.149.157/transcribe', {
       method: 'POST',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        Accept: '*/*',
+        'Accept-Language': 'en-US,en;q=0.9,no;q=0.8',
+        'Accept-Encoding': 'gzip, deflate',
+        Origin: 'https://vegvisr.org',
+        Referer: 'https://vegvisr.org/',
+      },
       body: formData,
     })
 
@@ -249,73 +326,160 @@ const handleNorwegianTranscribe = async (request, env) => {
 }
 
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url)
-    const pathname = url.pathname
-
-    // Log all incoming requests
-    console.log('🔍 Norwegian Worker Request:', {
-      method: request.method,
-      pathname: pathname,
-      contentType: request.headers.get('Content-Type'),
-      timestamp: new Date().toISOString(),
-    })
-
-    // Handle CORS preflight requests
+  async fetch(request, env, ctx) {
+    // Handle CORS
     if (request.method === 'OPTIONS') {
       return new Response(null, {
-        status: 204,
         headers: {
-          ...corsHeaders,
-          'Access-Control-Max-Age': '86400',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
         },
       })
     }
 
-    // Health check endpoint
-    if (pathname === '/' || pathname === '/health') {
-      return createResponse(
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 })
+    }
+
+    try {
+      const formData = await request.formData()
+      const audioFile = formData.get('audio')
+      const model = formData.get('model') || 'nb-whisper-small'
+
+      if (!audioFile) {
+        return new Response(JSON.stringify({ error: 'No audio file provided' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const startTime = Date.now()
+
+      // Step 1: Call Hetzner server for transcription
+      const transcriptionFormData = new FormData()
+      transcriptionFormData.append('audio', audioFile)
+      transcriptionFormData.append('model', model)
+
+      console.log('About to call transcription service:', {
+        url: 'https://46.62.149.157/transcribe',
+        hasAudio: !!audioFile,
+        model: model,
+        timestamp: new Date().toISOString(),
+      })
+
+      const transcriptionResponse = await fetch('http://46.62.149.157/transcribe', {
+        method: 'POST',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          Accept: '*/*',
+        },
+        body: transcriptionFormData,
+      })
+
+      console.log('Transcription response:', {
+        status: transcriptionResponse.status,
+        statusText: transcriptionResponse.statusText,
+        headers: Object.fromEntries(transcriptionResponse.headers.entries()),
+      })
+
+      if (!transcriptionResponse.ok) {
+        const errorText = await transcriptionResponse.text()
+        console.log('Error response body:', errorText)
+        throw new Error(`Transcription failed: ${transcriptionResponse.status}`)
+      }
+
+      const transcriptionData = await transcriptionResponse.json()
+
+      if (!transcriptionData.success || !transcriptionData.transcription?.text) {
+        throw new Error('Invalid transcription response')
+      }
+
+      const rawText = transcriptionData.transcription.text
+
+      // Step 2: Call Norwegian text improvement worker
+      let improvedText = null
+      let improvementTime = 0
+
+      try {
+        const improvementStart = Date.now()
+
+        const improvementResponse = await fetch(
+          'https://norwegian-text-worker.torarnehave.workers.dev/',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text: rawText,
+            }),
+          },
+        )
+
+        if (improvementResponse.ok) {
+          const improvementData = await improvementResponse.json()
+          if (improvementData.success && improvementData.improved_text) {
+            improvedText = improvementData.improved_text
+            improvementTime = Date.now() - improvementStart
+          }
+        }
+      } catch (error) {
+        console.error('Text improvement failed:', error)
+        // Continue without improvement if it fails
+      }
+
+      const totalTime = Date.now() - startTime
+
+      // Step 3: Return combined response
+      return new Response(
         JSON.stringify({
-          status: 'healthy',
-          service: 'Norwegian Transcription Worker',
-          timestamp: new Date().toISOString(),
-          endpoints: [
-            '/health - Service status',
-            'POST /upload - Upload audio file',
-            'POST /transcribe-norwegian - Transcribe with Norwegian service',
-            'GET /transcribe-norwegian?url=... - Transcribe from URL',
-          ],
-          norwegianService: 'http://46.62.149.157/transcribe',
-          language: 'Norwegian (no)',
+          success: true,
+          transcription: {
+            raw_text: rawText,
+            improved_text: improvedText,
+            language: transcriptionData.transcription.language || 'no',
+            chunks: transcriptionData.transcription.chunks || 1,
+            processing_time: transcriptionData.transcription.processing_time || 0,
+            improvement_time: improvementTime,
+            timestamp: new Date().toISOString(),
+          },
+          metadata: {
+            filename: audioFile.name,
+            model: transcriptionData.metadata?.model || model,
+            total_processing_time: totalTime,
+            transcription_server: 'Hetzner',
+            text_improvement: improvedText
+              ? 'Cloudflare Workers AI - Llama 3.3 70B Fast'
+              : 'Not available',
+            cloudflare_ai_available: improvedText !== null,
+          },
         }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
+      )
+    } catch (error) {
+      console.error('Norwegian transcription error:', error)
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error.message || 'Transcription failed',
+          timestamp: new Date().toISOString(),
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        },
       )
     }
-
-    // Audio upload endpoint
-    if (pathname === '/upload' && request.method === 'POST') {
-      return await handleUpload(request, env)
-    }
-
-    // Norwegian transcription endpoint
-    if (
-      pathname === '/transcribe-norwegian' &&
-      (request.method === 'POST' || request.method === 'GET')
-    ) {
-      return await handleNorwegianTranscribe(request, env)
-    }
-
-    // Fallback - return 404 for unmatched routes
-    console.log('❌ No route matched:', {
-      pathname: pathname,
-      method: request.method,
-      availableRoutes: [
-        '/health',
-        'POST /upload',
-        'POST /transcribe-norwegian',
-        'GET /transcribe-norwegian',
-      ],
-    })
-
-    return createErrorResponse('Not Found', 404)
   },
 }
