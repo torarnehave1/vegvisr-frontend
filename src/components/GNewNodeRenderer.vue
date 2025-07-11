@@ -17,6 +17,7 @@ import { computed } from 'vue'
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
 import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
+import GNewAudioNode from './GNewNodes/GNewAudioNode.vue'
 import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
 import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
 import GNewButtonRowNode from './GNewNodes/GNewButtonRowNode.vue'
@@ -58,6 +59,7 @@ const nodeComponents = {
   background: GNewImageNode,
   'portfolio-image': GNewImageNode,
   'youtube-video': GNewVideoNode,
+  audio: GNewAudioNode,
   title: GNewTitleNode,
   imagequote: GNewImageQuoteNode,
   button_row: GNewButtonRowNode,

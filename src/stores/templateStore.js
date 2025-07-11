@@ -275,6 +275,20 @@ export const useTemplateStore = defineStore('template', () => {
         bibl: [],
       },
     },
+    {
+      id: 'audio-player',
+      category: 'Visual Elements',
+      icon: '🎵',
+      label: 'Audio Player',
+      description: 'Add an audio player with controls',
+      template: {
+        type: 'audio',
+        label: 'Audio Recording',
+        info: 'Audio description and notes...',
+        path: '', // Audio URL will be set here
+        color: '#28a745',
+      },
+    },
 
     // Interactive Category
     {
