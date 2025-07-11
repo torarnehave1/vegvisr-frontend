@@ -183,6 +183,77 @@
       </div>
     </div>
 
+    <!-- Single File Results Section -->
+    <div v-if="transcriptionResult && !isChunkedProcessing" class="test-section">
+      <h2>📝 Transcription Results</h2>
+
+      <div class="result-card">
+        <div class="result-header">
+          <h3>🇳🇴 Norwegian Transcription</h3>
+          <div class="result-metadata">
+            <span class="metadata-item"
+              >Service: {{ transcriptionResult.metadata?.transcription_server }}</span
+            >
+            <span class="metadata-item"
+              >Language: {{ transcriptionResult.transcription?.language }}</span
+            >
+            <span class="metadata-item">File: {{ transcriptionResult.metadata?.filename }}</span>
+          </div>
+        </div>
+
+        <div class="transcription-text">
+          <h4>Transcribed Text:</h4>
+
+          <!-- Show improved text if available -->
+          <div v-if="transcriptionResult.transcription?.improved_text" class="improved-text">
+            <h5>✨ AI Enhanced Text:</h5>
+            <div class="text-content enhanced">
+              {{ transcriptionResult.transcription.improved_text }}
+            </div>
+          </div>
+
+          <!-- Always show raw transcription -->
+          <div class="raw-text">
+            <h5>🎤 Raw Transcription:</h5>
+            <div class="text-content raw">
+              {{ transcriptionResult.transcription?.raw_text || transcriptionResult.text }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Save to Portfolio Button -->
+        <div class="portfolio-actions">
+          <button
+            v-if="userStore.loggedIn && !portfolioSaved"
+            @click="saveToPortfolio"
+            :disabled="savingToPortfolio"
+            class="btn btn-success portfolio-btn"
+          >
+            {{ savingToPortfolio ? 'Saving...' : '💾 Save to Audio Portfolio' }}
+          </button>
+
+          <div v-if="portfolioSaved" class="portfolio-success">
+            ✅ Saved to your Audio Portfolio!
+            <router-link to="/audio-portfolio" class="btn btn-outline-primary btn-sm">
+              View Portfolio
+            </router-link>
+          </div>
+
+          <div v-if="portfolioError" class="portfolio-error">
+            ❌ Failed to save to portfolio: {{ portfolioError }}
+            <button @click="saveToPortfolio" class="btn btn-outline-danger btn-sm">
+              Try Again
+            </button>
+          </div>
+        </div>
+
+        <div class="result-details">
+          <h4>Processing Details:</h4>
+          <pre>{{ JSON.stringify(transcriptionResult.metadata, null, 2) }}</pre>
+        </div>
+      </div>
+    </div>
+
     <!-- Chunked Results Section -->
     <div v-if="chunkResults.length > 0" class="test-section">
       <h2>📝 Progressive Transcription Results</h2>
@@ -230,50 +301,31 @@
             {{ chunkResults.map((chunk) => chunk.raw_text).join(' ') }}
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Single File Results Section -->
-    <div v-if="transcriptionResult && !isChunkedProcessing" class="test-section">
-      <h2>📝 Transcription Results</h2>
+        <!-- Save to Portfolio Button for Chunked Results -->
+        <div class="portfolio-actions">
+          <button
+            v-if="userStore.loggedIn && !portfolioSaved"
+            @click="saveChunkedToPortfolio"
+            :disabled="savingToPortfolio"
+            class="btn btn-success portfolio-btn"
+          >
+            {{ savingToPortfolio ? 'Saving...' : '💾 Save Complete Transcription to Portfolio' }}
+          </button>
 
-      <div class="result-card">
-        <div class="result-header">
-          <h3>🇳🇴 Norwegian Transcription</h3>
-          <div class="result-metadata">
-            <span class="metadata-item"
-              >Service: {{ transcriptionResult.metadata?.transcription_server }}</span
-            >
-            <span class="metadata-item"
-              >Language: {{ transcriptionResult.transcription?.language }}</span
-            >
-            <span class="metadata-item">File: {{ transcriptionResult.metadata?.filename }}</span>
-          </div>
-        </div>
-
-        <div class="transcription-text">
-          <h4>Transcribed Text:</h4>
-
-          <!-- Show improved text if available -->
-          <div v-if="transcriptionResult.transcription?.improved_text" class="improved-text">
-            <h5>✨ AI Enhanced Text:</h5>
-            <div class="text-content enhanced">
-              {{ transcriptionResult.transcription.improved_text }}
-            </div>
+          <div v-if="portfolioSaved" class="portfolio-success">
+            ✅ Saved to your Audio Portfolio!
+            <router-link to="/audio-portfolio" class="btn btn-outline-primary btn-sm">
+              View Portfolio
+            </router-link>
           </div>
 
-          <!-- Always show raw transcription -->
-          <div class="raw-text">
-            <h5>🎤 Raw Transcription:</h5>
-            <div class="text-content raw">
-              {{ transcriptionResult.transcription?.raw_text || transcriptionResult.text }}
-            </div>
+          <div v-if="portfolioError" class="portfolio-error">
+            ❌ Failed to save to portfolio: {{ portfolioError }}
+            <button @click="saveChunkedToPortfolio" class="btn btn-outline-danger btn-sm">
+              Try Again
+            </button>
           </div>
-        </div>
-
-        <div class="result-details">
-          <h4>Processing Details:</h4>
-          <pre>{{ JSON.stringify(transcriptionResult.metadata, null, 2) }}</pre>
         </div>
       </div>
     </div>
@@ -296,6 +348,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+
+// Store
+const userStore = useUserStore()
 
 // Reactive data
 const selectedFile = ref(null)
@@ -320,6 +376,11 @@ const currentChunk = ref(0)
 const totalChunks = ref(0)
 const chunkResults = ref([])
 const processingAborted = ref(false)
+
+// Portfolio save state
+const savingToPortfolio = ref(false)
+const portfolioSaved = ref(false)
+const portfolioError = ref(null)
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -806,6 +867,205 @@ const resetChunkedState = () => {
   totalChunks.value = 0
   chunkResults.value = []
   processingAborted.value = false
+}
+
+// Portfolio saving functions
+const saveToPortfolio = async () => {
+  if (!transcriptionResult.value || !userStore.loggedIn) {
+    return
+  }
+
+  savingToPortfolio.value = true
+  portfolioError.value = null
+
+  try {
+    const audioBlob = selectedFile.value || recordedBlob.value
+    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+
+    // Create recording data for the audio-portfolio-worker
+    const recordingData = {
+      userEmail: userStore.email,
+      fileName: fileName,
+      displayName: fileName.replace(/\.[^/.]+$/, ''), // Remove extension for display name
+      fileSize: audioBlob.size,
+      duration: recordingDuration.value || 0,
+
+      // Norwegian transcription data - support both raw and improved text
+      transcriptionText:
+        transcriptionResult.value.transcription.improved_text ||
+        transcriptionResult.value.transcription.raw_text,
+      norwegianTranscription: {
+        raw_text: transcriptionResult.value.transcription.raw_text,
+        improved_text: transcriptionResult.value.transcription.improved_text,
+        language: transcriptionResult.value.transcription.language,
+        processing_time: transcriptionResult.value.transcription.processing_time,
+        improvement_time: transcriptionResult.value.transcription.improvement_time,
+      },
+
+      // Organization
+      category: 'Norwegian Transcription',
+      tags: [
+        'norwegian',
+        'transcription',
+        transcriptionResult.value.transcription.improved_text ? 'ai-enhanced' : 'raw-only',
+        'vegvisr-transcription',
+      ],
+
+      // Technical metadata
+      audioFormat: audioBlob.type.split('/')[1] || 'wav',
+      aiService: 'Norwegian Transcription Worker',
+      aiModel: transcriptionResult.value.metadata.model || 'nb-whisper-small',
+      processingTime: transcriptionResult.value.metadata.total_processing_time || 0,
+
+      // Context information
+      transcriptionContext: transcriptionContext.value,
+
+      // Service metadata
+      transcriptionServer: transcriptionResult.value.metadata.transcription_server,
+      textImprovement: transcriptionResult.value.metadata.text_improvement,
+      cloudflareAiAvailable: transcriptionResult.value.metadata.cloudflare_ai_available,
+    }
+
+    console.log('=== SAVING TO PORTFOLIO ===')
+    console.log('Recording data:', JSON.stringify(recordingData, null, 2))
+
+    // Call the audio-portfolio-worker API
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userStore.email,
+        },
+        body: JSON.stringify(recordingData),
+      },
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Failed to save to portfolio: ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('✅ Successfully saved to portfolio:', result)
+
+    portfolioSaved.value = true
+  } catch (err) {
+    console.error('Failed to save audio to portfolio:', err)
+    portfolioError.value = err.message
+  } finally {
+    savingToPortfolio.value = false
+  }
+}
+
+const saveChunkedToPortfolio = async () => {
+  if (!chunkResults.value.length || !userStore.loggedIn) {
+    return
+  }
+
+  savingToPortfolio.value = true
+  portfolioError.value = null
+
+  try {
+    const audioBlob = selectedFile.value || recordedBlob.value
+    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+
+    // Combine all chunk results
+    const combinedRawText = chunkResults.value.map((chunk) => chunk.raw_text).join(' ')
+    const combinedImprovedText = chunkResults.value
+      .map((chunk) => chunk.improved_text || chunk.raw_text)
+      .join(' ')
+
+    // Calculate total processing time
+    const totalProcessingTime = chunkResults.value.reduce(
+      (total, chunk) => total + (chunk.processingTime || 0),
+      0,
+    )
+
+    // Create recording data for the audio-portfolio-worker
+    const recordingData = {
+      userEmail: userStore.email,
+      fileName: fileName,
+      displayName: fileName.replace(/\.[^/.]+$/, '') + ' (Chunked Processing)', // Add chunked indicator
+      fileSize: audioBlob.size,
+      duration: recordingDuration.value || 0,
+
+      // Norwegian transcription data - combined from all chunks
+      transcriptionText: combinedImprovedText,
+      norwegianTranscription: {
+        raw_text: combinedRawText,
+        improved_text: combinedImprovedText,
+        language: 'no',
+        processing_time: totalProcessingTime,
+        chunks: chunkResults.value.length,
+        chunk_details: chunkResults.value.map((chunk) => ({
+          index: chunk.index,
+          startTime: chunk.startTime,
+          endTime: chunk.endTime,
+          raw_text: chunk.raw_text,
+          improved_text: chunk.improved_text,
+          processingTime: chunk.processingTime,
+        })),
+      },
+
+      // Organization
+      category: 'Norwegian Transcription (Chunked)',
+      tags: [
+        'norwegian',
+        'transcription',
+        'chunked-processing',
+        'ai-enhanced',
+        'vegvisr-transcription',
+        `${chunkResults.value.length}-chunks`,
+      ],
+
+      // Technical metadata
+      audioFormat: audioBlob.type.split('/')[1] || 'wav',
+      aiService: 'Norwegian Transcription Worker (Chunked)',
+      aiModel: 'nb-whisper-small',
+      processingTime: totalProcessingTime,
+
+      // Context information
+      transcriptionContext: transcriptionContext.value,
+
+      // Service metadata
+      transcriptionServer: 'Worker Orchestration (Hetzner + Cloudflare AI)',
+      textImprovement: 'Cloudflare Workers AI',
+      cloudflareAiAvailable: true,
+    }
+
+    console.log('=== SAVING CHUNKED TRANSCRIPTION TO PORTFOLIO ===')
+    console.log('Recording data:', JSON.stringify(recordingData, null, 2))
+
+    // Call the audio-portfolio-worker API
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userStore.email,
+        },
+        body: JSON.stringify(recordingData),
+      },
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Failed to save to portfolio: ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('✅ Successfully saved chunked transcription to portfolio:', result)
+
+    portfolioSaved.value = true
+  } catch (err) {
+    console.error('Failed to save chunked audio to portfolio:', err)
+    portfolioError.value = err.message
+  } finally {
+    savingToPortfolio.value = false
+  }
 }
 </script>
 
@@ -1444,6 +1704,77 @@ const resetChunkedState = () => {
 
 .btn-outline-secondary:hover {
   background: #6c757d;
+  color: white;
+}
+
+/* Portfolio Action Styles */
+.portfolio-actions {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.portfolio-btn {
+  font-size: 1.1rem;
+  padding: 12px 24px;
+  margin-bottom: 10px;
+}
+
+.portfolio-success {
+  background: #d4edda;
+  color: #155724;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #c3e6cb;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+
+.portfolio-success .btn {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+}
+
+.portfolio-error {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #f5c6cb;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+
+.portfolio-error .btn {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+}
+
+.btn-outline-primary {
+  background: transparent;
+  color: #007bff;
+  border: 1px solid #007bff;
+}
+
+.btn-outline-primary:hover {
+  background: #007bff;
+  color: white;
+}
+
+.btn-outline-danger {
+  background: transparent;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+}
+
+.btn-outline-danger:hover {
+  background: #dc3545;
   color: white;
 }
 </style>

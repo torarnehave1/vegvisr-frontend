@@ -59,12 +59,15 @@ const saveRecordingToPortfolio = async (env, recordingData) => {
       fileSize: recordingData.fileSize || 0,
       duration: recordingData.duration || 0,
 
-      // Transcription Data
+      // Transcription Data - Support both regular and Norwegian transcription formats
       transcriptionText: recordingData.transcriptionText || '',
       transcriptionExcerpt: recordingData.transcriptionText
         ? recordingData.transcriptionText.substring(0, 200) +
           (recordingData.transcriptionText.length > 200 ? '...' : '')
         : '',
+
+      // Norwegian Transcription Data (if available)
+      norwegianTranscription: recordingData.norwegianTranscription || null,
 
       // Organization
       tags: recordingData.tags || [],
@@ -83,6 +86,12 @@ const saveRecordingToPortfolio = async (env, recordingData) => {
       aiService: recordingData.aiService || 'openai',
       aiModel: recordingData.aiModel || 'whisper-1',
       processingTime: recordingData.processingTime || 0,
+
+      // Norwegian Transcription Specific Fields
+      transcriptionContext: recordingData.transcriptionContext || null,
+      transcriptionServer: recordingData.transcriptionServer || null,
+      textImprovement: recordingData.textImprovement || null,
+      cloudflareAiAvailable: recordingData.cloudflareAiAvailable || false,
     }
 
     // Save recording metadata
@@ -194,15 +203,22 @@ const searchRecordings = async (env, userEmail, query, limit = 50) => {
         const recording = JSON.parse(recordingData)
 
         // Search in transcription text, file name, display name, tags, and category
-        const searchableText = [
+        // Also search in Norwegian transcription data if available
+        const searchableTexts = [
           recording.transcriptionText,
           recording.fileName,
           recording.displayName,
           recording.tags.join(' '),
           recording.category,
         ]
-          .join(' ')
-          .toLowerCase()
+
+        // Add Norwegian transcription data to search
+        if (recording.norwegianTranscription) {
+          searchableTexts.push(recording.norwegianTranscription.raw_text || '')
+          searchableTexts.push(recording.norwegianTranscription.improved_text || '')
+        }
+
+        const searchableText = searchableTexts.join(' ').toLowerCase()
 
         if (searchableText.includes(searchQuery)) {
           matchedRecordings.push(recording)
@@ -332,7 +348,8 @@ export default {
         service: 'audio-portfolio-worker',
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        version: '1.0.0',
+        version: '1.1.0',
+        features: ['norwegian-transcription-support'],
         kvBinding: env.AUDIO_PORTFOLIO ? 'connected' : 'missing',
       })
     }
@@ -346,6 +363,16 @@ export default {
       // POST /save-recording - Save recording metadata to portfolio
       if (pathname === '/save-recording' && request.method === 'POST') {
         const recordingData = await request.json()
+
+        // Log the recording data for debugging
+        console.log('💾 Saving recording data:', {
+          userEmail: recordingData.userEmail,
+          fileName: recordingData.fileName,
+          category: recordingData.category,
+          hasNorwegianTranscription: !!recordingData.norwegianTranscription,
+          hasImprovedText: !!recordingData.norwegianTranscription?.improved_text,
+        })
+
         const result = await saveRecordingToPortfolio(env, recordingData)
         return createSuccessResponse(result)
       }

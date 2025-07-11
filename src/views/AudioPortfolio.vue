@@ -228,13 +228,52 @@
                     <!-- Transcription Excerpt -->
                     <div class="transcription-excerpt mt-3">
                       <h6 class="text-muted">Transcription:</h6>
-                      <p class="small text-muted mb-2">
-                        {{
-                          recording.transcription?.excerpt ||
-                          recording.transcriptionText?.substring(0, 200) + '...' ||
-                          'No transcription available'
-                        }}
-                      </p>
+
+                      <!-- Norwegian Transcription Display -->
+                      <div v-if="recording.norwegianTranscription" class="norwegian-transcription">
+                        <div class="transcription-badges mb-2">
+                          <span class="badge bg-danger">🇳🇴 Norwegian</span>
+                          <span
+                            v-if="recording.norwegianTranscription.improved_text"
+                            class="badge bg-success"
+                          >
+                            ✨ AI Enhanced
+                          </span>
+                          <span
+                            v-if="recording.norwegianTranscription.chunks"
+                            class="badge bg-info"
+                          >
+                            📊 {{ recording.norwegianTranscription.chunks }} chunks
+                          </span>
+                        </div>
+
+                        <!-- Show improved text if available, otherwise raw text -->
+                        <p class="small transcription-text mb-2">
+                          {{
+                            recording.norwegianTranscription.improved_text?.substring(0, 200) +
+                              (recording.norwegianTranscription.improved_text?.length > 200
+                                ? '...'
+                                : '') ||
+                            recording.norwegianTranscription.raw_text?.substring(0, 200) +
+                              (recording.norwegianTranscription.raw_text?.length > 200
+                                ? '...'
+                                : '') ||
+                            'No transcription available'
+                          }}
+                        </p>
+                      </div>
+
+                      <!-- Regular Transcription Display -->
+                      <div v-else class="regular-transcription">
+                        <p class="small text-muted mb-2">
+                          {{
+                            recording.transcription?.excerpt ||
+                            recording.transcriptionText?.substring(0, 200) + '...' ||
+                            'No transcription available'
+                          }}
+                        </p>
+                      </div>
+
                       <button
                         class="btn btn-outline-info btn-sm"
                         @click="showFullTranscription(recording)"
@@ -317,12 +356,63 @@
                       selectedRecording?.aiModel ||
                       'Unknown'
                     }}</span>
+                    <span
+                      v-if="selectedRecording?.norwegianTranscription"
+                      class="badge bg-danger ms-1"
+                    >
+                      🇳🇴 Norwegian
+                    </span>
                   </div>
                   <button class="btn btn-outline-primary btn-sm" @click="copyTranscription">
                     📋 Copy Text
                   </button>
                 </div>
-                <div class="transcription-text" style="max-height: 400px; overflow-y: auto">
+
+                <!-- Norwegian Transcription Display -->
+                <div v-if="selectedRecording?.norwegianTranscription" class="transcription-text">
+                  <div v-if="selectedRecording.norwegianTranscription.improved_text" class="mb-4">
+                    <h6 class="text-success">✨ AI Enhanced Text:</h6>
+                    <div class="enhanced-text p-3 bg-light border-start border-success border-3">
+                      <p class="text-break mb-0">
+                        {{ selectedRecording.norwegianTranscription.improved_text }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <h6 class="text-muted">🎤 Raw Transcription:</h6>
+                    <div class="raw-text p-3 bg-light border-start border-secondary border-3">
+                      <p class="text-break mb-0">
+                        {{
+                          selectedRecording.norwegianTranscription.raw_text ||
+                          'No raw text available'
+                        }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Processing Info -->
+                  <div
+                    v-if="selectedRecording.norwegianTranscription.processing_time"
+                    class="processing-info mt-3"
+                  >
+                    <small class="text-muted">
+                      <strong>Processing Time:</strong>
+                      {{ selectedRecording.norwegianTranscription.processing_time }}ms
+                      <span v-if="selectedRecording.norwegianTranscription.improvement_time">
+                        | <strong>Enhancement Time:</strong>
+                        {{ selectedRecording.norwegianTranscription.improvement_time }}ms
+                      </span>
+                      <span v-if="selectedRecording.norwegianTranscription.chunks">
+                        | <strong>Chunks:</strong>
+                        {{ selectedRecording.norwegianTranscription.chunks }}
+                      </span>
+                    </small>
+                  </div>
+                </div>
+
+                <!-- Regular Transcription Display -->
+                <div v-else class="transcription-text" style="max-height: 400px; overflow-y: auto">
                   <p class="text-break">
                     {{
                       selectedRecording?.transcription?.text ||
@@ -674,21 +764,37 @@ const showFullTranscription = (recording) => {
 }
 
 const copyTranscription = () => {
-  const transcriptionText =
-    selectedRecording.value?.transcription?.text || selectedRecording.value?.transcriptionText
-  if (transcriptionText) {
-    navigator.clipboard
-      .writeText(transcriptionText)
-      .then(() => {
-        alert('Transcription copied to clipboard!')
-      })
-      .catch((err) => {
-        console.error('Failed to copy text:', err)
-        alert('Failed to copy text to clipboard')
-      })
+  if (!selectedRecording.value) return
+
+  let textToCopy = ''
+
+  // Handle Norwegian transcription
+  if (selectedRecording.value.norwegianTranscription) {
+    const improved = selectedRecording.value.norwegianTranscription.improved_text
+    const raw = selectedRecording.value.norwegianTranscription.raw_text
+
+    if (improved) {
+      textToCopy = `✨ AI Enhanced Text:\n${improved}\n\n🎤 Raw Transcription:\n${raw || 'No raw text available'}`
+    } else {
+      textToCopy = raw || 'No transcription available'
+    }
   } else {
-    alert('No transcription text available to copy')
+    // Handle regular transcription
+    textToCopy =
+      selectedRecording.value.transcription?.text ||
+      selectedRecording.value.transcriptionText ||
+      'No transcription available'
   }
+
+  navigator.clipboard
+    .writeText(textToCopy)
+    .then(() => {
+      // Could add a toast notification here
+      console.log('Transcription copied to clipboard')
+    })
+    .catch((err) => {
+      console.error('Failed to copy transcription:', err)
+    })
 }
 
 const formatFileSize = (bytes) => {
@@ -837,5 +943,60 @@ onMounted(() => {
 
 .bg-dark .edit-form {
   background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Norwegian Transcription Styles */
+.transcription-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.transcription-badges .badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.norwegian-transcription .transcription-text {
+  color: #333;
+  line-height: 1.5;
+}
+
+.enhanced-text {
+  background-color: #f8fff8 !important;
+  border-radius: 0.375rem;
+}
+
+.raw-text {
+  background-color: #f8f9fa !important;
+  border-radius: 0.375rem;
+}
+
+.processing-info {
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+  border-radius: 0.375rem;
+  border: 1px solid #e9ecef;
+}
+
+.transcription-text h6 {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.border-start {
+  border-left-width: 0.25rem !important;
+}
+
+.border-3 {
+  border-width: 3px !important;
+}
+
+.border-success {
+  border-color: #198754 !important;
+}
+
+.border-secondary {
+  border-color: #6c757d !important;
 }
 </style>
