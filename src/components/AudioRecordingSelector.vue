@@ -29,6 +29,16 @@
             />
             <span class="search-icon">🔍</span>
           </div>
+          <button
+            @click="fetchRecordings"
+            class="btn btn-outline-secondary btn-sm refresh-btn"
+            :disabled="loading"
+            title="Refresh recordings"
+          >
+            <span v-if="loading">🔄</span>
+            <span v-else>🔄</span>
+            {{ loading ? 'Loading...' : 'Refresh' }}
+          </button>
         </div>
 
         <!-- Loading State -->
@@ -226,8 +236,25 @@ const filteredRecordings = computed(() => {
 
 // Methods
 const fetchRecordings = async () => {
+  console.log('🔍 AudioRecordingSelector: fetchRecordings called')
+  console.log('🔍 User email:', userStore.email)
+  console.log('🔍 User logged in:', userStore.loggedIn)
+  console.log(
+    '🔍 User store state:',
+    JSON.stringify(
+      {
+        email: userStore.email,
+        loggedIn: userStore.loggedIn,
+        role: userStore.role,
+      },
+      null,
+      2,
+    ),
+  )
+
   if (!userStore.email) {
     error.value = 'User not logged in'
+    console.error('❌ AudioRecordingSelector: No user email available')
     return
   }
 
@@ -235,21 +262,44 @@ const fetchRecordings = async () => {
   error.value = null
 
   try {
-    console.log('🎤 Fetching audio recordings for modal...')
-    const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`,
-    )
+    const apiUrl = `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+    console.log('🎤 AudioRecordingSelector: Fetching from:', apiUrl)
+
+    const response = await fetch(apiUrl)
+
+    console.log('📡 AudioRecordingSelector: Response status:', response.status)
+    console.log('📡 AudioRecordingSelector: Response headers:', [...response.headers.entries()])
 
     if (!response.ok) {
+      const errorText = await response.text()
+      console.error(
+        '❌ AudioRecordingSelector: API Error:',
+        response.status,
+        response.statusText,
+        errorText,
+      )
       throw new Error(`Failed to fetch recordings: ${response.statusText}`)
     }
 
     const data = await response.json()
+    console.log('✅ AudioRecordingSelector: Raw API Response:', JSON.stringify(data, null, 2))
+
     recordings.value = data.recordings || []
 
-    console.log(`✅ Loaded ${recordings.value.length} recordings for modal`)
+    console.log(`✅ AudioRecordingSelector: Loaded ${recordings.value.length} recordings`)
+    if (recordings.value.length > 0) {
+      console.log(
+        '✅ AudioRecordingSelector: First recording:',
+        JSON.stringify(recordings.value[0], null, 2),
+      )
+    }
   } catch (err) {
-    console.error('Error fetching recordings:', err)
+    console.error('❌ AudioRecordingSelector: Error fetching recordings:', err)
+    console.error('❌ AudioRecordingSelector: Error details:', {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    })
     error.value = err.message
   } finally {
     loading.value = false
@@ -434,7 +484,12 @@ const formatDate = (dateString) => {
 watch(
   () => props.isVisible,
   (newVisible) => {
+    console.log('🔍 AudioRecordingSelector: Visibility changed to:', newVisible)
+    console.log('🔍 AudioRecordingSelector: Current recordings count:', recordings.value.length)
+    console.log('🔍 AudioRecordingSelector: User email at visibility change:', userStore.email)
+
     if (newVisible && recordings.value.length === 0) {
+      console.log('🔍 AudioRecordingSelector: Triggering fetch from visibility watch')
       fetchRecordings()
     }
   },
@@ -442,7 +497,13 @@ watch(
 
 // Initial fetch if already visible
 onMounted(() => {
+  console.log('🔍 AudioRecordingSelector: onMounted called')
+  console.log('🔍 AudioRecordingSelector: Props.isVisible:', props.isVisible)
+  console.log('🔍 AudioRecordingSelector: Current recordings count:', recordings.value.length)
+  console.log('🔍 AudioRecordingSelector: User email at mount:', userStore.email)
+
   if (props.isVisible && recordings.value.length === 0) {
+    console.log('🔍 AudioRecordingSelector: Triggering fetch from onMounted')
     fetchRecordings()
   }
 })
@@ -568,10 +629,14 @@ onMounted(() => {
 /* Search */
 .search-section {
   margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .search-input-container {
   position: relative;
+  flex-grow: 1;
 }
 
 .search-input {
@@ -595,6 +660,26 @@ onMounted(() => {
   top: 50%;
   transform: translateY(-50%);
   color: #6c757d;
+}
+
+.refresh-btn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* States */
