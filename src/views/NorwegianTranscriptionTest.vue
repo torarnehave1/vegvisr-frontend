@@ -131,15 +131,21 @@
         <div class="result-header">
           <h3>🇳🇴 Norwegian Transcription</h3>
           <div class="result-metadata">
-            <span class="metadata-item">Service: {{ transcriptionResult.metadata?.service }}</span>
-            <span class="metadata-item">Language: {{ transcriptionResult.language }}</span>
-            <span class="metadata-item">File: {{ transcriptionResult.metadata?.fileName }}</span>
+            <span class="metadata-item"
+              >Service: {{ transcriptionResult.metadata?.transcription_server }}</span
+            >
+            <span class="metadata-item"
+              >Language: {{ transcriptionResult.transcription?.language }}</span
+            >
+            <span class="metadata-item">File: {{ transcriptionResult.metadata?.filename }}</span>
           </div>
         </div>
 
         <div class="transcription-text">
           <h4>Transcribed Text:</h4>
-          <div class="text-content">{{ transcriptionResult.text }}</div>
+          <div class="text-content">
+            {{ transcriptionResult.transcription?.raw_text || transcriptionResult.text }}
+          </div>
         </div>
 
         <div class="result-details">
@@ -381,6 +387,8 @@ const transcribeAudio = async () => {
 
     const result = await transcribeResponse.json()
     console.log('✅ Norwegian transcription result (direct):', result)
+    console.log('🔍 Raw transcription text:', result.transcription?.text)
+    console.log('🔍 Direct text field:', result.text)
 
     // Format response to match expected structure
     transcriptionResult.value = {
@@ -400,6 +408,7 @@ const transcribeAudio = async () => {
       },
     }
 
+    console.log('📊 Final transcriptionResult structure:', transcriptionResult.value)
     loadingMessage.value = ''
   } catch (err) {
     console.error('Norwegian transcription error:', err)
