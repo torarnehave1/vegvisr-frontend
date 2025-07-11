@@ -3101,9 +3101,24 @@ const handleSidebarToggled = ({ collapsed }) => {
 onMounted(() => {
   console.log('GNewViewer mounted')
 
-  // Auto-load if graph is selected
+  // First check URL parameters for direct graph access (shared links)
+  const urlParams = new URLSearchParams(window.location.search)
+  const urlGraphId = urlParams.get('graphId')
+  const urlTemplate = urlParams.get('template')
+
+  if (urlGraphId) {
+    console.log(
+      `Loading graph from URL parameter: ${urlGraphId}, Template: ${urlTemplate || 'Default'}`,
+    )
+    // Set the graph ID in the store for shared links
+    knowledgeGraphStore.setCurrentGraphId(urlGraphId)
+    loadGraph()
+    return
+  }
+
+  // Auto-load if graph is already selected in store
   if (currentGraphId.value) {
-    console.log('Auto-loading graph:', currentGraphId.value)
+    console.log('Auto-loading graph from store:', currentGraphId.value)
     loadGraph()
   }
 })
