@@ -366,6 +366,7 @@ export default {
       const formData = await request.formData()
       const audioFile = formData.get('audio')
       const model = formData.get('model') || 'nb-whisper-small'
+      const context = formData.get('context') || ''
 
       if (!audioFile) {
         return new Response(JSON.stringify({ error: 'No audio file provided' }), {
@@ -376,7 +377,7 @@ export default {
 
       const startTime = Date.now()
 
-      // Step 1: Call Hetzner server for transcription
+      // Step 1: Call Hetzner server for transcription (NO context - just audio)
       const transcriptionFormData = new FormData()
       transcriptionFormData.append('audio', audioFile)
       transcriptionFormData.append('model', model)
@@ -385,6 +386,7 @@ export default {
         url: 'https://transcribe.vegvisr.org/transcribe',
         hasAudio: !!audioFile,
         model: model,
+        hasContext: !!context,
         timestamp: new Date().toISOString(),
       })
 
@@ -419,25 +421,26 @@ export default {
 
       const rawText = transcriptionData.transcription.text
 
-      // Step 2: Call Norwegian text improvement worker
+      // Step 2: Call Norwegian text improvement worker using service binding
       let improvedText = null
       let improvementTime = 0
 
       try {
         const improvementStart = Date.now()
 
-        const improvementResponse = await fetch(
-          'https://norwegian-text-worker.torarnehave.workers.dev/',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              text: rawText,
-            }),
+        // Use service binding instead of HTTP fetch
+        const improvementRequest = new Request('https://dummy-url/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        )
+          body: JSON.stringify({
+            text: rawText,
+            context: context,
+          }),
+        })
+
+        const improvementResponse = await env.NORWEGIAN_TEXT_WORKER.fetch(improvementRequest)
 
         if (improvementResponse.ok) {
           const improvementData = await improvementResponse.json()

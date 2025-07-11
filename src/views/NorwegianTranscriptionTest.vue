@@ -112,6 +112,29 @@
         </div>
       </div>
 
+      <!-- Context Input for AI Enhancement -->
+      <div class="context-section">
+        <h4>📝 Context for AI Enhancement (Optional)</h4>
+        <p class="context-help">
+          Help the AI understand your audio better for improved transcription enhancement:
+        </p>
+        <textarea
+          v-model="transcriptionContext"
+          class="context-input"
+          placeholder="Example: 'This is a therapy session discussion about somatic therapy and trauma work. Speaker uses Norwegian mixed with English professional terms like trauma-release, biosynthesis, and knowledge elements. The discussion covers therapeutic techniques and workshop reflections.'"
+          rows="3"
+        ></textarea>
+        <div class="context-examples">
+          <small><strong>More examples:</strong></small>
+          <ul class="example-list">
+            <li>💼 Business meeting about software development and agile methods</li>
+            <li>🎓 Academic lecture on psychology with research terminology</li>
+            <li>🏥 Medical consultation with clinical terms</li>
+            <li>🎵 Music lesson with instruments and technique names</li>
+          </ul>
+        </div>
+      </div>
+
       <button
         @click="transcribeAudio"
         :disabled="(!selectedFile && !recordedBlob) || transcribing"
@@ -205,6 +228,7 @@ const transcribing = ref(false)
 const loadingMessage = ref('')
 const transcriptionResult = ref(null)
 const error = ref(null)
+const transcriptionContext = ref('')
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -389,6 +413,11 @@ const transcribeAudio = async () => {
     const formData = new FormData()
     formData.append('audio', audioBlob, fileName)
     formData.append('model', 'nb-whisper-small')
+
+    // Add context if provided
+    if (transcriptionContext.value.trim()) {
+      formData.append('context', transcriptionContext.value.trim())
+    }
 
     const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
       method: 'POST',
@@ -577,6 +606,59 @@ const clearError = () => {
   margin-top: 10px;
   color: #666;
   font-style: italic;
+}
+
+.context-section {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #dc143c;
+}
+
+.context-section h4 {
+  margin: 0 0 10px 0;
+  color: #dc143c;
+}
+
+.context-help {
+  color: #666;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+.context-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.context-input:focus {
+  border-color: #dc143c;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+}
+
+.context-examples {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ddd;
+}
+
+.example-list {
+  margin: 5px 0 0 0;
+  padding-left: 20px;
+}
+
+.example-list li {
+  margin: 2px 0;
+  color: #666;
+  font-size: 0.85rem;
 }
 
 .file-info {
