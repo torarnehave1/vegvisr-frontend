@@ -51,6 +51,7 @@ The system has built-in support for these domains:
 - `xyzvibe.com`
 - `vegvisr.org`
 - `slowyou.training`
+- `movemetime.com`
 
 ### **Custom Root Domains (Manual Setup Required)**
 

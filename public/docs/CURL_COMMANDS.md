@@ -12,6 +12,7 @@ export CF_API_TOKEN="your_cloudflare_api_token_here"
 export NORSEGONG_ZONE_ID="e577205b812b49d012af046535369808"
 export XYZVIBE_ZONE_ID="602067f0cf860426a35860a8ab179a47"
 export VEGVISR_ZONE_ID="9178eccd3a7e3d71d8ae09defb09422a"
+export MOVEMETIME_ZONE_ID="abb39e8d56446afe3ac098abd5c21732"
 ```
 
 ## 1. Create DNS Record for norsegong.com subdomain
@@ -59,7 +60,22 @@ curl -X POST "https://api.cloudflare.com/client/v4/zones/${VEGVISR_ZONE_ID}/dns_
   }'
 ```
 
-## 4. Create Worker Route for norsegong.com
+## 4. Create DNS Record for movemetime.com subdomain
+
+```bash
+# Example: Create subdomain "test.movemetime.com"
+curl -X POST "https://api.cloudflare.com/client/v4/zones/${MOVEMETIME_ZONE_ID}/dns_records" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "type": "CNAME",
+    "name": "test.movemetime.com",
+    "content": "brand-worker.torarnehave.workers.dev",
+    "proxied": true
+  }'
+```
+
+## 5. Create Worker Route for norsegong.com
 
 ```bash
 # Create worker route for norsegong.com subdomain

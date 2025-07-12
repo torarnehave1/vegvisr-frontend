@@ -18,7 +18,7 @@ Vegvisr.org features a sophisticated **Custom Domain Registration and Management
 
 #### 🌐 **Multi-Domain Support**
 
-- **Supported Root Domains**: vegvisr.org, norsegong.com, xyzvibe.com, slowyou.training
+- **Supported Root Domains**: vegvisr.org, norsegong.com, xyzvibe.com, slowyou.training, movemetime.com
 - **Automatic Zone ID Resolution**: Intelligent mapping of domains to Cloudflare Zone IDs
 - **Dynamic DNS Management**: Automated CNAME record creation with Cloudflare API integration
 - **Worker Route Configuration**: Automatic routing setup for brand-worker integration
@@ -62,6 +62,7 @@ const DOMAIN_ZONE_MAPPING = {
   'xyzvibe.com': 'ZONE_ID_XYZVIBE',
   'vegvisr.org': 'ZONE_ID_VEGVISR',
   'slowyou.training': 'ZONE_ID_SLOWYOU',
+  'movemetime.com': 'ZONE_ID_MOVEMETIME',
 }
 ```
 

@@ -821,6 +821,8 @@ export default {
             'sweet.norsegong.com',
             'torarne.xyzvibe.com',
             'vegvisr.norsegong.com',
+            'movemetime.com',
+            'www.movemetime.com',
           ]
 
           // Check which of these domains exist in KV and belong to this user

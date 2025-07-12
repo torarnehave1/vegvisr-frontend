@@ -21,6 +21,7 @@ const DOMAIN_ZONE_MAPPING = {
   'xyzvibe.com': '602067f0cf860426a35860a8ab179a47',
   'vegvisr.org': '9178eccd3a7e3d71d8ae09defb09422a', // vegvisr.org zone ID
   'slowyou.training': '1417691852abd0e8220f60184b7f4eca', // vegvisr.org zone ID
+  'movemetime.com': 'abb39e8d56446afe3ac098abd5c21732', // movemetime.com zone ID
 }
 
 // Protected subdomains configuration - SECURITY CRITICAL
@@ -44,6 +45,7 @@ const PROTECTED_SUBDOMAINS = {
   'norsegong.com': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
   'xyzvibe.com': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
   'slowyou.training': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
+  'movemetime.com': ['www', 'api', 'mail', 'admin', 'blog', 'cdn', 'static'],
 }
 
 // Security validation function for protected subdomains
