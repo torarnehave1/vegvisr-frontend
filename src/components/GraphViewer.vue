@@ -31,6 +31,12 @@
             style="width: 100%; height: 500px; border: none"
           ></iframe>
         </template>
+        <template v-else-if="node.type === 'mermaid-diagram'">
+          <h3 class="node-label">{{ node.label }}</h3>
+          <div class="mermaid-diagram-container">
+            <MermaidDiagram :code="node.info || 'graph TD; A-->B;'" />
+          </div>
+        </template>
         <template v-else>
           <h3 class="node-label">{{ node.label }}</h3>
           <div
@@ -47,6 +53,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { marked } from 'marked'
+import MermaidDiagram from './Mermaid.vue'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -191,4 +198,11 @@ watch(
 
 <style scoped>
 /* Styles are now in main.css */
+.mermaid-diagram-container {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
 </style>

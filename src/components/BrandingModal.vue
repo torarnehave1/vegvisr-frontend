@@ -120,6 +120,12 @@
             />
             <div class="form-text">
               Enter your custom domain name. This should be a subdomain you control.
+              <br />
+              <small class="text-muted">
+                <i class="bi bi-info-circle"></i>
+                Domain names are automatically converted to lowercase to prevent configuration
+                issues.
+              </small>
             </div>
             <div v-if="domainError" class="error-message">{{ domainError }}</div>
           </div>
@@ -972,6 +978,9 @@ export default {
     validateDomain() {
       this.domainError = ''
       if (this.formData.domain) {
+        // Automatically convert domain to lowercase to prevent case mismatch issues
+        this.formData.domain = this.formData.domain.toLowerCase()
+
         // Updated regex to handle subdomains properly
         const domainRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
