@@ -440,6 +440,7 @@ export default {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-user-role': userStore.role || '',
           },
           body: JSON.stringify({
             email: userStore.email,

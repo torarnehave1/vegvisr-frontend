@@ -4890,27 +4890,23 @@ const handleUpdateSandman = async (request, env) => {
 // ============================================
 
 // Helper function to validate Superadmin role
-const validateSuperadminRole = async (email, env) => {
+const validateSuperadminRole = async (request, email, env) => {
   try {
-    // Make request to dash-worker to get user role
-    const roleResponse = await fetch(
-      `https://dash.vegvisr.org/get-role?email=${encodeURIComponent(email)}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
+    // Get role from header (sent from userStore)
+    const userRole = request.headers.get('x-user-role')
 
-    if (!roleResponse.ok) {
-      return { valid: false, error: 'Failed to validate user role' }
+    if (!userRole || userRole !== 'Superadmin') {
+      return { valid: false, error: 'Access denied: Superadmin role required' }
     }
 
-    const roleData = await roleResponse.json()
+    // Optional: Verify role matches database for extra security
+    // This could be cached or done periodically rather than every request
+    const db = env.vegvisr_org
+    const query = `SELECT role FROM config WHERE email = ?`
+    const row = await db.prepare(query).bind(email).first()
 
-    if (roleData.role !== 'Superadmin') {
-      return { valid: false, error: 'Access denied: Superadmin role required' }
+    if (!row || row.role !== 'Superadmin') {
+      return { valid: false, error: 'Role verification failed' }
     }
 
     return { valid: true }
@@ -4931,7 +4927,7 @@ const handleAdminDomains = async (request, env) => {
     }
 
     // Validate Superadmin role
-    const roleCheck = await validateSuperadminRole(email, env)
+    const roleCheck = await validateSuperadminRole(request, email, env)
     if (!roleCheck.valid) {
       return createErrorResponse(roleCheck.error, 403)
     }
@@ -4983,7 +4979,7 @@ const handleTransferDomain = async (request, env) => {
     }
 
     // Validate Superadmin role
-    const roleCheck = await validateSuperadminRole(email, env)
+    const roleCheck = await validateSuperadminRole(request, email, env)
     if (!roleCheck.valid) {
       return createErrorResponse(roleCheck.error, 403)
     }
@@ -5093,7 +5089,7 @@ const handleShareTemplate = async (request, env) => {
     }
 
     // Validate Superadmin role
-    const roleCheck = await validateSuperadminRole(email, env)
+    const roleCheck = await validateSuperadminRole(request, email, env)
     if (!roleCheck.valid) {
       return createErrorResponse(roleCheck.error, 403)
     }
@@ -5194,7 +5190,7 @@ const handleRemoveDomain = async (request, env) => {
     }
 
     // Validate Superadmin role
-    const roleCheck = await validateSuperadminRole(email, env)
+    const roleCheck = await validateSuperadminRole(request, email, env)
     if (!roleCheck.valid) {
       return createErrorResponse(roleCheck.error, 403)
     }

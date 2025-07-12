@@ -358,6 +358,11 @@ export default {
         const userStore = useUserStore()
         const response = await fetch(
           `https://api.vegvisr.org/admin/domains?email=${encodeURIComponent(userStore.email)}`,
+          {
+            headers: {
+              'x-user-role': userStore.role || '',
+            },
+          },
         )
 
         if (!response.ok) {
@@ -449,6 +454,9 @@ export default {
           `https://api.vegvisr.org/admin/remove-domain?email=${encodeURIComponent(userStore.email)}&domain=${encodeURIComponent(domain.domain)}`,
           {
             method: 'DELETE',
+            headers: {
+              'x-user-role': userStore.role || '',
+            },
           },
         )
 
