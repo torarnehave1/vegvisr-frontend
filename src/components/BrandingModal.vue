@@ -441,29 +441,57 @@
             </div>
           </div>
 
-          <div class="mb-3">
-            <label for="frontPage" class="form-label">Custom Front Page (Knowledge Graph ID)</label>
+          <!-- Front Page Graph Selection -->
+          <div class="form-group">
+            <label for="frontPage" class="form-label">
+              <strong>Custom Front Page (Knowledge Graph):</strong>
+            </label>
             <div class="input-group">
               <input
                 type="text"
                 class="form-control"
                 id="frontPage"
                 v-model="formData.mySiteFrontPage"
-                placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)"
+                placeholder="Enter Graph ID (e.g., graph_1234567890) or select from dropdown"
+                @input="validateFrontPageGraph"
+                :class="{ 'is-invalid': frontPageError, 'is-valid': frontPageValid }"
               />
               <button
                 class="btn btn-outline-secondary dropdown-toggle"
                 type="button"
                 data-bs-toggle="dropdown"
                 aria-expanded="false"
+                :disabled="userGraphs.length === 0"
               >
-                Select Graph
+                {{ userGraphs.length === 0 ? 'No Graphs' : 'Select Graph' }}
               </button>
               <ul class="dropdown-menu dropdown-menu-end">
+                <li v-if="userGraphs.length === 0" class="dropdown-item-text text-muted">
+                  <i class="bi bi-info-circle"></i>
+                  No knowledge graphs found. Create one first.
+                </li>
                 <li v-for="graph in userGraphs" :key="graph.id" @click="selectFrontPage(graph)">
-                  <a class="dropdown-item" href="#">{{ graph.title }} (ID: {{ graph.id }})</a>
+                  <a class="dropdown-item" href="#">
+                    <strong>{{ graph.title }}</strong
+                    ><br />
+                    <small class="text-muted">ID: {{ graph.id }}</small>
+                  </a>
                 </li>
               </ul>
+            </div>
+            <div class="form-text">
+              Select a knowledge graph to use as your domain's front page. Leave empty to use the
+              default landing page.
+              <br />
+              <small class="text-muted">
+                <i class="bi bi-info-circle"></i>
+                Graph IDs are automatically validated to prevent broken front pages.
+              </small>
+            </div>
+            <div v-if="frontPageError" class="error-message">{{ frontPageError }}</div>
+            <div v-if="frontPageValid && formData.mySiteFrontPage" class="valid-message">
+              <i class="bi bi-check-circle"></i>
+              Valid graph selected: {{ frontPageGraphTitle }}
             </div>
           </div>
         </div>
@@ -579,6 +607,10 @@ export default {
       isDeletingExisting: false,
       isUploadingLogo: false,
       isAILogoModalOpen: false,
+      frontPageError: '',
+      frontPageValid: false,
+      frontPageGraphTitle: '',
+      frontPageValidationTimeout: null,
     }
   },
   setup() {
@@ -669,6 +701,12 @@ export default {
     this.fetchDomainConfigsFromKV()
     this.fetchMetaAreas()
     this.loadUserGraphs()
+  },
+  beforeUnmount() {
+    // Clean up validation timeout to prevent memory leaks
+    if (this.frontPageValidationTimeout) {
+      clearTimeout(this.frontPageValidationTimeout)
+    }
   },
   methods: {
     loadExistingDomainConfigs() {
@@ -853,6 +891,12 @@ export default {
       }
       // Update the meta area input to reflect selected categories
       this.updateMetaAreaInput()
+      // Validate front page graph if one is set
+      if (this.formData.mySiteFrontPage) {
+        this.$nextTick(() => {
+          this.validateFrontPageGraph()
+        })
+      }
       this.viewMode = 'edit'
     },
     async removeDomain(index) {
@@ -1288,7 +1332,54 @@ export default {
       }
     },
     selectFrontPage(graph) {
-      this.formData.mySiteFrontPage = `/graph-viewer?graphId=${graph.id}&template=Frontpage`
+      this.formData.mySiteFrontPage = graph.id
+      this.frontPageError = ''
+      this.frontPageValid = true
+      this.frontPageGraphTitle = graph.title
+    },
+    async validateFrontPageGraph() {
+      const graphId = this.formData.mySiteFrontPage?.trim()
+
+      // Clear previous validation state
+      this.frontPageError = ''
+      this.frontPageValid = false
+      this.frontPageGraphTitle = ''
+
+      if (!graphId) {
+        // Empty is valid (means use default landing page)
+        return
+      }
+
+      // Check basic format
+      if (!graphId.startsWith('graph_') || graphId.length < 15) {
+        this.frontPageError = 'Graph ID must start with "graph_" and be at least 15 characters long'
+        return
+      }
+
+      // Check if graph exists (debounced to avoid too many API calls)
+      clearTimeout(this.frontPageValidationTimeout)
+      this.frontPageValidationTimeout = setTimeout(async () => {
+        try {
+          const response = await fetch(
+            `https://knowledge-graph-worker.torarnehave.workers.dev/getknowgraph?id=${graphId}`,
+          )
+
+          if (response.ok) {
+            const graphData = await response.json()
+            this.frontPageValid = true
+            this.frontPageGraphTitle = graphData.metadata?.title || 'Unknown Title'
+            this.frontPageError = ''
+          } else if (response.status === 404) {
+            this.frontPageError =
+              'Graph not found. Please check the ID or select from the dropdown.'
+          } else {
+            this.frontPageError = 'Unable to validate graph. Please try again.'
+          }
+        } catch (error) {
+          console.error('Error validating front page graph:', error)
+          this.frontPageError = 'Network error while validating graph.'
+        }
+      }, 500) // 500ms debounce
     },
     onMetaAreaInput() {
       const value = this.metaAreaInput || ''
@@ -1695,6 +1786,13 @@ export default {
 .error-message {
   margin-top: 6px;
   color: #dc3545;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.valid-message {
+  margin-top: 6px;
+  color: #28a745;
   font-size: 0.85rem;
   font-weight: 500;
 }
