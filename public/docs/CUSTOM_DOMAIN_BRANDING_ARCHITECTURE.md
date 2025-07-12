@@ -962,3 +962,120 @@ export default {
 This architecture enables users to create fully branded, content-filtered experiences on their custom domains while leveraging the powerful shared Vegvisr infrastructure.
 
 **This documentation now reflects the current open-access state of the Custom Domain Branding system.**
+
+## 🎨 Main Domain vs Subdomain Branding
+
+### Updated: Main Domain Support
+
+The branding system now supports both main domains and subdomains:
+
+#### **Main Domains** (e.g., `norsegong.com`, `www.norsegong.com`)
+
+- **Title Generation**: "Norsegong" (from domain name)
+- **Logo**: Custom logo from KV store or user profile
+- **Front Page**: Custom knowledge graph or default landing page
+- **Content Filtering**: Domain-specific filtering rules
+- **Use Case**: Full domain branding for owned domains
+
+#### **Subdomains** (e.g., `salt.norsegong.com`, `sweet.norsegong.com`)
+
+- **Title Generation**: "Salt" (from subdomain)
+- **Logo**: Custom logo from KV store or user profile
+- **Front Page**: Custom knowledge graph or default landing page
+- **Content Filtering**: Domain-specific filtering rules
+- **Use Case**: Targeted branding for specific purposes
+
+### Setting Up Main Domain Branding
+
+#### Step 1: Add Domain to Worker Custom Domains
+
+```bash
+# Via Cloudflare Dashboard
+# Workers & Pages → brand-worker → Settings → Custom Domains
+# Add: norsegong.com
+# Add: www.norsegong.com
+```
+
+#### Step 2: Configure Domain Branding
+
+1. **User Dashboard** → **Custom Domain Branding** → **Add New Domain**
+2. **Domain**: Enter `norsegong.com` or `www.norsegong.com`
+3. **Logo**: Upload or enter logo URL
+4. **Content Filter**: Choose filtering options
+5. **Front Page**: Select knowledge graph or leave empty
+6. **Save All Domains**
+
+#### Step 3: KV Store Structure
+
+```json
+{
+  "key": "site-config:norsegong.com",
+  "value": {
+    "domain": "norsegong.com",
+    "owner": "torarnehave@gmail.com",
+    "branding": {
+      "mySite": "norsegong.com",
+      "myLogo": "https://vegvisr.imgix.net/norsegong-logo.png",
+      "contentFilter": "custom",
+      "selectedCategories": ["NORSEGONG", "NORSEMYTHOLOGY"],
+      "mySiteFrontPage": "/graph-viewer?graphId=graph_123&template=Frontpage"
+    },
+    "contentFilter": {
+      "metaAreas": ["NORSEGONG", "NORSEMYTHOLOGY"]
+    },
+    "updatedAt": "2024-01-20T10:00:00.000Z"
+  }
+}
+```
+
+### Domain Detection Logic
+
+The system now properly handles both main domains and subdomains:
+
+```javascript
+// Core Vegvisr domains (skip custom branding)
+const coreVegvisrDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
+
+// Custom domains (enable custom branding)
+// Main domains: norsegong.com, www.norsegong.com
+// Subdomains: salt.norsegong.com, sweet.norsegong.com
+```
+
+### Title Generation Examples
+
+- `norsegong.com` → "Norsegong"
+- `www.norsegong.com` → "Norsegong"
+- `salt.norsegong.com` → "Salt"
+- `sweet.norsegong.com` → "Sweet"
+
+### Example Configuration for norsegong.com
+
+```javascript
+// User Dashboard Configuration
+{
+  "domainConfigs": [
+    {
+      "domain": "norsegong.com",
+      "logo": "https://vegvisr.imgix.net/norsegong-logo.png",
+      "contentFilter": "custom",
+      "selectedCategories": ["NORSEGONG", "NORSEMYTHOLOGY"],
+      "mySiteFrontPage": "graph_1752268244973",
+      "menuConfig": {
+        "enabled": true,
+        "visibleItems": ["graph-viewer", "graph-portfolio", "user-dashboard"]
+      }
+    },
+    {
+      "domain": "www.norsegong.com",
+      "logo": "https://vegvisr.imgix.net/norsegong-logo.png",
+      "contentFilter": "custom",
+      "selectedCategories": ["NORSEGONG", "NORSEMYTHOLOGY"],
+      "mySiteFrontPage": "graph_1752268244973",
+      "menuConfig": {
+        "enabled": true,
+        "visibleItems": ["graph-viewer", "graph-portfolio", "user-dashboard"]
+      }
+    }
+  ]
+}
+```

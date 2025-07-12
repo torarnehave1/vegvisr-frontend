@@ -119,7 +119,8 @@
               @input="validateDomain"
             />
             <div class="form-text">
-              Enter your custom domain name. This should be a subdomain you control.
+              Enter your custom domain name. This can be a main domain (e.g., yourdomain.com) or a
+              subdomain (e.g., mybrand.yourdomain.com).
               <br />
               <small class="text-muted">
                 <i class="bi bi-info-circle"></i>
@@ -754,6 +755,8 @@ export default {
           console.log('No domains found in user profile, trying to detect from known domains')
           // Fallback: try common domain patterns for this user
           const knownDomains = [
+            'norsegong.com',
+            'www.norsegong.com',
             'salt.norsegong.com',
             'sweet.norsegong.com',
             'torarne.xyzvibe.com',
@@ -1053,13 +1056,37 @@ export default {
     },
     getDomainTitle() {
       if (!this.formData.domain) return 'Your Brand'
-      // Generic title generation from domain (no hardcoded values)
+
+      // Generic title generation from domain (handles both main domains and subdomains)
       const parts = this.formData.domain.split('.')
-      return parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+
+      // For main domains like "norsegong.com" or "www.norsegong.com"
+      if (parts.length === 2 || (parts.length === 3 && parts[0] === 'www')) {
+        const mainPart = parts.length === 2 ? parts[0] : parts[1]
+        return mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+      }
+
+      // For subdomains like "salt.norsegong.com"
+      const subdomain = parts[0]
+      if (subdomain !== 'www') {
+        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      }
+
+      // Fallback to second part for www subdomains
+      return parts[1].charAt(0).toUpperCase() + parts[1].slice(1)
     },
     getDomainSubdomain() {
       if (!this.formData.domain) return ''
-      return this.formData.domain.split('.')[0]
+
+      const parts = this.formData.domain.split('.')
+
+      // For main domains like "norsegong.com" or "www.norsegong.com", return the full domain
+      if (parts.length === 2 || (parts.length === 3 && parts[0] === 'www')) {
+        return this.formData.domain
+      }
+
+      // For subdomains like "salt.norsegong.com", return just the subdomain
+      return parts[0]
     },
     formatMetaAreaLabel(metaArea) {
       // Convert meta area to a readable label

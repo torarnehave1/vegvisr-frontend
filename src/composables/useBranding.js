@@ -33,9 +33,12 @@ export function useBranding() {
     detectedHostname.value = hostname
 
     // Check if this is a main domain that doesn't need site config
-    const mainDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
-    if (mainDomains.includes(hostname)) {
-      console.log('Detected main domain - no site config needed:', hostname)
+    // Updated: Only skip site config for the core Vegvisr domains, not custom main domains
+    const coreVegvisrDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
+    if (coreVegvisrDomains.includes(hostname)) {
+      console.log('Detected core Vegvisr domain - no site config needed:', hostname)
+    } else {
+      console.log('Detected custom domain (main or subdomain) - will fetch site config:', hostname)
     }
 
     return hostname
@@ -50,10 +53,11 @@ export function useBranding() {
   const fetchSiteConfig = async (domain) => {
     if (!domain || loading.value) return
 
-    // Skip site config fetch for main domains that don't need custom configuration
-    const mainDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
-    if (mainDomains.includes(domain)) {
-      console.log('Skipping site config fetch for main domain:', domain)
+    // Skip site config fetch ONLY for core Vegvisr domains that don't need custom configuration
+    // Updated: Allow main domains (like norsegong.com) to have custom branding
+    const coreVegvisrDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
+    if (coreVegvisrDomains.includes(domain)) {
+      console.log('Skipping site config fetch for core Vegvisr domain:', domain)
       siteConfig.value = null
       return
     }
@@ -67,7 +71,7 @@ export function useBranding() {
         siteConfig.value = config
         console.log('Loaded site configuration for', domain, config)
       } else if (response.status === 404) {
-        // No custom configuration found, use defaults - this is normal for main sites
+        // No custom configuration found, use defaults - this is normal for unconfigured custom domains
         siteConfig.value = null
         console.log('No site configuration found for', domain, '- using defaults')
       } else {
@@ -138,9 +142,8 @@ export function useBranding() {
     if (isCustomDomain.value && siteConfig.value?.branding?.mySite) {
       const domain = siteConfig.value.branding.mySite
       // Generic conversion for domains - with null check
-      if (domain && typeof domain === 'string' && domain.includes('.')) {
-        const subdomain = domain.split('.')[0]
-        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      if (domain && typeof domain === 'string') {
+        return generateTitleFromDomain(domain)
       }
       return 'Custom Site'
     }
@@ -153,15 +156,42 @@ export function useBranding() {
     // Generate from user store domain if available
     if (userStore.branding?.mySite === currentDomain.value) {
       const domain = userStore.branding.mySite
-      if (domain && typeof domain === 'string' && domain.includes('.')) {
-        const subdomain = domain.split('.')[0]
-        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      if (domain && typeof domain === 'string') {
+        return generateTitleFromDomain(domain)
       }
       return 'Custom Site'
     }
 
     return 'Vegvisr'
   })
+
+  // Helper function to generate site title from domain
+  const generateTitleFromDomain = (domain) => {
+    if (!domain || typeof domain !== 'string') return 'Custom Site'
+
+    // Handle different domain formats
+    if (domain.includes('.')) {
+      const parts = domain.split('.')
+
+      // For main domains like "norsegong.com" or "www.norsegong.com"
+      if (parts.length === 2 || (parts.length === 3 && parts[0] === 'www')) {
+        const mainPart = parts.length === 2 ? parts[0] : parts[1]
+        return mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+      }
+
+      // For subdomains like "salt.norsegong.com"
+      const subdomain = parts[0]
+      if (subdomain !== 'www') {
+        return subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+      }
+
+      // Fallback to second part for www subdomains
+      return parts[1].charAt(0).toUpperCase() + parts[1].slice(1)
+    }
+
+    // Fallback for domains without dots
+    return domain.charAt(0).toUpperCase() + domain.slice(1)
+  }
 
   // Get domain-specific theme/styling
   const currentTheme = computed(() => {
