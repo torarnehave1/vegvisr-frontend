@@ -1,6 +1,11 @@
 <template>
-  <div v-if="isOpen" class="branding-modal-overlay">
-    <div class="branding-modal">
+  <div
+    v-if="isOpen"
+    class="branding-modal-overlay"
+    @click="handleOverlayClick"
+    @keydown="handleKeydown"
+  >
+    <div class="branding-modal" @click.stop>
       <div class="modal-header">
         <h2>🎨 Custom Domain Branding Setup</h2>
         <button @click="closeModal" class="close-btn">&times;</button>
@@ -117,6 +122,7 @@
               class="form-control"
               placeholder="e.g., mybrand.example.com"
               @input="validateDomain"
+              @keydown.enter.prevent
             />
             <div class="form-text">
               Enter your custom domain name. This can be a main domain (e.g., yourdomain.com) or a
@@ -143,6 +149,7 @@
                 class="form-control"
                 placeholder="https://example.com/logo.png"
                 @input="validateLogo"
+                @keydown.enter.prevent
               />
               <button
                 type="button"
@@ -391,14 +398,31 @@
                 Copy Worker Code
               </button>
               <br /><br />
-              <strong>2. DNS Setup:</strong> Point {{ getDomainSubdomain() }} to your Cloudflare
-              Worker<br />
+              <strong>2. DNS Setup:</strong>
+              <div v-if="isMainDomain(formData.domain)" class="dns-setup-main">
+                Add <strong>{{ formData.domain }}</strong> as a custom domain to your Cloudflare
+                Worker
+                <br />
+                <small class="text-muted">
+                  <i class="bi bi-info-circle"></i>
+                  Main domains require custom domain setup in Cloudflare Workers dashboard
+                </small>
+              </div>
+              <div v-else class="dns-setup-subdomain">
+                Point <strong>{{ getDomainSubdomain() }}</strong> to your Cloudflare Worker
+                <br />
+                <small class="text-muted">
+                  <i class="bi bi-info-circle"></i>
+                  Subdomains can use CNAME records or worker routes
+                </small>
+              </div>
+              <br />
               <button
                 @click="testDomainSetup"
                 class="btn btn-primary btn-sm mt-2"
                 :disabled="isTestingDomain"
               >
-                {{ isTestingDomain ? 'Testing...' : 'Test Domain Setup' }}
+                {{ isTestingDomain ? 'Setting up...' : 'Setup Domain' }}
               </button>
               <div
                 v-if="domainTestResult"
@@ -438,7 +462,7 @@
                 </div>
               </div>
               <br />
-              <strong>3. Test:</strong> Visit {{ formData.domain }} after deployment
+              <strong>3. Test:</strong> Visit {{ formData.domain }} after setup
             </div>
           </div>
 
@@ -455,6 +479,7 @@
                 v-model="formData.mySiteFrontPage"
                 placeholder="Enter Graph ID (e.g., graph_1234567890) or select from dropdown"
                 @input="validateFrontPageGraph"
+                @keydown.enter.prevent
                 :class="{ 'is-invalid': frontPageError, 'is-valid': frontPageValid }"
               />
               <button
@@ -634,6 +659,15 @@ export default {
           // Fetch domain configs from KV and system-wide meta areas when modal opens
           this.fetchDomainConfigsFromKV()
           this.fetchMetaAreas()
+
+          // Ensure proper focus management for keyboard events
+          this.$nextTick(() => {
+            const modalOverlay = this.$el
+            if (modalOverlay) {
+              modalOverlay.setAttribute('tabindex', '0')
+              modalOverlay.focus()
+            }
+          })
         }
       },
       immediate: false,
@@ -702,6 +736,18 @@ export default {
     this.fetchDomainConfigsFromKV()
     this.fetchMetaAreas()
     this.loadUserGraphs()
+
+    // Ensure modal is focusable and handles keyboard events properly
+    if (this.isOpen) {
+      this.$nextTick(() => {
+        // Focus the modal overlay to ensure keyboard events work
+        const modalOverlay = this.$el
+        if (modalOverlay && modalOverlay.focus) {
+          modalOverlay.setAttribute('tabindex', '0')
+          modalOverlay.focus()
+        }
+      })
+    }
   },
   beforeUnmount() {
     // Clean up validation timeout to prevent memory leaks
@@ -710,6 +756,20 @@ export default {
     }
   },
   methods: {
+    // Modal event handlers
+    handleOverlayClick(event) {
+      // Only close if clicking directly on the overlay, not on modal content
+      if (event.target === event.currentTarget) {
+        this.closeModal()
+      }
+    },
+    handleKeydown(event) {
+      // Handle Escape key to close modal
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        this.closeModal()
+      }
+    },
     loadExistingDomainConfigs() {
       // Load existing domain configurations from props
       this.domainConfigs = [...this.existingDomainConfigs]
@@ -1024,26 +1084,32 @@ export default {
     },
     validateDomain() {
       this.domainError = ''
-      if (this.formData.domain) {
-        // Automatically convert domain to lowercase to prevent case mismatch issues
-        this.formData.domain = this.formData.domain.toLowerCase()
+      try {
+        if (this.formData.domain) {
+          // Automatically convert domain to lowercase to prevent case mismatch issues
+          this.formData.domain = this.formData.domain.toLowerCase()
 
-        // Updated regex to handle subdomains properly
-        const domainRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
-        if (!domainRegex.test(this.formData.domain)) {
-          this.domainError = 'Please enter a valid domain name'
+          // Updated regex to handle subdomains properly
+          const domainRegex =
+            /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+          if (!domainRegex.test(this.formData.domain)) {
+            this.domainError = 'Please enter a valid domain name'
+          }
         }
+      } catch (error) {
+        console.error('Error in domain validation:', error)
+        this.domainError = 'Error validating domain'
       }
     },
     validateLogo() {
       this.logoError = ''
-      if (this.formData.logo) {
-        try {
+      try {
+        if (this.formData.logo) {
           new URL(this.formData.logo)
-        } catch {
-          this.logoError = 'Please enter a valid URL'
         }
+      } catch (error) {
+        console.error('Error in logo validation:', error)
+        this.logoError = 'Please enter a valid URL'
       }
     },
     handleLogoError() {
@@ -1631,6 +1697,23 @@ export default {
         console.error('Error handling AI generated logo:', error)
         this.logoError = 'Failed to process AI generated logo'
       }
+    },
+    isMainDomain(domain) {
+      if (!domain) return false
+
+      const parts = domain.split('.')
+
+      // Main domains: "example.com" (2 parts) or "www.example.com" (3 parts with www)
+      if (parts.length === 2) {
+        return true // e.g., "norsegong.com"
+      }
+
+      if (parts.length === 3 && parts[0] === 'www') {
+        return true // e.g., "www.norsegong.com"
+      }
+
+      // Subdomains: "salt.example.com", "api.example.com", etc.
+      return false
     },
   },
 }
@@ -2541,5 +2624,10 @@ export default {
   .modal-footer {
     flex-direction: column;
   }
+}
+
+.dns-setup-main,
+.dns-setup-subdomain {
+  margin-bottom: 15px;
 }
 </style>
