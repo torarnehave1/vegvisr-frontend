@@ -4885,6 +4885,367 @@ const handleUpdateSandman = async (request, env) => {
   }
 }
 
+// ============================================
+// SUPERADMIN DOMAIN MANAGEMENT ENDPOINTS
+// ============================================
+
+// Helper function to validate Superadmin role
+const validateSuperadminRole = async (email, env) => {
+  try {
+    // Make request to dash-worker to get user role
+    const roleResponse = await fetch(
+      `https://dash.vegvisr.org/get-role?email=${encodeURIComponent(email)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+
+    if (!roleResponse.ok) {
+      return { valid: false, error: 'Failed to validate user role' }
+    }
+
+    const roleData = await roleResponse.json()
+
+    if (roleData.role !== 'Superadmin') {
+      return { valid: false, error: 'Access denied: Superadmin role required' }
+    }
+
+    return { valid: true }
+  } catch (error) {
+    console.error('Error validating Superadmin role:', error)
+    return { valid: false, error: 'Role validation failed' }
+  }
+}
+
+// GET /admin/domains - List all domains with ownership info
+const handleAdminDomains = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const email = url.searchParams.get('email')
+
+    if (!email) {
+      return createErrorResponse('Missing email parameter', 400)
+    }
+
+    // Validate Superadmin role
+    const roleCheck = await validateSuperadminRole(email, env)
+    if (!roleCheck.valid) {
+      return createErrorResponse(roleCheck.error, 403)
+    }
+
+    // Get all domains from KV store
+    const keys = await env.BINDING_NAME.list({ prefix: 'site-config:' })
+    const domains = []
+
+    for (const key of keys.keys) {
+      const domain = key.name.replace('site-config:', '')
+      const config = await env.BINDING_NAME.get(key.name)
+
+      if (config) {
+        const parsedConfig = JSON.parse(config)
+        domains.push({
+          domain,
+          owner: parsedConfig.owner || 'Unknown',
+          createdAt: parsedConfig.createdAt || null,
+          lastModified: parsedConfig.lastModified || null,
+          hasLogo: !!parsedConfig.logo,
+          hasContentFilters: !!parsedConfig.contentFilters,
+          graphId: parsedConfig.graphId || null,
+        })
+      }
+    }
+
+    // Sort domains by owner and domain name
+    domains.sort((a, b) => {
+      if (a.owner !== b.owner) {
+        return a.owner.localeCompare(b.owner)
+      }
+      return a.domain.localeCompare(b.domain)
+    })
+
+    return createResponse(JSON.stringify({ domains }))
+  } catch (error) {
+    console.error('Error in handleAdminDomains:', error)
+    return createErrorResponse('Internal server error', 500)
+  }
+}
+
+// POST /admin/transfer-domain - Transfer domain between users
+const handleTransferDomain = async (request, env) => {
+  try {
+    const { email, domain, newOwner } = await request.json()
+
+    if (!email || !domain || !newOwner) {
+      return createErrorResponse('Missing required fields: email, domain, newOwner', 400)
+    }
+
+    // Validate Superadmin role
+    const roleCheck = await validateSuperadminRole(email, env)
+    if (!roleCheck.valid) {
+      return createErrorResponse(roleCheck.error, 403)
+    }
+
+    // Get current domain config from KV store
+    const kvKey = `site-config:${domain}`
+    const currentConfig = await env.BINDING_NAME.get(kvKey)
+
+    if (!currentConfig) {
+      return createErrorResponse('Domain not found', 404)
+    }
+
+    const parsedConfig = JSON.parse(currentConfig)
+    const oldOwner = parsedConfig.owner
+
+    // Update domain config in KV store
+    parsedConfig.owner = newOwner
+    parsedConfig.lastModified = new Date().toISOString()
+    parsedConfig.transferHistory = parsedConfig.transferHistory || []
+    parsedConfig.transferHistory.push({
+      from: oldOwner,
+      to: newOwner,
+      transferredBy: email,
+      timestamp: new Date().toISOString(),
+    })
+
+    await env.BINDING_NAME.put(kvKey, JSON.stringify(parsedConfig))
+
+    // Update old owner's SQL profile - remove domain from domainConfigs
+    if (oldOwner) {
+      const oldOwnerData = await env.vegvisr_org
+        .prepare('SELECT data FROM config WHERE email = ?')
+        .bind(oldOwner)
+        .first()
+      if (oldOwnerData && oldOwnerData.data) {
+        const userData = JSON.parse(oldOwnerData.data)
+        if (userData.domainConfigs) {
+          userData.domainConfigs = userData.domainConfigs.filter((d) => d.domain !== domain)
+          await env.vegvisr_org
+            .prepare('UPDATE config SET data = ? WHERE email = ?')
+            .bind(JSON.stringify(userData), oldOwner)
+            .run()
+        }
+      }
+    }
+
+    // Update new owner's SQL profile - add domain to domainConfigs
+    const newOwnerData = await env.vegvisr_org
+      .prepare('SELECT data FROM config WHERE email = ?')
+      .bind(newOwner)
+      .first()
+    let userData = { domainConfigs: [] }
+
+    if (newOwnerData && newOwnerData.data) {
+      userData = JSON.parse(newOwnerData.data)
+      if (!userData.domainConfigs) {
+        userData.domainConfigs = []
+      }
+    }
+
+    // Add domain to new owner's profile if not already present
+    if (!userData.domainConfigs.find((d) => d.domain === domain)) {
+      userData.domainConfigs.push({
+        domain,
+        owner: newOwner,
+        createdAt: parsedConfig.createdAt || new Date().toISOString(),
+        lastModified: parsedConfig.lastModified,
+      })
+    }
+
+    await env.vegvisr_org
+      .prepare(
+        `
+      INSERT INTO config (email, data)
+      VALUES (?, ?)
+      ON CONFLICT(email) DO UPDATE SET data = ?
+    `,
+      )
+      .bind(newOwner, JSON.stringify(userData), JSON.stringify(userData))
+      .run()
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        message: `Domain ${domain} transferred from ${oldOwner} to ${newOwner}`,
+        domain,
+        oldOwner,
+        newOwner,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in handleTransferDomain:', error)
+    return createErrorResponse('Internal server error', 500)
+  }
+}
+
+// POST /admin/share-template - Share domain template
+const handleShareTemplate = async (request, env) => {
+  try {
+    const { email, sourceDomain, targetDomain, targetOwner, includeContent } = await request.json()
+
+    if (!email || !sourceDomain || !targetDomain || !targetOwner) {
+      return createErrorResponse(
+        'Missing required fields: email, sourceDomain, targetDomain, targetOwner',
+        400,
+      )
+    }
+
+    // Validate Superadmin role
+    const roleCheck = await validateSuperadminRole(email, env)
+    if (!roleCheck.valid) {
+      return createErrorResponse(roleCheck.error, 403)
+    }
+
+    // Get source domain config
+    const sourceConfig = await env.BINDING_NAME.get(`site-config:${sourceDomain}`)
+    if (!sourceConfig) {
+      return createErrorResponse('Source domain not found', 404)
+    }
+
+    const parsedSourceConfig = JSON.parse(sourceConfig)
+
+    // Create template config for target domain
+    const templateConfig = {
+      domain: targetDomain,
+      owner: targetOwner,
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+      templateSource: sourceDomain,
+      templateCreatedBy: email,
+      logo: parsedSourceConfig.logo || null,
+      contentFilters: parsedSourceConfig.contentFilters || null,
+      graphId: includeContent ? parsedSourceConfig.graphId : null,
+      templateHistory: [
+        {
+          sourceTemplate: sourceDomain,
+          createdBy: email,
+          timestamp: new Date().toISOString(),
+          includeContent: !!includeContent,
+        },
+      ],
+    }
+
+    // Save template to KV store
+    await env.BINDING_NAME.put(`site-config:${targetDomain}`, JSON.stringify(templateConfig))
+
+    // Update target owner's SQL profile
+    const targetOwnerData = await env.vegvisr_org
+      .prepare('SELECT data FROM config WHERE email = ?')
+      .bind(targetOwner)
+      .first()
+    let userData = { domainConfigs: [] }
+
+    if (targetOwnerData && targetOwnerData.data) {
+      userData = JSON.parse(targetOwnerData.data)
+      if (!userData.domainConfigs) {
+        userData.domainConfigs = []
+      }
+    }
+
+    // Add domain to target owner's profile if not already present
+    if (!userData.domainConfigs.find((d) => d.domain === targetDomain)) {
+      userData.domainConfigs.push({
+        domain: targetDomain,
+        owner: targetOwner,
+        createdAt: templateConfig.createdAt,
+        lastModified: templateConfig.lastModified,
+        templateSource: sourceDomain,
+      })
+    }
+
+    await env.vegvisr_org
+      .prepare(
+        `
+      INSERT INTO config (email, data)
+      VALUES (?, ?)
+      ON CONFLICT(email) DO UPDATE SET data = ?
+    `,
+      )
+      .bind(targetOwner, JSON.stringify(userData), JSON.stringify(userData))
+      .run()
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        message: `Template shared from ${sourceDomain} to ${targetDomain} for ${targetOwner}`,
+        sourceDomain,
+        targetDomain,
+        targetOwner,
+        includeContent: !!includeContent,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in handleShareTemplate:', error)
+    return createErrorResponse('Internal server error', 500)
+  }
+}
+
+// DELETE /admin/remove-domain - Remove domain from system
+const handleRemoveDomain = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const email = url.searchParams.get('email')
+    const domain = url.searchParams.get('domain')
+
+    if (!email || !domain) {
+      return createErrorResponse('Missing required parameters: email, domain', 400)
+    }
+
+    // Validate Superadmin role
+    const roleCheck = await validateSuperadminRole(email, env)
+    if (!roleCheck.valid) {
+      return createErrorResponse(roleCheck.error, 403)
+    }
+
+    // Get domain config to identify owner
+    const kvKey = `site-config:${domain}`
+    const currentConfig = await env.BINDING_NAME.get(kvKey)
+
+    if (!currentConfig) {
+      return createErrorResponse('Domain not found', 404)
+    }
+
+    const parsedConfig = JSON.parse(currentConfig)
+    const owner = parsedConfig.owner
+
+    // Remove domain from KV store
+    await env.BINDING_NAME.delete(kvKey)
+
+    // Update owner's SQL profile - remove domain from domainConfigs
+    if (owner) {
+      const ownerData = await env.vegvisr_org
+        .prepare('SELECT data FROM config WHERE email = ?')
+        .bind(owner)
+        .first()
+      if (ownerData && ownerData.data) {
+        const userData = JSON.parse(ownerData.data)
+        if (userData.domainConfigs) {
+          userData.domainConfigs = userData.domainConfigs.filter((d) => d.domain !== domain)
+          await env.vegvisr_org
+            .prepare('UPDATE config SET data = ? WHERE email = ?')
+            .bind(JSON.stringify(userData), owner)
+            .run()
+        }
+      }
+    }
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        message: `Domain ${domain} removed from system`,
+        domain,
+        owner,
+        removedBy: email,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in handleRemoveDomain:', error)
+    return createErrorResponse('Internal server error', 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -5146,6 +5507,23 @@ export default {
 
     if (pathname === '/update-sandman' && request.method === 'POST') {
       return await handleUpdateSandman(request, env)
+    }
+
+    // Add new admin endpoints before the fallback
+    if (pathname === '/admin/domains' && request.method === 'GET') {
+      return await handleAdminDomains(request, env)
+    }
+
+    if (pathname === '/admin/transfer-domain' && request.method === 'POST') {
+      return await handleTransferDomain(request, env)
+    }
+
+    if (pathname === '/admin/share-template' && request.method === 'POST') {
+      return await handleShareTemplate(request, env)
+    }
+
+    if (pathname === '/admin/remove-domain' && request.method === 'DELETE') {
+      return await handleRemoveDomain(request, env)
     }
 
     // Fallback - log unmatched routes
