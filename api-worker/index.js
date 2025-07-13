@@ -3,6 +3,7 @@
 // @version 1.0
 // @author Tor Arne Håve
 // @license MIT
+//Setup for direct Deploy to Cloudflare after Commit
 
 import { marked } from 'marked'
 import { OpenAI } from 'openai'
