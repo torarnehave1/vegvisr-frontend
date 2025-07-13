@@ -1,12 +1,26 @@
 name = "vegvisr-frontend"
 compatibility_date = "2025-01-13"
+main = "src/worker.js"
 
-[assets]
-directory = "./dist"
+[build]
+command = "npm run build"
+
+[build.upload]
+format = "service-worker"
+
+[site]
+bucket = "./dist"
 
 # Optional: Environment-specific configuration
 [env.preview]
 name = "vegvisr-frontend-preview"
+main = "src/worker.js"
 
-[env.preview.assets]
-directory = "./dist"
+[env.preview.build]
+command = "npm run build"
+
+[env.preview.build.upload]
+format = "service-worker"
+
+[env.preview.site]
+bucket = "./dist"
