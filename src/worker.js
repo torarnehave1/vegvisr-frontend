@@ -1,8 +1,3 @@
-import { getAssetFromKV } from '@cloudflare/kv-asset-handler'
-import manifestJSON from '__STATIC_CONTENT_MANIFEST'
-
-const assetManifest = JSON.parse(manifestJSON)
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
@@ -39,47 +34,28 @@ export default {
 
     // Handle static file serving for the Vue.js SPA
     try {
-      return await getAssetFromKV(
-        {
-          request,
-          waitUntil: ctx.waitUntil.bind(ctx),
-        },
-        {
-          ASSET_NAMESPACE: env.__STATIC_CONTENT,
-          ASSET_MANIFEST: assetManifest,
-          mapRequestToAsset: (request) => {
-            const url = new URL(request.url)
-            
-            // Handle root path
-            if (url.pathname === '/') {
-              return new Request(new URL('/index.html', request.url), request)
-            }
-            
-            // Handle static assets (with file extensions)
-            if (url.pathname.match(/\.[a-zA-Z0-9]+$/)) {
-              return request
-            }
-            
-            // Handle client-side routing - fallback to index.html
-            return new Request(new URL('/index.html', request.url), request)
-          },
-        }
-      )
+      // Handle root path
+      if (url.pathname === '/') {
+        const asset = await env.ASSETS.fetch(new URL('/index.html', request.url))
+        return asset
+      }
+      
+      // Handle static assets (with file extensions)
+      if (url.pathname.match(/\.[a-zA-Z0-9]+$/)) {
+        const asset = await env.ASSETS.fetch(request)
+        return asset
+      }
+      
+      // Handle client-side routing - fallback to index.html
+      const asset = await env.ASSETS.fetch(new URL('/index.html', request.url))
+      return asset
     } catch (e) {
       console.error('Error serving asset:', e)
       
       // Fallback to index.html for any unmatched routes (SPA routing)
       try {
-        return await getAssetFromKV(
-          {
-            request: new Request(new URL('/index.html', request.url), request),
-            waitUntil: ctx.waitUntil.bind(ctx),
-          },
-          {
-            ASSET_NAMESPACE: env.__STATIC_CONTENT,
-            ASSET_MANIFEST: assetManifest,
-          }
-        )
+        const asset = await env.ASSETS.fetch(new URL('/index.html', request.url))
+        return asset
       } catch (fallbackError) {
         console.error('Fallback error:', fallbackError)
         return new Response('Not Found', { status: 404 })

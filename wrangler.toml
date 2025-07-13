@@ -5,11 +5,10 @@ main = "src/worker.js"
 [build]
 command = "npm run build"
 
-[build.upload]
-format = "service-worker"
-
-[site]
-bucket = "./dist"
+# Assets configuration for static file serving
+[assets]
+directory = "./dist"
+binding = "ASSETS"
 
 # Optional: Environment-specific configuration
 [env.preview]
@@ -19,8 +18,6 @@ main = "src/worker.js"
 [env.preview.build]
 command = "npm run build"
 
-[env.preview.build.upload]
-format = "service-worker"
-
-[env.preview.site]
-bucket = "./dist"
+[env.preview.assets]
+directory = "./dist"
+binding = "ASSETS"
