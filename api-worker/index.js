@@ -4926,13 +4926,18 @@ const handleAdminDomains = async (request, env) => {
       return createErrorResponse(roleCheck.error, 403)
     }
 
+    // Check if SITE_CONFIGS KV namespace is available
+    if (!env.SITE_CONFIGS) {
+      return createErrorResponse('SITE_CONFIGS KV namespace not available', 500)
+    }
+
     // Get all domains from KV store
-    const keys = await env.BINDING_NAME.list({ prefix: 'site-config:' })
+    const keys = await env.SITE_CONFIGS.list({ prefix: 'site-config:' })
     const domains = []
 
     for (const key of keys.keys) {
       const domain = key.name.replace('site-config:', '')
-      const config = await env.BINDING_NAME.get(key.name)
+      const config = await env.SITE_CONFIGS.get(key.name)
 
       if (config) {
         const parsedConfig = JSON.parse(config)
@@ -4980,7 +4985,7 @@ const handleTransferDomain = async (request, env) => {
 
     // Get current domain config from KV store
     const kvKey = `site-config:${domain}`
-    const currentConfig = await env.BINDING_NAME.get(kvKey)
+    const currentConfig = await env.SITE_CONFIGS.get(kvKey)
 
     if (!currentConfig) {
       return createErrorResponse('Domain not found', 404)
@@ -5000,7 +5005,7 @@ const handleTransferDomain = async (request, env) => {
       timestamp: new Date().toISOString(),
     })
 
-    await env.BINDING_NAME.put(kvKey, JSON.stringify(parsedConfig))
+    await env.SITE_CONFIGS.put(kvKey, JSON.stringify(parsedConfig))
 
     // Update old owner's SQL profile - remove domain from domainConfigs
     if (oldOwner) {
@@ -5089,7 +5094,7 @@ const handleShareTemplate = async (request, env) => {
     }
 
     // Get source domain config
-    const sourceConfig = await env.BINDING_NAME.get(`site-config:${sourceDomain}`)
+    const sourceConfig = await env.SITE_CONFIGS.get(`site-config:${sourceDomain}`)
     if (!sourceConfig) {
       return createErrorResponse('Source domain not found', 404)
     }
@@ -5118,7 +5123,7 @@ const handleShareTemplate = async (request, env) => {
     }
 
     // Save template to KV store
-    await env.BINDING_NAME.put(`site-config:${targetDomain}`, JSON.stringify(templateConfig))
+    await env.SITE_CONFIGS.put(`site-config:${targetDomain}`, JSON.stringify(templateConfig))
 
     // Update target owner's SQL profile
     const targetOwnerData = await env.vegvisr_org
@@ -5191,7 +5196,7 @@ const handleRemoveDomain = async (request, env) => {
 
     // Get domain config to identify owner
     const kvKey = `site-config:${domain}`
-    const currentConfig = await env.BINDING_NAME.get(kvKey)
+    const currentConfig = await env.SITE_CONFIGS.get(kvKey)
 
     if (!currentConfig) {
       return createErrorResponse('Domain not found', 404)
@@ -5201,7 +5206,7 @@ const handleRemoveDomain = async (request, env) => {
     const owner = parsedConfig.owner
 
     // Remove domain from KV store
-    await env.BINDING_NAME.delete(kvKey)
+    await env.SITE_CONFIGS.delete(kvKey)
 
     // Update owner's SQL profile - remove domain from domainConfigs
     if (owner) {
