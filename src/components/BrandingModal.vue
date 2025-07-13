@@ -9,16 +9,6 @@
       <div class="modal-header">
         <h2>🎨 Custom Domain Branding Setup</h2>
         <div class="modal-header-actions">
-          <!-- Superadmin Domain Management Button -->
-          <button
-            v-if="userStore.role === 'Superadmin'"
-            @click="openAdminDomainModal"
-            class="btn btn-outline-warning btn-sm me-2"
-            title="Superadmin Domain Management"
-          >
-            <i class="fas fa-crown me-1"></i>
-            Admin Domains
-          </button>
           <button @click="closeModal" class="close-btn">&times;</button>
         </div>
       </div>
@@ -583,12 +573,7 @@
     </div>
   </div>
 
-  <!-- Superadmin Domain Management Modal -->
-  <AdminDomainModal
-    :is-visible="isAdminDomainModalOpen"
-    @close="closeAdminDomainModal"
-    @domain-updated="handleDomainUpdated"
-  />
+
 </template>
 
 <script>
@@ -596,13 +581,11 @@ import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { apiUrls } from '@/config/api'
 import AIImageModal from './AIImageModal.vue'
-import AdminDomainModal from './AdminDomainModal.vue'
 
 export default {
   name: 'BrandingModal',
   components: {
     AIImageModal,
-    AdminDomainModal,
   },
   props: {
     isOpen: {
@@ -654,7 +637,6 @@ export default {
       isDeletingExisting: false,
       isUploadingLogo: false,
       isAILogoModalOpen: false,
-      isAdminDomainModalOpen: false,
       frontPageError: '',
       frontPageValid: false,
       frontPageGraphTitle: '',
@@ -1722,19 +1704,7 @@ export default {
         this.logoError = 'Failed to process AI generated logo'
       }
     },
-    // Superadmin Domain Management Modal methods
-    openAdminDomainModal() {
-      this.isAdminDomainModalOpen = true
-    },
-    closeAdminDomainModal() {
-      this.isAdminDomainModalOpen = false
-    },
-    handleDomainUpdated() {
-      // Refresh domain configurations when domains are updated via admin modal
-      this.fetchDomainConfigsFromKV()
-      // Optionally show a success message
-      this.$emit('saved', '✅ Domain configurations updated successfully!')
-    },
+
     isMainDomain(domain) {
       if (!domain) return false
 

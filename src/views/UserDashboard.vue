@@ -204,6 +204,16 @@
               </div>
 
               <div class="d-flex justify-content-end">
+                <!-- Admin Domains Button - Only for Superadmin -->
+                <button
+                  v-if="userStore.role === 'Superadmin'"
+                  @click="openAdminDomainModal"
+                  class="btn btn-outline-warning btn-sm me-2"
+                  title="Superadmin Domain Management"
+                >
+                  <i class="fas fa-crown me-1"></i>
+                  Admin Domains
+                </button>
                 <button
                   @click="openBrandingModal"
                   class="btn btn-light btn-sm"
@@ -271,6 +281,13 @@
       @close="closeBrandingModal"
       @saved="handleBrandingSaved"
     />
+
+    <!-- Admin Domain Modal -->
+    <AdminDomainModal
+      :is-visible="isAdminDomainModalOpen"
+      @close="closeAdminDomainModal"
+      @domain-updated="handleDomainUpdated"
+    />
   </div>
 </template>
 
@@ -280,10 +297,12 @@ import { marked } from 'marked' // Import marked.js
 import { useRouter } from 'vue-router' // Import router
 import { apiUrls } from '@/config/api' // Import API configuration
 import BrandingModal from '@/components/BrandingModal.vue' // Import branding modal
+import AdminDomainModal from '@/components/AdminDomainModal.vue' // Import admin domain modal
 
 export default {
   components: {
     BrandingModal,
+    AdminDomainModal,
   },
   data() {
     return {
@@ -310,6 +329,7 @@ export default {
       logoError: false,
       showBrandingModal: false,
       domainConfigs: [], // New: Array of domain configurations
+      isAdminDomainModalOpen: false, // New: State for admin domain modal
     }
   },
   computed: {
@@ -681,6 +701,18 @@ export default {
         this.isSaving = false
         this.saveMessage = ''
       }, 2000)
+    },
+    openAdminDomainModal() {
+      this.isAdminDomainModalOpen = true
+    },
+    closeAdminDomainModal() {
+      this.isAdminDomainModalOpen = false
+    },
+    handleDomainUpdated() {
+      // Refresh domain configurations when domains are updated via admin modal
+      this.fetchUserData()
+      this.isAdminDomainModalOpen = false
+      console.log('Domain configurations refreshed after admin update')
     },
   },
 }
