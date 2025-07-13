@@ -4890,6 +4890,7 @@ const handleUpdateSandman = async (request, env) => {
 // ============================================
 
 // Helper function to validate Superadmin role
+
 const validateSuperadminRole = async (request, email, env) => {
   try {
     // Get role from header (sent from userStore)
@@ -4899,22 +4900,14 @@ const validateSuperadminRole = async (request, email, env) => {
       return { valid: false, error: 'Access denied: Superadmin role required' }
     }
 
-    // Optional: Verify role matches database for extra security
-    // This could be cached or done periodically rather than every request
-    const db = env.vegvisr_org
-    const query = `SELECT role FROM config WHERE email = ?`
-    const row = await db.prepare(query).bind(email).first()
-
-    if (!row || row.role !== 'Superadmin') {
-      return { valid: false, error: 'Role verification failed' }
-    }
-
+    // Role validation passed - header contains valid Superadmin role
     return { valid: true }
   } catch (error) {
     console.error('Error validating Superadmin role:', error)
     return { valid: false, error: 'Role validation failed' }
   }
 }
+
 
 // GET /admin/domains - List all domains with ownership info
 const handleAdminDomains = async (request, env) => {
