@@ -33,6 +33,7 @@ VERSION
 /api-worker/tsconfig.json
 
 *.toml
+!wrangler.toml
 /main-worker/wrangler.toml
 
 main-worker/wrangler.toml
