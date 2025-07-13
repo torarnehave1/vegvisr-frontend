@@ -1,0 +1,12 @@
+name = "vegvisr-frontend"
+compatibility_date = "2025-01-13"
+
+[assets]
+directory = "./dist"
+
+# Optional: Environment-specific configuration
+[env.preview]
+name = "vegvisr-frontend-preview"
+
+[env.preview.assets]
+directory = "./dist"
