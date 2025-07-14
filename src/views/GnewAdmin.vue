@@ -224,11 +224,18 @@ const createNewGraph = async () => {
 
   isCreating.value = true
   try {
-    // Create new graph with basic structure
-    const newGraph = {
-      title: `New Graph ${new Date().toLocaleDateString()}`,
-      description: 'Created with GnewAdmin',
-      createdBy: userStore.user?.email || 'user',
+    // Create new graph with proper data structure
+    const newGraphData = {
+      metadata: {
+        title: `New Graph ${new Date().toLocaleDateString()}`,
+        description: 'Created with GnewAdmin',
+        createdBy: userStore.user?.email || 'user',
+        category: '',
+        metaArea: '',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
       nodes: [
         {
           id: 'welcome-node',
@@ -237,25 +244,62 @@ const createNewGraph = async () => {
           info: 'This is your first node. You can edit, delete, or add more nodes.',
           color: '#007bff',
           position: { x: 0, y: 0 },
+          visible: true,
+          bibl: [],
         },
       ],
       edges: [],
     }
 
-    // Save to backend and update store
-    const savedGraph = await graphStore.saveNewGraph(newGraph)
+    console.log('Creating new graph with data:', newGraphData)
 
-    if (savedGraph) {
-      currentGraph.value = savedGraph
-      graphData.value = { nodes: savedGraph.nodes || [], edges: savedGraph.edges || [] }
-      successMessage.value = 'New graph created successfully!'
+    // Save to backend using the correct endpoint for new graphs
+    const response = await fetch('https://knowledge.vegvisr.org/saveknowgraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newGraphData),
+    })
 
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        successMessage.value = ''
-      }, 3000)
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Failed to create graph: ${response.status} - ${errorText}`)
     }
+
+    const result = await response.json()
+    console.log('Graph creation result:', result)
+
+    // Extract the new graph ID from the response
+    const newGraphId = result.id
+
+    // Set the current graph
+    currentGraph.value = {
+      id: newGraphId,
+      ...newGraphData.metadata,
+    }
+
+    // Set the graph data for display
+    graphData.value = {
+      nodes: newGraphData.nodes,
+      edges: newGraphData.edges,
+      metadata: newGraphData.metadata,
+    }
+
+    // Update the store with the new graph ID
+    graphStore.setCurrentGraphId(newGraphId)
+    graphStore.updateGraphFromJson({
+      nodes: newGraphData.nodes,
+      edges: newGraphData.edges,
+      metadata: newGraphData.metadata,
+    })
+
+    successMessage.value = 'New graph created successfully! You can now start editing.'
+
+    // Clear success message after 5 seconds
+    setTimeout(() => {
+      successMessage.value = ''
+    }, 5000)
   } catch (err) {
+    console.error('Error creating new graph:', err)
     error.value = 'Failed to create new graph: ' + err.message
   } finally {
     isCreating.value = false
@@ -272,12 +316,30 @@ const saveGraph = async () => {
 
   saving.value = true
   try {
-    const updateData = {
-      id: currentGraph.value.id,
-      graphData: graphData.value,
+    console.log('Saving graph changes...')
+
+    // Use the correct endpoint for updating existing graphs
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentGraph.value.id,
+        graphData: graphData.value,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Failed to save graph: ${response.status} - ${errorText}`)
     }
 
-    await graphStore.saveGraph(updateData)
+    const result = await response.json()
+    console.log('Graph save result:', result)
+
+    // Update the store
+    graphStore.updateGraphFromJson(graphData.value)
+
     hasChanges.value = false
     lastSaved.value = Date.now()
     successMessage.value = 'Graph saved successfully!'
@@ -286,6 +348,7 @@ const saveGraph = async () => {
       successMessage.value = ''
     }, 3000)
   } catch (err) {
+    console.error('Error saving graph:', err)
     error.value = 'Failed to save graph: ' + err.message
   } finally {
     saving.value = false
@@ -300,18 +363,39 @@ const retryLoad = () => {
 const loadCurrentGraph = async () => {
   loading.value = true
   try {
-    // Load current graph from store
+    // Load current graph from backend
     if (graphStore.currentGraphId) {
-      const graph = await graphStore.loadGraph(graphStore.currentGraphId)
+      console.log('Loading graph:', graphStore.currentGraphId)
+
+      const response = await fetch(
+        `https://knowledge.vegvisr.org/getknowgraph?id=${graphStore.currentGraphId}`,
+      )
+
+      if (!response.ok) {
+        throw new Error(`Failed to load graph: ${response.status}`)
+      }
+
+      const graph = await response.json()
+      console.log('Loaded graph:', graph)
+
       if (graph) {
-        currentGraph.value = graph
+        currentGraph.value = {
+          id: graph.id || graphStore.currentGraphId,
+          ...graph.metadata,
+        }
+
         graphData.value = {
           nodes: graph.nodes || [],
           edges: graph.edges || [],
+          metadata: graph.metadata,
         }
+
+        // Update the store
+        graphStore.updateGraphFromJson(graphData.value)
       }
     }
   } catch (err) {
+    console.error('Error loading graph:', err)
     error.value = 'Failed to load graph: ' + err.message
   } finally {
     loading.value = false
