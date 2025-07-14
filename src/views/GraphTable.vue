@@ -45,6 +45,13 @@
             >
               Edit
             </button>
+            <button
+              v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
+              class="btn btn-danger btn-sm ms-2"
+              @click="$emit('delete-graph', graph)"
+            >
+              Delete
+            </button>
           </td>
         </tr>
       </tbody>

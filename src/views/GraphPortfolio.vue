@@ -3,34 +3,174 @@
     <div v-if="!userStore.loggedIn">
       <div class="alert alert-warning">User not loaded. Please log in.</div>
     </div>
-    <button
-      v-if="userStore.role === 'Superadmin'"
-      class="btn btn-warning mb-3"
-      @click="generateMetaAreas"
+
+    <!-- Mobile Menu Overlay -->
+    <div
+      v-if="showMobileMenu"
+      class="mobile-menu-overlay"
+      :class="{ 'bg-dark': props.theme === 'dark' }"
+      @click="closeMobileMenu"
     >
-      Auto-Generate Meta Areas (GROK AI)
-    </button>
-    <button
-      v-if="userStore.role === 'Superadmin'"
-      class="btn btn-danger mb-3 ms-2"
-      @click="resetMetaAreas"
-    >
-      Reset All Meta Areas
-    </button>
+      <div
+        class="mobile-menu-content"
+        :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
+        @click.stop
+      >
+        <div class="mobile-menu-header">
+          <h5>Menu</h5>
+          <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
+        </div>
+
+        <!-- Admin Buttons (Mobile) -->
+        <div v-if="userStore.role === 'Superadmin'" class="mobile-menu-section">
+          <h6>Admin Actions</h6>
+          <button class="btn btn-warning w-100 mb-2" @click="generateMetaAreas">
+            Auto-Generate Meta Areas (GROK AI)
+          </button>
+          <button class="btn btn-danger w-100 mb-2" @click="resetMetaAreas">
+            Reset All Meta Areas
+          </button>
+        </div>
+
+        <!-- Search (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Search</h6>
+          <input
+            type="text"
+            v-model="portfolioStore.searchQuery"
+            class="form-control mb-2"
+            placeholder="🔍 Filter your portfolio graphs..."
+            @input="filterGraphs"
+          />
+          <small class="text-muted">
+            Portfolio Filter • For global search, use the search bar above
+          </small>
+        </div>
+
+        <!-- Sort Options (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Sort By</h6>
+          <select v-model="portfolioStore.sortBy" class="form-select mb-2" @change="sortGraphs">
+            <option value="title-asc">Name (A-Z)</option>
+            <option value="title-desc">Name (Z-A)</option>
+            <option value="date-desc">Date (Newest First)</option>
+            <option value="date-asc">Date (Oldest First)</option>
+            <option value="nodes">Sort by Node Count</option>
+            <option value="category">Sort by Category</option>
+          </select>
+        </div>
+
+        <!-- View Mode Toggle (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>View Mode</h6>
+          <div class="btn-group w-100 mb-2" role="group">
+            <button
+              class="btn btn-outline-primary"
+              :class="{ active: portfolioStore.viewMode === 'detailed' }"
+              @click="portfolioStore.viewMode = 'detailed'"
+            >
+              Detailed
+            </button>
+            <button
+              class="btn btn-outline-secondary"
+              :class="{ active: portfolioStore.viewMode === 'simple' }"
+              @click="portfolioStore.viewMode = 'simple'"
+            >
+              Simple
+            </button>
+            <button
+              class="btn btn-outline-success"
+              :class="{ active: portfolioStore.viewMode === 'table' }"
+              @click="portfolioStore.viewMode = 'table'"
+            >
+              Table
+            </button>
+          </div>
+        </div>
+
+        <!-- Meta Area Sidebar (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Meta Area</h6>
+          <div class="mobile-meta-areas">
+            <div
+              class="mobile-meta-item"
+              :class="{ active: portfolioStore.selectedMetaArea === null }"
+              @click="
+                portfolioStore.selectedMetaArea = null
+                closeMobileMenu()
+              "
+            >
+              All
+            </div>
+            <div
+              v-for="area in portfolioStore.sortedMetaAreas"
+              :key="area"
+              class="mobile-meta-item"
+              :class="{ active: portfolioStore.selectedMetaArea === area }"
+              @click="
+                portfolioStore.selectedMetaArea = area
+                closeMobileMenu()
+              "
+            >
+              {{ area }}
+              <span class="badge bg-secondary ms-2"
+                >({{ portfolioStore.metaAreaFrequencies[area] }})</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
     <div class="d-flex">
+      <!-- Desktop Sidebar (hidden on mobile) -->
       <MetaAreaSidebar
         :selected="portfolioStore.selectedMetaArea"
         @select="portfolioStore.selectedMetaArea = $event"
+        class="d-none d-md-block"
       />
+
       <div class="flex-grow-1">
+        <!-- Mobile Header with Hamburger -->
+        <div class="mobile-header d-md-none">
+          <button
+            class="hamburger-btn"
+            :class="{ active: showMobileMenu }"
+            @click="toggleMobileMenu"
+            aria-label="Open menu"
+          >
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+          </button>
+          <h1 class="mobile-title">Portfolio</h1>
+        </div>
+
         <div
           class="portfolio-page"
           :class="{ 'bg-dark': props.theme === 'dark', 'text-white': props.theme === 'dark' }"
         >
           <div class="container-fluid">
-            <!-- Header -->
-            <div class="row mb-4">
+            <!-- Desktop Header (hidden on mobile) -->
+            <div class="row mb-4 d-none d-md-block">
               <div class="col-12">
+                <!-- Admin Buttons (Desktop) -->
+                <button
+                  v-if="userStore.role === 'Superadmin'"
+                  class="btn btn-warning mb-3"
+                  @click="generateMetaAreas"
+                >
+                  Auto-Generate Meta Areas (GROK AI)
+                </button>
+                <button
+                  v-if="userStore.role === 'Superadmin'"
+                  class="btn btn-danger mb-3 ms-2"
+                  @click="resetMetaAreas"
+                >
+                  Reset All Meta Areas
+                </button>
+
                 <h1 class="text-center">Knowledge Graph Portfolio</h1>
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <div class="search-box">
@@ -61,7 +201,7 @@
                     </select>
                   </div>
                 </div>
-                <!-- View Mode Toggle -->
+                <!-- View Mode Toggle (Desktop) -->
                 <div class="view-toggle mb-3">
                   <button
                     class="btn btn-outline-primary me-2"
@@ -85,6 +225,26 @@
                     Table View
                   </button>
                 </div>
+
+                <!-- Success State -->
+                <div v-if="successMessage" class="alert alert-success mt-3" role="alert">
+                  {{ successMessage }}
+                </div>
+
+                <!-- Error State -->
+                <div v-if="error" class="alert alert-danger mt-3" role="alert">
+                  {{ error }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Mobile Success/Error Messages -->
+            <div class="d-md-none">
+              <div v-if="successMessage" class="alert alert-success mt-3" role="alert">
+                {{ successMessage }}
+              </div>
+              <div v-if="error" class="alert alert-danger mt-3" role="alert">
+                {{ error }}
               </div>
             </div>
 
@@ -95,6 +255,7 @@
               :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="handleGalleryViewGraph"
               @edit-graph="editGraph"
+              @delete-graph="confirmDelete"
             />
 
             <!-- Table View -->
@@ -104,6 +265,7 @@
               :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="viewGraph"
               @edit-graph="editGraph"
+              @delete-graph="confirmDelete"
             />
 
             <!-- Detailed View (original card/list) -->
@@ -418,11 +580,6 @@
               </div>
             </div>
 
-            <!-- Error State -->
-            <div v-if="error" class="alert alert-danger mt-3" role="alert">
-              {{ error }}
-            </div>
-
             <!-- No Results State -->
             <div v-if="!loading && !error && filteredGraphs.length === 0" class="text-center mt-5">
               <p class="text-muted">No knowledge graphs found.</p>
@@ -709,7 +866,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
@@ -736,6 +893,7 @@ const contentFilter = useContentFilter()
 const graphs = ref([])
 const loading = ref(true)
 const error = ref(null)
+const successMessage = ref(null)
 const editingGraphId = ref(null)
 const editingGraph = ref(null)
 const shareContent = ref('')
@@ -1337,8 +1495,15 @@ const confirmDelete = async (graph) => {
       console.log('[Client] Graph removed from local state:', graph.id)
 
       // Show success message
-      alert('Graph deleted successfully')
+      error.value = null // Clear any existing error
+      successMessage.value = 'Successfully deleted KnowledgeGraph'
+
+      // Auto-clear success message after 3 seconds
+      setTimeout(() => {
+        successMessage.value = null
+      }, 3000)
     } catch (err) {
+      successMessage.value = null // Clear any existing success message
       error.value = err.message
       console.error('[Client] Error deleting graph:', err)
       alert(
@@ -1808,6 +1973,44 @@ const aspectRatio = computed(() => {
   return '16:9'
 })
 
+// Mobile Menu State
+const showMobileMenu = ref(false)
+const toggleMobileMenu = () => {
+  if (showMobileMenu.value) {
+    closeMobileMenu()
+  } else {
+    showMobileMenu.value = true
+    document.body.style.overflow = 'hidden' // Prevent body scroll
+    setTimeout(() => {
+      document.querySelector('.mobile-menu-overlay')?.classList.add('show')
+    }, 10)
+  }
+}
+const closeMobileMenu = () => {
+  document.querySelector('.mobile-menu-overlay')?.classList.remove('show')
+  setTimeout(() => {
+    showMobileMenu.value = false
+    document.body.style.overflow = '' // Restore body scroll
+  }, 300)
+}
+
+// Close mobile menu on ESC key
+const handleEscKey = (event) => {
+  if (event.key === 'Escape' && showMobileMenu.value) {
+    closeMobileMenu()
+  }
+}
+
+// Add keyboard listener
+onMounted(() => {
+  document.addEventListener('keydown', handleEscKey)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscKey)
+  document.body.style.overflow = '' // Cleanup
+})
+
 onMounted(() => {
   console.log('GraphPortfolio mounted, fetching graphs...')
   fetchGraphs()
@@ -2040,6 +2243,199 @@ onMounted(() => {
 
   .card-footer .btn-group {
     justify-content: center;
+  }
+}
+
+/* Mobile Menu Overlay Styles */
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1050; /* Bootstrap modal z-index */
+  display: flex;
+  justify-content: flex-end;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease-in-out,
+    visibility 0.3s ease-in-out;
+}
+
+.mobile-menu-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-menu-content {
+  background-color: var(--bs-body-bg);
+  width: 80%; /* Adjust as needed */
+  max-width: 400px; /* Adjust as needed */
+  height: 100%;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+  transform: translateX(100%);
+  transition: transform 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto; /* Allow scrolling for content */
+}
+
+.mobile-menu-overlay.show .mobile-menu-content {
+  transform: translateX(0);
+}
+
+.mobile-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-header h5 {
+  margin-bottom: 0;
+}
+
+.mobile-menu-section {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+/* Dark mode support for mobile menu */
+.bg-dark .mobile-menu-header {
+  border-bottom: 1px solid #555;
+}
+
+.bg-dark .mobile-menu-section {
+  border-bottom: 1px solid #555;
+}
+
+.bg-dark .mobile-menu-section h6 {
+  color: #adb5bd;
+}
+
+.bg-dark .mobile-meta-item {
+  background-color: #495057;
+  border-color: #6c757d;
+  color: #e9ecef;
+}
+
+.bg-dark .mobile-meta-item:hover {
+  background-color: #5a6268;
+  border-color: #7a8288;
+}
+
+.bg-dark .mobile-meta-item.active {
+  background-color: #0d6efd;
+  color: white;
+  border-color: #0d6efd;
+}
+
+.bg-dark .hamburger-line {
+  background-color: #e9ecef;
+}
+
+.bg-dark .mobile-header {
+  border-bottom: 1px solid #555;
+}
+
+.mobile-menu-section h6 {
+  margin-bottom: 0.5rem;
+  color: #6c757d;
+}
+
+.mobile-meta-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.mobile-meta-item {
+  display: flex;
+  align-items: center;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+
+.mobile-meta-item:hover {
+  background-color: #e9ecef;
+  border-color: #ced4da;
+}
+
+.mobile-meta-item.active {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.mobile-meta-item .badge {
+  margin-left: 0.5rem;
+}
+
+.hamburger-btn {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 2rem;
+  height: 1.5rem;
+  position: relative;
+  z-index: 1060; /* Above modal */
+}
+
+.hamburger-line {
+  width: 100%;
+  height: 2px;
+  background-color: var(--bs-dark); /* Use a dark color for hamburger */
+  border-radius: 2px;
+  transition: transform 0.3s ease-in-out;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(1) {
+  transform: translateY(8px) rotate(45deg);
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(3) {
+  transform: translateY(-8px) rotate(-45deg);
+}
+
+.mobile-header {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background-color: var(--bs-body-bg);
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  z-index: 1040; /* Below modal, above content */
+}
+
+.mobile-title {
+  margin-bottom: 0;
+  margin-left: 1rem;
+}
+
+@media (max-width: 768px) {
+  .mobile-header {
+    padding: 0.75rem 1rem;
+  }
+  .mobile-title {
+    margin-left: 0.5rem;
   }
 }
 </style>

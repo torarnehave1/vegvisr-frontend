@@ -17,6 +17,13 @@
         >
           Edit Graph
         </button>
+        <button
+          v-if="userStore.role === 'Admin' || userStore.role === 'Superadmin'"
+          class="gallery-delete-btn"
+          @click="$emit('delete-graph', graph)"
+        >
+          Delete
+        </button>
       </div>
     </div>
   </div>
@@ -81,7 +88,8 @@ defineProps({
   margin-top: 8px;
 }
 .gallery-view-btn,
-.gallery-edit-btn {
+.gallery-edit-btn,
+.gallery-delete-btn {
   background: #007bff;
   color: #fff;
   border: none;
@@ -94,10 +102,16 @@ defineProps({
 .gallery-edit-btn {
   background: #6c757d;
 }
+.gallery-delete-btn {
+  background: #dc3545;
+}
 .gallery-view-btn:hover {
   background: #0056b3;
 }
 .gallery-edit-btn:hover {
   background: #495057;
+}
+.gallery-delete-btn:hover {
+  background: #c82333;
 }
 </style>
