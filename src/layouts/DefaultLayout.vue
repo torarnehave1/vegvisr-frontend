@@ -52,7 +52,7 @@
               </li>
               <!-- GNew link - only for Superadmin users -->
               <li v-if="userStore.role === 'Superadmin'" class="nav-item">
-                <RouterLink class="nav-link" to="/gnew"> 🧪 GNew Viewer </RouterLink>
+                <RouterLink class="nav-link" to="/gnew-viewer"> 🧪 GNew Viewer </RouterLink>
               </li>
             </ul>
 

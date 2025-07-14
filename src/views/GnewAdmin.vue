@@ -91,6 +91,14 @@
 
       <!-- Graph Preview -->
       <div v-else-if="currentGraph" class="graph-preview">
+        <!-- Graph Status Bar -->
+        <GraphStatusBar
+          :graphData="graphData"
+          :loading="loading"
+          :error="error"
+          :currentGraph="currentGraph"
+        />
+
         <div class="preview-header">
           <h3 class="preview-title">
             <span class="preview-icon">👁️</span>
@@ -191,6 +199,7 @@ import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useUserStore } from '@/stores/userStore'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
+import GraphStatusBar from '@/components/GraphStatusBar.vue'
 
 // Router and Stores
 const router = useRouter()

@@ -61,52 +61,19 @@
 
       <!-- Main Content -->
       <div class="gnew-content">
-        <!-- Status Bar -->
-        <div class="status-bar">
-          <!-- First Row - Basic Info -->
-          <div class="status-row">
-            <div class="status-item">
-              <span class="label">Current Graph:</span>
-              <span class="value">{{ currentGraphId || 'None selected' }}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">Title:</span>
-              <span class="value">{{ graphTitle }}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">Nodes:</span>
-              <span class="value">{{ graphData.nodes.length }}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">Status:</span>
-              <span class="value" :class="statusClass">{{ statusText }}</span>
-            </div>
-          </div>
-
-          <!-- Second Row - Metadata -->
-          <div class="status-row" v-if="hasMetadata">
-            <div class="status-item" v-if="graphCategories.length > 0">
-              <span class="label">Categories:</span>
-              <div class="badge-container">
-                <span v-for="category in graphCategories" :key="category" class="badge bg-success">
-                  {{ category }}
-                </span>
-              </div>
-            </div>
-            <div class="status-item" v-if="graphMetaAreas.length > 0">
-              <span class="label">Meta Areas:</span>
-              <div class="badge-container">
-                <span v-for="area in graphMetaAreas" :key="area" class="badge bg-warning">
-                  {{ area }}
-                </span>
-              </div>
-            </div>
-            <div class="status-item" v-if="graphCreatedBy">
-              <span class="label">Created By:</span>
-              <span class="value">{{ graphCreatedBy }}</span>
-            </div>
-          </div>
-        </div>
+        <!-- Graph Status Bar -->
+        <GraphStatusBar
+          :graphData="graphData"
+          :loading="loading"
+          :error="error"
+          :currentGraph="{
+            id: currentGraphId,
+            title: graphTitle,
+            category: graphCategories.join(','),
+            metaArea: graphMetaAreas.join(','),
+            createdBy: graphCreatedBy,
+          }"
+        />
 
         <!-- Status Message -->
         <div v-if="statusMessage" class="status-message">
@@ -963,6 +930,7 @@ import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewTemplateSidebar from '@/components/GNewTemplateSidebar.vue'
+import GraphStatusBar from '@/components/GraphStatusBar.vue'
 
 // Props
 const props = defineProps({
@@ -3226,59 +3194,7 @@ onMounted(() => {
   opacity: 0.9;
 }
 
-.status-bar {
-  background: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.status-row {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.status-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.status-item .label {
-  font-size: 0.85rem;
-  color: #6c757d;
-  font-weight: 500;
-}
-
-.status-item .value {
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-.badge-container {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.35em 0.65em;
-  font-size: 0.75em;
-  font-weight: 600;
-  line-height: 1;
-  color: #fff;
-  text-align: center;
-  white-space: nowrap;
-  vertical-align: baseline;
-  border-radius: 0.375rem;
-}
+/* Status Bar styles moved to GraphStatusBar.vue component */
 
 .bg-success {
   background-color: #198754;
@@ -3901,27 +3817,7 @@ onMounted(() => {
     font-size: 2rem;
   }
 
-  .status-bar {
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .status-row {
-    flex-direction: column;
-    gap: 12px;
-    align-items: flex-start;
-  }
-
-  .status-item {
-    width: 100%;
-  }
-
-  .badge-container {
-    gap: 4px;
-  }
-
-  .badge {
-    font-size: 0.7em;
+  /* Status Bar mobile styles moved to GraphStatusBar.vue component */
     padding: 0.25em 0.5em;
   }
 
