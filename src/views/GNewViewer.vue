@@ -35,11 +35,130 @@
       </div>
     </div>
 
-    <!-- Template Sidebar (Admin Only) -->
+    <!-- Mobile Menu Overlay -->
+    <div v-if="showMobileMenu" class="mobile-menu-overlay" @click="closeMobileMenu">
+      <div class="mobile-menu-content" @click.stop>
+        <div class="mobile-menu-header">
+          <h5>Menu</h5>
+          <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
+        </div>
+
+        <!-- Template Search (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Template Search</h6>
+          <div class="search-input-container">
+            <input
+              v-model="mobileSearchQuery"
+              type="text"
+              placeholder="Search templates..."
+              class="form-control mb-2"
+            />
+            <span class="search-icon">🔍</span>
+          </div>
+          <div v-if="mobileSearchQuery" class="search-results-info">
+            {{ filteredMobileTemplates.length }} result{{
+              filteredMobileTemplates.length !== 1 ? 's' : ''
+            }}
+          </div>
+        </div>
+
+        <!-- Action Buttons (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Actions</h6>
+          <button @click="loadGraphAndClose" class="btn btn-primary w-100 mb-2" :disabled="loading">
+            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+            {{ loading ? 'Loading...' : 'Load Graph' }}
+          </button>
+          <button @click="refreshDataAndClose" class="btn btn-outline-secondary w-100 mb-2">
+            🔄 Refresh
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="duplicateGraphAndClose"
+            class="btn btn-outline-info w-100 mb-2"
+            :disabled="!graphData.nodes.length || duplicatingGraph"
+          >
+            <span v-if="duplicatingGraph" class="spinner-border spinner-border-sm me-2"></span>
+            {{ duplicatingGraph ? 'Duplicating...' : '📋 Duplicate Graph' }}
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="openImageQuoteAndClose"
+            class="btn btn-success w-100 mb-2"
+          >
+            🎨 Create IMAGEQUOTE
+          </button>
+          <button
+            @click="openShareAndClose"
+            class="btn btn-outline-success w-100 mb-2"
+            :disabled="!graphData.nodes.length"
+          >
+            <i class="bi bi-share"></i> Share
+          </button>
+        </div>
+
+        <!-- Template Categories (Mobile) -->
+        <div class="mobile-menu-section">
+          <h6>Templates</h6>
+          <div v-if="mobileSearchQuery" class="mobile-search-results">
+            <div
+              v-for="template in filteredMobileTemplates"
+              :key="template.id"
+              class="mobile-template-item"
+              @click="addTemplateAndClose(template)"
+            >
+              <span class="template-icon">{{ template.icon }}</span>
+              <div class="template-info">
+                <div class="template-label">{{ template.label }}</div>
+                <div class="template-category-tag">{{ template.category }}</div>
+                <div class="template-description">{{ template.description }}</div>
+              </div>
+              <span class="template-add-btn">+</span>
+            </div>
+          </div>
+          <div v-else class="mobile-categories-view">
+            <div
+              v-for="category in mobileTemplateCategories"
+              :key="category"
+              class="mobile-category-section"
+            >
+              <div class="mobile-category-header" @click="toggleMobileCategory(category)">
+                <span class="category-icon">{{ getCategoryIcon(category) }}</span>
+                <span class="category-name">{{ category }}</span>
+                <span class="category-toggle">
+                  {{ mobileExpandedCategories.includes(category) ? '▼' : '▶' }}
+                </span>
+              </div>
+              <div
+                v-if="mobileExpandedCategories.includes(category)"
+                class="mobile-category-templates"
+              >
+                <div
+                  v-for="template in getTemplatesByCategory(category)"
+                  :key="template.id"
+                  class="mobile-template-item"
+                  @click="addTemplateAndClose(template)"
+                >
+                  <span class="template-icon">{{ template.icon }}</span>
+                  <div class="template-info">
+                    <div class="template-label">{{ template.label }}</div>
+                    <div class="template-description">{{ template.description }}</div>
+                  </div>
+                  <span class="template-add-btn">+</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Template Sidebar (Desktop Only) -->
     <GNewTemplateSidebar
       v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
       @template-added="handleTemplateAdded"
       @sidebar-toggled="handleSidebarToggled"
+      class="d-none d-md-block"
     />
 
     <!-- Full Interface for Logged Users -->
@@ -51,8 +170,23 @@
         'sidebar-collapsed': userStore.role === 'Superadmin' && sidebarCollapsed,
       }"
     >
-      <!-- Header Section -->
-      <div class="gnew-header">
+      <!-- Mobile Header with Hamburger -->
+      <div class="mobile-header d-md-none">
+        <button
+          class="hamburger-btn"
+          :class="{ active: showMobileMenu }"
+          @click="toggleMobileMenu"
+          aria-label="Open menu"
+        >
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+        </button>
+        <h1 class="mobile-title">GNew Viewer</h1>
+      </div>
+
+      <!-- Desktop Header Section (hidden on mobile) -->
+      <div class="gnew-header d-none d-md-block">
         <h1>🧪 GNew Graph Viewer</h1>
         <p class="gnew-subtitle">
           Next-generation graph viewer • Clean Architecture • Modern Features • Template Sidebar
@@ -80,8 +214,8 @@
           {{ statusMessage }}
         </div>
 
-        <!-- Action Toolbar -->
-        <div class="action-toolbar">
+        <!-- Desktop Action Toolbar (hidden on mobile) -->
+        <div class="action-toolbar d-none d-md-flex">
           <button @click="loadGraph" class="btn btn-primary" :disabled="loading">
             <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
             {{ loading ? 'Loading...' : 'Load Graph' }}
@@ -917,7 +1051,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useTemplateStore } from '@/stores/templateStore'
@@ -3106,7 +3240,127 @@ onMounted(() => {
     console.log('Auto-loading graph from store:', currentGraphId.value)
     loadGraph()
   }
+
+  // Add keyboard listener for mobile menu
+  document.addEventListener('keydown', handleEscKey)
 })
+
+// Mobile Menu State
+const showMobileMenu = ref(false)
+const mobileSearchQuery = ref('')
+const mobileExpandedCategories = ref(['Content Nodes', 'Charts & Data', 'Visual Elements'])
+
+// Mobile Menu Functions
+const toggleMobileMenu = () => {
+  if (showMobileMenu.value) {
+    closeMobileMenu()
+  } else {
+    showMobileMenu.value = true
+    document.body.style.overflow = 'hidden'
+    setTimeout(() => {
+      document.querySelector('.mobile-menu-overlay')?.classList.add('show')
+    }, 10)
+  }
+}
+
+const closeMobileMenu = () => {
+  document.querySelector('.mobile-menu-overlay')?.classList.remove('show')
+  setTimeout(() => {
+    showMobileMenu.value = false
+    document.body.style.overflow = ''
+  }, 300)
+}
+
+const toggleMobileCategory = (category) => {
+  if (mobileExpandedCategories.value.includes(category)) {
+    mobileExpandedCategories.value = mobileExpandedCategories.value.filter((c) => c !== category)
+  } else {
+    mobileExpandedCategories.value.push(category)
+  }
+}
+
+// Mobile Template Functions
+const mobileTemplateCategories = computed(() => {
+  return templateStore.categoryList || []
+})
+
+const filteredMobileTemplates = computed(() => {
+  if (!mobileSearchQuery.value) return []
+  return templateStore.templates.filter(
+    (template) =>
+      template.label.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()) ||
+      template.description.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()) ||
+      template.category.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()),
+  )
+})
+
+const getCategoryIcon = (category) => {
+  const icons = {
+    'Content Nodes': '📝',
+    'Charts & Data': '📊',
+    'Visual Elements': '🎨',
+    Templates: '📋',
+    Actions: '⚡',
+  }
+  return icons[category] || '📄'
+}
+
+const getTemplatesByCategory = (category) => {
+  return templateStore.templates.filter((template) => template.category === category)
+}
+
+const addTemplate = (template) => {
+  // Emit template-added event to parent component
+  // This will be handled by the existing handleTemplateAdded function
+  handleTemplateAdded(template)
+}
+
+// Close mobile menu on ESC key
+const handleEscKey = (event) => {
+  if (event.key === 'Escape' && showMobileMenu.value) {
+    closeMobileMenu()
+  }
+}
+
+// Add keyboard listener
+onMounted(() => {
+  document.addEventListener('keydown', handleEscKey)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscKey)
+  document.body.style.overflow = '' // Cleanup
+})
+
+const loadGraphAndClose = () => {
+  loadGraph()
+  closeMobileMenu()
+}
+
+const refreshDataAndClose = () => {
+  refreshData()
+  closeMobileMenu()
+}
+
+const duplicateGraphAndClose = () => {
+  duplicateKnowledgeGraph()
+  closeMobileMenu()
+}
+
+const openImageQuoteAndClose = () => {
+  openImageQuoteCreator()
+  closeMobileMenu()
+}
+
+const openShareAndClose = () => {
+  openShareModal()
+  closeMobileMenu()
+}
+
+const addTemplateAndClose = (template) => {
+  addTemplate(template)
+  closeMobileMenu()
+}
 </script>
 
 <style scoped>
@@ -4147,6 +4401,310 @@ onMounted(() => {
 
   .element-description {
     font-size: 0.8rem;
+  }
+}
+
+/* Mobile Menu Overlay */
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-end;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease-in-out,
+    visibility 0.3s ease-in-out;
+}
+
+.mobile-menu-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-menu-content {
+  background-color: var(--bs-body-bg);
+  width: 85%;
+  max-width: 400px;
+  height: 100%;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+  transform: translateX(100%);
+  transition: transform 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.mobile-menu-overlay.show .mobile-menu-content {
+  transform: translateX(0);
+}
+
+.mobile-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+  background: #f8f9fa;
+}
+
+.mobile-menu-header h5 {
+  margin-bottom: 0;
+  font-weight: 600;
+  color: #333;
+}
+
+.mobile-menu-section {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-section h6 {
+  margin-bottom: 0.75rem;
+  color: #6c757d;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.search-input-container {
+  position: relative;
+}
+
+.search-input-container .search-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6c757d;
+  pointer-events: none;
+}
+
+.search-results-info {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin-top: 0.5rem;
+}
+
+.mobile-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.mobile-template-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-template-item:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+  transform: translateY(-1px);
+}
+
+.mobile-template-item .template-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.mobile-template-item .template-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-template-item .template-label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.mobile-template-item .template-category-tag {
+  font-size: 0.75rem;
+  color: #007bff;
+  background: #e7f3ff;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  display: inline-block;
+  margin-bottom: 0.25rem;
+}
+
+.mobile-template-item .template-description {
+  font-size: 0.8rem;
+  color: #6c757d;
+  line-height: 1.3;
+}
+
+.mobile-template-item .template-add-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.mobile-template-item:hover .template-add-btn {
+  background: #0056b3;
+  transform: scale(1.1);
+}
+
+.mobile-categories-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.mobile-category-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-category-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s ease;
+}
+
+.mobile-category-header:hover {
+  background-color: #f8f9fa;
+}
+
+.mobile-category-header .category-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.mobile-category-header .category-name {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+}
+
+.mobile-category-header .category-toggle {
+  font-size: 0.875rem;
+  color: #6c757d;
+  transition: transform 0.2s ease;
+}
+
+.mobile-category-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.mobile-header {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1rem;
+}
+
+.mobile-title {
+  margin-bottom: 0;
+  margin-left: 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.hamburger-btn {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 2rem;
+  height: 1.5rem;
+  position: relative;
+  z-index: 1060;
+}
+
+.hamburger-line {
+  width: 100%;
+  height: 2px;
+  background-color: white;
+  border-radius: 2px;
+  transition: transform 0.3s ease-in-out;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(1) {
+  transform: translateY(8px) rotate(45deg);
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(3) {
+  transform: translateY(-8px) rotate(-45deg);
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .admin-viewer.with-sidebar {
+    margin-left: 0;
+  }
+
+  .mobile-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .mobile-title {
+    margin-left: 0.5rem;
+    font-size: 1.125rem;
+  }
+
+  .mobile-menu-content {
+    width: 90%;
+    max-width: 350px;
+  }
+
+  .mobile-template-item {
+    padding: 0.5rem;
+  }
+
+  .mobile-template-item .template-label {
+    font-size: 0.8rem;
+  }
+
+  .mobile-template-item .template-description {
+    font-size: 0.75rem;
   }
 }
 </style>
