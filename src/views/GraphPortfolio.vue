@@ -2436,5 +2436,64 @@ const selectMetaArea = (area) => {
   .mobile-title {
     margin-left: 0.5rem;
   }
+
+  /* Fix portfolio card width on mobile */
+  .container-fluid {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .portfolio-page {
+    padding: 0;
+  }
+
+  /* Adjust grid gap on mobile */
+  .row.g-4 {
+    --bs-gutter-x: 0.5rem;
+    --bs-gutter-y: 1rem;
+  }
+
+  /* Ensure cards don't overflow on mobile */
+  .card {
+    margin-bottom: 0.5rem;
+  }
+
+  .card-body {
+    padding: 0.75rem;
+  }
+
+  .card-footer {
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+@media (max-width: 576px) {
+  /* Extra small screens - further reduce padding */
+  .container-fluid {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .row.g-4 {
+    --bs-gutter-x: 0.25rem;
+    --bs-gutter-y: 0.75rem;
+  }
+
+  .card-body {
+    padding: 0.5rem;
+  }
+
+  .card-footer {
+    padding: 0.5rem;
+  }
+
+  /* Adjust mobile header for smaller screens */
+  .mobile-header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .mobile-title {
+    font-size: 1.1rem;
+  }
 }
 </style>
