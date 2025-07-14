@@ -9,33 +9,6 @@
           </button>
         </div>
 
-        <!-- Global Search Bar -->
-        <div class="col-md-3 col-sm-6">
-          <div class="global-search">
-            <div class="input-group">
-              <input
-                type="text"
-                class="form-control"
-                v-model="globalSearchQuery"
-                placeholder="Search knowledge graphs..."
-                @keyup.enter="performGlobalSearch"
-                @focus="showSearchHint = true"
-                @blur="showSearchHint = false"
-              />
-              <button
-                class="btn btn-outline-primary"
-                @click="performGlobalSearch"
-                :disabled="!globalSearchQuery.trim()"
-              >
-                <i class="bi bi-search"></i>
-              </button>
-            </div>
-            <div v-if="showSearchHint" class="search-hint">
-              <small class="text-muted">🧠 Semantic search across all graphs</small>
-            </div>
-          </div>
-        </div>
-
         <!-- GitHub Issues Button -->
         <div class="col-auto">
           <RouterLink to="/github-issues" class="btn btn-outline-primary">
@@ -91,6 +64,39 @@
       </div>
     </div>
   </div>
+
+  <!-- Dedicated Search Bar Section -->
+  <div class="search-bar-section">
+    <div class="container-fluid">
+      <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+          <div class="global-search">
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control"
+                v-model="globalSearchQuery"
+                placeholder="Search knowledge graphs..."
+                @keyup.enter="performGlobalSearch"
+                @focus="showSearchHint = true"
+                @blur="showSearchHint = false"
+              />
+              <button
+                class="btn btn-outline-primary"
+                @click="performGlobalSearch"
+                :disabled="!globalSearchQuery.trim()"
+              >
+                <i class="bi bi-search"></i>
+              </button>
+            </div>
+            <div v-if="showSearchHint" class="search-hint">
+              <small class="text-muted">🧠 Semantic search across all graphs</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -136,23 +142,46 @@ const performGlobalSearch = () => {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Search Bar Section Styles */
+.search-bar-section {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 15px 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
 .global-search {
   position: relative;
 }
 
 .global-search .form-control {
-  border-radius: 20px 0 0 20px;
+  border-radius: 25px 0 0 25px;
   border-right: none;
+  font-size: 1rem;
+  padding: 12px 20px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
 }
 
 .global-search .btn {
-  border-radius: 0 20px 20px 0;
+  border-radius: 0 25px 25px 0;
   border-left: none;
+  padding: 12px 20px;
+  border: 2px solid #007bff;
+  background-color: #007bff;
+  transition: all 0.3s ease;
 }
 
 .global-search .form-control:focus {
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
   border-color: #007bff;
+  outline: none;
+}
+
+.global-search .btn:hover:not(:disabled) {
+  background-color: #0056b3;
+  border-color: #0056b3;
+  transform: translateY(-1px);
 }
 
 .search-hint {
@@ -163,19 +192,33 @@ const performGlobalSearch = () => {
   background: white;
   border: 1px solid #dee2e6;
   border-top: none;
-  border-radius: 0 0 8px 8px;
-  padding: 0.5rem;
+  border-radius: 0 0 12px 12px;
+  padding: 10px 15px;
   z-index: 1001;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-top: 2px;
 }
 
 @media (max-width: 768px) {
-  .global-search {
-    margin-bottom: 1rem;
+  .search-bar-section {
+    padding: 12px 0;
+  }
+
+  .global-search .form-control,
+  .global-search .btn {
+    padding: 10px 16px;
+    font-size: 0.9rem;
   }
 
   .search-hint {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 576px) {
+  .search-bar-section .col-12 {
+    padding: 0 15px;
   }
 }
 </style>

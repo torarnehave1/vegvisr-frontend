@@ -8,33 +8,6 @@
             <img :src="currentLogo" :alt="currentSiteTitle + ' Logo'" width="200" />
           </RouterLink>
 
-          <!-- Global Search Bar (Mobile and Desktop) -->
-          <div class="global-search-container d-none d-md-block me-3">
-            <div class="global-search">
-              <div class="input-group">
-                <input
-                  type="text"
-                  class="form-control"
-                  v-model="globalSearchQuery"
-                  placeholder="Search knowledge graphs..."
-                  @keyup.enter="performGlobalSearch"
-                  @focus="showSearchHint = true"
-                  @blur="showSearchHint = false"
-                />
-                <button
-                  class="btn btn-outline-primary"
-                  @click="performGlobalSearch"
-                  :disabled="!globalSearchQuery.trim()"
-                >
-                  <i class="bi bi-search"></i>
-                </button>
-              </div>
-              <div v-if="showSearchHint" class="search-hint">
-                <small class="text-muted">🧠 Semantic search across all graphs</small>
-              </div>
-            </div>
-          </div>
-
           <button
             class="navbar-toggler"
             type="button"
@@ -48,28 +21,6 @@
           </button>
 
           <div class="collapse navbar-collapse" id="navbarNav">
-            <!-- Mobile Search Bar -->
-            <div class="mobile-search-container d-block d-md-none mb-3">
-              <div class="global-search">
-                <div class="input-group">
-                  <input
-                    type="text"
-                    class="form-control"
-                    v-model="globalSearchQuery"
-                    placeholder="Search knowledge graphs..."
-                    @keyup.enter="performGlobalSearch"
-                  />
-                  <button
-                    class="btn btn-outline-primary"
-                    @click="performGlobalSearch"
-                    :disabled="!globalSearchQuery.trim()"
-                  >
-                    <i class="bi bi-search"></i>
-                  </button>
-                </div>
-              </div>
-            </div>
-
             <ul class="navbar-nav me-auto">
               <li class="nav-item">
                 <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
@@ -154,6 +105,39 @@
         </div>
       </nav>
     </header>
+
+    <!-- Dedicated Search Bar Section -->
+    <section class="search-bar-section">
+      <div class="container-fluid">
+        <div class="row justify-content-center">
+          <div class="col-12 col-md-8 col-lg-6">
+            <div class="global-search">
+              <div class="input-group">
+                <input
+                  type="text"
+                  class="form-control"
+                  v-model="globalSearchQuery"
+                  placeholder="Search knowledge graphs..."
+                  @keyup.enter="performGlobalSearch"
+                  @focus="showSearchHint = true"
+                  @blur="showSearchHint = false"
+                />
+                <button
+                  class="btn btn-outline-primary"
+                  @click="performGlobalSearch"
+                  :disabled="!globalSearchQuery.trim()"
+                >
+                  <i class="bi bi-search"></i>
+                </button>
+              </div>
+              <div v-if="showSearchHint" class="search-hint">
+                <small class="text-muted">🧠 Semantic search across all graphs</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- Main Content -->
     <main class="content">
@@ -255,10 +239,12 @@ img {
   text-decoration: none;
 }
 
-/* Global Search Styles */
-.global-search-container {
-  min-width: 300px;
-  max-width: 400px;
+/* Search Bar Section Styles */
+.search-bar-section {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 15px 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .global-search {
@@ -266,19 +252,33 @@ img {
 }
 
 .global-search .form-control {
-  border-radius: 20px 0 0 20px;
+  border-radius: 25px 0 0 25px;
   border-right: none;
-  font-size: 0.9rem;
+  font-size: 1rem;
+  padding: 12px 20px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
 }
 
 .global-search .btn {
-  border-radius: 0 20px 20px 0;
+  border-radius: 0 25px 25px 0;
   border-left: none;
+  padding: 12px 20px;
+  border: 2px solid #007bff;
+  background-color: #007bff;
+  transition: all 0.3s ease;
 }
 
 .global-search .form-control:focus {
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
   border-color: #007bff;
+  outline: none;
+}
+
+.global-search .btn:hover:not(:disabled) {
+  background-color: #0056b3;
+  border-color: #0056b3;
+  transform: translateY(-1px);
 }
 
 .search-hint {
@@ -289,42 +289,33 @@ img {
   background: white;
   border: 1px solid #dee2e6;
   border-top: none;
-  border-radius: 0 0 8px 8px;
-  padding: 0.5rem;
+  border-radius: 0 0 12px 12px;
+  padding: 10px 15px;
   z-index: 1001;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-top: 2px;
 }
 
-.mobile-search-container {
-  padding: 0.5rem 0;
-}
-
-.mobile-search-container .global-search .form-control {
-  border-radius: 4px 0 0 4px;
-}
-
-.mobile-search-container .global-search .btn {
-  border-radius: 0 4px 4px 0;
-}
-
-/* Responsive adjustments */
 @media (max-width: 768px) {
-  .global-search-container {
-    min-width: 250px;
+  .search-bar-section {
+    padding: 12px 0;
+  }
+
+  .global-search .form-control,
+  .global-search .btn {
+    padding: 10px 16px;
+    font-size: 0.9rem;
   }
 
   .search-hint {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    padding: 8px 12px;
   }
 }
 
 @media (max-width: 576px) {
-  .global-search-container {
-    min-width: 200px;
-  }
-
-  .global-search .form-control {
-    font-size: 0.8rem;
+  .search-bar-section .col-12 {
+    padding: 0 15px;
   }
 }
 </style>
