@@ -3817,10 +3817,6 @@ onMounted(() => {
     font-size: 2rem;
   }
 
-  /* Status Bar mobile styles moved to GraphStatusBar.vue component */
-    padding: 0.25em 0.5em;
-  }
-
   .action-toolbar {
     flex-direction: column;
   }

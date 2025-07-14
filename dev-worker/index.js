@@ -778,38 +778,7 @@ export default {
             })),
           }
 
-          // Insert the new version into the history table
-          const insertHistoryQuery = `
-            INSERT INTO knowledge_graph_history (id, graph_id, version, data)
-            VALUES (?, ?, ?, ?)
-          `
-          await env.vegvisr_org
-            .prepare(insertHistoryQuery)
-            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(enrichedGraphData)) // Use crypto.randomUUID()
-            .run()
-
-          // Ensure no more than 20 versions are stored
-          const countHistoryQuery = `SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?`
-          const historyCountResult = await env.vegvisr_org
-            .prepare(countHistoryQuery)
-            .bind(id)
-            .first()
-
-          if (historyCountResult?.count > 20) {
-            const deleteOldestQuery = `
-              DELETE FROM knowledge_graph_history
-              WHERE graph_id = ?
-              AND version = (
-                SELECT MIN(version)
-                FROM knowledge_graph_history
-                WHERE graph_id = ?
-              )
-            `
-            await env.vegvisr_org.prepare(deleteOldestQuery).bind(id, id).run()
-            console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
-          }
-
-          // Check if graph exists in main table, then INSERT or UPDATE accordingly
+          // FIRST: Check if graph exists in main table, then INSERT or UPDATE accordingly
           const checkExistingQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
           const existingGraph = await env.vegvisr_org.prepare(checkExistingQuery).bind(id).first()
 
@@ -848,6 +817,37 @@ export default {
               )
               .run()
             console.log(`[Worker] Created new graph: ${id}`)
+          }
+
+          // SECOND: Insert the new version into the history table (now that parent exists)
+          const insertHistoryQuery = `
+            INSERT INTO knowledge_graph_history (id, graph_id, version, data)
+            VALUES (?, ?, ?, ?)
+          `
+          await env.vegvisr_org
+            .prepare(insertHistoryQuery)
+            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(enrichedGraphData))
+            .run()
+
+          // THIRD: Ensure no more than 20 versions are stored
+          const countHistoryQuery = `SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?`
+          const historyCountResult = await env.vegvisr_org
+            .prepare(countHistoryQuery)
+            .bind(id)
+            .first()
+
+          if (historyCountResult?.count > 20) {
+            const deleteOldestQuery = `
+              DELETE FROM knowledge_graph_history
+              WHERE graph_id = ?
+              AND version = (
+                SELECT MIN(version)
+                FROM knowledge_graph_history
+                WHERE graph_id = ?
+              )
+            `
+            await env.vegvisr_org.prepare(deleteOldestQuery).bind(id, id).run()
+            console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
           }
 
           console.log('[Worker] Graph with history saved successfully')
