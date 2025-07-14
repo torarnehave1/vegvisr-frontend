@@ -15,6 +15,7 @@ import GitHubIssuesView from '@/views/GitHubIssuesView.vue'
 import R2Portfolio from '../views/R2Portfolio.vue'
 import ProxyTest from '../views/ProxyTest.vue'
 import SandboxWorkspace from '../components/SandboxWorkspace.vue'
+import GnewAdmin from '@/views/GnewAdmin.vue' // Import the new GnewAdmin component
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -144,6 +145,15 @@ const router = createRouter({
       name: 'GraphViewer',
       component: GraphViewer,
       props: (route) => ({ graphId: route.query.graphId || '' }), // Pass graphId as a prop
+    },
+    {
+      path: '/gnew-admin',
+      name: 'GnewAdmin',
+      component: GnewAdmin,
+      meta: {
+        requiresAuth: true,
+        layout: null, // Clean layout for focused admin interface
+      },
     },
     {
       path: '/graph-portfolio',
