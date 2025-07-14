@@ -809,22 +809,46 @@ export default {
             console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
           }
 
-          // Update the main graph table - sync both JSON data and separate columns
-          const updateGraphQuery = `
-            UPDATE knowledge_graphs
-            SET data = ?, title = ?, description = ?, created_by = ?
-            WHERE id = ?
-          `
-          await env.vegvisr_org
-            .prepare(updateGraphQuery)
-            .bind(
-              JSON.stringify(enrichedGraphData),
-              enrichedGraphData.metadata.title,
-              enrichedGraphData.metadata.description,
-              enrichedGraphData.metadata.createdBy,
-              id,
-            )
-            .run()
+          // Check if graph exists in main table, then INSERT or UPDATE accordingly
+          const checkExistingQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
+          const existingGraph = await env.vegvisr_org.prepare(checkExistingQuery).bind(id).first()
+
+          if (existingGraph) {
+            // Update existing graph
+            const updateGraphQuery = `
+              UPDATE knowledge_graphs
+              SET data = ?, title = ?, description = ?, created_by = ?
+              WHERE id = ?
+            `
+            await env.vegvisr_org
+              .prepare(updateGraphQuery)
+              .bind(
+                JSON.stringify(enrichedGraphData),
+                enrichedGraphData.metadata.title,
+                enrichedGraphData.metadata.description,
+                enrichedGraphData.metadata.createdBy,
+                id,
+              )
+              .run()
+            console.log(`[Worker] Updated existing graph: ${id}`)
+          } else {
+            // Insert new graph
+            const insertGraphQuery = `
+              INSERT INTO knowledge_graphs (id, title, description, created_by, data)
+              VALUES (?, ?, ?, ?, ?)
+            `
+            await env.vegvisr_org
+              .prepare(insertGraphQuery)
+              .bind(
+                id,
+                enrichedGraphData.metadata.title,
+                enrichedGraphData.metadata.description,
+                enrichedGraphData.metadata.createdBy,
+                JSON.stringify(enrichedGraphData),
+              )
+              .run()
+            console.log(`[Worker] Created new graph: ${id}`)
+          }
 
           console.log('[Worker] Graph with history saved successfully')
           return new Response(

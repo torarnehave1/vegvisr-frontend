@@ -23,6 +23,14 @@
       </div>
     </div>
 
+    <!-- STEP 1: Show current user's email -->
+    <div class="alert alert-info">
+      <h5>STEP 1: Current User Information</h5>
+      <p><strong>Email:</strong> {{ userStore.email || 'Not available' }}</p>
+      <p><strong>Role:</strong> {{ userStore.role || 'Not available' }}</p>
+      <p><strong>Logged In:</strong> {{ userStore.loggedIn ? 'Yes' : 'No' }}</p>
+    </div>
+
     <!-- Main Content -->
     <div class="admin-content">
       <!-- Action Bar -->
@@ -233,12 +241,16 @@ const createNewGraph = async () => {
 
   isCreating.value = true
   try {
+    // Generate unique ID for new graph
+    const newGraphId = `graph_${Date.now()}`
+    console.log('Creating new graph with ID:', newGraphId)
+
     // Create new graph with proper data structure
     const newGraphData = {
       metadata: {
         title: `New Graph ${new Date().toLocaleDateString()}`,
         description: 'Created with GnewAdmin',
-        createdBy: userStore.user?.email || 'user',
+        createdBy: userStore.email || userStore.user?.email || userStore.user || 'user',
         category: '',
         metaArea: '',
         version: 1,
@@ -260,7 +272,7 @@ const createNewGraph = async () => {
           id: 'fulltext-node',
           type: 'fulltext',
           label: 'Sample Fulltext Node',
-          info: 'This is a fulltext node where you can add rich text content. Use this for detailed documentation, notes, or formatted text.',
+          info: 'This is a fulltext node where you can add rich text content.',
           color: '#28a745',
           position: { x: 0, y: 100 },
           visible: true,
@@ -270,7 +282,7 @@ const createNewGraph = async () => {
           id: 'action-test-node',
           type: 'action_test',
           label: 'AI Action Test Node',
-          info: 'This is an action test node that can trigger AI processing. Use this for automated workflows and AI-powered features.',
+          info: 'This is an action test node for AI processing.',
           color: '#ffc107',
           position: { x: 0, y: 200 },
           visible: true,
@@ -282,11 +294,15 @@ const createNewGraph = async () => {
 
     console.log('Creating new graph with data:', newGraphData)
 
-    // Save to backend using the correct endpoint for new graphs
-    const response = await fetch('https://knowledge.vegvisr.org/saveknowgraph', {
+    // Save to backend using saveGraphWithHistory for proper version tracking
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newGraphData),
+      body: JSON.stringify({
+        id: newGraphId,
+        graphData: newGraphData,
+        override: true, // For new graphs, override any conflicts
+      }),
     })
 
     if (!response.ok) {
@@ -297,12 +313,14 @@ const createNewGraph = async () => {
     const result = await response.json()
     console.log('Graph creation result:', result)
 
-    // Extract the new graph ID from the response
-    const newGraphId = result.id
+    // Extract the new graph ID and version from the response
+    const responseGraphId = result.id
+    const version = result.newVersion
+    console.log(`New graph created with ID: ${responseGraphId}, Version: ${version}`)
 
     // Set the current graph
     currentGraph.value = {
-      id: newGraphId,
+      id: responseGraphId,
       ...newGraphData.metadata,
     }
 
@@ -314,7 +332,7 @@ const createNewGraph = async () => {
     }
 
     // Update the store with the new graph ID
-    graphStore.setCurrentGraphId(newGraphId)
+    graphStore.setCurrentGraphId(responseGraphId)
     graphStore.updateGraphFromJson({
       nodes: newGraphData.nodes,
       edges: newGraphData.edges,
