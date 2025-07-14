@@ -95,10 +95,7 @@
             <div
               class="mobile-meta-item"
               :class="{ active: portfolioStore.selectedMetaArea === null }"
-              @click="
-                portfolioStore.selectedMetaArea = null
-                closeMobileMenu()
-              "
+              @click="selectMetaArea(null)"
             >
               All
             </div>
@@ -107,10 +104,7 @@
               :key="area"
               class="mobile-meta-item"
               :class="{ active: portfolioStore.selectedMetaArea === area }"
-              @click="
-                portfolioStore.selectedMetaArea = area
-                closeMobileMenu()
-              "
+              @click="selectMetaArea(area)"
             >
               {{ area }}
               <span class="badge bg-secondary ms-2"
@@ -2015,6 +2009,11 @@ onMounted(() => {
   console.log('GraphPortfolio mounted, fetching graphs...')
   fetchGraphs()
 })
+
+const selectMetaArea = (area) => {
+  portfolioStore.selectedMetaArea = area
+  closeMobileMenu()
+}
 </script>
 
 <style scoped>
