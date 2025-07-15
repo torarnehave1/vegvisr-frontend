@@ -233,7 +233,6 @@ const router = createRouter({
       component: () => import('../views/GNewViewer.vue'),
       props: (route) => ({ graphId: route.query.graphId || '' }), // Pass graphId as a prop
       meta: {
-        requiresAuth: true,
         layout: null,
       },
     },
