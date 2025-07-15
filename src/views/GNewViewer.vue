@@ -36,7 +36,12 @@
     </div>
 
     <!-- Mobile Menu Overlay -->
-    <div v-if="showMobileMenu" class="mobile-menu-overlay" @click="closeMobileMenu">
+    <div
+      v-if="showMobileMenu"
+      class="mobile-menu-overlay"
+      :class="{ show: showMobileMenu }"
+      @click="closeMobileMenu"
+    >
       <div class="mobile-menu-content" @click.stop>
         <div class="mobile-menu-header">
           <h5>Menu</h5>
@@ -1209,6 +1214,11 @@ const autocompletePosition = ref({ top: 0, left: 0 })
 const currentTrigger = ref('')
 const nodeContentTextarea = ref(null)
 
+// Mobile menu functionality (starts collapsed)
+const showMobileMenu = ref(false)
+const mobileSearchQuery = ref('')
+const mobileExpandedCategories = ref([])
+
 // Comprehensive formatted elements data
 const formatElements = [
   // SECTION variations
@@ -1424,6 +1434,30 @@ const hasMetadata = computed(() => {
   return graphCategories.value.length > 0 || graphMetaAreas.value.length > 0 || graphCreatedBy.value
 })
 
+// Mobile menu computed properties
+const mobileTemplateCategories = computed(() => {
+  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+
+  const categories = [...new Set(templateStore.templates.map((t) => t.category).filter(Boolean))]
+  return categories.sort()
+})
+
+const filteredMobileTemplates = computed(() => {
+  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+
+  const query = mobileSearchQuery.value.toLowerCase().trim()
+  if (!query) return []
+
+  return templateStore.templates
+    .filter(
+      (template) =>
+        template.label?.toLowerCase().includes(query) ||
+        template.description?.toLowerCase().includes(query) ||
+        template.category?.toLowerCase().includes(query),
+    )
+    .slice(0, 10) // Limit to 10 results
+})
+
 // Methods
 const loadGraph = async () => {
   const graphId = knowledgeGraphStore.currentGraphId
@@ -1483,6 +1517,116 @@ const loadGraph = async () => {
 
 const refreshData = () => {
   loadGraph()
+}
+
+// Mobile menu methods
+const toggleMobileMenu = () => {
+  showMobileMenu.value = !showMobileMenu.value
+  if (showMobileMenu.value) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
+}
+
+const closeMobileMenu = () => {
+  showMobileMenu.value = false
+  document.body.style.overflow = ''
+}
+
+// Mobile menu action wrappers (perform action and close menu)
+const loadGraphAndClose = async () => {
+  closeMobileMenu()
+  await loadGraph()
+}
+
+const refreshDataAndClose = () => {
+  closeMobileMenu()
+  refreshData()
+}
+
+const duplicateGraphAndClose = async () => {
+  closeMobileMenu()
+  await duplicateKnowledgeGraph()
+}
+
+const openImageQuoteAndClose = () => {
+  closeMobileMenu()
+  openImageQuoteCreator()
+}
+
+const openShareAndClose = () => {
+  closeMobileMenu()
+  openShareModal()
+}
+
+// Mobile menu template system integration
+const toggleMobileCategory = (category) => {
+  const index = mobileExpandedCategories.value.indexOf(category)
+  if (index > -1) {
+    mobileExpandedCategories.value.splice(index, 1)
+  } else {
+    mobileExpandedCategories.value.push(category)
+  }
+}
+
+const getTemplatesByCategory = (category) => {
+  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+
+  return templateStore.templates.filter((template) => template.category === category)
+}
+
+const getCategoryIcon = (category) => {
+  const iconMap = {
+    Charts: '📊',
+    Media: '🎬',
+    Text: '📝',
+    Layout: '📐',
+    Interactive: '🎯',
+    Analysis: '🔍',
+    Business: '💼',
+    Marketing: '📈',
+    Communication: '💬',
+    Development: '⚙️',
+    Design: '🎨',
+    Data: '📊',
+    Social: '👥',
+    Tools: '🛠️',
+    Templates: '📋',
+    Components: '🧩',
+    Widgets: '📱',
+    Forms: '📄',
+    Content: '📰',
+  }
+
+  return iconMap[category] || '📁'
+}
+
+const addTemplateAndClose = async (template) => {
+  closeMobileMenu()
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNode = {
+    id: generateUUID(),
+    label: template.label,
+    color: template.color || 'lightblue',
+    type: template.type || 'default',
+    info: template.content || '',
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+  }
+
+  await handleTemplateAdded({ template, node: newNode })
 }
 
 // Duplicate graph functionality
@@ -3245,121 +3389,17 @@ onMounted(() => {
   document.addEventListener('keydown', handleEscKey)
 })
 
-// Mobile Menu State
-const showMobileMenu = ref(false)
-const mobileSearchQuery = ref('')
-const mobileExpandedCategories = ref(['Content Nodes', 'Charts & Data', 'Visual Elements'])
-
-// Mobile Menu Functions
-const toggleMobileMenu = () => {
-  if (showMobileMenu.value) {
-    closeMobileMenu()
-  } else {
-    showMobileMenu.value = true
-    document.body.style.overflow = 'hidden'
-    setTimeout(() => {
-      document.querySelector('.mobile-menu-overlay')?.classList.add('show')
-    }, 10)
-  }
-}
-
-const closeMobileMenu = () => {
-  document.querySelector('.mobile-menu-overlay')?.classList.remove('show')
-  setTimeout(() => {
-    showMobileMenu.value = false
-    document.body.style.overflow = ''
-  }, 300)
-}
-
-const toggleMobileCategory = (category) => {
-  if (mobileExpandedCategories.value.includes(category)) {
-    mobileExpandedCategories.value = mobileExpandedCategories.value.filter((c) => c !== category)
-  } else {
-    mobileExpandedCategories.value.push(category)
-  }
-}
-
-// Mobile Template Functions
-const mobileTemplateCategories = computed(() => {
-  return templateStore.categoryList || []
+// Cleanup on unmount
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscKey)
+  document.body.style.overflow = '' // Restore body scroll on component unmount
 })
-
-const filteredMobileTemplates = computed(() => {
-  if (!mobileSearchQuery.value) return []
-  return templateStore.templates.filter(
-    (template) =>
-      template.label.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()) ||
-      template.description.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()) ||
-      template.category.toLowerCase().includes(mobileSearchQuery.value.toLowerCase()),
-  )
-})
-
-const getCategoryIcon = (category) => {
-  const icons = {
-    'Content Nodes': '📝',
-    'Charts & Data': '📊',
-    'Visual Elements': '🎨',
-    Templates: '📋',
-    Actions: '⚡',
-  }
-  return icons[category] || '📄'
-}
-
-const getTemplatesByCategory = (category) => {
-  return templateStore.templates.filter((template) => template.category === category)
-}
-
-const addTemplate = (template) => {
-  // Emit template-added event to parent component
-  // This will be handled by the existing handleTemplateAdded function
-  handleTemplateAdded(template)
-}
 
 // Close mobile menu on ESC key
 const handleEscKey = (event) => {
   if (event.key === 'Escape' && showMobileMenu.value) {
     closeMobileMenu()
   }
-}
-
-// Add keyboard listener
-onMounted(() => {
-  document.addEventListener('keydown', handleEscKey)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleEscKey)
-  document.body.style.overflow = '' // Cleanup
-})
-
-const loadGraphAndClose = () => {
-  loadGraph()
-  closeMobileMenu()
-}
-
-const refreshDataAndClose = () => {
-  refreshData()
-  closeMobileMenu()
-}
-
-const duplicateGraphAndClose = () => {
-  duplicateKnowledgeGraph()
-  closeMobileMenu()
-}
-
-const openImageQuoteAndClose = () => {
-  openImageQuoteCreator()
-  closeMobileMenu()
-}
-
-const openShareAndClose = () => {
-  openShareModal()
-  closeMobileMenu()
-}
-
-const addTemplateAndClose = (template) => {
-  addTemplate(template)
-  closeMobileMenu()
 }
 </script>
 
