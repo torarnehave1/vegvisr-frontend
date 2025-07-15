@@ -2027,6 +2027,7 @@ const selectMetaArea = (area) => {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .portfolio-image {
@@ -2034,6 +2035,8 @@ const selectMetaArea = (area) => {
   height: 100%;
   object-fit: cover;
   border-radius: 4px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .graph-meta .badge {
@@ -2055,13 +2058,23 @@ const selectMetaArea = (area) => {
 @media (max-width: 768px) {
   .portfolio-image-container {
     max-width: 100%;
+    width: 100%;
     height: 150px;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .portfolio-image {
+    max-width: 100%;
+    width: 100%;
   }
 }
 
 @media (max-width: 576px) {
   .portfolio-image-container {
     height: 120px;
+    max-width: 100%;
+    width: 100%;
   }
 }
 
