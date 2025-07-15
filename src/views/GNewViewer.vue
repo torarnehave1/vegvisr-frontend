@@ -2,13 +2,9 @@
   <div class="gnew-viewer">
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
-      <!-- Header with Hamburger Menu -->
+      <!-- Header -->
       <div class="gnew-header">
-        <HamburgerMenu
-          :isOpen="showMobileMenu"
-          @toggle="toggleMobileMenu"
-          @menu-item-clicked="handleMenuItemClick"
-        />
+        <!-- No hamburger menu for public users -->
         <h1 class="header-title">🧪 GNew Graph Viewer</h1>
       </div>
 
@@ -48,7 +44,11 @@
 
     <!-- Mobile Menu Overlay -->
     <div
-      v-if="showMobileMenu"
+      v-if="
+        showMobileMenu &&
+        userStore.loggedIn &&
+        (userStore.role === 'Superadmin' || userStore.role === 'Admin')
+      "
       class="mobile-menu-overlay"
       :class="{ show: showMobileMenu }"
       @click="closeMobileMenu"
@@ -174,6 +174,7 @@
       <!-- Header with Hamburger Menu -->
       <div class="gnew-header">
         <HamburgerMenu
+          v-if="userStore.role === 'Superadmin' || userStore.role === 'Admin'"
           :isOpen="showMobileMenu"
           @toggle="toggleMobileMenu"
           @menu-item-clicked="handleMenuItemClick"
@@ -1616,6 +1617,12 @@ const getTemplateDescription = (type) => {
 }
 
 const toggleMobileMenu = () => {
+  // Only allow toggle for Superadmin and Admin roles
+  if (!userStore.loggedIn || (userStore.role !== 'Superadmin' && userStore.role !== 'Admin')) {
+    console.log('Mobile menu toggle denied - insufficient permissions')
+    return
+  }
+
   console.log('Toggle mobile menu called, current state:', showMobileMenu.value)
   showMobileMenu.value = !showMobileMenu.value
   if (showMobileMenu.value) {
@@ -1630,6 +1637,11 @@ const toggleMobileMenu = () => {
 }
 
 const closeMobileMenu = () => {
+  // Only allow close for Superadmin and Admin roles
+  if (!userStore.loggedIn || (userStore.role !== 'Superadmin' && userStore.role !== 'Admin')) {
+    return
+  }
+
   showMobileMenu.value = false
   document.body.style.overflow = ''
 }
@@ -3626,7 +3638,12 @@ onUnmounted(() => {
 
 // Close mobile menu on ESC key
 const handleEscKey = (event) => {
-  if (event.key === 'Escape' && showMobileMenu.value) {
+  if (
+    event.key === 'Escape' &&
+    showMobileMenu.value &&
+    userStore.loggedIn &&
+    (userStore.role === 'Superadmin' || userStore.role === 'Admin')
+  ) {
     closeMobileMenu()
   }
 }
