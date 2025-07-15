@@ -2,7 +2,17 @@
   <div class="gnew-viewer">
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
-      <!-- Only Graph Content -->
+      <!-- Header with Hamburger Menu -->
+      <div class="gnew-header">
+        <HamburgerMenu
+          :isOpen="showMobileMenu"
+          @toggle="toggleMobileMenu"
+          @menu-item-clicked="handleMenuItemClick"
+        />
+        <h1 class="header-title">🧪 GNew Graph Viewer</h1>
+      </div>
+
+      <!-- Graph Content -->
       <div v-if="loading" class="loading-state">
         <div class="spinner-border text-primary" role="status">
           <span class="visually-hidden">Loading...</span>
@@ -160,51 +170,19 @@
     </div>
 
     <!-- Full Interface for Logged Users -->
-    <div
-      v-if="userStore.loggedIn"
-      class="admin-viewer"
-      :class="{
-        'with-sidebar': userStore.role === 'Superadmin' && !sidebarCollapsed,
-        'sidebar-collapsed': userStore.role === 'Superadmin' && sidebarCollapsed,
-      }"
-    >
-      <!-- Mobile Header with Hamburger -->
-      <div class="mobile-header d-md-none">
-        <button
-          class="hamburger-btn"
-          :class="{ active: showMobileMenu }"
-          @click="toggleMobileMenu"
-          aria-label="Open menu"
-        >
-          <span class="hamburger-line"></span>
-          <span class="hamburger-line"></span>
-          <span class="hamburger-line"></span>
-        </button>
-        <h1 class="mobile-title">GNew Viewer</h1>
+    <div v-if="userStore.loggedIn" class="admin-viewer">
+      <!-- Header with Hamburger Menu -->
+      <div class="gnew-header">
+        <HamburgerMenu
+          :isOpen="showMobileMenu"
+          @toggle="toggleMobileMenu"
+          @menu-item-clicked="handleMenuItemClick"
+        />
+        <h1 class="header-title">🧪 GNew Graph Viewer</h1>
       </div>
-
-      <!-- Desktop Header Section (hidden on mobile) -->
-      <div class="gnew-header d-none d-md-block">
-        <h1>🧪 GNew Graph Viewer</h1>
-        <p class="gnew-subtitle">
-          Next-generation graph viewer • Clean Architecture • Modern Features • Template Sidebar
-        </p>
-      </div>
-
-      <!-- Template Sidebar -->
-      <GNewTemplateSidebar
-        v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
-        :isOpen="true"
-        @template-added="handleTemplateAdded"
-        @sidebar-toggled="handleSidebarToggled"
-        class="d-none d-md-block"
-      />
 
       <!-- Main Content -->
-      <div
-        class="gnew-content"
-        :class="{ 'with-sidebar': userStore.loggedIn && userStore.role === 'Superadmin' }"
-      >
+      <div class="gnew-content">
         <!-- Graph Status Bar -->
         <GraphStatusBar
           :graphData="graphData"
@@ -1081,8 +1059,8 @@ import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
-import GNewTemplateSidebar from '@/components/GNewTemplateSidebar.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
+import HamburgerMenu from '@/components/HamburgerMenu.vue'
 
 // Props
 const props = defineProps({
@@ -1199,7 +1177,6 @@ const loadingPortfolioImages = ref(false)
 
 // Template sidebar state
 const showTemplateSidebar = ref(true)
-const sidebarCollapsed = ref(false)
 
 // Quote suggestions functionality
 const isGeneratingQuotes = ref(false)
@@ -1230,6 +1207,9 @@ const nodeContentTextarea = ref(null)
 const showMobileMenu = ref(false)
 const mobileSearchQuery = ref('')
 const mobileExpandedCategories = ref([])
+
+// New hamburger menu state
+const showHamburgerMenu = ref(false)
 
 // Database templates for mobile menu
 const mobileTemplates = ref([])
@@ -1725,6 +1705,37 @@ const getCategoryIcon = (category) => {
   }
 
   return iconMap[category] || '📁'
+}
+
+// New hamburger menu methods
+const toggleHamburgerMenu = () => {
+  showHamburgerMenu.value = !showHamburgerMenu.value
+  console.log('🍔 GNewViewer: toggleHamburgerMenu called, new state:', showHamburgerMenu.value)
+}
+
+const handleMenuItemClick = (item) => {
+  console.log('🍔 GNewViewer: handleMenuItemClick called with:', item)
+
+  // Handle different menu items
+  switch (item) {
+    case 'home':
+      console.log('🍔 GNewViewer: Home clicked')
+      break
+    case 'about':
+      console.log('🍔 GNewViewer: About clicked')
+      break
+    case 'settings':
+      console.log('🍔 GNewViewer: Settings clicked')
+      break
+    case 'help':
+      console.log('🍔 GNewViewer: Help clicked')
+      break
+    case 'templates':
+      console.log('🍔 GNewViewer: Templates clicked')
+      break
+    default:
+      console.log('🍔 GNewViewer: Unknown menu item:', item)
+  }
 }
 
 const addTemplateAndClose = async (template) => {
@@ -3569,12 +3580,6 @@ const handleTemplateAdded = async ({ template, node }) => {
   }
 }
 
-const handleSidebarToggled = ({ collapsed }) => {
-  console.log('=== Sidebar Toggled ===')
-  console.log('Collapsed:', collapsed)
-  sidebarCollapsed.value = collapsed
-}
-
 // Lifecycle
 onMounted(() => {
   console.log('GNewViewer mounted')
@@ -3639,10 +3644,6 @@ const handleEscKey = (event) => {
   transition: margin-left 0.3s ease;
 }
 
-.gnew-content.with-sidebar {
-  margin-left: 280px; /* Account for sidebar width */
-}
-
 /* Public Viewer Styles - Ultra Clean */
 .public-viewer {
   max-width: 1000px;
@@ -3680,22 +3681,6 @@ const handleEscKey = (event) => {
 .admin-viewer {
   /* Inherits from .gnew-viewer styles */
   transition: margin-left 0.3s ease;
-}
-
-.admin-viewer.with-sidebar {
-  margin-left: 300px; /* Width of expanded sidebar + padding */
-}
-
-/* Sidebar collapsed state adjustment */
-.admin-viewer.with-sidebar.sidebar-collapsed {
-  margin-left: 80px; /* Width of collapsed sidebar + padding */
-}
-
-/* Mobile responsive sidebar layout */
-@media (max-width: 767px) {
-  .admin-viewer.with-sidebar {
-    margin-left: 0; /* No margin on mobile */
-  }
 }
 
 .gnew-header {
