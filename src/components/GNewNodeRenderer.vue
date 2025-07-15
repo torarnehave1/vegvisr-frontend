@@ -14,6 +14,8 @@
 
 <script setup>
 import { computed } from 'vue'
+
+// Import all node components
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
 import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
@@ -23,7 +25,6 @@ import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
 import GNewButtonRowNode from './GNewNodes/GNewButtonRowNode.vue'
 import GNewActionTestNode from './GNewNodes/GNewActionTestNode.vue'
 import GNewStripeButtonNode from './GNewNodes/GNewStripeButtonNode.vue'
-// Phase 3.2 Chart Components
 import GNewChartNode from './GNewNodes/GNewChartNode.vue'
 import GNewPieChartNode from './GNewNodes/GNewPieChartNode.vue'
 import GNewLineChartNode from './GNewNodes/GNewLineChartNode.vue'
@@ -32,6 +33,7 @@ import GNewBubbleChartNode from './GNewNodes/GNewBubbleChartNode.vue'
 import GNewSWOTNode from './GNewNodes/GNewSWOTNode.vue'
 import GNewWhisperNode from './GNewNodes/GNewWhisperNode.vue'
 import GNewImageAnalysisNode from './GNewNodes/GNewImageAnalysisNode.vue'
+import GNewAudioPortfolioSelectorNode from './GNewNodes/GNewAudioPortfolioSelectorNode.vue'
 
 // Props
 const props = defineProps({
@@ -76,6 +78,8 @@ const nodeComponents = {
   swot: GNewSWOTNode,
   // Audio transcription
   'audio-transcription': GNewWhisperNode,
+  // Audio portfolio selector
+  'audio-portfolio-selector': GNewAudioPortfolioSelectorNode,
   // Image analysis
   'image-analysis': GNewImageAnalysisNode,
   // Text types

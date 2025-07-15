@@ -1136,7 +1136,7 @@ export default {
         try {
           console.log('[Worker] Fetching list of graph templates')
 
-          const query = `SELECT id, name, nodes, edges FROM graphTemplates`
+          const query = `SELECT id, name, nodes, edges, category FROM graphTemplates`
           const results = await env.vegvisr_org.prepare(query).all()
 
           console.log('[Worker] Graph templates fetched successfully')
