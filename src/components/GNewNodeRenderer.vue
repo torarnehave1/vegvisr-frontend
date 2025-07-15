@@ -3,6 +3,7 @@
     <component
       :is="nodeComponent"
       :node="node"
+      :graphData="graphData"
       :isPreview="isPreview"
       :showControls="showControls"
       @node-updated="handleNodeUpdated"
@@ -40,6 +41,10 @@ const props = defineProps({
   node: {
     type: Object,
     required: true,
+  },
+  graphData: {
+    type: Object,
+    default: () => ({ nodes: [], edges: [] }),
   },
   isPreview: {
     type: Boolean,

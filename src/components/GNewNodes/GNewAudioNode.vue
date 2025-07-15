@@ -57,6 +57,13 @@
           </div>
           <div class="audio-controls-extra">
             <button
+              @click="openPortfolioModal"
+              class="btn btn-sm btn-outline-primary"
+              title="Select audio from portfolio"
+            >
+              📁 Portfolio
+            </button>
+            <button
               v-if="audioUrl"
               @click="openInNewTab"
               class="btn btn-sm btn-outline-info"
@@ -117,12 +124,20 @@
       <div class="error-icon">❌</div>
       <div class="error-text"><strong>Audio Error:</strong> {{ audioError }}</div>
     </div>
+
+    <!-- Audio Portfolio Selector Modal -->
+    <AudioPortfolioModal
+      :isVisible="showPortfolioModal"
+      @close="closePortfolioModal"
+      @audio-selected="handleAudioSelected"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
+import AudioPortfolioModal from '@/components/AudioPortfolioModal.vue'
 
 // Props
 const props = defineProps({
@@ -150,6 +165,9 @@ const audioFileSize = ref(null)
 const audioType = ref(null)
 const isLoading = ref(false)
 const audioError = ref('')
+
+// Portfolio modal state
+const showPortfolioModal = ref(false)
 
 // Content parsing functions - matches GNewDefaultNode parsing
 const parseStyleString = (style) => {
@@ -373,6 +391,36 @@ const downloadAudio = () => {
     link.click()
     document.body.removeChild(link)
   }
+}
+
+// Portfolio modal methods
+const openPortfolioModal = () => {
+  console.log('🎤 Opening audio portfolio modal')
+  showPortfolioModal.value = true
+}
+
+const closePortfolioModal = () => {
+  console.log('🎤 Closing audio portfolio modal')
+  showPortfolioModal.value = false
+}
+
+const handleAudioSelected = (audioData) => {
+  console.log('🎤 Audio selected from portfolio:', audioData)
+
+  // AudioPortfolioModal emits { url, label, info }
+  if (audioData && audioData.url) {
+    const updatedNode = {
+      ...props.node,
+      path: audioData.url,
+      label: audioData.label || 'Selected Audio',
+      info: audioData.info || 'Audio selected from portfolio',
+    }
+
+    console.log('🎤 Updating node with audio URL:', updatedNode.path)
+    emit('node-updated', updatedNode)
+  }
+
+  closePortfolioModal()
 }
 
 const editNode = () => {

@@ -158,6 +158,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  graphData: {
+    type: Object,
+    default: () => ({ nodes: [], edges: [] }),
+  },
   isPreview: {
     type: Boolean,
     default: false,
@@ -253,6 +257,23 @@ watch(
 )
 
 // Methods
+const generateGraphContext = () => {
+  if (!props.graphData || !props.graphData.nodes || props.graphData.nodes.length === 0) {
+    return ''
+  }
+
+  const contextNodes = props.graphData.nodes
+    .filter((node) => node.visible !== false && node.info && node.info.trim())
+    .map((node) => {
+      const title = node.label || `Node ${node.id}`
+      const content = node.info.substring(0, 500) // Limit content length
+      return `**${title}**\n${content}`
+    })
+    .join('\n\n')
+
+  return contextNodes ? `Current Knowledge Graph Context:\n\n${contextNodes}` : ''
+}
+
 const detectProviderFromEndpoint = () => {
   const currentEndpoint = props.node.label
   for (const [key, provider] of Object.entries(aiProviders)) {
@@ -347,15 +368,18 @@ const triggerAIResponse = async () => {
     const payload = {
       prompt: currentQuery.trim(),
       returnType: returnType.value,
-      includeGraphContext: includeGraphContext.value,
       nodeId: props.node.id,
     }
 
     // Add graph context if requested
     if (includeGraphContext.value) {
-      // Note: Graph context would need to be passed down from parent
-      // For now, we'll skip graph context in GNew until it's properly implemented
-      console.log('Graph context requested but not yet implemented in GNew')
+      const graphContext = generateGraphContext()
+      if (graphContext) {
+        payload.graphContext = graphContext
+        console.log('🧠 Graph context included:', graphContext.substring(0, 200) + '...')
+      } else {
+        console.log('⚠️ Graph context requested but no suitable nodes found')
+      }
     }
 
     loadingMessage.value = 'Processing AI response...'

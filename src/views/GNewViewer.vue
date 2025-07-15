@@ -21,6 +21,7 @@
             v-for="node in graphData.nodes"
             :key="node.id"
             :node="node"
+            :graphData="graphData"
             :showControls="false"
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
@@ -157,14 +158,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Template Sidebar (Desktop Only) -->
-    <GNewTemplateSidebar
-      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
-      @template-added="handleTemplateAdded"
-      @sidebar-toggled="handleSidebarToggled"
-      class="d-none d-md-block"
-    />
 
     <!-- Full Interface for Logged Users -->
     <div
@@ -976,6 +969,7 @@
               v-for="node in graphData.nodes"
               :key="node.id"
               :node="node"
+              :graphData="graphData"
               :showControls="userStore.loggedIn && userStore.role === 'Superadmin'"
               @node-updated="handleNodeUpdated"
               @node-deleted="handleNodeDeleted"
@@ -2820,9 +2814,67 @@ const saveNodeChanges = async () => {
 }
 
 // Node event handlers
-const handleNodeUpdated = (updatedNode) => {
+const handleNodeUpdated = async (updatedNode) => {
   if (updatedNode.action === 'edit') {
     openNodeEditModal(updatedNode)
+    return
+  }
+
+  // Handle actual node updates (like audio path changes)
+  console.log('🔄 GNew: Node Updated:', updatedNode.id, updatedNode)
+
+  try {
+    // Find and update the node in graphData
+    const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === updatedNode.id)
+    if (nodeIndex === -1) {
+      throw new Error('Node not found in graph data')
+    }
+
+    // Update the node with new data
+    graphData.value.nodes[nodeIndex] = { ...updatedNode }
+
+    // Create updated graph data
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: [...graphData.value.nodes],
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save graph after node update.')
+    }
+
+    await response.json()
+
+    // Update the store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Update local state
+    graphData.value = updatedGraphData
+
+    console.log('🎤 GNew: Node updated successfully, path:', updatedNode.path)
+  } catch (error) {
+    console.error('GNew: Error updating node:', error)
+    statusMessage.value = `❌ Failed to update node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+
+    // Reload the graph data to ensure consistency
+    await fetchGraphData()
   }
 }
 
