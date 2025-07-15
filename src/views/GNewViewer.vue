@@ -197,6 +197,7 @@
         :isOpen="true"
         @template-added="handleTemplateAdded"
         @sidebar-toggled="handleSidebarToggled"
+        class="d-none d-md-block"
       />
 
       <!-- Main Content -->
