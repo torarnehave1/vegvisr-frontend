@@ -35,8 +35,20 @@
       </div>
     </div>
 
+    <!-- Loading State -->
+    <div v-if="!isCollapsed && isLoading" class="sidebar-loading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Loading templates...</div>
+    </div>
+
+    <!-- Error State -->
+    <div v-if="!isCollapsed && error" class="sidebar-error">
+      <div class="error-message">{{ error }}</div>
+      <button @click="fetchTemplates" class="retry-button">Retry</button>
+    </div>
+
     <!-- Templates Content -->
-    <div v-if="!isCollapsed" class="sidebar-content">
+    <div v-if="!isCollapsed && !isLoading && !error" class="sidebar-content">
       <!-- Search Results View -->
       <div v-if="searchQuery" class="search-results">
         <div
@@ -44,13 +56,13 @@
           :key="template.id"
           class="template-item"
           @click="addTemplate(template)"
-          :title="template.description"
+          :title="getTemplateDescription(template)"
         >
-          <span class="template-icon">{{ template.icon }}</span>
+          <span class="template-icon">{{ getTemplateIcon(template) }}</span>
           <div class="template-info">
-            <div class="template-label">{{ template.label }}</div>
-            <div class="template-category-tag">{{ template.category }}</div>
-            <div class="template-description">{{ template.description }}</div>
+            <div class="template-label">{{ template.name }}</div>
+            <div class="template-category-tag">{{ template.category || 'General' }}</div>
+            <div class="template-description">{{ getTemplateDescription(template) }}</div>
           </div>
           <span class="template-add-btn">+</span>
         </div>
@@ -58,11 +70,7 @@
 
       <!-- Category View -->
       <div v-else class="categories-view">
-        <div
-          v-for="category in templateStore.categoryList"
-          :key="category"
-          class="category-section"
-        >
+        <div v-for="category in categories" :key="category" class="category-section">
           <div class="category-header" @click="toggleCategory(category)">
             <span class="category-icon">{{ getCategoryIcon(category) }}</span>
             <span class="category-name">{{ category }}</span>
@@ -78,12 +86,12 @@
               :key="template.id"
               class="template-item"
               @click="addTemplate(template)"
-              :title="template.description"
+              :title="getTemplateDescription(template)"
             >
-              <span class="template-icon">{{ template.icon }}</span>
+              <span class="template-icon">{{ getTemplateIcon(template) }}</span>
               <div class="template-info">
-                <div class="template-label">{{ template.label }}</div>
-                <div class="template-description">{{ template.description }}</div>
+                <div class="template-label">{{ template.name }}</div>
+                <div class="template-description">{{ getTemplateDescription(template) }}</div>
               </div>
               <span class="template-add-btn">+</span>
             </div>
@@ -99,9 +107,9 @@
         :key="template.id"
         class="collapsed-template-item"
         @click="addTemplate(template)"
-        :title="`${template.label} - ${template.description}`"
+        :title="`${template.name} - ${getTemplateDescription(template)}`"
       >
-        <span class="template-icon">{{ template.icon }}</span>
+        <span class="template-icon">{{ getTemplateIcon(template) }}</span>
       </div>
     </div>
 
@@ -120,7 +128,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useTemplateStore } from '@/stores/templateStore'
+import { useUserStore } from '@/stores/userStore'
 import AudioRecordingSelector from './AudioRecordingSelector.vue'
 
 // Props
@@ -135,7 +143,7 @@ const props = defineProps({
 const emit = defineEmits(['template-added', 'sidebar-toggled'])
 
 // Store
-const templateStore = useTemplateStore()
+const userStore = useUserStore()
 
 // Reactive state
 const isCollapsed = ref(false)
@@ -143,27 +151,73 @@ const isMobile = ref(false)
 const searchQuery = ref('')
 const expandedCategories = ref([]) // Start with all categories collapsed
 
+// Database template state
+const databaseTemplates = ref([])
+const isLoading = ref(false)
+const error = ref(null)
+
 // Audio modal state
 const showAudioModal = ref(false)
 const selectedTranscriptionType = ref('')
 
+// Fetch templates from database
+const fetchTemplates = async () => {
+  isLoading.value = true
+  error.value = null
+
+  try {
+    console.log('Fetching templates from database...')
+    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('Fetched templates:', data)
+
+    if (data.results && Array.isArray(data.results)) {
+      databaseTemplates.value = data.results.map((template) => ({
+        id: template.id,
+        name: template.name,
+        nodes: JSON.parse(template.nodes || '[]'),
+        edges: JSON.parse(template.edges || '[]'),
+        category: template.category || 'General',
+        type: template.type || 'general',
+      }))
+      console.log('Processed templates:', databaseTemplates.value.length)
+    } else {
+      throw new Error('Invalid response format: missing results array')
+    }
+  } catch (err) {
+    console.error('Error fetching templates:', err)
+    error.value = err.message
+  } finally {
+    isLoading.value = false
+  }
+}
+
 // Computed properties
 const filteredTemplates = computed(() => {
-  if (!searchQuery.value.trim()) return templateStore.nodeTemplates
-  return templateStore.searchTemplates(searchQuery.value)
+  if (!searchQuery.value.trim()) return databaseTemplates.value
+  return databaseTemplates.value.filter(
+    (template) =>
+      template.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      template.category.toLowerCase().includes(searchQuery.value.toLowerCase()),
+  )
+})
+
+const categories = computed(() => {
+  const categorySet = new Set()
+  databaseTemplates.value.forEach((template) => {
+    categorySet.add(template.category || 'General')
+  })
+  return Array.from(categorySet).sort()
 })
 
 const popularTemplates = computed(() => {
-  // Show most commonly used templates in collapsed view
-  return [
-    templateStore.getTemplateById('fulltext-basic'),
-    templateStore.getTemplateById('title-basic'),
-    templateStore.getTemplateById('chart-bar'),
-    templateStore.getTemplateById('image-markdown'),
-    templateStore.getTemplateById('button-row'),
-    templateStore.getTemplateById('ai-test'),
-    templateStore.getTemplateById('audio-transcription'),
-  ].filter(Boolean)
+  // Show first 8 templates in collapsed view
+  return databaseTemplates.value.slice(0, 8)
 })
 
 // Methods
@@ -189,27 +243,72 @@ const toggleCategory = (category) => {
 }
 
 const getTemplatesByCategory = (category) => {
-  return templateStore.getTemplatesByCategory(category)
+  return databaseTemplates.value.filter((template) => (template.category || 'General') === category)
 }
 
 const getCategoryIcon = (category) => {
   const iconMap = {
+    General: '📝',
     'Content Nodes': '📝',
     'Charts & Data': '📊',
     'Visual Elements': '🎨',
     Interactive: '⚡',
-    Diagrams: '🌊', // For future Phase 3.4
+    Diagrams: '🌊',
+    'Project Management': '📋',
   }
   return iconMap[category] || '📁'
+}
+
+const getTemplateIcon = (template) => {
+  // Map template types to icons
+  const iconMap = {
+    youtube: '🎬',
+    image: '🖼️',
+    fulltext: '📄',
+    bubblechart: '🫧',
+    linechart: '📈',
+    gantt: '📊',
+    flowchart: '🌊',
+    timeline: '⏰',
+    map: '🗺️',
+    worknote: '📝',
+    notes: '📄',
+    title: '🎯',
+    action_test: '🤖',
+  }
+  return iconMap[template.type] || '🧩'
+}
+
+const getTemplateDescription = (template) => {
+  if (!template.nodes || !template.nodes[0]) return 'Template'
+
+  const node = template.nodes[0]
+  const descriptions = {
+    youtube: 'Embed YouTube videos',
+    image: 'Display images with captions',
+    fulltext: 'Rich text content with formatting',
+    bubblechart: 'Multi-dimensional data visualization',
+    linechart: 'Line chart for data trends',
+    gantt: 'Project timeline and task management',
+    flowchart: 'Process flow diagrams',
+    timeline: 'Chronological event visualization',
+    map: 'Geographic data and locations',
+    worknote: 'Research notes and observations',
+    notes: 'Concise notes and insights',
+    title: 'Section headers and titles',
+    action_test: 'AI endpoint testing interface',
+  }
+  return descriptions[template.type] || node.type || 'Custom template'
 }
 
 const addTemplate = (template) => {
   if (!template) return
 
-  console.log('=== Template Sidebar: Adding template ===')
-  console.log('Template:', template.label, template.id)
+  console.log('=== Template Sidebar: Adding database template ===')
+  console.log('Template:', template.name, template.id)
+  console.log('Template nodes:', template.nodes)
 
-  // Handle audio templates by opening modal
+  // Handle audio templates by opening modal (if needed)
   if (template.isAudioTemplate) {
     selectedTranscriptionType.value = template.transcriptionType
     showAudioModal.value = true
@@ -221,17 +320,10 @@ const addTemplate = (template) => {
     return
   }
 
-  // Handle regular templates
-  const newNode = templateStore.createNodeFromTemplate(template.id)
-  if (!newNode) {
-    console.error('Failed to create node from template:', template.id)
-    return
-  }
-
-  // Emit event to parent (GNewViewer)
+  // Emit event to parent (GNewViewer) with database template
   emit('template-added', {
     template: template,
-    node: newNode,
+    node: null, // Will be processed by parent
   })
 
   // Close mobile sidebar after adding
@@ -249,13 +341,10 @@ const handleAudioNodeCreated = (node) => {
   // Create appropriate template info based on transcription type
   const templateInfo = {
     id: `audio-${selectedTranscriptionType.value}-transcription`,
-    label: `${selectedTranscriptionType.value === 'enhanced' ? 'Enhanced' : selectedTranscriptionType.value === 'raw' ? 'Raw' : 'Both'} Audio Transcription`,
-    icon:
-      selectedTranscriptionType.value === 'enhanced'
-        ? '✨'
-        : selectedTranscriptionType.value === 'raw'
-          ? '🎤'
-          : '📋',
+    name: `${selectedTranscriptionType.value === 'enhanced' ? 'Enhanced' : selectedTranscriptionType.value === 'raw' ? 'Raw' : 'Both'} Audio Transcription`,
+    type: 'audio-transcription',
+    nodes: [node],
+    edges: [],
   }
 
   emit('template-added', {
@@ -281,6 +370,7 @@ const handleResize = () => {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', handleResize)
+  fetchTemplates() // Fetch templates from database on mount
 })
 
 onUnmounted(() => {
@@ -394,6 +484,73 @@ onUnmounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: #666;
+}
+
+/* Loading State */
+.sidebar-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #666;
+  font-size: 1rem;
+}
+
+.loading-spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  font-weight: 500;
+}
+
+/* Error State */
+.sidebar-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #dc3545;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.error-message {
+  margin-bottom: 15px;
+  font-weight: 500;
+}
+
+.retry-button {
+  background-color: #007bff;
+  color: white;
+  padding: 8px 15px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+}
+
+.retry-button:hover {
+  background-color: #0056b3;
 }
 
 /* Content */

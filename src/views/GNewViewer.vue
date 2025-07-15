@@ -1613,20 +1613,52 @@ const addTemplateAndClose = async (template) => {
     })
   }
 
-  const newNode = {
-    id: generateUUID(),
-    label: template.label,
-    color: template.color || 'lightblue',
-    type: template.type || 'default',
-    info: template.content || '',
-    bibl: [],
-    imageWidth: '100%',
-    imageHeight: '100%',
-    visible: true,
-    path: null,
+  console.log('=== addTemplateAndClose Debug ===')
+  console.log('Template received:', template)
+  console.log('Template nodes:', template.nodes)
+  console.log('Template structure:', JSON.stringify(template, null, 2))
+
+  // Handle database template structure (extract from template.nodes[0])
+  let nodeData = {}
+
+  if (template.nodes && template.nodes.length > 0) {
+    // Database template format - extract from first node
+    const templateNode = template.nodes[0]
+    console.log('Using database template node:', templateNode)
+
+    nodeData = {
+      id: generateUUID(),
+      label: templateNode.label || template.name || 'New Node',
+      color: templateNode.color || '#f9f9f9',
+      type: templateNode.type || 'fulltext',
+      info: templateNode.info || '',
+      bibl: Array.isArray(templateNode.bibl) ? templateNode.bibl : [],
+      imageWidth: templateNode.imageWidth || '100%',
+      imageHeight: templateNode.imageHeight || '100%',
+      visible: templateNode.visible !== false,
+      path: templateNode.path || null,
+    }
+  } else {
+    // Fallback for legacy client-side templates
+    console.log('Using legacy template format')
+    nodeData = {
+      id: generateUUID(),
+      label: template.label || template.name || 'New Node',
+      color: template.color || 'lightblue',
+      type: template.type || 'default',
+      info: template.content || template.info || '',
+      bibl: [],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: null,
+    }
   }
 
-  await handleTemplateAdded({ template, node: newNode })
+  console.log('Final node data:', nodeData)
+  console.log('=== addTemplateAndClose Debug End ===')
+
+  await handleTemplateAdded({ template, node: nodeData })
 }
 
 // Duplicate graph functionality
