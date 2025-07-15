@@ -2255,7 +2255,7 @@ const selectMetaArea = (area) => {
   background-color: rgba(0, 0, 0, 0.5);
   z-index: 1050; /* Bootstrap modal z-index */
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   opacity: 0;
   visibility: hidden;
   transition:
@@ -2273,8 +2273,8 @@ const selectMetaArea = (area) => {
   width: 80%; /* Adjust as needed */
   max-width: 400px; /* Adjust as needed */
   height: 100%;
-  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
-  transform: translateX(100%);
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+  transform: translateX(-100%);
   transition: transform 0.3s ease-in-out;
   display: flex;
   flex-direction: column;
