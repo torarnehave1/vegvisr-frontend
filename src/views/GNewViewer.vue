@@ -2,12 +2,6 @@
   <div class="gnew-viewer">
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
-      <!-- Header -->
-      <div class="gnew-header">
-        <!-- No hamburger menu for public users -->
-        <h1 class="header-title">🧪 GNew Graph Viewer</h1>
-      </div>
-
       <!-- Graph Content -->
       <div v-if="loading" class="loading-state">
         <div class="spinner-border text-primary" role="status">
@@ -1581,7 +1575,7 @@ const fetchMobileTemplates = async () => {
 const getTemplateIcon = (type) => {
   const iconMap = {
     youtube: '🎬',
-    image: '🖼️',
+    image: '��️',
     fulltext: '📄',
     bubblechart: '🫧',
     linechart: '📈',
