@@ -320,10 +320,56 @@ const addTemplate = (template) => {
     return
   }
 
-  // Emit event to parent (GNewViewer) with database template
+  // Generate UUID for new node
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  // Create node data from database template
+  let nodeData = {}
+
+  if (template.nodes && template.nodes.length > 0) {
+    // Database template format - extract from first node
+    const templateNode = template.nodes[0]
+
+    nodeData = {
+      id: generateUUID(),
+      label: templateNode.label || template.name || 'New Node',
+      color: templateNode.color || '#f9f9f9',
+      type: templateNode.type || 'fulltext',
+      info: templateNode.info || '',
+      bibl: Array.isArray(templateNode.bibl) ? templateNode.bibl : [],
+      imageWidth: templateNode.imageWidth || '100%',
+      imageHeight: templateNode.imageHeight || '100%',
+      visible: templateNode.visible !== false,
+      path: templateNode.path || null,
+    }
+  } else {
+    // Fallback for legacy client-side templates
+    nodeData = {
+      id: generateUUID(),
+      label: template.label || template.name || 'New Node',
+      color: template.color || 'lightblue',
+      type: template.type || 'default',
+      info: template.content || template.info || '',
+      bibl: [],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: null,
+    }
+  }
+
+  console.log('Created node data:', nodeData)
+
+  // Emit the template with properly formed node data
   emit('template-added', {
     template: template,
-    node: null, // Will be processed by parent
+    node: nodeData,
   })
 
   // Close mobile sidebar after adding

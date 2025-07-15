@@ -198,8 +198,19 @@
         </p>
       </div>
 
+      <!-- Template Sidebar -->
+      <GNewTemplateSidebar
+        v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+        :isOpen="true"
+        @template-added="handleTemplateAdded"
+        @sidebar-toggled="handleSidebarToggled"
+      />
+
       <!-- Main Content -->
-      <div class="gnew-content">
+      <div
+        class="gnew-content"
+        :class="{ 'with-sidebar': userStore.loggedIn && userStore.role === 'Superadmin' }"
+      >
         <!-- Graph Status Bar -->
         <GraphStatusBar
           :graphData="graphData"
@@ -217,6 +228,14 @@
         <!-- Status Message -->
         <div v-if="statusMessage" class="status-message">
           {{ statusMessage }}
+        </div>
+
+        <!-- Template Access Info -->
+        <div v-if="userStore.loggedIn && userStore.role === 'Superadmin'" class="template-info">
+          <p class="small text-muted">
+            <i class="bi bi-info-circle"></i> Use the template sidebar on the left to add templates
+            to your graph
+          </p>
         </div>
 
         <!-- Desktop Action Toolbar (hidden on mobile) -->
@@ -1059,7 +1078,6 @@
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
-import { useTemplateStore } from '@/stores/templateStore'
 import { useBranding } from '@/composables/useBranding'
 import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
@@ -1082,7 +1100,6 @@ const props = defineProps({
 // Store access
 const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
-const templateStore = useTemplateStore()
 
 // Branding composable
 const { currentDomain, isCustomDomain } = useBranding()
@@ -1218,6 +1235,11 @@ const nodeContentTextarea = ref(null)
 const showMobileMenu = ref(false)
 const mobileSearchQuery = ref('')
 const mobileExpandedCategories = ref([])
+
+// Database templates for mobile menu
+const mobileTemplates = ref([])
+const mobileTemplatesLoading = ref(false)
+const mobileTemplatesError = ref(null)
 
 // Comprehensive formatted elements data
 const formatElements = [
@@ -1436,19 +1458,29 @@ const hasMetadata = computed(() => {
 
 // Mobile menu computed properties
 const mobileTemplateCategories = computed(() => {
-  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+  if (!mobileTemplates.value || !Array.isArray(mobileTemplates.value)) {
+    console.log('No mobile templates for categories computation')
+    return []
+  }
 
-  const categories = [...new Set(templateStore.templates.map((t) => t.category).filter(Boolean))]
+  const categories = [...new Set(mobileTemplates.value.map((t) => t.category).filter(Boolean))]
+  console.log('Mobile template categories:', categories)
   return categories.sort()
 })
 
 const filteredMobileTemplates = computed(() => {
-  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+  if (!mobileTemplates.value || !Array.isArray(mobileTemplates.value)) {
+    console.log('No mobile templates for filtering')
+    return []
+  }
 
   const query = mobileSearchQuery.value.toLowerCase().trim()
-  if (!query) return []
+  if (!query) {
+    console.log('No search query, returning empty array')
+    return []
+  }
 
-  return templateStore.templates
+  const filtered = mobileTemplates.value
     .filter(
       (template) =>
         template.label?.toLowerCase().includes(query) ||
@@ -1456,6 +1488,9 @@ const filteredMobileTemplates = computed(() => {
         template.category?.toLowerCase().includes(query),
     )
     .slice(0, 10) // Limit to 10 results
+
+  console.log('Filtered mobile templates:', filtered.length, 'for query:', query)
+  return filtered
 })
 
 // Methods
@@ -1520,12 +1555,102 @@ const refreshData = () => {
 }
 
 // Mobile menu methods
+// Fetch database templates for mobile menu
+const fetchMobileTemplates = async () => {
+  if (mobileTemplates.value.length > 0) {
+    console.log('Mobile templates already loaded:', mobileTemplates.value.length)
+    return // Already loaded
+  }
+
+  mobileTemplatesLoading.value = true
+  mobileTemplatesError.value = null
+
+  try {
+    console.log('Fetching templates for mobile menu...')
+    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('Raw template data:', data)
+
+    if (data.results && Array.isArray(data.results)) {
+      mobileTemplates.value = data.results.map((template) => ({
+        id: template.id,
+        name: template.name,
+        label: template.name, // For compatibility
+        nodes: JSON.parse(template.nodes || '[]'),
+        edges: JSON.parse(template.edges || '[]'),
+        category: template.category || 'General',
+        type: template.type || 'general',
+        icon: getTemplateIcon(template.type),
+        description: getTemplateDescription(template.type),
+      }))
+      console.log('Mobile templates loaded:', mobileTemplates.value.length)
+      console.log('Sample template:', mobileTemplates.value[0])
+    } else {
+      throw new Error('Invalid response format: missing results array')
+    }
+  } catch (err) {
+    console.error('Error fetching mobile templates:', err)
+    mobileTemplatesError.value = err.message
+  } finally {
+    mobileTemplatesLoading.value = false
+  }
+}
+
+// Helper functions for mobile templates
+const getTemplateIcon = (type) => {
+  const iconMap = {
+    youtube: '🎬',
+    image: '🖼️',
+    fulltext: '📄',
+    bubblechart: '🫧',
+    linechart: '📈',
+    gantt: '📊',
+    flowchart: '🌊',
+    timeline: '⏰',
+    map: '🗺️',
+    worknote: '📝',
+    notes: '📄',
+    title: '🎯',
+    action_test: '🤖',
+  }
+  return iconMap[type] || '🧩'
+}
+
+const getTemplateDescription = (type) => {
+  const descriptions = {
+    youtube: 'Embed YouTube videos',
+    image: 'Display images with captions',
+    fulltext: 'Rich text content with formatting',
+    bubblechart: 'Multi-dimensional data visualization',
+    linechart: 'Line chart for data trends',
+    gantt: 'Project timeline and task management',
+    flowchart: 'Process flow diagrams',
+    timeline: 'Chronological event visualization',
+    map: 'Geographic data and locations',
+    worknote: 'Research notes and observations',
+    notes: 'Concise notes and insights',
+    title: 'Section headers and titles',
+    action_test: 'AI endpoint testing interface',
+  }
+  return descriptions[type] || 'Custom template'
+}
+
 const toggleMobileMenu = () => {
+  console.log('Toggle mobile menu called, current state:', showMobileMenu.value)
   showMobileMenu.value = !showMobileMenu.value
   if (showMobileMenu.value) {
     document.body.style.overflow = 'hidden'
+    console.log('Mobile menu opened, fetching templates...')
+    // Fetch templates when menu opens
+    fetchMobileTemplates()
   } else {
     document.body.style.overflow = ''
+    console.log('Mobile menu closed')
   }
 }
 
@@ -1571,9 +1696,14 @@ const toggleMobileCategory = (category) => {
 }
 
 const getTemplatesByCategory = (category) => {
-  if (!templateStore.templates || !Array.isArray(templateStore.templates)) return []
+  if (!mobileTemplates.value || !Array.isArray(mobileTemplates.value)) {
+    console.log('No mobile templates available for category:', category)
+    return []
+  }
 
-  return templateStore.templates.filter((template) => template.category === category)
+  const filtered = mobileTemplates.value.filter((template) => template.category === category)
+  console.log(`Templates for category "${category}":`, filtered.length, filtered)
+  return filtered
 }
 
 const getCategoryIcon = (category) => {
@@ -1613,18 +1743,12 @@ const addTemplateAndClose = async (template) => {
     })
   }
 
-  console.log('=== addTemplateAndClose Debug ===')
-  console.log('Template received:', template)
-  console.log('Template nodes:', template.nodes)
-  console.log('Template structure:', JSON.stringify(template, null, 2))
-
   // Handle database template structure (extract from template.nodes[0])
   let nodeData = {}
 
   if (template.nodes && template.nodes.length > 0) {
     // Database template format - extract from first node
     const templateNode = template.nodes[0]
-    console.log('Using database template node:', templateNode)
 
     nodeData = {
       id: generateUUID(),
@@ -1640,7 +1764,6 @@ const addTemplateAndClose = async (template) => {
     }
   } else {
     // Fallback for legacy client-side templates
-    console.log('Using legacy template format')
     nodeData = {
       id: generateUUID(),
       label: template.label || template.name || 'New Node',
@@ -1655,8 +1778,12 @@ const addTemplateAndClose = async (template) => {
     }
   }
 
-  console.log('Final node data:', nodeData)
-  console.log('=== addTemplateAndClose Debug End ===')
+  // Check if we have a valid graph to add to
+  if (!knowledgeGraphStore.currentGraphId) {
+    console.error('No current graph ID set - cannot add template')
+    alert('No graph is currently loaded. Please load a graph first.')
+    return
+  }
 
   await handleTemplateAdded({ template, node: nodeData })
 }
@@ -3328,6 +3455,16 @@ const handleTemplateAdded = async ({ template, node }) => {
   console.log('Template:', template)
   console.log('Node:', node)
 
+  // Validate node data
+  if (!node || !node.id) {
+    console.error('Invalid node data provided to handleTemplateAdded:', node)
+    statusMessage.value = 'Failed to add template node: Invalid node data.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
   try {
     // Add the new node to the graph data
     graphData.value.nodes.push(node)
@@ -3356,7 +3493,7 @@ const handleTemplateAdded = async ({ template, node }) => {
     knowledgeGraphStore.updateGraphFromJson(graphData.value)
 
     // Show success message
-    statusMessage.value = `✅ ${template.label} added successfully!`
+    statusMessage.value = `✅ ${template.name || template.label || 'Template'} added successfully!`
     setTimeout(() => {
       statusMessage.value = ''
     }, 3000)
@@ -3364,10 +3501,12 @@ const handleTemplateAdded = async ({ template, node }) => {
     console.log('Template node saved and added to graph')
   } catch (error) {
     console.error('Error adding template node:', error)
-    // Remove the node from local state on error
-    const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === node.id)
-    if (nodeIndex > -1) {
-      graphData.value.nodes.splice(nodeIndex, 1)
+    // Remove the node from local state on error (with null check)
+    if (node && node.id) {
+      const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === node.id)
+      if (nodeIndex > -1) {
+        graphData.value.nodes.splice(nodeIndex, 1)
+      }
     }
 
     statusMessage.value = 'Failed to add template node. Please try again.'
@@ -3441,6 +3580,14 @@ const handleEscKey = (event) => {
   margin: 0 auto;
   padding: 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.gnew-content {
+  transition: margin-left 0.3s ease;
+}
+
+.gnew-content.with-sidebar {
+  margin-left: 280px; /* Account for sidebar width */
 }
 
 /* Public Viewer Styles - Ultra Clean */
@@ -4778,5 +4925,19 @@ const handleEscKey = (event) => {
   .mobile-template-item .template-description {
     font-size: 0.75rem;
   }
+}
+
+/* Template Info Styles */
+.template-info {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+}
+
+.template-info p {
+  margin: 0;
+  font-size: 14px;
 }
 </style>
