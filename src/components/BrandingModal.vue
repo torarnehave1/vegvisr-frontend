@@ -1841,8 +1841,56 @@ export default {
           this.availableMenuTemplates.length,
         )
 
-        // Fetch only top-level templates for branding
-        await this.menuTemplateStore.fetchMenuTemplates('top')
+        // Debug: Check authentication and store state
+        console.log('🔐 BrandingModal: Authentication check:', {
+          userLoggedIn: this.userStore.loggedIn,
+          userEmail: this.userStore.email,
+          userRole: this.userStore.role,
+          hasToken: !!this.userStore.emailVerificationToken,
+          tokenLength: this.userStore.emailVerificationToken?.length || 0,
+        })
+
+        // Debug: Check store instance
+        console.log('🏪 BrandingModal: Store instance check:', {
+          hasMenuTemplateStore: !!this.menuTemplateStore,
+          storeMethods: this.menuTemplateStore ? Object.keys(this.menuTemplateStore) : 'No store',
+          hasFetchMethod:
+            this.menuTemplateStore &&
+            typeof this.menuTemplateStore.fetchMenuTemplates === 'function',
+        })
+
+        if (!this.userStore.emailVerificationToken) {
+          console.error('❌ BrandingModal: No authentication token available')
+          return
+        }
+
+        if (
+          !this.menuTemplateStore ||
+          typeof this.menuTemplateStore.fetchMenuTemplates !== 'function'
+        ) {
+          console.error(
+            '❌ BrandingModal: menuTemplateStore not available or fetchMenuTemplates not a function',
+          )
+          return
+        }
+
+        // Debug: Before store call
+        console.log('📞 BrandingModal: About to call menuTemplateStore.fetchMenuTemplates("top")')
+
+        try {
+          // Fetch only top-level templates for branding
+          await this.menuTemplateStore.fetchMenuTemplates('top')
+          console.log('✅ BrandingModal: Store call completed successfully')
+        } catch (storeError) {
+          console.error('❌ BrandingModal: Store call failed:', storeError)
+          console.error('❌ BrandingModal: Store error details:', {
+            message: storeError.message,
+            stack: storeError.stack,
+            name: storeError.name,
+          })
+          throw storeError
+        }
+
         this.availableMenuTemplates = this.menuTemplateStore.menuTemplates
 
         console.log('✅ BrandingModal: Fetched menu templates:', this.availableMenuTemplates.length)
@@ -1881,7 +1929,7 @@ export default {
         console.error('❌ BrandingModal: Error details:', {
           message: error.message,
           stack: error.stack,
-          storeError: this.menuTemplateStore.error,
+          storeError: this.menuTemplateStore?.error || 'No store error',
         })
       }
     },
