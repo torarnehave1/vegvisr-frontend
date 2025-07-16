@@ -1,11 +1,34 @@
 <template>
   <div class="gnew-menu-creator-node">
-    <div class="node-header">
-      <h4 class="node-title">
-        <i class="fas fa-bars"></i>
-        {{ node.label || 'Menu Creator' }}
-      </h4>
-      <div v-if="showControls" class="node-controls">
+    <!-- PUBLIC MODE: Show functional menu for non-logged-in users -->
+    <div v-if="!showControls && menuData.items && menuData.items.length > 0" class="public-menu">
+      <div class="menu-container">
+        <div class="menu-header">
+          <h4 class="menu-title">
+            <i class="fas fa-bars"></i>
+            {{ menuData.name || 'Menu' }}
+          </h4>
+        </div>
+        <div class="menu-items">
+          <div v-for="(item, index) in menuData.items" :key="index" class="menu-item">
+            <component
+              :is="getMenuItemComponent(item)"
+              :item="item"
+              @click="handleMenuItemClick(item)"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN MODE: Show full creation interface for logged-in users -->
+    <div v-else-if="showControls" class="admin-menu">
+      <div class="node-header">
+        <h4 class="node-title">
+          <i class="fas fa-bars"></i>
+          {{ node.label || 'Menu Creator' }}
+        </h4>
+        <div class="node-controls">
         <button
           class="btn btn-sm btn-outline-primary"
           @click="openMenuTemplateCreator"
@@ -33,90 +56,100 @@
           <i class="fas fa-edit"></i>
         </button>
       </div>
-    </div>
-
-    <div class="node-content">
-      <!-- Menu Template Information -->
-      <div v-if="menuData.name" class="menu-info">
-        <div class="info-item"><strong>Name:</strong> {{ menuData.name }}</div>
-        <div class="info-item">
-          <strong>Level:</strong>
-          <span
-            class="badge"
-            :class="menuData.menuLevel === 'graph' ? 'badge-primary' : 'badge-secondary'"
-          >
-            {{ menuData.menuLevel || 'graph' }}
-          </span>
         </div>
-        <div class="info-item"><strong>Items:</strong> {{ menuData.items?.length || 0 }}</div>
-        <div v-if="menuData.description" class="info-item">
-          <strong>Description:</strong> {{ menuData.description }}
-        </div>
-      </div>
 
-      <!-- Menu Items Preview -->
-      <div v-if="menuData.items && menuData.items.length > 0" class="menu-preview">
-        <h5>Menu Items Preview</h5>
-        <div class="preview-items">
-          <div v-for="(item, index) in menuData.items" :key="index" class="preview-item">
-            <span class="item-icon">{{ item.icon || '📄' }}</span>
-            <span class="item-label">{{ item.label }}</span>
-            <span class="item-type">{{ item.type }}</span>
-            <span v-if="item.requiresRole" class="item-badge">
-              {{
-                Array.isArray(item.requiresRole) ? item.requiresRole.join(', ') : item.requiresRole
-              }}
-            </span>
+        <div class="node-content">
+          <!-- Menu Template Information -->
+          <div v-if="menuData.name" class="menu-info">
+            <div class="info-item"><strong>Name:</strong> {{ menuData.name }}</div>
+            <div class="info-item">
+              <strong>Level:</strong>
+              <span
+                class="badge"
+                :class="menuData.menuLevel === 'graph' ? 'badge-primary' : 'badge-secondary'"
+              >
+                {{ menuData.menuLevel || 'graph' }}
+              </span>
+            </div>
+            <div class="info-item"><strong>Items:</strong> {{ menuData.items?.length || 0 }}</div>
+            <div v-if="menuData.description" class="info-item">
+              <strong>Description:</strong> {{ menuData.description }}
+            </div>
+          </div>
+
+          <!-- Menu Items Preview -->
+          <div v-if="menuData.items && menuData.items.length > 0" class="menu-preview">
+            <h5>Menu Items Preview</h5>
+            <div class="preview-items">
+              <div v-for="(item, index) in menuData.items" :key="index" class="preview-item">
+                <span class="item-icon">{{ item.icon || '📄' }}</span>
+                <span class="item-label">{{ item.label }}</span>
+                <span class="item-type">{{ item.type }}</span>
+                <span v-if="item.requiresRole" class="item-badge">
+                  {{
+                    Array.isArray(item.requiresRole) ? item.requiresRole.join(', ') : item.requiresRole
+                  }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- JSON Editor -->
+          <div v-if="showJsonEditor" class="json-editor">
+            <h5>JSON Configuration</h5>
+            <textarea
+              v-model="jsonData"
+              class="json-textarea"
+              placeholder="Enter menu configuration JSON..."
+              @input="validateJsonData"
+            />
+            <div v-if="jsonError" class="json-error">
+              <i class="fas fa-exclamation-triangle"></i>
+              {{ jsonError }}
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="quick-actions">
+            <button
+              class="btn btn-sm btn-outline-primary"
+              @click="loadDefaultTemplate"
+              title="Load Default Template"
+            >
+              <i class="fas fa-file-import"></i> Load Default
+            </button>
+            <button class="btn btn-sm btn-outline-info" @click="previewMenu" title="Preview Menu">
+              <i class="fas fa-eye"></i> Preview
+            </button>
+            <button class="btn btn-sm btn-outline-warning" @click="exportJson" title="Export JSON">
+              <i class="fas fa-download"></i> Export
+            </button>
+          </div>
+
+          <!-- Status Messages -->
+          <div v-if="statusMessage" class="status-message" :class="statusMessageType">
+            <i class="fas" :class="statusMessageIcon"></i>
+            {{ statusMessage }}
           </div>
         </div>
-      </div>
 
-      <!-- JSON Editor -->
-      <div v-if="showJsonEditor" class="json-editor">
-        <h5>JSON Configuration</h5>
-        <textarea
-          v-model="jsonData"
-          class="json-textarea"
-          placeholder="Enter menu configuration JSON..."
-          @input="validateJsonData"
+        <!-- Menu Template Creator Modal -->
+        <MenuTemplateCreator
+          v-if="isMenuTemplateCreatorOpen"
+          :template="currentTemplate"
+          @close="closeMenuTemplateCreator"
+          @saved="handleMenuTemplateSaved"
         />
-        <div v-if="jsonError" class="json-error">
-          <i class="fas fa-exclamation-triangle"></i>
-          {{ jsonError }}
-        </div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="quick-actions">
-        <button
-          class="btn btn-sm btn-outline-primary"
-          @click="loadDefaultTemplate"
-          title="Load Default Template"
-        >
-          <i class="fas fa-file-import"></i> Load Default
-        </button>
-        <button class="btn btn-sm btn-outline-info" @click="previewMenu" title="Preview Menu">
-          <i class="fas fa-eye"></i> Preview
-        </button>
-        <button class="btn btn-sm btn-outline-warning" @click="exportJson" title="Export JSON">
-          <i class="fas fa-download"></i> Export
-        </button>
-      </div>
-
-      <!-- Status Messages -->
-      <div v-if="statusMessage" class="status-message" :class="statusMessageType">
-        <i class="fas" :class="statusMessageIcon"></i>
-        {{ statusMessage }}
       </div>
     </div>
 
-    <!-- Menu Template Creator Modal -->
-    <MenuTemplateCreator
-      v-if="isMenuTemplateCreatorOpen"
-      :template="currentTemplate"
-      @close="closeMenuTemplateCreator"
-      @saved="handleMenuTemplateSaved"
-    />
+    <!-- PUBLIC FALLBACK: Show message when no menu items are available -->
+    <div v-else class="public-fallback">
+      <div class="fallback-content">
+        <i class="fas fa-bars text-muted"></i>
+        <p class="text-muted">Menu not configured</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -279,6 +312,40 @@ const exportJson = () => {
   showStatus('JSON exported', 'success')
 }
 
+// Public menu methods
+const getMenuItemComponent = (item) => {
+  // Return the appropriate component based on item type
+  switch (item.type) {
+    case 'route':
+      return 'router-link'
+    case 'external':
+      return 'a'
+    case 'button':
+      return 'button'
+    default:
+      return 'button'
+  }
+}
+
+const handleMenuItemClick = (item) => {
+  switch (item.type) {
+    case 'route':
+      // Router navigation is handled by router-link
+      break
+    case 'external':
+      window.open(item.url || item.path, '_blank')
+      break
+    case 'button':
+      // Handle button click - could emit event or call a method
+      if (item.action) {
+        console.log('Menu item action:', item.action)
+      }
+      break
+    default:
+      console.log('Menu item clicked:', item)
+  }
+}
+
 const saveMenuTemplate = async () => {
   if (!isValidMenuData.value) {
     showStatus('Invalid menu data - cannot save', 'error')
@@ -409,6 +476,93 @@ watch(
   padding: 1rem;
   margin: 1rem 0;
   min-height: 200px;
+}
+
+/* Public Menu Styles */
+.public-menu {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.menu-container {
+  max-width: 100%;
+}
+
+.menu-header {
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.menu-title {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+}
+
+.menu-item button,
+.menu-item a {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: #f8f9fa;
+  color: #495057;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.menu-item button:hover,
+.menu-item a:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+}
+
+.public-fallback {
+  text-align: center;
+  padding: 2rem;
+  color: #6c757d;
+}
+
+.fallback-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fallback-content i {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.fallback-content p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* Admin Menu Styles */
+.admin-menu {
+  /* Keep existing styles */
 }
 
 .node-header {

@@ -21,6 +21,38 @@ BEGIN
   UPDATE graphTemplates SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
+-- Insert the Menu Creator template
+INSERT OR REPLACE INTO graphTemplates (
+    id,
+    name,
+    nodes,
+    edges,
+    ai_instructions,
+    category,
+    thumbnail_path
+) VALUES (
+    'menu-creator-template-001',
+    'Menu Creator',
+    '[
+        {
+            "id": "menu-creator-001",
+            "label": "📝 Menu Creator",
+            "type": "menu_creator",
+            "info": "{\"name\": \"New Menu Template\", \"description\": \"Create a new menu template with JSON editor and modal interface\", \"menuLevel\": \"graph\", \"items\": [{\"id\": \"home\", \"label\": \"Home\", \"icon\": \"🏠\", \"type\": \"route\", \"path\": \"/\", \"requiresRole\": null}, {\"id\": \"portfolio\", \"label\": \"Portfolio\", \"icon\": \"📁\", \"type\": \"route\", \"path\": \"/graph-portfolio\", \"requiresRole\": null}], \"style\": {\"layout\": \"horizontal\", \"theme\": \"default\", \"position\": \"top\", \"buttonStyle\": \"hamburger\"}}",
+            "color": "#f0f8ff",
+            "bibl": [],
+            "imageWidth": "100%",
+            "imageHeight": "100%",
+            "visible": true,
+            "path": null
+        }
+    ]',
+    '[]',
+    'Create and edit menu templates directly in the knowledge graph. Use the JSON editor to customize menu items, styles, and behavior. The modal interface provides advanced editing capabilities with validation and preview features.',
+    'Interactive',
+    null
+);
+
 -- Insert the Gantt template
 INSERT OR REPLACE INTO graphTemplates (
     id,

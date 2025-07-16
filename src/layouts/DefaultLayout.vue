@@ -50,9 +50,9 @@
               <li v-if="userStore.role === 'Superadmin'" class="nav-item">
                 <RouterLink class="nav-link" to="/sandbox"> 🔧 Sandbox </RouterLink>
               </li>
-              <!-- GNew link - only for Superadmin users -->
-              <li v-if="userStore.role === 'Superadmin'" class="nav-item">
-                <RouterLink class="nav-link" to="/gnew-viewer"> 🧪 GNew Viewer </RouterLink>
+              <!-- GNew link - available for all users -->
+              <li class="nav-item">
+                <RouterLink class="nav-link" to="/gnew-viewer"> 🧪 Modern Viewer </RouterLink>
               </li>
             </ul>
 

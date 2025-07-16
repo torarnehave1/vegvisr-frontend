@@ -1231,8 +1231,8 @@ const viewGraph = (graph) => {
   graphStore.setCurrentGraphId(graph.id)
   // Update the store with the graph's nodes and edges
   graphStore.updateGraph(graph.nodes, graph.edges)
-  // Navigate to the graph viewer
-  router.push({ name: 'GraphViewer', query: { graphId: graph.id } })
+  // Navigate to the modern graph viewer
+  router.push({ name: 'gnew-viewer', query: { graphId: graph.id } })
 }
 
 const editGraph = async (graph) => {
@@ -1519,7 +1519,7 @@ const openShareModal = (graph) => {
     `Nodes: ${nodeCount}\n` +
     `Edges: ${edgeCount}\n` +
     `${categoryText}\n\n` +
-    `View this knowledge graph: ${window.location.origin}/graph-viewer?graphId=${graph.id}`
+    `View this knowledge graph: ${window.location.origin}/gnew-viewer?graphId=${graph.id}`
 
   if (!shareModal.value) {
     shareModal.value = new Modal(document.getElementById('shareModal'))
@@ -1539,7 +1539,7 @@ const shareToLinkedIn = () => {
   const title = encodeURIComponent(shareContent.value.split('\n')[0])
   const summary = encodeURIComponent(shareContent.value)
   const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = encodeURIComponent(window.location.origin + '/graph-viewer?graphId=' + graphId)
+  const url = encodeURIComponent(window.location.origin + '/gnew-viewer?graphId=' + graphId)
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
   window.open(linkedInUrl, '_blank', 'width=600,height=400')
@@ -1548,7 +1548,7 @@ const shareToLinkedIn = () => {
 const shareToTwitter = () => {
   const title = shareContent.value.split('\n')[0]
   const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = window.location.origin + '/graph-viewer?graphId=' + graphId
+  const url = window.location.origin + '/gnew-viewer?graphId=' + graphId
 
   // Twitter has a 280 character limit, so we'll create a shorter message
   const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
@@ -1558,7 +1558,7 @@ const shareToTwitter = () => {
 
 const shareToFacebook = () => {
   const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = encodeURIComponent(window.location.origin + '/graph-viewer?graphId=' + graphId)
+  const url = encodeURIComponent(window.location.origin + '/gnew-viewer?graphId=' + graphId)
 
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
   window.open(facebookUrl, '_blank', 'width=600,height=400')

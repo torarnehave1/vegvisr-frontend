@@ -116,8 +116,8 @@ export default {
             // It's already a full path like /graph-viewer?graphId=...
             router.push(frontPagePath)
           } else if (!frontPagePath.startsWith('/') && !frontPagePath.includes('?')) {
-            // It's just a graph ID, convert to full path
-            const fullPath = `/graph-viewer?graphId=${frontPagePath}&template=Frontpage`
+            // It's just a graph ID, convert to full path using modern viewer
+            const fullPath = `/gnew-viewer?graphId=${frontPagePath}&template=Frontpage`
             console.log('FrontPage: Normalized path:', fullPath)
             router.push(fullPath)
           } else {
