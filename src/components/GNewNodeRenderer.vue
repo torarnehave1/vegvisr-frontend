@@ -16,6 +16,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 // Import all node components
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
@@ -38,6 +39,9 @@ import GNewImageAnalysisNode from './GNewNodes/GNewImageAnalysisNode.vue'
 import GNewAudioPortfolioSelectorNode from './GNewNodes/GNewAudioPortfolioSelectorNode.vue'
 import GNewMenuNode from './GNewNodes/GNewMenuNode.vue'
 import GNewMenuCreatorNode from './GNewNodes/GNewMenuCreatorNode.vue'
+
+// Store access
+const userStore = useUserStore()
 
 // Props
 const props = defineProps({
@@ -109,6 +113,14 @@ const nodeComponent = computed(() => {
   // Hide menu_creator nodes for non-logged-in users
   if (nodeType === 'menu_creator' && !props.showControls) {
     return null
+  }
+
+  // Hide audio-transcription nodes for non-Admin/Superadmin users
+  if (nodeType === 'audio-transcription') {
+    if (!userStore.loggedIn || !['Admin', 'Superadmin'].includes(userStore.role)) {
+      console.log('🚫 Audio transcription node hidden - requires Admin/Superadmin role')
+      return null
+    }
   }
 
   return nodeComponents[nodeType] || nodeComponents['default']
