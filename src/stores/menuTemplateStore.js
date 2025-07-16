@@ -28,11 +28,9 @@ export const useMenuTemplateStore = defineStore('menuTemplate', () => {
         `https://menu-worker.torarnehave.workers.dev/getMenuTemplates?${params}`,
         {
           headers: {
-            'X-API-Token': userStore.emailVerificationToken,
             Accept: 'application/json',
           },
           mode: 'cors',
-          credentials: 'include',
         },
       )
       if (!response.ok) {

@@ -199,7 +199,137 @@ Type "yes", "proceed", or "approved" to continue.
 - **Correct approach:** Should have asked "Can you provide the complete Google Photos Picker API documentation?" at the start
 - **Lesson:** Documentation-first development prevents assumption-based failures
 
-### 8. **Deployment and Testing Preferences**
+### 8. **Follow Established Patterns - Don't Overcomplicate**
+
+**🔥 CRITICAL LESSON - STOP OVERCOMPLICATING SIMPLE PROBLEMS 🔥**
+
+**The Problem:** AI tends to create complex solutions when simple patterns already exist in the codebase.
+
+**The Solution:** Always look for existing working patterns first, then copy them exactly.
+
+**OVERCOMPLICATION ANTI-PATTERN:**
+
+❌ **What AI Does Wrong:**
+
+- Creates complex debugging systems for simple database fetches
+- Adds unnecessary error handling and validation layers
+- Implements custom solutions when proven patterns exist
+- Spends hours debugging self-created complexity
+
+✅ **What AI Should Do:**
+
+- **COPY EXISTING PATTERNS** - Find similar working code and replicate it
+- **USE PROVEN SOLUTIONS** - Don't reinvent working systems
+- **SIMPLIFY FIRST** - Start with the simplest possible implementation
+- **FOLLOW ESTABLISHED CONVENTIONS** - Match existing code style and structure
+
+**CASE STUDY: Menu Template System**
+
+**❌ OVERCOMPLICATED APPROACH (What AI Did Wrong):**
+
+```javascript
+// Complex validation, error handling, debugging systems
+async function fetchMenuTemplates() {
+  try {
+    console.log('=== FETCHING MENU TEMPLATES ===')
+    const response = await fetch('/api/menu-templates', {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-token': token,
+      },
+    })
+
+    if (!response.ok) {
+      console.error('Response not ok:', response.status)
+      // Complex error handling logic...
+    }
+
+    const data = await response.json()
+    console.log('Raw response:', JSON.stringify(data, null, 2))
+
+    // Complex data processing...
+  } catch (error) {
+    console.error('Complex error handling:', error)
+    // More complex error handling...
+  }
+}
+```
+
+**✅ SIMPLE APPROACH (Following GraphTemplates Pattern):**
+
+```javascript
+// Copy exact pattern from GraphTemplateStore
+async fetchMenuTemplates() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/getMenuTemplates`);
+    const data = await response.json();
+    this.templates = data.templates || [];
+  } catch (error) {
+    console.error('Error fetching menu templates:', error);
+    this.templates = [];
+  }
+}
+```
+
+**RESULT:**
+
+- **Overcomplicated approach**: Hours of debugging, CORS issues, complex error handling
+- **Simple approach**: Works immediately, follows proven patterns, maintainable
+
+**PATTERN RECOGNITION GUIDELINES:**
+
+1. **Look for Similar Features First**
+
+   - Search for existing stores (GraphTemplateStore, etc.)
+   - Find similar API endpoints in workers
+   - Copy successful patterns exactly
+
+2. **Identify Working Patterns**
+
+   - How does GraphTemplateStore fetch templates?
+   - How does BrandingModal populate dropdowns?
+   - What endpoint patterns work in dev-worker?
+
+3. **Copy, Don't Create**
+
+   - Copy the exact fetch logic
+   - Copy the exact store structure
+   - Copy the exact component integration
+   - Copy the exact error handling
+
+4. **Simplify Ruthlessly**
+   - Remove unnecessary debugging
+   - Remove complex validation
+   - Remove custom error handling
+   - Use the simplest working solution
+
+**COMMON OVERCOMPLICATION TRIGGERS:**
+
+❌ **"Let me add comprehensive error handling"** → Use existing error patterns
+❌ **"Let me add detailed logging for debugging"** → Use existing logging levels
+❌ **"Let me create a robust validation system"** → Use existing validation patterns
+❌ **"Let me handle all edge cases"** → Start simple, add complexity only when needed
+
+**TIME-SAVING COMMANDS:**
+
+Before implementing anything new:
+
+1. `codebase_search` - "How does GraphTemplateStore fetch templates?"
+2. `grep_search` - Find similar endpoint patterns
+3. `read_file` - Examine working examples
+4. **COPY THE PATTERN** - Don't reinvent it
+
+**LESSON LEARNED:**
+
+- **Working patterns exist** - Use them instead of creating new ones
+- **Simple solutions work** - Complexity should be justified, not default
+- **Copy successful code** - Don't be creative with basic functionality
+- **User's time is valuable** - Stop overengineering simple problems
+
+**IMPLEMENTATION RULE:**
+If a similar feature exists in the codebase, **COPY IT EXACTLY** rather than creating a new approach.
+
+### 9. **Deployment and Testing Preferences**
 
 **Development and Deployment Workflow:**
 
@@ -251,14 +381,14 @@ npm run dev:vue
 # Do not suggest deployment commands - mention changes in summary only
 ```
 
-### 9. **Accountability and Language**
+### 10. **Accountability and Language**
 
 - **Take responsibility for AI mistakes** - use "I made an error" not "we've been doing this wrong"
 - **Acknowledge when implementing the wrong approach entirely**
 - **Don't blame previous implementations** when the AI chose the wrong method
 - **Be direct about AI limitations** and research gaps
 
-### 10. **Pre-Edit Checklist**
+### 11. **Pre-Edit Checklist**
 
 Before making ANY code change, ALWAYS:
 
@@ -272,7 +402,7 @@ Before making ANY code change, ALWAYS:
 
 **If ANY checkbox is unchecked, DO NOT PROCEED.**
 
-### 11. **Token Efficiency Guidelines**
+### 12. **Token Efficiency Guidelines**
 
 - Keep proposals concise but complete
 - **Use debug logs instead of asking questions** when possible
@@ -282,7 +412,7 @@ Before making ANY code change, ALWAYS:
 - Don't repeat established context unnecessarily
 - Remember: efficient solutions save more tokens than verbose planning
 
-### 12. **Data Structure Analysis Pattern**
+### 13. **Data Structure Analysis Pattern**
 
 Before implementing features that handle user data:
 
@@ -297,7 +427,7 @@ Before implementing features that handle user data:
 - Standard libraries expect `{labels: [], datasets: []}` format
 - Solution: Format detection + bi-directional conversion
 
-### 13. **Complexity Assessment Guidelines**
+### 14. **Complexity Assessment Guidelines**
 
 **Simple (1-2 hours):** Single file edits, known patterns
 **Moderate (3-6 hours):** New UI components, data transformation
