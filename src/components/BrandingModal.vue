@@ -1821,11 +1821,28 @@ export default {
     // Menu template system methods
     async fetchMenuTemplates() {
       try {
-        await this.menuTemplateStore.fetchMenuTemplates()
+        console.log('🔄 BrandingModal: Fetching menu templates for top level...')
+
+        // Fetch only top-level templates for branding
+        await this.menuTemplateStore.fetchMenuTemplates('top')
         this.availableMenuTemplates = this.menuTemplateStore.menuTemplates
-        console.log('Fetched menu templates:', this.availableMenuTemplates.length)
+
+        console.log('✅ BrandingModal: Fetched menu templates:', this.availableMenuTemplates.length)
+        console.log(
+          '📋 BrandingModal: Template details:',
+          this.availableMenuTemplates.map((t) => ({
+            id: t.id,
+            name: t.name,
+            menu_level: t.menu_level,
+            category: t.category,
+          })),
+        )
+
+        if (this.availableMenuTemplates.length === 0) {
+          console.log('⚠️  BrandingModal: No top-level menu templates found. Create one first!')
+        }
       } catch (error) {
-        console.error('Error fetching menu templates:', error)
+        console.error('❌ BrandingModal: Error fetching menu templates:', error)
       }
     },
 
