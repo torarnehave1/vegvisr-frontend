@@ -371,6 +371,22 @@ export const useTemplateStore = defineStore('template', () => {
         bibl: [],
       },
     },
+    {
+      id: 'menu-creator',
+      category: 'Interactive',
+      icon: '📝',
+      label: 'Menu Creator',
+      description: 'Create and edit menu templates with JSON editor and modal interface',
+      template: {
+        type: 'menu_creator',
+        label: 'Menu Creator',
+        info: '{"name": "New Menu Template", "description": "Create a new menu template", "menuLevel": "graph", "items": [{"id": "home", "label": "Home", "icon": "🏠", "type": "route", "path": "/", "requiresRole": null}], "style": {"layout": "horizontal", "theme": "default", "position": "top", "buttonStyle": "hamburger"}}',
+        color: '#f0f8ff',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+      },
+    },
   ])
 
   // Computed properties for template organization
