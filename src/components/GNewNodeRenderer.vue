@@ -1,6 +1,7 @@
 <template>
   <div class="gnew-node-renderer">
     <component
+      v-if="nodeComponent"
       :is="nodeComponent"
       :node="node"
       :graphData="graphData"
@@ -104,6 +105,12 @@ const nodeComponents = {
 // Compute which component to use
 const nodeComponent = computed(() => {
   const nodeType = props.node.type || 'default'
+
+  // Hide menu_creator nodes for non-logged-in users
+  if (nodeType === 'menu_creator' && !props.showControls) {
+    return null
+  }
+
   return nodeComponents[nodeType] || nodeComponents['default']
 })
 

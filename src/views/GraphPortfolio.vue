@@ -1,9 +1,5 @@
 <template>
   <div>
-    <div v-if="!userStore.loggedIn">
-      <div class="alert alert-warning">User not loaded. Please log in.</div>
-    </div>
-
     <!-- Mobile Menu Overlay -->
     <div
       v-if="showMobileMenu"

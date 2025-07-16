@@ -1044,6 +1044,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useBranding } from '@/composables/useBranding'
@@ -1064,6 +1065,9 @@ const props = defineProps({
     default: '',
   },
 })
+
+// Router
+const route = useRoute()
 
 // Store access
 const userStore = useUserStore()
@@ -3587,8 +3591,9 @@ const handleTemplateAdded = async ({ template, node }) => {
 }
 
 // Lifecycle
-onMounted(() => {
-  console.log('GNewViewer mounted')
+// Function to handle graph loading from different sources
+const handleGraphLoad = () => {
+  console.log('GNewViewer: handleGraphLoad called')
 
   // First check URL parameters for direct graph access (shared links)
   const urlParams = new URLSearchParams(window.location.search)
@@ -3619,10 +3624,42 @@ onMounted(() => {
     console.log('Auto-loading graph from store:', currentGraphId.value)
     loadGraph()
   }
+}
+
+onMounted(() => {
+  console.log('GNewViewer mounted')
+
+  // Load graph on mount
+  handleGraphLoad()
 
   // Add keyboard listener for mobile menu
   document.addEventListener('keydown', handleEscKey)
 })
+
+// Watch for route changes to handle navigation within the same component
+watch(
+  () => route.query.graphId,
+  (newGraphId) => {
+    console.log('GNewViewer: Route graphId changed to:', newGraphId)
+    if (newGraphId) {
+      knowledgeGraphStore.setCurrentGraphId(newGraphId)
+      loadGraph()
+    }
+  },
+  { immediate: false },
+)
+
+// Watch for store changes as backup
+watch(
+  () => knowledgeGraphStore.currentGraphId,
+  (newGraphId) => {
+    console.log('GNewViewer: Store graphId changed to:', newGraphId)
+    if (newGraphId && newGraphId !== currentGraphId.value) {
+      loadGraph()
+    }
+  },
+  { immediate: false },
+)
 
 // Cleanup on unmount
 onUnmounted(() => {

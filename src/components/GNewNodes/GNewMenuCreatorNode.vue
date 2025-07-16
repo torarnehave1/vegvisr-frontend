@@ -1,21 +1,35 @@
 <template>
   <div class="gnew-menu-creator-node">
-    <!-- PUBLIC MODE: Show functional menu for non-logged-in users -->
-    <div v-if="!showControls && menuData.items && menuData.items.length > 0" class="public-menu">
-      <div class="menu-container">
-        <div class="menu-header">
-          <h4 class="menu-title">
-            <i class="fas fa-bars"></i>
-            {{ menuData.name || 'Menu' }}
-          </h4>
-        </div>
-        <div class="menu-items">
-          <div v-for="(item, index) in menuData.items" :key="index" class="menu-item">
-            <component
-              :is="getMenuItemComponent(item)"
-              :item="item"
-              @click="handleMenuItemClick(item)"
-            />
+    <!-- PUBLIC MODE: Show only hamburger menu for non-logged-in users -->
+    <div
+      v-if="!showControls && menuData.items && menuData.items.length > 0"
+      class="public-hamburger-menu"
+    >
+      <div class="hamburger-container">
+        <button class="hamburger-btn" @click="toggleMenu" :class="{ active: isMenuOpen }">
+          <i class="fas fa-bars"></i>
+        </button>
+
+        <!-- Dropdown menu -->
+        <div v-if="isMenuOpen" class="menu-dropdown">
+          <div v-for="(item, index) in menuData.items" :key="index" class="menu-dropdown-item">
+            <a v-if="item.type === 'route'" :href="item.path || item.url" class="menu-link">
+              <span class="menu-icon">{{ item.icon || '📄' }}</span>
+              {{ item.label }}
+            </a>
+            <a
+              v-else-if="item.type === 'external'"
+              :href="item.url || item.path"
+              target="_blank"
+              class="menu-link"
+            >
+              <span class="menu-icon">{{ item.icon || '📄' }}</span>
+              {{ item.label }}
+            </a>
+            <button v-else @click="handleMenuItemClick(item)" class="menu-link">
+              <span class="menu-icon">{{ item.icon || '📄' }}</span>
+              {{ item.label }}
+            </button>
           </div>
         </div>
       </div>
@@ -29,33 +43,32 @@
           {{ node.label || 'Menu Creator' }}
         </h4>
         <div class="node-controls">
-        <button
-          class="btn btn-sm btn-outline-primary"
-          @click="openMenuTemplateCreator"
-          title="Open Menu Template Creator"
-        >
-          <i class="fas fa-plus"></i>
-        </button>
-        <button
-          class="btn btn-sm btn-outline-secondary"
-          @click="toggleJsonEditor"
-          title="Toggle JSON Editor"
-        >
-          <i class="fas fa-code"></i>
-        </button>
-        <button
-          class="btn btn-sm btn-outline-success"
-          @click="saveMenuTemplate"
-          :disabled="!isValidMenuData || isSaving"
-          title="Save Menu Template"
-        >
-          <i v-if="isSaving" class="fas fa-spinner fa-spin"></i>
-          <i v-else class="fas fa-save"></i>
-        </button>
-        <button class="btn btn-sm btn-outline-danger" @click="editNode" title="Edit Node">
-          <i class="fas fa-edit"></i>
-        </button>
-      </div>
+          <button
+            class="btn btn-sm btn-outline-primary"
+            @click="openMenuTemplateCreator"
+            title="Open Menu Template Creator"
+          >
+            <i class="fas fa-plus"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            @click="toggleJsonEditor"
+            title="Toggle JSON Editor"
+          >
+            <i class="fas fa-code"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-outline-success"
+            @click="saveMenuTemplate"
+            :disabled="!isValidMenuData || isSaving"
+            title="Save Menu Template"
+          >
+            <i v-if="isSaving" class="fas fa-spinner fa-spin"></i>
+            <i v-else class="fas fa-save"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" @click="editNode" title="Edit Node">
+            <i class="fas fa-edit"></i>
+          </button>
         </div>
 
         <div class="node-content">
@@ -87,7 +100,9 @@
                 <span class="item-type">{{ item.type }}</span>
                 <span v-if="item.requiresRole" class="item-badge">
                   {{
-                    Array.isArray(item.requiresRole) ? item.requiresRole.join(', ') : item.requiresRole
+                    Array.isArray(item.requiresRole)
+                      ? item.requiresRole.join(', ')
+                      : item.requiresRole
                   }}
                 </span>
               </div>
@@ -154,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMenuTemplateStore } from '@/stores/menuTemplateStore'
 import { useUserStore } from '@/stores/userStore'
 import MenuTemplateCreator from '@/components/MenuTemplateCreator.vue'
@@ -180,7 +195,7 @@ const props = defineProps({
 })
 
 // Emits (same pattern as other GNew nodes)
-const emit = defineEmits(['node-updated', 'node-deleted', 'template-requested'])
+const emit = defineEmits(['node-updated', 'node-deleted', 'node-created', 'template-requested'])
 
 // Stores
 const menuTemplateStore = useMenuTemplateStore()
@@ -196,6 +211,7 @@ const currentTemplate = ref(null)
 const statusMessage = ref('')
 const statusMessageType = ref('')
 const statusMessageIcon = ref('')
+const isMenuOpen = ref(false)
 
 // Computed properties
 const menuData = computed(() => {
@@ -313,27 +329,26 @@ const exportJson = () => {
 }
 
 // Public menu methods
-const getMenuItemComponent = (item) => {
-  // Return the appropriate component based on item type
-  switch (item.type) {
-    case 'route':
-      return 'router-link'
-    case 'external':
-      return 'a'
-    case 'button':
-      return 'button'
-    default:
-      return 'button'
-  }
+const toggleMenu = () => {
+  isMenuOpen.value = !isMenuOpen.value
 }
 
 const handleMenuItemClick = (item) => {
+  // Close menu after clicking an item
+  isMenuOpen.value = false
+
   switch (item.type) {
     case 'route':
-      // Router navigation is handled by router-link
+      // For route items, navigate programmatically
+      if (item.path) {
+        window.location.href = item.path
+      }
       break
     case 'external':
       window.open(item.url || item.path, '_blank')
+      break
+    case 'template-selector':
+      insertTemplateNode(item.nodeType)
       break
     case 'button':
       // Handle button click - could emit event or call a method
@@ -343,6 +358,78 @@ const handleMenuItemClick = (item) => {
       break
     default:
       console.log('Menu item clicked:', item)
+  }
+}
+
+const insertTemplateNode = async (nodeType) => {
+  console.log('🍔 MenuCreator: Inserting template node:', nodeType)
+
+  try {
+    // Fetch template from database
+    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.results && Array.isArray(data.results)) {
+      // Find template by nodeType
+      const template = data.results.find((t) => {
+        // Check if any node in the template matches the nodeType
+        try {
+          const nodes = JSON.parse(t.nodes || '[]')
+          return nodes.some((node) => node.type === nodeType)
+        } catch {
+          return false
+        }
+      })
+
+      if (template) {
+        // Generate UUID for new node
+        const generateUUID = () => {
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            const r = (Math.random() * 16) | 0
+            const v = c == 'x' ? r : (r & 0x3) | 0x8
+            return v.toString(16)
+          })
+        }
+
+        // Create node from template
+        const templateNodes = JSON.parse(template.nodes || '[]')
+        const templateNode =
+          templateNodes.find((node) => node.type === nodeType) || templateNodes[0]
+
+        const nodeData = {
+          id: generateUUID(),
+          label: templateNode.label || template.name || 'New Node',
+          color: templateNode.color || '#f9f9f9',
+          type: templateNode.type || nodeType,
+          info: templateNode.info || '',
+          bibl: Array.isArray(templateNode.bibl) ? templateNode.bibl : [],
+          imageWidth: templateNode.imageWidth || '100%',
+          imageHeight: templateNode.imageHeight || '100%',
+          visible: templateNode.visible !== false,
+          path: templateNode.path || null,
+        }
+
+        console.log('🍔 MenuCreator: Created node from template:', nodeData)
+
+        // Emit the node to be added to the graph
+        emit('node-created', nodeData)
+
+        showStatus('Template node inserted successfully', 'success')
+      } else {
+        console.error('🍔 MenuCreator: Template not found for nodeType:', nodeType)
+        showStatus(`Template not found for node type: ${nodeType}`, 'error')
+      }
+    } else {
+      throw new Error('Invalid response format: missing results array')
+    }
+  } catch (error) {
+    console.error('🍔 MenuCreator: Error inserting template node:', error)
+    showStatus('Failed to insert template node: ' + error.message, 'error')
   }
 }
 
@@ -450,10 +537,35 @@ const showStatus = (message, type) => {
   }, 3000)
 }
 
+// Click outside handler for hamburger menu
+const handleClickOutside = (event) => {
+  const menuContainer = event.target.closest('.public-hamburger-menu')
+  if (!menuContainer && isMenuOpen.value) {
+    isMenuOpen.value = false
+  }
+}
+
+// ESC key handler
+const handleEscKey = (event) => {
+  if (event.key === 'Escape' && isMenuOpen.value) {
+    isMenuOpen.value = false
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   // Initialize JSON editor with current data
   jsonData.value = JSON.stringify(menuData.value, null, 2)
+
+  // Add event listeners for hamburger menu
+  document.addEventListener('click', handleClickOutside)
+  document.addEventListener('keydown', handleEscKey)
+})
+
+onUnmounted(() => {
+  // Clean up event listeners
+  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('keydown', handleEscKey)
 })
 
 // Watch for changes in node data
@@ -478,63 +590,84 @@ watch(
   min-height: 200px;
 }
 
-/* Public Menu Styles */
-.public-menu {
-  background: #ffffff;
+/* Public Hamburger Menu Styles */
+.public-hamburger-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.hamburger-container {
+  position: relative;
+}
+
+.hamburger-btn {
+  background: #007bff;
+  border: none;
+  color: white;
+  padding: 0.75rem;
   border-radius: 8px;
-  padding: 1rem;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s ease;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.menu-container {
-  max-width: 100%;
+.hamburger-btn:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-.menu-header {
-  border-bottom: 1px solid #e9ecef;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
+.hamburger-btn.active {
+  background: #0056b3;
 }
 
-.menu-title {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.menu-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-}
-
-.menu-item button,
-.menu-item a {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
+.menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
   border: 1px solid #dee2e6;
-  border-radius: 6px;
-  background: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  z-index: 1000;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.menu-dropdown-item {
+  border-bottom: 1px solid #f8f9fa;
+}
+
+.menu-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.menu-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
   color: #495057;
   text-decoration: none;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  font-size: 0.9rem;
+  background: none;
+  border: none;
   width: 100%;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
 }
 
-.menu-item button:hover,
-.menu-item a:hover {
-  background: #e9ecef;
-  border-color: #adb5bd;
+.menu-link:hover {
+  background: #f8f9fa;
+  color: #007bff;
+}
+
+.menu-icon {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
 }
 
 .public-fallback {

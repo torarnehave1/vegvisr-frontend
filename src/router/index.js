@@ -159,25 +159,16 @@ const router = createRouter({
       path: '/graph-portfolio',
       name: 'graph-portfolio',
       component: GraphPortfolio,
-      meta: {
-        requiresAuth: true,
-      },
     },
     {
       path: '/audio-portfolio',
       name: 'audio-portfolio',
       component: AudioPortfolio,
-      meta: {
-        requiresAuth: true,
-      },
     },
     {
       path: '/search',
       name: 'search',
       component: () => import('../views/SearchView.vue'),
-      meta: {
-        requiresAuth: true,
-      },
     },
     {
       path: '/github-issues',

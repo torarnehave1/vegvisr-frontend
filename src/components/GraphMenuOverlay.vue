@@ -98,7 +98,7 @@ const handleMenuItemClick = (item) => {
 </script>
 
 <style scoped>
-/* Same styling patterns as GNewViewer mobile menu */
+/* Slide-in from left animation like other hamburger menus */
 .menu-overlay {
   position: fixed;
   top: 0;
@@ -108,30 +108,31 @@ const handleMenuItemClick = (item) => {
   background: rgba(0, 0, 0, 0.5);
   z-index: 1000;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
   backdrop-filter: blur(2px);
 }
 
 .menu-content {
   background: white;
-  border-radius: 12px;
+  border-radius: 0 12px 12px 0;
   padding: 24px;
-  max-width: 400px;
-  width: 90%;
-  max-height: 80vh;
+  width: 300px;
+  max-width: 80vw;
+  height: 100vh;
   overflow-y: auto;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  animation: menuSlideIn 0.3s ease-out;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  animation: menuSlideInFromLeft 0.3s ease-out;
+  border-left: none;
 }
 
-@keyframes menuSlideIn {
+@keyframes menuSlideInFromLeft {
   from {
-    transform: translateY(-20px);
+    transform: translateX(-100%);
     opacity: 0;
   }
   to {
-    transform: translateY(0);
+    transform: translateX(0);
     opacity: 1;
   }
 }

@@ -10,8 +10,8 @@
       </button>
     </div>
 
-    <!-- Menu Component -->
-    <div class="menu-container">
+    <!-- ADMIN MODE: Show full menu interface for users with controls -->
+    <div v-if="showControls" class="menu-container">
       <div class="menu-header">
         <h4 class="menu-title">{{ node.label || 'Menu' }}</h4>
         <div class="menu-info">
@@ -56,6 +56,25 @@
         />
       </div>
     </div>
+
+    <!-- PUBLIC MODE: Show only hamburger menu for non-logged-in users -->
+    <div v-else class="public-menu-container">
+      <GraphMenuButton
+        :isOpen="showMenu"
+        :menuIcon="menuStyle.icon || '☰'"
+        :menuLabel="'Open Menu'"
+        :buttonStyle="menuStyle.buttonStyle || 'hamburger'"
+        @toggle="toggleMenu"
+      />
+
+      <GraphMenuOverlay
+        :isOpen="showMenu"
+        :menuTitle="'Menu'"
+        :menuItems="menuData.items || []"
+        @close="closeMenu"
+        @menu-item-clicked="handleMenuItemClick"
+      />
+    </div>
   </div>
 </template>
 
@@ -88,7 +107,7 @@ const props = defineProps({
 })
 
 // Emits (same pattern as other GNew nodes)
-const emit = defineEmits(['node-updated', 'node-deleted', 'template-requested'])
+const emit = defineEmits(['node-updated', 'node-deleted', 'node-created', 'template-requested'])
 
 // Dependencies
 const router = useRouter()
@@ -125,7 +144,7 @@ const menuLevelClass = computed(() => {
 
 const previewItems = computed(() => {
   const items = menuData.value.items || []
-  return items.slice(0, 3) // Show first 3 items in preview
+  return items // Show all items in preview, not just first 3
 })
 
 // Methods (same pattern as HamburgerMenu)
@@ -147,7 +166,7 @@ const handleMenuItemClick = (item) => {
       navigateToGraph(item.graphId)
       break
     case 'template-selector':
-      openTemplateSelector()
+      insertTemplateNode(item.nodeType)
       break
     case 'route':
       navigateToRoute(item.path)
@@ -163,12 +182,86 @@ const handleMenuItemClick = (item) => {
 const navigateToGraph = async (graphId) => {
   try {
     console.log('🍔 Navigating to graph:', graphId)
-    await graphStore.loadGraph(graphId)
+    // Set the graph ID in the store
     graphStore.setCurrentGraphId(graphId)
-    router.push(`/graph-viewer?graphId=${graphId}`)
+    // Navigate to the modern GnewViewer
+    router.push({ name: 'gnew-viewer', query: { graphId: graphId } })
   } catch (error) {
     console.error('Failed to navigate to graph:', error)
     // Could show a toast notification here
+  }
+}
+
+const insertTemplateNode = async (nodeType) => {
+  console.log('🍔 Inserting template node:', nodeType)
+
+  try {
+    // Fetch template from database
+    const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.results && Array.isArray(data.results)) {
+      // Find template by nodeType
+      const template = data.results.find((t) => {
+        // Check if any node in the template matches the nodeType
+        try {
+          const nodes = JSON.parse(t.nodes || '[]')
+          return nodes.some((node) => node.type === nodeType)
+        } catch {
+          return false
+        }
+      })
+
+      if (template) {
+        // Generate UUID for new node
+        const generateUUID = () => {
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            const r = (Math.random() * 16) | 0
+            const v = c == 'x' ? r : (r & 0x3) | 0x8
+            return v.toString(16)
+          })
+        }
+
+        // Create node from template
+        const templateNodes = JSON.parse(template.nodes || '[]')
+        const templateNode =
+          templateNodes.find((node) => node.type === nodeType) || templateNodes[0]
+
+        const nodeData = {
+          id: generateUUID(),
+          label: templateNode.label || template.name || 'New Node',
+          color: templateNode.color || '#f9f9f9',
+          type: templateNode.type || nodeType,
+          info: templateNode.info || '',
+          bibl: Array.isArray(templateNode.bibl) ? templateNode.bibl : [],
+          imageWidth: templateNode.imageWidth || '100%',
+          imageHeight: templateNode.imageHeight || '100%',
+          visible: templateNode.visible !== false,
+          path: templateNode.path || null,
+        }
+
+        console.log('🍔 Created node from template:', nodeData)
+
+        // Emit the node to be added to the graph
+        emit('node-created', nodeData)
+
+        // Close the menu after successful insertion
+        closeMenu()
+      } else {
+        console.error('🍔 Template not found for nodeType:', nodeType)
+        alert(`Template not found for node type: ${nodeType}`)
+      }
+    } else {
+      throw new Error('Invalid response format: missing results array')
+    }
+  } catch (error) {
+    console.error('🍔 Error inserting template node:', error)
+    alert('Failed to insert template node: ' + error.message)
   }
 }
 
@@ -342,6 +435,28 @@ const deleteNode = () => {
   background: linear-gradient(135deg, #e7f3ff 0%, #f8f9fa 100%);
 }
 
+/* Public menu container - grey background for visibility */
+.public-menu-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Override the gnew-menu-node styles for public mode */
+.gnew-menu-node:has(.public-menu-container) {
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  border-radius: 8px;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .gnew-menu-node {
@@ -368,6 +483,10 @@ const deleteNode = () => {
 
   .preview-item {
     padding: 0.4rem 0;
+  }
+
+  .public-menu-container {
+    padding: 0.5rem;
   }
 }
 </style>

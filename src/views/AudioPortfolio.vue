@@ -1,9 +1,5 @@
 <template>
   <div>
-    <div v-if="!userStore.loggedIn">
-      <div class="alert alert-warning">User not loaded. Please log in.</div>
-    </div>
-
     <div
       class="audio-portfolio-page"
       :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
