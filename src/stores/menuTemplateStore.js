@@ -35,33 +35,85 @@ export const useMenuTemplateStore = defineStore('menuTemplate', () => {
       const url = `https://menu-worker.torarnehave.workers.dev/getMenuTemplates?${params}`
       console.log('🌐 MenuTemplateStore: Fetching from URL:', url)
 
-      const response = await fetch(url, {
-        headers: {
-          'X-API-Token': userStore.emailVerificationToken,
-          Accept: 'application/json',
-        },
-        mode: 'cors',
-        credentials: 'include',
+      // Debug: Check authentication token
+      console.log('🔐 MenuTemplateStore: Authentication details:', {
+        hasToken: !!userStore.emailVerificationToken,
+        tokenLength: userStore.emailVerificationToken?.length || 0,
+        tokenStart: userStore.emailVerificationToken?.substring(0, 8) + '...',
+        userEmail: userStore.email,
       })
 
+      const headers = {
+        'X-API-Token': userStore.emailVerificationToken,
+        Accept: 'application/json',
+      }
+
+      console.log('📤 MenuTemplateStore: Request headers:', headers)
+
+      let response
+      try {
+        console.log('🚀 MenuTemplateStore: Starting fetch request...')
+        response = await fetch(url, {
+          headers,
+          mode: 'cors',
+          credentials: 'include',
+        })
+        console.log('📡 MenuTemplateStore: Fetch completed, checking response...')
+      } catch (fetchError) {
+        console.error('❌ MenuTemplateStore: Fetch request failed:', fetchError)
+        console.error('❌ MenuTemplateStore: Fetch error details:', {
+          name: fetchError.name,
+          message: fetchError.message,
+          stack: fetchError.stack,
+          cause: fetchError.cause,
+        })
+
+        // Check specific error types
+        if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
+          console.error('🚫 MenuTemplateStore: Network error - possible CORS or connectivity issue')
+        }
+
+        throw new Error(`Network request failed: ${fetchError.message}`)
+      }
+
       console.log('📡 MenuTemplateStore: Response status:', response.status)
+      console.log('📡 MenuTemplateStore: Response statusText:', response.statusText)
       console.log(
         '📡 MenuTemplateStore: Response headers:',
         Object.fromEntries(response.headers.entries()),
       )
+      console.log('📡 MenuTemplateStore: Response ok:', response.ok)
+      console.log('📡 MenuTemplateStore: Response type:', response.type)
+      console.log('📡 MenuTemplateStore: Response url:', response.url)
 
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error('❌ MenuTemplateStore: Error response:', errorText)
-        throw new Error(`Failed to load menu templates: ${response.status} - ${errorText}`)
+        let errorText
+        try {
+          errorText = await response.text()
+          console.error('❌ MenuTemplateStore: Error response body:', errorText)
+        } catch (textError) {
+          console.error('❌ MenuTemplateStore: Could not read error response:', textError)
+          errorText = 'Could not read error response'
+        }
+
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
 
-      const data = await response.json()
-      console.log('📊 MenuTemplateStore: Raw response data:', data)
+      let data
+      try {
+        data = await response.json()
+        console.log('📊 MenuTemplateStore: Raw response data:', data)
+      } catch (jsonError) {
+        console.error('❌ MenuTemplateStore: JSON parsing failed:', jsonError)
+        const responseText = await response.text()
+        console.error('❌ MenuTemplateStore: Raw response text:', responseText)
+        throw new Error(`Invalid JSON response: ${jsonError.message}`)
+      }
 
       if (!data.results) {
         console.error('❌ MenuTemplateStore: Invalid response format - missing results array')
-        throw new Error('Invalid response format')
+        console.error('❌ MenuTemplateStore: Response structure:', Object.keys(data))
+        throw new Error('Invalid response format - missing results array')
       }
 
       menuTemplates.value = data.results
@@ -94,6 +146,11 @@ export const useMenuTemplateStore = defineStore('menuTemplate', () => {
       error.value = err.message
       console.error('❌ MenuTemplateStore: Error fetching menu templates:', err)
       console.error('❌ MenuTemplateStore: Error stack:', err.stack)
+      console.error('❌ MenuTemplateStore: Final error state:', {
+        errorMessage: error.value,
+        templatesCount: menuTemplates.value.length,
+        isLoading: isLoading.value,
+      })
     } finally {
       isLoading.value = false
     }
