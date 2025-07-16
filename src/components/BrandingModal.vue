@@ -350,6 +350,10 @@
                       @change="applyMenuTemplate"
                     >
                       <option value="">Select a menu template...</option>
+                      <!-- Debug: Show what templates are available -->
+                      <option v-if="availableMenuTemplates.length === 0" disabled>
+                        No templates available ({{ availableMenuTemplates.length }})
+                      </option>
                       <option
                         v-for="template in availableMenuTemplates"
                         :key="template.id"
@@ -358,6 +362,16 @@
                         {{ template.name }} ({{ template.menu_level }})
                       </option>
                     </select>
+
+                    <!-- Debug info for development -->
+                    <div v-if="userStore.role === 'Superadmin'" class="debug-info mt-2">
+                      <small class="text-muted">
+                        Debug: {{ availableMenuTemplates.length }} templates loaded
+                        <span v-if="availableMenuTemplates.length > 0">
+                          - {{ availableMenuTemplates.map((t) => t.name).join(', ') }}
+                        </span>
+                      </small>
+                    </div>
 
                     <div class="template-actions">
                       <button
@@ -1822,6 +1836,10 @@ export default {
     async fetchMenuTemplates() {
       try {
         console.log('🔄 BrandingModal: Fetching menu templates for top level...')
+        console.log(
+          '🔄 BrandingModal: Current availableMenuTemplates before fetch:',
+          this.availableMenuTemplates.length,
+        )
 
         // Fetch only top-level templates for branding
         await this.menuTemplateStore.fetchMenuTemplates('top')
@@ -1835,14 +1853,36 @@ export default {
             name: t.name,
             menu_level: t.menu_level,
             category: t.category,
+            templateId: t.templateId,
+            templateName: t.templateName,
           })),
         )
 
+        // Check store state
+        console.log('🏪 BrandingModal: Store state after fetch:', {
+          storeTemplates: this.menuTemplateStore.menuTemplates.length,
+          isLoading: this.menuTemplateStore.isLoading,
+          error: this.menuTemplateStore.error,
+        })
+
         if (this.availableMenuTemplates.length === 0) {
           console.log('⚠️  BrandingModal: No top-level menu templates found. Create one first!')
+          console.log(
+            '💡 BrandingModal: Try checking the database directly or create a new template',
+          )
+        } else {
+          console.log(
+            '🎯 BrandingModal: Templates available for dropdown:',
+            this.availableMenuTemplates.map((t) => `${t.name} (${t.menu_level})`),
+          )
         }
       } catch (error) {
         console.error('❌ BrandingModal: Error fetching menu templates:', error)
+        console.error('❌ BrandingModal: Error details:', {
+          message: error.message,
+          stack: error.stack,
+          storeError: this.menuTemplateStore.error,
+        })
       }
     },
 
