@@ -192,14 +192,47 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
   try {
     const db = env.VEGVISR_DB
     const body = await request.json()
+
+    // Debug: Log the incoming request
+    console.log('=== MENU WORKER DEBUG ===')
+    console.log('Received request body:', JSON.stringify(body, null, 2))
+    console.log('Body keys:', Object.keys(body))
+
     const { id, name, menu_data, category, menu_level, access_level, domain, created_by } = body
 
-    // Validate required fields
-    if (!id || !name || !menu_data) {
+    // Debug: Log individual field values
+    console.log('=== FIELD VALIDATION DEBUG ===')
+    console.log('id:', id, '(type:', typeof id, ', truthy:', !!id, ')')
+    console.log('name:', name, '(type:', typeof name, ', truthy:', !!name, ')')
+    console.log('menu_data:', menu_data, '(type:', typeof menu_data, ', truthy:', !!menu_data, ')')
+    console.log('category:', category)
+    console.log('menu_level:', menu_level)
+    console.log('access_level:', access_level)
+    console.log('domain:', domain)
+    console.log('created_by:', created_by)
+
+    // Generate ID if not provided (BEFORE validation)
+    const templateId = id || `menu-template-${Date.now()}`
+    console.log('=== ID GENERATION ===')
+    console.log('Original id:', id)
+    console.log('Final templateId:', templateId)
+
+    // Validate required fields (id is now generated, so we don't need to check it)
+    if (!name || !menu_data) {
+      console.log('=== VALIDATION FAILED ===')
+      console.log('Missing fields:')
+      console.log('- name missing:', !name)
+      console.log('- menu_data missing:', !menu_data)
+
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Missing required fields: id, name, menu_data',
+          error: 'Missing required fields: name, menu_data',
+          debug: {
+            name: !!name,
+            menu_data: !!menu_data,
+            receivedFields: Object.keys(body),
+          },
         }),
         {
           status: 400,
@@ -213,11 +246,23 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
     try {
       menuDataString = typeof menu_data === 'string' ? menu_data : JSON.stringify(menu_data)
       JSON.parse(menuDataString) // Validate JSON
+      console.log('=== JSON VALIDATION ===')
+      console.log('menu_data JSON is valid')
     } catch (jsonError) {
+      console.log('=== JSON VALIDATION FAILED ===')
+      console.log('JSON Error:', jsonError.message)
+      console.log('menu_data type:', typeof menu_data)
+      console.log('menu_data value:', menu_data)
+
       return new Response(
         JSON.stringify({
           success: false,
           error: 'Invalid menu_data JSON format',
+          debug: {
+            jsonError: jsonError.message,
+            menu_data_type: typeof menu_data,
+            menu_data_value: menu_data,
+          },
         }),
         {
           status: 400,
@@ -225,6 +270,9 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
         },
       )
     }
+
+    console.log('=== DATABASE OPERATION ===')
+    console.log('Preparing database insert/update for:', templateId)
 
     const query = `
       INSERT INTO menuTemplates (id, name, menu_data, category, menu_level, access_level, domain, created_by)
@@ -242,7 +290,7 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
     const result = await db
       .prepare(query)
       .bind(
-        id,
+        templateId,
         name,
         menuDataString,
         category || 'General',
@@ -253,10 +301,13 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
       )
       .run()
 
+    console.log('=== DATABASE SUCCESS ===')
+    console.log('Database operation result:', result)
+
     return new Response(
       JSON.stringify({
         success: true,
-        id: id,
+        id: templateId,
         message: 'Menu template saved successfully',
       }),
       {
@@ -265,11 +316,18 @@ async function handleSaveMenuTemplate(request, env, corsHeaders) {
       },
     )
   } catch (error) {
+    console.error('=== WORKER ERROR ===')
     console.error('Error saving menu template:', error)
+    console.error('Error stack:', error.stack)
+
     return new Response(
       JSON.stringify({
         success: false,
         error: error.message,
+        debug: {
+          errorType: error.constructor.name,
+          stack: error.stack,
+        },
       }),
       {
         status: 500,

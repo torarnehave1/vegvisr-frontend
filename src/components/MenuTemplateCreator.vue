@@ -382,12 +382,22 @@ const menuConfig = ref({
 
 // Computed properties
 const isValid = computed(() => {
-  return (
-    templateData.value.name.trim() !== '' &&
-    menuConfig.value.menuId.trim() !== '' &&
-    menuConfig.value.name.trim() !== '' &&
-    menuConfig.value.items.length > 0
-  )
+  const nameValid = templateData.value.name.trim() !== ''
+  const menuIdValid = menuConfig.value.menuId.trim() !== ''
+  const menuNameValid = menuConfig.value.name.trim() !== ''
+  const hasItems = menuConfig.value.items.length > 0
+
+  const valid = nameValid && menuIdValid && menuNameValid && hasItems
+
+  // Debug validation
+  console.log('=== VALIDATION DEBUG ===')
+  console.log('Name valid:', nameValid, '(', templateData.value.name, ')')
+  console.log('Menu ID valid:', menuIdValid, '(', menuConfig.value.menuId, ')')
+  console.log('Menu Name valid:', menuNameValid, '(', menuConfig.value.name, ')')
+  console.log('Has items:', hasItems, '(', menuConfig.value.items.length, ')')
+  console.log('Overall valid:', valid)
+
+  return valid
 })
 
 // Methods
@@ -440,6 +450,16 @@ const saveTemplate = async () => {
   isSaving.value = true
 
   try {
+    // Debug: Log current form state
+    console.log('=== MENU TEMPLATE DEBUG ===')
+    console.log('Template Data:', templateData.value)
+    console.log('Menu Config:', menuConfig.value)
+    console.log('Is Valid:', isValid.value)
+    console.log('Template Data Name:', templateData.value.name?.trim())
+    console.log('Menu Config ID:', menuConfig.value.menuId?.trim())
+    console.log('Menu Config Name:', menuConfig.value.name?.trim())
+    console.log('Menu Items Count:', menuConfig.value.items?.length)
+
     // Prepare menu data
     const menuData = {
       ...menuConfig.value,
@@ -452,7 +472,8 @@ const saveTemplate = async () => {
       menu_data: menuData,
     }
 
-    console.log('Saving menu template:', templateToSave)
+    console.log('=== FINAL TEMPLATE TO SAVE ===')
+    console.log('Template to save:', JSON.stringify(templateToSave, null, 2))
 
     if (editingTemplate.value) {
       await menuTemplateStore.updateMenuTemplate(templateToSave)
