@@ -9,13 +9,20 @@ export default {
     // CORS headers for all responses
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+      'Access-Control-Allow-Headers':
+        'Content-Type, Authorization, x-user-role, x-api-token, X-API-Token, x-user-email',
     }
 
     // Handle preflight requests
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 200, headers: corsHeaders })
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ...corsHeaders,
+          'Access-Control-Max-Age': '86400',
+        },
+      })
     }
 
     try {
@@ -119,9 +126,10 @@ async function handleGetMenuTemplates(request, env, corsHeaders) {
   const { level, domain, category, access_level } = Object.fromEntries(url.searchParams)
 
   try {
-    const db = env.VEGVISR_DB
+    console.log('[Menu Worker] Fetching list of menu templates')
 
-    let query = 'SELECT * FROM menuTemplates WHERE 1=1'
+    let query =
+      'SELECT id, name, menu_data, category, menu_level, access_level, domain, created_by, created_at, updated_at FROM menuTemplates WHERE 1=1'
     const params = []
 
     if (level) {
@@ -146,44 +154,21 @@ async function handleGetMenuTemplates(request, env, corsHeaders) {
 
     query += ' ORDER BY created_at DESC'
 
-    const result = await db
-      .prepare(query)
+    const results = await env.VEGVISR_DB.prepare(query)
       .bind(...params)
       .all()
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        results: result.results.map((row) => ({
-          ...JSON.parse(row.menu_data), // Return the actual graph node structure
-          templateId: row.id,
-          templateName: row.name,
-          category: row.category,
-          menu_level: row.menu_level,
-          access_level: row.access_level,
-          domain: row.domain,
-          created_by: row.created_by,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-        })),
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    console.log('[Menu Worker] Menu templates fetched successfully')
+    return new Response(JSON.stringify(results), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   } catch (error) {
-    console.error('Error fetching menu templates:', error)
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message,
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    console.error('[Menu Worker] Error fetching menu templates:', error)
+    return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+      status: 500,
+      headers: corsHeaders,
+    })
   }
 }
 

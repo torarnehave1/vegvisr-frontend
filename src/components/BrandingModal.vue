@@ -350,10 +350,6 @@
                       @change="applyMenuTemplate"
                     >
                       <option value="">Select a menu template...</option>
-                      <!-- Debug: Show what templates are available -->
-                      <option v-if="availableMenuTemplates.length === 0" disabled>
-                        No templates available ({{ availableMenuTemplates.length }})
-                      </option>
                       <option
                         v-for="template in availableMenuTemplates"
                         :key="template.id"
@@ -362,16 +358,6 @@
                         {{ template.name }} ({{ template.menu_level }})
                       </option>
                     </select>
-
-                    <!-- Debug info for development -->
-                    <div v-if="userStore.role === 'Superadmin'" class="debug-info mt-2">
-                      <small class="text-muted">
-                        Debug: {{ availableMenuTemplates.length }} templates loaded
-                        <span v-if="availableMenuTemplates.length > 0">
-                          - {{ availableMenuTemplates.map((t) => t.name).join(', ') }}
-                        </span>
-                      </small>
-                    </div>
 
                     <div class="template-actions">
                       <button
@@ -1835,102 +1821,11 @@ export default {
     // Menu template system methods
     async fetchMenuTemplates() {
       try {
-        console.log('🔄 BrandingModal: Fetching menu templates for top level...')
-        console.log(
-          '🔄 BrandingModal: Current availableMenuTemplates before fetch:',
-          this.availableMenuTemplates.length,
-        )
-
-        // Debug: Check authentication and store state
-        console.log('🔐 BrandingModal: Authentication check:', {
-          userLoggedIn: this.userStore.loggedIn,
-          userEmail: this.userStore.email,
-          userRole: this.userStore.role,
-          hasToken: !!this.userStore.emailVerificationToken,
-          tokenLength: this.userStore.emailVerificationToken?.length || 0,
-        })
-
-        // Debug: Check store instance
-        console.log('🏪 BrandingModal: Store instance check:', {
-          hasMenuTemplateStore: !!this.menuTemplateStore,
-          storeMethods: this.menuTemplateStore ? Object.keys(this.menuTemplateStore) : 'No store',
-          hasFetchMethod:
-            this.menuTemplateStore &&
-            typeof this.menuTemplateStore.fetchMenuTemplates === 'function',
-        })
-
-        if (!this.userStore.emailVerificationToken) {
-          console.error('❌ BrandingModal: No authentication token available')
-          return
-        }
-
-        if (
-          !this.menuTemplateStore ||
-          typeof this.menuTemplateStore.fetchMenuTemplates !== 'function'
-        ) {
-          console.error(
-            '❌ BrandingModal: menuTemplateStore not available or fetchMenuTemplates not a function',
-          )
-          return
-        }
-
-        // Debug: Before store call
-        console.log('📞 BrandingModal: About to call menuTemplateStore.fetchMenuTemplates("top")')
-
-        try {
-          // Fetch only top-level templates for branding
-          await this.menuTemplateStore.fetchMenuTemplates('top')
-          console.log('✅ BrandingModal: Store call completed successfully')
-        } catch (storeError) {
-          console.error('❌ BrandingModal: Store call failed:', storeError)
-          console.error('❌ BrandingModal: Store error details:', {
-            message: storeError.message,
-            stack: storeError.stack,
-            name: storeError.name,
-          })
-          throw storeError
-        }
-
+        await this.menuTemplateStore.fetchMenuTemplates('top')
         this.availableMenuTemplates = this.menuTemplateStore.menuTemplates
-
-        console.log('✅ BrandingModal: Fetched menu templates:', this.availableMenuTemplates.length)
-        console.log(
-          '📋 BrandingModal: Template details:',
-          this.availableMenuTemplates.map((t) => ({
-            id: t.id,
-            name: t.name,
-            menu_level: t.menu_level,
-            category: t.category,
-            templateId: t.templateId,
-            templateName: t.templateName,
-          })),
-        )
-
-        // Check store state
-        console.log('🏪 BrandingModal: Store state after fetch:', {
-          storeTemplates: this.menuTemplateStore.menuTemplates.length,
-          isLoading: this.menuTemplateStore.isLoading,
-          error: this.menuTemplateStore.error,
-        })
-
-        if (this.availableMenuTemplates.length === 0) {
-          console.log('⚠️  BrandingModal: No top-level menu templates found. Create one first!')
-          console.log(
-            '💡 BrandingModal: Try checking the database directly or create a new template',
-          )
-        } else {
-          console.log(
-            '🎯 BrandingModal: Templates available for dropdown:',
-            this.availableMenuTemplates.map((t) => `${t.name} (${t.menu_level})`),
-          )
-        }
+        console.log('Fetched menu templates:', this.availableMenuTemplates.length)
       } catch (error) {
-        console.error('❌ BrandingModal: Error fetching menu templates:', error)
-        console.error('❌ BrandingModal: Error details:', {
-          message: error.message,
-          stack: error.stack,
-          storeError: this.menuTemplateStore?.error || 'No store error',
-        })
+        console.error('Error fetching menu templates:', error)
       }
     },
 

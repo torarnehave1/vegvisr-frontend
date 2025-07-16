@@ -17,14 +17,6 @@ export const useMenuTemplateStore = defineStore('menuTemplate', () => {
   ) {
     isLoading.value = true
     error.value = null
-
-    console.log('🔄 MenuTemplateStore: Starting fetchMenuTemplates with params:', {
-      level,
-      domain,
-      category,
-      access_level,
-    })
-
     try {
       const params = new URLSearchParams()
       if (level) params.append('level', level)
@@ -32,125 +24,27 @@ export const useMenuTemplateStore = defineStore('menuTemplate', () => {
       if (category) params.append('category', category)
       if (access_level) params.append('access_level', access_level)
 
-      const url = `https://menu-worker.torarnehave.workers.dev/getMenuTemplates?${params}`
-      console.log('🌐 MenuTemplateStore: Fetching from URL:', url)
-
-      // Debug: Check authentication token
-      console.log('🔐 MenuTemplateStore: Authentication details:', {
-        hasToken: !!userStore.emailVerificationToken,
-        tokenLength: userStore.emailVerificationToken?.length || 0,
-        tokenStart: userStore.emailVerificationToken?.substring(0, 8) + '...',
-        userEmail: userStore.email,
-      })
-
-      const headers = {
-        'X-API-Token': userStore.emailVerificationToken,
-        Accept: 'application/json',
-      }
-
-      console.log('📤 MenuTemplateStore: Request headers:', headers)
-
-      let response
-      try {
-        console.log('🚀 MenuTemplateStore: Starting fetch request...')
-        response = await fetch(url, {
-          headers,
+      const response = await fetch(
+        `https://menu-worker.torarnehave.workers.dev/getMenuTemplates?${params}`,
+        {
+          headers: {
+            'X-API-Token': userStore.emailVerificationToken,
+            Accept: 'application/json',
+          },
           mode: 'cors',
           credentials: 'include',
-        })
-        console.log('📡 MenuTemplateStore: Fetch completed, checking response...')
-      } catch (fetchError) {
-        console.error('❌ MenuTemplateStore: Fetch request failed:', fetchError)
-        console.error('❌ MenuTemplateStore: Fetch error details:', {
-          name: fetchError.name,
-          message: fetchError.message,
-          stack: fetchError.stack,
-          cause: fetchError.cause,
-        })
-
-        // Check specific error types
-        if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
-          console.error('🚫 MenuTemplateStore: Network error - possible CORS or connectivity issue')
-        }
-
-        throw new Error(`Network request failed: ${fetchError.message}`)
-      }
-
-      console.log('📡 MenuTemplateStore: Response status:', response.status)
-      console.log('📡 MenuTemplateStore: Response statusText:', response.statusText)
-      console.log(
-        '📡 MenuTemplateStore: Response headers:',
-        Object.fromEntries(response.headers.entries()),
+        },
       )
-      console.log('📡 MenuTemplateStore: Response ok:', response.ok)
-      console.log('📡 MenuTemplateStore: Response type:', response.type)
-      console.log('📡 MenuTemplateStore: Response url:', response.url)
-
       if (!response.ok) {
-        let errorText
-        try {
-          errorText = await response.text()
-          console.error('❌ MenuTemplateStore: Error response body:', errorText)
-        } catch (textError) {
-          console.error('❌ MenuTemplateStore: Could not read error response:', textError)
-          errorText = 'Could not read error response'
-        }
-
-        throw new Error(`HTTP ${response.status}: ${errorText}`)
+        throw new Error(`Failed to load menu templates: ${response.status}`)
       }
-
-      let data
-      try {
-        data = await response.json()
-        console.log('📊 MenuTemplateStore: Raw response data:', data)
-      } catch (jsonError) {
-        console.error('❌ MenuTemplateStore: JSON parsing failed:', jsonError)
-        const responseText = await response.text()
-        console.error('❌ MenuTemplateStore: Raw response text:', responseText)
-        throw new Error(`Invalid JSON response: ${jsonError.message}`)
-      }
-
-      if (!data.results) {
-        console.error('❌ MenuTemplateStore: Invalid response format - missing results array')
-        console.error('❌ MenuTemplateStore: Response structure:', Object.keys(data))
-        throw new Error('Invalid response format - missing results array')
-      }
-
+      const data = await response.json()
+      if (!data.results) throw new Error('Invalid response format')
       menuTemplates.value = data.results
-      console.log('✅ MenuTemplateStore: Menu templates loaded:', menuTemplates.value.length)
-      console.log(
-        '📋 MenuTemplateStore: Template details:',
-        menuTemplates.value.map((t) => ({
-          id: t.id,
-          name: t.name,
-          menu_level: t.menu_level,
-          category: t.category,
-          templateId: t.templateId,
-          templateName: t.templateName,
-        })),
-      )
-
-      // Check if we have the expected template
-      const soundWombTemplate = menuTemplates.value.find(
-        (t) =>
-          (t.name && t.name.toLowerCase().includes('sound')) ||
-          (t.templateName && t.templateName.toLowerCase().includes('sound')),
-      )
-
-      if (soundWombTemplate) {
-        console.log('🎯 MenuTemplateStore: Found SoundWomb template:', soundWombTemplate)
-      } else {
-        console.log('⚠️  MenuTemplateStore: SoundWomb template not found in results')
-      }
+      console.log('Menu templates loaded:', menuTemplates.value.length)
     } catch (err) {
       error.value = err.message
-      console.error('❌ MenuTemplateStore: Error fetching menu templates:', err)
-      console.error('❌ MenuTemplateStore: Error stack:', err.stack)
-      console.error('❌ MenuTemplateStore: Final error state:', {
-        errorMessage: error.value,
-        templatesCount: menuTemplates.value.length,
-        isLoading: isLoading.value,
-      })
+      console.error('Error fetching menu templates:', err)
     } finally {
       isLoading.value = false
     }
