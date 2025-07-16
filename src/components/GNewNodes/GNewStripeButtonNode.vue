@@ -27,6 +27,10 @@
         <span class="error-icon">⚠️</span>
         <span>Failed to load Stripe button</span>
         <button @click="retryLoad" class="btn btn-sm btn-outline-primary">Retry</button>
+        <details class="mt-2">
+          <summary class="text-muted small">Debug Info</summary>
+          <pre class="small mt-1">{{ JSON.stringify(stripeConfig, null, 2) }}</pre>
+        </details>
       </div>
 
       <div
@@ -35,6 +39,11 @@
         :id="`stripe-container-${node.id}`"
       >
         <!-- Stripe buy button will be inserted here -->
+        <div v-if="!isLoading && !hasError" class="stripe-manual-render">
+          <button @click="forceRender" class="btn btn-sm btn-outline-secondary">
+            🔄 Force Render
+          </button>
+        </div>
       </div>
 
       <div v-else class="stripe-config-needed">
@@ -188,8 +197,8 @@ const loadStripeScript = async () => {
     )
     if (existingScript) {
       stripeScriptLoaded.value = true
-      await nextTick()
       renderStripeButton()
+      isLoading.value = false
       return
     }
 
@@ -198,51 +207,83 @@ const loadStripeScript = async () => {
     script.src = 'https://js.stripe.com/v3/buy-button.js'
     script.async = true
 
-    script.onload = async () => {
+    script.onload = () => {
+      console.log('Stripe script loaded successfully')
       stripeScriptLoaded.value = true
-      await nextTick()
+      isLoading.value = false
       renderStripeButton()
     }
 
-    script.onerror = () => {
+    script.onerror = (error) => {
+      console.error('Failed to load Stripe script:', error)
       hasError.value = true
-      console.error('Failed to load Stripe script')
+      isLoading.value = false
     }
 
     document.head.appendChild(script)
   } catch (error) {
-    hasError.value = true
     console.error('Error loading Stripe script:', error)
-  } finally {
+    hasError.value = true
     isLoading.value = false
   }
 }
 
 const renderStripeButton = () => {
   if (!stripeConfig.value.buyButtonId || !stripeConfig.value.publishableKey) {
+    console.warn('Missing Stripe configuration:', stripeConfig.value)
     return
   }
 
-  const container = document.getElementById(`stripe-container-${props.node.id}`)
-  if (!container) {
-    console.warn('Stripe container not found')
-    return
-  }
+  // Wait for next tick to ensure DOM is ready
+  nextTick(() => {
+    const container = document.getElementById(`stripe-container-${props.node.id}`)
+    if (!container) {
+      console.warn('Stripe container not found for node:', props.node.id)
+      hasError.value = true
+      return
+    }
 
-  // Clear existing content
-  container.innerHTML = ''
+    // Clear existing content
+    container.innerHTML = ''
 
-  // Create stripe-buy-button element
-  const stripeButton = document.createElement('stripe-buy-button')
-  stripeButton.setAttribute('buy-button-id', stripeConfig.value.buyButtonId)
-  stripeButton.setAttribute('publishable-key', stripeConfig.value.publishableKey)
+    try {
+      // Create stripe-buy-button element
+      const stripeButton = document.createElement('stripe-buy-button')
+      stripeButton.setAttribute('buy-button-id', stripeConfig.value.buyButtonId)
+      stripeButton.setAttribute('publishable-key', stripeConfig.value.publishableKey)
 
-  container.appendChild(stripeButton)
+      // Add error handling for the Stripe button
+      stripeButton.addEventListener('error', (event) => {
+        console.error('Stripe button error:', event)
+        hasError.value = true
+      })
+
+      container.appendChild(stripeButton)
+      console.log('Stripe button rendered successfully for node:', props.node.id)
+    } catch (error) {
+      console.error('Error creating Stripe button:', error)
+      hasError.value = true
+    }
+  })
 }
 
 const retryLoad = () => {
   hasError.value = false
-  loadStripeScript()
+  isLoading.value = false
+  stripeScriptLoaded.value = false
+
+  // Force reload after a short delay
+  setTimeout(() => {
+    loadStripeScript()
+  }, 100)
+}
+
+const forceRender = () => {
+  if (stripeScriptLoaded.value) {
+    renderStripeButton()
+  } else {
+    loadStripeScript()
+  }
 }
 
 const editNode = () => {
@@ -287,11 +328,10 @@ const deleteNode = () => {
 // Watch for config changes to re-render button
 watch(
   () => stripeConfig.value,
-  () => {
-    if (stripeScriptLoaded.value) {
-      nextTick(() => {
-        renderStripeButton()
-      })
+  (newConfig) => {
+    console.log('Stripe config changed:', newConfig)
+    if (stripeScriptLoaded.value && newConfig.buyButtonId && newConfig.publishableKey) {
+      renderStripeButton()
     }
   },
   { deep: true },
@@ -299,8 +339,22 @@ watch(
 
 // Lifecycle
 onMounted(() => {
+  console.log('GNewStripeButtonNode mounted for node:', props.node.id)
+  console.log('Stripe config:', stripeConfig.value)
+
   if (stripeConfig.value.buyButtonId && stripeConfig.value.publishableKey) {
+    // Try loading immediately
     loadStripeScript()
+
+    // Also try again after a delay in case DOM isn't ready
+    setTimeout(() => {
+      if (!stripeScriptLoaded.value || hasError.value) {
+        console.log('Retrying Stripe script load after delay')
+        loadStripeScript()
+      }
+    }, 1000)
+  } else {
+    console.warn('Missing Stripe configuration on mount')
   }
 })
 </script>
@@ -567,5 +621,44 @@ onMounted(() => {
 
 .text-muted {
   color: #6c757d;
+}
+
+.stripe-manual-render {
+  text-align: center;
+  padding: 10px;
+  opacity: 0.7;
+}
+
+.stripe-manual-render:hover {
+  opacity: 1;
+}
+
+.mt-1 {
+  margin-top: 0.25rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+details {
+  margin-top: 0.5rem;
+}
+
+summary {
+  cursor: pointer;
+  padding: 0.25rem 0;
+}
+
+pre {
+  background: #f8f9fa;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  overflow-x: auto;
 }
 </style>
