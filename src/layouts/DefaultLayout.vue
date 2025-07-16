@@ -22,37 +22,44 @@
 
           <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-editor">Editor</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-canvas">🎨 Canvas</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-portfolio">Portfolio</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/graph-viewer">Viewer</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/search">🔍 Search</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/user">Dashboard</RouterLink>
-              </li>
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/github-issues">
-                  <span class="material-icons">map</span>
-                  Roadmap
+              <li v-for="item in visibleMenuItems" :key="item.id" class="nav-item">
+                <!-- Route items -->
+                <RouterLink
+                  v-if="!item.type || item.type === 'route'"
+                  class="nav-link"
+                  :to="item.path"
+                >
+                  <span v-if="item.icon" class="me-1">{{ item.icon }}</span>
+                  {{ item.label }}
                 </RouterLink>
-              </li>
-              <!-- Sandbox link - only for Superadmin users -->
-              <li v-if="userStore.role === 'Superadmin'" class="nav-item">
-                <RouterLink class="nav-link" to="/sandbox"> 🔧 Sandbox </RouterLink>
-              </li>
-              <!-- GNew link - available for all users -->
-              <li class="nav-item">
-                <RouterLink class="nav-link" to="/gnew-viewer"> 🧪 Modern Viewer </RouterLink>
+
+                <!-- External links -->
+                <a
+                  v-else-if="item.type === 'external'"
+                  class="nav-link"
+                  :href="item.url || item.path"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span v-if="item.icon" class="me-1">{{ item.icon }}</span>
+                  {{ item.label }}
+                </a>
+
+                <!-- Graph links -->
+                <RouterLink
+                  v-else-if="item.type === 'graph-link'"
+                  class="nav-link"
+                  :to="`/gnew-viewer?graphId=${item.graphId}`"
+                >
+                  <span v-if="item.icon" class="me-1">{{ item.icon }}</span>
+                  {{ item.label }}
+                </RouterLink>
+
+                <!-- Fallback for other types -->
+                <RouterLink v-else class="nav-link" :to="item.path || '/'">
+                  <span v-if="item.icon" class="me-1">{{ item.icon }}</span>
+                  {{ item.label }}
+                </RouterLink>
               </li>
             </ul>
 
@@ -152,10 +159,14 @@ import { RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useRouter } from 'vue-router'
 import { useBranding } from '@/composables/useBranding'
+import { useMenuConfig } from '@/composables/useMenuConfig'
 
 const userStore = useUserStore()
 const router = useRouter()
-const { currentLogo, currentSiteTitle, isCustomDomain } = useBranding()
+const { currentLogo, currentSiteTitle, isCustomDomain, currentMenuConfig } = useBranding()
+
+// Use menu configuration system
+const { visibleMenuItems } = useMenuConfig(currentMenuConfig)
 
 // Global search functionality
 const globalSearchQuery = ref('')

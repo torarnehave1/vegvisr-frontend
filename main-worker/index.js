@@ -926,6 +926,7 @@ export default {
                 contentFilter: {
                   metaAreas: metaAreas,
                 },
+                menuConfig: domainConfig.menuConfig || { enabled: false },
                 updatedAt: new Date().toISOString(),
               }
 
@@ -974,6 +975,7 @@ export default {
               contentFilter: {
                 metaAreas: metaAreas,
               },
+              menuConfig: data.branding.menuConfig || { enabled: false },
               updatedAt: new Date().toISOString(),
             }
 

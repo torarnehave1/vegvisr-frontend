@@ -269,12 +269,20 @@ export function useBranding() {
     // Check KV site configuration for menu config
     if (isCustomDomain.value && siteConfig.value?.menuConfig) {
       console.log('Using menu config from KV site config:', siteConfig.value.menuConfig)
+      console.log('Template data available:', !!siteConfig.value.menuConfig.templateData)
+      if (siteConfig.value.menuConfig.templateData) {
+        console.log(
+          'Template data items:',
+          siteConfig.value.menuConfig.templateData.items?.length || 0,
+        )
+      }
       return siteConfig.value.menuConfig
     }
 
     // Fallback to user store menu config
     if (userStore.branding?.menuConfig && userStore.branding?.mySite === currentDomain.value) {
       console.log('Using menu config from user store:', userStore.branding.menuConfig)
+      console.log('Template data available:', !!userStore.branding.menuConfig.templateData)
       return userStore.branding.menuConfig
     }
 

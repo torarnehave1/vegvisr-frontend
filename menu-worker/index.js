@@ -158,8 +158,25 @@ async function handleGetMenuTemplates(request, env, corsHeaders) {
       .bind(...params)
       .all()
 
+    // Process results to parse menu_data JSON
+    const processedResults = {
+      ...results,
+      results: results.results.map((row) => ({
+        id: row.id,
+        name: row.name,
+        menu_data: JSON.parse(row.menu_data),
+        category: row.category,
+        menu_level: row.menu_level,
+        access_level: row.access_level,
+        domain: row.domain,
+        created_by: row.created_by,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      })),
+    }
+
     console.log('[Menu Worker] Menu templates fetched successfully')
-    return new Response(JSON.stringify(results), {
+    return new Response(JSON.stringify(processedResults), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

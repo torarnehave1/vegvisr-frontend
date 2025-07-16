@@ -693,9 +693,11 @@ export default {
             'graph-canvas',
             'graph-portfolio',
             'graph-viewer',
+            'search',
             'user-dashboard',
             'github-issues',
             'sandbox',
+            'gnew',
           ],
         },
       },
@@ -775,42 +777,54 @@ export default {
           id: 'graph-editor',
           label: 'Editor',
           path: '/graph-editor',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'graph-canvas',
           label: '🎨 Canvas',
           path: '/graph-canvas',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'graph-portfolio',
           label: 'Portfolio',
           path: '/graph-portfolio',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'graph-viewer',
           label: 'Viewer',
           path: '/graph-viewer',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
+        },
+        {
+          id: 'search',
+          label: 'Search',
+          path: '/search',
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'user-dashboard',
           label: 'Dashboard',
           path: '/user',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'github-issues',
           label: '🗺️ Roadmap',
           path: '/github-issues',
-          roles: ['user', 'admin', 'superadmin'],
+          roles: ['User', 'Admin', 'Superadmin'],
         },
         {
           id: 'sandbox',
           label: '🔧 Sandbox',
           path: '/sandbox',
+          roles: ['Superadmin'],
+        },
+        {
+          id: 'gnew',
+          label: '🧪 GNew Viewer',
+          path: '/gnew-viewer',
           roles: ['Superadmin'],
         },
       ]
@@ -960,9 +974,11 @@ export default {
                     'graph-canvas',
                     'graph-portfolio',
                     'graph-viewer',
+                    'search',
                     'user-dashboard',
                     'github-issues',
                     'sandbox',
+                    'gnew',
                   ],
                 },
               }
@@ -1011,9 +1027,11 @@ export default {
             'graph-canvas',
             'graph-portfolio',
             'graph-viewer',
+            'search',
             'user-dashboard',
             'github-issues',
             'sandbox',
+            'gnew',
           ],
         },
       }
@@ -1035,9 +1053,11 @@ export default {
             'graph-canvas',
             'graph-portfolio',
             'graph-viewer',
+            'search',
             'user-dashboard',
             'github-issues',
             'sandbox',
+            'gnew',
           ],
         },
       }
@@ -1047,6 +1067,12 @@ export default {
       if (this.formData.mySiteFrontPage) {
         this.$nextTick(() => {
           this.validateFrontPageGraph()
+        })
+      }
+      // Apply menu template if one is selected
+      if (this.formData.menuConfig.selectedTemplate) {
+        this.$nextTick(() => {
+          this.applyMenuTemplate()
         })
       }
       this.viewMode = 'edit'
@@ -1821,11 +1847,23 @@ export default {
     // Menu template system methods
     async fetchMenuTemplates() {
       try {
+        console.log('BrandingModal: Fetching menu templates...')
         await this.menuTemplateStore.fetchMenuTemplates('top')
         this.availableMenuTemplates = this.menuTemplateStore.menuTemplates
-        console.log('Fetched menu templates:', this.availableMenuTemplates.length)
+        console.log('BrandingModal: Fetched menu templates:', this.availableMenuTemplates.length)
+        console.log(
+          'BrandingModal: Template details:',
+          this.availableMenuTemplates.map((t) => ({
+            id: t.id,
+            name: t.name,
+            menu_level: t.menu_level,
+            access_level: t.access_level,
+            hasMenuData: !!t.menu_data,
+            itemCount: t.menu_data?.items?.length || 0,
+          })),
+        )
       } catch (error) {
-        console.error('Error fetching menu templates:', error)
+        console.error('BrandingModal: Error fetching menu templates:', error)
       }
     },
 
@@ -1834,7 +1872,11 @@ export default {
     },
 
     applyMenuTemplate() {
-      if (!this.formData.menuConfig.selectedTemplate) return
+      if (!this.formData.menuConfig.selectedTemplate) {
+        // Clear template data if no template is selected
+        this.formData.menuConfig.templateData = null
+        return
+      }
 
       const template = this.availableMenuTemplates.find(
         (t) => t.id === this.formData.menuConfig.selectedTemplate,
@@ -1842,9 +1884,22 @@ export default {
 
       if (template) {
         console.log('Applying menu template:', template.name)
-        // Apply template configuration to the domain
+        console.log('Template menu_data:', template.menu_data)
+
+        // Store the full template data in the menu configuration
         this.formData.menuConfig.templateData = template.menu_data
-        // You could also update visibleItems based on template
+
+        // Also update visibleItems based on template items for backward compatibility
+        if (template.menu_data && template.menu_data.items) {
+          this.formData.menuConfig.visibleItems = template.menu_data.items.map((item) => item.id)
+          console.log(
+            'Updated visible items based on template:',
+            this.formData.menuConfig.visibleItems,
+          )
+        }
+
+        // Debug the full application process
+        this.debugTemplateApplication()
       }
     },
 
@@ -1860,6 +1915,27 @@ export default {
     handleMenuTemplateSaved(template) {
       console.log('Menu template saved:', template)
       this.refreshMenuTemplates()
+    },
+
+    // Debug method to test template application
+    debugTemplateApplication() {
+      console.log('=== TEMPLATE APPLICATION DEBUG ===')
+      console.log('Available templates:', this.availableMenuTemplates.length)
+      console.log('Selected template:', this.formData.menuConfig.selectedTemplate)
+      console.log('Template data:', this.formData.menuConfig.templateData)
+      console.log('Menu config enabled:', this.formData.menuConfig.enabled)
+      console.log('Visible items:', this.formData.menuConfig.visibleItems)
+
+      if (this.formData.menuConfig.selectedTemplate) {
+        const template = this.availableMenuTemplates.find(
+          (t) => t.id === this.formData.menuConfig.selectedTemplate,
+        )
+        console.log('Found template:', template)
+        if (template) {
+          console.log('Template menu_data:', template.menu_data)
+          console.log('Template items:', template.menu_data?.items)
+        }
+      }
     },
   },
 }
