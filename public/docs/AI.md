@@ -35,12 +35,57 @@ VERY IMPORTANT!!!! IF any functional Code is removed explain why.
 - **S** - **Summarize**: Report results and assign a Rollback ID.
 - **R** - **Record**: Finalize the process.
 
+### **CRITICAL: The Validation Step (V)**
+
+**🛑 MANDATORY STOP POINT 🛑**
+
+After generating a plan, you **MUST**:
+
+1. **STOP COMPLETELY** - Do not proceed to implementation
+2. **CLEARLY STATE**: "I need your explicit approval before proceeding"
+3. **WAIT FOR EXPLICIT APPROVAL** - Look for these exact words:
+   - "Yes" / "Proceed" / "Approved" / "Go ahead" / "Do it"
+   - **NOT SUFFICIENT**: Silence, questions, or discussion
+4. **IF NO CLEAR APPROVAL**: Ask again or clarify the plan
+
+### **EXPLICIT APPROVAL FORMAT**
+
+**Required Response Format:**
+
+```
+**PLAN APPROVAL REQUIRED**
+
+I propose to:
+1. [Specific action 1]
+2. [Specific action 2]
+3. [Specific action 3]
+
+🛑 I will NOT proceed until you explicitly approve this plan.
+Type "yes", "proceed", or "approved" to continue.
+```
+
+### **VALIDATION VIOLATIONS**
+
+**❌ NEVER DO THIS:**
+
+- Ask "Should I proceed?" then immediately implement
+- Assume approval from context or previous conversations
+- Implement "obvious" fixes without explicit approval
+- Continue after asking questions instead of waiting for approval
+
+**✅ ALWAYS DO THIS:**
+
+- Stop completely after generating the plan
+- Wait for explicit approval words
+- Clarify the plan if user asks questions
+- Only implement after receiving clear approval
+
 ### The VEGVISR Protocol in Practice:
 
 1.  **Verify & Examine** → Read relevant files to understand the current implementation and the user's request.
 2.  **Establish Findings** → Explain what was discovered and identify any relevant patterns or issues.
 3.  **Generate a Plan** → Propose specific changes with clear reasoning.
-4.  **Validate with User** → Wait for an explicit "yes" or "proceed" before continuing.
+4.  **Validate with User** → **🛑 MANDATORY STOP 🛑** - Wait for explicit "yes" or "proceed" before continuing.
 5.  **Implement** → Make ONLY the approved changes.
 6.  **Summarize & Record** → List the modified files and assign a Rollback ID.
 
@@ -50,10 +95,23 @@ VERY IMPORTANT!!!! IF any functional Code is removed explain why.
 
 ### 1. **NO CODE CHANGES WITHOUT APPROVAL**
 
+**🛑 ABSOLUTE RULE - NO EXCEPTIONS 🛑**
+
 - **NEVER** make any code edits before the user approves the plan
-- Always explain what you intend to do and get explicit approval first
-- If user says "DO not change code before i approve ok" - respect this completely
-- **CRITICAL: ALWAYS STOP FOR VALIDATION** - Even if the fix seems obvious, simple, or the user directly requests a specific change (like "use auto-detect" or "fix the bug"), you MUST still present your specific implementation plan and wait for explicit approval ("yes", "proceed", "approved"). Never assume direct requests are approval to implement.
+- **NEVER** assume approval from context, previous conversations, or "obvious" fixes
+- **ALWAYS** stop completely after generating a plan and wait for explicit approval
+- **ALWAYS** use the mandatory approval format: "🛑 I will NOT proceed until you explicitly approve this plan"
+- **REQUIRED APPROVAL WORDS**: "yes", "proceed", "approved", "go ahead", "do it"
+- **NOT SUFFICIENT**: Questions, silence, discussion, or implied consent
+
+**If you violate this rule, you have failed the basic protocol.**
+
+**CRITICAL ENFORCEMENT:**
+
+- Even if the user says "fix the bug" or "use auto-detect" - you MUST still present your implementation plan and wait for explicit approval
+- Even if the fix seems obvious or simple - you MUST still wait for approval
+- Even if it's a security issue or urgent - you MUST still wait for approval
+- **NO EXCEPTIONS** - This rule applies to ALL code changes, no matter how small
 
 ### 2. **Rollback Versioning System**
 
