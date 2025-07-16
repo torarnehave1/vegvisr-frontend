@@ -334,37 +334,84 @@
               </div>
 
               <div v-if="formData.menuConfig.enabled" class="menu-items-config">
-                <label class="form-label">
-                  <strong>Menu Items to Show:</strong>
-                </label>
-                <div class="form-text mb-3">
-                  Uncheck items to hide them from the navigation menu on this domain.
+                <!-- Menu Template Selection -->
+                <div class="menu-template-selection mb-4">
+                  <label class="form-label">
+                    <strong>Menu Template:</strong>
+                  </label>
+                  <div class="form-text mb-3">
+                    Select a pre-built menu template or create a custom one.
+                  </div>
+
+                  <div class="menu-template-controls">
+                    <select
+                      v-model="formData.menuConfig.selectedTemplate"
+                      class="form-control mb-3"
+                      @change="applyMenuTemplate"
+                    >
+                      <option value="">Select a menu template...</option>
+                      <option
+                        v-for="template in availableMenuTemplates"
+                        :key="template.id"
+                        :value="template.id"
+                      >
+                        {{ template.name }} ({{ template.menu_level }})
+                      </option>
+                    </select>
+
+                    <div class="template-actions">
+                      <button
+                        type="button"
+                        class="btn btn-outline-primary btn-sm me-2"
+                        @click="openMenuTemplateCreator"
+                      >
+                        <i class="fas fa-plus"></i> Create Template
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        @click="refreshMenuTemplates"
+                      >
+                        <i class="fas fa-sync"></i> Refresh
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="row">
-                  <div
-                    v-for="menuItem in availableMenuItems"
-                    :key="menuItem.id"
-                    class="col-md-6 col-lg-4 mb-3"
-                  >
-                    <div class="menu-item-config">
-                      <input
-                        :id="`menu-${menuItem.id}`"
-                        v-model="formData.menuConfig.visibleItems"
-                        type="checkbox"
-                        :value="menuItem.id"
-                        class="form-check-input"
-                      />
-                      <label :for="`menu-${menuItem.id}`" class="form-check-label">
-                        {{ menuItem.label }}
-                      </label>
-                      <small class="menu-item-path">{{ menuItem.path }}</small>
-                      <small
-                        v-if="menuItem.roles.includes('superadmin')"
-                        class="badge bg-warning ms-2"
-                      >
-                        Admin Only
-                      </small>
+                <!-- Legacy Menu Items (Fallback) -->
+                <div class="legacy-menu-items">
+                  <label class="form-label">
+                    <strong>Legacy Menu Items:</strong>
+                  </label>
+                  <div class="form-text mb-3">
+                    Uncheck items to hide them from the navigation menu on this domain.
+                  </div>
+
+                  <div class="row">
+                    <div
+                      v-for="menuItem in availableMenuItems"
+                      :key="menuItem.id"
+                      class="col-md-6 col-lg-4 mb-3"
+                    >
+                      <div class="menu-item-config">
+                        <input
+                          :id="`menu-${menuItem.id}`"
+                          v-model="formData.menuConfig.visibleItems"
+                          type="checkbox"
+                          :value="menuItem.id"
+                          class="form-check-input"
+                        />
+                        <label :for="`menu-${menuItem.id}`" class="form-check-label">
+                          {{ menuItem.label }}
+                        </label>
+                        <small class="menu-item-path">{{ menuItem.path }}</small>
+                        <small
+                          v-if="menuItem.roles.includes('superadmin')"
+                          class="badge bg-warning ms-2"
+                        >
+                          Admin Only
+                        </small>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -589,20 +636,31 @@
     @close="closeAdminDomainModal"
     @domain-updated="handleDomainUpdated"
   />
+
+  <!-- Menu Template Creator Modal -->
+  <MenuTemplateCreator
+    v-if="isMenuTemplateCreatorOpen"
+    :template="selectedMenuTemplate"
+    @close="closeMenuTemplateCreator"
+    @saved="handleMenuTemplateSaved"
+  />
 </template>
 
 <script>
 import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
+import { useMenuTemplateStore } from '@/stores/menuTemplateStore'
 import { apiUrls } from '@/config/api'
 import AIImageModal from './AIImageModal.vue'
 import AdminDomainModal from './AdminDomainModal.vue'
+import MenuTemplateCreator from './MenuTemplateCreator.vue'
 
 export default {
   name: 'BrandingModal',
   components: {
     AIImageModal,
     AdminDomainModal,
+    MenuTemplateCreator,
   },
   props: {
     isOpen: {
@@ -629,6 +687,7 @@ export default {
         mySiteFrontPage: '',
         menuConfig: {
           enabled: false,
+          selectedTemplate: '',
           visibleItems: [
             'graph-editor',
             'graph-canvas',
@@ -659,12 +718,17 @@ export default {
       frontPageValid: false,
       frontPageGraphTitle: '',
       frontPageValidationTimeout: null,
+      // Menu template system
+      availableMenuTemplates: [],
+      isMenuTemplateCreatorOpen: false,
+      selectedMenuTemplate: null,
     }
   },
   setup() {
     const userStore = useUserStore()
     const portfolioStore = usePortfolioStore()
-    return { userStore, portfolioStore }
+    const menuTemplateStore = useMenuTemplateStore()
+    return { userStore, portfolioStore, menuTemplateStore }
   },
   watch: {
     existingDomainConfigs: {
@@ -758,6 +822,7 @@ export default {
     this.fetchDomainConfigsFromKV()
     this.fetchMetaAreas()
     this.loadUserGraphs()
+    this.fetchMenuTemplates()
 
     // Ensure modal is focusable and handles keyboard events properly
     if (this.isOpen) {
@@ -1751,6 +1816,50 @@ export default {
 
       // Subdomains: "salt.example.com", "api.example.com", etc.
       return false
+    },
+
+    // Menu template system methods
+    async fetchMenuTemplates() {
+      try {
+        await this.menuTemplateStore.fetchMenuTemplates()
+        this.availableMenuTemplates = this.menuTemplateStore.menuTemplates
+        console.log('Fetched menu templates:', this.availableMenuTemplates.length)
+      } catch (error) {
+        console.error('Error fetching menu templates:', error)
+      }
+    },
+
+    async refreshMenuTemplates() {
+      await this.fetchMenuTemplates()
+    },
+
+    applyMenuTemplate() {
+      if (!this.formData.menuConfig.selectedTemplate) return
+
+      const template = this.availableMenuTemplates.find(
+        (t) => t.id === this.formData.menuConfig.selectedTemplate,
+      )
+
+      if (template) {
+        console.log('Applying menu template:', template.name)
+        // Apply template configuration to the domain
+        this.formData.menuConfig.templateData = template.menu_data
+        // You could also update visibleItems based on template
+      }
+    },
+
+    openMenuTemplateCreator() {
+      this.isMenuTemplateCreatorOpen = true
+    },
+
+    closeMenuTemplateCreator() {
+      this.isMenuTemplateCreatorOpen = false
+      this.selectedMenuTemplate = null
+    },
+
+    handleMenuTemplateSaved(template) {
+      console.log('Menu template saved:', template)
+      this.refreshMenuTemplates()
     },
   },
 }

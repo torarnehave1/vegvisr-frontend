@@ -35,6 +35,7 @@ import GNewSWOTNode from './GNewNodes/GNewSWOTNode.vue'
 import GNewWhisperNode from './GNewNodes/GNewWhisperNode.vue'
 import GNewImageAnalysisNode from './GNewNodes/GNewImageAnalysisNode.vue'
 import GNewAudioPortfolioSelectorNode from './GNewNodes/GNewAudioPortfolioSelectorNode.vue'
+import GNewMenuNode from './GNewNodes/GNewMenuNode.vue'
 
 // Props
 const props = defineProps({
@@ -87,6 +88,8 @@ const nodeComponents = {
   'audio-portfolio-selector': GNewAudioPortfolioSelectorNode,
   // Image analysis
   'image-analysis': GNewImageAnalysisNode,
+  // Menu node
+  menu: GNewMenuNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
