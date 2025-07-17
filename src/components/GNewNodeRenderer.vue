@@ -39,6 +39,7 @@ import GNewImageAnalysisNode from './GNewNodes/GNewImageAnalysisNode.vue'
 import GNewAudioPortfolioSelectorNode from './GNewNodes/GNewAudioPortfolioSelectorNode.vue'
 import GNewMenuNode from './GNewNodes/GNewMenuNode.vue'
 import GNewMenuCreatorNode from './GNewNodes/GNewMenuCreatorNode.vue'
+import GNewLearnScriptNode from './GNewNodes/GNewLearnScriptNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -98,6 +99,8 @@ const nodeComponents = {
   menu: GNewMenuNode,
   // Menu creator node
   menu_creator: GNewMenuCreatorNode,
+  // Learning script generator node
+  'learn-script': GNewLearnScriptNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
