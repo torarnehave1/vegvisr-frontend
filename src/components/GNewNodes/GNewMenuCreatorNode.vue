@@ -139,6 +139,16 @@
             <button class="btn btn-sm btn-outline-warning" @click="exportJson" title="Export JSON">
               <i class="fas fa-download"></i> Export
             </button>
+            <button
+              class="btn btn-sm btn-outline-success"
+              @click="generateSmartMenu"
+              :disabled="isGeneratingMenu"
+              title="Generate Smart Menu with AI"
+            >
+              <i v-if="isGeneratingMenu" class="fas fa-spinner fa-spin"></i>
+              <i v-else class="fas fa-brain"></i>
+              🤖 Smart Menu
+            </button>
           </div>
 
           <!-- Status Messages -->
@@ -155,6 +165,113 @@
           @close="closeMenuTemplateCreator"
           @saved="handleMenuTemplateSaved"
         />
+
+        <!-- AI Menu Suggestions Modal -->
+        <div v-if="showAiSuggestions" class="ai-suggestions-modal">
+          <div class="modal-backdrop"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h4>🤖 AI Menu Suggestions</h4>
+              <button class="btn-close" @click="closeAiSuggestions">×</button>
+            </div>
+            <div class="modal-body">
+              <div v-if="isGeneratingMenu" class="generating-state">
+                <div class="spinner-container">
+                  <i class="fas fa-spinner fa-spin"></i>
+                  <p>Analyzing graph content and generating smart menu suggestions...</p>
+                </div>
+              </div>
+              <div v-else-if="aiSuggestions" class="suggestions-content">
+                <!-- Menu Suggestion -->
+                <div class="suggestion-section">
+                  <h5>📋 Suggested Menu Structure</h5>
+                  <div class="menu-suggestion">
+                    <div class="suggestion-header">
+                      <strong>{{ aiSuggestions.menuSuggestion.name }}</strong>
+                      <p class="suggestion-description">
+                        {{ aiSuggestions.menuSuggestion.description }}
+                      </p>
+                    </div>
+                    <div class="menu-items-preview">
+                      <div
+                        v-for="item in aiSuggestions.menuSuggestion.items"
+                        :key="item.id"
+                        class="menu-item-suggestion"
+                      >
+                        <span class="item-icon">{{ item.icon }}</span>
+                        <span class="item-label">{{ item.label }}</span>
+                        <span class="item-type">{{ item.type }}</span>
+                        <div class="item-description">{{ item.description }}</div>
+                      </div>
+                    </div>
+                    <div class="suggestion-actions">
+                      <button class="btn btn-sm btn-success" @click="applySuggestedMenu">
+                        <i class="fas fa-check"></i> Apply This Menu
+                      </button>
+                      <button class="btn btn-sm btn-outline-secondary" @click="customizeMenu">
+                        <i class="fas fa-edit"></i> Customize
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Page Recommendations -->
+                <div
+                  v-if="
+                    aiSuggestions.pageRecommendations &&
+                    aiSuggestions.pageRecommendations.length > 0
+                  "
+                  class="suggestion-section"
+                >
+                  <h5>💡 Recommended Additional Pages</h5>
+                  <div class="page-recommendations">
+                    <div
+                      v-for="(rec, index) in aiSuggestions.pageRecommendations"
+                      :key="index"
+                      class="page-recommendation"
+                    >
+                      <div class="rec-header">
+                        <strong>{{ rec.title }}</strong>
+                        <span class="priority-badge" :class="rec.priority">{{ rec.priority }}</span>
+                      </div>
+                      <p class="rec-description">{{ rec.description }}</p>
+                      <div class="rec-details">
+                        <small><strong>Content:</strong> {{ rec.estimatedContent }}</small>
+                        <small><strong>Target:</strong> {{ rec.targetAudience }}</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Audience Insights -->
+                <div v-if="aiSuggestions.audienceInsights" class="suggestion-section">
+                  <h5>👥 Audience Insights</h5>
+                  <div class="audience-insights">
+                    <div class="insight-item">
+                      <strong>Primary Audience:</strong>
+                      {{ aiSuggestions.audienceInsights.primaryAudience }}
+                    </div>
+                    <div class="insight-item">
+                      <strong>Content Complexity:</strong>
+                      {{ aiSuggestions.audienceInsights.contentComplexity }}
+                    </div>
+                    <div class="insight-item">
+                      <strong>Navigation Flow:</strong>
+                      {{ aiSuggestions.audienceInsights.suggestedNavigationFlow }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else-if="aiError" class="error-state">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>{{ aiError }}</p>
+                <button class="btn btn-outline-primary" @click="generateSmartMenu">
+                  <i class="fas fa-retry"></i> Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -212,6 +329,12 @@ const statusMessage = ref('')
 const statusMessageType = ref('')
 const statusMessageIcon = ref('')
 const isMenuOpen = ref(false)
+
+// AI Menu Generation State
+const showAiSuggestions = ref(false)
+const isGeneratingMenu = ref(false)
+const aiSuggestions = ref(null)
+const aiError = ref('')
 
 // Computed properties
 const menuData = computed(() => {
@@ -535,6 +658,111 @@ const showStatus = (message, type) => {
     statusMessageType.value = ''
     statusMessageIcon.value = ''
   }, 3000)
+}
+
+// AI Menu Generation Methods
+const generateSmartMenu = async () => {
+  console.log('🤖 Starting AI menu generation...')
+
+  isGeneratingMenu.value = true
+  aiError.value = ''
+  aiSuggestions.value = null
+  showAiSuggestions.value = true
+
+  try {
+    // Prepare graph data for AI analysis
+    const graphData = {
+      nodes: props.graphData.nodes || [],
+      edges: props.graphData.edges || [],
+      metadata: props.graphData.metadata || {},
+    }
+
+    console.log('Graph data for AI:', {
+      nodeCount: graphData.nodes.length,
+      hasMetadata: !!graphData.metadata,
+      metadata: graphData.metadata,
+    })
+
+    const requestPayload = {
+      graphData,
+      userRequest:
+        'Generate a context-aware menu based on the graph content and suggest complementary pages',
+      currentMenuData: menuData.value,
+    }
+
+    console.log('Sending AI request:', requestPayload)
+
+    const response = await fetch('https://api.vegvisr.org/ai-generate-menu', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestPayload),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`API error: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('AI menu generation result:', result)
+
+    aiSuggestions.value = result
+    showStatus('AI menu suggestions generated successfully', 'success')
+  } catch (error) {
+    console.error('AI menu generation error:', error)
+    aiError.value = error.message || 'Failed to generate menu suggestions'
+    showStatus('Failed to generate AI menu suggestions', 'error')
+  } finally {
+    isGeneratingMenu.value = false
+  }
+}
+
+const closeAiSuggestions = () => {
+  showAiSuggestions.value = false
+  aiSuggestions.value = null
+  aiError.value = ''
+}
+
+const applySuggestedMenu = () => {
+  if (!aiSuggestions.value?.menuSuggestion) return
+
+  console.log('Applying suggested menu:', aiSuggestions.value.menuSuggestion)
+
+  // Update the node with the suggested menu
+  updateNodeData(aiSuggestions.value.menuSuggestion)
+
+  // Close the suggestions modal
+  closeAiSuggestions()
+
+  showStatus('AI-generated menu applied successfully', 'success')
+}
+
+const customizeMenu = () => {
+  if (!aiSuggestions.value?.menuSuggestion) return
+
+  console.log('Customizing suggested menu:', aiSuggestions.value.menuSuggestion)
+
+  // Update the node with the suggested menu
+  updateNodeData(aiSuggestions.value.menuSuggestion)
+
+  // Close AI suggestions and open the template creator for customization
+  closeAiSuggestions()
+
+  // Prepare the current template for editing
+  currentTemplate.value = {
+    name: aiSuggestions.value.menuSuggestion.name || 'AI Generated Menu',
+    menu_data: aiSuggestions.value.menuSuggestion,
+    category: 'AI Generated',
+    menu_level: aiSuggestions.value.menuSuggestion.menuLevel || 'graph',
+    access_level: 'user',
+    created_by: userStore.email || 'system',
+  }
+
+  isMenuTemplateCreatorOpen.value = true
+
+  showStatus('AI-generated menu ready for customization', 'info')
 }
 
 // Click outside handler for hamburger menu
@@ -999,6 +1227,299 @@ watch(
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+/* AI Suggestions Modal Styles */
+.ai-suggestions-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+}
+
+.modal-content {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  max-width: 800px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e9ecef;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.modal-header h4 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.btn-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.generating-state {
+  text-align: center;
+  padding: 2rem;
+}
+
+.spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.spinner-container i {
+  font-size: 2rem;
+  color: #007bff;
+}
+
+.suggestion-section {
+  margin-bottom: 2rem;
+}
+
+.suggestion-section h5 {
+  color: #333;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.menu-suggestion {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #f8f9fa;
+}
+
+.suggestion-header {
+  margin-bottom: 1rem;
+}
+
+.suggestion-header strong {
+  color: #007bff;
+  font-size: 1.1rem;
+}
+
+.suggestion-description {
+  color: #6c757d;
+  margin: 0.5rem 0 0 0;
+}
+
+.menu-items-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.menu-item-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+}
+
+.item-icon {
+  font-size: 1.2rem;
+  width: 24px;
+  text-align: center;
+}
+
+.item-label {
+  font-weight: 500;
+  flex: 1;
+}
+
+.item-type {
+  background: #e9ecef;
+  color: #495057;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.item-description {
+  width: 100%;
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-top: 0.25rem;
+}
+
+.suggestion-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.page-recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.page-recommendation {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #f8f9fa;
+}
+
+.rec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.rec-header strong {
+  color: #007bff;
+}
+
+.priority-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.priority-badge.high {
+  background: #dc3545;
+  color: white;
+}
+
+.priority-badge.medium {
+  background: #ffc107;
+  color: #212529;
+}
+
+.priority-badge.low {
+  background: #28a745;
+  color: white;
+}
+
+.rec-description {
+  color: #495057;
+  margin-bottom: 0.5rem;
+}
+
+.rec-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.rec-details small {
+  color: #6c757d;
+}
+
+.audience-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.insight-item {
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+}
+
+.insight-item strong {
+  color: #495057;
+}
+
+.error-state {
+  text-align: center;
+  padding: 2rem;
+  color: #dc3545;
+}
+
+.error-state i {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.error-state p {
+  margin-bottom: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .modal-header {
+    padding: 1rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .suggestion-actions {
+    flex-direction: column;
+  }
+
+  .rec-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
 </style>

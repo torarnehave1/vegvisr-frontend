@@ -2788,6 +2788,186 @@ Return a JSON object with the following structure:
   }
 }
 
+// --- AI Generate Menu Endpoint ---
+const handleAIGenerateMenu = async (request, env) => {
+  try {
+    const { graphData, userRequest, currentMenuData } = await request.json()
+
+    console.log('=== AI Generate Menu Debug ===')
+    console.log('userRequest:', userRequest)
+    console.log('graphData nodes:', graphData?.nodes?.length || 0)
+    console.log('graphData metadata:', graphData?.metadata || {})
+    console.log('currentMenuData:', currentMenuData)
+    console.log('===============================')
+
+    if (!graphData || !graphData.nodes || !Array.isArray(graphData.nodes)) {
+      return createErrorResponse('Missing or invalid graphData parameter', 400)
+    }
+
+    // Analyze graph content and metadata
+    const graphMetadata = graphData.metadata || {}
+    const graphNodes = graphData.nodes || []
+
+    // Extract content themes from nodes
+    const contentThemes = graphNodes
+      .filter((node) => node.visible !== false && node.info)
+      .map((node) => ({
+        label: node.label || 'Untitled',
+        type: node.type || 'default',
+        content: node.info.substring(0, 200) + '...',
+        hasContent: !!node.info,
+      }))
+      .slice(0, 10) // Limit to avoid token limits
+
+    // Extract categories and meta areas
+    const categories = graphMetadata.category
+      ? graphMetadata.category
+          .split('#')
+          .map((c) => c.trim())
+          .filter((c) => c)
+      : []
+    const metaAreas = graphMetadata.metaArea
+      ? graphMetadata.metaArea
+          .split('#')
+          .map((m) => m.trim())
+          .filter((m) => m)
+      : []
+
+    // Build context-aware prompt
+    const contextPrompt = `Based on the following knowledge graph content, generate a smart, context-aware menu structure that helps users navigate and discover related content.
+
+GRAPH ANALYSIS:
+- Title: ${graphMetadata.title || 'Untitled Graph'}
+- Description: ${graphMetadata.description || 'No description'}
+- Categories: ${categories.join(', ') || 'None'}
+- Meta Areas: ${metaAreas.join(', ') || 'None'}
+- Total Nodes: ${graphNodes.length}
+- Content Themes: ${contentThemes.map((t) => `${t.label} (${t.type})`).join(', ')}
+
+CONTENT SAMPLE:
+${contentThemes.map((theme) => `- ${theme.label}: ${theme.content}`).join('\n')}
+
+${userRequest ? `\nUSER REQUEST: ${userRequest}` : ''}
+
+CURRENT MENU (if any):
+${currentMenuData ? JSON.stringify(currentMenuData, null, 2) : 'No current menu'}
+
+REQUIREMENTS:
+1. Generate a menu structure that reflects the graph's content and themes
+2. Include navigation items that help users explore related concepts
+3. Suggest complementary pages/graphs that would enhance the user experience
+4. Consider the target audience based on meta areas and categories
+5. Provide icons that match the content themes
+
+Return a JSON object with this structure:
+{
+  "menuSuggestion": {
+    "name": "Generated Menu Name",
+    "description": "Brief description of the menu purpose",
+    "menuLevel": "graph",
+    "items": [
+      {
+        "id": "unique-id",
+        "label": "Menu Item Label",
+        "icon": "🏠",
+        "type": "route|external|template-selector",
+        "path": "/suggested-path",
+        "requiresRole": null,
+        "description": "Why this menu item is relevant"
+      }
+    ],
+    "style": {
+      "layout": "horizontal",
+      "theme": "default",
+      "position": "top",
+      "buttonStyle": "hamburger"
+    }
+  },
+  "pageRecommendations": [
+    {
+      "title": "Suggested Page Title",
+      "description": "Why this page would be valuable",
+      "estimatedContent": "Brief description of what this page should contain",
+      "targetAudience": "Who would benefit from this page",
+      "priority": "high|medium|low"
+    }
+  ],
+  "audienceInsights": {
+    "primaryAudience": "Identified primary audience",
+    "contentComplexity": "beginner|intermediate|advanced",
+    "suggestedNavigationFlow": "How users should navigate through the content"
+  }
+}`
+
+    console.log('Generated prompt length:', contextPrompt.length)
+
+    // Generate menu using AI
+    const client = new OpenAI({
+      apiKey: env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert UX designer and information architect specializing in knowledge graphs and user navigation. You excel at creating intuitive menu structures that guide users through complex content and suggest valuable related resources.',
+        },
+        { role: 'user', content: contextPrompt },
+      ],
+    })
+
+    console.log('AI response received, parsing...')
+
+    const result = JSON.parse(completion.choices[0].message.content.trim())
+
+    // Validate the response structure
+    if (!result.menuSuggestion || !result.menuSuggestion.items) {
+      throw new Error('Invalid AI response: missing menuSuggestion or items')
+    }
+
+    // Ensure each menu item has required fields
+    const processedItems = result.menuSuggestion.items.map((item, index) => ({
+      id: item.id || `menu-item-${index + 1}`,
+      label: item.label || `Menu Item ${index + 1}`,
+      icon: item.icon || '📄',
+      type: item.type || 'route',
+      path: item.path || '/',
+      requiresRole: item.requiresRole || null,
+      description: item.description || 'Generated menu item',
+    }))
+
+    const processedMenu = {
+      ...result.menuSuggestion,
+      items: processedItems,
+    }
+
+    console.log('✅ Successfully generated menu:', processedMenu)
+
+    return createResponse(
+      JSON.stringify({
+        menuSuggestion: processedMenu,
+        pageRecommendations: result.pageRecommendations || [],
+        audienceInsights: result.audienceInsights || {},
+        metadata: {
+          sourceNodes: graphNodes.length,
+          analysedCategories: categories,
+          analysedMetaAreas: metaAreas,
+          generatedAt: new Date().toISOString(),
+          model: 'grok-3-beta',
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('Error in handleAIGenerateMenu:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
+  }
+}
+
 // --- AI Generate Quotes Endpoint ---
 const handleAIGenerateQuotes = async (request, env) => {
   try {
@@ -5583,6 +5763,9 @@ export default {
 
     if (pathname === '/ai-generate-node' && request.method === 'POST') {
       return await handleAIGenerateNode(request, env)
+    }
+    if (pathname === '/ai-generate-menu' && request.method === 'POST') {
+      return await handleAIGenerateMenu(request, env)
     }
 
     if (pathname === '/ai-generate-quotes' && request.method === 'POST') {
