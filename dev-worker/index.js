@@ -2172,6 +2172,7 @@ Return ONLY the social media summary text, no explanations or metadata.`
             markdown,
             youtubeUrl,
             aiProvider,
+            language,
             scriptStyle,
             targetDuration,
             includeTimestamps,
@@ -2179,6 +2180,7 @@ Return ONLY the social media summary text, no explanations or metadata.`
           } = requestBody
 
           console.log('[Worker] Request data:', JSON.stringify(requestBody, null, 2))
+          console.log('[Worker] Language selected:', language || 'english')
 
           if (!markdown) {
             console.log('[Worker] ERROR: Missing markdown')
@@ -2218,7 +2220,38 @@ Return ONLY the social media summary text, no explanations or metadata.`
             videoId = urlMatch ? urlMatch[1] : ''
           }
 
-          const finalPrompt = `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
+          // Create language-specific prompt
+          const isNorwegian = language === 'norwegian'
+          const finalPrompt = isNorwegian
+            ? `Du er en profesjonell YouTube-skaper og manusforfatter. Generer et omfattende, engasjerende YouTube-manus basert på følgende dokumentasjon:
+
+DOKUMENTASJON:
+${markdown}
+
+VIDEOSTIL: ${scriptStyle || 'tutorial'}
+MÅLVARIGHET: ${targetDuration || '5-10 minutter'}
+YOUTUBE URL: ${youtubeUrl || 'Ikke oppgitt'}
+
+KRAV:
+1. **Huk (Første 15 sekunder)** - Fang oppmerksomhet umiddelbart
+2. **Verdiløfte** - Fortell seerne hva de vil lære
+3. **Strukturerte seksjoner** med klare overganger
+4. **Engasjementselementer** - Abonner-påminnelser, kommentarer, liker
+5. **Handling-til-handling** - Veilede seere til neste steg
+6. **YouTube beste praksis** - Retensjonsfokusert skriving
+
+${includeTimestamps ? 'INKLUDER TIDSSTEMPLER: Legg til [0:00], [1:30], etc. for YouTube-kapitler' : ''}
+${includeEngagement ? 'INKLUDER ENGASJEMENT: Legg til abonner-oppfordringer, like-påminnelser, kommentarspørsmål' : ''}
+
+FORMAT:
+- Profesjonell, samtaleaktig tone
+- Klare seksjonsoverskrifter
+- Handlingsrettet innhold
+- Seer-fokusert språk ("du vil lære", "la meg vise deg")
+- Naturlige overganger mellom seksjoner
+
+Generer et komplett, klart-til-bruk YouTube-manus som ville fungere godt for pedagogisk innhold om den dokumenterte funksjonen eller systemet. Skriv HELE manuset på norsk.`
+            : `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
 
 DOCUMENTATION:
 ${markdown}
@@ -2253,8 +2286,9 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
             messages: [
               {
                 role: 'system',
-                content:
-                  'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+                content: isNorwegian
+                  ? 'Du er en profesjonell YouTube-skaper og manusforfatter. Lag engasjerende, pedagogiske manus som holder seere interesserte og lærer dem noe.'
+                  : 'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
               },
               {
                 role: 'user',
@@ -2281,6 +2315,7 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
               script: generatedScript,
               videoId: videoId,
               provider: 'dev-worker',
+              language: language || 'english',
               timestamp: new Date().toISOString(),
             }),
             {
