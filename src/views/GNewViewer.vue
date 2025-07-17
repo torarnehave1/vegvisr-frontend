@@ -342,6 +342,42 @@
                       type="button"
                     ></button>
                   </div>
+
+                  <!-- Expand Palette Button -->
+                  <div class="palette-toggle">
+                    <button
+                      @click="showExpandedPalette = !showExpandedPalette"
+                      class="btn btn-sm btn-outline-secondary"
+                      type="button"
+                    >
+                      <i
+                        :class="showExpandedPalette ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"
+                      ></i>
+                      {{ showExpandedPalette ? 'Hide' : 'Show' }} Full Color Wheel
+                    </button>
+                  </div>
+
+                  <!-- Expanded Color Categories (Color Wheel Style) -->
+                  <div v-if="showExpandedPalette" class="expanded-colors">
+                    <div
+                      v-for="category in colorCategories"
+                      :key="category.name"
+                      class="color-category"
+                    >
+                      <h6 class="category-title">{{ category.name }}</h6>
+                      <div class="color-category-grid">
+                        <button
+                          v-for="color in category.colors"
+                          :key="color.hex"
+                          @click="selectQuickColor(color.hex)"
+                          class="category-color-btn"
+                          :style="{ backgroundColor: color.hex }"
+                          :title="color.name + ' (' + color.hex + ')'"
+                          type="button"
+                        ></button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <small class="form-text text-muted">
                   Select a color and click "Insert Color" to add it at your cursor position
@@ -1195,16 +1231,138 @@ const savingNode = ref(false)
 
 // Color picker functionality
 const selectedColor = ref('#2c3e50')
+const showExpandedPalette = ref(false)
+
+// Organized color categories based on color wheel principles
+const colorCategories = ref([
+  {
+    name: 'Reds',
+    colors: [
+      { name: 'Deep Red', hex: '#8B0000' },
+      { name: 'Crimson', hex: '#DC143C' },
+      { name: 'Red', hex: '#FF0000' },
+      { name: 'Light Red', hex: '#FF6B6B' },
+      { name: 'Pink', hex: '#FF69B4' },
+      { name: 'Light Pink', hex: '#FFB6C1' },
+    ],
+  },
+  {
+    name: 'Oranges',
+    colors: [
+      { name: 'Dark Orange', hex: '#FF8C00' },
+      { name: 'Orange', hex: '#FFA500' },
+      { name: 'Light Orange', hex: '#FFB347' },
+      { name: 'Peach', hex: '#FFCBA4' },
+      { name: 'Coral', hex: '#FF7F50' },
+      { name: 'Salmon', hex: '#FA8072' },
+    ],
+  },
+  {
+    name: 'Yellows',
+    colors: [
+      { name: 'Dark Yellow', hex: '#FFD700' },
+      { name: 'Yellow', hex: '#FFFF00' },
+      { name: 'Light Yellow', hex: '#FFFFE0' },
+      { name: 'Gold', hex: '#B8860B' },
+      { name: 'Khaki', hex: '#F0E68C' },
+      { name: 'Cream', hex: '#FFFDD0' },
+    ],
+  },
+  {
+    name: 'Greens',
+    colors: [
+      { name: 'Dark Green', hex: '#006400' },
+      { name: 'Forest Green', hex: '#228B22' },
+      { name: 'Green', hex: '#008000' },
+      { name: 'Lime', hex: '#00FF00' },
+      { name: 'Light Green', hex: '#90EE90' },
+      { name: 'Mint', hex: '#98FB98' },
+    ],
+  },
+  {
+    name: 'Blues',
+    colors: [
+      { name: 'Navy', hex: '#000080' },
+      { name: 'Dark Blue', hex: '#00008B' },
+      { name: 'Blue', hex: '#0000FF' },
+      { name: 'Royal Blue', hex: '#4169E1' },
+      { name: 'Sky Blue', hex: '#87CEEB' },
+      { name: 'Light Blue', hex: '#ADD8E6' },
+    ],
+  },
+  {
+    name: 'Purples',
+    colors: [
+      { name: 'Indigo', hex: '#4B0082' },
+      { name: 'Purple', hex: '#800080' },
+      { name: 'Violet', hex: '#8A2BE2' },
+      { name: 'Magenta', hex: '#FF00FF' },
+      { name: 'Lavender', hex: '#E6E6FA' },
+      { name: 'Plum', hex: '#DDA0DD' },
+    ],
+  },
+  {
+    name: 'Neutrals',
+    colors: [
+      { name: 'Black', hex: '#000000' },
+      { name: 'Dark Gray', hex: '#2F2F2F' },
+      { name: 'Gray', hex: '#808080' },
+      { name: 'Light Gray', hex: '#D3D3D3' },
+      { name: 'Silver', hex: '#C0C0C0' },
+      { name: 'White', hex: '#FFFFFF' },
+    ],
+  },
+  {
+    name: 'Web Safe',
+    colors: [
+      { name: 'Bootstrap Primary', hex: '#007bff' },
+      { name: 'Bootstrap Success', hex: '#28a745' },
+      { name: 'Bootstrap Warning', hex: '#ffc107' },
+      { name: 'Bootstrap Danger', hex: '#dc3545' },
+      { name: 'Bootstrap Info', hex: '#17a2b8' },
+      { name: 'Bootstrap Dark', hex: '#343a40' },
+    ],
+  },
+  {
+    name: 'Color Wheel Spectrum',
+    colors: [
+      { name: 'Crimson Red', hex: '#dd3371' },
+      { name: 'Coral Red', hex: '#ef3c42' },
+      { name: 'Orange Red', hex: '#f25e40' },
+      { name: 'Light Orange', hex: '#f2823a' },
+      { name: 'Golden Orange', hex: '#f69537' },
+      { name: 'Amber', hex: '#f4aa2f' },
+      { name: 'Golden Yellow', hex: '#f6c137' },
+      { name: 'Bright Yellow', hex: '#fad435' },
+      { name: 'Lime Yellow', hex: '#dff429' },
+      { name: 'Spring Green', hex: '#a7d52a' },
+      { name: 'Forest Green', hex: '#79c725' },
+      { name: 'Teal Green', hex: '#53c025' },
+      { name: 'Aqua Teal', hex: '#52c67f' },
+      { name: 'Sky Blue', hex: '#44aecf' },
+      { name: 'Ocean Blue', hex: '#4592ca' },
+      { name: 'Royal Blue', hex: '#3f77c4' },
+      { name: 'Deep Blue', hex: '#3a57bf' },
+      { name: 'Navy Blue', hex: '#3438bd' },
+      { name: 'Purple Blue', hex: '#4b27bd' },
+      { name: 'Violet', hex: '#7328b6' },
+      { name: 'Magenta', hex: '#b528c5' },
+      { name: 'Pink Purple', hex: '#c32a94' },
+    ],
+  },
+])
+
+// Quick access colors (most commonly used)
 const quickColors = ref([
-  { name: 'Dark Blue', hex: '#2c3e50' },
-  { name: 'Green', hex: '#27ae60' },
-  { name: 'Blue', hex: '#3498db' },
-  { name: 'Purple', hex: '#9b59b6' },
-  { name: 'Orange', hex: '#e67e22' },
-  { name: 'Red', hex: '#e74c3c' },
-  { name: 'Dark Gray', hex: '#34495e' },
-  { name: 'Light Gray', hex: '#95a5a6' },
-  { name: 'Yellow', hex: '#f1c40f' },
+  { name: 'Deep Blue', hex: '#2c3e50' },
+  { name: 'Emerald', hex: '#27ae60' },
+  { name: 'Peter River', hex: '#3498db' },
+  { name: 'Amethyst', hex: '#9b59b6' },
+  { name: 'Carrot', hex: '#e67e22' },
+  { name: 'Alizarin', hex: '#e74c3c' },
+  { name: 'Wet Asphalt', hex: '#34495e' },
+  { name: 'Concrete', hex: '#95a5a6' },
+  { name: 'Sun Flower', hex: '#f1c40f' },
   { name: 'Turquoise', hex: '#1abc9c' },
   { name: 'Black', hex: '#000000' },
   { name: 'White', hex: '#ffffff' },
@@ -4144,6 +4302,126 @@ const handleEscKey = (event) => {
 
 .quick-color-btn[style*='ffffff']:hover {
   border-color: #007bff;
+}
+
+/* Palette Toggle */
+.palette-toggle {
+  margin-top: 15px;
+  text-align: center;
+  border-top: 1px solid #dee2e6;
+  padding-top: 15px;
+}
+
+.palette-toggle button {
+  transition: all 0.2s ease;
+}
+
+.palette-toggle button:hover {
+  transform: translateY(-1px);
+}
+
+/* Expanded Color Categories */
+.expanded-colors {
+  margin-top: 20px;
+  border-top: 1px solid #dee2e6;
+  padding-top: 20px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.color-category {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.category-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.color-category-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+/* Special layout for the Color Wheel Spectrum */
+.color-category:has(.category-title:contains('Color Wheel Spectrum')) .color-category-grid,
+.color-category:nth-child(9) .color-category-grid {
+  grid-template-columns: repeat(11, 1fr);
+  gap: 4px;
+}
+
+.category-color-btn {
+  width: 40px;
+  height: 40px;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.category-color-btn:hover {
+  border-color: #007bff;
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+  z-index: 10;
+}
+
+.category-color-btn:active {
+  transform: scale(1.05);
+}
+
+/* Special handling for light colors to ensure visibility */
+.category-color-btn[style*='ffffff'],
+.category-color-btn[style*='FFFFFF'],
+.category-color-btn[style*='FFFFE0'],
+.category-color-btn[style*='FFFDD0'],
+.category-color-btn[style*='FFCBA4'],
+.category-color-btn[style*='FFB6C1'],
+.category-color-btn[style*='ADD8E6'],
+.category-color-btn[style*='E6E6FA'],
+.category-color-btn[style*='DDA0DD'] {
+  border-color: #adb5bd;
+}
+
+.category-color-btn[style*='ffffff']:hover,
+.category-color-btn[style*='FFFFFF']:hover,
+.category-color-btn[style*='FFFFE0']:hover,
+.category-color-btn[style*='FFFDD0']:hover,
+.category-color-btn[style*='FFCBA4']:hover,
+.category-color-btn[style*='FFB6C1']:hover,
+.category-color-btn[style*='ADD8E6']:hover,
+.category-color-btn[style*='E6E6FA']:hover,
+.category-color-btn[style*='DDA0DD']:hover {
+  border-color: #007bff;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .color-category-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  .category-color-btn {
+    width: 35px;
+    height: 35px;
+  }
 }
 
 /* IMAGEQUOTE Creator Modal */
