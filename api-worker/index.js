@@ -2804,22 +2804,43 @@ const handleAIGenerateMenu = async (request, env) => {
       return createErrorResponse('Missing or invalid graphData parameter', 400)
     }
 
-    // Analyze graph content and metadata
+    // 1. Fetch available node types from graphTemplates table
+    console.log('Fetching available node types from database...')
+    const availableNodeTypes = []
+    try {
+      const templatesQuery = `SELECT id, name, nodes FROM graphTemplates`
+      const templatesResult = await env.vegvisr_org.prepare(templatesQuery).all()
+
+      for (const template of templatesResult.results || []) {
+        try {
+          const templateNodes = JSON.parse(template.nodes || '[]')
+          if (templateNodes.length > 0) {
+            const nodeType = templateNodes[0].type
+            if (nodeType) {
+              availableNodeTypes.push({
+                nodeType: nodeType,
+                name: template.name,
+                id: template.id,
+              })
+            }
+          }
+        } catch (e) {
+          console.warn(`Error parsing template ${template.id}:`, e.message)
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching node types:', error)
+    }
+
+    console.log(
+      'Available node types:',
+      availableNodeTypes.map((t) => t.nodeType),
+    )
+
+    // 2. Query similar graphs by category and metaArea
     const graphMetadata = graphData.metadata || {}
     const graphNodes = graphData.nodes || []
 
-    // Extract content themes from nodes
-    const contentThemes = graphNodes
-      .filter((node) => node.visible !== false && node.info)
-      .map((node) => ({
-        label: node.label || 'Untitled',
-        type: node.type || 'default',
-        content: node.info.substring(0, 200) + '...',
-        hasContent: !!node.info,
-      }))
-      .slice(0, 10) // Limit to avoid token limits
-
-    // Extract categories and meta areas
     const categories = graphMetadata.category
       ? graphMetadata.category
           .split('#')
@@ -2833,7 +2854,88 @@ const handleAIGenerateMenu = async (request, env) => {
           .filter((m) => m)
       : []
 
-    // Build context-aware prompt
+    console.log('Current graph categories:', categories)
+    console.log('Current graph metaAreas:', metaAreas)
+
+    // Find similar graphs
+    const similarGraphs = []
+    if (categories.length > 0 || metaAreas.length > 0) {
+      try {
+        const graphsQuery = `SELECT id, title, data FROM knowledge_graphs LIMIT 100`
+        const graphsResult = await env.vegvisr_org.prepare(graphsQuery).all()
+
+        for (const graph of graphsResult.results || []) {
+          try {
+            const graphData = JSON.parse(graph.data || '{}')
+            const graphMetadata = graphData.metadata || {}
+
+            const graphCategories = graphMetadata.category
+              ? graphMetadata.category
+                  .split('#')
+                  .map((c) => c.trim())
+                  .filter((c) => c)
+              : []
+            const graphMetaAreas = graphMetadata.metaArea
+              ? graphMetadata.metaArea
+                  .split('#')
+                  .map((m) => m.trim())
+                  .filter((m) => m)
+              : []
+
+            // Check for overlap in categories or metaAreas
+            const categoryOverlap = categories.some((cat) =>
+              graphCategories.some((gc) => gc.toLowerCase().includes(cat.toLowerCase())),
+            )
+            const metaAreaOverlap = metaAreas.some((meta) =>
+              graphMetaAreas.some((gm) => gm.toLowerCase().includes(meta.toLowerCase())),
+            )
+
+            if (categoryOverlap || metaAreaOverlap) {
+              similarGraphs.push({
+                id: graph.id,
+                title: graph.title,
+                categories: graphCategories,
+                metaAreas: graphMetaAreas,
+              })
+            }
+          } catch (e) {
+            console.warn(`Error parsing graph ${graph.id}:`, e.message)
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching similar graphs:', error)
+      }
+    }
+
+    console.log('Found similar graphs:', similarGraphs.length)
+    console.log('Similar graphs:', similarGraphs.map((g) => `${g.title} (${g.id})`).join(', '))
+
+    // 3. Extract content themes from current graph
+    const contentThemes = graphNodes
+      .filter((node) => node.visible !== false && node.info)
+      .map((node) => ({
+        label: node.label || 'Untitled',
+        type: node.type || 'default',
+        content: node.info.substring(0, 200) + '...',
+        hasContent: !!node.info,
+      }))
+      .slice(0, 10) // Limit to avoid token limits
+
+    // 4. Define available routes
+    const availableRoutes = [
+      { path: '/', label: 'Home', icon: '🏠' },
+      { path: '/graph-editor', label: 'Editor', icon: '✏️' },
+      { path: '/graph-canvas', label: 'Canvas', icon: '🎨' },
+      { path: '/graph-portfolio', label: 'Portfolio', icon: '📁' },
+      { path: '/graph-viewer', label: 'Viewer', icon: '👁️' },
+      { path: '/search', label: 'Search', icon: '🔍' },
+      { path: '/user', label: 'Dashboard', icon: '📊' },
+      { path: '/github-issues', label: 'Roadmap', icon: '🗺️' },
+      { path: '/gnew-viewer', label: 'GNew Viewer', icon: '🧪', requiresRole: ['Superadmin'] },
+      { path: '/sandbox', label: 'Sandbox', icon: '🔧', requiresRole: ['Superadmin'] },
+    ]
+
+    // Build context-aware prompt with grounded system data
     const contextPrompt = `Based on the following knowledge graph content, generate a smart, context-aware menu structure that helps users navigate and discover related content.
 
 GRAPH ANALYSIS:
@@ -2847,17 +2949,35 @@ GRAPH ANALYSIS:
 CONTENT SAMPLE:
 ${contentThemes.map((theme) => `- ${theme.label}: ${theme.content}`).join('\n')}
 
+SIMILAR GRAPHS IN THE SYSTEM (${similarGraphs.length} found):
+${similarGraphs
+  .slice(0, 5)
+  .map(
+    (graph, i) =>
+      `${i + 1}. "${graph.title}" (ID: ${graph.id}) - Categories: ${graph.categories.join(', ')} - Meta Areas: ${graph.metaAreas.join(', ')}`,
+  )
+  .join('\n')}
+
+AVAILABLE ROUTES (only use these exact paths):
+${availableRoutes.map((route) => `- ${route.path} (${route.label}) ${route.icon}${route.requiresRole ? ' - Requires: ' + route.requiresRole.join(', ') : ''}`).join('\n')}
+
+AVAILABLE NODE TYPES FOR TEMPLATE-SELECTOR (only use these exact nodeTypes):
+${availableNodeTypes.map((type) => `- ${type.nodeType} (${type.name})`).join('\n')}
+
 ${userRequest ? `\nUSER REQUEST: ${userRequest}` : ''}
 
 CURRENT MENU (if any):
 ${currentMenuData ? JSON.stringify(currentMenuData, null, 2) : 'No current menu'}
 
-REQUIREMENTS:
-1. Generate a menu structure that reflects the graph's content and themes
-2. Include navigation items that help users explore related concepts
-3. Suggest complementary pages/graphs that would enhance the user experience
-4. Consider the target audience based on meta areas and categories
-5. Provide icons that match the content themes
+CRITICAL REQUIREMENTS:
+1. Menu items can ONLY use these types: "route", "graph-link", "template-selector", "external"
+2. For "route" type: ONLY use paths from the AVAILABLE ROUTES list above
+3. For "graph-link" type: ONLY use graph IDs from the SIMILAR GRAPHS list above
+4. For "template-selector" type: ONLY use nodeTypes from the AVAILABLE NODE TYPES list above
+5. For "external" type: Use valid external URLs
+6. DO NOT invent functionality that doesn't exist
+7. Focus on content themes and actual available similar graphs
+8. Ensure all menu items are grounded in reality
 
 Return a JSON object with this structure:
 {
@@ -2870,8 +2990,11 @@ Return a JSON object with this structure:
         "id": "unique-id",
         "label": "Menu Item Label",
         "icon": "🏠",
-        "type": "route|external|template-selector",
-        "path": "/suggested-path",
+        "type": "route|graph-link|template-selector|external",
+        "path": "/exact-path-from-available-routes",
+        "graphId": "exact-graph-id-from-similar-graphs",
+        "nodeType": "exact-node-type-from-available-types",
+        "url": "https://external-url.com",
         "requiresRole": null,
         "description": "Why this menu item is relevant"
       }
@@ -2886,14 +3009,14 @@ Return a JSON object with this structure:
   "pageRecommendations": [
     {
       "title": "Suggested Page Title",
-      "description": "Why this page would be valuable",
+      "description": "Why this page would be valuable based on similar graphs and content",
       "estimatedContent": "Brief description of what this page should contain",
       "targetAudience": "Who would benefit from this page",
       "priority": "high|medium|low"
     }
   ],
   "audienceInsights": {
-    "primaryAudience": "Identified primary audience",
+    "primaryAudience": "Identified primary audience based on categories and meta areas",
     "contentComplexity": "beginner|intermediate|advanced",
     "suggestedNavigationFlow": "How users should navigate through the content"
   }
@@ -2915,7 +3038,7 @@ Return a JSON object with this structure:
         {
           role: 'system',
           content:
-            'You are an expert UX designer and information architect specializing in knowledge graphs and user navigation. You excel at creating intuitive menu structures that guide users through complex content and suggest valuable related resources.',
+            'You are an expert UX designer and information architect specializing in knowledge graphs and user navigation. You excel at creating intuitive menu structures that guide users through complex content and suggest valuable related resources. CRITICAL: You MUST ONLY use the exact paths, graph IDs, and node types provided in the context. DO NOT invent functionality that does not exist. Ground all suggestions in the actual available system capabilities.',
         },
         { role: 'user', content: contextPrompt },
       ],
@@ -2930,16 +3053,74 @@ Return a JSON object with this structure:
       throw new Error('Invalid AI response: missing menuSuggestion or items')
     }
 
-    // Ensure each menu item has required fields
-    const processedItems = result.menuSuggestion.items.map((item, index) => ({
-      id: item.id || `menu-item-${index + 1}`,
-      label: item.label || `Menu Item ${index + 1}`,
-      icon: item.icon || '📄',
-      type: item.type || 'route',
-      path: item.path || '/',
-      requiresRole: item.requiresRole || null,
-      description: item.description || 'Generated menu item',
-    }))
+    // Validate and process each menu item to ensure it uses real functionality
+    const processedItems = result.menuSuggestion.items
+      .map((item, index) => {
+        const processed = {
+          id: item.id || `menu-item-${index + 1}`,
+          label: item.label || `Menu Item ${index + 1}`,
+          icon: item.icon || '📄',
+          type: item.type || 'route',
+          requiresRole: item.requiresRole || null,
+          description: item.description || 'Generated menu item',
+        }
+
+        // Validate based on menu item type
+        switch (item.type) {
+          case 'route':
+            // Validate path is in available routes
+            const validRoute = availableRoutes.find((route) => route.path === item.path)
+            if (validRoute) {
+              processed.path = item.path
+              processed.requiresRole = validRoute.requiresRole || null
+            } else {
+              console.warn(`Invalid route path: ${item.path}, defaulting to /`)
+              processed.path = '/'
+            }
+            break
+
+          case 'graph-link':
+            // Validate graph ID is in similar graphs
+            const validGraph = similarGraphs.find((graph) => graph.id === item.graphId)
+            if (validGraph) {
+              processed.graphId = item.graphId
+            } else {
+              console.warn(`Invalid graph ID: ${item.graphId}, removing item`)
+              return null // Remove invalid items
+            }
+            break
+
+          case 'template-selector':
+            // Validate node type is in available node types
+            const validNodeType = availableNodeTypes.find((type) => type.nodeType === item.nodeType)
+            if (validNodeType) {
+              processed.nodeType = item.nodeType
+            } else {
+              console.warn(`Invalid node type: ${item.nodeType}, removing item`)
+              return null // Remove invalid items
+            }
+            break
+
+          case 'external':
+            // Validate URL format
+            if (item.url && (item.url.startsWith('http://') || item.url.startsWith('https://'))) {
+              processed.url = item.url
+            } else {
+              console.warn(`Invalid external URL: ${item.url}, removing item`)
+              return null // Remove invalid items
+            }
+            break
+
+          default:
+            console.warn(`Unknown menu item type: ${item.type}, defaulting to route`)
+            processed.type = 'route'
+            processed.path = '/'
+            break
+        }
+
+        return processed
+      })
+      .filter((item) => item !== null) // Remove null items (invalid ones)
 
     const processedMenu = {
       ...result.menuSuggestion,
@@ -2947,6 +3128,11 @@ Return a JSON object with this structure:
     }
 
     console.log('✅ Successfully generated menu:', processedMenu)
+    console.log('✅ Validation results:', {
+      originalItems: result.menuSuggestion.items.length,
+      validatedItems: processedItems.length,
+      removedItems: result.menuSuggestion.items.length - processedItems.length,
+    })
 
     return createResponse(
       JSON.stringify({

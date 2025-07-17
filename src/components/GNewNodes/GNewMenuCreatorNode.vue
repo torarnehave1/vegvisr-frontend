@@ -168,7 +168,7 @@
 
         <!-- AI Menu Suggestions Modal -->
         <div v-if="showAiSuggestions" class="ai-suggestions-modal">
-          <div class="modal-backdrop"></div>
+          <div class="modal-backdrop" @click="closeAiSuggestions"></div>
           <div class="modal-content">
             <div class="modal-header">
               <h4>🤖 AI Menu Suggestions</h4>
@@ -775,8 +775,12 @@ const handleClickOutside = (event) => {
 
 // ESC key handler
 const handleEscKey = (event) => {
-  if (event.key === 'Escape' && isMenuOpen.value) {
-    isMenuOpen.value = false
+  if (event.key === 'Escape') {
+    if (showAiSuggestions.value) {
+      closeAiSuggestions()
+    } else if (isMenuOpen.value) {
+      isMenuOpen.value = false
+    }
   }
 }
 
@@ -1251,6 +1255,7 @@ watch(
   height: 100%;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(3px);
+  z-index: 1000;
 }
 
 .modal-content {
@@ -1262,6 +1267,7 @@ watch(
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  z-index: 1001;
 }
 
 .modal-header {
