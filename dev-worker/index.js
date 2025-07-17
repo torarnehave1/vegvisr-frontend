@@ -2163,6 +2163,146 @@ Return ONLY the social media summary text, no explanations or metadata.`
         }
       }
 
+      if (pathname === '/generate-youtube-script' && request.method === 'POST') {
+        try {
+          console.log('[Worker] ========== YOUTUBE SCRIPT GENERATION ==========')
+
+          const requestBody = await request.json()
+          const {
+            markdown,
+            youtubeUrl,
+            aiProvider,
+            scriptStyle,
+            targetDuration,
+            includeTimestamps,
+            includeEngagement,
+          } = requestBody
+
+          console.log('[Worker] Request data:', JSON.stringify(requestBody, null, 2))
+
+          if (!markdown) {
+            console.log('[Worker] ERROR: Missing markdown')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'Missing required parameter: markdown',
+              }),
+              {
+                status: 400,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          // Check if Cloudflare AI binding is available
+          if (!env.AI) {
+            console.error('[Worker] ERROR: AI binding not available')
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'AI binding not configured',
+              }),
+              {
+                status: 500,
+                headers: corsHeaders,
+              },
+            )
+          }
+
+          // Extract YouTube video ID from URL
+          let videoId = ''
+          if (youtubeUrl) {
+            const urlMatch = youtubeUrl.match(
+              /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+            )
+            videoId = urlMatch ? urlMatch[1] : ''
+          }
+
+          const finalPrompt = `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
+
+DOCUMENTATION:
+${markdown}
+
+VIDEO STYLE: ${scriptStyle || 'tutorial'}
+TARGET DURATION: ${targetDuration || '5-10 minutes'}
+YOUTUBE URL: ${youtubeUrl || 'Not provided'}
+
+REQUIREMENTS:
+1. **Hook (First 15 seconds)** - Grab attention immediately
+2. **Value Promise** - Tell viewers what they'll learn
+3. **Structured Sections** with clear transitions
+4. **Engagement Elements** - Subscribe reminders, comments, likes
+5. **Call-to-Actions** - Guide viewers to next steps
+6. **YouTube Best Practices** - Retention-focused writing
+
+${includeTimestamps ? 'INCLUDE TIMESTAMPS: Add [0:00], [1:30], etc. for YouTube chapters' : ''}
+${includeEngagement ? 'INCLUDE ENGAGEMENT: Add subscribe prompts, like reminders, comment questions' : ''}
+
+FORMAT:
+- Professional, conversational tone
+- Clear section headings
+- Actionable content
+- Viewer-focused language ("you'll learn", "let me show you")
+- Natural transitions between sections
+
+Generate a complete, ready-to-use YouTube script that would work well for educational content about the documented feature or system.`
+
+          console.log('[Worker] Sending prompt to AI:', finalPrompt.substring(0, 200) + '...')
+
+          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+              },
+              {
+                role: 'user',
+                content: finalPrompt,
+              },
+            ],
+            max_tokens: 2048,
+            temperature: 0.7,
+          })
+
+          console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
+
+          let generatedScript = ''
+          if (aiResponse && aiResponse.response) {
+            generatedScript = aiResponse.response.trim()
+            console.log('[Worker] Generated script length:', generatedScript.length)
+          } else {
+            throw new Error('AI did not return valid response')
+          }
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              script: generatedScript,
+              videoId: videoId,
+              provider: 'dev-worker',
+              timestamp: new Date().toISOString(),
+            }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] YouTube script generation error:', error)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `YouTube script generation failed: ${error.message}`,
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            },
+          )
+        }
+      }
+
       if (pathname === '/generate-worker-ai' && request.method === 'POST') {
         try {
           console.log('[Worker] ========== CLEAN SLATE AI GENERATION ==========')

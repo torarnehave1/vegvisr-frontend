@@ -4841,6 +4841,147 @@ Please generate only the JavaScript code for the worker, without any markdown fo
   }
 }
 
+// --- YouTube Script Generation Handler ---
+const handleGenerateYouTubeScript = async (request, env) => {
+  try {
+    const body = await request.json()
+    const {
+      markdown,
+      youtubeUrl,
+      aiProvider,
+      scriptStyle,
+      targetDuration,
+      includeTimestamps,
+      includeEngagement,
+    } = body
+
+    if (!markdown) {
+      return createErrorResponse('Missing required parameter: markdown', 400)
+    }
+
+    // Extract YouTube video ID from URL
+    let videoId = ''
+    if (youtubeUrl) {
+      const urlMatch = youtubeUrl.match(
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+      )
+      videoId = urlMatch ? urlMatch[1] : ''
+    }
+
+    const finalPrompt = `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
+
+DOCUMENTATION:
+${markdown}
+
+VIDEO STYLE: ${scriptStyle || 'tutorial'}
+TARGET DURATION: ${targetDuration || '5-10 minutes'}
+YOUTUBE URL: ${youtubeUrl || 'Not provided'}
+
+REQUIREMENTS:
+1. **Hook (First 15 seconds)** - Grab attention immediately
+2. **Value Promise** - Tell viewers what they'll learn
+3. **Structured Sections** with clear transitions
+4. **Engagement Elements** - Subscribe reminders, comments, likes
+5. **Call-to-Actions** - Guide viewers to next steps
+6. **YouTube Best Practices** - Retention-focused writing
+
+${includeTimestamps ? 'INCLUDE TIMESTAMPS: Add [0:00], [1:30], etc. for YouTube chapters' : ''}
+${includeEngagement ? 'INCLUDE ENGAGEMENT: Add subscribe prompts, like reminders, comment questions' : ''}
+
+FORMAT:
+- Professional, conversational tone
+- Clear section headings
+- Actionable content
+- Viewer-focused language ("you'll learn", "let me show you")
+- Natural transitions between sections
+
+Generate a complete, ready-to-use YouTube script that would work well for educational content about the documented feature or system.`
+
+    let apiKey, result
+
+    // Determine AI provider (default to grok if not specified)
+    const provider = aiProvider === 'dev-worker' ? 'grok' : aiProvider || 'grok'
+
+    // Call the appropriate AI model
+    switch (provider) {
+      case 'grok':
+        apiKey = env.XAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('XAI API key not configured', 500)
+        }
+
+        const grokClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.x.ai/v1',
+        })
+
+        const grokCompletion = await grokClient.chat.completions.create({
+          model: 'grok-3-beta',
+          temperature: 0.7,
+          max_tokens: 2000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = grokCompletion.choices[0].message.content.trim()
+        break
+
+      case 'openai':
+        apiKey = env.OPENAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('OpenAI API key not configured', 500)
+        }
+
+        const openaiClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.openai.com/v1',
+        })
+
+        const openaiCompletion = await openaiClient.chat.completions.create({
+          model: 'gpt-4',
+          temperature: 0.7,
+          max_tokens: 2000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = openaiCompletion.choices[0].message.content.trim()
+        break
+
+      default:
+        return createErrorResponse('Invalid AI provider specified', 400)
+    }
+
+    // Clean up the generated script
+    const cleanScript = result.trim()
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        script: cleanScript,
+        videoId: videoId,
+        provider: provider,
+        timestamp: new Date().toISOString(),
+      }),
+    )
+  } catch (error) {
+    console.error('YouTube script generation error:', error)
+    return createErrorResponse(`YouTube script generation failed: ${error.message}`, 500)
+  }
+}
+
 // Removed handleCreateSandboxBrandDomain - using direct API calls instead
 
 // --- Update Sandman Worker Endpoint ---
@@ -5499,6 +5640,10 @@ export default {
 
     if (pathname === '/generate-worker' && request.method === 'POST') {
       return await handleGenerateWorker(request, env)
+    }
+
+    if (pathname === '/generate-youtube-script' && request.method === 'POST') {
+      return await handleGenerateYouTubeScript(request, env)
     }
 
     if (pathname === '/update-sandman' && request.method === 'POST') {
