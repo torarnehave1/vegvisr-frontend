@@ -1,5 +1,17 @@
 <template>
   <div class="gnew-learn-script-node">
+    <!-- Debug: Component is loading -->
+    <div
+      class="debug-info"
+      style="background: #f0f0f0; padding: 10px; margin-bottom: 10px; border-radius: 5px"
+    >
+      <strong>🔍 Debug:</strong> GNewLearnScriptNode component is loading properly
+      <br />
+      <strong>Node Type:</strong> {{ node.type }}
+      <br />
+      <strong>Node Label:</strong> {{ node.label }}
+    </div>
+
     <div class="node-header">
       <h3 class="node-title">🎓 Learning Content Creator</h3>
       <p class="node-description">Generate YouTube scripts from markdown documentation</p>
