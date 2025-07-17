@@ -365,7 +365,8 @@
                         class="btn btn-outline-primary btn-sm me-2"
                         @click="openMenuTemplateCreator"
                       >
-                        <i class="fas fa-plus"></i> Create Template
+                        <i :class="formData.menuConfig.selectedTemplate ? 'fas fa-edit' : 'fas fa-plus'"></i> 
+                        {{ formData.menuConfig.selectedTemplate ? 'Edit Template' : 'Create Template' }}
                       </button>
                       <button
                         type="button"
