@@ -4849,6 +4849,7 @@ const handleGenerateYouTubeScript = async (request, env) => {
       markdown,
       youtubeUrl,
       aiProvider,
+      language,
       scriptStyle,
       targetDuration,
       includeTimestamps,
@@ -4868,7 +4869,38 @@ const handleGenerateYouTubeScript = async (request, env) => {
       videoId = urlMatch ? urlMatch[1] : ''
     }
 
-    const finalPrompt = `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
+    // Create language-specific prompt
+    const isNorwegian = language === 'norwegian'
+    const finalPrompt = isNorwegian
+      ? `Du er en profesjonell YouTube-skaper og manusforfatter. Generer et omfattende, engasjerende YouTube-manus basert på følgende dokumentasjon:
+
+DOKUMENTASJON:
+${markdown}
+
+VIDEOSTIL: ${scriptStyle || 'tutorial'}
+MÅLVARIGHET: ${targetDuration || '5-10 minutter'}
+YOUTUBE URL: ${youtubeUrl || 'Ikke oppgitt'}
+
+KRAV:
+1. **Huk (Første 15 sekunder)** - Fang oppmerksomhet umiddelbart
+2. **Verdiløfte** - Fortell seerne hva de vil lære
+3. **Strukturerte seksjoner** med klare overganger
+4. **Engasjementselementer** - Abonner-påminnelser, kommentarer, liker
+5. **Handling-til-handling** - Veilede seere til neste steg
+6. **YouTube beste praksis** - Retensjonsfokusert skriving
+
+${includeTimestamps ? 'INKLUDER TIDSSTEMPLER: Legg til [0:00], [1:30], etc. for YouTube-kapitler' : ''}
+${includeEngagement ? 'INKLUDER ENGASJEMENT: Legg til abonner-oppfordringer, like-påminnelser, kommentarspørsmål' : ''}
+
+FORMAT:
+- Profesjonell, samtaleaktig tone
+- Klare seksjonsoverskrifter
+- Handlingsrettet innhold
+- Seer-fokusert språk ("du vil lære", "la meg vise deg")
+- Naturlige overganger mellom seksjoner
+
+Generer et komplett, klart-til-bruk YouTube-manus som ville fungere godt for pedagogisk innhold om den dokumenterte funksjonen eller systemet. Skriv HELE manuset på norsk.`
+      : `You are a professional YouTube creator and scriptwriter. Generate a comprehensive, engaging YouTube script based on the following documentation:
 
 DOCUMENTATION:
 ${markdown}
@@ -4900,7 +4932,19 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
     let apiKey, result
 
     // Determine AI provider (default to grok if not specified)
-    const provider = aiProvider === 'dev-worker' ? 'grok' : aiProvider || 'grok'
+    // Handle both 'api-worker' and 'dev-worker' as valid provider names
+    let provider = aiProvider
+    if (aiProvider === 'dev-worker' || aiProvider === 'api-worker') {
+      provider = 'grok' // Default to grok for both worker types
+    } else if (!aiProvider) {
+      provider = 'grok' // Default fallback
+    }
+
+    console.log('[Worker] YouTube script generation - AI provider mapping:', {
+      originalProvider: aiProvider,
+      mappedProvider: provider,
+      language: language || 'english',
+    })
 
     // Call the appropriate AI model
     switch (provider) {
@@ -4922,8 +4966,9 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
           messages: [
             {
               role: 'system',
-              content:
-                'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+              content: isNorwegian
+                ? 'Du er en profesjonell YouTube-skaper og manusforfatter. Lag engasjerende, pedagogiske manus som holder seere interesserte og lærer dem noe.'
+                : 'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
             },
             { role: 'user', content: finalPrompt },
           ],
@@ -4950,8 +4995,9 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
           messages: [
             {
               role: 'system',
-              content:
-                'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
+              content: isNorwegian
+                ? 'Du er en profesjonell YouTube-skaper og manusforfatter. Lag engasjerende, pedagogiske manus som holder seere interesserte og lærer dem noe.'
+                : 'You are a professional YouTube creator and scriptwriter. Create engaging, educational scripts that keep viewers watching and learning.',
             },
             { role: 'user', content: finalPrompt },
           ],
@@ -4973,6 +5019,7 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
         script: cleanScript,
         videoId: videoId,
         provider: provider,
+        language: language || 'english',
         timestamp: new Date().toISOString(),
       }),
     )

@@ -1,17 +1,5 @@
 <template>
   <div class="gnew-learn-script-node">
-    <!-- Debug: Component is loading -->
-    <div
-      class="debug-info"
-      style="background: #f0f0f0; padding: 10px; margin-bottom: 10px; border-radius: 5px"
-    >
-      <strong>🔍 Debug:</strong> GNewLearnScriptNode component is loading properly
-      <br />
-      <strong>Node Type:</strong> {{ node.type }}
-      <br />
-      <strong>Node Label:</strong> {{ node.label }}
-    </div>
-
     <div class="node-header">
       <h3 class="node-title">🎓 Learning Content Creator</h3>
       <p class="node-description">Generate YouTube scripts from markdown documentation</p>
@@ -53,6 +41,15 @@
           <select v-model="aiProvider" class="form-control">
             <option value="api-worker">🔥 API Worker (GPT-4/Grok-3 - Better Quality)</option>
             <option value="dev-worker">⚡ Dev Worker (Cloudflare AI - Faster)</option>
+          </select>
+        </div>
+
+        <!-- Language Selection -->
+        <div class="form-group">
+          <label class="form-label">🌍 Language:</label>
+          <select v-model="language" class="form-control">
+            <option value="english">🇬🇧 English</option>
+            <option value="norwegian">🇳🇴 Norwegian</option>
           </select>
         </div>
 
@@ -155,6 +152,7 @@ const emit = defineEmits(['node-created'])
 const markdownContent = ref('')
 const youtubeUrl = ref('')
 const aiProvider = ref('api-worker')
+const language = ref('english')
 const scriptStyle = ref('tutorial')
 const targetDuration = ref('5-10 minutes')
 const includeTimestamps = ref(true)
@@ -186,6 +184,7 @@ const generateScript = async () => {
       endpoint,
       markdownLength: markdownContent.value.length,
       youtubeUrl: youtubeUrl.value,
+      language: language.value,
       scriptStyle: scriptStyle.value,
       targetDuration: targetDuration.value,
     })
@@ -199,6 +198,7 @@ const generateScript = async () => {
         markdown: markdownContent.value,
         youtubeUrl: youtubeUrl.value,
         aiProvider: aiProvider.value,
+        language: language.value,
         scriptStyle: scriptStyle.value,
         targetDuration: targetDuration.value,
         includeTimestamps: includeTimestamps.value,
