@@ -2811,11 +2811,17 @@ const handleAIGenerateMenu = async (request, env) => {
       const templatesQuery = `SELECT id, name, nodes FROM graphTemplates`
       const templatesResult = await env.vegvisr_org.prepare(templatesQuery).all()
 
+      console.log(`Found ${templatesResult.results?.length || 0} templates in database`)
+
       for (const template of templatesResult.results || []) {
         try {
           const templateNodes = JSON.parse(template.nodes || '[]')
+          console.log(`Template ${template.name} has ${templateNodes.length} nodes`)
+
           if (templateNodes.length > 0) {
             const nodeType = templateNodes[0].type
+            console.log(`Template ${template.name} -> nodeType: ${nodeType}`)
+
             if (nodeType) {
               availableNodeTypes.push({
                 nodeType: nodeType,
@@ -2832,10 +2838,10 @@ const handleAIGenerateMenu = async (request, env) => {
       console.error('Error fetching node types:', error)
     }
 
-    console.log(
-      'Available node types:',
-      availableNodeTypes.map((t) => t.nodeType),
-    )
+    console.log('Available node types for template-selector:')
+    availableNodeTypes.forEach((t) => {
+      console.log(`  - ${t.nodeType} (${t.name})`)
+    })
 
     // 2. Query similar graphs by category and metaArea
     const graphMetadata = graphData.metadata || {}
@@ -2964,6 +2970,13 @@ ${availableRoutes.map((route) => `- ${route.path} (${route.label}) ${route.icon}
 AVAILABLE NODE TYPES FOR TEMPLATE-SELECTOR (only use these exact nodeTypes):
 ${availableNodeTypes.map((type) => `- ${type.nodeType} (${type.name})`).join('\n')}
 
+HOW TEMPLATE-SELECTOR WORKS:
+When a user clicks a template-selector menu item, the system:
+1. Fetches templates from the graphTemplates database table
+2. Finds a template where template.nodes[0].type === nodeType
+3. Creates a new node from that template and adds it to the graph
+4. Therefore, the nodeType MUST exactly match a real node type from the list above
+
 ${userRequest ? `\nUSER REQUEST: ${userRequest}` : ''}
 
 CURRENT MENU (if any):
@@ -2978,6 +2991,12 @@ CRITICAL REQUIREMENTS:
 6. DO NOT invent functionality that doesn't exist
 7. Focus on content themes and actual available similar graphs
 8. Ensure all menu items are grounded in reality
+
+EXACT JSON STRUCTURE FOR MENU ITEMS:
+- route: {"type": "route", "path": "/exact-path", "requiresRole": null}
+- graph-link: {"type": "graph-link", "graphId": "exact-graph-id", "requiresRole": null}
+- template-selector: {"type": "template-selector", "nodeType": "exact-node-type", "requiresRole": ["Admin","Superadmin"]}
+- external: {"type": "external", "url": "https://example.com", "requiresRole": null}
 
 Return a JSON object with this structure:
 {
@@ -3095,6 +3114,14 @@ Return a JSON object with this structure:
             const validNodeType = availableNodeTypes.find((type) => type.nodeType === item.nodeType)
             if (validNodeType) {
               processed.nodeType = item.nodeType
+              // Ensure requiresRole is properly formatted as array or null
+              if (item.requiresRole && Array.isArray(item.requiresRole)) {
+                processed.requiresRole = item.requiresRole
+              } else if (item.requiresRole && typeof item.requiresRole === 'string') {
+                processed.requiresRole = [item.requiresRole]
+              } else {
+                processed.requiresRole = ['Admin', 'Superadmin'] // Default for template-selector
+              }
             } else {
               console.warn(`Invalid node type: ${item.nodeType}, removing item`)
               return null // Remove invalid items
