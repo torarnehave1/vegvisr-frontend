@@ -305,6 +305,48 @@
                   autocomplete
                 </small>
               </div>
+
+              <!-- Color Picker Section -->
+              <div class="form-group">
+                <label class="form-label">🎨 Color Picker:</label>
+                <div class="color-picker-container">
+                  <div class="color-picker-row">
+                    <input
+                      type="color"
+                      v-model="selectedColor"
+                      class="color-picker-input"
+                      @input="updateSelectedColor"
+                      title="Pick a custom color"
+                    />
+                    <span class="color-hex-display">{{ selectedColor }}</span>
+                    <button
+                      @click="insertColorAtCursor"
+                      class="btn btn-sm btn-outline-primary"
+                      type="button"
+                      title="Insert color at cursor position"
+                    >
+                      Insert Color
+                    </button>
+                  </div>
+
+                  <!-- Quick Color Palette -->
+                  <div class="quick-colors">
+                    <span class="quick-colors-label">Quick Colors:</span>
+                    <button
+                      v-for="color in quickColors"
+                      :key="color.hex"
+                      @click="selectQuickColor(color.hex)"
+                      class="quick-color-btn"
+                      :style="{ backgroundColor: color.hex }"
+                      :title="color.name"
+                      type="button"
+                    ></button>
+                  </div>
+                </div>
+                <small class="form-text text-muted">
+                  Select a color and click "Insert Color" to add it at your cursor position
+                </small>
+              </div>
             </div>
 
             <div class="modal-footer">
@@ -1150,6 +1192,23 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+
+// Color picker functionality
+const selectedColor = ref('#2c3e50')
+const quickColors = ref([
+  { name: 'Dark Blue', hex: '#2c3e50' },
+  { name: 'Green', hex: '#27ae60' },
+  { name: 'Blue', hex: '#3498db' },
+  { name: 'Purple', hex: '#9b59b6' },
+  { name: 'Orange', hex: '#e67e22' },
+  { name: 'Red', hex: '#e74c3c' },
+  { name: 'Dark Gray', hex: '#34495e' },
+  { name: 'Light Gray', hex: '#95a5a6' },
+  { name: 'Yellow', hex: '#f1c40f' },
+  { name: 'Turquoise', hex: '#1abc9c' },
+  { name: 'Black', hex: '#000000' },
+  { name: 'White', hex: '#ffffff' },
+])
 
 // Sharing functionality
 const showShareModal = ref(false)
@@ -2772,6 +2831,35 @@ const closeNodeEditModal = () => {
   savingNode.value = false
 }
 
+// Color picker methods
+const updateSelectedColor = (event) => {
+  selectedColor.value = event.target.value
+}
+
+const selectQuickColor = (hex) => {
+  selectedColor.value = hex
+}
+
+const insertColorAtCursor = () => {
+  const textarea = nodeContentTextarea.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const value = editingNode.value.info || ''
+
+  // Insert the color hex code at cursor position
+  const newValue = value.slice(0, start) + selectedColor.value + value.slice(end)
+  editingNode.value.info = newValue
+
+  // Restore cursor position after the inserted text
+  nextTick(() => {
+    const newPosition = start + selectedColor.value.length
+    textarea.setSelectionRange(newPosition, newPosition)
+    textarea.focus()
+  })
+}
+
 const saveNodeChanges = async () => {
   if (!editingNode.value.id) {
     console.error('No node ID to save')
@@ -3971,6 +4059,91 @@ const handleEscKey = (event) => {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid #dee2e6;
+}
+
+/* Color Picker Styles */
+.color-picker-container {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 10px;
+}
+
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.color-picker-input {
+  width: 60px;
+  height: 40px;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.color-picker-input:hover {
+  border-color: #007bff;
+}
+
+.color-hex-display {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  background: white;
+  padding: 8px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  min-width: 80px;
+  text-align: center;
+}
+
+.quick-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-colors-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #6c757d;
+  margin-right: 8px;
+}
+
+.quick-color-btn {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #dee2e6;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.quick-color-btn:hover {
+  border-color: #007bff;
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.quick-color-btn:active {
+  transform: scale(0.95);
+}
+
+/* Special styling for white color button */
+.quick-color-btn[style*='ffffff'] {
+  border-color: #adb5bd;
+}
+
+.quick-color-btn[style*='ffffff']:hover {
+  border-color: #007bff;
 }
 
 /* IMAGEQUOTE Creator Modal */
