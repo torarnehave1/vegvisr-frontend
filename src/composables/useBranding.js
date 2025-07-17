@@ -232,7 +232,7 @@ export function useBranding() {
 
     // Normalize front page path if it's just a Graph ID
     if (frontPage && !frontPage.includes('/') && !frontPage.includes('?')) {
-      frontPage = `/graph-viewer?graphId=${frontPage}&template=Frontpage`
+      frontPage = `/gnew-viewer?graphId=${frontPage}`
       console.log('Normalized front page path to:', frontPage)
     }
     return frontPage
