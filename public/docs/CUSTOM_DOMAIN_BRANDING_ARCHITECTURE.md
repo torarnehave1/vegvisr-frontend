@@ -174,7 +174,7 @@ if (data.domainConfigs && Array.isArray(data.domainConfigs)) {
       "myLogo": "https://vegvisr.imgix.net/1743603973605.png",
       "contentFilter": "none",
       "selectedCategories": [],
-      "mySiteFrontPage": "/graph-viewer?graphId=123&template=Frontpage"
+      "mySiteFrontPage": "/gnew-viewer?graphId=123"
     },
     "contentFilter": {
       "metaAreas": []
@@ -371,7 +371,7 @@ const currentSiteTitle = computed(() => {
 
 ### 6. Custom Front Page Redirection
 
-- **Feature**: A new field `mySiteFrontPage` in the branding configuration allows users to specify a custom startup page for their domain (e.g., `/graph-viewer?graphId=123&template=Frontpage`).
+- **Feature**: A new field `mySiteFrontPage` in the branding configuration allows users to specify a custom startup page for their domain (e.g., `/gnew-viewer?graphId=123`).
 - **Logic**: When a user accesses the root of a custom domain, the frontend checks `siteConfig.value?.branding?.mySiteFrontPage`. If defined, it redirects to the specified path or dynamically loads the content.
 - **Fallback**: If no custom front page is set, the default landing page for Vegvisr is shown.
 - **Implementation in GraphViewer.vue**: It is recommended to use `GraphViewer.vue` to display the front page content for custom domains. This component can be modified to automatically load a specific knowledge graph based on the `mySiteFrontPage` setting when a user accesses the root of a custom domain. This approach leverages existing functionality for graph display and maintains user experience consistency.
@@ -551,7 +551,7 @@ graph TD
 ### 7. Custom Front Page Configuration
 
 1. **Form Field in Branding Modal**: The `BrandingModal.vue` component includes a form field or selection mechanism for users to set their preferred front page for each custom domain.
-2. **Knowledge Graph ID Input**: Users can input a Knowledge Graph ID to specify a particular graph to be used as the front page (e.g., `/graph-viewer?graphId=123&template=Frontpage`). Alternatively, a dropdown or search interface can list available graphs from the user's portfolio for selection.
+2. **Knowledge Graph ID Input**: Users can input a Knowledge Graph ID to specify a particular graph to be used as the front page (e.g., `/gnew-viewer?graphId=123`). Alternatively, a dropdown or search interface can list available graphs from the user's portfolio for selection.
 3. **Saving Configuration**: Upon saving, the selected front page path or ID is stored in the `mySiteFrontPage` field of the branding configuration in both the user profile database and KV store.
 
 ```vue
@@ -559,7 +559,7 @@ graph TD
 <div class="mb-3">
   <label for="frontPage" class="form-label">Custom Front Page (Knowledge Graph ID)</label>
   <div class="input-group">
-    <input type="text" class="form-control" id="frontPage" v-model="branding.mySiteFrontPage" placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)">
+    <input type="text" class="form-control" id="frontPage" v-model="branding.mySiteFrontPage" placeholder="Enter Graph ID or Path (e.g., /gnew-viewer?graphId=123)">
     <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Select Graph</button>
     <ul class="dropdown-menu dropdown-menu-end">
       <li v-for="graph in userGraphs" :key="graph.id" @click="selectFrontPage(graph)">
@@ -706,7 +706,7 @@ const currentFrontPage = computed(() => {
           class="form-control"
           id="frontPage"
           v-model="branding.mySiteFrontPage"
-          placeholder="Enter Graph ID or Path (e.g., /graph-viewer?graphId=123&template=Frontpage)"
+          placeholder="Enter Graph ID or Path (e.g., /gnew-viewer?graphId=123)"
         />
         <button
           class="btn btn-outline-secondary dropdown-toggle"
@@ -755,7 +755,7 @@ const loadUserGraphs = async () => {
 }
 
 const selectFrontPage = (graph) => {
-  branding.value.mySiteFrontPage = `/graph-viewer?graphId=${graph.id}&template=Frontpage`
+  branding.value.mySiteFrontPage = `/gnew-viewer?graphId=${graph.id}`
 }
 
 const saveBranding = async () => {
@@ -1018,7 +1018,7 @@ The branding system now supports both main domains and subdomains:
       "myLogo": "https://vegvisr.imgix.net/norsegong-logo.png",
       "contentFilter": "custom",
       "selectedCategories": ["NORSEGONG", "NORSEMYTHOLOGY"],
-      "mySiteFrontPage": "/graph-viewer?graphId=graph_123&template=Frontpage"
+      "mySiteFrontPage": "/gnew-viewer?graphId=graph_123"
     },
     "contentFilter": {
       "metaAreas": ["NORSEGONG", "NORSEMYTHOLOGY"]
