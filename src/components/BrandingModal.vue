@@ -365,8 +365,14 @@
                         class="btn btn-outline-primary btn-sm me-2"
                         @click="openMenuTemplateCreator"
                       >
-                        <i :class="formData.menuConfig.selectedTemplate ? 'fas fa-edit' : 'fas fa-plus'"></i> 
-                        {{ formData.menuConfig.selectedTemplate ? 'Edit Template' : 'Create Template' }}
+                        <i
+                          :class="
+                            formData.menuConfig.selectedTemplate ? 'fas fa-edit' : 'fas fa-plus'
+                          "
+                        ></i>
+                        {{
+                          formData.menuConfig.selectedTemplate ? 'Edit Template' : 'Create Template'
+                        }}
                       </button>
                       <button
                         type="button"
@@ -1905,22 +1911,50 @@ export default {
     },
 
     openMenuTemplateCreator() {
+      // Debug: Log the current state
+      console.log('=== OPENING MENU TEMPLATE CREATOR ===')
+      console.log('Selected template ID:', this.formData.menuConfig.selectedTemplate)
+      console.log('Available templates:', this.availableMenuTemplates)
+      console.log(
+        'Available template IDs:',
+        this.availableMenuTemplates.map((t) => t.id),
+      )
+
       // Check if a template is selected from the dropdown
       if (this.formData.menuConfig.selectedTemplate) {
         // Find the selected template in availableMenuTemplates
         const selectedTemplate = this.availableMenuTemplates.find(
           (t) => t.id === this.formData.menuConfig.selectedTemplate,
         )
+
+        console.log('Found template:', selectedTemplate)
+
         if (selectedTemplate) {
           this.selectedMenuTemplate = selectedTemplate
+          console.log('✅ Template found and set for editing:', selectedTemplate.name)
         } else {
+          console.error('❌ Template not found in availableMenuTemplates!')
+          console.error('Looking for ID:', this.formData.menuConfig.selectedTemplate)
+          console.error(
+            'Available IDs:',
+            this.availableMenuTemplates.map((t) => t.id),
+          )
           this.selectedMenuTemplate = null
+          // Show user-friendly error
+          alert('Selected template not found. Please refresh templates and try again.')
         }
       } else {
         // No template selected, creating new template
+        console.log('📝 No template selected - creating new template')
         this.selectedMenuTemplate = null
       }
-      
+
+      console.log('Final selectedMenuTemplate:', this.selectedMenuTemplate)
+      console.log(
+        'Opening modal with template:',
+        this.selectedMenuTemplate ? 'EDIT MODE' : 'CREATE MODE',
+      )
+
       this.isMenuTemplateCreatorOpen = true
     },
 
@@ -1931,7 +1965,19 @@ export default {
 
     handleMenuTemplateSaved(template) {
       console.log('Menu template saved:', template)
+
+      // If we were editing a template, keep it selected after saving
+      const wasEditing = this.selectedMenuTemplate !== null
+      const savedTemplateId = template.id
+
+      // Refresh the templates list
       this.refreshMenuTemplates()
+
+      // If we were editing, maintain the selection
+      if (wasEditing && savedTemplateId) {
+        this.formData.menuConfig.selectedTemplate = savedTemplateId
+        console.log('✅ Maintained template selection after save:', savedTemplateId)
+      }
     },
 
     // Debug method to test template application
