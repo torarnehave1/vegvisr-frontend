@@ -1904,6 +1904,22 @@ export default {
     },
 
     openMenuTemplateCreator() {
+      // Check if a template is selected from the dropdown
+      if (this.formData.menuConfig.selectedTemplate) {
+        // Find the selected template in availableMenuTemplates
+        const selectedTemplate = this.availableMenuTemplates.find(
+          (t) => t.id === this.formData.menuConfig.selectedTemplate,
+        )
+        if (selectedTemplate) {
+          this.selectedMenuTemplate = selectedTemplate
+        } else {
+          this.selectedMenuTemplate = null
+        }
+      } else {
+        // No template selected, creating new template
+        this.selectedMenuTemplate = null
+      }
+      
       this.isMenuTemplateCreatorOpen = true
     },
 
