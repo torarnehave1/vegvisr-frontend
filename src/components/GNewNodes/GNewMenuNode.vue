@@ -16,7 +16,7 @@
         <h4 class="menu-title">{{ node.label || 'Menu' }}</h4>
         <div class="menu-info">
           <span class="menu-level-badge" :class="menuLevelClass">
-            {{ menuData.menuLevel || 'graph' }}
+            {{ (menuData.menuLevel || 'graph') === 'graph' ? 'GRAPH MENU' : 'TOP MENU' }}
           </span>
           <span class="menu-items-count"> {{ (menuData.items || []).length }} items </span>
         </div>

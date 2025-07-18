@@ -197,7 +197,11 @@ const router = createRouter({
       path: '/norwegian-transcription-test',
       name: 'norwegian-transcription-test',
       component: () => import('../views/NorwegianTranscriptionTest.vue'),
-      meta: { layout: null }, // No layout for clean testing
+      meta: {
+        layout: null, // No layout for clean testing
+        requiresAuth: true,
+        requiresSuperadmin: true,
+      },
     },
     {
       path: '/sandbox',
