@@ -44,19 +44,14 @@
       </div>
     </div>
 
-    <!-- Third Row - Graph Menus -->
-    <div class="status-row" v-if="graphMenus && graphMenus.length > 0">
+    <!-- Third Row - Node Types -->
+    <div class="status-row" v-if="nodeTypes.length > 0">
       <div class="status-item">
-        <span class="label">Graph Menus:</span>
-        <div class="menu-container">
-          <GNewNodeRenderer
-            v-for="menuNode in graphMenus"
-            :key="menuNode.id || menuNode.label || Math.random()"
-            :node="menuNode"
-            :graphData="graphData"
-            :showControls="false"
-            class="inline-menu"
-          />
+        <span class="label">Node Types:</span>
+        <div class="badge-container">
+          <span v-for="nodeType in nodeTypes" :key="nodeType" class="badge bg-info">
+            {{ nodeType }}
+          </span>
         </div>
       </div>
     </div>
@@ -67,7 +62,6 @@
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
-import GNewNodeRenderer from './GNewNodeRenderer.vue'
 
 // Store management
 const userStore = useUserStore()
@@ -159,17 +153,20 @@ const hasMetadata = computed(() => {
   )
 })
 
-const graphMenus = computed(() => {
+const nodeTypes = computed(() => {
   try {
     if (!props.graphData || !Array.isArray(props.graphData.nodes)) {
       return []
     }
-    return props.graphData.nodes.filter(
-      (node) =>
-        node && typeof node === 'object' && (node.type === 'menu' || node.type === 'menu_creator'),
-    )
+    const types = new Set()
+    props.graphData.nodes.forEach((node) => {
+      if (node && typeof node === 'object' && node.type) {
+        types.add(node.type)
+      }
+    })
+    return Array.from(types).sort()
   } catch (error) {
-    console.warn('Error computing graphMenus:', error)
+    console.warn('Error computing nodeTypes:', error)
     return []
   }
 })
@@ -253,15 +250,9 @@ const graphMenus = computed(() => {
   color: #212529;
 }
 
-.menu-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.inline-menu {
-  margin-bottom: 0;
+.bg-info {
+  background-color: #17a2b8;
+  color: white;
 }
 
 /* Mobile responsiveness */
@@ -279,11 +270,6 @@ const graphMenus = computed(() => {
 
   .badge-container {
     margin-top: 0.25rem;
-  }
-
-  .menu-container {
-    width: 100%;
-    margin-top: 0.5rem;
   }
 }
 </style>
