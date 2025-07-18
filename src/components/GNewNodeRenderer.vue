@@ -40,6 +40,7 @@ import GNewAudioPortfolioSelectorNode from './GNewNodes/GNewAudioPortfolioSelect
 import GNewMenuNode from './GNewNodes/GNewMenuNode.vue'
 import GNewMenuCreatorNode from './GNewNodes/GNewMenuCreatorNode.vue'
 import GNewLearnScriptNode from './GNewNodes/GNewLearnScriptNode.vue'
+import GNewSubscriptionNode from './GNewNodes/GNewSubscriptionNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -101,6 +102,8 @@ const nodeComponents = {
   menu_creator: GNewMenuCreatorNode,
   // Learning script generator node
   'learn-script': GNewLearnScriptNode,
+  // Subscription node
+  subscription: GNewSubscriptionNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,

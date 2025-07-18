@@ -30,6 +30,7 @@ export default {
         console.log('Received GET /sve2 request')
 
         const userEmail = url.searchParams.get('email')
+        const userRole = url.searchParams.get('role') || 'ViewOnly' // Default to ViewOnly if no role specified
         const apiToken = env.API_TOKEN // Retrieve the token from the environment variable
 
         if (!apiToken) {
@@ -121,7 +122,7 @@ export default {
             email: responseBody.email,
             emailVerificationToken: responseBody.emailVerificationToken,
             emailVerified: true,
-            role: 'ViewOnly',
+            role: userRole,
           }
           const insertQuery = `
             INSERT INTO config (user_id, email, emailVerificationToken, data, role)
