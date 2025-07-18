@@ -43,6 +43,23 @@
         <span class="value">{{ graphCreatedBy }}</span>
       </div>
     </div>
+
+    <!-- Third Row - Graph Menus -->
+    <div class="status-row" v-if="graphMenus && graphMenus.length > 0">
+      <div class="status-item">
+        <span class="label">Graph Menus:</span>
+        <div class="menu-container">
+          <GNewNodeRenderer
+            v-for="menuNode in graphMenus"
+            :key="menuNode.id || menuNode.label || Math.random()"
+            :node="menuNode"
+            :graphData="graphData"
+            :showControls="false"
+            class="inline-menu"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -50,6 +67,7 @@
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import GNewNodeRenderer from './GNewNodeRenderer.vue'
 
 // Store management
 const userStore = useUserStore()
@@ -140,6 +158,21 @@ const hasMetadata = computed(() => {
     graphCreatedBy.value !== 'Unknown'
   )
 })
+
+const graphMenus = computed(() => {
+  try {
+    if (!props.graphData || !Array.isArray(props.graphData.nodes)) {
+      return []
+    }
+    return props.graphData.nodes.filter(
+      (node) =>
+        node && typeof node === 'object' && (node.type === 'menu' || node.type === 'menu_creator'),
+    )
+  } catch (error) {
+    console.warn('Error computing graphMenus:', error)
+    return []
+  }
+})
 </script>
 
 <style scoped>
@@ -220,6 +253,17 @@ const hasMetadata = computed(() => {
   color: #212529;
 }
 
+.menu-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.inline-menu {
+  margin-bottom: 0;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .status-row {
@@ -235,6 +279,11 @@ const hasMetadata = computed(() => {
 
   .badge-container {
     margin-top: 0.25rem;
+  }
+
+  .menu-container {
+    width: 100%;
+    margin-top: 0.5rem;
   }
 }
 </style>

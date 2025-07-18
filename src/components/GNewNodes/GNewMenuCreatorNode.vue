@@ -81,7 +81,7 @@
                 class="badge"
                 :class="menuData.menuLevel === 'graph' ? 'badge-primary' : 'badge-secondary'"
               >
-                {{ menuData.menuLevel || 'graph' }}
+                {{ (menuData.menuLevel || 'graph') === 'graph' ? 'GRAPH MENU' : 'TOP MENU' }}
               </span>
             </div>
             <div class="info-item"><strong>Items:</strong> {{ menuData.items?.length || 0 }}</div>
