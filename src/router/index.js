@@ -123,7 +123,11 @@ const router = createRouter({
     {
       path: '/graph-editor',
       name: 'GraphEditor',
-      component: () => import('../views/GraphAdmin.vue'),
+      component: GnewAdmin,
+      meta: {
+        requiresAuth: true,
+        layout: null, // Clean layout for focused admin interface
+      },
     },
     {
       path: '/graph',

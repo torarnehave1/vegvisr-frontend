@@ -37,7 +37,7 @@
       <div class="action-bar">
         <!-- Primary Actions -->
         <div class="primary-actions">
-          <button @click="createNewGraph" class="btn btn-create-graph" :disabled="isCreating">
+          <button @click="openCreateGraphModal" class="btn btn-create-graph" :disabled="isCreating">
             <span class="btn-icon">🆕</span>
             <span class="btn-text">Create New Graph</span>
             <span v-if="isCreating" class="spinner-border spinner-border-sm ms-2"></span>
@@ -158,7 +158,7 @@
         <h4>No Graph Selected</h4>
         <p>Create a new graph or select an existing one to get started.</p>
         <div class="quick-actions">
-          <button @click="createNewGraph" class="btn btn-primary btn-lg">
+          <button @click="openCreateGraphModal" class="btn btn-primary btn-lg">
             🆕 Create New Graph
           </button>
           <button @click="openGraphSelector" class="btn btn-outline-primary btn-lg">
@@ -171,6 +171,86 @@
       <div v-if="successMessage" class="alert alert-success alert-dismissible fade show">
         {{ successMessage }}
         <button @click="successMessage = ''" type="button" class="btn-close"></button>
+      </div>
+
+      <!-- Create New Graph Modal -->
+      <div v-if="showCreateGraphModal" class="modal-overlay" @click="closeCreateGraphModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h4 class="modal-title">🆕 Create New Graph</h4>
+            <button @click="closeCreateGraphModal" class="btn-close" type="button">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form @submit.prevent="createNewGraph">
+              <div class="form-group">
+                <label for="graphTitle" class="form-label"
+                  >Graph Title <span class="required">*</span></label
+                >
+                <input
+                  id="graphTitle"
+                  v-model="newGraphForm.title"
+                  type="text"
+                  class="form-control"
+                  :class="{ 'is-invalid': formErrors.title }"
+                  placeholder="Enter a descriptive title for your graph"
+                  required
+                />
+                <div v-if="formErrors.title" class="invalid-feedback">
+                  {{ formErrors.title }}
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="graphDescription" class="form-label">Description</label>
+                <textarea
+                  id="graphDescription"
+                  v-model="newGraphForm.description"
+                  class="form-control"
+                  rows="3"
+                  placeholder="Brief description of your graph content (optional)"
+                ></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="graphCategories" class="form-label">Categories</label>
+                <input
+                  id="graphCategories"
+                  v-model="newGraphForm.categories"
+                  type="text"
+                  class="form-control"
+                  placeholder="e.g., Research, Planning, Knowledge (comma-separated)"
+                />
+                <small class="form-text text-muted">Separate multiple categories with commas</small>
+              </div>
+
+              <div class="form-group">
+                <label for="graphMetaAreas" class="form-label">Meta Areas</label>
+                <input
+                  id="graphMetaAreas"
+                  v-model="newGraphForm.metaAreas"
+                  type="text"
+                  class="form-control"
+                  placeholder="e.g., SCIENCE, TECHNOLOGY, HISTORY (comma-separated)"
+                />
+                <small class="form-text text-muted">Separate multiple meta areas with commas</small>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button @click="closeCreateGraphModal" type="button" class="btn btn-secondary">
+              Cancel
+            </button>
+            <button
+              @click="createNewGraph"
+              type="button"
+              class="btn btn-primary"
+              :disabled="isCreating || !newGraphForm.title.trim()"
+            >
+              <span v-if="isCreating" class="spinner-border spinner-border-sm me-2"></span>
+              {{ isCreating ? 'Creating...' : 'Create Graph' }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Superadmin Advanced Panel -->
@@ -229,6 +309,18 @@ const autoSaveEnabled = ref(true)
 const currentGraph = ref(null)
 const graphData = ref({ nodes: [], edges: [] })
 
+// Create Graph Modal State
+const showCreateGraphModal = ref(false)
+const newGraphForm = ref({
+  title: '',
+  description: '',
+  categories: '',
+  metaAreas: '',
+})
+const formErrors = ref({
+  title: '',
+})
+
 // Computed
 const formatTime = (timestamp) => {
   if (!timestamp) return ''
@@ -236,8 +328,47 @@ const formatTime = (timestamp) => {
 }
 
 // Methods
+const openCreateGraphModal = () => {
+  // Reset form
+  newGraphForm.value = {
+    title: '',
+    description: '',
+    categories: '',
+    metaAreas: '',
+  }
+  formErrors.value = {
+    title: '',
+  }
+  showCreateGraphModal.value = true
+}
+
+const closeCreateGraphModal = () => {
+  showCreateGraphModal.value = false
+}
+
+const validateForm = () => {
+  formErrors.value = { title: '' }
+
+  if (!newGraphForm.value.title.trim()) {
+    formErrors.value.title = 'Graph title is required'
+    return false
+  }
+
+  if (newGraphForm.value.title.trim().length < 3) {
+    formErrors.value.title = 'Graph title must be at least 3 characters long'
+    return false
+  }
+
+  return true
+}
+
 const createNewGraph = async () => {
   if (isCreating.value) return
+
+  // Validate form
+  if (!validateForm()) {
+    return
+  }
 
   isCreating.value = true
   try {
@@ -245,14 +376,14 @@ const createNewGraph = async () => {
     const newGraphId = `graph_${Date.now()}`
     console.log('Creating new graph with ID:', newGraphId)
 
-    // Create new graph with proper data structure
+    // Create new graph with user-provided data
     const newGraphData = {
       metadata: {
-        title: `New Graph ${new Date().toLocaleDateString()}`,
-        description: 'Created with GnewAdmin',
+        title: newGraphForm.value.title.trim(),
+        description: newGraphForm.value.description.trim() || 'Created with GnewAdmin',
         createdBy: userStore.email || userStore.user?.email || userStore.user || 'user',
-        category: '',
-        metaArea: '',
+        category: newGraphForm.value.categories.trim(),
+        metaArea: newGraphForm.value.metaAreas.trim(),
         version: 1,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -339,7 +470,10 @@ const createNewGraph = async () => {
       metadata: newGraphData.metadata,
     })
 
-    successMessage.value = 'New graph created successfully! You can now start editing.'
+    successMessage.value = `Graph "${newGraphForm.value.title}" created successfully! You can now start editing.`
+
+    // Close the modal
+    closeCreateGraphModal()
 
     // Clear success message after 5 seconds
     setTimeout(() => {
@@ -927,5 +1061,124 @@ watch(
 .spinner-border-sm {
   width: 1rem;
   height: 1rem;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+  background: #f8f9fa;
+  color: #333;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.required {
+  color: #dc3545;
+}
+
+.form-control {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s ease;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-control.is-invalid {
+  border-color: #dc3545;
+}
+
+.invalid-feedback {
+  display: block;
+  color: #dc3545;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.form-text {
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
 }
 </style>
