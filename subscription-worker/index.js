@@ -93,10 +93,11 @@ async function handleSubscribe(request, env, corsHeaders) {
     }
 
     // Validate subscription type
-    if (!['category', 'meta_area'].includes(subscription_type)) {
+    const validTypes = ['category', 'meta_area', 'system_events', 'all_content', 'user_activity']
+    if (!validTypes.includes(subscription_type)) {
       return new Response(
         JSON.stringify({
-          error: 'Invalid subscription_type. Must be: category or meta_area',
+          error: `Invalid subscription_type. Must be one of: ${validTypes.join(', ')}`,
         }),
         {
           status: 400,
