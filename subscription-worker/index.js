@@ -179,7 +179,7 @@ async function handleSubscribe(request, env, corsHeaders) {
       // Call the existing registration endpoint using service binding
       const registrationResponse = await callMainWorker(env, '/sve2', {
         email: email,
-        role: 'subscriber',
+        role: 'Subscriber',
       })
 
       if (!registrationResponse.ok) {

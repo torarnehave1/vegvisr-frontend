@@ -28,7 +28,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/graph-portfolio',
       icon: '',
       requiresAuth: false,
-      roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
     {
       id: 'graph-viewer',
@@ -36,7 +36,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/graph-viewer',
       icon: '',
       requiresAuth: false,
-      roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
     {
       id: 'search',
@@ -44,7 +44,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/search',
       icon: '',
       requiresAuth: false,
-      roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
     {
       id: 'user-dashboard',
@@ -52,7 +52,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/user',
       icon: '',
       requiresAuth: false,
-      roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
     {
       id: 'github-issues',
@@ -76,7 +76,7 @@ export function useMenuConfig(menuConfigRef = null) {
       path: '/gnew-viewer',
       icon: '',
       requiresAuth: false,
-      roles: ['Superadmin', 'subscriber'], // Superadmin and subscribers can see GNew
+      roles: ['Superadmin', 'Subscriber'], // Superadmin and subscribers can see GNew
     },
   ]
 
