@@ -147,6 +147,14 @@ async function handleSubscribe(request, env, corsHeaders) {
     } else {
       // User doesn't exist, register them as subscriber
       const subscriptionData = {
+        profile: {
+          email: email,
+        },
+        settings: {
+          darkMode: false,
+          notifications: true,
+          theme: 'light',
+        },
         subscriptions: [
           {
             id: subscriptionId,
@@ -169,6 +177,15 @@ async function handleSubscribe(request, env, corsHeaders) {
 
       if (!registrationResponse.ok) {
         throw new Error('Failed to register subscriber')
+      }
+
+      // Get the user_id that was created by main-worker to preserve it in the profile
+      const userQuery = `SELECT user_id, data FROM config WHERE email = ?`
+      const createdUser = await env.vegvisr_org.prepare(userQuery).bind(email).first()
+
+      if (createdUser) {
+        // Preserve the user_id in the profile section
+        subscriptionData.profile.user_id = createdUser.user_id
       }
 
       // Update the user's data with subscription information
@@ -204,12 +221,16 @@ async function handleSubscribe(request, env, corsHeaders) {
       // Continue - don't fail the subscription if external server is down
     }
 
+    // Determine user status for enhanced frontend messaging
+    const userStatus = existingUser ? 'existing_user' : 'new_subscriber'
+
     return new Response(
       JSON.stringify({
         success: true,
         message: 'Subscription created successfully',
         subscription_id: subscriptionId,
         unsubscribe_token: unsubscribeToken,
+        user_status: userStatus, // For frontend messaging logic
       }),
       {
         status: 200,
