@@ -86,10 +86,10 @@ async function handleSubscribe(request, env, corsHeaders) {
     }
 
     // Validate subscription type
-    if (!['graph', 'category', 'meta_area'].includes(subscription_type)) {
+    if (!['category', 'meta_area'].includes(subscription_type)) {
       return new Response(
         JSON.stringify({
-          error: 'Invalid subscription_type. Must be: graph, category, or meta_area',
+          error: 'Invalid subscription_type. Must be: category or meta_area',
         }),
         {
           status: 400,
