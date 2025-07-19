@@ -532,7 +532,7 @@
                           newSelectedSubscriptions.includes(metaArea) ||
                           isAlreadySubscribed(metaArea),
                       }"
-                      @mousedown="selectSubscriptionMetaArea(metaArea)"
+                      @mousedown.prevent="selectSubscriptionMetaArea(metaArea)"
                     >
                       {{ metaArea }}
                       <span
@@ -634,6 +634,7 @@ export default {
       selectedSubscriptionType: 'meta_area', // Default to meta areas
       newSubscriptionInput: '',
       newSelectedSubscriptions: [],
+      filteredAvailableMetaAreas: [], // Reactive data property for filtered results
       showMetaAreaDropdown: false,
       isCreatingSubscriptions: false,
       isUnsubscribing: false,
@@ -731,9 +732,6 @@ export default {
     // Meta areas from portfolio store (same pattern as BrandingModal)
     availableMetaAreas() {
       return this.portfolioStore.allMetaAreas || []
-    },
-    filteredAvailableMetaAreas() {
-      return this.availableMetaAreas
     },
     // Loading state for meta areas
     isLoadingMetaAreas() {
@@ -1303,6 +1301,10 @@ export default {
 
             // Update portfolio store with all meta areas
             this.portfolioStore.setAllMetaAreas(allMetaAreas)
+
+            // Initialize filtered results for autocomplete
+            this.filteredAvailableMetaAreas = [...allMetaAreas]
+            console.log('🔄 Initialized filtered meta areas for autocomplete')
           }
         } else {
           console.error('Failed to fetch system graphs:', response.status, response.statusText)
@@ -1353,6 +1355,31 @@ export default {
       }
     },
 
+    // DEBUG: Test autocomplete functionality (call from browser console)
+    testAutocomplete(searchTerm = 'A') {
+      console.log('=== TESTING AUTOCOMPLETE ===')
+      console.log('Search term:', searchTerm)
+      console.log('Available meta areas:', this.availableMetaAreas.length)
+      console.log('Current filtered results:', this.filteredAvailableMetaAreas.length)
+
+      // Simulate user input
+      this.newSubscriptionInput = searchTerm
+      this.onSubscriptionInput()
+
+      console.log('After filtering:')
+      console.log('- Dropdown visible:', this.showMetaAreaDropdown)
+      console.log('- Filtered results:', this.filteredAvailableMetaAreas.length)
+      console.log('- Sample results:', this.filteredAvailableMetaAreas.slice(0, 5))
+
+      return {
+        searchTerm,
+        availableCount: this.availableMetaAreas.length,
+        filteredCount: this.filteredAvailableMetaAreas.length,
+        dropdownVisible: this.showMetaAreaDropdown,
+        sampleResults: this.filteredAvailableMetaAreas.slice(0, 5),
+      }
+    },
+
     // Subscription Modal Methods
     openSubscriptionModal() {
       // Load meta areas asynchronously in background if not already loaded
@@ -1364,20 +1391,27 @@ export default {
     },
 
     closeSubscriptionModal() {
+      console.log('🚪 Closing subscription modal')
       this.showSubscriptionModal = false
       this.selectedSubscriptionType = 'meta_area'
       this.newSubscriptionInput = ''
       this.newSelectedSubscriptions = []
+      this.filteredAvailableMetaAreas = []
+      this.showMetaAreaDropdown = false
       this.subscriptionError = ''
       this.subscriptionSuccess = ''
+      console.log('🚪 Modal closed, all states reset')
     },
 
     onSubscriptionInput() {
       const input = this.newSubscriptionInput.toLowerCase()
+      console.log('🔍 Autocomplete input:', input)
+      console.log('Available meta areas count:', this.availableMetaAreas.length)
 
       if (input === '#') {
-        this.filteredAvailableMetaAreas = this.availableMetaAreas
+        this.filteredAvailableMetaAreas = [...this.availableMetaAreas]
         this.showMetaAreaDropdown = true
+        console.log('📋 Showing all meta areas:', this.filteredAvailableMetaAreas.length)
         return
       }
 
@@ -1389,33 +1423,53 @@ export default {
       this.filteredAvailableMetaAreas = this.availableMetaAreas.filter((metaArea) =>
         metaArea.toLowerCase().includes(query),
       )
-      this.showMetaAreaDropdown = true
+      this.showMetaAreaDropdown = this.filteredAvailableMetaAreas.length > 0
+      console.log(
+        '🔍 Filtered results for "' + query + '":',
+        this.filteredAvailableMetaAreas.length,
+      )
+      console.log('Sample results:', this.filteredAvailableMetaAreas.slice(0, 5))
     },
 
     onSubscriptionFocus() {
+      console.log('🎯 Focus event - input value:', this.newSubscriptionInput)
+      console.log('Available meta areas on focus:', this.availableMetaAreas.length)
+
       if (this.newSubscriptionInput === '#' || this.newSubscriptionInput === '') {
-        this.filteredAvailableMetaAreas = this.availableMetaAreas
-        this.showMetaAreaDropdown = true
+        this.filteredAvailableMetaAreas = [...this.availableMetaAreas]
+        this.showMetaAreaDropdown = this.availableMetaAreas.length > 0
+        console.log('📋 Focus: showing all meta areas')
       } else {
         this.onSubscriptionInput()
       }
     },
 
     hideSubscriptionDropdown() {
+      console.log('👋 Blur event - hiding dropdown after delay')
+      // Longer timeout to allow for mousedown.prevent to work
       setTimeout(() => {
         this.showMetaAreaDropdown = false
-      }, 200)
+        console.log('👋 Dropdown hidden after timeout')
+      }, 300)
     },
 
     selectSubscriptionMetaArea(metaArea) {
+      console.log('✅ Selecting meta area:', metaArea)
+
       if (
         !this.newSelectedSubscriptions.includes(metaArea) &&
         !this.isAlreadySubscribed(metaArea)
       ) {
         this.newSelectedSubscriptions.push(metaArea)
+        console.log('✅ Added to selections:', this.newSelectedSubscriptions)
+      } else {
+        console.log('⚠️ Meta area already selected or subscribed:', metaArea)
       }
+
       this.newSubscriptionInput = ''
+      this.filteredAvailableMetaAreas = []
       this.showMetaAreaDropdown = false
+      console.log('✅ Dropdown closed, input cleared')
     },
 
     removeSelectedSubscription(metaArea) {
@@ -1639,6 +1693,26 @@ export default {
   overflow-y: auto;
   z-index: 1050;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  /* Prevent scroll from triggering blur on parent input */
+  user-select: none;
+}
+
+/* Improve scrolling experience */
+.suggestions-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.suggestions-dropdown::-webkit-scrollbar-thumb {
+  background-color: #ccc;
+  border-radius: 3px;
+}
+
+.suggestions-dropdown::-webkit-scrollbar-track {
+  background-color: #f1f1f1;
+}
+
+.autocomplete-container {
+  position: relative;
 }
 
 .suggestion-item {
