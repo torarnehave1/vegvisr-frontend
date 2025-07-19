@@ -39,30 +39,83 @@
             @change="onSubscriptionTypeChange"
           >
             <option value="">Select subscription type</option>
-            <option value="graph">This Knowledge Graph</option>
-            <option value="category">All graphs in this Category</option>
-            <option value="meta_area">All graphs in this Meta Area</option>
+            <option value="category">Category</option>
+            <option value="meta_area">Meta Area</option>
           </select>
           <div v-if="errors.subscription_type" class="invalid-feedback">
             {{ errors.subscription_type }}
           </div>
         </div>
 
-        <!-- Target Selection -->
-        <div class="form-group" v-if="formData.subscription_type">
-          <label for="target">{{ getTargetLabel() }}</label>
-          <select
-            id="target"
-            v-model="formData.target_id"
-            class="form-control"
-            :class="{ 'is-invalid': errors.target_id }"
-            @change="onTargetChange"
-          >
-            <option value="">{{ getTargetPlaceholder() }}</option>
-            <option v-for="option in targetOptions" :key="option.id" :value="option.id">
-              {{ option.title }}
-            </option>
-          </select>
+        <!-- Category Input with Autocomplete -->
+        <div class="form-group" v-if="formData.subscription_type === 'category'">
+          <label for="category-input">Category</label>
+          <div class="autocomplete-container">
+            <input
+              id="category-input"
+              v-model="formData.target_input"
+              type="text"
+              placeholder="Type category name..."
+              class="form-control"
+              :class="{ 'is-invalid': errors.target_id }"
+              @input="onCategoryInput"
+              @focus="showCategorySuggestions = true"
+              @blur="hideSuggestions"
+              autocomplete="off"
+            />
+            <div
+              v-if="showCategorySuggestions && filteredCategories.length > 0"
+              class="suggestions-dropdown"
+            >
+              <div
+                v-for="category in filteredCategories"
+                :key="category"
+                class="suggestion-item"
+                @mousedown="selectCategory(category)"
+              >
+                {{ category }}
+              </div>
+            </div>
+          </div>
+          <div class="suggestion-hint">
+            <small class="text-muted">Start typing to see available categories...</small>
+          </div>
+          <div v-if="errors.target_id" class="invalid-feedback">{{ errors.target_id }}</div>
+        </div>
+
+        <!-- Meta Area Input with Autocomplete -->
+        <div class="form-group" v-if="formData.subscription_type === 'meta_area'">
+          <label for="meta-area-input">Meta Area</label>
+          <div class="autocomplete-container">
+            <input
+              id="meta-area-input"
+              v-model="formData.target_input"
+              type="text"
+              placeholder="Type meta area name..."
+              class="form-control"
+              :class="{ 'is-invalid': errors.target_id }"
+              @input="onMetaAreaInput"
+              @focus="showMetaAreaSuggestions = true"
+              @blur="hideSuggestions"
+              autocomplete="off"
+            />
+            <div
+              v-if="showMetaAreaSuggestions && filteredMetaAreas.length > 0"
+              class="suggestions-dropdown"
+            >
+              <div
+                v-for="metaArea in filteredMetaAreas"
+                :key="metaArea"
+                class="suggestion-item"
+                @mousedown="selectMetaArea(metaArea)"
+              >
+                {{ metaArea }}
+              </div>
+            </div>
+          </div>
+          <div class="suggestion-hint">
+            <small class="text-muted">Start typing to see available meta areas...</small>
+          </div>
           <div v-if="errors.target_id" class="invalid-feedback">{{ errors.target_id }}</div>
         </div>
 
@@ -107,7 +160,8 @@
 
 <script>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useUserStore } from '@/stores/userStore'
+import { usePortfolioStore } from '@/stores/portfolioStore'
 
 export default {
   name: 'GNewSubscriptionNode',
@@ -126,12 +180,14 @@ export default {
     },
   },
   setup(props) {
-    const graphStore = useKnowledgeGraphStore()
+    const userStore = useUserStore()
+    const portfolioStore = usePortfolioStore()
 
     // Reactive state
     const formData = ref({
       email: '',
       subscription_type: '',
+      target_input: '',
       target_id: '',
       target_title: '',
     })
@@ -142,17 +198,31 @@ export default {
     const successMessage = ref('')
     const isSubscribed = ref(false)
     const currentSubscription = ref(null)
-    const targetOptions = ref([])
+
+    // Autocomplete data
+    const showCategorySuggestions = ref(false)
+    const showMetaAreaSuggestions = ref(false)
+    const filteredCategories = ref([])
+    const filteredMetaAreas = ref([])
 
     // Node data
     const nodeData = computed(() => props.node.data || {})
+
+    // Get categories and meta areas from portfolio store (same pattern as BrandingModal)
+    const availableCategories = computed(() => {
+      return portfolioStore.allMetaAreas || []
+    })
+
+    const availableMetaAreas = computed(() => {
+      return portfolioStore.allMetaAreas || []
+    })
 
     // Validation
     const canSubscribe = computed(() => {
       return (
         formData.value.email &&
         formData.value.subscription_type &&
-        formData.value.target_id &&
+        formData.value.target_input.trim() &&
         !isLoading.value
       )
     })
@@ -178,111 +248,129 @@ export default {
         newErrors.subscription_type = 'Please select a subscription type'
       }
 
-      if (!formData.value.target_id) {
-        newErrors.target_id = 'Please select a target'
+      if (!formData.value.target_input.trim()) {
+        newErrors.target_id = `Please enter a ${formData.value.subscription_type === 'category' ? 'category' : 'meta area'}`
       }
 
       errors.value = newErrors
       return Object.keys(newErrors).length === 0
     }
 
-    const getTargetLabel = () => {
-      switch (formData.value.subscription_type) {
-        case 'graph':
-          return 'Knowledge Graph'
-        case 'category':
-          return 'Category'
-        case 'meta_area':
-          return 'Meta Area'
-        default:
-          return 'Target'
-      }
-    }
-
-    const getTargetPlaceholder = () => {
-      switch (formData.value.subscription_type) {
-        case 'graph':
-          return 'Select a knowledge graph'
-        case 'category':
-          return 'Select a category'
-        case 'meta_area':
-          return 'Select a meta area'
-        default:
-          return 'Select target'
-      }
-    }
-
-    const onSubscriptionTypeChange = async () => {
+    const onSubscriptionTypeChange = () => {
+      formData.value.target_input = ''
       formData.value.target_id = ''
       formData.value.target_title = ''
-      await loadTargetOptions()
+      // Meta areas are already loaded in portfolioStore, no need to refetch
     }
 
-    const onTargetChange = () => {
-      const selectedOption = targetOptions.value.find((opt) => opt.id === formData.value.target_id)
-      if (selectedOption) {
-        formData.value.target_title = selectedOption.title
-      }
+    const onCategoryInput = () => {
+      const query = formData.value.target_input.toLowerCase()
+      filteredCategories.value = availableCategories.value.filter((category) =>
+        category.toLowerCase().includes(query),
+      )
+      showCategorySuggestions.value = true
+      formData.value.target_id = formData.value.target_input
+      formData.value.target_title = formData.value.target_input
     }
 
-    const loadTargetOptions = async () => {
+    const onMetaAreaInput = () => {
+      const query = formData.value.target_input.toLowerCase()
+      filteredMetaAreas.value = availableMetaAreas.value.filter((metaArea) =>
+        metaArea.toLowerCase().includes(query),
+      )
+      showMetaAreaSuggestions.value = true
+      formData.value.target_id = formData.value.target_input
+      formData.value.target_title = formData.value.target_input
+    }
+
+    const selectCategory = (category) => {
+      formData.value.target_input = category
+      formData.value.target_id = category
+      formData.value.target_title = category
+      showCategorySuggestions.value = false
+      clearError('target_id')
+    }
+
+    const selectMetaArea = (metaArea) => {
+      formData.value.target_input = metaArea
+      formData.value.target_id = metaArea
+      formData.value.target_title = metaArea
+      showMetaAreaSuggestions.value = false
+      clearError('target_id')
+    }
+
+    const hideSuggestions = () => {
+      // Delay to allow click events on suggestions
+      setTimeout(() => {
+        showCategorySuggestions.value = false
+        showMetaAreaSuggestions.value = false
+      }, 200)
+    }
+
+    // Fetch ALL knowledge graphs from the system to get all available meta areas
+    // Same logic as BrandingModal.vue fetchMetaAreas() method
+    const fetchMetaAreas = async () => {
       try {
-        targetOptions.value = []
+        console.log('Fetching all meta areas from system-wide graphs...')
 
-        if (formData.value.subscription_type === 'graph') {
-          // Load available graphs
-          const graphs = graphStore.graphs || []
-          targetOptions.value = graphs.map((graph) => ({
-            id: graph.id,
-            title: graph.metadata?.title || `Graph ${graph.id}`,
-          }))
+        // Call the knowledge graph worker directly without hostname filtering
+        // This will return all graphs from all users in the system
+        const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs', {
+          headers: {
+            // Don't send x-original-hostname to avoid content filtering
+            'Content-Type': 'application/json',
+          },
+        })
 
-          // Add current graph if not in list
-          if (props.graphData?.metadata?.id) {
-            const currentExists = targetOptions.value.find(
-              (opt) => opt.id === props.graphData.metadata.id,
-            )
-            if (!currentExists) {
-              targetOptions.value.unshift({
-                id: props.graphData.metadata.id,
-                title: props.graphData.metadata.title || 'Current Graph',
-              })
+        if (response.ok) {
+          const data = await response.json()
+          console.log('Fetched system-wide graphs for meta areas:', data.results?.length || 0)
+
+          if (data.results) {
+            // Fetch complete data for each graph to get meta areas
+            const metaAreasSet = new Set()
+
+            for (const graph of data.results) {
+              try {
+                const graphResponse = await fetch(
+                  `https://knowledge.vegvisr.org/getknowgraph?id=${graph.id}`,
+                )
+                if (graphResponse.ok) {
+                  const graphData = await graphResponse.json()
+                  const metaAreaString = graphData.metadata?.metaArea || ''
+
+                  if (metaAreaString) {
+                    // Parse meta areas and add to set
+                    const metaAreas = metaAreaString
+                      .split('#')
+                      .map((area) => area.trim())
+                      .filter((area) => area.length > 0)
+
+                    metaAreas.forEach((area) => metaAreasSet.add(area))
+                  }
+                }
+              } catch (error) {
+                console.warn(`Error fetching graph ${graph.id}:`, error)
+              }
             }
+
+            // Convert set to array and update the store
+            const allMetaAreas = Array.from(metaAreasSet).sort()
+            console.log('All system meta areas found:', allMetaAreas)
+
+            // Update portfolio store with all meta areas (same as BrandingModal)
+            portfolioStore.setAllMetaAreas(allMetaAreas)
+
+            // Initialize filtered lists
+            filteredCategories.value = allMetaAreas
+            filteredMetaAreas.value = allMetaAreas
           }
-        } else if (formData.value.subscription_type === 'category') {
-          // Load available categories
-          const categories = new Set()
-          const graphs = graphStore.graphs || []
-
-          graphs.forEach((graph) => {
-            if (graph.metadata?.categories) {
-              graph.metadata.categories.forEach((cat) => categories.add(cat))
-            }
-          })
-
-          targetOptions.value = Array.from(categories).map((cat) => ({
-            id: cat,
-            title: cat,
-          }))
-        } else if (formData.value.subscription_type === 'meta_area') {
-          // Load available meta areas
-          const metaAreas = new Set()
-          const graphs = graphStore.graphs || []
-
-          graphs.forEach((graph) => {
-            if (graph.metadata?.metaAreas) {
-              graph.metadata.metaAreas.forEach((area) => metaAreas.add(area))
-            }
-          })
-
-          targetOptions.value = Array.from(metaAreas).map((area) => ({
-            id: area,
-            title: area,
-          }))
+        } else {
+          console.error('Failed to fetch system graphs:', response.status, response.statusText)
         }
       } catch (error) {
-        console.error('Error loading target options:', error)
-        errorMessage.value = 'Failed to load options. Please try again.'
+        console.error('Error fetching system meta areas:', error)
+        errorMessage.value = 'Failed to load available options'
       }
     }
 
@@ -294,19 +382,25 @@ export default {
       successMessage.value = ''
 
       try {
+        // Store subscription preference in user config meta field
+        const subscriptionData = {
+          email: formData.value.email,
+          subscription_type: formData.value.subscription_type,
+          target_id: formData.value.target_id,
+          target_title: formData.value.target_title,
+          subscribed_at: new Date().toISOString(),
+        }
+
+        // TODO: Call API to store in user config table meta field
         const response = await fetch(
           'https://subscription-worker.torarnehave.workers.dev/subscribe',
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              Authorization: `Bearer ${userStore.token}`,
             },
-            body: JSON.stringify({
-              email: formData.value.email,
-              subscription_type: formData.value.subscription_type,
-              target_id: formData.value.target_id,
-              target_title: formData.value.target_title,
-            }),
+            body: JSON.stringify(subscriptionData),
           },
         )
 
@@ -318,7 +412,7 @@ export default {
             target_title: formData.value.target_title,
             unsubscribe_token: data.unsubscribe_token,
           }
-          successMessage.value = 'Successfully subscribed! You will receive updates via email.'
+          successMessage.value = 'Successfully subscribed! Subscription stored in your profile.'
         } else {
           errorMessage.value = data.error || 'Failed to subscribe. Please try again.'
         }
@@ -343,6 +437,7 @@ export default {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              Authorization: `Bearer ${userStore.token}`,
             },
             body: JSON.stringify({
               email: formData.value.email,
@@ -370,12 +465,13 @@ export default {
 
     // Initialize
     onMounted(() => {
-      // Auto-fill current graph if available
-      if (props.graphData?.metadata?.id) {
-        formData.value.subscription_type = 'graph'
-        formData.value.target_id = props.graphData.metadata.id
-        formData.value.target_title = props.graphData.metadata.title || 'Current Graph'
+      // Pre-fill user email if logged in
+      if (userStore.loggedIn && userStore.email) {
+        formData.value.email = userStore.email
       }
+
+      // Fetch meta areas (same pattern as BrandingModal)
+      fetchMetaAreas()
     })
 
     return {
@@ -386,16 +482,23 @@ export default {
       successMessage,
       isSubscribed,
       currentSubscription,
-      targetOptions,
       nodeData,
       canSubscribe,
+      availableCategories,
+      availableMetaAreas,
+      showCategorySuggestions,
+      showMetaAreaSuggestions,
+      filteredCategories,
+      filteredMetaAreas,
       clearError,
       validateForm,
-      getTargetLabel,
-      getTargetPlaceholder,
       onSubscriptionTypeChange,
-      onTargetChange,
-      loadTargetOptions,
+      onCategoryInput,
+      onMetaAreaInput,
+      selectCategory,
+      selectMetaArea,
+      hideSuggestions,
+      fetchMetaAreas,
       subscribe,
       unsubscribe,
     }
@@ -467,6 +570,7 @@ export default {
 
 .form-group {
   margin-bottom: 1rem;
+  position: relative;
 }
 
 .form-group label {
@@ -499,6 +603,44 @@ export default {
   display: block;
   color: #dc3545;
   font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.autocomplete-container {
+  position: relative;
+}
+
+.suggestions-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-item {
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f8f9fa;
+}
+
+.suggestion-item:hover {
+  background-color: #f8f9fa;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-hint {
   margin-top: 0.25rem;
 }
 
