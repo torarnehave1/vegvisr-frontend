@@ -30,17 +30,17 @@
               <div class="row">
                 <div class="col-md-6">
                   <p class="mb-1"><strong>Domain:</strong></p>
-                  <p class="text-muted mb-3">{{ sourceDomain.domain }}</p>
+                  <p class="text-muted mb-3">{{ sourceDomain?.domain }}</p>
 
                   <p class="mb-1"><strong>Owner:</strong></p>
-                  <p class="text-muted mb-3">{{ sourceDomain.owner }}</p>
+                  <p class="text-muted mb-3">{{ sourceDomain?.owner }}</p>
                 </div>
                 <div class="col-md-6">
                   <p class="mb-1"><strong>Created:</strong></p>
-                  <p class="text-muted mb-3">{{ formatDate(sourceDomain.createdAt) }}</p>
+                  <p class="text-muted mb-3">{{ formatDate(sourceDomain?.createdAt) }}</p>
 
                   <p class="mb-1"><strong>Last Modified:</strong></p>
-                  <p class="text-muted mb-3">{{ formatDate(sourceDomain.lastModified) }}</p>
+                  <p class="text-muted mb-3">{{ formatDate(sourceDomain?.lastModified) }}</p>
                 </div>
               </div>
 
@@ -48,20 +48,20 @@
               <div class="mt-3">
                 <p class="mb-2"><strong>Available Features:</strong></p>
                 <div class="d-flex gap-2">
-                  <span v-if="sourceDomain.hasLogo" class="badge bg-success">
+                  <span v-if="sourceDomain?.hasLogo" class="badge bg-success">
                     <i class="fas fa-image me-1"></i>Custom Logo
                   </span>
-                  <span v-if="sourceDomain.hasContentFilters" class="badge bg-info">
+                  <span v-if="sourceDomain?.hasContentFilters" class="badge bg-info">
                     <i class="fas fa-filter me-1"></i>Content Filters
                   </span>
-                  <span v-if="sourceDomain.graphId" class="badge bg-warning">
+                  <span v-if="sourceDomain?.graphId" class="badge bg-warning">
                     <i class="fas fa-project-diagram me-1"></i>Knowledge Graph
                   </span>
                   <span
                     v-if="
-                      !sourceDomain.hasLogo &&
-                      !sourceDomain.hasContentFilters &&
-                      !sourceDomain.graphId
+                      !sourceDomain?.hasLogo &&
+                      !sourceDomain?.hasContentFilters &&
+                      !sourceDomain?.graphId
                     "
                     class="badge bg-secondary"
                   >
@@ -158,12 +158,14 @@
                         type="checkbox"
                         id="includeLogo"
                         v-model="includeLogo"
-                        :disabled="!sourceDomain.hasLogo"
+                        :disabled="!sourceDomain?.hasLogo"
                       />
                       <label class="form-check-label" for="includeLogo">
                         <i class="fas fa-image me-2"></i>
                         Include Custom Logo
-                        <span v-if="!sourceDomain.hasLogo" class="text-muted">(Not available)</span>
+                        <span v-if="!sourceDomain?.hasLogo" class="text-muted"
+                          >(Not available)</span
+                        >
                       </label>
                     </div>
 
@@ -173,12 +175,12 @@
                         type="checkbox"
                         id="includeFilters"
                         v-model="includeFilters"
-                        :disabled="!sourceDomain.hasContentFilters"
+                        :disabled="!sourceDomain?.hasContentFilters"
                       />
                       <label class="form-check-label" for="includeFilters">
                         <i class="fas fa-filter me-2"></i>
                         Include Content Filters
-                        <span v-if="!sourceDomain.hasContentFilters" class="text-muted"
+                        <span v-if="!sourceDomain?.hasContentFilters" class="text-muted"
                           >(Not available)</span
                         >
                       </label>
@@ -190,12 +192,14 @@
                         type="checkbox"
                         id="includeContent"
                         v-model="includeContent"
-                        :disabled="!sourceDomain.graphId"
+                        :disabled="!sourceDomain?.graphId"
                       />
                       <label class="form-check-label" for="includeContent">
                         <i class="fas fa-project-diagram me-2"></i>
                         Include Knowledge Graph Content
-                        <span v-if="!sourceDomain.graphId" class="text-muted">(Not available)</span>
+                        <span v-if="!sourceDomain?.graphId" class="text-muted"
+                          >(Not available)</span
+                        >
                       </label>
                     </div>
 
@@ -354,8 +358,8 @@ export default {
     },
     sourceDomain(newVal) {
       if (newVal) {
-        this.includeLogo = newVal.hasLogo
-        this.includeFilters = newVal.hasContentFilters
+        this.includeLogo = newVal?.hasLogo
+        this.includeFilters = newVal?.hasContentFilters
         this.includeContent = false // Default to false for content
       }
     },
@@ -444,7 +448,7 @@ export default {
           },
           body: JSON.stringify({
             email: userStore.email,
-            sourceDomain: this.sourceDomain.domain,
+            sourceDomain: this.sourceDomain?.domain,
             targetDomain: this.targetDomain,
             targetOwner: this.targetOwner,
             includeContent: this.includeContent,

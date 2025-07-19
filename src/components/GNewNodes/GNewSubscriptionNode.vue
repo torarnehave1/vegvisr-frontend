@@ -101,20 +101,39 @@
           <div v-if="errors.target_id" class="invalid-feedback">{{ errors.target_id }}</div>
         </div>
 
-        <!-- Meta Area Input with Autocomplete -->
+        <!-- Meta Area Input with Multi-Select -->
         <div class="form-group" v-if="formData.subscription_type === 'meta_area'">
-          <label for="meta-area-input">Meta Area</label>
+          <label for="meta-area-input">Meta Areas</label>
+
+          <!-- Selected Meta Areas Tags -->
+          <div v-if="selectedMetaAreas.length > 0" class="selected-meta-areas mb-2">
+            <span
+              v-for="metaArea in selectedMetaAreas"
+              :key="metaArea"
+              class="badge bg-primary me-1 mb-1"
+            >
+              {{ metaArea }}
+              <button
+                type="button"
+                class="btn-close btn-close-white ms-1"
+                @click="removeMetaArea(metaArea)"
+                style="font-size: 0.7em"
+              ></button>
+            </span>
+          </div>
+
           <div class="autocomplete-container">
             <input
               id="meta-area-input"
               v-model="formData.target_input"
               type="text"
-              placeholder="Type meta area name..."
+              placeholder="Type # to browse meta areas, or start typing..."
               class="form-control"
               :class="{ 'is-invalid': errors.target_id }"
               @input="onMetaAreaInput"
-              @focus="showMetaAreaSuggestions = true"
+              @focus="onMetaAreaFocus"
               @blur="hideSuggestions"
+              @keydown="onKeydown"
               autocomplete="off"
             />
             <div
@@ -125,14 +144,21 @@
                 v-for="metaArea in filteredMetaAreas"
                 :key="metaArea"
                 class="suggestion-item"
+                :class="{ disabled: selectedMetaAreas.includes(metaArea) }"
                 @mousedown="selectMetaArea(metaArea)"
               >
                 {{ metaArea }}
+                <span v-if="selectedMetaAreas.includes(metaArea)" class="text-muted ms-1">
+                  ✓ Selected
+                </span>
               </div>
             </div>
           </div>
           <div class="suggestion-hint">
-            <small class="text-muted">Start typing to see available meta areas...</small>
+            <small class="text-muted">
+              💡 Type <strong>#</strong> to see all available meta areas, or start typing to search.
+              Select multiple areas to subscribe to.
+            </small>
           </div>
           <div v-if="errors.target_id" class="invalid-feedback">{{ errors.target_id }}</div>
         </div>
@@ -225,6 +251,9 @@ export default {
     const filteredCategories = ref([])
     const filteredMetaAreas = ref([])
 
+    // Multi-select meta areas
+    const selectedMetaAreas = ref([])
+
     // Node data
     const nodeData = computed(() => props.node.data || {})
 
@@ -239,11 +268,13 @@ export default {
 
     // Validation
     const canSubscribe = computed(() => {
+      const hasTarget =
+        formData.value.subscription_type === 'meta_area'
+          ? selectedMetaAreas.value.length > 0
+          : formData.value.target_input.trim()
+
       return (
-        formData.value.email &&
-        formData.value.subscription_type &&
-        formData.value.target_input.trim() &&
-        !isLoading.value
+        formData.value.email && formData.value.subscription_type && hasTarget && !isLoading.value
       )
     })
 
@@ -268,8 +299,12 @@ export default {
         newErrors.subscription_type = 'Please select a subscription type'
       }
 
-      if (!formData.value.target_input.trim()) {
-        newErrors.target_id = `Please enter a ${formData.value.subscription_type === 'category' ? 'category' : 'meta area'}`
+      if (formData.value.subscription_type === 'meta_area') {
+        if (selectedMetaAreas.value.length === 0) {
+          newErrors.target_id = 'Please select at least one meta area'
+        }
+      } else if (!formData.value.target_input.trim()) {
+        newErrors.target_id = 'Please enter a category'
       }
 
       errors.value = newErrors
@@ -280,6 +315,7 @@ export default {
       formData.value.target_input = ''
       formData.value.target_id = ''
       formData.value.target_title = ''
+      selectedMetaAreas.value = []
       // Meta areas are already loaded in portfolioStore, no need to refetch
     }
 
@@ -294,13 +330,26 @@ export default {
     }
 
     const onMetaAreaInput = () => {
-      const query = formData.value.target_input.toLowerCase()
+      const input = formData.value.target_input.toLowerCase()
+
+      // Check if user typed '#' - show all meta areas
+      if (input === '#') {
+        filteredMetaAreas.value = availableMetaAreas.value
+        showMetaAreaSuggestions.value = true
+        return
+      }
+
+      // If input starts with '#', search for meta areas after the '#'
+      let query = input
+      if (input.startsWith('#')) {
+        query = input.slice(1) // Remove the '#'
+      }
+
+      // Filter meta areas based on query
       filteredMetaAreas.value = availableMetaAreas.value.filter((metaArea) =>
         metaArea.toLowerCase().includes(query),
       )
       showMetaAreaSuggestions.value = true
-      formData.value.target_id = formData.value.target_input
-      formData.value.target_title = formData.value.target_input
     }
 
     const selectCategory = (category) => {
@@ -312,11 +361,44 @@ export default {
     }
 
     const selectMetaArea = (metaArea) => {
-      formData.value.target_input = metaArea
-      formData.value.target_id = metaArea
-      formData.value.target_title = metaArea
+      // Don't add if already selected
+      if (!selectedMetaAreas.value.includes(metaArea)) {
+        selectedMetaAreas.value.push(metaArea)
+      }
+
+      // Clear input after selection
+      formData.value.target_input = ''
       showMetaAreaSuggestions.value = false
       clearError('target_id')
+    }
+
+    const onMetaAreaFocus = () => {
+      // Show suggestions when focusing, especially if input starts with '#'
+      const input = formData.value.target_input
+      if (input === '#' || input === '') {
+        filteredMetaAreas.value = availableMetaAreas.value
+        showMetaAreaSuggestions.value = true
+      } else {
+        onMetaAreaInput()
+      }
+    }
+
+    const onKeydown = (event) => {
+      // Handle Enter key to select first suggestion
+      if (event.key === 'Enter' && filteredMetaAreas.value.length > 0) {
+        event.preventDefault()
+        const firstSuggestion = filteredMetaAreas.value[0]
+        if (!selectedMetaAreas.value.includes(firstSuggestion)) {
+          selectMetaArea(firstSuggestion)
+        }
+      }
+    }
+
+    const removeMetaArea = (metaArea) => {
+      const index = selectedMetaAreas.value.indexOf(metaArea)
+      if (index > -1) {
+        selectedMetaAreas.value.splice(index, 1)
+      }
     }
 
     const hideSuggestions = () => {
@@ -401,61 +483,126 @@ export default {
       errorMessage.value = ''
       successMessage.value = ''
 
-      // Show progress messages
-      successMessage.value = '📝 Creating your subscription...'
-
       try {
-        // Store subscription preference in user config meta field
-        const subscriptionData = {
-          email: formData.value.email,
-          subscription_type: formData.value.subscription_type,
-          target_id: formData.value.target_id,
-          target_title: formData.value.target_title,
-          subscribed_at: new Date().toISOString(),
-        }
+        let subscriptionResults = []
+        let isNewSubscriber = false
 
-        // TODO: Call API to store in user config table meta field
-        const response = await fetch(
-          'https://subscription-worker.torarnehave.workers.dev/subscribe',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${userStore.token}`,
-            },
-            body: JSON.stringify(subscriptionData),
-          },
-        )
+        if (formData.value.subscription_type === 'meta_area') {
+          // Handle multiple meta area subscriptions
+          successMessage.value = `📝 Creating ${selectedMetaAreas.value.length} subscription${selectedMetaAreas.value.length > 1 ? 's' : ''}...`
 
-        const data = await response.json()
+          for (const metaArea of selectedMetaAreas.value) {
+            const subscriptionData = {
+              email: formData.value.email,
+              subscription_type: formData.value.subscription_type,
+              target_id: metaArea,
+              target_title: metaArea,
+              subscribed_at: new Date().toISOString(),
+            }
 
-        if (data.success) {
-          isSubscribed.value = true
-          currentSubscription.value = {
-            target_title: formData.value.target_title,
-            unsubscribe_token: data.unsubscribe_token,
-          }
+            const response = await fetch(
+              'https://subscription-worker.torarnehave.workers.dev/subscribe',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${userStore.token}`,
+                },
+                body: JSON.stringify(subscriptionData),
+              },
+            )
 
-          // Enhanced messaging based on user status
-          if (data.user_status === 'new_subscriber') {
-            successMessage.value = `🎉 Subscription Created Successfully!
+            const data = await response.json()
 
-📬 IMPORTANT: Please check your email to complete your subscription.
-   • We sent a verification email to ${formData.value.email}
-   • Click the verification link to activate your subscription
-   • Check your spam folder if you don't see it
+            if (data.success) {
+              subscriptionResults.push({
+                metaArea: metaArea,
+                success: true,
+                unsubscribe_token: data.unsubscribe_token,
+              })
 
-✅ You're subscribed to: ${formData.value.target_title}
-📧 Verification email sent from: vegvisr.org@gmail.com
-
-Note: Your subscription will be active after email verification.`
-          } else {
-            successMessage.value = `🎉 Successfully subscribed to ${formData.value.target_title}!
-📬 You'll receive updates at your verified email: ${formData.value.email}
-✅ Subscription is now active in your profile.`
+              // Check if this is a new subscriber (only need to check once)
+              if (!isNewSubscriber && data.user_status === 'new_subscriber') {
+                isNewSubscriber = true
+              }
+            } else {
+              subscriptionResults.push({
+                metaArea: metaArea,
+                success: false,
+                error: data.error,
+              })
+            }
           }
         } else {
-          errorMessage.value = data.error || 'Failed to subscribe. Please try again.'
+          // Handle single category subscription (existing logic)
+          const subscriptionData = {
+            email: formData.value.email,
+            subscription_type: formData.value.subscription_type,
+            target_id: formData.value.target_input,
+            target_title: formData.value.target_input,
+            subscribed_at: new Date().toISOString(),
+          }
+
+          const response = await fetch(
+            'https://subscription-worker.torarnehave.workers.dev/subscribe',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${userStore.token}`,
+              },
+              body: JSON.stringify(subscriptionData),
+            },
+          )
+
+          const data = await response.json()
+          subscriptionResults.push({
+            category: formData.value.target_input,
+            success: data.success,
+            unsubscribe_token: data.unsubscribe_token,
+            error: data.error,
+          })
+          isNewSubscriber = data.user_status === 'new_subscriber'
+        }
+
+        // Process results
+        const successfulSubs = subscriptionResults.filter((result) => result.success)
+        const failedSubs = subscriptionResults.filter((result) => !result.success)
+
+        if (successfulSubs.length > 0) {
+          isSubscribed.value = true
+
+          // Create success message
+          let message = `🎉 Subscription${successfulSubs.length > 1 ? 's' : ''} Created Successfully!\n\n`
+
+          if (isNewSubscriber) {
+            message += `📬 IMPORTANT: Please check your email to complete your subscription.\n`
+            message += `   • We sent a verification email to ${formData.value.email}\n`
+            message += `   • Click the verification link to activate your subscription\n`
+            message += `   • Check your spam folder if you don't see it\n\n`
+          }
+
+          if (formData.value.subscription_type === 'meta_area') {
+            message += `✅ You're subscribed to: ${successfulSubs.map((s) => s.metaArea).join(', ')}\n`
+          } else {
+            message += `✅ You're subscribed to: ${successfulSubs[0].category}\n`
+          }
+
+          if (isNewSubscriber) {
+            message += `📧 Verification email sent from: vegvisr.org@gmail.com\n\n`
+            message += `Note: Your subscription${successfulSubs.length > 1 ? 's' : ''} will be active after email verification.`
+          } else {
+            message += `📬 You'll receive updates at your verified email: ${formData.value.email}\n`
+            message += `✅ Subscription${successfulSubs.length > 1 ? 's are' : ' is'} now active in your profile.`
+          }
+
+          if (failedSubs.length > 0) {
+            message += `\n\n⚠️ Some subscriptions failed: ${failedSubs.map((f) => f.metaArea || f.category).join(', ')}`
+          }
+
+          successMessage.value = message
+        } else {
+          errorMessage.value = 'All subscriptions failed. Please try again.'
         }
       } catch (error) {
         console.error('Subscription error:', error)
@@ -531,13 +678,17 @@ Note: Your subscription will be active after email verification.`
       showMetaAreaSuggestions,
       filteredCategories,
       filteredMetaAreas,
+      selectedMetaAreas,
       clearError,
       validateForm,
       onSubscriptionTypeChange,
       onCategoryInput,
       onMetaAreaInput,
+      onMetaAreaFocus,
+      onKeydown,
       selectCategory,
       selectMetaArea,
+      removeMetaArea,
       hideSuggestions,
       fetchMetaAreas,
       subscribe,
@@ -677,12 +828,43 @@ Note: Your subscription will be active after email verification.`
   background-color: #f8f9fa;
 }
 
+.suggestion-item.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.suggestion-item.disabled:hover {
+  background-color: transparent;
+}
+
 .suggestion-item:last-child {
   border-bottom: none;
 }
 
 .suggestion-hint {
   margin-top: 0.25rem;
+}
+
+.selected-meta-areas {
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+}
+
+.selected-meta-areas .badge {
+  font-size: 0.85em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.selected-meta-areas .btn-close {
+  font-size: 0.7em;
+  opacity: 0.8;
+}
+
+.selected-meta-areas .btn-close:hover {
+  opacity: 1;
 }
 
 .btn-subscribe {
