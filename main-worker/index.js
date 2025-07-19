@@ -118,42 +118,55 @@ export default {
         // Insert the new user into the database
         try {
           const userId = uuidv4() // Generate a unique user ID
-          const data = {
-            email: responseBody.email,
-            emailVerificationToken: responseBody.emailVerificationToken,
-            emailVerified: true,
-            role: userRole,
-          }
+
+          // Create proper user data structure based on role
+          const userData =
+            userRole === 'subscriber'
+              ? {
+                  profile: {
+                    user_id: userId,
+                    email: userEmail,
+                  },
+                  settings: {
+                    darkMode: false,
+                    notifications: true,
+                    theme: 'light',
+                  },
+                  subscriptions: [], // Will be populated after verification by subscription-worker
+                }
+              : {} // Empty for regular users
+
           const insertQuery = `
             INSERT INTO config (user_id, email, emailVerificationToken, data, role)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(email) DO NOTHING;
           `
           console.log(
-            'Executing query:',
+            'Executing registration query:',
             insertQuery,
             'with parameters:',
             userId,
-            data.email,
-            data.emailVerificationToken,
-            JSON.stringify({}),
-            data.role,
+            userEmail,
+            'NULL', // emailVerificationToken is NULL during registration, filled during verification
+            JSON.stringify(userData),
+            userRole,
           )
           const { changes } = await db
             .prepare(insertQuery)
-            .bind(userId, data.email, data.emailVerificationToken, JSON.stringify({}), data.role)
+            .bind(userId, userEmail, null, JSON.stringify(userData), userRole)
             .run()
+
           if (changes === 0) {
-            console.log('No changes made to the database - user might already exist')
+            console.log('User already exists - no database changes made')
           } else {
             console.log(
-              `Inserted record into database: user_id=${userId}, email=${data.email}, emailVerificationToken=${data.emailVerificationToken}, data=${JSON.stringify({})}, role=${data.role}`,
+              `Successfully created new user: user_id=${userId}, email=${userEmail}, role=${userRole}`,
             )
           }
         } catch (dbError) {
-          console.error('Error inserting record into database:', dbError)
+          console.error('Error inserting user record into database:', dbError)
           return addCorsHeaders(
-            new Response(JSON.stringify({ error: 'Failed to insert record into database.' }), {
+            new Response(JSON.stringify({ error: 'Failed to create user record in database.' }), {
               status: 500,
             }),
           )

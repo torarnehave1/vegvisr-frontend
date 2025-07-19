@@ -10,7 +10,25 @@
 
     <div class="subscription-content">
       <div class="subscription-description">
-        <p>{{ nodeData.description || 'Stay updated with new content and insights!' }}</p>
+        <p>
+          {{
+            nodeData.description ||
+            "Subscribe to receive notifications about new content in your areas of interest. You'll need to verify your email address to activate your subscription."
+          }}
+        </p>
+
+        <!-- Email Instructions -->
+        <div class="email-instructions mt-2 p-3 bg-light rounded">
+          <h6 class="text-primary mb-2">📧 Verification Required</h6>
+          <div class="text-muted small">
+            After subscribing, you'll receive an email with a verification link.
+            <ul class="mt-1 mb-0">
+              <li>Click the link to activate your subscription</li>
+              <li>This also creates your account for accessing subscriber features</li>
+              <li>The email comes from <strong>vegvisr.org@gmail.com</strong></li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <!-- Subscription Form -->
@@ -126,8 +144,8 @@
           class="btn btn-primary btn-subscribe"
         >
           <span v-if="isLoading" class="spinner-border spinner-border-sm me-2"></span>
-          <span class="btn-icon">📧</span>
-          {{ isLoading ? 'Subscribing...' : 'Subscribe' }}
+          <span class="btn-icon">{{ isLoading ? '⏳' : '📧' }}</span>
+          {{ isLoading ? 'Creating Subscription...' : 'Subscribe' }}
         </button>
       </div>
 
@@ -152,7 +170,9 @@
 
       <!-- Success Message -->
       <div v-if="successMessage" class="alert alert-success mt-3">
-        {{ successMessage }}
+        <div class="success-content">
+          {{ successMessage }}
+        </div>
       </div>
     </div>
   </div>
@@ -381,6 +401,9 @@ export default {
       errorMessage.value = ''
       successMessage.value = ''
 
+      // Show progress messages
+      successMessage.value = '📝 Creating your subscription...'
+
       try {
         // Store subscription preference in user config meta field
         const subscriptionData = {
@@ -412,7 +435,25 @@ export default {
             target_title: formData.value.target_title,
             unsubscribe_token: data.unsubscribe_token,
           }
-          successMessage.value = 'Successfully subscribed! Subscription stored in your profile.'
+
+          // Enhanced messaging based on user status
+          if (data.user_status === 'new_subscriber') {
+            successMessage.value = `🎉 Subscription Created Successfully!
+
+📬 IMPORTANT: Please check your email to complete your subscription.
+   • We sent a verification email to ${formData.value.email}
+   • Click the verification link to activate your subscription
+   • Check your spam folder if you don't see it
+
+✅ You're subscribed to: ${formData.value.target_title}
+📧 Verification email sent from: vegvisr.org@gmail.com
+
+Note: Your subscription will be active after email verification.`
+          } else {
+            successMessage.value = `🎉 Successfully subscribed to ${formData.value.target_title}!
+📬 You'll receive updates at your verified email: ${formData.value.email}
+✅ Subscription is now active in your profile.`
+          }
         } else {
           errorMessage.value = data.error || 'Failed to subscribe. Please try again.'
         }
@@ -714,6 +755,26 @@ export default {
 
 .btn-icon {
   font-size: 1rem;
+}
+
+/* Enhanced messaging styles */
+.email-instructions {
+  border-left: 4px solid #007bff;
+}
+
+.email-instructions h6 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.email-instructions ul {
+  padding-left: 1.2rem;
+}
+
+.success-content {
+  white-space: pre-line;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.4;
 }
 
 /* Mobile responsiveness */
