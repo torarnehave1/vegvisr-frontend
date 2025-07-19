@@ -477,7 +477,15 @@
                           </small>
                           <br />
                           <small class="text-muted">
-                            Last updated: {{ formatDate(graph.metadata?.updatedAt) }}
+                            Last updated:
+                            {{
+                              formatDate(
+                                graph.metadata?.updatedAt ||
+                                  graph.metadata?.created_date ||
+                                  graph.created_date ||
+                                  'Unknown',
+                              )
+                            }}
                           </small>
                           <br />
                           <small class="text-muted"> ID: {{ graph.id }} </small>
@@ -1043,7 +1051,11 @@ const fetchGraphs = async () => {
                   description: graphData.metadata?.description || '',
                   createdBy: graphData.metadata?.createdBy || 'Unknown',
                   version: graphData.metadata?.version || 1,
-                  updatedAt: graphData.metadata?.updatedAt || new Date().toISOString(),
+                  updatedAt:
+                    graphData.metadata?.updatedAt ||
+                    graphData.metadata?.created_date ||
+                    graphData.created_date ||
+                    'Unknown',
                   category: graphData.metadata?.category || '#Uncategorized',
                   metaArea: graphData.metadata?.metaArea || '',
                   mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
@@ -1209,7 +1221,7 @@ const truncateText = (text) => {
 }
 
 const formatDate = (dateString) => {
-  if (!dateString) return 'Unknown'
+  if (!dateString || dateString === 'Unknown') return 'Unknown'
   const date = new Date(dateString)
   return date.toLocaleString('en-US', {
     year: 'numeric',

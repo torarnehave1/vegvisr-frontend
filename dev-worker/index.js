@@ -418,7 +418,7 @@ export default {
             )
           }
 
-          const query = `INSERT INTO knowledge_graphs (id, title, description, created_by, data) VALUES (?, ?, ?, ?, ?)`
+          const query = `INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
           await env.vegvisr_org
             .prepare(query)
             .bind(
@@ -427,6 +427,8 @@ export default {
               graphData.metadata.description,
               graphData.metadata.createdBy,
               JSON.stringify(graphData),
+              new Date().toISOString(),
+              new Date().toISOString(),
             )
             .run()
 
@@ -484,8 +486,8 @@ export default {
 
         try {
           await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET ai_instructions = ? WHERE id = ?')
-            .bind(instructions, graphId)
+            .prepare('UPDATE knowledge_graphs SET ai_instructions = ?, updated_at = ? WHERE id = ?')
+            .bind(instructions, new Date().toISOString(), graphId)
             .run()
 
           return new Response(JSON.stringify({ message: 'AI instructions updated successfully' }), {
@@ -515,8 +517,11 @@ export default {
 
           console.log(`[Worker] Updating graph with ID: ${id}`)
 
-          const query = `UPDATE knowledge_graphs SET data = ? WHERE id = ?`
-          await env.vegvisr_org.prepare(query).bind(JSON.stringify(graphData), id).run()
+          const query = `UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?`
+          await env.vegvisr_org
+            .prepare(query)
+            .bind(JSON.stringify(graphData), new Date().toISOString(), id)
+            .run()
 
           console.log('[Worker] Graph updated successfully')
           return new Response(JSON.stringify({ message: 'Graph updated successfully', id }), {
@@ -786,7 +791,7 @@ export default {
             // Update existing graph
             const updateGraphQuery = `
               UPDATE knowledge_graphs
-              SET data = ?, title = ?, description = ?, created_by = ?
+              SET data = ?, title = ?, description = ?, created_by = ?, updated_at = ?
               WHERE id = ?
             `
             await env.vegvisr_org
@@ -796,6 +801,7 @@ export default {
                 enrichedGraphData.metadata.title,
                 enrichedGraphData.metadata.description,
                 enrichedGraphData.metadata.createdBy,
+                new Date().toISOString(),
                 id,
               )
               .run()
@@ -803,8 +809,8 @@ export default {
           } else {
             // Insert new graph
             const insertGraphQuery = `
-              INSERT INTO knowledge_graphs (id, title, description, created_by, data)
-              VALUES (?, ?, ?, ?, ?)
+              INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
             `
             await env.vegvisr_org
               .prepare(insertGraphQuery)
@@ -814,6 +820,8 @@ export default {
                 enrichedGraphData.metadata.description,
                 enrichedGraphData.metadata.createdBy,
                 JSON.stringify(enrichedGraphData),
+                new Date().toISOString(),
+                new Date().toISOString(),
               )
               .run()
             console.log(`[Worker] Created new graph: ${id}`)
@@ -1012,8 +1020,8 @@ export default {
 
           // Step 1: Insert into main knowledge_graphs table
           const insertMainQuery = `
-            INSERT INTO knowledge_graphs (id, title, description, created_by, data)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `
           await env.vegvisr_org
             .prepare(insertMainQuery)
@@ -1023,6 +1031,8 @@ export default {
               duplicatedGraphData.metadata.description,
               duplicatedGraphData.metadata.createdBy,
               JSON.stringify(duplicatedGraphData),
+              new Date().toISOString(),
+              new Date().toISOString(),
             )
             .run()
 
@@ -1287,10 +1297,13 @@ export default {
 
           const updateQuery = `
             UPDATE knowledge_graphs
-            SET data = ?
+            SET data = ?, updated_at = ?
             WHERE id = ?
           `
-          await env.vegvisr_org.prepare(updateQuery).bind(JSON.stringify(graphData), graphId).run()
+          await env.vegvisr_org
+            .prepare(updateQuery)
+            .bind(JSON.stringify(graphData), new Date().toISOString(), graphId)
+            .run()
 
           console.log('[Worker] Work note inserted into graph successfully')
           return new Response(
@@ -1540,10 +1553,10 @@ export default {
             ) {
               graphData.metadata.metaArea = ''
               // Update the graph
-              const updateQuery = `UPDATE knowledge_graphs SET data = ? WHERE id = ?`
+              const updateQuery = `UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?`
               await env.vegvisr_org
                 .prepare(updateQuery)
-                .bind(JSON.stringify(graphData), row.id)
+                .bind(JSON.stringify(graphData), new Date().toISOString(), row.id)
                 .run()
               updated++
             } else {
