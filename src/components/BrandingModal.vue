@@ -796,25 +796,25 @@ export default {
           id: 'graph-portfolio',
           label: 'Portfolio',
           path: '/graph-portfolio',
-          roles: ['User', 'Admin', 'Superadmin'],
+          roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
         },
         {
           id: 'graph-viewer',
           label: 'Viewer',
           path: '/graph-viewer',
-          roles: ['User', 'Admin', 'Superadmin'],
+          roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
         },
         {
           id: 'search',
           label: 'Search',
           path: '/search',
-          roles: ['User', 'Admin', 'Superadmin'],
+          roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
         },
         {
           id: 'user-dashboard',
           label: 'Dashboard',
           path: '/user',
-          roles: ['User', 'Admin', 'Superadmin'],
+          roles: ['User', 'Admin', 'Superadmin', 'subscriber'],
         },
         {
           id: 'github-issues',
@@ -832,7 +832,7 @@ export default {
           id: 'gnew',
           label: '🧪 GNew Viewer',
           path: '/gnew-viewer',
-          roles: ['Superadmin'],
+          roles: ['Superadmin', 'subscriber'],
         },
       ]
     },

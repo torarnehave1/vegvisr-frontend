@@ -10,7 +10,14 @@ async function callMainWorker(env, endpoint, params = {}) {
     },
   })
 
-  return await env.MAIN_WORKER.fetch(request)
+  try {
+    const response = await env.MAIN_WORKER.fetch(request)
+    console.log('Service binding call successful:', response.status)
+    return response
+  } catch (error) {
+    console.error('Service binding error:', error.message)
+    throw error
+  }
 }
 
 export default {
@@ -179,13 +186,32 @@ async function handleSubscribe(request, env, corsHeaders) {
         throw new Error('Failed to register subscriber')
       }
 
+      // Wait briefly for database consistency after user creation
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
       // Get the user_id that was created by main-worker to preserve it in the profile
       const userQuery = `SELECT user_id, data FROM config WHERE email = ?`
-      const createdUser = await env.vegvisr_org.prepare(userQuery).bind(email).first()
+      let createdUser = null
+
+      // Retry logic for database consistency
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          createdUser = await env.vegvisr_org.prepare(userQuery).bind(email).first()
+          if (createdUser) break
+
+          console.log(`User not found on attempt ${attempt}, retrying...`)
+          await new Promise((resolve) => setTimeout(resolve, 200 * attempt))
+        } catch (dbError) {
+          console.error(`Database query error on attempt ${attempt}:`, dbError)
+          if (attempt === 3) throw dbError
+        }
+      }
 
       if (createdUser) {
         // Preserve the user_id in the profile section
         subscriptionData.profile.user_id = createdUser.user_id
+      } else {
+        console.warn('Could not find created user, proceeding without user_id preservation')
       }
 
       // Update the user's data with subscription information
