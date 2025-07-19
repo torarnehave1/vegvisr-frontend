@@ -572,7 +572,7 @@ export default {
           }
 
           // 2. Fetch all graphs
-          const query = `SELECT id, title, data FROM knowledge_graphs`
+          const query = `SELECT id, title, data, created_date, updated_at FROM knowledge_graphs`
           const results = await env.vegvisr_org.prepare(query).all()
           const allGraphs = results.results || results.rows || []
           console.log('[Worker] Total graphs fetched from database:', allGraphs.length)
@@ -648,7 +648,7 @@ export default {
 
           console.log(`[Worker] Fetching graph with ID: ${id}`)
 
-          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
+          const query = `SELECT data, created_date, updated_at FROM knowledge_graphs WHERE id = ?`
           const result = await env.vegvisr_org.prepare(query).bind(id).first()
 
           if (!result) {
@@ -659,6 +659,11 @@ export default {
           }
 
           const graphData = sanitizeGraphData(JSON.parse(result.data))
+
+          // Add database timestamp fields to the response
+          graphData.created_date = result.created_date
+          graphData.updated_at = result.updated_at
+
           graphData.nodes = graphData.nodes.map((node) => ({
             ...node,
             imageWidth: node.imageWidth || null, // Ensure imageWidth is included
@@ -698,7 +703,7 @@ export default {
 
           console.log(`[Worker] Fetching public graph with ID: ${id}`)
 
-          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
+          const query = `SELECT data, created_date, updated_at FROM knowledge_graphs WHERE id = ?`
           const result = await env.vegvisr_org.prepare(query).bind(id).first()
 
           if (!result) {

@@ -477,15 +477,7 @@
                           </small>
                           <br />
                           <small class="text-muted">
-                            Last updated:
-                            {{
-                              formatDate(
-                                graph.metadata?.updatedAt ||
-                                  graph.metadata?.created_date ||
-                                  graph.created_date ||
-                                  'Unknown',
-                              )
-                            }}
+                            Last updated: {{ formatDate(graph.metadata?.updatedAt) }}
                           </small>
                           <br />
                           <small class="text-muted"> ID: {{ graph.id }} </small>
@@ -1051,11 +1043,7 @@ const fetchGraphs = async () => {
                   description: graphData.metadata?.description || '',
                   createdBy: graphData.metadata?.createdBy || 'Unknown',
                   version: graphData.metadata?.version || 1,
-                  updatedAt:
-                    graphData.metadata?.updatedAt ||
-                    graphData.metadata?.created_date ||
-                    graphData.created_date ||
-                    'Unknown',
+                  updatedAt: graphData.updated_at || graphData.created_date || 'Unknown',
                   category: graphData.metadata?.category || '#Uncategorized',
                   metaArea: graphData.metadata?.metaArea || '',
                   mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
