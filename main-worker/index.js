@@ -321,10 +321,10 @@ export default {
               if (existingUser) {
                 console.log(`User with email=${parsedBody.email} already exists in the database`)
 
-                // Update the emailVerificationToken and set role to ViewOnly
+                // Update the emailVerificationToken while preserving existing role
                 const updateQuery = `
                   UPDATE config
-                  SET emailVerificationToken = ?, role = 'ViewOnly'
+                  SET emailVerificationToken = ?
                   WHERE email = ?;
                 `
                 console.log(
@@ -347,7 +347,7 @@ export default {
                 }
 
                 console.log(
-                  `Successfully updated emailVerificationToken for email=${parsedBody.email} in the database.`,
+                  `Successfully updated emailVerificationToken for email=${parsedBody.email} (role preserved)`,
                 )
               } else {
                 console.log(`Creating new user with email=${parsedBody.email}`)
