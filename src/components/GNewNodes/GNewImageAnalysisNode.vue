@@ -550,14 +550,19 @@ const createFulltextNode = async () => {
 
   try {
     const newNode = {
-      id: `node_${Date.now()}`,
-      type: 'fulltext',
+      id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       label: `Image Analysis: ${analysisType.value}`,
       info: analysisResult.value,
-      position: {
-        x: props.node.position.x + 300,
-        y: props.node.position.y + 100,
-      },
+      type: 'fulltext',
+      color: '#e8f5e8',
+      visible: true,
+      x: (props.node.x || 0) + 300,
+      y: (props.node.y || 0) + 100,
+      bibl: [
+        `Image analyzed using ${selectedModel.value} via image-analysis-worker.torarnehave.workers.dev`,
+        `Analysis type: ${analysisType.value}`,
+        `Generated on ${new Date().toISOString().split('T')[0]}`,
+      ],
     }
 
     emit('node-created', newNode)
