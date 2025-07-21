@@ -46,12 +46,22 @@
         </div>
       </div>
     </div>
+
+    <!-- Citation Modal -->
+    <CitationModal
+      v-if="showCitationModal"
+      :graph-data="graphData"
+      :graph-id="props.graphId"
+      :graph-metadata="graphMetadata"
+      @close="closeCitationModal"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+import CitationModal from './CitationModal.vue'
 
 const props = defineProps({
   graphId: {
@@ -62,6 +72,14 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  graphData: {
+    type: Object,
+    default: () => ({ nodes: [], edges: [] }),
+  },
+  graphMetadata: {
+    type: Object,
+    default: () => ({}),
+  },
 })
 
 const userStore = useUserStore()
@@ -71,6 +89,7 @@ const engagementStats = ref({})
 const userEngagements = ref([])
 const isLoading = ref(false)
 const showCommentaryModal = ref(false)
+const showCitationModal = ref(false)
 const commentary = ref('')
 const pendingEngagement = ref(null)
 
@@ -141,6 +160,13 @@ const modalSubmitText = computed(() => {
 
 // Methods
 const handleEngagementClick = async (engagement) => {
+  // Special handling for citing button - show citation modal
+  if (engagement.type === 'citing') {
+    showCitationModal.value = true
+    await submitEngagement(engagement.type) // Still track the engagement
+    return
+  }
+
   if (engagement.requiresComment) {
     pendingEngagement.value = engagement.type
     commentary.value = ''
@@ -190,6 +216,10 @@ const closeCommentaryModal = () => {
   showCommentaryModal.value = false
   pendingEngagement.value = null
   commentary.value = ''
+}
+
+const closeCitationModal = () => {
+  showCitationModal.value = false
 }
 
 const fetchEngagementData = async () => {
