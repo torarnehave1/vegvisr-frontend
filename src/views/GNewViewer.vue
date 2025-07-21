@@ -28,6 +28,11 @@
             @node-created="handleNodeCreated"
           />
         </div>
+
+        <!-- Graph-Level Social Stats (Public View) -->
+        <div class="graph-social-public">
+          <SocialInteractionBar :graph-id="currentGraphId" :show-stats="true" />
+        </div>
       </div>
 
       <div v-else class="empty-state">
@@ -81,6 +86,13 @@
           </button>
           <button @click="refreshDataAndClose" class="btn btn-outline-secondary w-100 mb-2">
             🔄 Refresh
+          </button>
+          <button
+            v-if="userStore.loggedIn"
+            @click="navigateToProfessionalFeedAndClose"
+            class="btn btn-outline-primary w-100 mb-2"
+          >
+            📊 Professional Feed
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
@@ -212,6 +224,13 @@
             {{ loading ? 'Loading...' : 'Load Graph' }}
           </button>
           <button @click="refreshData" class="btn btn-outline-secondary">🔄 Refresh</button>
+          <button
+            v-if="userStore.loggedIn"
+            @click="navigateToProfessionalFeed"
+            class="btn btn-outline-primary"
+          >
+            📊 Professional Feed
+          </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
             @click="duplicateKnowledgeGraph"
@@ -1027,6 +1046,22 @@
               @node-deleted="handleNodeDeleted"
               @node-created="handleNodeCreated"
             />
+
+            <!-- Node-Level Comments for logged-in users -->
+            <div v-if="userStore.loggedIn" class="node-comments-section">
+              <NodeCommentSection
+                v-for="node in commentableNodes"
+                :key="`comments-${node.id}`"
+                :graph-id="currentGraphId"
+                :node-id="node.id"
+                :node-type="node.type"
+              />
+            </div>
+          </div>
+
+          <!-- Graph-Level Social Features -->
+          <div v-if="userStore.loggedIn" class="graph-social-section">
+            <SocialInteractionBar :graph-id="currentGraphId" :show-stats="true" />
           </div>
         </div>
 
@@ -1122,7 +1157,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useBranding } from '@/composables/useBranding'
@@ -1135,6 +1170,8 @@ import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
+import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
+import NodeCommentSection from '@/components/NodeCommentSection.vue'
 
 // Props
 const props = defineProps({
@@ -1146,6 +1183,7 @@ const props = defineProps({
 
 // Router
 const route = useRoute()
+const router = useRouter()
 
 // Store access
 const userStore = useUserStore()
@@ -1187,6 +1225,19 @@ const loading = ref(false)
 const error = ref(null)
 const statusMessage = ref('')
 const duplicatingGraph = ref(false)
+
+// Computed properties
+const commentableNodes = computed(() => {
+  // Only show comments for node types that support professional discussion
+  const commentableTypes = ['fulltext', 'worknote', 'notes']
+  return graphData.value.nodes.filter(
+    (node) => commentableTypes.includes(node.type) && node.visible !== false,
+  )
+})
+
+const currentGraphId = computed(() => {
+  return props.graphId || route.params.graphId || route.query.id || ''
+})
 
 // Image editing modal state
 const isImageSelectorOpen = ref(false)
@@ -1885,6 +1936,16 @@ const openImageQuoteAndClose = () => {
 const openShareAndClose = () => {
   closeMobileMenu()
   openShareModal()
+}
+
+// Professional Feed navigation
+const navigateToProfessionalFeed = () => {
+  router.push('/professional-feed')
+}
+
+const navigateToProfessionalFeedAndClose = () => {
+  closeMobileMenu()
+  navigateToProfessionalFeed()
 }
 
 // Mobile menu template system integration
@@ -4095,6 +4156,27 @@ const handleEscKey = (event) => {
 
 .nodes-container {
   margin-top: 20px;
+}
+
+.node-comments-section {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #e9ecef;
+}
+
+.graph-social-section {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid #e9ecef;
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.graph-social-public {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #e9ecef;
 }
 
 .nodes-preview {

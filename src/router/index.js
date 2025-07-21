@@ -170,6 +170,12 @@ const router = createRouter({
       component: AudioPortfolio,
     },
     {
+      path: '/professional-feed',
+      name: 'professional-feed',
+      component: () => import('../components/ProfessionalFeed.vue'),
+      meta: { requiresAuth: true, layout: null },
+    },
+    {
       path: '/search',
       name: 'search',
       component: () => import('../views/SearchView.vue'),
