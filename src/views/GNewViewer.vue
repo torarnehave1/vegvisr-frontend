@@ -1052,15 +1052,9 @@
               @node-created="handleNodeCreated"
             />
 
-            <!-- Node-Level Comments for logged-in users -->
-            <div v-if="userStore.loggedIn" class="node-comments-section">
-              <NodeCommentSection
-                v-for="node in commentableNodes"
-                :key="`comments-${node.id}`"
-                :graph-id="currentGraphId"
-                :node-id="node.id"
-                :node-type="node.type"
-              />
+            <!-- Real-time Professional Discussion -->
+            <div v-if="graphData.nodes.length > 0" class="graph-chat-section">
+              <GraphChatPanel :graph-id="currentGraphId" :graph-data="graphData" />
             </div>
           </div>
 
@@ -1181,7 +1175,7 @@ import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
-import NodeCommentSection from '@/components/NodeCommentSection.vue'
+import GraphChatPanel from '@/components/GraphChatPanel.vue'
 
 // Props
 const props = defineProps({
@@ -1237,14 +1231,6 @@ const statusMessage = ref('')
 const duplicatingGraph = ref(false)
 
 // Computed properties
-const commentableNodes = computed(() => {
-  // Only show comments for node types that support professional discussion
-  const commentableTypes = ['fulltext', 'worknote', 'notes']
-  return graphData.value.nodes.filter(
-    (node) => commentableTypes.includes(node.type) && node.visible !== false,
-  )
-})
-
 const currentGraphId = computed(() => {
   return props.graphId || route.params.graphId || route.query.id || ''
 })
@@ -4190,6 +4176,15 @@ const handleEscKey = (event) => {
   background: #f8f9fa;
   padding: 20px;
   border-radius: 8px;
+}
+
+.graph-chat-section {
+  margin-top: 30px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .graph-social-public {
