@@ -176,7 +176,9 @@ const topLevelComments = computed(() => {
 const checkCommentability = async () => {
   try {
     // Check if node type supports comments
-    const typesResponse = await fetch('https://social.vegvisr.org/commentable-types')
+    const typesResponse = await fetch(
+      'https://social-worker.torarnehave.workers.dev/commentable-types',
+    )
     const { types } = await typesResponse.json()
     allowedTypes.value = types || []
 
@@ -189,7 +191,7 @@ const checkCommentability = async () => {
 
     // Check creator's engagement level for this graph
     const settingsResponse = await fetch(
-      `https://social.vegvisr.org/graph-social-settings?graphId=${props.graphId}`,
+      `https://social-worker.torarnehave.workers.dev/graph-social-settings?graphId=${props.graphId}`,
     )
     const { engagementLevel: level } = await settingsResponse.json()
     engagementLevel.value = level
@@ -210,7 +212,7 @@ const fetchComments = async () => {
   try {
     isLoading.value = true
     const response = await fetch(
-      `https://social.vegvisr.org/node-comments?graphId=${props.graphId}&nodeId=${props.nodeId}`,
+      `https://social-worker.torarnehave.workers.dev/node-comments?graphId=${props.graphId}&nodeId=${props.nodeId}`,
     )
     const data = await response.json()
     comments.value = data.comments || []
@@ -227,7 +229,7 @@ const submitComment = async () => {
 
   try {
     isSubmitting.value = true
-    const response = await fetch('https://social.vegvisr.org/add-node-comment', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/add-node-comment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -266,7 +268,7 @@ const submitReply = async () => {
 
   try {
     isSubmitting.value = true
-    const response = await fetch('https://social.vegvisr.org/add-node-comment', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/add-node-comment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -303,15 +305,18 @@ const closeReplyModal = () => {
 
 const handleEdit = async (commentId, newText) => {
   try {
-    const response = await fetch('https://social.vegvisr.org/edit-node-comment', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        commentId,
-        userId: userStore.user_id,
-        commentText: newText,
-      }),
-    })
+    const response = await fetch(
+      'https://social-worker.torarnehave.workers.dev/edit-node-comment',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commentId,
+          userId: userStore.user_id,
+          commentText: newText,
+        }),
+      },
+    )
 
     if (response.ok) {
       await fetchComments()
@@ -330,7 +335,7 @@ const handleDelete = async (commentId) => {
 
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/delete-node-comment?commentId=${commentId}&userId=${userStore.user_id}`,
+      `https://social-worker.torarnehave.workers.dev/delete-node-comment?commentId=${commentId}&userId=${userStore.user_id}`,
       { method: 'DELETE' },
     )
 

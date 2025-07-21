@@ -161,7 +161,7 @@ const fetchFeedItems = async (append = false) => {
     }
 
     const response = await fetch(
-      `https://social.vegvisr.org/professional-feed?userId=${userStore.user_id}&page=${currentPage.value}&limit=${pageSize}`,
+      `https://social-worker.torarnehave.workers.dev/professional-feed?userId=${userStore.user_id}&page=${currentPage.value}&limit=${pageSize}`,
     )
 
     if (response.ok) {
@@ -202,7 +202,7 @@ const getCommentCount = async (graphId) => {
   try {
     // This would ideally be included in the main feed response for efficiency
     const response = await fetch(
-      `https://social.vegvisr.org/graph-comment-count?graphId=${graphId}`,
+      `https://social-worker.torarnehave.workers.dev/graph-comment-count?graphId=${graphId}`,
     )
     if (response.ok) {
       const data = await response.json()

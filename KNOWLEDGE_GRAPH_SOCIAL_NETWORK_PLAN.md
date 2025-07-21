@@ -99,7 +99,7 @@ social-worker/
 └── README.md             -- Social worker documentation
 ```
 
-**Dedicated Social Database (Cloudflare D1/SQLite):**
+**Social Database Tables (Added to Existing vegvisr_org Database):**
 
 ```sql
 -- Professional connections
@@ -208,8 +208,12 @@ const socialEngagementLevels = {
 
 ```javascript
 // social-worker/index.js - Complete microservice
+// Base URL: https://social-worker.torarnehave.workers.dev
 export default {
   async fetch(request, env, ctx) {
+    // Health check
+    GET  /health                -- Worker health status and database connection
+
     // Professional connections
     POST /follow-user           -- Follow/unfollow professionals
     GET  /user-connections      -- Get user's connections and followers
@@ -233,7 +237,7 @@ export default {
 
     // Professional feed
     GET  /professional-feed     -- Timeline of followed users' insights with engagement data
-    GET  /trending-insights     -- Popular insights in user's network by engagement type
+    GET  /graph-comment-count   -- Get comment counts for graphs
 
     // User discovery
     GET  /discover-professionals -- Find users by expertise/domain
@@ -399,7 +403,7 @@ const engagementButtons = [
 
 const handleEngagementClick = async (engagementType, commentary = null) => {
   try {
-    const response = await fetch('https://social.vegvisr.org/engage-graph', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/engage-graph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -423,7 +427,7 @@ const handleEngagementClick = async (engagementType, commentary = null) => {
 const fetchEngagementStats = async () => {
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/graph-engagement?graphId=${props.graphId}`,
+      `https://social-worker.torarnehave.workers.dev/graph-engagement?graphId=${props.graphId}`,
     )
     const stats = await response.json()
     engagementStats.value = stats.engagements || {}
@@ -440,7 +444,7 @@ const fetchEngagementStats = async () => {
 const fetchFeedItems = async () => {
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/professional-feed?userId=${userStore.user_id}`,
+      `https://social-worker.torarnehave.workers.dev/professional-feed?userId=${userStore.user_id}`,
     )
     const data = await response.json()
     feedItems.value = data.insights || []
@@ -467,7 +471,7 @@ const handleFollowToggle = async () => {
     isLoading.value = true
     const action = isFollowing.value ? 'unfollow' : 'follow'
 
-    const response = await fetch('https://social.vegvisr.org/follow-user', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/follow-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -506,7 +510,9 @@ const nodeComments = ref([])
 const checkCommentability = async () => {
   try {
     // First check if node type supports comments
-    const typesResponse = await fetch('https://social.vegvisr.org/commentable-types')
+    const typesResponse = await fetch(
+      'https://social-worker.torarnehave.workers.dev/commentable-types',
+    )
     const { types } = await typesResponse.json()
     const nodeTypeSupported = types.some((t) => t.node_type === props.nodeType)
 
@@ -517,7 +523,7 @@ const checkCommentability = async () => {
 
     // Then check creator's engagement level for this graph
     const settingsResponse = await fetch(
-      `https://social.vegvisr.org/graph-social-settings?graphId=${props.graphId}`,
+      `https://social-worker.torarnehave.workers.dev/graph-social-settings?graphId=${props.graphId}`,
     )
     const { engagementLevel } = await settingsResponse.json()
 
@@ -534,7 +540,7 @@ const checkCommentability = async () => {
 
 const addNodeComment = async (commentText, parentId = null) => {
   try {
-    const response = await fetch('https://social.vegvisr.org/add-node-comment', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/add-node-comment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -559,7 +565,7 @@ const addNodeComment = async (commentText, parentId = null) => {
 const fetchNodeComments = async () => {
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/node-comments?graphId=${props.graphId}&nodeId=${props.nodeId}`,
+      `https://social-worker.torarnehave.workers.dev/node-comments?graphId=${props.graphId}&nodeId=${props.nodeId}`,
     )
     const data = await response.json()
     nodeComments.value = data.comments || []
@@ -596,12 +602,22 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders })
     }
 
+    // Health check endpoint
+    if (pathname === '/health' && method === 'GET') {
+      return new Response(JSON.stringify({
+        status: 'healthy',
+        service: 'social-worker',
+        timestamp: new Date().toISOString(),
+        database: env.vegvisr_org ? 'connected' : 'not connected',
+      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
     // Professional feed endpoint
     if (pathname === '/professional-feed' && method === 'GET') {
       const userId = url.searchParams.get('userId')
 
       // Get followed users from social database
-      const socialDb = env.social_network_db
+      const socialDb = env.vegvisr_org
       const followedQuery = `
         SELECT following_id FROM professional_connections
         WHERE follower_id = ? AND connection_type = 'follow'
@@ -811,34 +827,62 @@ The social-worker communicates with existing workers using service bindings, mai
 ### social-worker Development Setup
 
 ```bash
-# Create new worker structure
-mkdir social-worker
+# Navigate to existing social-worker directory
 cd social-worker
 
-# Copy wrangler.toml template from existing workers
-cp ../main-worker/wrangler.toml ./wrangler.toml
-# Modify name to "social-worker" and add social database bindings
+# Deploy the social-worker
+wrangler deploy
 
-# Create index.js with full microservice implementation
-# Deploy independently from all existing workers
+# Add social tables to existing database
+wrangler d1 execute vegvisr_org --file=../database/social-schema.sql --remote
+
+# Test health endpoint
+curl https://social-worker.torarnehave.workers.dev/health
+```
+
+**Wrangler.toml Configuration:**
+
+```toml
+name = "social-worker"
+main = "index.js"
+compatibility_date = "2025-02-14"
+workers_dev = true
+
+[[d1_databases]]
+binding = "vegvisr_org"
+database_name = "vegvisr_org"
+database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
+
+# Service bindings for worker-to-worker communication
+[[services]]
+binding = "MAIN_WORKER"
+service = "vegvisr-frontend"
+
+[[services]]
+binding = "DEV_WORKER"
+service = "knowledge-graph-worker"
+
+[vars]
+ENVIRONMENT = "production"
 ```
 
 ### First Working Version Target
 
-**Week 2 Goal**: Complete social-worker microservice with enhanced professional engagement types and scalable node-level comments.
+**Implementation Complete**: Full social-worker microservice with professional networking features.
 
-**Success Criteria**:
+**Success Criteria - COMPLETED**:
 
-- ✅ **Complete Isolation**: social-worker runs independently with own database schema
+- ✅ **Complete Isolation**: social-worker runs independently at social-worker.torarnehave.workers.dev
 - ✅ **Zero Disruption**: All existing graph creation/viewing works unchanged
-- ✅ **No Existing Code Changes**: Works with all existing knowledge graphs immediately
+- ✅ **Database Integration**: Uses existing vegvisr_org database with dedicated social tables
 - ✅ **Enhanced Engagement**: 9 professional engagement types including ✨ "Inspired"
 - ✅ **Scalable Comments**: Node-level comments on fulltext, worknote, notes (configurable)
 - ✅ **Creator Control**: Simple graph-level settings with 'hybrid' default
-- ✅ **Worker Communication**: social-worker calls main-worker and dev-worker via service bindings
-- ✅ **Professional Connections**: Users can follow other professionals
-- ✅ **Engagement Analytics**: Rich engagement metrics and professional statistics
-- ✅ **Rollback Safety**: social-worker can be completely disabled without affecting anything
+- ✅ **Worker Communication**: Configured service bindings for main-worker and dev-worker
+- ✅ **Professional Connections**: Users can follow other professionals via FollowButton
+- ✅ **UI Integration**: Social components integrated into GNewViewer interface
+- ✅ **Health Monitoring**: Health endpoint for deployment verification
+- ✅ **Professional Feed**: Timeline of followed users' insights and activities
 
 ### Why This Enhanced social-worker Approach is Superior
 
@@ -904,3 +948,86 @@ const getEngagementLevel = async (graphId) => {
 **🛡️ Safe Default**: 'Hybrid' encourages collaboration while creators can restrict as needed
 
 This enhanced social-worker approach creates a unique "Professional Insights Network" that transforms knowledge graphs into a sophisticated platform for professional inspiration, learning, and collaboration.
+
+---
+
+## 🎯 **IMPLEMENTATION STATUS - COMPLETED**
+
+### **✅ Backend: social-worker Microservice**
+
+**Deployment**: `https://social-worker.torarnehave.workers.dev`
+
+**Health Check**: `GET /health`
+
+- Status monitoring and database connection verification
+
+**Core Endpoints Implemented**:
+
+- Professional connections (follow/unfollow)
+- Graph engagement (9 professional reaction types)
+- Node-level comments (with creator control)
+- Professional feed (timeline of followed users)
+- Social statistics and analytics
+
+### **✅ Frontend: UI Integration in GNewViewer**
+
+**Where Social Features Are Visible:**
+
+1. **Graph-Level Social Interaction Bar** (Bottom of graph content)
+
+   - 💡 Insightful • ✨ Inspiring • 📚 Learning
+   - 📎 Bookmark • 🏗️ Building On • ✅ Validates
+   - 🔄 Repost • ❓ Question • 📖 Citing
+   - Visible for both logged-in users (interactive) and public users (stats only)
+
+2. **Node-Level Comments** (After nodes container)
+
+   - Available for: fulltext, worknote, notes node types
+   - Only visible when logged in and creator allows comments
+   - Supports threading and professional discussions
+
+3. **Follow Button** (In Graph Status Bar)
+
+   - Next to "Created By" information
+   - Allows following graph creators directly
+   - Shows connection statistics
+
+4. **Professional Feed Access** (Navigation)
+   - **Desktop**: "📊 Professional Feed" button in action toolbar
+   - **Mobile**: Professional Feed option in hamburger menu
+   - Timeline view of followed users' insights and activities
+
+### **✅ Database: Social Tables Added**
+
+**Database**: Existing `vegvisr_org` (ID: 507d1efd-1dda-45ef-971f-52d2c8e8afe8)
+
+**Tables Added**:
+
+- `professional_connections` - Follow relationships
+- `graph_insights` - Professional engagement reactions
+- `node_discussions` - Node-level comments with threading
+- `commentable_node_types` - Configuration for commentable nodes
+- `graph_social_settings` - Creator control over engagement levels
+
+### **✅ Ready for Production**
+
+**Deployment Command**:
+
+```bash
+cd social-worker
+wrangler deploy
+```
+
+**Database Setup**:
+
+```bash
+wrangler d1 execute vegvisr_org --file=../database/social-schema.sql --remote
+```
+
+**Verification**:
+
+```bash
+curl https://social-worker.torarnehave.workers.dev/health
+```
+
+The Professional Insights Network is fully implemented and ready for user engagement!
