@@ -41,6 +41,12 @@
       <div class="status-item" v-if="graphCreatedBy">
         <span class="label">Created By:</span>
         <span class="value">{{ graphCreatedBy }}</span>
+        <FollowButton
+          v-if="userStore.loggedIn && graphCreatorId"
+          :target-user-id="graphCreatorId"
+          compact
+          class="ms-2"
+        />
       </div>
     </div>
 
@@ -62,6 +68,7 @@
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import FollowButton from './FollowButton.vue'
 
 // Store management
 const userStore = useUserStore()
@@ -143,6 +150,13 @@ const graphCreatedBy = computed(() => {
     userStore.user?.email ||
     'Unknown'
   )
+})
+
+const graphCreatorId = computed(() => {
+  // For now, we'll use the email as the user ID since that's what's typically stored
+  // In a real implementation, you'd want to have a separate user ID field
+  const createdBy = props.currentGraph?.createdBy || knowledgeGraphStore.graphMetadata?.createdBy
+  return createdBy && createdBy !== 'Unknown' ? createdBy : null
 })
 
 const hasMetadata = computed(() => {
@@ -253,6 +267,11 @@ const nodeTypes = computed(() => {
 .bg-info {
   background-color: #17a2b8;
   color: white;
+}
+
+/* Follow button styling */
+.ms-2 {
+  margin-left: 0.5rem !important;
 }
 
 /* Mobile responsiveness */
