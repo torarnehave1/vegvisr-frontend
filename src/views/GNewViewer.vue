@@ -31,7 +31,12 @@
 
         <!-- Graph-Level Social Stats (Public View) -->
         <div class="graph-social-public">
-          <SocialInteractionBar :graph-id="currentGraphId" :show-stats="true" />
+          <SocialInteractionBar
+            :graph-id="currentGraphId"
+            :show-stats="true"
+            :graph-data="graphData"
+            :graph-metadata="graphMetadata"
+          />
         </div>
       </div>
 
@@ -1061,7 +1066,12 @@
 
           <!-- Graph-Level Social Features -->
           <div v-if="userStore.loggedIn" class="graph-social-section">
-            <SocialInteractionBar :graph-id="currentGraphId" :show-stats="true" />
+            <SocialInteractionBar
+              :graph-id="currentGraphId"
+              :show-stats="true"
+              :graph-data="graphData"
+              :graph-metadata="graphMetadata"
+            />
           </div>
         </div>
 
@@ -1237,6 +1247,18 @@ const commentableNodes = computed(() => {
 
 const currentGraphId = computed(() => {
   return props.graphId || route.params.graphId || route.query.id || ''
+})
+
+// Computed metadata object for social components
+const graphMetadata = computed(() => {
+  return {
+    id: currentGraphId.value,
+    title: graphTitle.value,
+    category: graphCategories.value.join(','),
+    metaArea: graphMetaAreas.value.join(','),
+    createdBy: graphCreatedBy.value,
+    created_date: graphData.value?.created_date || graphData.value?.metadata?.created_date,
+  }
 })
 
 // Image editing modal state

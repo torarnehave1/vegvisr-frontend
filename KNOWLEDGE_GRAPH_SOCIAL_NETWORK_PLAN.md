@@ -224,6 +224,9 @@ export default {
     GET  /graph-engagement      -- Get engagement counts and types for graphs
     GET  /user-engagements      -- Get user's engagement history
 
+    // Citation tracking
+    POST /track-citation        -- Track when users generate and copy APA citations
+
     // Scalable node-level comments (respects creator settings)
     GET  /commentable-types     -- Get list of commentable node types (configurable)
     POST /add-node-comment      -- Add comment to specific node (validates node type + creator settings)
@@ -993,9 +996,17 @@ This enhanced social-worker approach creates a unique "Professional Insights Net
    - Shows connection statistics
 
 4. **Professional Feed Access** (Navigation)
+
    - **Desktop**: "📊 Professional Feed" button in action toolbar
    - **Mobile**: Professional Feed option in hamburger menu
    - Timeline view of followed users' insights and activities
+
+5. **APA Citation Generator** (📖 Citing Button)
+   - Automatic APA 7th edition formatting for academic citations
+   - Integrates with branding system for proper website names
+   - Uses graph metadata (author, title, publication date)
+   - One-click copy to clipboard functionality
+   - Citation tracking for analytics
 
 ### **✅ Database: Social Tables Added**
 
@@ -1031,3 +1042,41 @@ curl https://social-worker.torarnehave.workers.dev/health
 ```
 
 The Professional Insights Network is fully implemented and ready for user engagement!
+
+---
+
+## 📖 **APA Citation Feature - NEW**
+
+### **Enhanced Professional Engagement: Citation Generation**
+
+The **📖 Citing** button now provides comprehensive APA citation functionality, perfect for academic and professional use.
+
+**Key Features:**
+
+- **Automatic APA 7th Edition Formatting** - Proper webpage citation format
+- **Branding Integration** - Uses custom domain names as website titles
+- **Metadata Integration** - Extracts author, title, publication date from graph data
+- **One-Click Copy** - Clipboard integration with success feedback
+- **Citation Details View** - Breakdown of all citation components
+- **Academic Note** - Reminds users to verify details for academic work
+
+**Example Citation Output:**
+
+```
+Smith, J. (2025, January 14). Market Analysis Q1 2025. Norsegong. Retrieved January 14, 2025, from https://norsegong.com/gnew-viewer?graphId=graph_123
+```
+
+**Components Added:**
+
+- `CitationModal.vue` - Professional citation interface with copy functionality
+- `SocialInteractionBar.vue` - Enhanced citing button behavior
+- `social-worker/index.js` - Citation tracking endpoint `/track-citation`
+
+**Integration:**
+
+- Automatically detects branded domains (e.g., "Norsegong" from `norsegong.com`)
+- Handles anonymous authors and missing publication dates
+- Tracks citation generation for analytics
+- Works with all existing graph metadata
+
+This feature transforms the knowledge graph platform into a citable academic resource, perfect for research and professional documentation! 🎓

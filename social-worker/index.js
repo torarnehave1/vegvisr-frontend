@@ -576,6 +576,35 @@ export default {
         return new Response(JSON.stringify({ stats }), { status: 200, headers: corsHeaders })
       }
 
+      // Citation tracking endpoint
+      if (pathname === '/track-citation' && method === 'POST') {
+        const { graphId, userId, citationType, citationData } = await request.json()
+        const socialDb = env.vegvisr_org
+
+        // Track citation event (same as engagement for analytics)
+        await socialDb
+          .prepare(
+            `
+            INSERT OR REPLACE INTO graph_insights (id, graph_id, user_id, insight_type, repost_comment, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `,
+          )
+          .bind(
+            `${graphId}_${userId}_citing_${Date.now()}`,
+            graphId,
+            userId,
+            'citing',
+            JSON.stringify(citationData),
+            new Date().toISOString(),
+          )
+          .run()
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: corsHeaders,
+        })
+      }
+
       return new Response('Not Found', { status: 404, headers: corsHeaders })
     } catch (error) {
       console.error('Social worker error:', error)
