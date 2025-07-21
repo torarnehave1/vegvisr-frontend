@@ -154,7 +154,7 @@ const submitEngagement = async (engagementType, commentaryText = null) => {
   try {
     isLoading.value = true
 
-    const response = await fetch('https://social.vegvisr.org/engage-graph', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/engage-graph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,14 +196,14 @@ const fetchEngagementData = async () => {
   try {
     // Fetch engagement statistics
     const statsResponse = await fetch(
-      `https://social.vegvisr.org/graph-engagement?graphId=${props.graphId}`,
+      `https://social-worker.torarnehave.workers.dev/graph-engagement?graphId=${props.graphId}`,
     )
     const statsData = await statsResponse.json()
     engagementStats.value = statsData.engagements || {}
 
     // Fetch user's engagements for this graph
     const userResponse = await fetch(
-      `https://social.vegvisr.org/user-engagements?userId=${userStore.user_id}`,
+      `https://social-worker.torarnehave.workers.dev/user-engagements?userId=${userStore.user_id}`,
     )
     const userData = await userResponse.json()
 

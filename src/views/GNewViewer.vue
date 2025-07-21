@@ -1601,9 +1601,6 @@ const filteredElements = computed(() => {
     .slice(0, 8) // Limit to 8 results
 })
 
-// Computed properties
-const currentGraphId = computed(() => knowledgeGraphStore.currentGraphId)
-
 // Reactive showAIShare - watch for userStore changes
 const showAIShare = ref(false)
 

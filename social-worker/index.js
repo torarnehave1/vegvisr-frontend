@@ -17,6 +17,19 @@ export default {
     }
 
     try {
+      // Health check endpoint
+      if (pathname === '/health' && method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            status: 'healthy',
+            service: 'social-worker',
+            timestamp: new Date().toISOString(),
+            database: env.vegvisr_org ? 'connected' : 'not connected',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
       // Professional connections
       if (pathname === '/follow-user' && method === 'POST') {
         const { followerId, followingId, action } = await request.json()

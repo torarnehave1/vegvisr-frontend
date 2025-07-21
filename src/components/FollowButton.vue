@@ -82,7 +82,7 @@ const handleFollowToggle = async () => {
     isLoading.value = true
     const action = isFollowing.value ? 'unfollow' : 'follow'
 
-    const response = await fetch('https://social.vegvisr.org/follow-user', {
+    const response = await fetch('https://social-worker.torarnehave.workers.dev/follow-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -125,7 +125,7 @@ const checkFollowStatus = async () => {
 
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/connection-status?followerId=${userStore.user_id}&followingId=${props.targetUserId}`,
+      `https://social-worker.torarnehave.workers.dev/connection-status?followerId=${userStore.user_id}&followingId=${props.targetUserId}`,
     )
 
     if (response.ok) {
@@ -142,7 +142,7 @@ const fetchConnectionStats = async () => {
 
   try {
     const response = await fetch(
-      `https://social.vegvisr.org/user-connections?userId=${props.targetUserId}`,
+      `https://social-worker.torarnehave.workers.dev/user-connections?userId=${props.targetUserId}`,
     )
 
     if (response.ok) {
