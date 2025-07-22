@@ -20,7 +20,15 @@
 
           <!-- Search -->
           <div class="search-container">
-            <input v-model="searchQuery" type="text" placeholder="Search" class="search-input" />
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search rooms"
+              class="search-input"
+            />
+            <button class="create-room-btn" @click="createNewGroup" title="Create new room">
+              <i class="bi bi-plus"></i>
+            </button>
           </div>
         </div>
 
@@ -70,7 +78,17 @@
             </div>
             <div class="chat-details">
               <h5>{{ selectedChat?.name }}</h5>
-              <small>{{ selectedChat?.memberCount }} members</small>
+              <small>
+                Room: {{ selectedChat?.id }} • {{ selectedChat?.memberCount }} members
+                <button
+                  class="copy-room-id-btn"
+                  @click="copyRoomId"
+                  title="Copy room URL"
+                  v-if="selectedChat"
+                >
+                  <i class="bi bi-link-45deg"></i>
+                </button>
+              </small>
             </div>
           </div>
 
@@ -334,55 +352,34 @@ const newRoomData = ref({
   graphId: '', // For groups linked to knowledge graphs
 })
 
-// Demo data - Telegram style chats
-const demoChats = ref([
+// Room management with localStorage persistence
+const rooms = ref([])
+
+// Default rooms (created if none exist)
+const defaultRooms = [
   {
-    id: 'tech-discussion',
-    name: 'Tech Discussion',
-    description: 'Knowledge graph about technology trends',
-    type: 'group',
-    color: '#4ade80',
-    memberCount: 12,
-    unreadCount: 3,
-    lastMessage: 'Great insights on AI development',
-    lastActivity: new Date(Date.now() - 1000 * 60 * 15), // 15 minutes ago
-    graphId: 'tech-graph-001',
-  },
-  {
-    id: 'general-community',
-    name: 'General Community',
-    description: 'Domain-wide discussions and announcements',
+    id: 'general',
+    name: 'General Discussion',
+    description: 'Welcome to the general chat room',
     type: 'channel',
     color: '#3b82f6',
-    memberCount: 145,
+    memberCount: 0,
     unreadCount: 0,
-    lastMessage: 'Welcome to our community!',
-    lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
+    lastMessage: 'Welcome to the chat!',
+    lastActivity: new Date(),
   },
   {
-    id: 'research-group',
-    name: 'Research Findings',
-    description: 'Academic research discussions',
+    id: 'demo-room',
+    name: 'Demo Room',
+    description: 'Try out the real-time messaging features',
     type: 'group',
-    color: '#8b5cf6',
-    memberCount: 8,
-    unreadCount: 1,
-    lastMessage: 'New paper published on quantum computing',
-    lastActivity: new Date(Date.now() - 1000 * 60 * 60), // 1 hour ago
-    graphId: 'research-graph-005',
-  },
-  {
-    id: 'updates-channel',
-    name: 'Platform Updates',
-    description: 'Official platform news and updates',
-    type: 'channel',
-    color: '#f59e0b',
-    memberCount: 230,
+    color: '#4ade80',
+    memberCount: 0,
     unreadCount: 0,
-    lastMessage: 'New features released this week',
-    lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 6), // 6 hours ago
+    lastMessage: 'This is a demo room for testing',
+    lastActivity: new Date(),
   },
-])
+]
 
 // Computed properties
 const canCreateRooms = computed(() => {
@@ -394,20 +391,132 @@ const userRole = computed(() => {
 })
 
 const filteredChats = computed(() => {
-  if (!searchQuery.value.trim()) return demoChats.value
+  if (!searchQuery.value.trim()) return rooms.value
 
   const query = searchQuery.value.toLowerCase()
-  return demoChats.value.filter(
+  return rooms.value.filter(
     (chat) =>
       chat.name.toLowerCase().includes(query) || chat.description.toLowerCase().includes(query),
   )
 })
 
 const selectedChat = computed(() => {
-  return demoChats.value.find((chat) => chat.id === selectedChatId.value)
+  return rooms.value.find((chat) => chat.id === selectedChatId.value)
 })
 
 // Methods
+
+// Room Management with localStorage
+const loadRoomsFromStorage = () => {
+  try {
+    const savedRooms = localStorage.getItem('vegvisr-chat-rooms')
+    if (savedRooms) {
+      const parsedRooms = JSON.parse(savedRooms)
+      // Convert date strings back to Date objects
+      rooms.value = parsedRooms.map((room) => ({
+        ...room,
+        lastActivity: new Date(room.lastActivity),
+      }))
+      console.log('📂 Loaded rooms from localStorage:', rooms.value.length)
+    } else {
+      // First time - use default rooms
+      rooms.value = [...defaultRooms]
+      saveRoomsToStorage()
+      console.log('🆕 Created default rooms')
+    }
+  } catch (error) {
+    console.error('Error loading rooms from storage:', error)
+    rooms.value = [...defaultRooms]
+  }
+}
+
+const saveRoomsToStorage = () => {
+  try {
+    localStorage.setItem('vegvisr-chat-rooms', JSON.stringify(rooms.value))
+    console.log('💾 Saved rooms to localStorage')
+  } catch (error) {
+    console.error('Error saving rooms to storage:', error)
+  }
+}
+
+const addNewRoom = (roomData) => {
+  const newRoom = {
+    id: `room_${Date.now()}`, // Simple room ID generation
+    name: roomData.name,
+    description: roomData.description || '',
+    type: roomData.type || 'group',
+    color: generateRandomColor(),
+    memberCount: 1, // Creator is first member
+    unreadCount: 0,
+    lastMessage: `${roomData.type === 'group' ? 'Group' : 'Channel'} created`,
+    lastActivity: new Date(),
+    graphId: roomData.graphId || null,
+  }
+
+  rooms.value.unshift(newRoom) // Add to beginning of list
+  saveRoomsToStorage()
+
+  console.log('🆕 Created new room:', newRoom)
+  return newRoom
+}
+
+const generateRandomColor = () => {
+  const colors = [
+    '#4ade80',
+    '#3b82f6',
+    '#8b5cf6',
+    '#f59e0b',
+    '#ef4444',
+    '#06b6d4',
+    '#84cc16',
+    '#f97316',
+    '#ec4899',
+    '#10b981',
+    '#6366f1',
+    '#14b8a6',
+  ]
+  return colors[Math.floor(Math.random() * colors.length)]
+}
+
+const updateRoomActivity = (roomId, message) => {
+  const room = rooms.value.find((r) => r.id === roomId)
+  if (room) {
+    room.lastMessage = message
+    room.lastActivity = new Date()
+    saveRoomsToStorage()
+  }
+}
+
+// URL Parameter Handling
+const handleUrlRoom = () => {
+  const roomFromUrl = route.query.room
+  if (roomFromUrl) {
+    console.log('🔗 Room from URL:', roomFromUrl)
+
+    // Check if room exists
+    let existingRoom = rooms.value.find((r) => r.id === roomFromUrl)
+
+    // If room doesn't exist, create it
+    if (!existingRoom) {
+      console.log('Creating room from URL:', roomFromUrl)
+      existingRoom = addNewRoom({
+        name: roomFromUrl.charAt(0).toUpperCase() + roomFromUrl.slice(1).replace(/[-_]/g, ' '),
+        description: `Chat room: ${roomFromUrl}`,
+        type: 'group',
+      })
+      // Update the room ID to match URL (for consistency)
+      existingRoom.id = roomFromUrl
+      saveRoomsToStorage()
+    }
+
+    // Select the room
+    selectedChatId.value = roomFromUrl
+    console.log('🎯 Auto-selected room from URL:', roomFromUrl)
+  } else {
+    // Default to general room if no URL param
+    selectedChatId.value = 'general'
+  }
+}
 
 // Sidebar Management
 const toggleSidebar = () => {
@@ -437,10 +546,14 @@ const selectChat = (chatId) => {
   selectedChatId.value = chatId
   console.log('🎯 Selected chat:', chatId, selectedChat.value)
 
+  // Update URL to reflect selected room
+  router.replace({ query: { room: chatId } })
+
   // Clear unread count for selected chat
-  const chat = demoChats.value.find((c) => c.id === chatId)
+  const chat = rooms.value.find((c) => c.id === chatId)
   if (chat && chat.unreadCount > 0) {
     chat.unreadCount = 0
+    saveRoomsToStorage()
   }
 }
 
@@ -540,36 +653,70 @@ const getPreviewColor = () => {
 const createRoom = () => {
   if (!newRoomData.value.name.trim()) return
 
-  console.log('Creating room:', newRoomData.value)
+  console.log('🚀 Creating room:', newRoomData.value)
 
-  // Add to demo chats (placeholder behavior)
-  const newChat = {
-    id: `chat_${Date.now()}`,
+  // Create new room using room management system
+  const newRoom = addNewRoom({
     name: newRoomData.value.name,
     description: newRoomData.value.description,
     type: createType.value,
-    color: getPreviewColor(),
-    memberCount: 1,
-    unreadCount: 0,
-    lastMessage: createType.value === 'group' ? 'Group created' : 'Channel created',
-    lastActivity: new Date(),
-    graphId: createType.value === 'group' ? newRoomData.value.graphId : undefined,
-  }
+    graphId: newRoomData.value.graphId,
+  })
 
-  demoChats.value.unshift(newChat)
+  // Auto-select the new room
+  selectChat(newRoom.id)
 
   // Show success message
   const typeName = createType.value === 'group' ? 'Group' : 'Channel'
-  alert(
-    `${typeName} "${newChat.name}" created successfully!\n\nBackend API integration will be implemented in next phase.`,
-  )
+  console.log(`✅ ${typeName} "${newRoom.name}" created successfully!`)
 
   closeCreateModal()
 }
 
 const sendMessage = () => {
-  console.log('Sending message (placeholder)')
-  alert('Real-time messaging will be implemented in next phase')
+  // This method is called from the message component
+  console.log('📤 Message sent in room:', selectedChatId.value)
+}
+
+const handleMessageSent = (message) => {
+  // Update room activity when a message is sent
+  if (selectedChatId.value && message) {
+    const preview = typeof message === 'string' ? message : message.content || 'New message'
+    updateRoomActivity(
+      selectedChatId.value,
+      preview.substring(0, 50) + (preview.length > 50 ? '...' : ''),
+    )
+  }
+  console.log('📩 Message sent, room activity updated')
+}
+
+// Room URL Sharing
+const copyRoomId = async () => {
+  if (!selectedChat.value) return
+
+  const currentUrl = window.location.origin + window.location.pathname
+  const roomUrl = `${currentUrl}?room=${selectedChat.value.id}`
+
+  try {
+    await navigator.clipboard.writeText(roomUrl)
+    console.log('📋 Room URL copied to clipboard:', roomUrl)
+
+    // Visual feedback
+    const button = event.target.closest('.copy-room-id-btn')
+    const originalIcon = button.innerHTML
+    button.innerHTML = '<i class="bi bi-check"></i>'
+    button.classList.add('copied')
+
+    setTimeout(() => {
+      button.innerHTML = originalIcon
+      button.classList.remove('copied')
+    }, 2000)
+  } catch (error) {
+    console.error('Failed to copy room URL:', error)
+
+    // Fallback - show URL in prompt
+    prompt('Copy this room URL:', roomUrl)
+  }
 }
 
 // Group Info Management
@@ -645,10 +792,16 @@ const handleEscKey = (event) => {
 
 // Lifecycle
 onMounted(() => {
-  console.log('SiteChatView mounted - Telegram style')
+  console.log('🚀 SiteChatView mounted - Real-time Room System')
   console.log('Current domain:', currentDomain.value)
   console.log('User role:', userRole.value)
   console.log('Can create rooms:', canCreateRooms.value)
+
+  // Initialize room management system
+  loadRoomsFromStorage()
+
+  // Handle URL room parameter
+  handleUrlRoom()
 
   // Add keyboard listener
   document.addEventListener('keydown', handleEscKey)
@@ -739,10 +892,13 @@ onUnmounted(() => {
 
 .search-container {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .search-input {
-  width: 100%;
+  flex: 1;
   padding: 8px 16px;
   border: 1px solid #e5e7eb;
   border-radius: 20px;
@@ -756,6 +912,29 @@ onUnmounted(() => {
   background: white;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.create-room-btn {
+  background: #3b82f6;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.create-room-btn:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+}
+
+.create-room-btn i {
+  font-size: 14px;
 }
 
 /* Chat List */
@@ -1002,6 +1181,32 @@ onUnmounted(() => {
 .chat-details small {
   color: #6b7280;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-room-id-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.copy-room-id-btn:hover {
+  background: #f3f4f6;
+  color: #3b82f6;
+}
+
+.copy-room-id-btn.copied {
+  color: #10b981;
+  background: #d1fae5;
 }
 
 .chat-messages-area {
