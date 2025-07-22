@@ -120,7 +120,7 @@
     </div>
 
     <!-- Connection Status (when not connected) -->
-    <div v-if="!isConnected && userStore.user_id" class="connection-status-bar">
+    <div v-if="!isConnected && userStore.loggedIn" class="connection-status-bar">
       <div class="connection-message">
         <div v-if="connectionStatus === 'Connecting'" class="connecting-spinner"></div>
         <span>{{
@@ -132,7 +132,7 @@
     </div>
 
     <!-- Authentication Required -->
-    <div v-if="!userStore.user_id" class="auth-required-bar">
+    <div v-if="!userStore.loggedIn" class="auth-required-bar">
       <p>🔐 Login required to join the chat</p>
       <small>Please log in to participate in the discussion.</small>
     </div>
@@ -174,7 +174,7 @@
           :title="
             !isConnected
               ? 'Chat disconnected'
-              : !userStore.user_id
+              : !userStore.loggedIn
                 ? 'Login required'
                 : 'Send message'
           "
@@ -286,7 +286,7 @@ const commonEmojis = ref([
 
 // Computed properties
 const canSendMessage = computed(() => {
-  return isConnected.value && newMessage.value.trim().length > 0 && userStore.user_id
+  return isConnected.value && newMessage.value.trim().length > 0 && userStore.loggedIn
 })
 
 const connectionStatusClass = computed(() => ({
@@ -362,7 +362,7 @@ const groupedMessages = computed(() => {
 
 // WebSocket Connection Management
 const connectToChat = () => {
-  if (!userStore.user_id || !props.chatId) {
+  if (!userStore.loggedIn || !props.chatId) {
     console.log('Cannot connect: missing user or chat ID')
     return
   }
@@ -396,7 +396,7 @@ const connectToChat = () => {
     connectionStatus.value = 'Disconnected'
 
     // Attempt to reconnect after 3 seconds
-    if (userStore.user_id) {
+    if (userStore.loggedIn) {
       setTimeout(() => {
         if (!isConnected.value) {
           connectToChat()
@@ -673,12 +673,12 @@ const scrollToBottom = () => {
 
 // Watch for user login status changes
 watch(
-  () => userStore.user_id,
-  (newUserId) => {
-    if (newUserId && !isConnected.value) {
+  () => userStore.loggedIn,
+  (isLoggedIn) => {
+    if (isLoggedIn && !isConnected.value) {
       connectToChat()
       loadChatHistory()
-    } else if (!newUserId && socket.value) {
+    } else if (!isLoggedIn && socket.value) {
       socket.value.close()
     }
   },
@@ -692,7 +692,7 @@ onMounted(() => {
     isLoading.value = false
 
     // Connect to chat if user is logged in
-    if (userStore.user_id) {
+    if (userStore.loggedIn) {
       connectToChat()
       loadChatHistory()
     }
