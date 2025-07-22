@@ -751,11 +751,6 @@ const toggleMobileChatList = () => {
   }
 }
 
-const handleMessageSent = (message) => {
-  console.log('Message sent:', message)
-  // Real-time message handling will be implemented in backend phase
-}
-
 const handleNotificationsChanged = (enabled) => {
   console.log('Notifications changed:', enabled)
   // Update user preferences via API
