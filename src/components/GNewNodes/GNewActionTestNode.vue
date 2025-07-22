@@ -60,7 +60,6 @@
       <div v-if="showFullQuery" class="full-query">
         <textarea
           v-model="localQuery"
-          @input="updateQuery"
           @blur="updateQuery"
           class="form-control query-textarea"
           rows="4"
@@ -266,7 +265,7 @@ const generateGraphContext = () => {
     .filter((node) => node.visible !== false && node.info && node.info.trim())
     .map((node) => {
       const title = node.label || `Node ${node.id}`
-      const content = node.info.substring(0, 500) // Limit content length
+      const content = node.info.substring(0, 1500) // Increased content limit for better context
       return `**${title}**\n${content}`
     })
     .join('\n\n')
