@@ -181,6 +181,19 @@ const router = createRouter({
       component: () => import('../views/SearchView.vue'),
     },
     {
+      path: '/site-chat',
+      name: 'site-chat',
+      component: () => import('../views/SiteChatView.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/chat/:domain',
+      name: 'domain-chat',
+      component: () => import('../views/SiteChatView.vue'),
+      props: (route) => ({ domain: route.params.domain }),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/github-issues',
       name: 'github-issues',
       component: GitHubIssuesView,

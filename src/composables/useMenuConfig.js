@@ -55,6 +55,14 @@ export function useMenuConfig(menuConfigRef = null) {
       roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
     {
+      id: 'site-chat',
+      label: '💬 Community Chat',
+      path: '/site-chat',
+      icon: '',
+      requiresAuth: false,
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+    },
+    {
       id: 'github-issues',
       label: 'Roadmap',
       path: '/github-issues',
