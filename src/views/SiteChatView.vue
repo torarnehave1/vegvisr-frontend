@@ -148,13 +148,13 @@
                   userStore.profileImage ||
                   'https://vegvisr.imgix.net/vegvisr-logo.png'
                 "
-                :alt="userStore.user_name || 'User'"
+                :alt="userStore.email || 'User'"
                 class="profile-image"
                 onerror="this.src='https://vegvisr.imgix.net/vegvisr-logo.png'"
               />
             </div>
             <div class="profile-details">
-              <h5 class="profile-name">{{ userStore.user_name || currentSiteTitle }}</h5>
+              <h5 class="profile-name">{{ userStore.email || currentSiteTitle }}</h5>
               <p class="profile-status">{{ currentDomain || 'vegvisr.org' }}</p>
             </div>
           </div>
