@@ -369,7 +369,7 @@ const connectToChat = () => {
 
   connectionStatus.value = 'Connecting'
 
-  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(userStore.user_name || 'Anonymous')}`
+  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(userStore.email || 'Anonymous')}`
 
   console.log('🔌 Connecting to chat:', wsUrl)
 
