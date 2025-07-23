@@ -19,6 +19,7 @@
           v-for="message in dateGroup"
           :key="message?.id || Math.random()"
           class="message-wrapper"
+          :class="{ 'own-message': message.isOwn }"
         >
           <!-- User Avatar (only for received messages) -->
           <div v-if="!message.isOwn && message.user" class="message-avatar">
@@ -362,8 +363,16 @@ const groupedMessages = computed(() => {
 
 // WebSocket Connection Management
 const connectToChat = () => {
+  console.log('🔗 Chat: Attempting to connect...')
+  console.log('🔗 Chat: Logged in:', userStore.loggedIn)
+  console.log('🔗 Chat: Chat ID:', props.chatId)
+  console.log('🔗 Chat: User ID:', userStore.user_id)
+  console.log('🔗 Chat: User Email:', userStore.email)
+
   if (!userStore.loggedIn || !props.chatId) {
-    console.log('Cannot connect: missing user or chat ID')
+    console.log('❌ Chat: Cannot connect - missing user or chat ID')
+    console.log('❌ Chat: Logged in?', userStore.loggedIn)
+    console.log('❌ Chat: Chat ID?', props.chatId)
     return
   }
 
@@ -371,12 +380,13 @@ const connectToChat = () => {
 
   const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(userStore.email || 'Anonymous')}`
 
-  console.log('🔌 Connecting to chat:', wsUrl)
+  console.log('🔌 Chat: Connecting to WebSocket:', wsUrl)
 
   socket.value = new WebSocket(wsUrl)
 
   socket.value.onopen = () => {
-    console.log('✅ Chat connected')
+    console.log('✅ Chat: WebSocket connected successfully')
+    console.log('👤 Chat: Connected as user:', userStore.email)
     isConnected.value = true
     connectionStatus.value = 'Connected'
   }
@@ -391,7 +401,7 @@ const connectToChat = () => {
   }
 
   socket.value.onclose = () => {
-    console.log('❌ Chat disconnected')
+    console.log('❌ Chat: WebSocket disconnected')
     isConnected.value = false
     connectionStatus.value = 'Disconnected'
 
@@ -464,19 +474,22 @@ const handleTypingMessage = (message) => {
 
 // Load chat history
 const loadChatHistory = async () => {
+  console.log('📜 Chat: Loading chat history for room:', props.chatId)
   try {
     const response = await fetch(
       `https://durable-chat-template.torarnehave.workers.dev/api/chat/${props.chatId}/history?limit=50`,
     )
     if (response.ok) {
       const data = await response.json()
+      console.log('📜 Chat: History loaded, message count:', data.messages?.length || 0)
       if (data.messages) {
         messages.value = data.messages
         scrollToBottom()
       }
     }
   } catch (error) {
-    console.error('Error loading chat history:', error)
+    console.error('❌ Chat: Error loading chat history:', error)
+    console.error('❌ Chat: Room ID:', props.chatId)
   }
 }
 
@@ -675,28 +688,34 @@ const scrollToBottom = () => {
 watch(
   () => userStore.loggedIn,
   (isLoggedIn) => {
+    console.log('🔄 Chat: Login state changed:', isLoggedIn)
     if (isLoggedIn && !isConnected.value) {
+      console.log('🔌 Chat: User logged in, connecting to chat...')
       connectToChat()
       loadChatHistory()
     } else if (!isLoggedIn && socket.value) {
+      console.log('🚪 Chat: User logged out, closing connection...')
       socket.value.close()
     }
   },
+  { immediate: true },
 )
 
 // Lifecycle
 onMounted(() => {
+  console.log('🚀 Chat: Component mounted')
+  console.log('👤 Chat: Initial login state:', userStore.loggedIn)
+  console.log('🆔 Chat: User ID:', userStore.user_id)
+  console.log('📧 Chat: User email:', userStore.email)
+
   // Brief loading to prevent undefined errors
   isLoading.value = true
   setTimeout(() => {
     isLoading.value = false
+    console.log('⏰ Chat: Loading timeout complete, login state:', userStore.loggedIn)
 
-    // Connect to chat if user is logged in
-    if (userStore.loggedIn) {
-      connectToChat()
-      loadChatHistory()
-    }
-
+    // The watch function with immediate: true will handle connection
+    // No need to duplicate logic here, but ensure scroll works
     nextTick(() => {
       scrollToBottom()
     })
@@ -803,6 +822,11 @@ onMounted(() => {
   gap: 8px;
 }
 
+.message-wrapper.own-message {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
 .message-avatar {
   flex-shrink: 0;
   width: 32px;
@@ -836,24 +860,25 @@ onMounted(() => {
 /* Message Bubbles */
 .message-bubble {
   max-width: 70%;
-  padding: 8px 12px;
-  border-radius: 18px;
+  padding: 10px 14px;
+  border-radius: 20px;
   position: relative;
   word-wrap: break-word;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .message-received {
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e1e5e9;
   margin-left: 0;
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 6px;
 }
 
 .message-own {
-  background: #3b82f6;
+  background: #0ac630;
   color: white;
   margin-left: auto;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 6px;
 }
 
 .message-system {
@@ -869,7 +894,7 @@ onMounted(() => {
 .message-sender {
   font-size: 12px;
   font-weight: 600;
-  color: #3b82f6;
+  color: #0088cc;
   margin-bottom: 4px;
 }
 
@@ -1155,7 +1180,7 @@ onMounted(() => {
   }
 
   .message-bubble {
-    max-width: 85%;
+    max-width: 80%;
   }
 
   .attachment-menu {
