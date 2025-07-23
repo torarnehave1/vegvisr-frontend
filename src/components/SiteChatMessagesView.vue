@@ -20,7 +20,6 @@
           :key="message?.id || Math.random()"
           class="message-wrapper"
           :class="{ 'own-message': message.isOwn }"
-          :data-debug="`isOwn: ${message.isOwn}, userId: ${message.user?.id}, content: ${message.content?.substring(0, 20)}`"
         >
           <!-- User Avatar (only for received messages) -->
           <div v-if="!message.isOwn && message.user" class="message-avatar">
@@ -58,14 +57,6 @@
 
             <!-- Message content -->
             <div class="message-content">
-              <!-- Debug indicator (temporary) -->
-              <small v-if="message.isOwn" style="color: red; font-weight: bold">
-                [DEBUG: Own Message - Should be RIGHT]
-              </small>
-              <small v-else style="color: blue; font-weight: bold">
-                [DEBUG: Other Message - Should be LEFT]
-              </small>
-
               <!-- Text message -->
               <div v-if="message?.type === 'text'" class="message-text">
                 {{ message?.content || '' }}
@@ -145,6 +136,14 @@
     <div v-if="!userStore.loggedIn" class="auth-required-bar">
       <p>🔐 Login required to join the chat</p>
       <small>Please log in to participate in the discussion.</small>
+    </div>
+
+    <!-- User Identity Indicator -->
+    <div v-if="userStore.loggedIn" class="user-identity-bar">
+      <small class="identity-text">
+        <i class="bi bi-person-circle"></i>
+        Logged in as: {{ userStore.email || 'Unknown User' }}
+      </small>
     </div>
 
     <!-- Message Input Area -->
@@ -310,16 +309,7 @@ const safeMessages = computed(() => {
     .map((message) => {
       // For chat-worker format messages, convert to our UI format
       if (message.type === 'chat_message') {
-        // Debug message ownership
         const isOwn = String(message.userId) === String(userStore.user_id)
-        console.log('🔍 Message ownership check:', {
-          messageUserId: message.userId,
-          userStoreUserId: userStore.user_id,
-          messageUserIdType: typeof message.userId,
-          userStoreUserIdType: typeof userStore.user_id,
-          isOwn: isOwn,
-          userName: message.userName,
-        })
 
         return {
           ...message,
@@ -380,7 +370,7 @@ const connectToChat = () => {
   console.log('🔗 Chat: Attempting to connect...')
   console.log('🔗 Chat: Logged in:', userStore.loggedIn)
   console.log('🔗 Chat: Chat ID:', props.chatId)
-  console.log('🔗 Chat: User ID:', userStore.user_id, '(type:', typeof userStore.user_id, ')')
+  console.log('🔗 Chat: User ID:', userStore.user_id)
   console.log('🔗 Chat: User Email:', userStore.email)
 
   if (!userStore.loggedIn || !props.chatId) {
@@ -1332,5 +1322,24 @@ onMounted(() => {
 
 .auth-required-bar small {
   margin: 0;
+}
+
+/* User Identity Indicator */
+.user-identity-bar {
+  background: #f0f9ff;
+  border-top: 1px solid #bae6fd;
+  padding: 8px 16px;
+  text-align: center;
+}
+
+.identity-text {
+  color: #0369a1;
+  font-weight: 500;
+  margin: 0;
+}
+
+.identity-text i {
+  margin-right: 6px;
+  color: #0284c7;
 }
 </style>
