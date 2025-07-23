@@ -20,6 +20,7 @@
           :key="message?.id || Math.random()"
           class="message-wrapper"
           :class="{ 'own-message': message.isOwn }"
+          :data-debug="`isOwn: ${message.isOwn}, userId: ${message.user?.id}, content: ${message.content?.substring(0, 20)}`"
         >
           <!-- User Avatar (only for received messages) -->
           <div v-if="!message.isOwn && message.user" class="message-avatar">
@@ -57,6 +58,14 @@
 
             <!-- Message content -->
             <div class="message-content">
+              <!-- Debug indicator (temporary) -->
+              <small v-if="message.isOwn" style="color: red; font-weight: bold">
+                [DEBUG: Own Message - Should be RIGHT]
+              </small>
+              <small v-else style="color: blue; font-weight: bold">
+                [DEBUG: Other Message - Should be LEFT]
+              </small>
+
               <!-- Text message -->
               <div v-if="message?.type === 'text'" class="message-text">
                 {{ message?.content || '' }}
@@ -301,10 +310,21 @@ const safeMessages = computed(() => {
     .map((message) => {
       // For chat-worker format messages, convert to our UI format
       if (message.type === 'chat_message') {
+        // Debug message ownership
+        const isOwn = String(message.userId) === String(userStore.user_id)
+        console.log('🔍 Message ownership check:', {
+          messageUserId: message.userId,
+          userStoreUserId: userStore.user_id,
+          messageUserIdType: typeof message.userId,
+          userStoreUserIdType: typeof userStore.user_id,
+          isOwn: isOwn,
+          userName: message.userName,
+        })
+
         return {
           ...message,
           type: 'text', // Convert chat_message to text for UI
-          isOwn: message.userId === userStore.user_id,
+          isOwn: isOwn, // Use string comparison for robust matching
           user: {
             id: message.userId,
             name: message.userName || 'Unknown User',
@@ -360,7 +380,7 @@ const connectToChat = () => {
   console.log('🔗 Chat: Attempting to connect...')
   console.log('🔗 Chat: Logged in:', userStore.loggedIn)
   console.log('🔗 Chat: Chat ID:', props.chatId)
-  console.log('🔗 Chat: User ID:', userStore.user_id)
+  console.log('🔗 Chat: User ID:', userStore.user_id, '(type:', typeof userStore.user_id, ')')
   console.log('🔗 Chat: User Email:', userStore.email)
 
   if (!userStore.loggedIn || !props.chatId) {
@@ -693,6 +713,34 @@ watch(
     }
   },
   { immediate: true },
+)
+
+// Watch for room/chat ID changes
+watch(
+  () => props.chatId,
+  (newChatId, oldChatId) => {
+    console.log('🔄 Chat: Room changed from', oldChatId, 'to', newChatId)
+
+    if (newChatId !== oldChatId && newChatId) {
+      // Disconnect from previous room
+      if (socket.value) {
+        console.log('🚪 Chat: Disconnecting from old room:', oldChatId)
+        socket.value.close()
+      }
+
+      // Clear previous room's messages
+      messages.value = []
+      console.log('🧹 Chat: Cleared messages from previous room')
+
+      // Connect to new room if user is logged in
+      if (userStore.loggedIn) {
+        console.log('🔌 Chat: Connecting to new room:', newChatId)
+        connectToChat()
+        loadChatHistory()
+      }
+    }
+  },
+  { immediate: false }, // Don't run immediately, let login watcher handle initial connection
 )
 
 // Lifecycle
