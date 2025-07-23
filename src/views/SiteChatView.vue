@@ -563,6 +563,16 @@ const selectChat = (chatId) => {
 
   selectedChatId.value = chatId
   console.log('🎯 Selected chat:', chatId, selectedChat.value)
+  console.log(
+    '🗂️ All rooms:',
+    rooms.value.map((r) => ({ id: r.id, name: r.name })),
+  )
+
+  // On mobile, close the sidebar after selecting a room
+  if (window.innerWidth <= 768) {
+    showSidebar.value = false
+    console.log('📱 Mobile: Sidebar closed after room select')
+  }
 
   // Update URL to reflect selected room
   router.replace({ query: { room: chatId } })
