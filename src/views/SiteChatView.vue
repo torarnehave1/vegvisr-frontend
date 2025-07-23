@@ -319,6 +319,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useBranding } from '@/composables/useBranding'
+import { API_CONFIG } from '@/config/api'
 import SiteChatMessagesView from '@/components/SiteChatMessagesView.vue'
 import SiteChatGroupInfo from '@/components/SiteChatGroupInfo.vue'
 
@@ -406,58 +407,88 @@ const selectedChat = computed(() => {
 
 // Methods
 
-// Room Management with localStorage
-const loadRoomsFromStorage = () => {
+// Room Management with Database API
+const loadRoomsFromDatabase = async () => {
   try {
-    const savedRooms = localStorage.getItem('vegvisr-chat-rooms')
-    if (savedRooms) {
-      const parsedRooms = JSON.parse(savedRooms)
-      // Convert date strings back to Date objects
-      rooms.value = parsedRooms.map((room) => ({
-        ...room,
-        lastActivity: new Date(room.lastActivity),
+    console.log('📂 Loading rooms from database...')
+    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms?domain=vegvisr.org`)
+    const data = await response.json()
+
+    if (data.success) {
+      rooms.value = data.rooms.map((room) => ({
+        id: room.room_id,
+        name: room.room_name,
+        description: room.room_description || '',
+        type: room.room_type,
+        color: generateRandomColor(),
+        memberCount: room.member_count || 0,
+        unreadCount: 0,
+        lastMessage: room.room_description || 'Room created',
+        lastActivity: new Date(room.created_at),
       }))
-      console.log('📂 Loaded rooms from localStorage:', rooms.value.length)
+      console.log('📂 Loaded rooms from database:', rooms.value.length)
     } else {
-      // First time - use default rooms
+      console.error('Failed to load rooms:', data.error)
+      // Fallback to default rooms
       rooms.value = [...defaultRooms]
-      saveRoomsToStorage()
-      console.log('🆕 Created default rooms')
     }
   } catch (error) {
-    console.error('Error loading rooms from storage:', error)
+    console.error('Error loading rooms from database:', error)
+    // Fallback to default rooms
     rooms.value = [...defaultRooms]
   }
 }
 
-const saveRoomsToStorage = () => {
-  try {
-    localStorage.setItem('vegvisr-chat-rooms', JSON.stringify(rooms.value))
-    console.log('💾 Saved rooms to localStorage')
-  } catch (error) {
-    console.error('Error saving rooms to storage:', error)
+// Room activity update (no longer needed with database, but keeping for UI updates)
+const updateRoomActivity = (roomId, message) => {
+  const room = rooms.value.find((r) => r.id === roomId)
+  if (room) {
+    room.lastMessage = message
+    room.lastActivity = new Date()
+    console.log('📩 Updated room activity for UI:', roomId)
   }
 }
 
-const addNewRoom = (roomData) => {
-  const newRoom = {
-    id: `room_${Date.now()}`, // Simple room ID generation
-    name: roomData.name,
-    description: roomData.description || '',
-    type: roomData.type || 'group',
-    color: generateRandomColor(),
-    memberCount: 1, // Creator is first member
-    unreadCount: 0,
-    lastMessage: `${roomData.type === 'group' ? 'Group' : 'Channel'} created`,
-    lastActivity: new Date(),
-    graphId: roomData.graphId || null,
+const addNewRoomToDatabase = async (roomData) => {
+  try {
+    console.log('🚀 Creating room in database:', roomData)
+    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        roomName: roomData.name,
+        description: roomData.description,
+        roomType: roomData.type || 'group',
+        createdBy: userStore.user_id,
+        domain: 'vegvisr.org',
+      }),
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      const newRoom = {
+        id: data.room.id,
+        name: data.room.name,
+        description: data.room.description,
+        type: data.room.type,
+        color: generateRandomColor(),
+        memberCount: 1,
+        unreadCount: 0,
+        lastMessage: 'Room created',
+        lastActivity: new Date(data.room.created),
+      }
+
+      rooms.value.unshift(newRoom) // Add to beginning of list
+      console.log('🆕 Created new room in database:', newRoom)
+      return newRoom
+    } else {
+      throw new Error(data.error || 'Failed to create room')
+    }
+  } catch (error) {
+    console.error('Error creating room:', error)
+    throw error
   }
-
-  rooms.value.unshift(newRoom) // Add to beginning of list
-  saveRoomsToStorage()
-
-  console.log('🆕 Created new room:', newRoom)
-  return newRoom
 }
 
 const generateRandomColor = () => {
@@ -483,7 +514,7 @@ const updateRoomActivity = (roomId, message) => {
   if (room) {
     room.lastMessage = message
     room.lastActivity = new Date()
-    saveRoomsToStorage()
+    console.log('📩 Updated room activity for UI:', roomId)
   }
 }
 
@@ -496,17 +527,13 @@ const handleUrlRoom = () => {
     // Check if room exists
     let existingRoom = rooms.value.find((r) => r.id === roomFromUrl)
 
-    // If room doesn't exist, create it
+    // If room doesn't exist in database, user needs to create it manually
     if (!existingRoom) {
-      console.log('Creating room from URL:', roomFromUrl)
-      existingRoom = addNewRoom({
-        name: roomFromUrl.charAt(0).toUpperCase() + roomFromUrl.slice(1).replace(/[-_]/g, ' '),
-        description: `Chat room: ${roomFromUrl}`,
-        type: 'group',
-      })
-      // Update the room ID to match URL (for consistency)
-      existingRoom.id = roomFromUrl
-      saveRoomsToStorage()
+      console.log('Room from URL not found in database:', roomFromUrl)
+      console.log('Room must exist in database. Please create the room first.')
+      // Default to general room instead
+      selectedChatId.value = 'general'
+      return
     }
 
     // Select the room
@@ -553,7 +580,7 @@ const selectChat = (chatId) => {
   const chat = rooms.value.find((c) => c.id === chatId)
   if (chat && chat.unreadCount > 0) {
     chat.unreadCount = 0
-    saveRoomsToStorage()
+    console.log('🔕 Cleared unread count for room:', chatId)
   }
 }
 
@@ -650,27 +677,32 @@ const getPreviewColor = () => {
   return createType.value === 'group' ? '#4ade80' : '#3b82f6'
 }
 
-const createRoom = () => {
+const createRoom = async () => {
   if (!newRoomData.value.name.trim()) return
 
   console.log('🚀 Creating room:', newRoomData.value)
 
-  // Create new room using room management system
-  const newRoom = addNewRoom({
-    name: newRoomData.value.name,
-    description: newRoomData.value.description,
-    type: createType.value,
-    graphId: newRoomData.value.graphId,
-  })
+  try {
+    // Create new room using database API
+    const newRoom = await addNewRoomToDatabase({
+      name: newRoomData.value.name,
+      description: newRoomData.value.description,
+      type: createType.value,
+      graphId: newRoomData.value.graphId,
+    })
 
-  // Auto-select the new room
-  selectChat(newRoom.id)
+    // Auto-select the new room
+    selectChat(newRoom.id)
 
-  // Show success message
-  const typeName = createType.value === 'group' ? 'Group' : 'Channel'
-  console.log(`✅ ${typeName} "${newRoom.name}" created successfully!`)
+    // Show success message
+    const typeName = createType.value === 'group' ? 'Group' : 'Channel'
+    console.log(`✅ ${typeName} "${newRoom.name}" created successfully!`)
 
-  closeCreateModal()
+    closeCreateModal()
+  } catch (error) {
+    console.error('Failed to create room:', error)
+    alert('Failed to create room. Please try again.')
+  }
 }
 
 const sendMessage = () => {
@@ -793,7 +825,7 @@ onMounted(() => {
   console.log('Can create rooms:', canCreateRooms.value)
 
   // Initialize room management system
-  loadRoomsFromStorage()
+  loadRoomsFromDatabase()
 
   // Handle URL room parameter
   handleUrlRoom()

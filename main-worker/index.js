@@ -1116,6 +1116,124 @@ export default {
         }
       }
 
+      // Chat Room Management Endpoints
+      if (path === '/api/chat-rooms' && method === 'GET') {
+        const domain = url.searchParams.get('domain') || 'vegvisr.org'
+
+        try {
+          console.log('Fetching chat rooms for domain:', domain)
+          const result = await env.vegvisr_org
+            .prepare(
+              `
+            SELECT * FROM site_chat_rooms
+            WHERE domain_name = ? AND room_status = 'active'
+            ORDER BY created_at DESC
+          `,
+            )
+            .bind(domain)
+            .all()
+
+          console.log('Chat rooms query result:', result.results?.length || 0, 'rooms found')
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                rooms: result.results || [],
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error fetching chat rooms:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      if (path === '/api/chat-rooms' && method === 'POST') {
+        try {
+          const { roomName, description, roomType, createdBy, domain } = await request.json()
+          const roomId = `room_${Date.now()}`
+
+          console.log('Creating chat room:', {
+            roomId,
+            roomName,
+            domain: domain || 'vegvisr.org',
+            createdBy,
+          })
+
+          await env.vegvisr_org
+            .prepare(
+              `
+            INSERT INTO site_chat_rooms
+            (room_id, domain_name, room_name, room_description, room_type, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `,
+            )
+            .bind(
+              roomId,
+              domain || 'vegvisr.org',
+              roomName,
+              description,
+              roomType || 'public',
+              createdBy,
+            )
+            .run()
+
+          const newRoom = {
+            id: roomId,
+            name: roomName,
+            description,
+            type: roomType || 'public',
+            domain: domain || 'vegvisr.org',
+            createdBy,
+            memberCount: 1,
+            created: new Date().toISOString(),
+          }
+
+          console.log('Chat room created successfully:', newRoom)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                room: newRoom,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error creating chat room:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
       // Handle other routes
       return addCorsHeaders(new Response('Not Found', { status: 404 }))
     } catch (error) {
