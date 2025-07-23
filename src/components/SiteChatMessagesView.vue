@@ -793,6 +793,10 @@ onMounted(() => {
   overflow-y: auto;
   padding: 16px;
   scroll-behavior: smooth;
+  background-image: url('/images/Chat.svg');
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 .date-group {
@@ -875,9 +879,10 @@ onMounted(() => {
 }
 
 .message-own {
-  background: #0ac630;
-  color: white;
+  background: white;
+  color: #333;
   margin-left: auto;
+  border: 1px solid #e1e5e9;
   border-bottom-right-radius: 6px;
 }
 
