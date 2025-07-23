@@ -509,15 +509,6 @@ const generateRandomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)]
 }
 
-const updateRoomActivity = (roomId, message) => {
-  const room = rooms.value.find((r) => r.id === roomId)
-  if (room) {
-    room.lastMessage = message
-    room.lastActivity = new Date()
-    console.log('📩 Updated room activity for UI:', roomId)
-  }
-}
-
 // URL Parameter Handling
 const handleUrlRoom = () => {
   const roomFromUrl = route.query.room
