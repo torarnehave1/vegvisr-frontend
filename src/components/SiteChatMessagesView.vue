@@ -297,50 +297,44 @@ const connectionStatusClass = computed(() => ({
 }))
 
 const safeMessages = computed(() => {
-  return messages.value.map((message) => {
-    // For chat-worker format messages, convert to our UI format
-    if (message.type === 'chat_message') {
-      return {
-        ...message,
-        type: 'text', // Convert chat_message to text for UI
-        isOwn: message.userId === userStore.user_id,
-        user: {
-          id: message.userId,
-          name: message.userName || 'Unknown User',
-          initials: (message.userName || '?').substring(0, 2).toUpperCase(),
-          color: generateUserColor(message.userId),
-          avatar: null,
-        },
-        timestamp: new Date(message.timestamp),
+  return messages.value
+    .map((message) => {
+      // For chat-worker format messages, convert to our UI format
+      if (message.type === 'chat_message') {
+        return {
+          ...message,
+          type: 'text', // Convert chat_message to text for UI
+          isOwn: message.userId === userStore.user_id,
+          user: {
+            id: message.userId,
+            name: message.userName || 'Unknown User',
+            initials: (message.userName || '?').substring(0, 2).toUpperCase(),
+            color: generateUserColor(message.userId),
+            avatar: null,
+          },
+          timestamp: new Date(message.timestamp),
+        }
+      } else if (message.type === 'user_joined' || message.type === 'user_left') {
+        // Skip join/leave notifications - treat as group, not chat
+        return null
+      } else {
+        // Handle existing format messages with safety
+        return {
+          ...message,
+          user:
+            message.type === 'system'
+              ? null
+              : message.user || {
+                  id: 'unknown',
+                  name: 'Unknown User',
+                  initials: '?',
+                  color: '#9ca3af',
+                  avatar: null,
+                },
+        }
       }
-    } else if (message.type === 'user_joined' || message.type === 'user_left') {
-      return {
-        ...message,
-        type: 'system',
-        content:
-          message.type === 'user_joined'
-            ? `${message.userName} joined the chat`
-            : `${message.userName} left the chat`,
-        timestamp: new Date(message.timestamp),
-        user: null,
-      }
-    } else {
-      // Handle existing format messages with safety
-      return {
-        ...message,
-        user:
-          message.type === 'system'
-            ? null
-            : message.user || {
-                id: 'unknown',
-                name: 'Unknown User',
-                initials: '?',
-                color: '#9ca3af',
-                avatar: null,
-              },
-      }
-    }
-  })
+    })
+    .filter((message) => message !== null)
 })
 
 const groupedMessages = computed(() => {
