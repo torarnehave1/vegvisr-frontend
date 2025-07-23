@@ -483,17 +483,14 @@ const loadChatHistory = async () => {
     const response = await fetch(
       `https://durable-chat-template.torarnehave.workers.dev/api/chat/${props.chatId}/history?limit=50`,
     )
-    if (response.ok) {
-      const data = await response.json()
-      console.log('📜 Chat: History loaded, message count:', data.messages?.length || 0)
-      if (data.messages) {
-        messages.value = data.messages
-        scrollToBottom()
-      }
+    const data = await response.json()
+    console.log('📜 Chat: History loaded, message count:', data.messages?.length || 0)
+    console.log('📜 Chat: History data:', data.messages)
+    if (Array.isArray(data.messages)) {
+      messages.value = data.messages
     }
   } catch (error) {
     console.error('❌ Chat: Error loading chat history:', error)
-    console.error('❌ Chat: Room ID:', props.chatId)
   }
 }
 
