@@ -1166,6 +1166,26 @@ export default {
       if (path === '/api/chat-rooms' && method === 'POST') {
         try {
           const { roomName, description, roomType, createdBy, domain } = await request.json()
+          if (!roomName || !roomType || !createdBy || !domain) {
+            console.error('Missing required field(s) for chat room creation:', {
+              roomName,
+              roomType,
+              createdBy,
+              domain,
+            })
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Missing required field(s): roomName, roomType, createdBy, or domain.',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
           const roomId = `room_${Date.now()}`
 
           console.log('Creating chat room:', {
