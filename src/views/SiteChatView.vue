@@ -687,45 +687,45 @@ const formatChatTime = (date) => {
 
 // Sidebar Menu Actions
 const openMyProfile = () => {
-  closeSidebar()
+  closeMobileMenu()
   router.push('/user')
   console.log('Opening profile')
 }
 
 const createNewGroup = () => {
-  closeSidebar()
+  closeMobileMenu()
   createType.value = 'group'
   showCreateModal.value = true
   console.log('Creating new group (KnowledgeGraph discussion)')
 }
 
 const createNewChannel = () => {
-  closeSidebar()
+  closeMobileMenu()
   createType.value = 'channel'
   showCreateModal.value = true
   console.log('Creating new channel (Domain community)')
 }
 
 const openContacts = () => {
-  closeSidebar()
+  closeMobileMenu()
   console.log('Opening contacts (coming soon)')
   alert('Contacts feature will be implemented in next phase')
 }
 
 const openCalls = () => {
-  closeSidebar()
+  closeMobileMenu()
   console.log('Opening calls (coming soon)')
   alert('Calls feature will be implemented in next phase')
 }
 
 const openSavedMessages = () => {
-  closeSidebar()
+  closeMobileMenu()
   console.log('Opening saved messages (coming soon)')
   alert('Saved messages feature will be implemented in next phase')
 }
 
 const openSettings = () => {
-  closeSidebar()
+  closeMobileMenu()
   console.log('Opening settings')
   router.push('/user')
 }
