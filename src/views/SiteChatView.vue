@@ -2,7 +2,7 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
-      <!-- Hamburger Button (Mobile only) -->
+      <!-- Hamburger Button (Mobile only, TOP NAV ONLY) -->
       <div class="mobile-header d-md-none">
         <HamburgerMenu :isOpen="showMobileMenu" @toggle="toggleMobileMenu" />
         <h1 class="mobile-title">Chat</h1>
