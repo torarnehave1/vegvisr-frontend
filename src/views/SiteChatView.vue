@@ -2,8 +2,8 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
-      <!-- Left Panel - Chat List -->
-      <div class="chat-list-panel">
+      <!-- Left Panel - Chat List (Desktop only) -->
+      <div class="chat-list-panel d-none d-md-block">
         <!-- Chat List Header -->
         <div class="chat-list-header">
           <!-- Hamburger Menu Button -->
@@ -61,7 +61,45 @@
         </div>
       </div>
 
-      <!-- Middle Panel - Chat Messages -->
+      <!-- Mobile Hamburger Menu Overlay -->
+      <div v-if="showMobileMenu" class="mobile-menu-overlay show" @click="closeMobileMenu">
+        <div class="mobile-menu-content" @click.stop>
+          <div class="mobile-menu-header">
+            <h5>Rooms</h5>
+            <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
+          </div>
+          <div class="mobile-menu-section">
+            <div
+              v-for="chat in rooms"
+              :key="chat.id"
+              class="mobile-room-item"
+              @click="selectChatMobile(chat.id)"
+            >
+              <div class="room-info">
+                <h5>{{ chat.name }}</h5>
+                <p class="room-description">{{ chat.description }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hamburger Button (Mobile only) -->
+      <div class="mobile-header d-md-none">
+        <button
+          class="hamburger-btn"
+          :class="{ active: showMobileMenu }"
+          @click="toggleMobileMenu"
+          aria-label="Open menu"
+        >
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+        </button>
+        <h1 class="mobile-title">Chat</h1>
+      </div>
+
+      <!-- Chat Messages Panel -->
       <div class="chat-messages-panel" v-if="selectedChatId">
         <!-- Chat Header -->
         <div class="chat-header-bar">
@@ -840,6 +878,20 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscKey)
   document.body.style.overflow = '' // Restore body scroll
 })
+
+const showMobileMenu = ref(false)
+const toggleMobileMenu = () => {
+  showMobileMenu.value = !showMobileMenu.value
+  document.body.style.overflow = showMobileMenu.value ? 'hidden' : ''
+}
+const closeMobileMenu = () => {
+  showMobileMenu.value = false
+  document.body.style.overflow = ''
+}
+const selectChatMobile = (chatId) => {
+  selectChat(chatId)
+  closeMobileMenu()
+}
 </script>
 
 <style scoped>
@@ -1547,10 +1599,47 @@ onUnmounted(() => {
     position: relative;
   }
 
+  .mobile-header {
+    display: flex !important;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background-color: var(--bs-body-bg);
+    border-bottom: 1px solid #eee;
+    position: sticky;
+    top: 0;
+    z-index: 1040;
+  }
+  .mobile-title {
+    margin-bottom: 0;
+    margin-left: 1rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  .mobile-menu-overlay {
+    display: flex !important;
+  }
+  .mobile-room-item {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .mobile-room-item:hover {
+    background: #f8f9fa;
+  }
+  .room-info h5 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .room-description {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin: 0;
+  }
   .mobile-menu-btn {
     display: flex !important;
   }
-
   .chat-list-panel {
     width: 100%;
     position: fixed;
