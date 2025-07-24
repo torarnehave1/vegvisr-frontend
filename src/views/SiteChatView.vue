@@ -488,22 +488,26 @@ const updateRoomActivity = (roomId, message) => {
 }
 
 const addNewRoomToDatabase = async (roomData) => {
+  if (!userStore.user_id) {
+    alert('You must be logged in to create a room. (user_id missing)')
+    console.error('[addNewRoomToDatabase] user_id is missing:', userStore.user_id)
+    throw new Error('user_id missing')
+  }
   try {
-    console.log('🚀 Creating room in database:', roomData)
+    const payload = {
+      roomName: roomData.name,
+      description: roomData.description,
+      roomType: roomData.type || 'group',
+      createdBy: userStore.user_id,
+      domain: 'vegvisr.org',
+    }
+    console.log('[addNewRoomToDatabase] Sending payload:', payload)
     const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomName: roomData.name,
-        description: roomData.description,
-        roomType: roomData.type || 'group',
-        createdBy: userStore.user_id,
-        domain: 'vegvisr.org',
-      }),
+      body: JSON.stringify(payload),
     })
-
     const data = await response.json()
-
     if (data.success) {
       const newRoom = {
         id: data.room.id,
@@ -516,7 +520,6 @@ const addNewRoomToDatabase = async (roomData) => {
         lastMessage: 'Room created',
         lastActivity: new Date(data.room.created),
       }
-
       rooms.value.unshift(newRoom) // Add to beginning of list
       console.log('🆕 Created new room in database:', newRoom)
       return newRoom
@@ -718,9 +721,12 @@ const getPreviewColor = () => {
 
 const createRoom = async () => {
   if (!newRoomData.value.name.trim()) return
-
-  console.log('🚀 Creating room:', newRoomData.value)
-
+  if (!userStore.user_id) {
+    alert('You must be logged in to create a room. (user_id missing)')
+    console.error('[createRoom] user_id is missing:', userStore.user_id)
+    return
+  }
+  console.log('🚀 Creating room:', newRoomData.value, 'user_id:', userStore.user_id)
   try {
     // Create new room using database API
     const newRoom = await addNewRoomToDatabase({
@@ -729,14 +735,11 @@ const createRoom = async () => {
       type: createType.value,
       graphId: newRoomData.value.graphId,
     })
-
     // Auto-select the new room
     selectChat(newRoom.id)
-
     // Show success message
     const typeName = createType.value === 'group' ? 'Group' : 'Channel'
     console.log(`✅ ${typeName} "${newRoom.name}" created successfully!`)
-
     closeCreateModal()
   } catch (error) {
     console.error('Failed to create room:', error)
