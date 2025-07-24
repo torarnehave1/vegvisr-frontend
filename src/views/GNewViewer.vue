@@ -1232,7 +1232,13 @@ const duplicatingGraph = ref(false)
 
 // Computed properties
 const currentGraphId = computed(() => {
-  return props.graphId || route.params.graphId || route.query.id || ''
+  return (
+    props.graphId ||
+    route.params.graphId ||
+    route.query.id ||
+    knowledgeGraphStore.currentGraphId ||
+    ''
+  )
 })
 
 // Computed metadata object for social components
