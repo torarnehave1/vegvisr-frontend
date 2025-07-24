@@ -920,15 +920,33 @@ onUnmounted(() => {
   document.body.style.overflow = '' // Restore body scroll
 })
 
+// --- Hamburger Menu Logic (copied from GNewViewer) ---
 const showMobileMenu = ref(false)
+
 const toggleMobileMenu = () => {
   showMobileMenu.value = !showMobileMenu.value
-  document.body.style.overflow = showMobileMenu.value ? 'hidden' : ''
+  if (showMobileMenu.value) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
 }
+
 const closeMobileMenu = () => {
   showMobileMenu.value = false
   document.body.style.overflow = ''
 }
+
+onMounted(() => {
+  // Close menu on route change or unmount
+  window.addEventListener('resize', closeMobileMenu)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', closeMobileMenu)
+  document.body.style.overflow = ''
+})
+
 const selectChatMobile = (chatId) => {
   selectChat(chatId)
   closeMobileMenu()

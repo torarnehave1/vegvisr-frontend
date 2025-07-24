@@ -700,3 +700,24 @@ I will not proceed with any code edits until you approve this plan.
 - Be prepared to rollback if changes don't work as expected
 
 This approach has proven effective for collaborative coding sessions and should be maintained in future interactions.
+
+## LESSON LEARNED: UI/UX Pattern Copying
+
+**Critical Lesson:** When implementing UI/UX features (like hamburger menus, overlays, or navigation), always copy the **full logic, event handlers, and CSS** from a proven, working component—not just the structure or markup.
+
+- Do a deep, line-by-line analysis of the working code.
+- Copy all state management, event handlers, transitions, and scroll lock logic.
+- Only add new sections (like "Rooms") as extras—never remove or replace existing menu items or behaviors.
+- Test the result on real devices to ensure identical behavior.
+
+**Warning:** Shallow copying (just markup or structure) leads to broken UX, missing features, and user frustration. Always verify the behavior matches the original in every way.
+
+### VEGVISR Protocol Update
+
+- When asked to "copy a working pattern," you must:
+  1. Read and understand the full implementation (logic, events, CSS, transitions).
+  2. Copy all relevant code, not just the template/structure.
+  3. Integrate new features as additive sections, not replacements.
+  4. Test and verify the result on the target device and context.
+- Add a checklist step: "Have I copied all logic, event handlers, and CSS from the working example?"
+- Add a warning: "Never assume markup alone is enough for UI/UX features—always copy the full pattern."
