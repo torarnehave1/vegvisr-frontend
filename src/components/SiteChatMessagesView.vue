@@ -435,16 +435,26 @@ const handleIncomingMessage = (message) => {
       break
 
     case 'chat_message':
-      messages.value.push(message)
-      scrollToBottom()
-      emit('message-sent') // Notify parent component
+      // Check for duplicates before adding
+      const isDuplicate = messages.value.some((msg) => msg.id === message.id)
+      if (!isDuplicate) {
+        messages.value.push(message)
+        scrollToBottom()
+        emit('message-sent') // Notify parent component
+      } else {
+        console.log('📎 Duplicate message filtered:', message.id)
+      }
       break
 
     case 'user_joined':
     case 'user_left':
       activeUsers.value = message.activeUsers || []
-      messages.value.push(message) // Show as system message
-      scrollToBottom()
+      // Check for duplicates for system messages too
+      const isSystemDuplicate = messages.value.some((msg) => msg.id === message.id)
+      if (!isSystemDuplicate) {
+        messages.value.push(message) // Show as system message
+        scrollToBottom()
+      }
       break
 
     case 'typing':
@@ -476,21 +486,40 @@ const handleTypingMessage = (message) => {
   }
 }
 
-// Load chat history
+// Loading state for chat history to prevent duplicate loads
+const isLoadingHistory = ref(false)
+
+// Load chat history with deduplication
 const loadChatHistory = async () => {
+  // Prevent multiple simultaneous loads
+  if (isLoadingHistory.value) {
+    console.log('📜 Chat: History already loading, skipping...')
+    return
+  }
+
   console.log('📜 Chat: Loading chat history for room:', props.chatId)
+  isLoadingHistory.value = true
+
   try {
     const response = await fetch(
       `https://durable-chat-template.torarnehave.workers.dev/api/chat/${props.chatId}/history?limit=50`,
     )
     const data = await response.json()
     console.log('📜 Chat: History loaded, message count:', data.messages?.length || 0)
-    console.log('📜 Chat: History data:', data.messages)
+
     if (Array.isArray(data.messages)) {
-      messages.value = data.messages
+      // Replace messages (don't append) and deduplicate by message ID
+      const uniqueMessages = data.messages.filter(
+        (msg, index, self) => index === self.findIndex((m) => m.id === msg.id),
+      )
+
+      messages.value = uniqueMessages
+      console.log('📜 Chat: Set', uniqueMessages.length, 'unique messages')
     }
   } catch (error) {
     console.error('❌ Chat: Error loading chat history:', error)
+  } finally {
+    isLoadingHistory.value = false
   }
 }
 
@@ -730,12 +759,21 @@ watch(
   { immediate: false }, // Don't run immediately, let login watcher handle initial connection
 )
 
-// Lifecycle
+// Close menus when clicking outside
+const closeMenus = () => {
+  showAttachmentMenu.value = false
+  showEmojiPicker.value = false
+}
+
+// Lifecycle - CONSOLIDATED single onMounted
 onMounted(() => {
   console.log('🚀 Chat: Component mounted')
   console.log('👤 Chat: Initial login state:', userStore.loggedIn)
   console.log('🆔 Chat: User ID:', userStore.user_id)
   console.log('📧 Chat: User email:', userStore.email)
+
+  // Add event listener for menu closing
+  document.addEventListener('click', closeMenus)
 
   // Brief loading to prevent undefined errors
   isLoading.value = true
@@ -752,12 +790,16 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // Clean up WebSocket connection
   if (socket.value) {
     socket.value.close()
   }
+  // Clear typing timeout
   if (typingTimeout) {
     clearTimeout(typingTimeout)
   }
+  // Remove event listener
+  document.removeEventListener('click', closeMenus)
 })
 
 // Watch for new messages
@@ -767,16 +809,6 @@ watch(
     scrollToBottom()
   },
 )
-
-// Close menus when clicking outside
-const closeMenus = () => {
-  showAttachmentMenu.value = false
-  showEmojiPicker.value = false
-}
-
-onMounted(() => {
-  document.addEventListener('click', closeMenus)
-})
 </script>
 
 <style scoped>
