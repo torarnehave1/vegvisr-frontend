@@ -2,8 +2,8 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
-      <!-- Mobile Header (EXACT GNewViewer pattern) -->
-      <div class="mobile-header d-md-none">
+      <!-- Header with Hamburger Menu (all screen sizes) -->
+      <div class="mobile-header">
         <HamburgerMenu
           :isOpen="showMobileMenu"
           @toggle="toggleMobileMenu"
@@ -63,65 +63,6 @@
               <i class="bi bi-person-fill"></i>
               My Profile
             </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Left Panel - Chat List (Desktop only) -->
-      <div class="chat-list-panel d-none d-md-block">
-        <!-- Chat List Header -->
-        <div class="chat-list-header">
-          <!-- Hamburger Menu Button -->
-          <button
-            class="hamburger-button"
-            @click="toggleSidebar"
-            :class="{ active: showSidebar }"
-            aria-label="Toggle menu"
-          >
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
-          </button>
-
-          <!-- Search -->
-          <div class="search-container">
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Search rooms"
-              class="search-input"
-            />
-            <button class="create-room-btn" @click="createNewGroup" title="Create new room">
-              <i class="bi bi-plus"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- Chat List -->
-        <div class="chats-list">
-          <!-- Demo Chats (placeholder data) -->
-          <div
-            v-for="chat in filteredChats"
-            :key="chat.id"
-            @click="selectChat(chat.id)"
-            class="chat-item"
-            :class="{ active: selectedChatId === chat.id, unread: chat.unreadCount > 0 }"
-          >
-            <div class="chat-avatar">
-              <div class="avatar-circle" :style="{ backgroundColor: chat.color }">
-                <i :class="getChatIcon(chat.type)"></i>
-              </div>
-            </div>
-            <div class="chat-info">
-              <div class="chat-header-row">
-                <h6 class="chat-title">{{ chat.name }}</h6>
-                <span class="chat-time">{{ formatChatTime(chat.lastActivity) }}</span>
-              </div>
-              <div class="chat-preview-row">
-                <p class="chat-preview">{{ chat.lastMessage || chat.description }}</p>
-                <span v-if="chat.unreadCount" class="unread-badge">{{ chat.unreadCount }}</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -192,90 +133,6 @@
           @invite-members="handleInviteMembers"
           @leave-group="handleLeaveGroup"
         />
-      </div>
-    </div>
-
-    <!-- Telegram-style Left Sidebar Overlay -->
-    <div v-if="showSidebar" class="sidebar-overlay" @click="closeSidebar">
-      <div class="sidebar-content" @click.stop>
-        <!-- User Profile Section -->
-        <div class="profile-section">
-          <div class="profile-info">
-            <div class="profile-avatar">
-              <img
-                :src="
-                  currentLogo ||
-                  userStore.profileImage ||
-                  'https://vegvisr.imgix.net/vegvisr-logo.png'
-                "
-                :alt="userStore.email || 'User'"
-                class="profile-image"
-                onerror="this.src='https://vegvisr.imgix.net/vegvisr-logo.png'"
-              />
-            </div>
-            <div class="profile-details">
-              <h5 class="profile-name">{{ userStore.email || currentSiteTitle }}</h5>
-              <p class="profile-status">{{ currentDomain || 'vegvisr.org' }}</p>
-            </div>
-          </div>
-          <button class="profile-settings-btn" @click="openSettings">
-            <i class="bi bi-three-dots-vertical"></i>
-          </button>
-        </div>
-
-        <!-- Menu Items -->
-        <div class="menu-section">
-          <div class="menu-item" @click="openMyProfile">
-            <i class="bi bi-person menu-icon"></i>
-            <span>My Profile</span>
-          </div>
-
-          <div class="menu-item" @click="createNewGroup">
-            <i class="bi bi-people-fill menu-icon"></i>
-            <span>New Group</span>
-            <small class="menu-description">KnowledgeGraph Discussion</small>
-          </div>
-
-          <div class="menu-item" @click="createNewChannel">
-            <i class="bi bi-megaphone-fill menu-icon"></i>
-            <span>New Channel</span>
-            <small class="menu-description">Domain Community</small>
-          </div>
-
-          <div class="menu-item" @click="openContacts">
-            <i class="bi bi-person-lines-fill menu-icon"></i>
-            <span>Contacts</span>
-          </div>
-
-          <div class="menu-item" @click="openCalls">
-            <i class="bi bi-telephone-fill menu-icon"></i>
-            <span>Calls</span>
-          </div>
-
-          <div class="menu-item" @click="openSavedMessages">
-            <i class="bi bi-bookmark-fill menu-icon"></i>
-            <span>Saved Messages</span>
-          </div>
-
-          <div class="menu-item" @click="openSettings">
-            <i class="bi bi-gear-fill menu-icon"></i>
-            <span>Settings</span>
-          </div>
-
-          <div class="menu-item" @click="toggleNightMode">
-            <i class="bi bi-moon-fill menu-icon"></i>
-            <span>Night Mode</span>
-            <div class="toggle-switch">
-              <input type="checkbox" :checked="nightMode" @change="toggleNightMode" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Version Info -->
-        <div class="version-info">
-          <p>{{ currentSiteTitle }} Chat</p>
-          <small>Version 1.0.0 – About</small>
-        </div>
       </div>
     </div>
 
@@ -400,12 +257,10 @@ const { currentDomain, currentLogo, currentSiteTitle, currentTheme } = useBrandi
 
 // State
 const loading = ref(false)
-const showSidebar = ref(false)
 const showCreateModal = ref(false)
 const showGroupInfo = ref(false)
 const createType = ref('group') // 'group' or 'channel'
-const selectedChatId = ref(null)
-const searchQuery = ref('')
+const selectedChatId = ref('test-group')
 const nightMode = ref(false)
 
 const newRoomData = ref({
@@ -450,16 +305,6 @@ const canCreateRooms = computed(() => {
 
 const userRole = computed(() => {
   return userStore.role || 'User'
-})
-
-const filteredChats = computed(() => {
-  if (!searchQuery.value.trim()) return rooms.value
-
-  const query = searchQuery.value.toLowerCase()
-  return rooms.value.filter(
-    (chat) =>
-      chat.name.toLowerCase().includes(query) || chat.description.toLowerCase().includes(query),
-  )
 })
 
 const selectedChat = computed(() => {
@@ -601,22 +446,6 @@ const handleUrlRoom = () => {
 }
 
 // Sidebar Management
-const toggleSidebar = () => {
-  showSidebar.value = !showSidebar.value
-  console.log('🍔 Sidebar toggled:', showSidebar.value)
-
-  // Prevent body scroll when sidebar is open
-  if (showSidebar.value) {
-    document.body.style.overflow = 'hidden'
-  } else {
-    document.body.style.overflow = ''
-  }
-}
-
-const closeSidebar = () => {
-  showSidebar.value = false
-  document.body.style.overflow = ''
-}
 
 // Chat Management
 const selectChat = (chatId) => {
@@ -860,8 +689,6 @@ const handleEscKey = (event) => {
   if (event.key === 'Escape') {
     if (showCreateModal.value) {
       closeCreateModal()
-    } else if (showSidebar.value) {
-      closeSidebar()
     }
   }
 }
@@ -873,11 +700,11 @@ onMounted(() => {
   console.log('User role:', userRole.value)
   console.log('Can create rooms:', canCreateRooms.value)
 
-  // Initialize room management system
-  loadRoomsFromDatabase()
-
-  // Handle URL room parameter
-  handleUrlRoom()
+  // Initialize room management system and handle URL after loading
+  loadRoomsFromDatabase().then(() => {
+    // Handle URL room parameter after rooms are loaded
+    handleUrlRoom()
+  })
 
   // Add keyboard listener
   document.addEventListener('keydown', handleEscKey)
@@ -946,28 +773,9 @@ const openMyProfileMobile = () => {
 
 .telegram-container {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   position: relative;
-}
-
-/* Left Panel - Chat List */
-.chat-list-panel {
-  width: 420px;
-  background: white;
-  border-right: 1px solid #e5e7eb;
-  display: flex;
-  flex-direction: column;
-  min-width: 320px;
-  flex-shrink: 0;
-}
-
-.chat-list-header {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
-  gap: 12px;
 }
 
 /* Hamburger Button - Telegram Style */
@@ -1187,6 +995,7 @@ const openMyProfileMobile = () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-empty-state-panel {
@@ -1364,34 +1173,6 @@ const openMyProfileMobile = () => {
 
 .send-button:hover {
   background: #2563eb;
-}
-
-/* Sidebar Overlay - Telegram Style */
-.sidebar-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  backdrop-filter: blur(2px);
-}
-
-.sidebar-content {
-  background: white;
-  border-radius: 0 12px 12px 0;
-  width: 300px;
-  max-width: 80vw;
-  height: 100vh;
-  overflow-y: auto;
-  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
-  animation: slideInFromLeft 0.3s ease-out;
-  display: flex;
-  flex-direction: column;
 }
 
 @keyframes slideInFromLeft {
@@ -1593,22 +1374,12 @@ const openMyProfileMobile = () => {
 
 /* Responsive Design */
 @media (max-width: 1200px) {
-  .chat-list-panel {
-    width: 360px;
-    min-width: 300px;
-  }
-
   .group-info-panel-wrapper {
     width: 320px;
   }
 }
 
 @media (max-width: 992px) {
-  .chat-list-panel {
-    width: 320px;
-    min-width: 280px;
-  }
-
   .group-info-panel-wrapper {
     width: 300px;
   }
@@ -1617,21 +1388,6 @@ const openMyProfileMobile = () => {
 @media (max-width: 768px) {
   .telegram-container {
     position: relative;
-  }
-
-  .chat-list-panel {
-    width: 100%;
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 1001;
-    height: 100vh;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-  }
-
-  .chat-list-panel.mobile-open {
-    transform: translateX(0);
   }
 
   .chat-messages-panel {
@@ -1653,11 +1409,6 @@ const openMyProfileMobile = () => {
     transform: translateX(0);
   }
 
-  .sidebar-content {
-    width: 100%;
-    max-width: none;
-  }
-
   .chat-empty-state-panel .empty-content {
     padding: 40px 20px;
     margin: 20px;
@@ -1665,10 +1416,6 @@ const openMyProfileMobile = () => {
 }
 
 @media (max-width: 480px) {
-  .chat-list-panel {
-    width: 100vw;
-  }
-
   .empty-icon {
     font-size: 3rem;
   }
@@ -1688,6 +1435,8 @@ const openMyProfileMobile = () => {
   position: sticky;
   top: 0;
   z-index: 1040;
+  height: 70px; /* Fixed height for calculations */
+  flex-shrink: 0;
 }
 
 .mobile-title {
