@@ -1257,8 +1257,15 @@ export default {
       // GET room settings endpoint
       if (path.startsWith('/api/chat-rooms/') && path.endsWith('/settings') && method === 'GET') {
         try {
+          console.log('🔍 [API] GET room settings endpoint called')
+          console.log('🔍 [API] Full path:', path)
+          console.log('🔍 [API] Method:', method)
+
           const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/settings
+          console.log('🔍 [API] Extracted roomId:', roomId)
+
           if (!roomId) {
+            console.log('❌ [API] No room ID provided')
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
@@ -1273,14 +1280,17 @@ export default {
             )
           }
 
-          console.log('Loading room settings for:', roomId)
+          console.log('🔍 [API] Querying database for room:', roomId)
 
           const result = await env.vegvisr_org
             .prepare('SELECT room_settings, room_name FROM site_chat_rooms WHERE room_id = ?')
             .bind(roomId)
             .first()
 
+          console.log('🔍 [API] Database result:', JSON.stringify(result, null, 2))
+
           if (!result) {
+            console.log('❌ [API] Room not found in database')
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
@@ -1297,28 +1307,36 @@ export default {
 
           // Parse room_settings JSON or return empty object
           let roomSettings = {}
+          console.log('🔍 [API] Raw room_settings from DB:', result.room_settings)
+
           if (result.room_settings) {
             try {
               roomSettings = JSON.parse(result.room_settings)
+              console.log(
+                '✅ [API] Parsed room_settings successfully:',
+                JSON.stringify(roomSettings, null, 2),
+              )
             } catch (error) {
-              console.error('Error parsing room_settings JSON:', error)
+              console.error('❌ [API] Error parsing room_settings JSON:', error)
               roomSettings = {}
             }
+          } else {
+            console.log('⚠️ [API] No room_settings found in database')
           }
 
-          console.log('Room settings loaded:', roomSettings)
+          const response = {
+            success: true,
+            room_settings: roomSettings,
+            room_name: result.room_name,
+          }
+
+          console.log('✅ [API] Sending response:', JSON.stringify(response, null, 2))
+
           return addCorsHeaders(
-            new Response(
-              JSON.stringify({
-                success: true,
-                room_settings: roomSettings,
-                room_name: result.room_name,
-              }),
-              {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-              },
-            ),
+            new Response(JSON.stringify(response), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
           )
         } catch (error) {
           console.error('Error loading room settings:', error)

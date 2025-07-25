@@ -303,6 +303,9 @@ const saveDisplayName = async () => {
     editingDisplayName.value = false
     newDisplayName.value = ''
     console.log('✅ Display name updated:', finalName)
+
+    // Emit event to parent to reconnect with new display name
+    emit('display-name-changed', finalName)
   } catch (error) {
     console.error('❌ Failed to update display name:', error)
     alert('Failed to update display name. Please try again.')
@@ -407,6 +410,7 @@ const emit = defineEmits([
   'edit-group',
   'invite-members',
   'leave-group',
+  'display-name-changed',
 ])
 
 // State

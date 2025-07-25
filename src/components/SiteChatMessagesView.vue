@@ -366,33 +366,34 @@ const groupedMessages = computed(() => {
 })
 
 // WebSocket Connection Management
-const connectToChat = () => {
+const connectToChat = async () => {
   console.log('🔗 Chat: Attempting to connect...')
-  console.log('🔗 Chat: Logged in:', userStore.loggedIn)
-  console.log('🔗 Chat: Chat ID:', props.chatId)
-  console.log('🔗 Chat: User ID:', userStore.user_id)
-  console.log('🔗 Chat: User Email:', userStore.email)
 
   if (!userStore.loggedIn || !props.chatId) {
     console.log('❌ Chat: Cannot connect - missing user or chat ID')
-    console.log('❌ Chat: Logged in?', userStore.loggedIn)
-    console.log('❌ Chat: Chat ID?', props.chatId)
     return
   }
 
+  // SIMPLE FIX: Always load fresh room settings before connecting
+  console.log('📋 Loading fresh room settings before WebSocket connection...')
+  await loadRoomSettings()
+
   connectionStatus.value = 'Connecting'
 
-  // Get room-specific display name or fallback to email
-  const getUserDisplayName = () => {
-    if (!roomSettings.value?.displayNames || !userStore.email) {
-      return userStore.email || 'Anonymous'
-    }
-    return roomSettings.value.displayNames[userStore.email] || userStore.email
+  // Get display name after we're sure settings are loaded
+  let displayName = userStore.email || 'Anonymous'
+
+  if (roomSettings.value?.displayNames?.[userStore.email]) {
+    displayName = roomSettings.value.displayNames[userStore.email]
+    console.log('🏷️ ✅ Using custom display name:', displayName)
+  } else {
+    console.log('🏷️ ⚠️ No custom name found, using email')
   }
 
-  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(getUserDisplayName())}`
+  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(displayName)}`
 
-  console.log('🔌 Chat: Connecting to WebSocket:', wsUrl)
+  console.log('🔌 Final WebSocket URL:', wsUrl)
+  console.log('🔌 Final display name:', displayName)
 
   socket.value = new WebSocket(wsUrl)
 
@@ -504,16 +505,33 @@ const roomSettings = ref({})
 const loadRoomSettings = async () => {
   try {
     console.log('📋 Loading room settings for:', props.chatId)
-    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms/${props.chatId}/settings`)
+    const url = `${API_CONFIG.baseUrl}/api/chat-rooms/${props.chatId}/settings`
+    console.log('📋 API URL:', url)
+
+    const response = await fetch(url)
+    console.log('📋 API Response status:', response.status, response.statusText)
+
     if (response.ok) {
       const data = await response.json()
+      console.log('📋 Raw API response:', JSON.stringify(data, null, 2))
+
       if (data.success && data.room_settings) {
         roomSettings.value = data.room_settings
-        console.log('📋 Room settings loaded:', roomSettings.value.displayNames)
+        console.log('📋 ✅ Room settings loaded successfully!')
+        console.log('📋 Display names:', roomSettings.value.displayNames)
+      } else {
+        console.log('📋 ❌ API returned no settings:', data)
+        roomSettings.value = {}
       }
+    } else {
+      console.log('📋 ❌ API call failed:', response.status, response.statusText)
+      const errorText = await response.text()
+      console.log('📋 Error response:', errorText)
+      roomSettings.value = {}
     }
   } catch (error) {
-    console.error('Error loading room settings:', error)
+    console.error('📋 ❌ Error loading room settings:', error)
+    roomSettings.value = {}
   }
 }
 
@@ -749,7 +767,6 @@ watch(
     console.log('🔄 Chat: Login state changed:', isLoggedIn)
     if (isLoggedIn && !isConnected.value) {
       console.log('🔌 Chat: User logged in, connecting to chat...')
-      loadRoomSettings()
       connectToChat()
       loadChatHistory()
     } else if (!isLoggedIn && socket.value) {
@@ -780,7 +797,6 @@ watch(
       // Connect to new room if user is logged in
       if (userStore.loggedIn) {
         console.log('🔌 Chat: Connecting to new room:', newChatId)
-        loadRoomSettings()
         connectToChat()
         loadChatHistory()
       }
