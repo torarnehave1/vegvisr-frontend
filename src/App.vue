@@ -14,6 +14,7 @@ const currentLayout = computed(() => route.meta.layout || DefaultLayout)
 
 onMounted(() => {
   userStore.loadUserFromStorage()
+  console.log('🚀 App initialized - User:', userStore.email, 'ID:', userStore.user_id)
   theme.value = localStorage.getItem('theme') || 'light'
 })
 
