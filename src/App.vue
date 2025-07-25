@@ -2,7 +2,6 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DefaultLayout from './layouts/DefaultLayout.vue'
-import MinimalLayout from './layouts/MinimalLayout.vue'
 import { useUserStore } from './stores/userStore'
 import { onMounted } from 'vue'
 
@@ -38,11 +37,7 @@ function setTheme(newTheme) {
     @set-theme="setTheme"
   >
     <RouterView :theme="theme" />
-    <!-- Only show logout button for non-minimal layouts -->
-    <button
-      v-if="currentLayout !== MinimalLayout"
-      @click="userStore.loggedIn ? handleLogout() : $router.push('/login')"
-    >
+    <button @click="userStore.loggedIn ? handleLogout() : $router.push('/login')">
       {{ userStore.loggedIn ? 'Logout' : 'Login' }}
     </button>
   </component>
