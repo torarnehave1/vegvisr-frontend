@@ -181,8 +181,8 @@ const router = createRouter({
       component: () => import('../views/SearchView.vue'),
     },
     {
-      path: '/site-chat',
-      name: 'site-chat',
+      path: '/xchat',
+      name: 'xchat',
       component: () => import('../views/SiteChatView.vue'),
       meta: { requiresAuth: false },
     },
