@@ -112,12 +112,12 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Typing Indicators -->
-      <div v-if="typingUsers.length > 0" class="typing-indicator">
-        <div class="typing-dots"><span></span><span></span><span></span></div>
-        <small>{{ formatTypingUsers() }} typing...</small>
-      </div>
+    <!-- Typing Indicators (positioned outside messages container) -->
+    <div v-if="typingUsers.length > 0" class="typing-indicator">
+      <div class="typing-dots"><span></span><span></span><span></span></div>
+      <small>{{ formatTypingUsers() }} typing...</small>
     </div>
 
     <!-- Connection Status (when not connected) -->
@@ -1045,6 +1045,8 @@ onMounted(() => {
   border-top: 1px solid #e5e7eb;
   padding: 16px;
   position: relative;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .input-container {
@@ -1239,8 +1241,11 @@ onMounted(() => {
   color: #6b7280;
   font-size: 12px;
   padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.95);
   border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  backdrop-filter: blur(4px);
+  flex-shrink: 0;
 }
 
 .typing-dots {
