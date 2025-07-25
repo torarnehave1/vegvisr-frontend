@@ -2,47 +2,69 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
-      <!-- Mobile Header with WORKING Hamburger Menu (copied from GNewMenuCreatorNode) -->
+      <!-- Mobile Header (EXACT GNewViewer pattern) -->
       <div class="mobile-header d-md-none">
-        <div class="hamburger-container">
-          <button class="hamburger-btn" @click="toggleMenu" :class="{ active: isMenuOpen }">
-            <i class="fas fa-bars"></i>
-          </button>
+        <HamburgerMenu
+          :isOpen="showMobileMenu"
+          @toggle="toggleMobileMenu"
+          @menu-item-clicked="handleMenuItemClick"
+        />
+        <h1 class="mobile-title">💬 Chat</h1>
+      </div>
 
-          <!-- Dropdown menu (EXACT working pattern) -->
-          <div v-if="isMenuOpen" class="menu-dropdown">
-            <!-- Rooms Section -->
+      <!-- Mobile Menu Overlay (EXACT GNewViewer pattern) -->
+      <div
+        v-if="showMobileMenu"
+        class="mobile-menu-overlay"
+        :class="{ show: showMobileMenu }"
+        @click="closeMobileMenu"
+      >
+        <div class="mobile-menu-content" @click.stop>
+          <div class="mobile-menu-header">
+            <h5>Menu</h5>
+            <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
+          </div>
+
+          <!-- Rooms Section -->
+          <div class="mobile-menu-section">
             <h6>Rooms</h6>
-            <div v-for="chat in rooms" :key="chat.id" class="menu-dropdown-item">
-              <button @click="selectChatAndClose(chat.id)" class="menu-link">
-                <span class="menu-icon">{{ getChatIcon(chat.type) }}</span>
-                {{ chat.name }}
-              </button>
-            </div>
-
-            <!-- Actions Section -->
-            <h6>Actions</h6>
-            <div class="menu-dropdown-item">
-              <button @click="createNewGroupAndClose" class="menu-link">
-                <span class="menu-icon">👥</span>
-                Create Group
-              </button>
-            </div>
-            <div class="menu-dropdown-item">
-              <button @click="createNewChannelAndClose" class="menu-link">
-                <span class="menu-icon">📢</span>
-                Create Channel
-              </button>
-            </div>
-            <div class="menu-dropdown-item">
-              <button @click="openMyProfileAndClose" class="menu-link">
-                <span class="menu-icon">👤</span>
-                My Profile
-              </button>
+            <div
+              v-for="chat in rooms"
+              :key="chat.id"
+              class="mobile-room-item"
+              @click="selectChatMobile(chat.id)"
+            >
+              <div class="room-info">
+                <div class="chat-avatar">
+                  <div class="avatar-circle" :style="{ backgroundColor: chat.color }">
+                    <i :class="getChatIcon(chat.type)"></i>
+                  </div>
+                </div>
+                <div class="chat-details">
+                  <h5>{{ chat.name }}</h5>
+                  <p class="room-description">{{ chat.description }}</p>
+                </div>
+              </div>
             </div>
           </div>
+
+          <!-- Actions Section -->
+          <div class="mobile-menu-section">
+            <h6>Actions</h6>
+            <button class="mobile-action-btn" @click="createNewGroupMobile">
+              <i class="bi bi-people-fill"></i>
+              Create Group
+            </button>
+            <button class="mobile-action-btn" @click="createNewChannelMobile">
+              <i class="bi bi-megaphone-fill"></i>
+              Create Channel
+            </button>
+            <button class="mobile-action-btn" @click="openMyProfileMobile">
+              <i class="bi bi-person-fill"></i>
+              My Profile
+            </button>
+          </div>
         </div>
-        <h1 class="mobile-title">💬 Chat</h1>
       </div>
 
       <!-- Left Panel - Chat List (Desktop only) -->
@@ -360,6 +382,7 @@ import { useBranding } from '@/composables/useBranding'
 import { API_CONFIG } from '@/config/api'
 import SiteChatMessagesView from '@/components/SiteChatMessagesView.vue'
 import SiteChatGroupInfo from '@/components/SiteChatGroupInfo.vue'
+import HamburgerMenu from '@/components/HamburgerMenu.vue'
 
 // Props
 const props = defineProps({
@@ -866,31 +889,48 @@ onUnmounted(() => {
   document.body.style.overflow = '' // Restore body scroll
 })
 
-// WORKING Mobile Menu Logic (copied EXACTLY from GNewMenuCreatorNode)
-const isMenuOpen = ref(false)
+// Mobile Menu Logic (EXACT GNewViewer pattern)
+const showMobileMenu = ref(false)
 
-const toggleMenu = () => {
-  isMenuOpen.value = !isMenuOpen.value
+const toggleMobileMenu = () => {
+  console.log('Toggle mobile menu called, current state:', showMobileMenu.value)
+  showMobileMenu.value = !showMobileMenu.value
+  if (showMobileMenu.value) {
+    document.body.style.overflow = 'hidden'
+    console.log('Mobile menu opened')
+  } else {
+    document.body.style.overflow = ''
+    console.log('Mobile menu closed')
+  }
 }
 
-// Menu action wrappers (EXACT pattern - close after action)
-const selectChatAndClose = (chatId) => {
-  isMenuOpen.value = false
+const closeMobileMenu = () => {
+  showMobileMenu.value = false
+  document.body.style.overflow = ''
+}
+
+const handleMenuItemClick = (item) => {
+  console.log('Menu item clicked:', item)
+}
+
+// Mobile menu action wrappers (perform action and close menu)
+const selectChatMobile = (chatId) => {
   selectChat(chatId)
+  closeMobileMenu()
 }
 
-const createNewGroupAndClose = () => {
-  isMenuOpen.value = false
+const createNewGroupMobile = () => {
+  closeMobileMenu()
   createNewGroup()
 }
 
-const createNewChannelAndClose = () => {
-  isMenuOpen.value = false
+const createNewChannelMobile = () => {
+  closeMobileMenu()
   createNewChannel()
 }
 
-const openMyProfileAndClose = () => {
-  isMenuOpen.value = false
+const openMyProfileMobile = () => {
+  closeMobileMenu()
   openMyProfile()
 }
 </script>
@@ -1638,7 +1678,7 @@ const openMyProfileAndClose = () => {
   }
 }
 
-/* Mobile Header with WORKING Hamburger (copied from GNewMenuCreatorNode) */
+/* Mobile Header (EXACT GNewViewer pattern) */
 .mobile-header {
   display: flex;
   align-items: center;
@@ -1657,83 +1697,128 @@ const openMyProfileAndClose = () => {
   font-weight: 600;
 }
 
-.hamburger-container {
-  position: relative;
-}
-
-.hamburger-btn {
-  background: rgba(0, 123, 255, 0.1);
-  border: 1px solid #007bff;
-  border-radius: 4px;
-  cursor: pointer;
-  padding: 8px;
-  color: #007bff;
-  font-size: 1.2rem;
-  transition: all 0.2s ease;
-}
-
-.hamburger-btn:hover {
-  background: rgba(0, 123, 255, 0.2);
-}
-
-.hamburger-btn.active {
-  background: #007bff;
-  color: white;
-}
-
-.menu-dropdown {
-  position: absolute;
-  top: 100%;
+/* Mobile Menu Overlay Styles (EXACT GNewViewer pattern) */
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
   left: 0;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 0.375rem;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  z-index: 1051;
-  min-width: 200px;
-  max-width: 300px;
-  max-height: 400px;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-start;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease-in-out,
+    visibility 0.3s ease-in-out;
+}
+
+.mobile-menu-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-menu-content {
+  background-color: var(--bs-body-bg);
+  width: 80%;
+  max-width: 400px;
+  height: 100%;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
 }
 
-.menu-dropdown h6 {
-  margin: 0;
-  padding: 0.75rem 1rem 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #6c757d;
-  border-bottom: 1px solid #f8f9fa;
+.mobile-menu-overlay.show .mobile-menu-content {
+  transform: translateX(0);
 }
 
-.menu-dropdown-item {
-  border-bottom: 1px solid #f8f9fa;
-}
-
-.menu-dropdown-item:last-child {
-  border-bottom: none;
-}
-
-.menu-link {
+.mobile-menu-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border: none;
-  background: none;
-  text-align: left;
-  color: #333;
-  text-decoration: none;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-header h5 {
+  margin-bottom: 0;
+}
+
+.mobile-menu-section {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-section h6 {
+  margin-bottom: 1rem;
+  color: #6c757d;
+  font-weight: 600;
+}
+
+.mobile-room-item {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f8f9fa;
   cursor: pointer;
   transition: background 0.2s;
 }
 
-.menu-link:hover {
+.mobile-room-item:hover {
   background: #f8f9fa;
 }
 
-.menu-icon {
-  margin-right: 0.5rem;
-  width: 20px;
-  text-align: center;
+.mobile-room-item:last-child {
+  border-bottom: none;
+}
+
+.mobile-room-item .room-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mobile-room-item .chat-avatar {
+  flex-shrink: 0;
+}
+
+.mobile-room-item .chat-details h5 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mobile-room-item .room-description {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin: 0;
+}
+
+.mobile-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  text-align: left;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.mobile-action-btn:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+
+.mobile-action-btn i {
+  color: #007bff;
 }
 </style>
