@@ -132,6 +132,7 @@
           @edit-group="handleEditGroup"
           @invite-members="handleInviteMembers"
           @leave-group="handleLeaveGroup"
+          @display-name-changed="handleDisplayNameChanged"
         />
       </div>
     </div>
@@ -750,6 +751,16 @@ const handleLeaveGroup = () => {
   console.log('Leave group requested')
   showGroupInfo.value = false
   // Handle leaving the group
+}
+
+const handleDisplayNameChanged = (newDisplayName) => {
+  console.log('🏷️ Display name changed to:', newDisplayName)
+  // Simple solution: just refresh the page to reconnect with new name
+  // TODO: Implement real-time reconnection in future iteration
+  alert(`Display name updated to "${newDisplayName}"! Refreshing chat to apply changes...`)
+  setTimeout(() => {
+    window.location.reload()
+  }, 1000)
 }
 
 // Keyboard shortcuts
