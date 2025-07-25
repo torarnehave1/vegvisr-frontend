@@ -382,7 +382,15 @@ const connectToChat = () => {
 
   connectionStatus.value = 'Connecting'
 
-  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(userStore.email || 'Anonymous')}`
+  // Get room-specific display name or fallback to email
+  const getUserDisplayName = () => {
+    if (!roomSettings.value?.displayNames || !userStore.email) {
+      return userStore.email || 'Anonymous'
+    }
+    return roomSettings.value.displayNames[userStore.email] || userStore.email
+  }
+
+  const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(getUserDisplayName())}`
 
   console.log('🔌 Chat: Connecting to WebSocket:', wsUrl)
 
@@ -488,6 +496,26 @@ const handleTypingMessage = (message) => {
 
 // Loading state for chat history to prevent duplicate loads
 const isLoadingHistory = ref(false)
+
+// Room settings for display names
+const roomSettings = ref({})
+
+// Load room settings for display names
+const loadRoomSettings = async () => {
+  try {
+    console.log('📋 Loading room settings for:', props.chatId)
+    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms/${props.chatId}/settings`)
+    if (response.ok) {
+      const data = await response.json()
+      if (data.success && data.room_settings) {
+        roomSettings.value = data.room_settings
+        console.log('📋 Room settings loaded:', roomSettings.value.displayNames)
+      }
+    }
+  } catch (error) {
+    console.error('Error loading room settings:', error)
+  }
+}
 
 // Load chat history with deduplication
 const loadChatHistory = async () => {
@@ -721,6 +749,7 @@ watch(
     console.log('🔄 Chat: Login state changed:', isLoggedIn)
     if (isLoggedIn && !isConnected.value) {
       console.log('🔌 Chat: User logged in, connecting to chat...')
+      loadRoomSettings()
       connectToChat()
       loadChatHistory()
     } else if (!isLoggedIn && socket.value) {
@@ -751,6 +780,7 @@ watch(
       // Connect to new room if user is logged in
       if (userStore.loggedIn) {
         console.log('🔌 Chat: Connecting to new room:', newChatId)
+        loadRoomSettings()
         connectToChat()
         loadChatHistory()
       }
