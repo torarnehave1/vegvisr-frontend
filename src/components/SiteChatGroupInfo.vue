@@ -62,6 +62,57 @@
       </div>
     </div>
 
+    <!-- Display Name Section -->
+    <div class="group-section">
+      <div class="section-header">
+        <i class="bi bi-person-badge"></i>
+        <span>Your Display Name</span>
+      </div>
+      <div class="display-name-section">
+        <div v-if="!editingDisplayName" class="display-name-view">
+          <div class="current-name">
+            <span class="name-text">{{ currentDisplayName }}</span>
+            <span class="name-hint">{{
+              currentDisplayName === userStore.email ? '(using email)' : '(custom name)'
+            }}</span>
+          </div>
+          <button class="edit-name-btn" @click="startEditingDisplayName">
+            <i class="bi bi-pencil"></i>
+            Change
+          </button>
+        </div>
+
+        <div v-else class="display-name-edit">
+          <div class="edit-input-container">
+            <input
+              v-model="newDisplayName"
+              @keydown.enter="saveDisplayName"
+              @keydown.escape="cancelEditingDisplayName"
+              ref="displayNameInput"
+              class="display-name-input"
+              :placeholder="userStore.email"
+              maxlength="50"
+            />
+            <div class="char-count">{{ newDisplayName?.length || 0 }}/50</div>
+          </div>
+          <div class="edit-actions">
+            <button class="save-btn" @click="saveDisplayName" :disabled="savingDisplayName">
+              <i v-if="savingDisplayName" class="bi bi-clock"></i>
+              <i v-else class="bi bi-check"></i>
+              {{ savingDisplayName ? 'Saving...' : 'Save' }}
+            </button>
+            <button class="cancel-btn" @click="cancelEditingDisplayName">
+              <i class="bi bi-x"></i>
+              Cancel
+            </button>
+          </div>
+          <div class="name-preview">
+            <small>Preview: {{ newDisplayName || userStore.email }}</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Shared Content -->
     <div class="group-section">
       <div class="section-header">
@@ -178,7 +229,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+import { API_CONFIG } from '@/config/api'
 
 // Props
 const props = defineProps({
@@ -198,6 +251,154 @@ const props = defineProps({
     default: 'current_user',
   },
 })
+
+// Composables
+const userStore = useUserStore()
+
+// Display Name State
+const editingDisplayName = ref(false)
+const newDisplayName = ref('')
+const savingDisplayName = ref(false)
+const roomSettings = ref({}) // Store room settings locally
+
+// Computed Properties
+const currentDisplayName = computed(() => {
+  const userEmail = userStore.email
+  if (!userEmail || !roomSettings.value.displayNames) return userEmail || ''
+  return roomSettings.value.displayNames[userEmail] || userEmail
+})
+
+// Display Name Methods
+const startEditingDisplayName = () => {
+  editingDisplayName.value = true
+  const currentName = currentDisplayName.value
+  newDisplayName.value = currentName === userStore.email ? '' : currentName
+
+  nextTick(() => {
+    const input = document.querySelector('.display-name-input')
+    if (input) input.focus()
+  })
+}
+
+const cancelEditingDisplayName = () => {
+  editingDisplayName.value = false
+  newDisplayName.value = ''
+}
+
+const saveDisplayName = async () => {
+  if (savingDisplayName.value) return
+
+  const trimmedName = newDisplayName.value?.trim()
+  const finalName = trimmedName || userStore.email
+
+  if (finalName === currentDisplayName.value) {
+    cancelEditingDisplayName()
+    return
+  }
+
+  savingDisplayName.value = true
+
+  try {
+    await updateRoomDisplayName(finalName)
+    editingDisplayName.value = false
+    newDisplayName.value = ''
+    console.log('✅ Display name updated:', finalName)
+  } catch (error) {
+    console.error('❌ Failed to update display name:', error)
+    alert('Failed to update display name. Please try again.')
+  } finally {
+    savingDisplayName.value = false
+  }
+}
+
+const updateRoomDisplayName = async (displayName) => {
+  const userEmail = userStore.email
+  if (!userEmail) throw new Error('User email not available')
+
+  // Initialize room settings if not exists
+  if (!roomSettings.value.displayNames) {
+    roomSettings.value = {
+      displayNames: {},
+      roomConfig: {
+        allowNicknameChange: true,
+        requireApprovalForNameChange: false,
+        maxDisplayNameLength: 50,
+        theme: 'default',
+        language: 'en',
+      },
+      userPermissions: {},
+      roomFeatures: {
+        enableTypingIndicators: true,
+        enableUserColors: true,
+        enableEmojis: true,
+        maxMessageLength: 2000,
+      },
+      metadata: {
+        lastUpdated: new Date().toISOString(),
+        updatedBy: userEmail,
+        version: '1.0',
+      },
+    }
+  }
+
+  // Set display name (remove if same as email to save space)
+  if (displayName === userEmail) {
+    delete roomSettings.value.displayNames[userEmail]
+  } else {
+    roomSettings.value.displayNames[userEmail] = displayName
+  }
+
+  // Update permissions and metadata
+  if (!roomSettings.value.userPermissions[userEmail]) {
+    roomSettings.value.userPermissions[userEmail] = {
+      canChangeNickname: true,
+      canModerateRoom: false,
+      joinedAt: new Date().toISOString(),
+    }
+  }
+  roomSettings.value.userPermissions[userEmail].lastNameChange = new Date().toISOString()
+  roomSettings.value.metadata.lastUpdated = new Date().toISOString()
+  roomSettings.value.metadata.updatedBy = userEmail
+
+  // API call to update room settings
+  const response = await fetch(
+    `${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/settings`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_settings: roomSettings.value }),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to update room settings')
+  }
+}
+
+// Load room settings on component mount
+const loadRoomSettings = async () => {
+  try {
+    const response = await fetch(
+      `${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/settings`,
+    )
+    if (response.ok) {
+      const data = await response.json()
+      if (data.success && data.room_settings) {
+        roomSettings.value = data.room_settings
+      }
+    }
+  } catch (error) {
+    console.error('Error loading room settings:', error)
+  }
+}
+
+// Load settings when component mounts
+loadRoomSettings()
 
 // Emits
 const emit = defineEmits([
@@ -812,5 +1013,145 @@ input[type='checkbox']:checked + .toggle-label::before {
   .shared-content-grid {
     flex-direction: column;
   }
+}
+
+/* Display Name Styles */
+.display-name-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.display-name-view {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.current-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.name-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.name-hint {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.edit-name-btn {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.edit-name-btn:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.display-name-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edit-input-container {
+  position: relative;
+}
+
+.display-name-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.display-name-input:focus {
+  border-color: #3b82f6;
+}
+
+.char-count {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: #9ca3af;
+  background: white;
+  padding: 0 4px;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.save-btn {
+  background: #3b82f6;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancel-btn {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: #374151;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cancel-btn:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.name-preview {
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 6px;
 }
 </style>

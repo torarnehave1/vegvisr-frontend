@@ -1254,6 +1254,186 @@ export default {
         }
       }
 
+      // GET room settings endpoint
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/settings') && method === 'GET') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/settings
+          if (!roomId) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID is required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          console.log('Loading room settings for:', roomId)
+
+          const result = await env.vegvisr_org
+            .prepare('SELECT room_settings, room_name FROM site_chat_rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first()
+
+          if (!result) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Parse room_settings JSON or return empty object
+          let roomSettings = {}
+          if (result.room_settings) {
+            try {
+              roomSettings = JSON.parse(result.room_settings)
+            } catch (error) {
+              console.error('Error parsing room_settings JSON:', error)
+              roomSettings = {}
+            }
+          }
+
+          console.log('Room settings loaded:', roomSettings)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                room_settings: roomSettings,
+                room_name: result.room_name,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error loading room settings:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // PUT room settings endpoint
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/settings') && method === 'PUT') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/settings
+          if (!roomId) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID is required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          const { room_settings } = await request.json()
+          if (!room_settings) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'room_settings is required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          console.log('Updating room settings for:', roomId)
+          console.log('New settings:', room_settings)
+
+          // Verify room exists first
+          const roomExists = await env.vegvisr_org
+            .prepare('SELECT room_id FROM site_chat_rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first()
+
+          if (!roomExists) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Update room settings JSON column
+          await env.vegvisr_org
+            .prepare(
+              'UPDATE site_chat_rooms SET room_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE room_id = ?',
+            )
+            .bind(JSON.stringify(room_settings), roomId)
+            .run()
+
+          console.log('Room settings updated successfully')
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Room settings updated successfully',
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error updating room settings:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
       // Handle other routes
       return addCorsHeaders(new Response('Not Found', { status: 404 }))
     } catch (error) {
