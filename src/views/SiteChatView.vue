@@ -318,13 +318,7 @@ const selectedChat = computed(() => {
 
 // Debug function to show current user state (can be called anytime)
 const debugUserState = () => {
-  console.log('=== USER STATE DEBUG ===')
-  console.log('userStore.email:', userStore.email)
-  console.log('userStore.user_id:', userStore.user_id)
-  console.log('userStore.loggedIn:', userStore.loggedIn)
-  console.log('userStore.role:', userStore.role)
-  console.log('localStorage user:', JSON.parse(localStorage.getItem('user') || '{}'))
-  console.log('API_CONFIG.baseUrl:', API_CONFIG.baseUrl)
+  // User state debugging removed
   return {
     email: userStore.email,
     user_id: userStore.user_id,
@@ -339,7 +333,7 @@ window.debugUserState = debugUserState
 
 // Test function for room creation (can be called from browser console)
 const testRoomCreation = async (roomName = 'Test Room') => {
-  console.log('🧪 Testing room creation with name:', roomName)
+  // Testing room creation
   debugUserState()
 
   try {
@@ -348,7 +342,7 @@ const testRoomCreation = async (roomName = 'Test Room') => {
       description: 'Test room created from console',
       type: 'group',
     })
-    console.log('✅ Test room creation successful:', testRoom)
+    // Test room creation successful
     return testRoom
   } catch (error) {
     console.error('❌ Test room creation failed:', error)
@@ -377,14 +371,14 @@ const loadRoomsFromDatabase = async () => {
         lastMessage: room.room_description || 'Room created',
         lastActivity: new Date(room.created_at),
       }))
-      console.log('📂 Loaded rooms from database:', rooms.value.length)
+      // Loaded rooms from database
     } else {
-      console.error('Failed to load rooms:', data.error)
+      // Failed to load rooms
       // Fallback to default rooms
       rooms.value = [...defaultRooms]
     }
   } catch (error) {
-    console.error('Error loading rooms from database:', error)
+    // Error loading rooms from database
     // Fallback to default rooms
     rooms.value = [...defaultRooms]
   }
@@ -396,7 +390,7 @@ const updateRoomActivity = (roomId, message) => {
   if (room) {
     room.lastMessage = message
     room.lastActivity = new Date()
-    console.log('📩 Updated room activity for UI:', roomId)
+    // Updated room activity for UI
   }
 }
 
@@ -410,7 +404,7 @@ const addNewRoomToDatabase = async (roomData) => {
       domain: 'vegvisr.org',
     }
 
-    console.log('📡 Creating room via API:', payload.roomName)
+    // Creating room via API
 
     const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms`, {
       method: 'POST',
@@ -433,7 +427,7 @@ const addNewRoomToDatabase = async (roomData) => {
         lastActivity: new Date(data.room.created),
       }
       rooms.value.unshift(newRoom) // Add to beginning of list
-      console.log('🆕 Created new room:', newRoom.name)
+      // Created new room
       return newRoom
     } else {
       console.error('❌ Room creation failed:', data.error)
@@ -467,15 +461,14 @@ const generateRandomColor = () => {
 const handleUrlRoom = () => {
   const roomFromUrl = route.query.room
   if (roomFromUrl) {
-    console.log('🔗 Room from URL:', roomFromUrl)
+    // Room from URL
 
     // Check if room exists
     let existingRoom = rooms.value.find((r) => r.id === roomFromUrl)
 
     // If room doesn't exist in database, user needs to create it manually
     if (!existingRoom) {
-      console.log('Room from URL not found in database:', roomFromUrl)
-      console.log('Room must exist in database. Please create the room first.')
+      // Room from URL not found in database
       // Default to general room instead
       selectedChatId.value = 'general'
       return
@@ -483,7 +476,7 @@ const handleUrlRoom = () => {
 
     // Select the room
     selectedChatId.value = roomFromUrl
-    console.log('🎯 Auto-selected room from URL:', roomFromUrl)
+    // Auto-selected room from URL
   } else {
     // Default to general room if no URL param
     selectedChatId.value = 'general'
@@ -500,16 +493,12 @@ const selectChat = (chatId) => {
   }
 
   selectedChatId.value = chatId
-  console.log('🎯 Selected chat:', chatId, selectedChat.value)
-  console.log(
-    '🗂️ All rooms:',
-    rooms.value.map((r) => ({ id: r.id, name: r.name })),
-  )
+  // Selected chat
 
   // On mobile, close the sidebar after selecting a room
   if (window.innerWidth <= 768) {
     showSidebar.value = false
-    console.log('📱 Mobile: Sidebar closed after room select')
+    // Mobile sidebar closed after room select
   }
 
   // Update URL to reflect selected room
@@ -519,7 +508,7 @@ const selectChat = (chatId) => {
   const chat = rooms.value.find((c) => c.id === chatId)
   if (chat && chat.unreadCount > 0) {
     chat.unreadCount = 0
-    console.log('🔕 Cleared unread count for room:', chatId)
+    // Cleared unread count for room
   }
 }
 
@@ -547,19 +536,19 @@ const formatChatTime = (date) => {
 // Sidebar Menu Actions
 const openMyProfile = () => {
   router.push('/user')
-  console.log('Opening profile')
+  // Opening profile
 }
 
 const createNewGroup = () => {
   createType.value = 'group'
   showCreateModal.value = true
-  console.log('Creating new group (KnowledgeGraph discussion)')
+  // Creating new group
 }
 
 const createNewChannel = () => {
   createType.value = 'channel'
   showCreateModal.value = true
-  console.log('Creating new channel (Domain community)')
+  // Creating new channel
 }
 
 const openContacts = () => {
@@ -621,7 +610,7 @@ const createRoom = async () => {
   // If user_id is not available, fetch it (following UserDashboard pattern)
   if (!userStore.user_id) {
     try {
-      console.log('Fetching user_id for room creation...')
+      // Fetching user_id for room creation
       const response = await fetch(
         `${API_CONFIG.baseUrl}/userdata?email=${encodeURIComponent(userStore.email)}`,
       )
@@ -629,7 +618,7 @@ const createRoom = async () => {
 
       if (userData.user_id) {
         userStore.setUserId(userData.user_id)
-        console.log('✅ Got user_id for room creation:', userData.user_id)
+        // Got user_id for room creation
       } else {
         alert('Unable to get user information. Please visit your dashboard first.')
         return
@@ -641,7 +630,7 @@ const createRoom = async () => {
     }
   }
 
-  console.log('🚀 Creating room:', newRoomData.value, 'user_id:', userStore.user_id)
+  // Creating room
 
   try {
     // Create new room using database API
@@ -655,7 +644,7 @@ const createRoom = async () => {
     selectChat(newRoom.id)
     // Show success message
     const typeName = createType.value === 'group' ? 'Group' : 'Channel'
-    console.log(`✅ ${typeName} "${newRoom.name}" created successfully!`)
+    // Room created successfully
     closeCreateModal()
   } catch (error) {
     console.error('Failed to create room:', error)
@@ -665,7 +654,7 @@ const createRoom = async () => {
 
 const sendMessage = () => {
   // This method is called from the message component
-  console.log('📤 Message sent in room:', selectedChatId.value)
+  // Message sent in room
 }
 
 const handleMessageSent = (message) => {
@@ -712,7 +701,7 @@ const copyRoomId = async () => {
 // Group Info Management
 const toggleGroupInfo = () => {
   showGroupInfo.value = !showGroupInfo.value
-  console.log('🔍 Group info toggled:', showGroupInfo.value)
+  // Group info toggled
 
   // On mobile, add mobile-open class for animation
   if (window.innerWidth <= 768) {
@@ -756,9 +745,6 @@ const handleLeaveGroup = () => {
 }
 
 const handleDisplayNameChanged = (newDisplayName) => {
-  console.log('🏷️ Display name changed to:', newDisplayName)
-  console.log('🔄 Triggering WebSocket reconnection with new display name...')
-
   // Trigger reconnection in the chat messages component
   if (chatMessagesRef.value && chatMessagesRef.value.reconnectWithNewDisplayName) {
     chatMessagesRef.value.reconnectWithNewDisplayName(newDisplayName)

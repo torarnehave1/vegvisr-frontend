@@ -150,10 +150,11 @@
               'message-system': message.type === 'system',
             }"
           >
-            <!-- User name (for received messages in groups) -->
+            <!-- User name (for all messages) -->
             <div
-              v-if="!message.isOwn && message.type !== 'system' && message.user"
+              v-if="message.type !== 'system' && message.user"
               class="message-sender"
+              :class="{ 'own-message-sender': message.isOwn }"
             >
               {{ message.user?.name || 'Unknown User' }}
             </div>
@@ -311,14 +312,16 @@ const safeMessages = computed(() => {
       if (message.type === 'chat_message') {
         const isOwn = String(message.userId) === String(userStore.user_id)
 
+        // Removed verbose message debugging
+
         return {
           ...message,
           type: 'text', // Convert chat_message to text for UI
           isOwn: isOwn, // Use string comparison for robust matching
           user: {
             id: message.userId,
-            name: message.userName || 'Unknown User',
-            initials: (message.userName || '?').substring(0, 2).toUpperCase(),
+            name: getDisplayNameForMessage(message.userName),
+            initials: getDisplayNameForMessage(message.userName).substring(0, 2).toUpperCase(),
             color: generateUserColor(message.userId),
             avatar: null,
           },
@@ -367,15 +370,11 @@ const groupedMessages = computed(() => {
 
 // WebSocket Connection Management
 const connectToChat = async () => {
-  console.log('🔗 Chat: Attempting to connect...')
-
   if (!userStore.loggedIn || !props.chatId) {
-    console.log('❌ Chat: Cannot connect - missing user or chat ID')
     return
   }
 
-  // SIMPLE FIX: Always load fresh room settings before connecting
-  console.log('📋 Loading fresh room settings before WebSocket connection...')
+  // Load fresh room settings before connecting
   await loadRoomSettings()
 
   connectionStatus.value = 'Connecting'
@@ -385,21 +384,15 @@ const connectToChat = async () => {
 
   if (roomSettings.value?.displayNames?.[userStore.email]) {
     displayName = roomSettings.value.displayNames[userStore.email]
-    console.log('🏷️ ✅ Using custom display name:', displayName)
-  } else {
-    console.log('🏷️ ⚠️ No custom name found, using email')
   }
 
   const wsUrl = `wss://durable-chat-template.torarnehave.workers.dev/chat/${props.chatId}?userId=${userStore.user_id}&userName=${encodeURIComponent(displayName)}`
 
-  console.log('🔌 Final WebSocket URL:', wsUrl)
-  console.log('🔌 Final display name:', displayName)
+  // Connecting to WebSocket
 
   socket.value = new WebSocket(wsUrl)
 
   socket.value.onopen = () => {
-    console.log('✅ Chat: WebSocket connected successfully')
-    console.log('👤 Chat: Connected as user:', userStore.email)
     isConnected.value = true
     connectionStatus.value = 'Connected'
   }
@@ -414,7 +407,6 @@ const connectToChat = async () => {
   }
 
   socket.value.onclose = () => {
-    console.log('❌ Chat: WebSocket disconnected')
     isConnected.value = false
     connectionStatus.value = 'Disconnected'
 
@@ -436,7 +428,7 @@ const connectToChat = async () => {
 
 // Handle incoming WebSocket messages
 const handleIncomingMessage = (message) => {
-  console.log('📩 Incoming chat message:', message)
+  // Removed excessive message logging
 
   switch (message.type) {
     case 'connected':
@@ -450,8 +442,6 @@ const handleIncomingMessage = (message) => {
         messages.value.push(message)
         scrollToBottom()
         emit('message-sent') // Notify parent component
-      } else {
-        console.log('📎 Duplicate message filtered:', message.id)
       }
       break
 
@@ -471,7 +461,7 @@ const handleIncomingMessage = (message) => {
       break
 
     default:
-      console.log('Unknown message type:', message.type)
+    // Unknown message type
   }
 }
 
@@ -503,34 +493,21 @@ const roomSettings = ref({})
 
 // Load room settings for display names
 const loadRoomSettings = async () => {
-  try {
-    console.log('📋 Loading room settings for:', props.chatId)
-    const url = `${API_CONFIG.baseUrl}/api/chat-rooms/${props.chatId}/settings`
-    console.log('📋 API URL:', url)
+  if (!props.chatId) {
+    return
+  }
 
+  try {
+    const url = `https://vegvisr-frontend.torarnehave.workers.dev/api/chat-rooms/${props.chatId}/settings`
     const response = await fetch(url)
-    console.log('📋 API Response status:', response.status, response.statusText)
 
     if (response.ok) {
       const data = await response.json()
-      console.log('📋 Raw API response:', JSON.stringify(data, null, 2))
-
-      if (data.success && data.room_settings) {
-        roomSettings.value = data.room_settings
-        console.log('📋 ✅ Room settings loaded successfully!')
-        console.log('📋 Display names:', roomSettings.value.displayNames)
-      } else {
-        console.log('📋 ❌ API returned no settings:', data)
-        roomSettings.value = {}
-      }
+      roomSettings.value = data.room_settings || {}
     } else {
-      console.log('📋 ❌ API call failed:', response.status, response.statusText)
-      const errorText = await response.text()
-      console.log('📋 Error response:', errorText)
       roomSettings.value = {}
     }
   } catch (error) {
-    console.error('📋 ❌ Error loading room settings:', error)
     roomSettings.value = {}
   }
 }
@@ -539,11 +516,8 @@ const loadRoomSettings = async () => {
 const loadChatHistory = async () => {
   // Prevent multiple simultaneous loads
   if (isLoadingHistory.value) {
-    console.log('📜 Chat: History already loading, skipping...')
     return
   }
-
-  console.log('📜 Chat: Loading chat history for room:', props.chatId)
   isLoadingHistory.value = true
 
   try {
@@ -551,8 +525,6 @@ const loadChatHistory = async () => {
       `https://durable-chat-template.torarnehave.workers.dev/api/chat/${props.chatId}/history?limit=50`,
     )
     const data = await response.json()
-    console.log('📜 Chat: History loaded, message count:', data.messages?.length || 0)
-
     if (Array.isArray(data.messages)) {
       // Replace messages (don't append) and deduplicate by message ID
       const uniqueMessages = data.messages.filter(
@@ -560,10 +532,9 @@ const loadChatHistory = async () => {
       )
 
       messages.value = uniqueMessages
-      console.log('📜 Chat: Set', uniqueMessages.length, 'unique messages')
     }
   } catch (error) {
-    console.error('❌ Chat: Error loading chat history:', error)
+    // Error loading chat history
   } finally {
     isLoadingHistory.value = false
   }
@@ -694,7 +665,7 @@ const sendMessage = () => {
 
 const selectAttachment = (type) => {
   showAttachmentMenu.value = false
-  console.log(`Selecting attachment type: ${type}`)
+  // Selecting attachment type
   // TODO: Implement file selection logic
   alert(`${type} attachment will be implemented in next phase`)
 }
@@ -764,13 +735,10 @@ const scrollToBottom = () => {
 watch(
   () => userStore.loggedIn,
   (isLoggedIn) => {
-    console.log('🔄 Chat: Login state changed:', isLoggedIn)
     if (isLoggedIn && !isConnected.value) {
-      console.log('🔌 Chat: User logged in, connecting to chat...')
       connectToChat()
       loadChatHistory()
     } else if (!isLoggedIn && socket.value) {
-      console.log('🚪 Chat: User logged out, closing connection...')
       socket.value.close()
     }
   },
@@ -781,22 +749,17 @@ watch(
 watch(
   () => props.chatId,
   (newChatId, oldChatId) => {
-    console.log('🔄 Chat: Room changed from', oldChatId, 'to', newChatId)
-
     if (newChatId !== oldChatId && newChatId) {
       // Disconnect from previous room
       if (socket.value) {
-        console.log('🚪 Chat: Disconnecting from old room:', oldChatId)
         socket.value.close()
       }
 
       // Clear previous room's messages
       messages.value = []
-      console.log('🧹 Chat: Cleared messages from previous room')
 
       // Connect to new room if user is logged in
       if (userStore.loggedIn) {
-        console.log('🔌 Chat: Connecting to new room:', newChatId)
         connectToChat()
         loadChatHistory()
       }
@@ -813,11 +776,6 @@ const closeMenus = () => {
 
 // Lifecycle - CONSOLIDATED single onMounted
 onMounted(() => {
-  console.log('🚀 Chat: Component mounted')
-  console.log('👤 Chat: Initial login state:', userStore.loggedIn)
-  console.log('🆔 Chat: User ID:', userStore.user_id)
-  console.log('📧 Chat: User email:', userStore.email)
-
   // Add event listener for menu closing
   document.addEventListener('click', closeMenus)
 
@@ -825,7 +783,6 @@ onMounted(() => {
   isLoading.value = true
   setTimeout(() => {
     isLoading.value = false
-    console.log('⏰ Chat: Loading timeout complete, login state:', userStore.loggedIn)
 
     // The watch function with immediate: true will handle connection
     // No need to duplicate logic here, but ensure scroll works
@@ -848,28 +805,29 @@ onUnmounted(() => {
   document.removeEventListener('click', closeMenus)
 })
 
+// SIMPLE: Get display name or fallback to email
+const getDisplayNameForMessage = (userName) => {
+  if (!userName) return 'Unknown User'
+  if (!roomSettings.value?.displayNames) return userName
+  return roomSettings.value.displayNames[userName] || userName
+}
+
 // Reconnect WebSocket with new display name (called from parent component)
 const reconnectWithNewDisplayName = async (newDisplayName) => {
-  console.log('🔄 Reconnecting WebSocket with new display name:', newDisplayName)
-
   try {
     // 1. Close current WebSocket connection
     if (socket.value) {
-      console.log('🚪 Closing current WebSocket connection...')
       socket.value.close()
       isConnected.value = false
     }
 
     // 2. Reload room settings to get fresh display name
-    console.log('📋 Reloading room settings for fresh display name...')
     await loadRoomSettings()
 
     // 3. Reconnect to same room with new display name
-    console.log('🔌 Reconnecting to chat with new display name...')
     await connectToChat()
 
     // 4. Show success message without breaking UX
-    console.log('✅ Successfully reconnected with display name:', newDisplayName)
 
     // Add a brief success indicator (non-intrusive)
     connectionStatus.value = `Connected as ${newDisplayName}`
@@ -1059,6 +1017,13 @@ watch(
   font-weight: 600;
   color: #0088cc;
   margin-bottom: 4px;
+}
+
+/* Own message sender styling */
+.own-message-sender {
+  text-align: right;
+  color: #6366f1;
+  font-weight: 600;
 }
 
 .message-content {
