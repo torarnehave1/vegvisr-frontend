@@ -65,11 +65,6 @@
       <div class="chat-messages-panel" v-if="selectedChatId">
         <!-- Chat Header -->
         <div class="chat-header-bar">
-          <!-- Mobile Menu Button (only on mobile) -->
-          <button class="mobile-menu-btn" @click="toggleMobileChatList" title="Show chat list">
-            <i class="bi bi-list"></i>
-          </button>
-
           <div class="chat-info-section">
             <div class="chat-avatar-small">
               <div class="avatar-circle-small" :style="{ backgroundColor: selectedChat?.color }">
@@ -772,15 +767,6 @@ const toggleGroupInfo = () => {
 // Mobile panel management
 const isMobile = computed(() => window.innerWidth <= 768)
 
-const toggleMobileChatList = () => {
-  if (isMobile.value) {
-    const chatPanel = document.querySelector('.chat-list-panel')
-    if (chatPanel) {
-      chatPanel.classList.toggle('mobile-open')
-    }
-  }
-}
-
 const handleNotificationsChanged = (enabled) => {
   console.log('Notifications changed:', enabled)
   // Update user preferences via API
@@ -1171,27 +1157,6 @@ onUnmounted(() => {
   background: #2563eb;
 }
 
-.mobile-menu-btn {
-  display: none;
-  background: none;
-  border: none;
-  color: #6b7280;
-  padding: 8px;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin-right: 8px;
-}
-
-.mobile-menu-btn:hover {
-  background: #f3f4f6;
-  color: #374151;
-}
-
 .chat-avatar-small {
   margin-right: 12px;
 }
@@ -1544,9 +1509,6 @@ onUnmounted(() => {
     position: relative;
   }
 
-  .mobile-menu-btn {
-    display: flex !important;
-  }
   .chat-list-panel {
     width: 100%;
     position: fixed;
