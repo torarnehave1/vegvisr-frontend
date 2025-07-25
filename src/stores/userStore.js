@@ -176,6 +176,7 @@ export const useUserStore = defineStore('user', {
     },
     loadUserFromStorage() {
       const storedUser = JSON.parse(localStorage.getItem('user'))
+
       if (storedUser && storedUser.email) {
         this.email = storedUser.email
         this.role = storedUser.role
@@ -184,7 +185,10 @@ export const useUserStore = defineStore('user', {
         this.mystmkraUserId = storedUser.mystmkraUserId || null
         this.branding = storedUser.branding || { mySite: null, myLogo: null }
         this.loggedIn = true
+
+        console.log('✅ Loaded user from storage:', this.email, 'ID:', this.user_id)
       } else {
+        console.log('❌ No user data in localStorage')
         this.email = null
         this.role = null
         this.user_id = null

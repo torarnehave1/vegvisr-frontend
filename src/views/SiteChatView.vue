@@ -313,6 +313,48 @@ const selectedChat = computed(() => {
 
 // Methods
 
+// Debug function to show current user state (can be called anytime)
+const debugUserState = () => {
+  console.log('=== USER STATE DEBUG ===')
+  console.log('userStore.email:', userStore.email)
+  console.log('userStore.user_id:', userStore.user_id)
+  console.log('userStore.loggedIn:', userStore.loggedIn)
+  console.log('userStore.role:', userStore.role)
+  console.log('localStorage user:', JSON.parse(localStorage.getItem('user') || '{}'))
+  console.log('API_CONFIG.baseUrl:', API_CONFIG.baseUrl)
+  return {
+    email: userStore.email,
+    user_id: userStore.user_id,
+    loggedIn: userStore.loggedIn,
+    role: userStore.role,
+    localStorage: JSON.parse(localStorage.getItem('user') || '{}'),
+  }
+}
+
+// Expose debug function to global scope for easy testing
+window.debugUserState = debugUserState
+
+// Test function for room creation (can be called from browser console)
+const testRoomCreation = async (roomName = 'Test Room') => {
+  console.log('🧪 Testing room creation with name:', roomName)
+  debugUserState()
+
+  try {
+    const testRoom = await addNewRoomToDatabase({
+      name: roomName,
+      description: 'Test room created from console',
+      type: 'group',
+    })
+    console.log('✅ Test room creation successful:', testRoom)
+    return testRoom
+  } catch (error) {
+    console.error('❌ Test room creation failed:', error)
+    throw error
+  }
+}
+
+window.testRoomCreation = testRoomCreation
+
 // Room Management with Database API
 const loadRoomsFromDatabase = async () => {
   try {
@@ -356,11 +398,6 @@ const updateRoomActivity = (roomId, message) => {
 }
 
 const addNewRoomToDatabase = async (roomData) => {
-  if (!userStore.user_id) {
-    alert('You must be logged in to create a room. (user_id missing)')
-    console.error('[addNewRoomToDatabase] user_id is missing:', userStore.user_id)
-    throw new Error('user_id missing')
-  }
   try {
     const payload = {
       roomName: roomData.name,
@@ -369,13 +406,17 @@ const addNewRoomToDatabase = async (roomData) => {
       createdBy: userStore.user_id,
       domain: 'vegvisr.org',
     }
-    console.log('[addNewRoomToDatabase] Sending payload:', payload)
+
+    console.log('📡 Creating room via API:', payload.roomName)
+
     const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
+
     const data = await response.json()
+
     if (data.success) {
       const newRoom = {
         id: data.room.id,
@@ -389,13 +430,14 @@ const addNewRoomToDatabase = async (roomData) => {
         lastActivity: new Date(data.room.created),
       }
       rooms.value.unshift(newRoom) // Add to beginning of list
-      console.log('🆕 Created new room in database:', newRoom)
+      console.log('🆕 Created new room:', newRoom.name)
       return newRoom
     } else {
+      console.error('❌ Room creation failed:', data.error)
       throw new Error(data.error || 'Failed to create room')
     }
   } catch (error) {
-    console.error('Error creating room:', error)
+    console.error('❌ Error creating room:', error)
     throw error
   }
 }
@@ -566,12 +608,38 @@ const getPreviewColor = () => {
 
 const createRoom = async () => {
   if (!newRoomData.value.name.trim()) return
-  if (!userStore.user_id) {
-    alert('You must be logged in to create a room. (user_id missing)')
-    console.error('[createRoom] user_id is missing:', userStore.user_id)
+
+  // Check if user is logged in
+  if (!userStore.email) {
+    alert('You must be logged in to create a room.')
     return
   }
+
+  // If user_id is not available, fetch it (following UserDashboard pattern)
+  if (!userStore.user_id) {
+    try {
+      console.log('Fetching user_id for room creation...')
+      const response = await fetch(
+        `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(userStore.email)}`,
+      )
+      const userData = await response.json()
+
+      if (userData.user_id) {
+        userStore.setUserId(userData.user_id)
+        console.log('✅ Got user_id for room creation:', userData.user_id)
+      } else {
+        alert('Unable to get user information. Please visit your dashboard first.')
+        return
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error)
+      alert('Unable to verify user information. Please visit your dashboard first.')
+      return
+    }
+  }
+
   console.log('🚀 Creating room:', newRoomData.value, 'user_id:', userStore.user_id)
+
   try {
     // Create new room using database API
     const newRoom = await addNewRoomToDatabase({
@@ -695,7 +763,7 @@ const handleEscKey = (event) => {
 
 // Lifecycle
 onMounted(() => {
-  console.log('🚀 SiteChatView mounted - Real-time Room System')
+  console.log('🚀 SiteChatView mounted - User:', userStore.email, 'ID:', userStore.user_id)
   console.log('Current domain:', currentDomain.value)
   console.log('User role:', userRole.value)
   console.log('Can create rooms:', canCreateRooms.value)
