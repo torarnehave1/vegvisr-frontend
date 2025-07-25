@@ -2,6 +2,80 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
+      <!-- Mobile Header with Hamburger Menu -->
+      <div class="mobile-header d-md-none">
+        <HamburgerMenu :isOpen="showMobileMenu" @toggle="toggleMobileMenu" />
+        <h1 class="mobile-title">💬 Chat</h1>
+      </div>
+
+      <!-- Mobile Menu Overlay -->
+      <div
+        v-if="showMobileMenu"
+        class="mobile-menu-overlay"
+        :class="{ show: showMobileMenu }"
+        @click="closeMobileMenu"
+      >
+        <div class="mobile-menu-content" @click.stop>
+          <div class="mobile-menu-header">
+            <h5>Menu</h5>
+            <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
+          </div>
+
+          <!-- Rooms Section -->
+          <div class="mobile-menu-section">
+            <h6>Rooms</h6>
+            <div
+              v-for="chat in rooms"
+              :key="chat.id"
+              class="mobile-room-item"
+              @click="selectChatMobile(chat.id)"
+            >
+              <div class="room-info">
+                <div class="chat-avatar">
+                  <div class="avatar-circle" :style="{ backgroundColor: chat.color }">
+                    <i :class="getChatIcon(chat.type)"></i>
+                  </div>
+                </div>
+                <div class="chat-details">
+                  <h5>{{ chat.name }}</h5>
+                  <p class="room-description">{{ chat.description }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat Actions -->
+          <div class="mobile-menu-section">
+            <h6>Actions</h6>
+            <div class="mobile-action-buttons">
+              <button class="mobile-action-btn" @click="createNewGroupMobile">
+                <i class="bi bi-people-fill"></i>
+                Create Group
+              </button>
+              <button class="mobile-action-btn" @click="createNewChannelMobile">
+                <i class="bi bi-megaphone-fill"></i>
+                Create Channel
+              </button>
+              <button class="mobile-action-btn" @click="openMyProfileMobile">
+                <i class="bi bi-person-fill"></i>
+                My Profile
+              </button>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div class="mobile-menu-section">
+            <h6>Settings</h6>
+            <div class="mobile-settings">
+              <label class="mobile-setting-item">
+                <input type="checkbox" v-model="nightMode" @change="toggleNightMode" />
+                <span>Night Mode</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Left Panel - Chat List (Desktop only) -->
       <div class="chat-list-panel d-none d-md-block">
         <!-- Chat List Header -->
@@ -823,6 +897,47 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscKey)
   document.body.style.overflow = '' // Restore body scroll
 })
+
+// Mobile Menu Logic (copied from GNewViewer working pattern)
+const showMobileMenu = ref(false)
+
+const toggleMobileMenu = () => {
+  console.log('Toggle mobile menu called, current state:', showMobileMenu.value)
+  showMobileMenu.value = !showMobileMenu.value
+  if (showMobileMenu.value) {
+    document.body.style.overflow = 'hidden'
+    console.log('Mobile menu opened')
+  } else {
+    document.body.style.overflow = ''
+    console.log('Mobile menu closed')
+  }
+}
+
+const closeMobileMenu = () => {
+  showMobileMenu.value = false
+  document.body.style.overflow = ''
+}
+
+// Mobile menu action wrappers (perform action and close menu)
+const selectChatMobile = (chatId) => {
+  selectChat(chatId)
+  closeMobileMenu()
+}
+
+const createNewGroupMobile = () => {
+  closeMobileMenu()
+  createNewGroup()
+}
+
+const createNewChannelMobile = () => {
+  closeMobileMenu()
+  createNewChannel()
+}
+
+const openMyProfileMobile = () => {
+  closeMobileMenu()
+  openMyProfile()
+}
 </script>
 
 <style scoped>
@@ -1566,5 +1681,177 @@ onUnmounted(() => {
   .empty-content h4 {
     font-size: 1.2rem;
   }
+}
+
+/* Mobile Header */
+.mobile-header {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background-color: var(--bs-body-bg);
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  z-index: 1040;
+}
+
+.mobile-title {
+  margin-bottom: 0;
+  margin-left: 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+/* Mobile Menu Overlay Styles (copied from working GraphPortfolio pattern) */
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-start;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease-in-out,
+    visibility 0.3s ease-in-out;
+}
+
+.mobile-menu-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-menu-content {
+  background-color: var(--bs-body-bg);
+  width: 80%;
+  max-width: 400px;
+  height: 100%;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.mobile-menu-overlay.show .mobile-menu-content {
+  transform: translateX(0);
+}
+
+.mobile-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-header h5 {
+  margin-bottom: 0;
+}
+
+.mobile-menu-section {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.mobile-menu-section h6 {
+  margin-bottom: 1rem;
+  color: #6c757d;
+  font-weight: 600;
+}
+
+/* Chat-specific mobile menu styles */
+.mobile-room-item {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f8f9fa;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mobile-room-item:hover {
+  background: #f8f9fa;
+}
+
+.mobile-room-item:last-child {
+  border-bottom: none;
+}
+
+.mobile-room-item .room-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mobile-room-item .chat-avatar {
+  flex-shrink: 0;
+}
+
+.mobile-room-item .chat-details h5 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mobile-room-item .room-description {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin: 0;
+}
+
+.mobile-action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mobile-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  text-align: left;
+  width: 100%;
+}
+
+.mobile-action-btn:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+
+.mobile-action-btn i {
+  color: #007bff;
+}
+
+.mobile-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mobile-setting-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.mobile-setting-item input[type='checkbox'] {
+  margin: 0;
+}
+
+.mobile-setting-item span {
+  font-size: 0.9rem;
 }
 </style>
