@@ -106,6 +106,7 @@
 
         <!-- Chat Messages Component -->
         <SiteChatMessagesView
+          ref="chatMessagesRef"
           :chatId="selectedChatId"
           :chatInfo="selectedChat"
           @message-sent="handleMessageSent"
@@ -263,6 +264,7 @@ const showGroupInfo = ref(false)
 const createType = ref('group') // 'group' or 'channel'
 const selectedChatId = ref('test-group')
 const nightMode = ref(false)
+const chatMessagesRef = ref(null) // Reference to SiteChatMessagesView component
 
 const newRoomData = ref({
   name: '',
@@ -621,7 +623,7 @@ const createRoom = async () => {
     try {
       console.log('Fetching user_id for room creation...')
       const response = await fetch(
-        `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(userStore.email)}`,
+        `${API_CONFIG.baseUrl}/userdata?email=${encodeURIComponent(userStore.email)}`,
       )
       const userData = await response.json()
 
@@ -755,12 +757,14 @@ const handleLeaveGroup = () => {
 
 const handleDisplayNameChanged = (newDisplayName) => {
   console.log('🏷️ Display name changed to:', newDisplayName)
-  // Simple solution: just refresh the page to reconnect with new name
-  // TODO: Implement real-time reconnection in future iteration
-  alert(`Display name updated to "${newDisplayName}"! Refreshing chat to apply changes...`)
-  setTimeout(() => {
-    window.location.reload()
-  }, 1000)
+  console.log('🔄 Triggering WebSocket reconnection with new display name...')
+
+  // Trigger reconnection in the chat messages component
+  if (chatMessagesRef.value && chatMessagesRef.value.reconnectWithNewDisplayName) {
+    chatMessagesRef.value.reconnectWithNewDisplayName(newDisplayName)
+  } else {
+    console.error('❌ Chat messages component ref not available for reconnection')
+  }
 }
 
 // Keyboard shortcuts

@@ -15,6 +15,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
+import { API_CONFIG } from '../config/api'
 
 const email = ref('')
 const theme = ref('light') // Default theme is light
@@ -42,14 +43,14 @@ async function handleLogin() {
 
     if (data && data.exists && data.verified) {
       const roleRes = await fetch(
-        `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(email.value)}`,
+        `${API_CONFIG.baseUrl}/get-role?email=${encodeURIComponent(email.value)}`,
       )
       const roleData = await roleRes.json()
 
       if (roleData && roleData.role) {
         // Fetch user data to get emailVerificationToken
         const userDataRes = await fetch(
-          `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(email.value)}`,
+          `${API_CONFIG.baseUrl}/userdata?email=${encodeURIComponent(email.value)}`,
         )
         const userData = await userDataRes.json()
 

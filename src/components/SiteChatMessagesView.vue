@@ -848,6 +848,48 @@ onUnmounted(() => {
   document.removeEventListener('click', closeMenus)
 })
 
+// Reconnect WebSocket with new display name (called from parent component)
+const reconnectWithNewDisplayName = async (newDisplayName) => {
+  console.log('🔄 Reconnecting WebSocket with new display name:', newDisplayName)
+
+  try {
+    // 1. Close current WebSocket connection
+    if (socket.value) {
+      console.log('🚪 Closing current WebSocket connection...')
+      socket.value.close()
+      isConnected.value = false
+    }
+
+    // 2. Reload room settings to get fresh display name
+    console.log('📋 Reloading room settings for fresh display name...')
+    await loadRoomSettings()
+
+    // 3. Reconnect to same room with new display name
+    console.log('🔌 Reconnecting to chat with new display name...')
+    await connectToChat()
+
+    // 4. Show success message without breaking UX
+    console.log('✅ Successfully reconnected with display name:', newDisplayName)
+
+    // Add a brief success indicator (non-intrusive)
+    connectionStatus.value = `Connected as ${newDisplayName}`
+    setTimeout(() => {
+      connectionStatus.value = 'Connected'
+    }, 3000)
+
+    return { success: true, displayName: newDisplayName }
+  } catch (error) {
+    console.error('❌ Error reconnecting with new display name:', error)
+    connectionStatus.value = 'Connection Error'
+    return { success: false, error: error.message }
+  }
+}
+
+// Expose methods to parent component
+defineExpose({
+  reconnectWithNewDisplayName,
+})
+
 // Watch for new messages
 watch(
   () => messages.value.length,
