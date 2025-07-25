@@ -6,7 +6,6 @@ import LoginView from '../views/LoginView.vue'
 import SoundStudioView from '../views/SoundStudioView.vue'
 import EmbedLayout from '../views/EmbedLayout.vue'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
-import MinimalLayout from '../layouts/MinimalLayout.vue'
 import BlogView from '../views/BlogView.vue'
 import GraphAdmin from '@/views/GraphAdmin.vue' // Ensure the path is correct
 import GraphViewer from '@/views/GraphViewer.vue' // Import the GraphViewer component
@@ -185,7 +184,7 @@ const router = createRouter({
       path: '/xchat',
       name: 'xchat',
       component: () => import('../views/SiteChatView.vue'),
-      meta: { requiresAuth: false, layout: MinimalLayout },
+      meta: { requiresAuth: false },
     },
     {
       path: '/chat/:domain',

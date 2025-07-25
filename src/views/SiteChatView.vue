@@ -765,7 +765,7 @@ const openMyProfileMobile = () => {
 <style scoped>
 /* Main Container - Telegram Desktop Style */
 .site-chat-view {
-  height: 100vh;
+  height: calc(100vh - 80px);
   background-color: #f4f4f5;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
@@ -774,7 +774,7 @@ const openMyProfileMobile = () => {
 .telegram-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh - 80px);
   position: relative;
 }
 
@@ -1388,6 +1388,11 @@ const openMyProfileMobile = () => {
 @media (max-width: 768px) {
   .telegram-container {
     position: relative;
+    height: calc(100vh - 120px); /* More space taken by mobile navbar */
+  }
+
+  .site-chat-view {
+    height: calc(100vh - 120px); /* Account for mobile navbar being taller */
   }
 
   .chat-messages-panel {
@@ -1435,7 +1440,7 @@ const openMyProfileMobile = () => {
   position: sticky;
   top: 0;
   z-index: 1040;
-  height: 70px; /* Fixed height for calculations */
+  height: 60px; /* Reduced height to account for navigation bar */
   flex-shrink: 0;
 }
 

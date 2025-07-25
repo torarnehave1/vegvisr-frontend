@@ -1,5 +1,108 @@
 <template>
   <div class="chat-messages-view">
+    <!-- Message Input Area (MOVED TO TOP) -->
+    <div class="message-input-area">
+      <div class="input-container">
+        <!-- Attachment button -->
+        <button class="attachment-btn" @click="showAttachmentMenu = !showAttachmentMenu">
+          <i class="bi bi-plus-circle"></i>
+        </button>
+
+        <!-- Message input -->
+        <div class="message-input-wrapper">
+          <textarea
+            v-model="newMessage"
+            @keydown="handleKeydown"
+            @input="handleInputWithTyping"
+            @blur="stopTyping"
+            ref="messageInput"
+            class="message-input"
+            placeholder="Write a message..."
+            rows="1"
+            :disabled="!isConnected"
+          ></textarea>
+        </div>
+
+        <!-- Emoji button -->
+        <button class="emoji-btn" @click="showEmojiPicker = !showEmojiPicker">
+          <i class="bi bi-emoji-smile"></i>
+        </button>
+
+        <!-- Send button -->
+        <button
+          class="send-btn"
+          @click="sendMessage"
+          :disabled="!canSendMessage"
+          :class="{ 'send-enabled': canSendMessage }"
+          :title="
+            !isConnected
+              ? 'Chat disconnected'
+              : !userStore.loggedIn
+                ? 'Login required'
+                : 'Send message'
+          "
+        >
+          <i class="bi bi-send-fill"></i>
+        </button>
+      </div>
+
+      <!-- Attachment Menu -->
+      <div v-if="showAttachmentMenu" class="attachment-menu">
+        <div class="attachment-option" @click="selectAttachment('file')">
+          <i class="bi bi-file-earmark"></i>
+          <span>File</span>
+        </div>
+        <div class="attachment-option" @click="selectAttachment('image')">
+          <i class="bi bi-image"></i>
+          <span>Photo</span>
+        </div>
+        <div class="attachment-option" @click="selectAttachment('link')">
+          <i class="bi bi-link-45deg"></i>
+          <span>Link</span>
+        </div>
+      </div>
+
+      <!-- Emoji Picker Placeholder -->
+      <div v-if="showEmojiPicker" class="emoji-picker">
+        <div class="emoji-grid">
+          <span
+            v-for="emoji in commonEmojis"
+            :key="emoji"
+            @click="addEmoji(emoji)"
+            class="emoji-option"
+          >
+            {{ emoji }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connection Status (when not connected) -->
+    <div v-if="!isConnected && userStore.loggedIn" class="connection-status-bar">
+      <div class="connection-message">
+        <div v-if="connectionStatus === 'Connecting'" class="connecting-spinner"></div>
+        <span>{{
+          connectionStatus === 'Connecting'
+            ? 'Connecting to chat...'
+            : 'Chat disconnected. Retrying...'
+        }}</span>
+      </div>
+    </div>
+
+    <!-- Authentication Required -->
+    <div v-if="!userStore.loggedIn" class="auth-required-bar">
+      <p>🔐 Login required to join the chat</p>
+      <small>Please log in to participate in the discussion.</small>
+    </div>
+
+    <!-- User Identity Indicator -->
+    <div v-if="userStore.loggedIn" class="user-identity-bar">
+      <small class="identity-text">
+        <i class="bi bi-person-circle"></i>
+        Logged in as: {{ userStore.email || 'Unknown User' }}
+      </small>
+    </div>
+
     <!-- Loading State -->
     <div v-if="isLoading" class="messages-loading">
       <div class="loading-spinner"></div>
@@ -118,109 +221,6 @@
     <div v-if="typingUsers.length > 0" class="typing-indicator">
       <div class="typing-dots"><span></span><span></span><span></span></div>
       <small>{{ formatTypingUsers() }} typing...</small>
-    </div>
-
-    <!-- Connection Status (when not connected) -->
-    <div v-if="!isConnected && userStore.loggedIn" class="connection-status-bar">
-      <div class="connection-message">
-        <div v-if="connectionStatus === 'Connecting'" class="connecting-spinner"></div>
-        <span>{{
-          connectionStatus === 'Connecting'
-            ? 'Connecting to chat...'
-            : 'Chat disconnected. Retrying...'
-        }}</span>
-      </div>
-    </div>
-
-    <!-- Authentication Required -->
-    <div v-if="!userStore.loggedIn" class="auth-required-bar">
-      <p>🔐 Login required to join the chat</p>
-      <small>Please log in to participate in the discussion.</small>
-    </div>
-
-    <!-- User Identity Indicator -->
-    <div v-if="userStore.loggedIn" class="user-identity-bar">
-      <small class="identity-text">
-        <i class="bi bi-person-circle"></i>
-        Logged in as: {{ userStore.email || 'Unknown User' }}
-      </small>
-    </div>
-
-    <!-- Message Input Area -->
-    <div class="message-input-area">
-      <div class="input-container">
-        <!-- Attachment button -->
-        <button class="attachment-btn" @click="showAttachmentMenu = !showAttachmentMenu">
-          <i class="bi bi-plus-circle"></i>
-        </button>
-
-        <!-- Message input -->
-        <div class="message-input-wrapper">
-          <textarea
-            v-model="newMessage"
-            @keydown="handleKeydown"
-            @input="handleInputWithTyping"
-            @blur="stopTyping"
-            ref="messageInput"
-            class="message-input"
-            placeholder="Write a message..."
-            rows="1"
-            :disabled="!isConnected"
-          ></textarea>
-        </div>
-
-        <!-- Emoji button -->
-        <button class="emoji-btn" @click="showEmojiPicker = !showEmojiPicker">
-          <i class="bi bi-emoji-smile"></i>
-        </button>
-
-        <!-- Send button -->
-        <button
-          class="send-btn"
-          @click="sendMessage"
-          :disabled="!canSendMessage"
-          :class="{ 'send-enabled': canSendMessage }"
-          :title="
-            !isConnected
-              ? 'Chat disconnected'
-              : !userStore.loggedIn
-                ? 'Login required'
-                : 'Send message'
-          "
-        >
-          <i class="bi bi-send-fill"></i>
-        </button>
-      </div>
-
-      <!-- Attachment Menu -->
-      <div v-if="showAttachmentMenu" class="attachment-menu">
-        <div class="attachment-option" @click="selectAttachment('file')">
-          <i class="bi bi-file-earmark"></i>
-          <span>File</span>
-        </div>
-        <div class="attachment-option" @click="selectAttachment('image')">
-          <i class="bi bi-image"></i>
-          <span>Photo</span>
-        </div>
-        <div class="attachment-option" @click="selectAttachment('link')">
-          <i class="bi bi-link-45deg"></i>
-          <span>Link</span>
-        </div>
-      </div>
-
-      <!-- Emoji Picker Placeholder -->
-      <div v-if="showEmojiPicker" class="emoji-picker">
-        <div class="emoji-grid">
-          <span
-            v-for="emoji in commonEmojis"
-            :key="emoji"
-            @click="addEmoji(emoji)"
-            class="emoji-option"
-          >
-            {{ emoji }}
-          </span>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -785,6 +785,7 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   background: #f9fafb;
+  overflow: hidden;
 }
 
 /* Loading State */
@@ -816,20 +817,28 @@ onMounted(() => {
   }
 }
 
-/* Messages Container */
+/* Messages Container (NOW BELOW INPUT) */
 .messages-container {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
+  padding-bottom: 60px; /* Ensure last message is always visible */
   scroll-behavior: smooth;
   background-image: url('/images/Chat.svg');
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
+  margin-top: 0;
+  min-height: 0;
+  max-height: calc(100% - 120px); /* Account for input and status bars */
 }
 
 .date-group {
   margin-bottom: 24px;
+}
+
+.date-group:last-child {
+  margin-bottom: 40px; /* Extra space for last message group */
 }
 
 .date-separator {
@@ -1039,14 +1048,15 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* Message Input Area */
+/* Message Input Area (NOW AT TOP) */
 .message-input-area {
   background: white;
-  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
   padding: 16px;
   position: relative;
   flex-shrink: 0;
   z-index: 10;
+  order: -1; /* Ensure it stays at top */
 }
 
 .input-container {
@@ -1240,12 +1250,14 @@ onMounted(() => {
   gap: 8px;
   color: #6b7280;
   font-size: 12px;
-  padding: 8px 16px;
+  padding: 6px 16px;
   background: rgba(255, 255, 255, 0.95);
   border-top: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
   backdrop-filter: blur(4px);
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
 }
 
 .typing-dots {
@@ -1282,14 +1294,15 @@ onMounted(() => {
   }
 }
 
-/* Connection Status */
+/* Connection Status (NOW AT TOP) */
 .connection-status-bar {
   background: #fef3c7;
-  border-top: 1px solid #f59e0b;
+  border-bottom: 1px solid #f59e0b;
   padding: 8px 16px;
   text-align: center;
   color: #92400e;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .connection-message {
@@ -1308,13 +1321,14 @@ onMounted(() => {
   animation: spin 1s linear infinite;
 }
 
-/* Auth Required */
+/* Auth Required (NOW AT TOP) */
 .auth-required-bar {
   background: #f3f4f6;
-  border-top: 1px solid #d1d5db;
+  border-bottom: 1px solid #d1d5db;
   padding: 16px;
   text-align: center;
   color: #6b7280;
+  flex-shrink: 0;
 }
 
 .auth-required-bar p {
@@ -1329,9 +1343,10 @@ onMounted(() => {
 /* User Identity Indicator */
 .user-identity-bar {
   background: #f0f9ff;
-  border-top: 1px solid #bae6fd;
+  border-bottom: 1px solid #bae6fd;
   padding: 8px 16px;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .identity-text {
