@@ -881,7 +881,7 @@ Always ask for technical requirements and functional specifications instead of b
 // In createRoom() - work with existing system
 if (!userStore.user_id) {
   // Fetch user_id following UserDashboard pattern
-  const response = await fetch(`https://dashboard.vegvisr.org/userdata?email=${userStore.email}`)
+  const response = await fetch(`${API_CONFIG.baseUrl}/userdata?email=${userStore.email}`)
   const userData = await response.json()
   userStore.setUserId(userData.user_id) // Use existing method
 }
