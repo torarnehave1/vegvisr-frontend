@@ -2,81 +2,6 @@
   <div class="site-chat-view">
     <!-- Telegram-style Layout -->
     <div class="telegram-container">
-      <!-- Hamburger Button (Mobile only, TOP NAV ONLY) -->
-      <div class="mobile-header d-md-none">
-        <HamburgerMenu :isOpen="showMobileMenu" @toggle="toggleMobileMenu" />
-        <h1 class="mobile-title">Chat</h1>
-      </div>
-
-      <!-- Mobile Menu Overlay (matches GNewViewer) -->
-      <div v-if="showMobileMenu" class="mobile-menu-overlay show" @click="closeMobileMenu">
-        <div class="mobile-menu-content" @click.stop>
-          <div class="mobile-menu-header">
-            <h5>Menu</h5>
-            <button class="btn-close" @click="closeMobileMenu" aria-label="Close"></button>
-          </div>
-
-          <!-- Rooms Section -->
-          <div class="mobile-menu-section">
-            <h6>Rooms</h6>
-            <div
-              v-for="chat in rooms"
-              :key="chat.id"
-              class="mobile-room-item"
-              @click="selectChatMobile(chat.id)"
-            >
-              <div class="room-info">
-                <h5>{{ chat.name }}</h5>
-                <p class="room-description">{{ chat.description }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Other Menu Items (profile, contacts, settings, etc.) -->
-          <div class="mobile-menu-section">
-            <h6>Profile</h6>
-            <div class="profile-section">
-              <div class="profile-info">
-                <div class="profile-avatar">
-                  <img
-                    :src="
-                      currentLogo ||
-                      userStore.profileImage ||
-                      'https://vegvisr.imgix.net/vegvisr-logo.png'
-                    "
-                    :alt="userStore.email || 'User'"
-                    class="profile-image"
-                    onerror="this.src='https://vegvisr.imgix.net/vegvisr-logo.png'"
-                  />
-                </div>
-                <div class="profile-details">
-                  <h5 class="profile-name">{{ userStore.email || currentSiteTitle }}</h5>
-                  <p class="profile-status">{{ currentDomain || 'vegvisr.org' }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="mobile-menu-section">
-            <h6>Navigation</h6>
-            <ul class="mobile-menu-list">
-              <li @click="openMyProfile">My Profile</li>
-              <li @click="createNewGroup">New Group</li>
-              <li @click="createNewChannel">New Channel</li>
-              <li @click="openContacts">Contacts</li>
-              <li @click="openCalls">Calls</li>
-              <li @click="openSavedMessages">Saved Messages</li>
-              <li @click="openSettings">Settings</li>
-              <li>
-                <label>
-                  Night Mode
-                  <input type="checkbox" v-model="nightMode" @change="toggleNightMode" />
-                </label>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
       <!-- Left Panel - Chat List (Desktop only) -->
       <div class="chat-list-panel d-none d-md-block">
         <!-- Chat List Header -->
@@ -687,45 +612,38 @@ const formatChatTime = (date) => {
 
 // Sidebar Menu Actions
 const openMyProfile = () => {
-  closeMobileMenu()
   router.push('/user')
   console.log('Opening profile')
 }
 
 const createNewGroup = () => {
-  closeMobileMenu()
   createType.value = 'group'
   showCreateModal.value = true
   console.log('Creating new group (KnowledgeGraph discussion)')
 }
 
 const createNewChannel = () => {
-  closeMobileMenu()
   createType.value = 'channel'
   showCreateModal.value = true
   console.log('Creating new channel (Domain community)')
 }
 
 const openContacts = () => {
-  closeMobileMenu()
   console.log('Opening contacts (coming soon)')
   alert('Contacts feature will be implemented in next phase')
 }
 
 const openCalls = () => {
-  closeMobileMenu()
   console.log('Opening calls (coming soon)')
   alert('Calls feature will be implemented in next phase')
 }
 
 const openSavedMessages = () => {
-  closeMobileMenu()
   console.log('Opening saved messages (coming soon)')
   alert('Saved messages feature will be implemented in next phase')
 }
 
 const openSettings = () => {
-  closeMobileMenu()
   console.log('Opening settings')
   router.push('/user')
 }
@@ -919,38 +837,6 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscKey)
   document.body.style.overflow = '' // Restore body scroll
 })
-
-// --- Hamburger Menu Logic (copied from GNewViewer) ---
-const showMobileMenu = ref(false)
-
-const toggleMobileMenu = () => {
-  showMobileMenu.value = !showMobileMenu.value
-  if (showMobileMenu.value) {
-    document.body.style.overflow = 'hidden'
-  } else {
-    document.body.style.overflow = ''
-  }
-}
-
-const closeMobileMenu = () => {
-  showMobileMenu.value = false
-  document.body.style.overflow = ''
-}
-
-onMounted(() => {
-  // Close menu on route change or unmount
-  window.addEventListener('resize', closeMobileMenu)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', closeMobileMenu)
-  document.body.style.overflow = ''
-})
-
-const selectChatMobile = (chatId) => {
-  selectChat(chatId)
-  closeMobileMenu()
-}
 </script>
 
 <style scoped>
@@ -1658,44 +1544,6 @@ const selectChatMobile = (chatId) => {
     position: relative;
   }
 
-  .mobile-header {
-    display: flex !important;
-    align-items: center;
-    padding: 1rem 1.5rem;
-    background-color: var(--bs-body-bg);
-    border-bottom: 1px solid #eee;
-    position: sticky;
-    top: 0;
-    z-index: 1040;
-  }
-  .mobile-title {
-    margin-bottom: 0;
-    margin-left: 1rem;
-    font-size: 1.25rem;
-    font-weight: 600;
-  }
-  .mobile-menu-overlay {
-    display: flex !important;
-  }
-  .mobile-room-item {
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid #eee;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  .mobile-room-item:hover {
-    background: #f8f9fa;
-  }
-  .room-info h5 {
-    margin: 0 0 0.25rem 0;
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-  .room-description {
-    font-size: 0.9rem;
-    color: #6c757d;
-    margin: 0;
-  }
   .mobile-menu-btn {
     display: flex !important;
   }
@@ -1741,22 +1589,6 @@ const selectChatMobile = (chatId) => {
   .chat-empty-state-panel .empty-content {
     padding: 40px 20px;
     margin: 20px;
-  }
-  .mobile-menu-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .mobile-menu-list li {
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #eee;
-    cursor: pointer;
-    font-size: 1rem;
-    color: #333;
-    transition: background 0.2s;
-  }
-  .mobile-menu-list li:hover {
-    background: #f8f9fa;
   }
 }
 
