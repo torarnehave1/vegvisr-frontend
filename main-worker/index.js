@@ -1452,6 +1452,83 @@ export default {
         }
       }
 
+      // DELETE room endpoint - SuperAdmin soft deletion
+      if (path.startsWith('/api/chat-rooms/') && method === 'DELETE') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}
+          if (!roomId) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID is required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Verify room exists first
+          const roomExists = await env.vegvisr_org
+            .prepare('SELECT room_id FROM site_chat_rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first()
+
+          if (!roomExists) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Soft delete: set room_status to 'disabled'
+          await env.vegvisr_org
+            .prepare(
+              'UPDATE site_chat_rooms SET room_status = ?, updated_at = CURRENT_TIMESTAMP WHERE room_id = ?',
+            )
+            .bind('disabled', roomId)
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Room deleted successfully',
+                roomId: roomId,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
       // Handle other routes
       return addCorsHeaders(new Response('Not Found', { status: 404 }))
     } catch (error) {

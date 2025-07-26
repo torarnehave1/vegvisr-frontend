@@ -225,6 +225,21 @@
         </button>
       </div>
     </div>
+
+    <!-- SuperAdmin Actions -->
+    <div class="group-section" v-if="userStore.role === 'Superadmin'">
+      <div class="section-header">
+        <i class="bi bi-shield-exclamation"></i>
+        <span>SuperAdmin Actions</span>
+      </div>
+
+      <div class="group-actions">
+        <button class="action-item danger" @click="deleteRoom">
+          <i class="bi bi-trash3"></i>
+          <span>Delete Room</span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -411,6 +426,7 @@ const emit = defineEmits([
   'invite-members',
   'leave-group',
   'display-name-changed',
+  'delete-room',
 ])
 
 // State
@@ -563,6 +579,10 @@ const leaveGroup = () => {
     alert('Leave group functionality will be implemented in next phase')
   }
 }
+
+const deleteRoom = () => {
+  emit('delete-room')
+}
 </script>
 
 <style scoped>
@@ -570,10 +590,17 @@ const leaveGroup = () => {
   width: 340px;
   background: white;
   border-left: 1px solid #e5e7eb;
-  height: 100vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  height: calc(100vh - 10px); /* Small buffer to prevent viewport issues */
+  max-height: 100vh;
+  overflow-y: scroll !important; /* Force scrolling */
+  overflow-x: hidden;
+  display: block; /* Changed from flex to block for better scroll behavior */
+  position: relative;
+  /* Ensure bottom content is accessible */
+  padding-bottom: 20px;
+  /* Temporary debug - remove after testing */
+  border: 2px solid red;
+  box-sizing: border-box;
 }
 
 /* Header */
@@ -986,6 +1013,35 @@ input[type='checkbox']:checked + .toggle-label::before {
   color: #dc2626;
 }
 
+/* SuperAdmin Actions */
+.action-item.superadmin {
+  color: #dc2626; /* Red color for SuperAdmin actions */
+}
+
+.action-item.superadmin:hover {
+  background: #fef2f2; /* Light red background for SuperAdmin actions */
+}
+
+.action-item.superadmin i {
+  color: #dc2626; /* Red color for SuperAdmin actions */
+}
+
+/* SuperAdmin Actions - Enhanced visibility */
+.group-section:last-child {
+  margin-bottom: 60px !important; /* Much more space at bottom */
+  /* Temporary debug - remove after testing */
+  border: 2px solid blue;
+  background: yellow !important;
+}
+
+/* Force scroll recognition of all content */
+.group-info-panel::after {
+  content: '';
+  display: block;
+  height: 50px; /* Extra invisible space to ensure scrolling works */
+  width: 100%;
+}
+
 /* Scrollbar Styling */
 .group-info-panel::-webkit-scrollbar {
   width: 6px;
@@ -1004,7 +1060,12 @@ input[type='checkbox']:checked + .toggle-label::before {
   background: #d1d5db;
 }
 
-/* Responsive Design */
+/* Force scroll container to recognize all content */
+.group-info-panel > :last-child {
+  padding-bottom: 20px;
+}
+
+/* Fix responsive issues that might prevent scrolling */
 @media (max-width: 768px) {
   .group-info-panel {
     width: 100%;
@@ -1012,6 +1073,8 @@ input[type='checkbox']:checked + .toggle-label::before {
     top: 0;
     left: 0;
     z-index: 1000;
+    height: 100vh; /* Full height on mobile */
+    padding-bottom: 40px; /* More padding on mobile */
   }
 
   .shared-content-grid {

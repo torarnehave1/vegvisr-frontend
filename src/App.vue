@@ -38,8 +38,10 @@ function setTheme(newTheme) {
     @set-theme="setTheme"
   >
     <RouterView :theme="theme" />
-    <button @click="userStore.loggedIn ? handleLogout() : $router.push('/login')">
-      {{ userStore.loggedIn ? 'Logout' : 'Login' }}
+
+    <!-- Fixed positioned logout button that won't interfere with content -->
+    <button v-if="userStore.loggedIn" @click="handleLogout" class="fixed-logout-btn" title="Logout">
+      <i class="bi bi-box-arrow-right"></i>
     </button>
   </component>
 </template>
@@ -54,5 +56,35 @@ function setTheme(newTheme) {
 /* Ensure the header spans the full width of the page */
 .top-menu {
   width: 100%;
+}
+
+/* Fixed logout button that won't interfere with scrollable content */
+.fixed-logout-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  font-size: 16px;
+}
+
+.fixed-logout-btn:hover {
+  background: #c82333;
+  transform: scale(1.05);
+}
+
+.fixed-logout-btn:active {
+  transform: scale(0.95);
 }
 </style>

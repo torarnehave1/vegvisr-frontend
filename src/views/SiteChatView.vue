@@ -134,6 +134,7 @@
           @invite-members="handleInviteMembers"
           @leave-group="handleLeaveGroup"
           @display-name-changed="handleDisplayNameChanged"
+          @delete-room="handleDeleteRoom"
         />
       </div>
     </div>
@@ -657,6 +658,55 @@ const sendMessage = () => {
   // Message sent in room
 }
 
+// SuperAdmin Room Deletion
+const deleteRoom = async (roomId) => {
+  // Verify SuperAdmin role
+  if (userStore.role !== 'Superadmin') {
+    alert('Access denied: SuperAdmin role required')
+    return
+  }
+
+  // Get room name for confirmation
+  const room = rooms.value.find((r) => r.id === roomId)
+  const roomName = room ? room.name : 'Unknown Room'
+
+  // Confirmation dialog
+  if (
+    !confirm(
+      `Are you sure you want to delete the room "${roomName}"?\n\nThis will hide the room from all users.`,
+    )
+  ) {
+    return
+  }
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms/${roomId}`, {
+      method: 'DELETE',
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      // Remove room from UI immediately
+      rooms.value = rooms.value.filter((r) => r.id !== roomId)
+
+      // If this was the selected room, clear selection
+      if (selectedChatId.value === roomId) {
+        selectedChatId.value = null
+        showGroupInfo.value = false
+      }
+
+      alert(`Room "${roomName}" has been deleted successfully.`)
+    } else {
+      console.error('❌ Room deletion failed:', data.error)
+      alert(`Failed to delete room: ${data.error}`)
+    }
+  } catch (error) {
+    console.error('❌ Error deleting room:', error)
+    alert('Failed to delete room. Please try again.')
+  }
+}
+
 const handleMessageSent = (message) => {
   // Update room activity when a message is sent
   if (selectedChatId.value && message) {
@@ -666,7 +716,6 @@ const handleMessageSent = (message) => {
       preview.substring(0, 50) + (preview.length > 50 ? '...' : ''),
     )
   }
-  console.log('📩 Message sent, room activity updated')
 }
 
 // Room URL Sharing
@@ -678,7 +727,6 @@ const copyRoomId = async () => {
 
   try {
     await navigator.clipboard.writeText(roomUrl)
-    console.log('📋 Room URL copied to clipboard:', roomUrl)
 
     // Visual feedback
     const button = event.target.closest('.copy-room-id-btn')
@@ -742,6 +790,12 @@ const handleLeaveGroup = () => {
   console.log('Leave group requested')
   showGroupInfo.value = false
   // Handle leaving the group
+}
+
+const handleDeleteRoom = () => {
+  if (!selectedChat.value) return
+  deleteRoom(selectedChat.value.id)
+  showGroupInfo.value = false
 }
 
 const handleDisplayNameChanged = (newDisplayName) => {
