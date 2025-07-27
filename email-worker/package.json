@@ -1,0 +1,26 @@
+{
+  "name": "email-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for sending custom emails with user-configurable templates",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.7"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "email",
+    "nodemailer",
+    "templates"
+  ],
+  "author": "Vegvisr Team",
+  "license": "MIT"
+}
