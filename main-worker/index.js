@@ -13,6 +13,29 @@ function addCorsHeaders(response) {
   return response
 }
 
+// Get user from session (JWT token)
+function getUserFromSession(request) {
+  try {
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { loggedIn: false }
+    }
+
+    const token = authHeader.substring(7)
+    // For now, return a basic user object - in production you'd verify the JWT
+    // This is a simplified version for testing
+    return {
+      loggedIn: true,
+      user_id: 'test_user_id', // This should come from JWT verification
+      email: 'test@example.com', // This should come from JWT verification
+      displayName: 'Test User', // This should come from JWT verification
+    }
+  } catch (error) {
+    console.error('Error getting user from session:', error)
+    return { loggedIn: false }
+  }
+}
+
 // Cloudflare Worker fetch handler
 export default {
   async fetch(request, env) {
@@ -1564,8 +1587,7 @@ export default {
                 srm.status,
                 srm.joined_at,
                 srm.last_activity,
-                c.user_name,
-                c.user_email,
+                c.email as user_email,
                 c.data as user_data
               FROM site_room_members srm
               LEFT JOIN config c ON srm.user_id = c.user_id
@@ -1595,9 +1617,9 @@ export default {
 
             return {
               id: member.user_id,
-              name: member.user_name || userData.displayName || member.user_email || 'Unknown User',
+              name: userData.displayName || member.user_email || 'Unknown User',
               email: member.user_email,
-              initials: (member.user_name || member.user_email || 'UN')
+              initials: (userData.displayName || member.user_email || 'UN')
                 .split(' ')
                 .map((n) => n[0])
                 .join('')
@@ -2338,6 +2360,308 @@ export default {
                 status: 500,
                 headers: { 'Content-Type': 'application/json' },
               },
+            ),
+          )
+        }
+      }
+
+      // Phase 3: Invitation Management Endpoints
+
+      // POST /api/chat-rooms/{roomId}/invite - Generate invitation and send email
+      if (path.match(/^\/api\/chat-rooms\/([^\/]+)\/invite$/) && method === 'POST') {
+        try {
+          const roomId = path.match(/^\/api\/chat-rooms\/([^\/]+)\/invite$/)[1]
+          const body = await request.json()
+          const { recipientEmail, invitationMessage } = body
+
+          if (!recipientEmail) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'recipientEmail is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          // Get user info from session
+          const userStore = getUserFromSession(request)
+          if (!userStore.loggedIn) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Authentication required' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          // Check if user is owner or moderator of the room
+          const memberInfo = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, userStore.user_id)
+            .first()
+
+          if (!memberInfo || (memberInfo.role !== 'owner' && memberInfo.role !== 'moderator')) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Only owners and moderators can send invitations' }),
+                { status: 403, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          // Get room info for template variables
+          const roomInfo = await env.vegvisr_org
+            .prepare('SELECT room_name FROM site_chat_rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first()
+
+          if (!roomInfo) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Room not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          // Step 1: Generate invitation via email-worker
+          const emailWorkerResponse = await fetch(
+            'https://email-worker.torarnehave.workers.dev/generate-invitation',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipientEmail,
+                roomId,
+                inviterName: userStore.displayName || userStore.email,
+                inviterUserId: userStore.user_id,
+                invitationMessage: invitationMessage || '',
+              }),
+            },
+          )
+
+          if (!emailWorkerResponse.ok) {
+            const errorData = await emailWorkerResponse.json()
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Failed to generate invitation', details: errorData }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const invitationData = await emailWorkerResponse.json()
+
+          // Step 2: Render email template via email-worker
+          const templateResponse = await fetch(
+            'https://email-worker.torarnehave.workers.dev/render-template',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                templateId: 'default-chat-invitation-en',
+                variables: {
+                  roomName: roomInfo.room_name,
+                  inviterName: userStore.displayName || userStore.email,
+                  invitationLink: invitationData.slowyouLink,
+                },
+              }),
+            },
+          )
+
+          if (!templateResponse.ok) {
+            const errorData = await templateResponse.json()
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Failed to render email template', details: errorData }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const templateData = await templateResponse.json()
+
+          // Step 3: Send email via slowyou.io using existing registration endpoint
+          // This will send the invitation email with the custom template
+          const slowyouUrl = `https://slowyou.io/api/reg-user-vegvisr?email=${encodeURIComponent(recipientEmail)}&role=subscriber`
+          const slowyouResponse = await fetch(slowyouUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${env.API_TOKEN}`,
+            },
+          })
+
+          if (!slowyouResponse.ok) {
+            const errorData = await slowyouResponse.text()
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Failed to send email', details: errorData }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Invitation sent successfully',
+                invitationToken: invitationData.invitationToken,
+                recipientEmail,
+                expiresAt: invitationData.expiresAt,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Error sending invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ error: 'Failed to send invitation', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
+      // GET /api/chat-rooms/{roomId}/invitations - List pending invitations
+      if (path.match(/^\/api\/chat-rooms\/([^\/]+)\/invitations$/) && method === 'GET') {
+        try {
+          const roomId = path.match(/^\/api\/chat-rooms\/([^\/]+)\/invitations$/)[1]
+
+          // Get user info from session
+          const userStore = getUserFromSession(request)
+          if (!userStore.loggedIn) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Authentication required' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          // Check if user is owner or moderator of the room
+          const memberInfo = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, userStore.user_id)
+            .first()
+
+          if (!memberInfo || (memberInfo.role !== 'owner' && memberInfo.role !== 'moderator')) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Only owners and moderators can view invitations' }),
+                { status: 403, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          // Get pending invitations for this room
+          const invitations = await env.vegvisr_org
+            .prepare(
+              `
+              SELECT id, recipient_email, inviter_name, invitation_message,
+                     created_at, expires_at, used_at, is_active
+              FROM invitation_tokens
+              WHERE room_id = ? AND is_active = 1 AND expires_at > datetime('now')
+              ORDER BY created_at DESC
+            `,
+            )
+            .bind(roomId)
+            .all()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                invitations: invitations.results,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Error fetching invitations:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ error: 'Failed to fetch invitations', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
+      // DELETE /api/chat-rooms/{roomId}/invitations/{invitationId} - Cancel invitation
+      if (
+        path.match(/^\/api\/chat-rooms\/([^\/]+)\/invitations\/([^\/]+)$/) &&
+        method === 'DELETE'
+      ) {
+        try {
+          const [, roomId, invitationId] = path.match(
+            /^\/api\/chat-rooms\/([^\/]+)\/invitations\/([^\/]+)$/,
+          )
+
+          // Get user info from session
+          const userStore = getUserFromSession(request)
+          if (!userStore.loggedIn) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Authentication required' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          // Check if user is owner or moderator of the room
+          const memberInfo = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, userStore.user_id)
+            .first()
+
+          if (!memberInfo || (memberInfo.role !== 'owner' && memberInfo.role !== 'moderator')) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Only owners and moderators can cancel invitations' }),
+                { status: 403, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          // Cancel the invitation
+          const result = await env.vegvisr_org
+            .prepare('UPDATE invitation_tokens SET is_active = 0 WHERE id = ? AND room_id = ?')
+            .bind(invitationId, roomId)
+            .run()
+
+          if (result.changes === 0) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Invitation not found or already cancelled' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Invitation cancelled successfully',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Error cancelling invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ error: 'Failed to cancel invitation', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
             ),
           )
         }

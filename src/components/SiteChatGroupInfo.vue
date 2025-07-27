@@ -282,6 +282,15 @@
         </button>
       </div>
     </div>
+
+    <!-- Invitation Modal -->
+    <InvitationModal
+      :is-visible="showInvitationModal"
+      :room-id="groupInfo.id"
+      :room-name="groupInfo.name"
+      @close="closeInvitationModal"
+      @invitation-sent="handleInvitationSent"
+    />
   </div>
 </template>
 
@@ -289,6 +298,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { API_CONFIG } from '@/config/api'
+import InvitationModal from './InvitationModal.vue'
 
 // Props
 const props = defineProps({
@@ -317,6 +327,9 @@ const editingDisplayName = ref(false)
 const newDisplayName = ref('')
 const savingDisplayName = ref(false)
 const roomSettings = ref({}) // Store room settings locally
+
+// Invitation Modal State
+const showInvitationModal = ref(false)
 
 // Computed Properties
 const currentDisplayName = computed(() => {
@@ -475,6 +488,7 @@ const emit = defineEmits([
   'display-name-changed',
   'delete-room',
   'members-loaded',
+  'invitation-sent',
 ])
 
 // State
@@ -784,9 +798,18 @@ const editGroup = () => {
 }
 
 const inviteMembers = () => {
-  console.log('Inviting members')
-  emit('invite-members')
-  alert('Member invitation will be implemented in next phase')
+  console.log('Opening invitation modal')
+  showInvitationModal.value = true
+}
+
+const closeInvitationModal = () => {
+  showInvitationModal.value = false
+}
+
+const handleInvitationSent = (invitationData) => {
+  console.log('Invitation sent:', invitationData)
+  // Optionally refresh members list or show success message
+  emit('invitation-sent', invitationData)
 }
 
 const leaveGroup = () => {

@@ -132,6 +132,7 @@
           @notifications-changed="handleNotificationsChanged"
           @edit-group="handleEditGroup"
           @invite-members="handleInviteMembers"
+          @invitation-sent="handleInvitationSent"
           @leave-group="handleLeaveGroup"
           @display-name-changed="handleDisplayNameChanged"
           @delete-room="handleDeleteRoom"
@@ -785,6 +786,12 @@ const handleInviteMembers = () => {
   console.log('Invite members requested')
   showGroupInfo.value = false
   // Show member invitation modal (to be implemented)
+}
+
+const handleInvitationSent = (invitationData) => {
+  console.log('Invitation sent successfully:', invitationData)
+  // Optionally refresh the members list or show a success notification
+  // The invitation modal is handled within SiteChatGroupInfo component
 }
 
 const handleLeaveGroup = () => {
