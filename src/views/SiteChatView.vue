@@ -135,6 +135,7 @@
           @leave-group="handleLeaveGroup"
           @display-name-changed="handleDisplayNameChanged"
           @delete-room="handleDeleteRoom"
+          @members-loaded="handleMembersLoaded"
         />
       </div>
     </div>
@@ -284,7 +285,7 @@ const defaultRooms = [
     description: 'Welcome to the general chat room',
     type: 'channel',
     color: '#3b82f6',
-    memberCount: 0,
+    memberCount: 1, // Creator becomes first member
     unreadCount: 0,
     lastMessage: 'Welcome to the chat!',
     lastActivity: new Date(),
@@ -295,7 +296,7 @@ const defaultRooms = [
     description: 'Try out the real-time messaging features',
     type: 'group',
     color: '#4ade80',
-    memberCount: 0,
+    memberCount: 1, // Creator becomes first member
     unreadCount: 0,
     lastMessage: 'This is a demo room for testing',
     lastActivity: new Date(),
@@ -804,6 +805,20 @@ const handleDisplayNameChanged = (newDisplayName) => {
     chatMessagesRef.value.reconnectWithNewDisplayName(newDisplayName)
   } else {
     console.error('❌ Chat messages component ref not available for reconnection')
+  }
+}
+
+const handleMembersLoaded = (data) => {
+  // Update the selected chat's member count with real data
+  if (selectedChat.value) {
+    selectedChat.value.memberCount = data.memberCount
+    console.log('✅ Updated room member count:', data.memberCount)
+  }
+
+  // Also update the room in the rooms array for consistency
+  const roomIndex = rooms.value.findIndex((room) => room.id === selectedChat.value?.id)
+  if (roomIndex !== -1) {
+    rooms.value[roomIndex].memberCount = data.memberCount
   }
 }
 
