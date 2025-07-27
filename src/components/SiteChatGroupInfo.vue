@@ -1,5 +1,5 @@
 <template>
-  <div class="group-info-panel">
+  <div class="group-info-panel" @click="closeAllMenus">
     <!-- Header -->
     <div class="group-info-header">
       <button class="close-btn" @click="$emit('close')" title="Close group info">
@@ -188,14 +188,56 @@
 
           <!-- Member Actions -->
           <div class="member-actions">
-            <button
-              v-if="canManageMember(member)"
-              class="action-btn"
-              @click.stop="showMemberMenu(member)"
-              title="More actions"
-            >
-              <i class="bi bi-three-dots"></i>
-            </button>
+            <div v-if="canManageMember(member)" class="member-menu-container">
+              <button
+                class="action-btn"
+                @click.stop="toggleMemberMenu(member.id)"
+                title="Member actions"
+              >
+                <i class="bi bi-three-dots"></i>
+              </button>
+
+              <!-- Member Action Menu -->
+              <div v-if="activeMemberMenu === member.id" class="member-menu" @click.stop>
+                <!-- Change Role -->
+                <div class="menu-section" v-if="currentUserRole === 'owner'">
+                  <div class="menu-header">Change Role</div>
+                  <button
+                    v-if="member.role !== 'moderator'"
+                    class="menu-item"
+                    @click="changeRole(member, 'moderator')"
+                  >
+                    <i class="bi bi-shield-check"></i>
+                    Make Moderator
+                  </button>
+                  <button
+                    v-if="member.role !== 'member'"
+                    class="menu-item"
+                    @click="changeRole(member, 'member')"
+                  >
+                    <i class="bi bi-person"></i>
+                    Make Member
+                  </button>
+                  <button class="menu-item transfer-ownership" @click="transferOwnership(member)">
+                    <i class="bi bi-crown"></i>
+                    Transfer Ownership
+                  </button>
+                </div>
+
+                <!-- Moderation Actions -->
+                <div class="menu-section">
+                  <div class="menu-header">Actions</div>
+                  <button class="menu-item remove" @click="removeMember(member)">
+                    <i class="bi bi-person-x"></i>
+                    Remove from Room
+                  </button>
+                  <button class="menu-item ban" @click="banMember(member)">
+                    <i class="bi bi-person-slash"></i>
+                    Ban from Room
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -244,7 +286,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { API_CONFIG } from '@/config/api'
 
@@ -415,8 +457,13 @@ const loadRoomSettings = async () => {
   }
 }
 
-// Load settings when component mounts
+// Load settings and members when component mounts
 loadRoomSettings()
+
+// Load real members from database
+onMounted(() => {
+  loadMembers()
+})
 
 // Emits
 const emit = defineEmits([
@@ -427,74 +474,56 @@ const emit = defineEmits([
   'leave-group',
   'display-name-changed',
   'delete-room',
+  'members-loaded',
 ])
 
 // State
 const notificationsEnabled = ref(true)
+const members = ref([])
+const membersLoading = ref(false)
+const membersError = ref(null)
+const activeMemberMenu = ref(null)
+const managementLoading = ref(false)
 
-// Demo members data (matches Norwegian names from chat)
-const members = ref([
-  {
-    id: 'user_1',
-    name: 'Maiken Sneeggen',
-    initials: 'MS',
-    color: '#ff6b9d',
-    avatar: null,
-    role: 'owner',
-    isOnline: false,
-    lastSeen: new Date(Date.now() - 1000 * 60 * 60 * 11), // 11 hours ago
-  },
-  {
-    id: 'user_2',
-    name: 'Tor Arne Håve',
-    initials: 'TH',
-    color: '#4ade80',
-    avatar: null,
-    role: 'admin',
-    isOnline: true,
-    lastSeen: new Date(),
-  },
-  {
-    id: 'user_3',
-    name: 'Siri Mægland',
-    initials: 'SM',
-    color: '#8b5cf6',
-    avatar: null,
-    role: 'member',
-    isOnline: false,
-    lastSeen: new Date(Date.now() - 1000 * 60 * 60 * 9), // 9 hours ago
-  },
-  {
-    id: 'user_4',
-    name: 'Stine Oksvold',
-    initials: 'SO',
-    color: '#f59e0b',
-    avatar: null,
-    role: 'member',
-    isOnline: false,
-    lastSeen: new Date(Date.now() - 1000 * 60 * 60 * 11), // 11 hours ago
-  },
-  {
-    id: 'user_5',
-    name: 'Håkon Steinbakk',
-    initials: 'HS',
-    color: '#06b6d4',
-    avatar: null,
-    role: 'member',
-    isOnline: true,
-    lastSeen: new Date(),
-  },
-  {
-    id: 'user_6',
-    name: 'Martin Blåse',
-    initials: 'MB',
-    color: '#84cc16',
-    avatar: null,
-    role: 'member',
-    isOnline: false,
-    lastSeen: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 days ago
-  },
-])
+// Load real members from database
+const loadMembers = async () => {
+  if (!props.groupInfo?.id) return
+
+  membersLoading.value = true
+  membersError.value = null
+
+  try {
+    console.log('🔍 Loading members for room:', props.groupInfo.id)
+    const response = await fetch(
+      `${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/members`,
+    )
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.success) {
+      members.value = data.members || []
+      console.log('✅ Loaded', members.value.length, 'members:', members.value)
+
+      // Update parent component with real member count
+      emit('members-loaded', {
+        memberCount: data.memberCount,
+        members: data.members,
+      })
+    } else {
+      throw new Error(data.error || 'Failed to load members')
+    }
+  } catch (error) {
+    console.error('❌ Error loading members:', error)
+    membersError.value = error.message
+    members.value = [] // Clear members on error
+  } finally {
+    membersLoading.value = false
+  }
+}
 
 // Shared content data
 const sharedContent = ref({
@@ -506,6 +535,11 @@ const sharedContent = ref({
 const canManageGroup = computed(() => {
   const currentMember = members.value.find((m) => m.id === props.currentUserId)
   return currentMember && (currentMember.role === 'owner' || currentMember.role === 'admin')
+})
+
+const currentUserRole = computed(() => {
+  const currentMember = members.value.find((m) => m.id === props.currentUserId)
+  return currentMember?.role || null
 })
 
 // Methods
@@ -554,10 +588,193 @@ const viewMemberProfile = (member) => {
   // TODO: Implement member profile view
 }
 
-const showMemberMenu = (member) => {
-  console.log('Showing member menu for:', member.name)
-  // TODO: Show member management menu
-  alert(`Member management for ${member.name} will be implemented in next phase`)
+// Member menu management
+const toggleMemberMenu = (memberId) => {
+  if (activeMemberMenu.value === memberId) {
+    activeMemberMenu.value = null
+  } else {
+    activeMemberMenu.value = memberId
+  }
+}
+
+// Close member menu when clicking outside
+const closeAllMenus = () => {
+  activeMemberMenu.value = null
+}
+
+// Member management functions
+const removeMember = async (member) => {
+  if (managementLoading.value) return
+
+  const reason = prompt(`Why are you removing ${member.name}?`, 'Removed by room owner')
+  if (reason === null) return // User cancelled
+
+  if (!confirm(`Are you sure you want to remove ${member.name} from this room?`)) {
+    return
+  }
+
+  managementLoading.value = true
+  activeMemberMenu.value = null
+
+  try {
+    console.log('🔍 Removing member:', member.name)
+    const response = await fetch(
+      `${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/members/${member.id}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          removed_by: props.currentUserId,
+          reason: reason,
+        }),
+      },
+    )
+
+    const data = await response.json()
+
+    if (data.success) {
+      console.log('✅ Member removed successfully')
+      // Remove from local member list
+      members.value = members.value.filter((m) => m.id !== member.id)
+      // Update member count
+      emit('members-loaded', {
+        memberCount: members.value.length,
+        members: members.value,
+      })
+      alert(`${member.name} has been removed from the room.`)
+    } else {
+      throw new Error(data.error || 'Failed to remove member')
+    }
+  } catch (error) {
+    console.error('❌ Error removing member:', error)
+    alert(`Failed to remove member: ${error.message}`)
+  } finally {
+    managementLoading.value = false
+  }
+}
+
+const banMember = async (member) => {
+  if (managementLoading.value) return
+
+  const reason = prompt(`Why are you banning ${member.name}?`, 'Banned for violating room rules')
+  if (reason === null) return // User cancelled
+
+  if (
+    !confirm(
+      `Are you sure you want to BAN ${member.name} from this room?\n\nThis will prevent them from rejoining.`,
+    )
+  ) {
+    return
+  }
+
+  managementLoading.value = true
+  activeMemberMenu.value = null
+
+  try {
+    console.log('🔍 Banning member:', member.name)
+    const response = await fetch(`${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/ban`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: member.id,
+        banned_by: props.currentUserId,
+        reason: reason,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      console.log('✅ Member banned successfully')
+      // Remove from local member list
+      members.value = members.value.filter((m) => m.id !== member.id)
+      // Update member count
+      emit('members-loaded', {
+        memberCount: members.value.length,
+        members: members.value,
+      })
+      alert(`${member.name} has been banned from the room.`)
+    } else {
+      throw new Error(data.error || 'Failed to ban member')
+    }
+  } catch (error) {
+    console.error('❌ Error banning member:', error)
+    alert(`Failed to ban member: ${error.message}`)
+  } finally {
+    managementLoading.value = false
+  }
+}
+
+const changeRole = async (member, newRole) => {
+  if (managementLoading.value) return
+
+  const roleNames = { owner: 'Owner', moderator: 'Moderator', member: 'Member' }
+
+  if (!confirm(`Change ${member.name}'s role to ${roleNames[newRole]}?`)) {
+    return
+  }
+
+  managementLoading.value = true
+  activeMemberMenu.value = null
+
+  try {
+    console.log('🔍 Changing member role:', member.name, 'to', newRole)
+    const response = await fetch(
+      `${API_CONFIG.baseUrl}/api/chat-rooms/${props.groupInfo.id}/members/${member.id}/role`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_role: newRole,
+          changed_by: props.currentUserId,
+        }),
+      },
+    )
+
+    const data = await response.json()
+
+    if (data.success) {
+      console.log('✅ Member role changed successfully')
+      // Update local member role
+      const memberIndex = members.value.findIndex((m) => m.id === member.id)
+      if (memberIndex !== -1) {
+        members.value[memberIndex].role = newRole
+      }
+
+      // If transferring ownership, refresh member list to update current user's role
+      if (newRole === 'owner') {
+        await loadMembers() // Reload to get updated roles
+      }
+
+      alert(`${member.name} is now a ${roleNames[newRole]}.`)
+    } else {
+      throw new Error(data.error || 'Failed to change role')
+    }
+  } catch (error) {
+    console.error('❌ Error changing role:', error)
+    alert(`Failed to change role: ${error.message}`)
+  } finally {
+    managementLoading.value = false
+  }
+}
+
+const transferOwnership = async (member) => {
+  if (managementLoading.value) return
+
+  if (
+    !confirm(
+      `⚠️ TRANSFER OWNERSHIP to ${member.name}?\n\nYou will become a regular member and lose owner privileges. This cannot be undone unless the new owner transfers it back.`,
+    )
+  ) {
+    return
+  }
+
+  // Double confirmation for ownership transfer
+  if (!confirm('Are you absolutely sure? This is a permanent change.')) {
+    return
+  }
+
+  await changeRole(member, 'owner')
 }
 
 const editGroup = () => {
@@ -961,6 +1178,93 @@ input[type='checkbox']:checked + .toggle-label::before {
 
 .member-item:hover .action-btn {
   opacity: 1;
+}
+
+/* Member Menu Dropdown */
+.member-menu-container {
+  position: relative;
+}
+
+.member-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 180px;
+  padding: 8px 0;
+}
+
+.menu-section {
+  padding: 4px 0;
+}
+
+.menu-section + .menu-section {
+  border-top: 1px solid #f3f4f6;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.menu-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 12px;
+  margin-bottom: 4px;
+}
+
+.menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.menu-item:hover {
+  background-color: #f9fafb;
+}
+
+.menu-item i {
+  font-size: 14px;
+  width: 16px;
+  text-align: center;
+}
+
+.menu-item.remove {
+  color: #dc2626;
+}
+
+.menu-item.remove:hover {
+  background-color: #fef2f2;
+}
+
+.menu-item.ban {
+  color: #b91c1c;
+}
+
+.menu-item.ban:hover {
+  background-color: #fef2f2;
+}
+
+.menu-item.transfer-ownership {
+  color: #d97706;
+}
+
+.menu-item.transfer-ownership:hover {
+  background-color: #fffbeb;
 }
 
 .action-btn:hover {

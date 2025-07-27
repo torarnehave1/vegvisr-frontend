@@ -37,3 +37,5 @@ npx wrangler d1 list
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT name FROM sqlite_master WHERE type='table';"
 
 npx wrangler d1 execute vegvisr_org --command 'UPDATE graphTemplates SET ai_instructions = "{\"format\":\"YYYY-MM-DD: @username - Brief summary\\n\\nDetailed notes...\",\"requirements\":[\"date\",\"username\",\"summary\"],\"validation\":{\"date\":{\"pattern\":\"\\\\d{4}-\\\\d{2}-\\\\d{2}\",\"message\":\"Date must be in YYYY-MM-DD format\"},\"username\":{\"pattern\":\"@\\\\w+\",\"message\":\"Username must be prefixed with @\"},\"summary\":{\"minLength\":10,\"message\":\"Summary must be at least 10 characters\"}}}" WHERE type = "worknote";' --json --remote --config=main-worker/wrangler.toml
+
+npx wrangler d1 execute vegvisr_org --remote --command="SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"

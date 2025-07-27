@@ -1125,9 +1125,14 @@ export default {
           const result = await env.vegvisr_org
             .prepare(
               `
-            SELECT * FROM site_chat_rooms
-            WHERE domain_name = ? AND room_status = 'active'
-            ORDER BY created_at DESC
+            SELECT
+              scr.*,
+              COUNT(srm.id) as member_count
+            FROM site_chat_rooms scr
+            LEFT JOIN site_room_members srm ON scr.room_id = srm.room_id AND srm.status = 'active'
+            WHERE scr.domain_name = ? AND scr.room_status = 'active'
+            GROUP BY scr.room_id
+            ORDER BY scr.created_at DESC
           `,
             )
             .bind(domain)
@@ -1514,6 +1519,815 @@ export default {
             ),
           )
         } catch (error) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // GET chat room members endpoint
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/members') && method === 'GET') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/members
+          if (!roomId) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID is required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Get members with user details from config table
+          const membersResult = await env.vegvisr_org
+            .prepare(
+              `
+              SELECT
+                srm.id,
+                srm.user_id,
+                srm.role,
+                srm.status,
+                srm.joined_at,
+                srm.last_activity,
+                c.user_name,
+                c.user_email,
+                c.data as user_data
+              FROM site_room_members srm
+              LEFT JOIN config c ON srm.user_id = c.user_id
+              WHERE srm.room_id = ? AND srm.status = 'active'
+              ORDER BY
+                CASE srm.role
+                  WHEN 'owner' THEN 1
+                  WHEN 'moderator' THEN 2
+                  WHEN 'member' THEN 3
+                END,
+                srm.joined_at ASC
+            `,
+            )
+            .bind(roomId)
+            .all()
+
+          const members = membersResult.results.map((member) => {
+            // Parse user_data JSON if it exists
+            let userData = {}
+            try {
+              if (member.user_data) {
+                userData = JSON.parse(member.user_data)
+              }
+            } catch (e) {
+              console.warn('Failed to parse user_data for user:', member.user_id)
+            }
+
+            return {
+              id: member.user_id,
+              name: member.user_name || userData.displayName || member.user_email || 'Unknown User',
+              email: member.user_email,
+              initials: (member.user_name || member.user_email || 'UN')
+                .split(' ')
+                .map((n) => n[0])
+                .join('')
+                .toUpperCase()
+                .substring(0, 2),
+              color: userData.profileColor || '#6366f1',
+              avatar: userData.profileImage || null,
+              role: member.role,
+              status: member.status,
+              isOnline: false, // TODO: Implement real presence system
+              lastSeen: member.last_activity
+                ? new Date(member.last_activity)
+                : new Date(member.joined_at),
+              joinedAt: member.joined_at,
+            }
+          })
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                members: members,
+                memberCount: members.length,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error fetching room members:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // POST join chat room endpoint
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/join') && method === 'POST') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/join
+          const { user_id } = await request.json()
+
+          if (!roomId || !user_id) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID and user_id are required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if room exists and is active
+          const room = await env.vegvisr_org
+            .prepare('SELECT room_id, room_status FROM site_chat_rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first()
+
+          if (!room) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          if (room.room_status !== 'active') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room is not active',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if user is already a member or banned
+          const existingMember = await env.vegvisr_org
+            .prepare('SELECT id, status FROM site_room_members WHERE room_id = ? AND user_id = ?')
+            .bind(roomId, user_id)
+            .first()
+
+          if (existingMember) {
+            if (existingMember.status === 'banned') {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    success: false,
+                    error: 'User is banned from this room',
+                  }),
+                  {
+                    status: 403,
+                    headers: { 'Content-Type': 'application/json' },
+                  },
+                ),
+              )
+            }
+
+            if (existingMember.status === 'active') {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    success: false,
+                    error: 'User is already a member of this room',
+                  }),
+                  {
+                    status: 409,
+                    headers: { 'Content-Type': 'application/json' },
+                  },
+                ),
+              )
+            }
+          }
+
+          // Add user as member
+          const memberId = `${roomId}_${user_id}_${Date.now()}`
+          await env.vegvisr_org
+            .prepare(
+              `
+              INSERT INTO site_room_members
+              (id, room_id, user_id, role, status, joined_at)
+              VALUES (?, ?, ?, 'member', 'active', CURRENT_TIMESTAMP)
+            `,
+            )
+            .bind(memberId, roomId, user_id)
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Successfully joined room',
+                memberId: memberId,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error joining room:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // DELETE leave chat room endpoint
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/leave') && method === 'DELETE') {
+        try {
+          const roomId = path.split('/')[3] // Extract roomId from /api/chat-rooms/{roomId}/leave
+          const { user_id } = await request.json()
+
+          if (!roomId || !user_id) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID and user_id are required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if user is a member
+          const member = await env.vegvisr_org
+            .prepare(
+              'SELECT id, role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, user_id)
+            .first()
+
+          if (!member) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'User is not a member of this room',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Don't allow room owner to leave (they must transfer ownership first)
+          if (member.role === 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room owner cannot leave. Transfer ownership first.',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Update member status to 'left'
+          await env.vegvisr_org
+            .prepare(
+              'UPDATE site_room_members SET status = "left", updated_at = CURRENT_TIMESTAMP WHERE room_id = ? AND user_id = ?',
+            )
+            .bind(roomId, user_id)
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Successfully left room',
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error leaving room:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // DELETE remove member from room (owners/moderators only)
+      if (
+        path.startsWith('/api/chat-rooms/') &&
+        path.includes('/members/') &&
+        method === 'DELETE'
+      ) {
+        try {
+          const pathParts = path.split('/')
+          const roomId = pathParts[3] // /api/chat-rooms/{roomId}/members/{userId}
+          const userId = pathParts[5]
+          const { removed_by, reason } = await request.json()
+
+          if (!roomId || !userId || !removed_by) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID, user ID, and removed_by are required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if remover has permission (owner or moderator)
+          const remover = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, removed_by)
+            .first()
+
+          if (!remover || (remover.role !== 'owner' && remover.role !== 'moderator')) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Only room owners and moderators can remove members',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if target user exists and is active member
+          const targetMember = await env.vegvisr_org
+            .prepare(
+              'SELECT id, role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, userId)
+            .first()
+
+          if (!targetMember) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'User is not an active member of this room',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Cannot remove room owner
+          if (targetMember.role === 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Cannot remove room owner. Transfer ownership first.',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Moderators cannot remove other moderators, only owners can
+          if (targetMember.role === 'moderator' && remover.role !== 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Only room owners can remove moderators',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Update member status to 'removed'
+          await env.vegvisr_org
+            .prepare(
+              `
+              UPDATE site_room_members
+              SET status = 'removed', updated_at = CURRENT_TIMESTAMP,
+                  notification_settings = json_set(
+                    COALESCE(notification_settings, '{}'),
+                    '$.removedBy', ?,
+                    '$.removedAt', datetime('now'),
+                    '$.reason', ?
+                  )
+              WHERE room_id = ? AND user_id = ?
+            `,
+            )
+            .bind(removed_by, reason || 'No reason provided', roomId, userId)
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Member removed successfully',
+                removedUserId: userId,
+                reason: reason || 'No reason provided',
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error removing member:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // POST ban member from room (owners/moderators only)
+      if (path.startsWith('/api/chat-rooms/') && path.endsWith('/ban') && method === 'POST') {
+        try {
+          const roomId = path.split('/')[3] // /api/chat-rooms/{roomId}/ban
+          const { user_id, banned_by, reason } = await request.json()
+
+          if (!roomId || !user_id || !banned_by) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID, user_id, and banned_by are required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if banner has permission (owner or moderator)
+          const banner = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, banned_by)
+            .first()
+
+          if (!banner || (banner.role !== 'owner' && banner.role !== 'moderator')) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Only room owners and moderators can ban members',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if target user exists (can ban even non-members to prevent joining)
+          const targetMember = await env.vegvisr_org
+            .prepare(
+              'SELECT id, role, status FROM site_room_members WHERE room_id = ? AND user_id = ?',
+            )
+            .bind(roomId, user_id)
+            .first()
+
+          // Cannot ban room owner
+          if (targetMember && targetMember.role === 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Cannot ban room owner',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Moderators cannot ban other moderators, only owners can
+          if (targetMember && targetMember.role === 'moderator' && banner.role !== 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Only room owners can ban moderators',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          if (targetMember) {
+            // Update existing member status to 'banned'
+            await env.vegvisr_org
+              .prepare(
+                `
+                UPDATE site_room_members
+                SET status = 'banned', updated_at = CURRENT_TIMESTAMP,
+                    notification_settings = json_set(
+                      COALESCE(notification_settings, '{}'),
+                      '$.bannedBy', ?,
+                      '$.bannedAt', datetime('now'),
+                      '$.banReason', ?
+                    )
+                WHERE room_id = ? AND user_id = ?
+              `,
+              )
+              .bind(banned_by, reason || 'No reason provided', roomId, user_id)
+              .run()
+          } else {
+            // Create new banned entry (prevents future joining)
+            const banId = `${roomId}_ban_${user_id}_${Date.now()}`
+            await env.vegvisr_org
+              .prepare(
+                `
+                INSERT INTO site_room_members
+                (id, room_id, user_id, role, status, joined_at, notification_settings)
+                VALUES (?, ?, ?, 'member', 'banned', CURRENT_TIMESTAMP, json(?))
+              `,
+              )
+              .bind(
+                banId,
+                roomId,
+                user_id,
+                JSON.stringify({
+                  bannedBy: banned_by,
+                  bannedAt: new Date().toISOString(),
+                  banReason: reason || 'No reason provided',
+                }),
+              )
+              .run()
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Member banned successfully',
+                bannedUserId: user_id,
+                reason: reason || 'No reason provided',
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error banning member:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // PUT change member role (owners only)
+      if (
+        path.startsWith('/api/chat-rooms/') &&
+        path.includes('/members/') &&
+        path.endsWith('/role') &&
+        method === 'PUT'
+      ) {
+        try {
+          const pathParts = path.split('/')
+          const roomId = pathParts[3] // /api/chat-rooms/{roomId}/members/{userId}/role
+          const userId = pathParts[5]
+          const { new_role, changed_by } = await request.json()
+
+          if (!roomId || !userId || !new_role || !changed_by) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Room ID, user ID, new_role, and changed_by are required',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Validate role
+          if (!['owner', 'moderator', 'member'].includes(new_role)) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Invalid role. Must be owner, moderator, or member',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if changer is owner (only owners can change roles)
+          const changer = await env.vegvisr_org
+            .prepare(
+              'SELECT role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, changed_by)
+            .first()
+
+          if (!changer || changer.role !== 'owner') {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Only room owners can change member roles',
+                }),
+                {
+                  status: 403,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Check if target user exists and is active member
+          const targetMember = await env.vegvisr_org
+            .prepare(
+              'SELECT id, role FROM site_room_members WHERE room_id = ? AND user_id = ? AND status = "active"',
+            )
+            .bind(roomId, userId)
+            .first()
+
+          if (!targetMember) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'User is not an active member of this room',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          // Special handling for owner role changes
+          if (new_role === 'owner') {
+            // Transfer ownership: demote current owner to member, promote target to owner
+            await env.vegvisr_org
+              .prepare(
+                'UPDATE site_room_members SET role = "member", updated_at = CURRENT_TIMESTAMP WHERE room_id = ? AND user_id = ?',
+              )
+              .bind(roomId, changed_by)
+              .run()
+          }
+
+          // Update target member role
+          await env.vegvisr_org
+            .prepare(
+              `
+              UPDATE site_room_members
+              SET role = ?, updated_at = CURRENT_TIMESTAMP,
+                  notification_settings = json_set(
+                    COALESCE(notification_settings, '{}'),
+                    '$.roleChangedBy', ?,
+                    '$.roleChangedAt', datetime('now'),
+                    '$.previousRole', ?
+                  )
+              WHERE room_id = ? AND user_id = ?
+            `,
+            )
+            .bind(new_role, changed_by, targetMember.role, roomId, userId)
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: `Member role changed from ${targetMember.role} to ${new_role}`,
+                userId: userId,
+                previousRole: targetMember.role,
+                newRole: new_role,
+                changedBy: changed_by,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('Error changing member role:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({
