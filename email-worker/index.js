@@ -29,7 +29,7 @@ function renderTemplate(template, variables) {
 
   return {
     subject: renderedSubject,
-    body: renderedBody
+    body: renderedBody,
   }
 }
 
@@ -44,7 +44,7 @@ function generateSlowyouLink(email, role, callbackUrl) {
   const params = new URLSearchParams({
     email: email,
     role: role || 'subscriber',
-    callback: callbackUrl
+    callback: callbackUrl,
   })
   return `${baseUrl}?${params.toString()}`
 }
@@ -88,10 +88,10 @@ export default {
 
           if (!templateId) {
             return addCorsHeaders(
-              new Response(
-                JSON.stringify({ error: 'templateId is required' }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-              )
+              new Response(JSON.stringify({ error: 'templateId is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
             )
           }
 
@@ -103,10 +103,10 @@ export default {
 
           if (!template) {
             return addCorsHeaders(
-              new Response(
-                JSON.stringify({ error: 'Template not found' }),
-                { status: 404, headers: { 'Content-Type': 'application/json' } }
-              )
+              new Response(JSON.stringify({ error: 'Template not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+              }),
             )
           }
 
@@ -123,19 +123,19 @@ export default {
                   type: template.template_type,
                   language: template.language_code,
                   subject: rendered.subject,
-                  body: rendered.body
-                }
+                  body: rendered.body,
+                },
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         } catch (error) {
           console.error('Template rendering error:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Template rendering failed', details: error.message }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         }
       }
@@ -149,27 +149,39 @@ export default {
           if (!recipientEmail || !roomId || !inviterName || !inviterUserId) {
             return addCorsHeaders(
               new Response(
-                JSON.stringify({ error: 'recipientEmail, roomId, inviterName, and inviterUserId are required' }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-              )
+                JSON.stringify({
+                  error: 'recipientEmail, roomId, inviterName, and inviterUserId are required',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
             )
           }
 
           // Generate invitation token
           const invitationToken = generateInvitationToken()
-          
+
           // Set expiration to 7 days from now
           const expiresAt = new Date()
           expiresAt.setDate(expiresAt.getDate() + 7)
 
           // Store invitation token in database
           await env.vegvisr_org
-            .prepare(`
-              INSERT INTO invitation_tokens 
+            .prepare(
+              `
+              INSERT INTO invitation_tokens
               (id, recipient_email, room_id, inviter_name, inviter_user_id, invitation_message, expires_at)
               VALUES (?, ?, ?, ?, ?, ?, ?)
-            `)
-            .bind(invitationToken, recipientEmail, roomId, inviterName, inviterUserId, invitationMessage || '', expiresAt.toISOString())
+            `,
+            )
+            .bind(
+              invitationToken,
+              recipientEmail,
+              roomId,
+              inviterName,
+              inviterUserId,
+              invitationMessage || '',
+              expiresAt.toISOString(),
+            )
             .run()
 
           // Generate callback URL for slowyou.io
@@ -185,18 +197,18 @@ export default {
                 invitationToken,
                 slowyouLink,
                 callbackUrl,
-                expiresAt: expiresAt.toISOString()
+                expiresAt: expiresAt.toISOString(),
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         } catch (error) {
           console.error('Invitation generation error:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Invitation generation failed', details: error.message }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         }
       }
@@ -209,10 +221,10 @@ export default {
 
           if (!email || !callbackUrl) {
             return addCorsHeaders(
-              new Response(
-                JSON.stringify({ error: 'email and callbackUrl are required' }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-              )
+              new Response(JSON.stringify({ error: 'email and callbackUrl are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
             )
           }
 
@@ -224,18 +236,18 @@ export default {
                 success: true,
                 slowyouLink,
                 email,
-                role: role || 'subscriber'
+                role: role || 'subscriber',
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         } catch (error) {
           console.error('Slowyou link generation error:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Link generation failed', details: error.message }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         }
       }
@@ -270,18 +282,18 @@ export default {
             new Response(
               JSON.stringify({
                 success: true,
-                templates: templates.results
+                templates: templates.results,
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         } catch (error) {
           console.error('Template listing error:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Failed to list templates', details: error.message }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         }
       }
@@ -290,7 +302,7 @@ export default {
       if (path.startsWith('/templates/') && method === 'GET') {
         try {
           const templateId = path.split('/')[2]
-          
+
           const template = await env.vegvisr_org
             .prepare('SELECT * FROM email_templates WHERE id = ? AND is_active = 1')
             .bind(templateId)
@@ -298,10 +310,10 @@ export default {
 
           if (!template) {
             return addCorsHeaders(
-              new Response(
-                JSON.stringify({ error: 'Template not found' }),
-                { status: 404, headers: { 'Content-Type': 'application/json' } }
-              )
+              new Response(JSON.stringify({ error: 'Template not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+              }),
             )
           }
 
@@ -309,18 +321,18 @@ export default {
             new Response(
               JSON.stringify({
                 success: true,
-                template
+                template,
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         } catch (error) {
           console.error('Template retrieval error:', error)
           return addCorsHeaders(
             new Response(
               JSON.stringify({ error: 'Failed to retrieve template', details: error.message }),
-              { status: 500, headers: { 'Content-Type': 'application/json' } }
-            )
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
           )
         }
       }
@@ -367,13 +379,13 @@ export default {
           JSON.stringify({
             error: 'Endpoint not found',
             availableEndpoints: [
-              '/health', 
+              '/health',
               '/test-main-worker',
               '/render-template (POST)',
               '/generate-invitation (POST)',
               '/generate-slowyou-link (POST)',
               '/templates (GET)',
-              '/templates/{id} (GET)'
+              '/templates/{id} (GET)',
             ],
           }),
           {
