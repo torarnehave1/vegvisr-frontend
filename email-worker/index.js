@@ -165,24 +165,38 @@ export default {
           expiresAt.setDate(expiresAt.getDate() + 7)
 
           // Store invitation token in database
-          await env.vegvisr_org
-            .prepare(
-              `
-              INSERT INTO invitation_tokens
-              (id, recipient_email, room_id, inviter_name, inviter_user_id, invitation_message, expires_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `,
+          try {
+            await env.vegvisr_org
+              .prepare(
+                `
+                INSERT INTO invitation_tokens
+                (id, recipient_email, room_id, inviter_name, inviter_user_id, invitation_message, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `,
+              )
+              .bind(
+                invitationToken,
+                recipientEmail,
+                roomId,
+                inviterName,
+                inviterUserId,
+                invitationMessage || '',
+                expiresAt.toISOString(),
+              )
+              .run()
+          } catch (dbError) {
+            console.error('Database error in invitation generation:', dbError)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Database error',
+                  details: dbError.message || 'Failed to store invitation token',
+                  code: 'DB_ERROR',
+                }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+              ),
             )
-            .bind(
-              invitationToken,
-              recipientEmail,
-              roomId,
-              inviterName,
-              inviterUserId,
-              invitationMessage || '',
-              expiresAt.toISOString(),
-            )
-            .run()
+          }
 
           // Generate callback URL for slowyou.io
           const callbackUrl = `https://www.vegvisr.org/join-room?invitation=${invitationToken}`
