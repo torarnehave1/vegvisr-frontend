@@ -1,0 +1,35 @@
+{
+  "id": "basic-chat-invitation-template",
+  "name": "Basic Chat Invitation Template",
+  "category": "Email Templates",
+  "type": "email-template",
+  "description": "Professional email template for inviting users to chat rooms with customizable variables",
+  "nodes": [
+    {
+      "id": "email-template-chat-invitation",
+      "type": "email-template",
+      "label": "Chat Invitation Email",
+      "color": "#4CAF50",
+      "info": {
+        "templateName": "Chat Invitation Template",
+        "subject": "You're invited to join {roomName}",
+        "body": "Hello!\n\n{senderName} has invited you to join the chat room \"{roomName}\".\n\n{roomDescription}\n\nClick the link below to accept the invitation:\n{invitationLink}\n\nThis invitation will expire on {expirationDate}.\n\nBest regards,\nVegvisr Team",
+        "recipients": "{inviteeEmail}",
+        "variables": {
+          "roomName": "Demo Chat Room",
+          "senderName": "John Doe",
+          "roomDescription": "A collaborative space for team discussions and project updates.",
+          "inviteeEmail": "user@example.com",
+          "invitationLink": "https://vegvisr.org/chat/join/abc123",
+          "expirationDate": "July 30, 2025"
+        }
+      },
+      "bibl": [],
+      "imageWidth": "100%",
+      "imageHeight": "100%",
+      "visible": true,
+      "path": null
+    }
+  ],
+  "edges": []
+}

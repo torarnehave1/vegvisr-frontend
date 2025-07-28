@@ -161,6 +161,110 @@ Generate a JSON string representing a knowledge graph compatible with Cytoscape,
   }
 }
 
+// Handler for generating email templates with AI
+const handleGenerateEmailTemplate = async (request, env) => {
+  try {
+    const { prompt, emailType, tone } = await request.json()
+
+    if (!prompt) {
+      return createErrorResponse('Prompt is required', 400)
+    }
+
+    const apiKey = env.OPENAI_API_KEY
+    if (!apiKey) {
+      return createErrorResponse('Internal Server Error: API key missing', 500)
+    }
+
+    // Construct a specialized prompt for email templates
+    const systemPrompt = `You are an expert email template generator. Create professional, well-structured email templates based on user requirements. 
+
+Always respond with a valid JSON object in this exact format:
+{
+  "templateName": "Descriptive name for the template",
+  "subject": "Email subject line with {variableName} placeholders",
+  "body": "Email body content with {variableName} placeholders",
+  "recipients": "{recipientEmail}",
+  "variables": {
+    "variableName1": "Default value 1",
+    "variableName2": "Default value 2"
+  }
+}
+
+Guidelines:
+- Use {variableName} for placeholders (curly braces)
+- Include appropriate variables for customization
+- Make the tone ${tone || 'professional'}
+- Structure the email properly with greeting, body, and closing
+- Include relevant sections for ${emailType || 'general'} emails
+- Keep it concise but complete`
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 1500,
+        temperature: 0.7,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('OpenAI API error:', response.status, errorText)
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    const generatedContent = data.choices[0]?.message?.content
+
+    if (!generatedContent) {
+      throw new Error('No content generated from OpenAI')
+    }
+
+    // Try to parse the JSON response
+    let emailTemplate
+    try {
+      emailTemplate = JSON.parse(generatedContent)
+    } catch (parseError) {
+      console.error('Error parsing OpenAI response as JSON:', parseError)
+      console.log('Raw response:', generatedContent)
+      
+      // Fallback: try to extract JSON from the response
+      const jsonMatch = generatedContent.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          emailTemplate = JSON.parse(jsonMatch[0])
+        } catch (e) {
+          throw new Error('Invalid JSON response from AI')
+        }
+      } else {
+        throw new Error('No valid JSON found in AI response')
+      }
+    }
+
+    // Validate the required fields
+    if (!emailTemplate.templateName || !emailTemplate.subject || !emailTemplate.body) {
+      throw new Error('AI response missing required fields')
+    }
+
+    return createResponse(JSON.stringify({ 
+      success: true, 
+      template: emailTemplate 
+    }))
+
+  } catch (error) {
+    console.error('Error generating email template:', error)
+    return createErrorResponse(`Error generating email template: ${error.message}`, 500)
+  }
+}
+
 const handleSave = async (request, env) => {
   const { id, markdown, isVisible, email } = await request.json()
 
@@ -5851,6 +5955,10 @@ export default {
 
     if (pathname === '/createknowledgegraph' && request.method === 'GET') {
       return await handleCreateKnowledgeGraph(request, env)
+    }
+    
+    if (pathname === '/generateEmailTemplate' && request.method === 'POST') {
+      return await handleGenerateEmailTemplate(request, env)
     }
     if (pathname === '/save' && request.method === 'POST') {
       return await handleSave(request, env)
