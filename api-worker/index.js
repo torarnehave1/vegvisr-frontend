@@ -176,7 +176,7 @@ const handleGenerateEmailTemplate = async (request, env) => {
     }
 
     // Construct a specialized prompt for email templates
-    const systemPrompt = `You are an expert email template generator. Create professional, well-structured email templates based on user requirements. 
+    const systemPrompt = `You are an expert email template generator. Create professional, well-structured email templates based on user requirements.
 
 Always respond with a valid JSON object in this exact format:
 {
@@ -201,14 +201,14 @@ Guidelines:
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model: 'gpt-4',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
+          { role: 'user', content: prompt },
         ],
         max_tokens: 1500,
         temperature: 0.7,
@@ -235,7 +235,7 @@ Guidelines:
     } catch (parseError) {
       console.error('Error parsing OpenAI response as JSON:', parseError)
       console.log('Raw response:', generatedContent)
-      
+
       // Fallback: try to extract JSON from the response
       const jsonMatch = generatedContent.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
@@ -254,11 +254,12 @@ Guidelines:
       throw new Error('AI response missing required fields')
     }
 
-    return createResponse(JSON.stringify({ 
-      success: true, 
-      template: emailTemplate 
-    }))
-
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        template: emailTemplate,
+      }),
+    )
   } catch (error) {
     console.error('Error generating email template:', error)
     return createErrorResponse(`Error generating email template: ${error.message}`, 500)
@@ -5956,7 +5957,7 @@ export default {
     if (pathname === '/createknowledgegraph' && request.method === 'GET') {
       return await handleCreateKnowledgeGraph(request, env)
     }
-    
+
     if (pathname === '/generateEmailTemplate' && request.method === 'POST') {
       return await handleGenerateEmailTemplate(request, env)
     }

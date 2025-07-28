@@ -7,15 +7,19 @@
         <span class="node-label">{{ nodeData.templateName || 'Email Template' }}</span>
       </div>
       <div class="node-controls">
-        <button 
-          @click="toggleAIGenerator" 
-          class="btn btn-sm btn-outline-info" 
+        <button
+          @click="toggleAIGenerator"
+          class="btn btn-sm btn-outline-info"
           :class="{ active: showAIGenerator }"
           title="AI Template Generator"
         >
           🤖 AI
         </button>
-        <button @click="toggleExpanded" class="btn btn-sm btn-outline-primary" :title="isExpanded ? 'Collapse' : 'Expand'">
+        <button
+          @click="toggleExpanded"
+          class="btn btn-sm btn-outline-primary"
+          :title="isExpanded ? 'Collapse' : 'Expand'"
+        >
           {{ isExpanded ? '🔽' : '▶️' }}
         </button>
         <button @click="editNode" class="btn btn-sm btn-outline-secondary" title="Edit Node">
@@ -29,15 +33,14 @@
 
     <!-- Email Template Builder (Expanded View) -->
     <div v-if="isExpanded || isPreview" class="email-template-content">
-      
       <!-- AI Generator Panel -->
       <div v-if="showAIGenerator" class="ai-generator-section">
         <h5 class="ai-title">🤖 AI Email Template Generator</h5>
-        
+
         <div class="ai-prompt-section">
           <label class="config-label">Describe your email template:</label>
-          <textarea 
-            v-model="aiPrompt" 
+          <textarea
+            v-model="aiPrompt"
             class="form-control ai-prompt-textarea"
             rows="3"
             placeholder="e.g., Create a professional project update email template for weekly team updates with progress, goals, and blockers sections"
@@ -73,8 +76,8 @@
 
           <div class="ai-option-row">
             <label class="config-label">Include Variables:</label>
-            <input 
-              v-model="aiVariables" 
+            <input
+              v-model="aiVariables"
               class="form-control form-control-sm"
               placeholder="e.g., recipientName, projectName, deadline"
             />
@@ -82,51 +85,49 @@
         </div>
 
         <div class="ai-actions">
-          <button 
-            @click="generateEmailTemplate" 
+          <button
+            @click="generateEmailTemplate"
             :disabled="isGenerating || !aiPrompt.trim()"
             class="btn btn-primary"
           >
             <span v-if="isGenerating">⏳ Generating...</span>
             <span v-else>✨ Generate Template</span>
           </button>
-          
-          <button @click="clearAIForm" class="btn btn-outline-secondary">
-            🗑️ Clear
-          </button>
+
+          <button @click="clearAIForm" class="btn btn-outline-secondary">🗑️ Clear</button>
         </div>
 
         <div v-if="aiStatusMessage" class="ai-status-message" :class="`status-${aiStatusType}`">
           {{ aiStatusMessage }}
         </div>
       </div>
-      
+
       <!-- Template Configuration -->
       <div class="template-config-section">
         <div class="config-row">
           <label class="config-label">Template Name:</label>
-          <input 
-            v-model="nodeData.templateName" 
+          <input
+            v-model="nodeData.templateName"
             @input="updateNode"
             class="form-control form-control-sm"
             placeholder="e.g., Chat Invitation Template"
           />
         </div>
-        
+
         <div class="config-row">
           <label class="config-label">Subject Line:</label>
-          <input 
-            v-model="nodeData.subject" 
+          <input
+            v-model="nodeData.subject"
             @input="updateNode"
             class="form-control form-control-sm"
             placeholder="e.g., You're invited to join {roomName}"
           />
         </div>
-        
+
         <div class="config-row">
           <label class="config-label">Recipients:</label>
-          <input 
-            v-model="nodeData.recipients" 
+          <input
+            v-model="nodeData.recipients"
             @input="updateNode"
             class="form-control form-control-sm"
             placeholder="e.g., {inviteeEmail} or specific@email.com"
@@ -137,8 +138,8 @@
       <!-- Email Body Editor -->
       <div class="email-body-section">
         <label class="config-label">Email Body:</label>
-        <textarea 
-          v-model="nodeData.body" 
+        <textarea
+          v-model="nodeData.body"
           @input="updateNode"
           class="form-control email-body-textarea"
           rows="8"
@@ -152,22 +153,18 @@
           <label class="config-label">Template Variables:</label>
           <button @click="addVariable" class="btn btn-sm btn-success">+ Add Variable</button>
         </div>
-        
+
         <div class="variables-list">
-          <div 
-            v-for="(variable, index) in variablesList" 
-            :key="index"
-            class="variable-item"
-          >
-            <input 
-              v-model="variable.key" 
+          <div v-for="(variable, index) in variablesList" :key="index" class="variable-item">
+            <input
+              v-model="variable.key"
               @input="updateVariables"
               placeholder="variableName"
               class="form-control form-control-sm variable-key"
             />
             <span class="variable-separator">=</span>
-            <input 
-              v-model="variable.value" 
+            <input
+              v-model="variable.value"
               @input="updateVariables"
               placeholder="Default value"
               class="form-control form-control-sm variable-value"
@@ -182,12 +179,8 @@
         <h5 class="preview-title">📧 Email Preview</h5>
         <div class="email-preview">
           <div class="preview-header">
-            <div class="preview-field">
-              <strong>To:</strong> {{ renderedRecipients }}
-            </div>
-            <div class="preview-field">
-              <strong>Subject:</strong> {{ renderedSubject }}
-            </div>
+            <div class="preview-field"><strong>To:</strong> {{ renderedRecipients }}</div>
+            <div class="preview-field"><strong>Subject:</strong> {{ renderedSubject }}</div>
           </div>
           <div class="preview-body" v-html="renderedBody"></div>
         </div>
@@ -195,27 +188,20 @@
 
       <!-- Actions -->
       <div class="email-actions">
-        <button 
-          @click="sendTestEmail" 
+        <button
+          @click="sendTestEmail"
           :disabled="isSending || !isValidTemplate"
           class="btn btn-primary"
         >
           <span v-if="isSending">⏳ Sending...</span>
           <span v-else>📤 Send Test Email</span>
         </button>
-        
-        <button 
-          @click="saveAsTemplate" 
-          :disabled="!isValidTemplate"
-          class="btn btn-success"
-        >
+
+        <button @click="saveAsTemplate" :disabled="!isValidTemplate" class="btn btn-success">
           💾 Save as Template
         </button>
-        
-        <button 
-          @click="copyToClipboard" 
-          class="btn btn-outline-secondary"
-        >
+
+        <button @click="copyToClipboard" class="btn btn-outline-secondary">
           📋 Copy Template JSON
         </button>
       </div>
@@ -232,15 +218,15 @@
         <div class="summary-title">{{ nodeData.templateName || 'Email Template' }}</div>
         <div class="summary-details">
           <span class="summary-item">📧 {{ nodeData.subject || 'No subject' }}</span>
-          <span class="summary-item">👥 {{ Object.keys(nodeData.variables || {}).length }} variables</span>
+          <span class="summary-item"
+            >👥 {{ Object.keys(nodeData.variables || {}).length }} variables</span
+          >
         </div>
       </div>
     </div>
 
     <!-- Node Type Badge -->
-    <div v-if="showControls" class="node-type-badge">
-      Email Template
-    </div>
+    <div v-if="showControls" class="node-type-badge">Email Template</div>
   </div>
 </template>
 
@@ -251,20 +237,20 @@ import { ref, computed, watch, onMounted } from 'vue'
 const props = defineProps({
   node: {
     type: Object,
-    required: true
+    required: true,
   },
   graphData: {
     type: Object,
-    default: () => ({ nodes: [], edges: [] })
+    default: () => ({ nodes: [], edges: [] }),
   },
   showControls: {
     type: Boolean,
-    default: true
+    default: true,
   },
   isPreview: {
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
 })
 
 // Emits
@@ -293,7 +279,7 @@ const nodeData = ref({
   body: '',
   recipients: '',
   variables: {},
-  ...parseNodeInfo(props.node.info)
+  ...parseNodeInfo(props.node.info),
 })
 
 // Variables as list for easier editing
@@ -303,10 +289,12 @@ const variablesList = ref([])
 const nodeTypeClass = computed(() => `gnew-node-${props.node.type}`)
 
 const isValidTemplate = computed(() => {
-  return nodeData.value.templateName && 
-         nodeData.value.subject && 
-         nodeData.value.body &&
-         nodeData.value.recipients
+  return (
+    nodeData.value.templateName &&
+    nodeData.value.subject &&
+    nodeData.value.body &&
+    nodeData.value.recipients
+  )
 })
 
 const renderedSubject = computed(() => {
@@ -338,7 +326,7 @@ function parseNodeInfo(info) {
 
 function renderTemplate(template, variables) {
   if (!template) return ''
-  
+
   let rendered = template
   for (const [key, value] of Object.entries(variables || {})) {
     const placeholder = `{${key}}`
@@ -351,7 +339,7 @@ function updateNode() {
   const updatedNode = {
     ...props.node,
     info: JSON.stringify(nodeData.value),
-    label: nodeData.value.templateName || 'Email Template'
+    label: nodeData.value.templateName || 'Email Template',
   }
   emit('node-updated', updatedNode)
 }
@@ -359,7 +347,7 @@ function updateNode() {
 function updateVariables() {
   // Convert variables list back to object
   const variablesObj = {}
-  variablesList.value.forEach(variable => {
+  variablesList.value.forEach((variable) => {
     if (variable.key) {
       variablesObj[variable.key] = variable.value || ''
     }
@@ -398,7 +386,7 @@ async function sendTestEmail() {
   }
 
   isSending.value = true
-  
+
   try {
     // Use the enhanced slowyou.io endpoint
     const response = await fetch('https://slowyou.io/api/send-vegvisr-email', {
@@ -410,8 +398,8 @@ async function sendTestEmail() {
         email: renderedRecipients.value,
         subject: renderedSubject.value,
         template: renderedBody.value,
-        callbackUrl: window.location.origin
-      })
+        callbackUrl: window.location.origin,
+      }),
     })
 
     if (response.ok) {
@@ -448,16 +436,16 @@ async function saveAsTemplate() {
           imageWidth: '100%',
           imageHeight: '100%',
           visible: true,
-          path: null
-        }
+          path: null,
+        },
       ],
-      edges: []
+      edges: [],
     }
 
     const response = await fetch('https://knowledge.vegvisr.org/addTemplate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(templateData)
+      body: JSON.stringify(templateData),
     })
 
     if (response.ok) {
@@ -473,20 +461,27 @@ async function saveAsTemplate() {
 }
 
 function copyToClipboard() {
-  const templateJSON = JSON.stringify({
-    templateName: nodeData.value.templateName,
-    subject: nodeData.value.subject,
-    body: nodeData.value.body,
-    recipients: nodeData.value.recipients,
-    variables: nodeData.value.variables
-  }, null, 2)
+  const templateJSON = JSON.stringify(
+    {
+      templateName: nodeData.value.templateName,
+      subject: nodeData.value.subject,
+      body: nodeData.value.body,
+      recipients: nodeData.value.recipients,
+      variables: nodeData.value.variables,
+    },
+    null,
+    2,
+  )
 
-  navigator.clipboard.writeText(templateJSON).then(() => {
-    showStatus('Template JSON copied to clipboard!', 'success')
-  }).catch(error => {
-    console.error('Error copying to clipboard:', error)
-    showStatus('Failed to copy to clipboard', 'error')
-  })
+  navigator.clipboard
+    .writeText(templateJSON)
+    .then(() => {
+      showStatus('Template JSON copied to clipboard!', 'success')
+    })
+    .catch((error) => {
+      console.error('Error copying to clipboard:', error)
+      showStatus('Failed to copy to clipboard', 'error')
+    })
 }
 
 function showStatus(message, type = 'info') {
@@ -533,7 +528,7 @@ async function generateEmailTemplate() {
   try {
     // Construct the AI prompt
     const fullPrompt = `Create an email template with the following requirements:
-    
+
 Description: ${aiPrompt.value}
 Email Type: ${aiEmailType.value || 'General'}
 Tone: ${aiTone.value}
@@ -562,8 +557,8 @@ Make the email professional, well-structured, and include appropriate variable p
       body: JSON.stringify({
         prompt: fullPrompt,
         emailType: aiEmailType.value,
-        tone: aiTone.value
-      })
+        tone: aiTone.value,
+      }),
     })
 
     if (!response.ok) {
@@ -571,13 +566,12 @@ Make the email professional, well-structured, and include appropriate variable p
     }
 
     const aiResult = await response.json()
-    
+
     // Parse the AI response
     let generatedTemplate
     try {
-      generatedTemplate = typeof aiResult.template === 'string' 
-        ? JSON.parse(aiResult.template) 
-        : aiResult.template
+      generatedTemplate =
+        typeof aiResult.template === 'string' ? JSON.parse(aiResult.template) : aiResult.template
     } catch (parseError) {
       console.error('Error parsing AI response:', parseError)
       throw new Error('Invalid AI response format')
@@ -587,21 +581,20 @@ Make the email professional, well-structured, and include appropriate variable p
     if (generatedTemplate) {
       nodeData.value = {
         ...nodeData.value,
-        ...generatedTemplate
+        ...generatedTemplate,
       }
 
       // Update variables list
       if (generatedTemplate.variables) {
         variablesList.value = Object.entries(generatedTemplate.variables).map(([key, value]) => ({
           key,
-          value
+          value,
         }))
       }
 
       updateNode()
       showAIStatus('Email template generated successfully!', 'success')
     }
-
   } catch (error) {
     console.error('Error generating email template:', error)
     showAIStatus(`Failed to generate template: ${error.message}`, 'error')
@@ -614,7 +607,7 @@ Make the email professional, well-structured, and include appropriate variable p
 function initializeVariablesList() {
   variablesList.value = Object.entries(nodeData.value.variables || {}).map(([key, value]) => ({
     key,
-    value
+    value,
   }))
 }
 
@@ -624,23 +617,27 @@ onMounted(() => {
 })
 
 // Watch for changes in node prop
-watch(() => props.node.info, (newInfo) => {
-  nodeData.value = {
-    templateName: '',
-    subject: '',
-    body: '',
-    recipients: '',
-    variables: {},
-    ...parseNodeInfo(newInfo)
-  }
-  initializeVariablesList()
-}, { immediate: true })
+watch(
+  () => props.node.info,
+  (newInfo) => {
+    nodeData.value = {
+      templateName: '',
+      subject: '',
+      body: '',
+      recipients: '',
+      variables: {},
+      ...parseNodeInfo(newInfo),
+    }
+    initializeVariablesList()
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
 .gnew-email-template-node {
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: 2px solid #4CAF50;
+  border: 2px solid #4caf50;
   border-radius: 12px;
   padding: 16px;
   margin: 8px;
@@ -886,7 +883,7 @@ watch(() => props.node.info, (newInfo) => {
   position: absolute;
   top: -8px;
   right: 8px;
-  background: #4CAF50;
+  background: #4caf50;
   color: white;
   padding: 2px 8px;
   border-radius: 12px;
@@ -901,19 +898,19 @@ watch(() => props.node.info, (newInfo) => {
     align-items: stretch;
     gap: 4px;
   }
-  
+
   .config-label {
     min-width: auto;
   }
-  
+
   .email-actions {
     flex-direction: column;
   }
-  
+
   .variable-item {
     flex-wrap: wrap;
   }
-  
+
   .summary-details {
     flex-direction: column;
     gap: 4px;
@@ -1073,11 +1070,11 @@ watch(() => props.node.info, (newInfo) => {
   .ai-options-section {
     grid-template-columns: 1fr;
   }
-  
+
   .ai-actions {
     flex-direction: column;
   }
-  
+
   .ai-actions .btn {
     min-width: auto;
   }

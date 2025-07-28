@@ -1,7 +1,7 @@
 {
   "id": "project-update-notification-template",
   "name": "Project Update Notification",
-  "category": "Email Templates", 
+  "category": "Email Templates",
   "type": "email-template",
   "description": "Email template for sending project updates and notifications to team members",
   "nodes": [
@@ -30,7 +30,7 @@
       },
       "bibl": [],
       "imageWidth": "100%",
-      "imageHeight": "100%", 
+      "imageHeight": "100%",
       "visible": true,
       "path": null
     }

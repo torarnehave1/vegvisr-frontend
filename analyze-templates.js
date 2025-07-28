@@ -1,21 +1,21 @@
 // Quick test to analyze existing graphTemplates structure
 fetch('https://knowledge.vegvisr.org/getTemplates')
-  .then(response => response.json())
-  .then(data => {
+  .then((response) => response.json())
+  .then((data) => {
     console.log('🔍 GraphTemplates Analysis:')
     console.log('Total templates:', data.results ? data.results.length : data.length)
-    
+
     // Get first few templates to analyze structure
     const templates = data.results || data
     const samples = templates.slice(0, 5)
-    
+
     console.log('\n📊 Sample Templates:')
     samples.forEach((template, index) => {
       console.log(`\n--- Template ${index + 1}: ${template.name} ---`)
       console.log('ID:', template.id)
       console.log('Category:', template.category)
       console.log('Nodes structure:')
-      
+
       try {
         const nodes = JSON.parse(template.nodes)
         console.log('  Number of nodes:', nodes.length)
@@ -33,9 +33,9 @@ fetch('https://knowledge.vegvisr.org/getTemplates')
         console.log('  Error parsing nodes:', e.message)
       }
     })
-    
+
     // Find menu creator specifically
-    const menuCreator = templates.find(t => t.name && t.name.includes('Menu'))
+    const menuCreator = templates.find((t) => t.name && t.name.includes('Menu'))
     if (menuCreator) {
       console.log('\n🍔 Menu Creator Template Found:')
       console.log('Name:', menuCreator.name)
@@ -43,4 +43,4 @@ fetch('https://knowledge.vegvisr.org/getTemplates')
       console.log('Node info field:', nodes[0].info)
     }
   })
-  .catch(error => console.error('❌ Error:', error))
+  .catch((error) => console.error('❌ Error:', error))
