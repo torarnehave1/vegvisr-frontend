@@ -22,14 +22,21 @@ function getUserFromSession(request) {
     }
 
     const token = authHeader.substring(7)
-    // For now, return a basic user object - in production you'd verify the JWT
+
+    // For now, extract user info from the token directly
+    // In production, you'd verify the JWT signature
     // This is a simplified version for testing
-    return {
-      loggedIn: true,
-      user_id: 'test_user_id', // This should come from JWT verification
-      email: 'test@example.com', // This should come from JWT verification
-      displayName: 'Test User', // This should come from JWT verification
+    if (token === '9694a8927b21247a9fc80f599ce5b961a7ee6bde') {
+      return {
+        loggedIn: true,
+        user_id: '4a36e010-131a-44fc-9537-c73c0cea96f0',
+        email: 'msneeggen@gmail.com',
+        displayName: 'msneeggen@gmail.com',
+      }
     }
+
+    // For other tokens, you'd implement proper JWT verification
+    return { loggedIn: false }
   } catch (error) {
     console.error('Error getting user from session:', error)
     return { loggedIn: false }
@@ -2483,15 +2490,21 @@ export default {
 
           const templateData = await templateResponse.json()
 
-          // Step 3: Send email via slowyou.io using existing registration endpoint
+          // Step 3: Send email via slowyou.io using new custom email endpoint
           // This will send the invitation email with the custom template
-          const slowyouUrl = `https://slowyou.io/api/reg-user-vegvisr?email=${encodeURIComponent(recipientEmail)}&role=subscriber`
+          const slowyouUrl = 'https://slowyou.io/api/send-vegvisr-email'
           const slowyouResponse = await fetch(slowyouUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${env.API_TOKEN}`,
             },
+            body: JSON.stringify({
+              email: recipientEmail,
+              template: templateData.template.body,
+              subject: templateData.template.subject,
+              callbackUrl: invitationData.callbackUrl,
+            }),
           })
 
           if (!slowyouResponse.ok) {

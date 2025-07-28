@@ -17,6 +17,8 @@ export const useUserStore = defineStore('user', {
   }),
   actions: {
     setUser(user) {
+      console.log('🔧 setUser called with:', user)
+
       this.email = user.email
       this.role = user.role
       this.user_id = user.user_id
@@ -24,17 +26,24 @@ export const useUserStore = defineStore('user', {
       this.mystmkraUserId = user.mystmkraUserId || null
       this.branding = user.branding || { mySite: null, myLogo: null }
       this.loggedIn = true
-      localStorage.setItem(
-        'user',
-        JSON.stringify({
-          email: user.email,
-          role: user.role,
-          user_id: user.user_id,
-          emailVerificationToken: user.emailVerificationToken,
-          mystmkraUserId: user.mystmkraUserId || null,
-          branding: user.branding || { mySite: null, myLogo: null },
-        }),
-      )
+
+      const userData = {
+        email: user.email,
+        role: user.role,
+        user_id: user.user_id,
+        emailVerificationToken: user.emailVerificationToken,
+        mystmkraUserId: user.mystmkraUserId || null,
+        branding: user.branding || { mySite: null, myLogo: null },
+      }
+
+      localStorage.setItem('user', JSON.stringify(userData))
+      console.log('💾 User data saved to localStorage:', userData)
+      console.log('🔍 Current store state:', {
+        loggedIn: this.loggedIn,
+        email: this.email,
+        user_id: this.user_id,
+        role: this.role,
+      })
     },
     setUserId(user_id) {
       this.user_id = user_id
@@ -175,7 +184,9 @@ export const useUserStore = defineStore('user', {
       console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
     },
     loadUserFromStorage() {
+      console.log('🔄 loadUserFromStorage called')
       const storedUser = JSON.parse(localStorage.getItem('user'))
+      console.log('📦 Raw localStorage data:', storedUser)
 
       if (storedUser && storedUser.email) {
         this.email = storedUser.email
@@ -187,6 +198,12 @@ export const useUserStore = defineStore('user', {
         this.loggedIn = true
 
         console.log('✅ Loaded user from storage:', this.email, 'ID:', this.user_id)
+        console.log('🔍 Store state after loading:', {
+          loggedIn: this.loggedIn,
+          email: this.email,
+          user_id: this.user_id,
+          role: this.role,
+        })
       } else {
         console.log('❌ No user data in localStorage')
         this.email = null
