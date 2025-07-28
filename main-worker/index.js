@@ -2449,19 +2449,22 @@ export default {
           // Step 1: Generate invitation via email-worker
           let invitationData
           try {
-            const emailWorkerRequest = new Request('https://email-worker.torarnehave.workers.dev/generate-invitation', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
+            const emailWorkerRequest = new Request(
+              'https://email-worker.torarnehave.workers.dev/generate-invitation',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  recipientEmail,
+                  roomId,
+                  inviterName: userStore.displayName || userStore.email,
+                  inviterUserId: userStore.user_id,
+                  invitationMessage: invitationMessage || '',
+                }),
               },
-              body: JSON.stringify({
-                recipientEmail,
-                roomId,
-                inviterName: userStore.displayName || userStore.email,
-                inviterUserId: userStore.user_id,
-                invitationMessage: invitationMessage || '',
-              }),
-            })
+            )
 
             const emailWorkerResponse = await env.EMAIL_WORKER.fetch(emailWorkerRequest)
 
