@@ -3,7 +3,7 @@
 ## Test the New Custom Email Endpoint
 
 ```bash
-curl -X POST "https://slowyou.io/api/send-vegvisr-email" -H "Content-Type: application/json" -H "Authorization: Bearer YOUR_API_KEY_HERE" -d '{"email":"alivenesslab.org@gmail.com","template":"<html><body><h1>Test Invitation</h1><p>This is a test invitation email from vegvisr.org</p><a href=\"https://www.vegvisr.org/join-room?invitation=test123\">Join Room</a></body></html>","subject":"Test Invitation from Vegvisr","callbackUrl":"https://www.vegvisr.org/join-room?invitation=test123"}'
+curl -X POST "https://slowyou.io/api/send-vegvisr-email" -H "Content-Type: application/json" -H "Authorization: Bearer [API_KEY]" -d '{"email":"alivenesslab.org@gmail.com","template":"<html><body><h1>Test Invitation</h1><p>This is a test invitation email from vegvisr.org</p><a href=\"https://www.vegvisr.org/join-room?invitation=test123\">Join Room</a></body></html>","subject":"Test Invitation from Vegvisr","callbackUrl":"https://www.vegvisr.org/join-room?invitation=test123"}'
 ```
 
 ## What This Tests
