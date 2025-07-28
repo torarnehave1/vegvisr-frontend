@@ -1,0 +1,39 @@
+{
+  "id": "project-update-notification-template",
+  "name": "Project Update Notification",
+  "category": "Email Templates", 
+  "type": "email-template",
+  "description": "Email template for sending project updates and notifications to team members",
+  "nodes": [
+    {
+      "id": "email-template-project-update",
+      "type": "email-template",
+      "label": "Project Update Email",
+      "color": "#2196F3",
+      "info": {
+        "templateName": "Project Update Notification",
+        "subject": "Project Update: {projectName} - {updateType}",
+        "body": "Hi {recipientName},\n\nWe have an important update regarding the {projectName} project.\n\n**Update Type:** {updateType}\n**Status:** {projectStatus}\n**Next Milestone:** {nextMilestone}\n\n**Details:**\n{updateDetails}\n\n**Action Required:**\n{actionRequired}\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\n{senderName}\n{senderTitle}",
+        "recipients": "{teamEmail}",
+        "variables": {
+          "projectName": "Vegvisr Platform",
+          "updateType": "Weekly Progress Update",
+          "projectStatus": "On Track",
+          "nextMilestone": "Beta Release - August 15, 2025",
+          "updateDetails": "Frontend development is progressing well. Email template system has been successfully implemented.",
+          "actionRequired": "Please review the latest design mockups in the shared folder.",
+          "recipientName": "Team Member",
+          "teamEmail": "team@example.com",
+          "senderName": "Project Manager",
+          "senderTitle": "Development Team Lead"
+        }
+      },
+      "bibl": [],
+      "imageWidth": "100%",
+      "imageHeight": "100%", 
+      "visible": true,
+      "path": null
+    }
+  ],
+  "edges": []
+}
