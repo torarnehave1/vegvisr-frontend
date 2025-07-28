@@ -53,11 +53,21 @@ async function handleLogin() {
         )
         const userData = await userDataRes.json()
 
-        userStore.setUser({
+        console.log('🔐 Login successful, setting user data:', {
           email: email.value,
           role: roleData.role,
           emailVerificationToken: userData.emailVerificationToken,
+          user_id: userData.user_id,
         })
+
+        userStore.setUser({
+          email: email.value,
+          role: roleData.role,
+          user_id: userData.user_id,
+          emailVerificationToken: userData.emailVerificationToken,
+        })
+
+        console.log('✅ User data set, redirecting to home...')
         router.push('/') // Redirect to home page
       } else {
         alert('Unable to retrieve user role. Please contact support.')

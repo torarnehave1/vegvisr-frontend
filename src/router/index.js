@@ -254,14 +254,38 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/test-invitation',
+      name: 'test-invitation',
+      component: () => import('../views/TestInvitationView.vue'),
+      meta: {
+        requiresAuth: true, // Require authentication for testing
+        layout: null, // No layout for clean testing
+      },
+    },
   ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   console.log(`[Router] Navigating to: ${to.path}`)
 
   const userStore = useUserStore() // Access the Pinia store
-  // Removed redundant loadUserFromStorage() - now only called in App.vue
+
+  // If store hasn't been loaded yet, load it first
+  if (!userStore.loggedIn && !userStore.email) {
+    console.log('[Router] Store not loaded, loading from localStorage...')
+    userStore.loadUserFromStorage()
+
+    // Wait a bit for the store to update
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  console.log('[Router] Current user store state:', {
+    loggedIn: userStore.loggedIn,
+    email: userStore.email,
+    user_id: userStore.user_id,
+    role: userStore.role,
+  })
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {
@@ -275,6 +299,12 @@ router.beforeEach((to, from, next) => {
       next()
     } else {
       console.warn('[Router] User is not authenticated. Redirecting to login.')
+      console.log(
+        '[Router] Auth check failed - loggedIn:',
+        userStore.loggedIn,
+        'email:',
+        userStore.email,
+      )
       next({ path: '/login' })
     }
   } else {
