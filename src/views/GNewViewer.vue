@@ -307,7 +307,9 @@
                     }"
                   >
                     <div class="autocomplete-header">
-                      <span class="autocomplete-title">✨ Formatted Elements</span>
+                      <span class="autocomplete-title"
+                        >✨ Formatted Elements ({{ filteredElements.length }})</span
+                      >
                       <span class="autocomplete-hint">Press Tab or Enter to insert</span>
                     </div>
                     <div
@@ -326,7 +328,12 @@
                 </div>
                 <small class="form-text text-muted">
                   Type <code>[</code> or <code>![</code> to see available formatted elements with
-                  autocomplete
+                  autocomplete. Enhanced image positioning: <code>![Leftside-Small</code>,
+                  <code>![Rightside-Large</code>, <code>![Leftside-Circle</code>, etc. <br /><strong
+                    >Tip:</strong
+                  >
+                  Type <code>![Left</code> or <code>![Right</code> to see all image positioning
+                  variants.
                 </small>
               </div>
 
@@ -1118,6 +1125,10 @@
             <li>✅ [SECTION] element support</li>
             <li>✅ [IMAGEQUOTE] element support</li>
             <li>✅ [QUOTE] element support with citations</li>
+            <li>
+              ✅ Enhanced image positioning - ![Leftside/Rightside] with
+              Small/Medium/Large/Circle/Shadow variants
+            </li>
             <li>✅ GNewImageNode for images</li>
             <li>✅ GNewVideoNode for YouTube videos</li>
             <li>✅ GNewTitleNode for title content</li>
@@ -1133,7 +1144,10 @@
     <ImageSelector
       v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
       :is-open="isImageSelectorOpen"
-      :image-data="currentImageData"
+      :current-image-url="currentImageData.url"
+      :current-image-alt="currentImageData.alt"
+      :image-type="currentImageData.type"
+      :image-context="currentImageData.context"
       :graph-context="{ type: 'image-replacement' }"
       @close="closeImageSelector"
       @image-replaced="handleImageReplaced"
@@ -1564,18 +1578,136 @@ const formatElements = [
       "![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/HEADERIMG.png)",
     category: 'Media',
   },
+
+  // Enhanced Rightside Image Variants
+  {
+    trigger: '![Rightside-Small',
+    description: '➡️ Right side image - Small (120px)',
+    template:
+      "![Rightside-1|width: 120px; height: 120px; object-fit: 'cover'; object-position: 'center'; margin: '0 0 10px 15px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Medium',
+    description: '➡️ Right side image - Medium (200px)',
+    template:
+      "![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'; margin: '0 0 15px 20px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Large',
+    description: '➡️ Right side image - Large (300px)',
+    template:
+      "![Rightside-1|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'; margin: '0 0 20px 25px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Rounded',
+    description: '➡️ Right side image - Rounded corners',
+    template:
+      "![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'; border-radius: '15px'; margin: '0 0 15px 20px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Circle',
+    description: '➡️ Right side image - Circular',
+    template:
+      '![Rightside-1|width: 180px; height: 180px; object-fit: cover; object-position: center; border-radius: 50%; margin: 0 0 15px 20px](https://vegvisr.imgix.net/SIDEIMG.png)',
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Shadow',
+    description: '➡️ Right side image - With shadow effect',
+    template:
+      '![Rightside-1|width: 200px; height: 200px; object-fit: cover; object-position: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin: 0 0 15px 20px](https://vegvisr.imgix.net/SIDEIMG.png)',
+    category: 'Media',
+  },
   {
     trigger: '![Rightside',
-    description: '➡️ Right side image with text wrapping',
+    description: '➡️ Right side image - Default (200px)',
     template:
       "![Rightside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/SIDEIMG.png)",
     category: 'Media',
   },
+
+  // Enhanced Leftside Image Variants
+  {
+    trigger: '![Leftside-Small',
+    description: '⬅️ Left side image - Small (120px)',
+    template:
+      "![Leftside-1|width: 120px; height: 120px; object-fit: 'cover'; object-position: 'center'; margin: '0 15px 10px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Medium',
+    description: '⬅️ Left side image - Medium (200px)',
+    template:
+      "![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'; margin: '0 20px 15px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Large',
+    description: '⬅️ Left side image - Large (300px)',
+    template:
+      "![Leftside-1|width: 300px; height: 200px; object-fit: 'cover'; object-position: 'center'; margin: '0 25px 20px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Rounded',
+    description: '⬅️ Left side image - Rounded corners',
+    template:
+      "![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'; border-radius: '15px'; margin: '0 20px 15px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Circle',
+    description: '⬅️ Left side image - Circular',
+    template:
+      '![Leftside-1|width: 180px; height: 180px; object-fit: cover; object-position: center; border-radius: 50%; margin: 0 20px 15px 0](https://vegvisr.imgix.net/SIDEIMG.png)',
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Shadow',
+    description: '⬅️ Left side image - With shadow effect',
+    template:
+      '![Leftside-1|width: 200px; height: 200px; object-fit: cover; object-position: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin: 0 20px 15px 0](https://vegvisr.imgix.net/SIDEIMG.png)',
+    category: 'Media',
+  },
   {
     trigger: '![Leftside',
-    description: '⬅️ Left side image with text wrapping',
+    description: '⬅️ Left side image - Default (200px)',
     template:
       "![Leftside-1|width: 200px; height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+
+  // Additional Image Positioning Variants
+  {
+    trigger: '![Rightside-Wide',
+    description: '➡️ Right side image - Wide format (300x150)',
+    template:
+      "![Rightside-1|width: 300px; height: 150px; object-fit: 'cover'; object-position: 'center'; margin: '0 0 15px 20px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Wide',
+    description: '⬅️ Left side image - Wide format (300x150)',
+    template:
+      "![Leftside-1|width: 300px; height: 150px; object-fit: 'cover'; object-position: 'center'; margin: '0 20px 15px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Rightside-Portrait',
+    description: '➡️ Right side image - Portrait format (150x250)',
+    template:
+      "![Rightside-1|width: 150px; height: 250px; object-fit: 'cover'; object-position: 'center'; margin: '0 0 15px 20px'](https://vegvisr.imgix.net/SIDEIMG.png)",
+    category: 'Media',
+  },
+  {
+    trigger: '![Leftside-Portrait',
+    description: '⬅️ Left side image - Portrait format (150x250)',
+    template:
+      "![Leftside-1|width: 150px; height: 250px; object-fit: 'cover'; object-position: 'center'; margin: '0 20px 15px 0'](https://vegvisr.imgix.net/SIDEIMG.png)",
     category: 'Media',
   },
 
@@ -1603,6 +1735,43 @@ const formatElements = [
     template: '[pb]',
     category: 'Layout',
   },
+
+  // FLEXBOX elements
+  {
+    trigger: '[FLEXBOX]',
+    description: '📦 Flexible layout container with custom styling',
+    template:
+      '[FLEXBOX | gap: 20px; justify-content: center; align-items: flex-start]\n![Image](https://vegvisr.imgix.net/SIDEIMG.png) ![Image](https://vegvisr.imgix.net/SIDEIMG.png)\n[END FLEXBOX]',
+    category: 'Layout',
+  },
+  {
+    trigger: '[FLEXBOX-GALLERY]',
+    description: '🖼️ Image gallery with wrapping and center alignment',
+    template:
+      '[FLEXBOX-GALLERY]\n![Image|width: 150px; height: 100px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 150px; height: 100px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 150px; height: 100px](https://vegvisr.imgix.net/SIDEIMG.png)\n[END FLEXBOX]',
+    category: 'Layout',
+  },
+  {
+    trigger: '[FLEXBOX-ROW]',
+    description: '➡️ Simple horizontal row with space between items',
+    template:
+      '[FLEXBOX-ROW]\n![Image|width: 120px; height: 80px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 120px; height: 80px](https://vegvisr.imgix.net/SIDEIMG.png)\n[END FLEXBOX]',
+    category: 'Layout',
+  },
+  {
+    trigger: '[FLEXBOX-GRID]',
+    description: '📱 Grid-like layout with responsive wrapping',
+    template:
+      '[FLEXBOX-GRID]\n![Image|width: 100px; height: 100px; border-radius: 8px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 100px; height: 100px; border-radius: 8px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 100px; height: 100px; border-radius: 8px](https://vegvisr.imgix.net/SIDEIMG.png) ![Image|width: 100px; height: 100px; border-radius: 8px](https://vegvisr.imgix.net/SIDEIMG.png)\n[END FLEXBOX]',
+    category: 'Layout',
+  },
+  {
+    trigger: '[FLEXBOX-CARDS]',
+    description: '🃏 Card layout with equal height items',
+    template:
+      '[FLEXBOX-CARDS]\n**Card 1**\n![Thumbnail|width: 60px; height: 60px; border-radius: 50%](https://vegvisr.imgix.net/SIDEIMG.png)\nContent here\n\n**Card 2**\n![Thumbnail|width: 60px; height: 60px; border-radius: 50%](https://vegvisr.imgix.net/SIDEIMG.png)\nMore content\n[END FLEXBOX]',
+    category: 'Layout',
+  },
 ]
 
 // Computed property for filtered elements
@@ -1610,9 +1779,59 @@ const filteredElements = computed(() => {
   if (!currentTrigger.value) return []
 
   const trigger = currentTrigger.value.toLowerCase()
-  return formatElements
-    .filter((element) => element.trigger.toLowerCase().includes(trigger))
-    .slice(0, 8) // Limit to 8 results
+
+  // Special handling for just '[' - show common elements
+  if (trigger === '[') {
+    // Show a mix of common elements when user just types '['
+    const commonElements = formatElements.filter((element) => {
+      const lower = element.trigger.toLowerCase()
+      return lower.startsWith('[') || lower.startsWith('![')
+    })
+    return commonElements.slice(0, 15)
+  }
+
+  // Get all matching elements
+  const matchingElements = formatElements.filter((element) =>
+    element.trigger.toLowerCase().includes(trigger),
+  )
+
+  // Sort by relevance: exact prefix matches first, then partial matches
+  const sortedElements = matchingElements.sort((a, b) => {
+    const aLower = a.trigger.toLowerCase()
+    const bLower = b.trigger.toLowerCase()
+
+    // Exact prefix match gets highest priority
+    const aExactPrefix = aLower.startsWith(trigger)
+    const bExactPrefix = bLower.startsWith(trigger)
+
+    if (aExactPrefix && !bExactPrefix) return -1
+    if (!aExactPrefix && bExactPrefix) return 1
+
+    // If both are exact prefix matches, sort alphabetically
+    if (aExactPrefix && bExactPrefix) return aLower.localeCompare(bLower)
+
+    // Special prioritization for image elements
+    if (trigger.startsWith('![')) {
+      const aIsImage = aLower.startsWith('![')
+      const bIsImage = bLower.startsWith('![')
+      if (aIsImage && !bIsImage) return -1
+      if (!aIsImage && bIsImage) return 1
+
+      // Further prioritize Left/Right side elements when trigger suggests it
+      if (trigger.includes('left') || trigger.includes('right')) {
+        const aIsLeftRight = aLower.includes('leftside') || aLower.includes('rightside')
+        const bIsLeftRight = bLower.includes('leftside') || bLower.includes('rightside')
+        if (aIsLeftRight && !bIsLeftRight) return -1
+        if (!aIsLeftRight && bIsLeftRight) return 1
+      }
+    }
+
+    // Default alphabetical sort
+    return aLower.localeCompare(bLower)
+  })
+
+  // Increase limit to show more variants
+  return sortedElements.slice(0, 15)
 })
 
 // Reactive showAIShare - watch for userStore changes
@@ -3387,6 +3606,23 @@ watch(
   },
 )
 
+// Debug configuration for image replacement (toggle for debugging)
+const IMAGE_DEBUG = {
+  enabled: true, // Set to false to disable all debug logging
+  logReplacement: true,
+  logNodeData: true,
+  logApiCalls: true,
+}
+
+// Clean debug function for image operations
+const imageDebug = (category, message, data) => {
+  if (!IMAGE_DEBUG.enabled) return
+  if (!IMAGE_DEBUG[category]) return
+
+  console.log(`🖼️ [${category.toUpperCase()}] ${message}`)
+  if (data) console.log(data)
+}
+
 // Helper function to escape special regex characters
 const escapeRegExp = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -3467,8 +3703,7 @@ const closeGooglePhotosSelector = () => {
 
 // Image replacement handler
 const handleImageReplaced = async (replacementData) => {
-  console.log('=== GNew: Image Replaced ===')
-  console.log('Replacement data:', replacementData)
+  imageDebug('logReplacement', 'Image replacement started', replacementData)
 
   try {
     // Find the node to update
@@ -3479,22 +3714,100 @@ const handleImageReplaced = async (replacementData) => {
       throw new Error('Node not found for image replacement')
     }
 
-    let updatedContent = nodeToUpdate.info || ''
+    imageDebug('logNodeData', 'Node found for update', {
+      nodeId: nodeToUpdate.id,
+      nodeType: nodeToUpdate.type,
+      nodeLabel: nodeToUpdate.label,
+      hasInfo: !!nodeToUpdate.info,
+      infoLength: nodeToUpdate.info?.length || 0,
+      hasLabel: !!nodeToUpdate.label,
+      labelLength: nodeToUpdate.label?.length || 0,
+    })
+
+    // Determine which field contains the image URL based on node type
+    let contentField = 'info' // default
+    let updatedContent = ''
+
+    if (nodeToUpdate.type === 'markdown-image') {
+      // For markdown-image nodes, the URL is in the label field
+      contentField = 'label'
+      updatedContent = nodeToUpdate.label || ''
+    } else {
+      // For other node types, the URL is typically in the info field
+      contentField = 'info'
+      updatedContent = nodeToUpdate.info || ''
+    }
+
+    imageDebug('logReplacement', 'Content field determination', {
+      nodeType: nodeToUpdate.type,
+      contentField: contentField,
+      contentLength: updatedContent.length,
+      contentPreview: updatedContent.substring(0, 100),
+    })
+
     const oldUrl = replacementData.oldUrl
     const newUrl = replacementData.newUrl
 
-    // Replace the image URL in the node's info content
+    imageDebug('logReplacement', 'URL replacement parameters', {
+      oldUrl: oldUrl,
+      newUrl: newUrl,
+      oldUrlType: typeof oldUrl,
+      newUrlType: typeof newUrl,
+      updatedContentType: typeof updatedContent,
+      updatedContentLength: updatedContent.length,
+    })
+
+    // Safety check before calling replace
+    if (typeof oldUrl !== 'string') {
+      throw new Error(`oldUrl is not a string: ${typeof oldUrl} - ${oldUrl}`)
+    }
+    if (typeof newUrl !== 'string') {
+      throw new Error(`newUrl is not a string: ${typeof newUrl} - ${newUrl}`)
+    }
+    if (typeof updatedContent !== 'string') {
+      throw new Error(
+        `updatedContent is not a string: ${typeof updatedContent} - ${updatedContent}`,
+      )
+    }
+
+    // Replace the image URL in the node's content
+    const originalContent = updatedContent
     updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
 
-    // Update the node
-    nodeToUpdate.info = updatedContent
+    imageDebug('logReplacement', 'URL replacement completed successfully', {
+      replacementCount: originalContent.split(oldUrl).length - 1,
+      newContentLength: updatedContent.length,
+      contentField: contentField,
+      oldUrlFound: originalContent.includes(oldUrl),
+    })
+
+    // Update the correct field on the node
+    if (contentField === 'label') {
+      nodeToUpdate.label = updatedContent
+    } else {
+      nodeToUpdate.info = updatedContent
+    }
 
     const updatedGraphData = {
       ...graphData.value,
-      nodes: graphData.value.nodes.map((node) =>
-        node.id === nodeToUpdate.id ? { ...node, info: updatedContent } : node,
-      ),
+      nodes: graphData.value.nodes.map((node) => {
+        if (node.id === nodeToUpdate.id) {
+          // Update the correct field based on what was changed
+          if (contentField === 'label') {
+            return { ...node, label: updatedContent }
+          } else {
+            return { ...node, info: updatedContent }
+          }
+        }
+        return node
+      }),
     }
+
+    imageDebug('logApiCalls', 'Preparing API call to save graph', {
+      graphId: knowledgeGraphStore.currentGraphId,
+      totalNodes: updatedGraphData.nodes.length,
+      updatedNodeId: nodeToUpdate.id,
+    })
 
     // Save to backend
     const response = await fetch(
@@ -3510,11 +3823,21 @@ const handleImageReplaced = async (replacementData) => {
       },
     )
 
+    imageDebug('logApiCalls', 'API response received', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+    })
+
     if (!response.ok) {
       throw new Error('Failed to save the graph with updated image.')
     }
 
     await response.json()
+
+    imageDebug('logApiCalls', 'Graph saved successfully', {
+      message: 'Image replacement operation completed successfully',
+    })
 
     // Update store
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -3527,6 +3850,11 @@ const handleImageReplaced = async (replacementData) => {
       statusMessage.value = ''
     }, 3000)
 
+    imageDebug('logReplacement', 'Image replacement process completed', {
+      photographer: replacementData.photographer || 'Unknown',
+      finalMessage: 'All operations successful',
+    })
+
     console.log('GNew: Image update saved successfully')
 
     // Reattach image change listeners after DOM updates
@@ -3534,6 +3862,12 @@ const handleImageReplaced = async (replacementData) => {
       attachImageChangeListeners()
     })
   } catch (error) {
+    imageDebug('logReplacement', 'Error during image replacement', {
+      errorMessage: error.message,
+      errorStack: error.stack,
+      replacementData: replacementData,
+      currentImageData: currentImageData.value,
+    })
     console.error('GNew: Error updating image:', error)
     statusMessage.value = '❌ Failed to update the image. Please try again.'
     setTimeout(() => {
@@ -4008,11 +4342,14 @@ const handleEscKey = (event) => {
 
 .gnew-content {
   transition: margin-left 0.3s ease;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* Public Viewer Styles - Ultra Clean */
 .public-viewer {
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -4047,6 +4384,9 @@ const handleEscKey = (event) => {
 .admin-viewer {
   /* Inherits from .gnew-viewer styles */
   transition: margin-left 0.3s ease;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .gnew-header {
@@ -4163,10 +4503,17 @@ const handleEscKey = (event) => {
   padding: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   margin-bottom: 30px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .nodes-container {
   margin-top: 20px;
+  max-width: 1200px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .node-comments-section {
@@ -5165,8 +5512,9 @@ const handleEscKey = (event) => {
   z-index: 1000;
   min-width: 350px;
   max-width: 500px;
-  max-height: 400px;
+  max-height: 450px; /* Increased height for more items */
   overflow-y: auto;
+  font-size: 14px; /* Slightly smaller font for more items */
 }
 
 .autocomplete-header {
@@ -5190,13 +5538,13 @@ const handleEscKey = (event) => {
 }
 
 .autocomplete-item {
-  padding: 12px 16px;
+  padding: 10px 16px; /* Slightly reduced padding */
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px; /* Reduced gap */
 }
 
 .autocomplete-item:hover,
@@ -5276,5 +5624,163 @@ const handleEscKey = (event) => {
 .template-info p {
   margin: 0;
   font-size: 14px;
+}
+
+/* Bootstrap Override for FLEXBOX-GRID */
+.gnew-viewer .flexbox-container[style*='display: grid'],
+.gnew-viewer .flexbox-container[style*='grid-template-columns'],
+.gnew-viewer div[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  justify-items: center !important;
+  align-items: start !important;
+  max-width: 1000px !important;
+  margin: 25px auto !important;
+  justify-content: center !important;
+  width: 100% !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: minmax(120px, auto) !important;
+  flex-wrap: unset !important;
+  flex-direction: unset !important;
+  flex: unset !important;
+  flex-basis: unset !important;
+  flex-grow: unset !important;
+  flex-shrink: unset !important;
+}
+
+.gnew-viewer .flexbox-container[style*='display: grid'] .grid-item,
+.gnew-viewer .flexbox-container[style*='grid-template-columns'] .grid-item,
+.gnew-viewer div[style*='display: grid'] .grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 120px !important;
+  flex: unset !important;
+  flex-basis: unset !important;
+  flex-grow: unset !important;
+  flex-shrink: unset !important;
+}
+
+.gnew-viewer .flexbox-container[style*='display: grid'] .grid-item img,
+.gnew-viewer .flexbox-container[style*='grid-template-columns'] .grid-item img,
+.gnew-viewer div[style*='display: grid'] .grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Mobile responsive for grid */
+@media (max-width: 768px) {
+  .gnew-viewer .flexbox-container[style*='display: grid'],
+  .gnew-viewer .flexbox-container[style*='grid-template-columns'],
+  .gnew-viewer div[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+    max-width: 600px !important;
+  }
+
+  .gnew-viewer .flexbox-container[style*='display: grid'] .grid-item,
+  .gnew-viewer .flexbox-container[style*='grid-template-columns'] .grid-item,
+  .gnew-viewer div[style*='display: grid'] .grid-item {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* Bootstrap Grid for FLEXBOX-GRID */
+.gnew-viewer .flexbox-container.row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  margin: 25px auto !important;
+  max-width: 1000px !important;
+  width: 100% !important;
+}
+
+.gnew-viewer .flexbox-container.row .col-sm-4,
+.gnew-viewer .flexbox-container.row .col-6 {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10px !important;
+  text-align: center !important;
+}
+
+.gnew-viewer .flexbox-container.row .col-sm-4 img,
+.gnew-viewer .flexbox-container.row .col-6 img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+.gnew-viewer .flexbox-container.row .col-4 {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10px !important;
+  text-align: center !important;
+}
+
+.gnew-viewer .flexbox-container.row .col-4 img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* PURE CSS GRID STYLES FOR FLEXBOX-GRID */
+.gnew-viewer .flexbox-container[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  max-width: 1000px !important;
+  margin: 25px auto !important;
+  justify-items: center !important;
+  align-items: start !important;
+}
+
+.gnew-viewer .flexbox-container[style*='display: grid'] .grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+}
+
+.gnew-viewer .flexbox-container[style*='display: grid'] .grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* Mobile responsive for CSS Grid */
+@media (max-width: 768px) {
+  .gnew-viewer .flexbox-container[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .gnew-viewer .flexbox-container[style*='display: grid'] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
 }
 </style>

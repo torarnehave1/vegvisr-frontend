@@ -752,3 +752,749 @@ img.leftside {
     font-size: 0.75rem;
   }
 }
+
+/* FLEXBOX Container Global Styles - Override Bootstrap with Maximum Specificity */
+.gnew-default-node .flexbox-container,
+.rightside-content .flexbox-container,
+.node-content .flexbox-container,
+div.flexbox-container,
+.flexbox-container {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  margin: 25px 0 !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+  gap: 15px !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+}
+
+/* Ultra-specific Bootstrap overrides */
+.gnew-default-node .flexbox-container {
+  margin: 25px auto !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+}
+
+.rightside-content .flexbox-container {
+  margin: 25px auto !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+}
+
+/* Override any Bootstrap margin classes with node context */
+.gnew-default-node .flexbox-container.m-0,
+.gnew-default-node .flexbox-container.my-0,
+.gnew-default-node .flexbox-container.mt-0,
+.gnew-default-node .flexbox-container.mb-0,
+.rightside-content .flexbox-container.m-0,
+.rightside-content .flexbox-container.my-0,
+.rightside-content .flexbox-container.mt-0,
+.rightside-content .flexbox-container.mb-0,
+.flexbox-container.m-0,
+.flexbox-container.my-0,
+.flexbox-container.mt-0,
+.flexbox-container.mb-0 {
+  margin: 25px auto !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+}
+
+/* Bootstrap row/col override for FLEXBOX */
+.flexbox-container.row,
+.flexbox-container.col,
+.flexbox-container[class*='col-'] {
+  margin: 25px auto !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+  padding: 0 !important;
+}
+
+/* CSS Grid specific overrides for FLEXBOX-GRID */
+body .flexbox-container[style*='display: grid'],
+html body .flexbox-container[style*='display: grid'],
+body div[style*='display: grid'].flexbox-container,
+html body div[style*='display: grid'].flexbox-container {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: min-content !important;
+  justify-items: center !important;
+  align-items: start !important;
+  margin: 25px auto !important;
+  padding: 20px !important;
+  /* Debugging border for grid container */
+  border: 3px solid rgba(0, 0, 255, 0.5) !important;
+  background: rgba(0, 255, 0, 0.1) !important;
+}
+
+/* Bootstrap container override for FLEXBOX */
+.container .flexbox-container,
+.container-fluid .flexbox-container {
+  margin: 25px 0 !important;
+  margin-top: 25px !important;
+  margin-bottom: 25px !important;
+  width: 100% !important;
+}
+
+/* Force spacing around FLEXBOX with pseudo-elements if needed */
+.flexbox-container::before {
+  content: '';
+  display: block;
+  height: 25px;
+  width: 100%;
+  margin-top: -25px;
+}
+
+.flexbox-container::after {
+  content: '';
+  display: block;
+  height: 25px;
+  width: 100%;
+  margin-bottom: -25px;
+}
+
+.flexbox-container img {
+  max-width: 200px !important;
+  max-height: 150px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Ensure card images maintain size in edit mode */
+.flexbox-container .card-image img,
+.flexbox-container .flexbox-card img {
+  max-width: 200px !important;
+  max-height: 150px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+}
+
+.flexbox-container p {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* FLEXBOX CARD STYLES - Global Centering with Maximum Specificity */
+.flexbox-container .flexbox-card {
+  flex: 1 !important;
+  min-width: 200px !important;
+  max-width: 300px !important;
+  padding: 20px !important;
+  background: #f8f9fa !important;
+  border-radius: 12px !important;
+  border: 1px solid #dee2e6 !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  text-align: center !important;
+  align-items: center !important;
+}
+
+.flexbox-container .flexbox-card * {
+  text-align: center !important;
+}
+
+.flexbox-container .card-image {
+  margin-bottom: 15px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+.flexbox-container .card-image img {
+  display: block !important;
+  margin: 0 auto !important;
+}
+
+/* Edit Mode: Position buttons below images in cards */
+.flexbox-container .card-image .image-wrapper {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+/* Force edit buttons to appear below image in flexbox cards */
+.flexbox-container .card-image [class*='change-image'],
+.flexbox-container .card-image [class*='google'],
+.flexbox-container .card-image button,
+.flexbox-container .card-image .btn {
+  position: static !important;
+  margin: 5px 2px !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+}
+
+/* Container for edit buttons below image */
+.flexbox-container .card-image .edit-buttons {
+  display: flex !important;
+  gap: 5px !important;
+  margin-top: 8px !important;
+  justify-content: center !important;
+}
+
+.flexbox-container .card-title {
+  margin-bottom: 12px !important;
+  font-size: 1.1em !important;
+  color: #495057 !important;
+  border-bottom: 2px solid #007bff !important;
+  padding-bottom: 8px !important;
+  text-align: center !important;
+  width: 100% !important;
+  display: block !important;
+}
+
+.flexbox-container .card-text {
+  color: #6c757d !important;
+  line-height: 1.5 !important;
+  font-size: 0.95em !important;
+  flex-grow: 1 !important;
+  text-align: center !important;
+  width: 100% !important;
+  display: block !important;
+}
+
+/* Ensure thumbnails in cards don't get squashed */
+.flexbox-container img[style*='border-radius: 50%'] {
+  flex-shrink: 0 !important;
+  object-fit: cover !important;
+}
+
+/* FLEXBOX GALLERY STYLES - Gallery Layout with Maximum Specificity */
+.flexbox-container .gallery-item {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.flexbox-container .gallery-image {
+  max-width: 200px !important;
+  max-height: 150px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+}
+
+/* FLEXBOX GRID STYLES - Global Grid Layout with Maximum Specificity */
+.flexbox-element.flex-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+  gap: 1rem !important;
+}
+
+.flexbox-element .flexbox-item {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.flexbox-element .flexbox-item img {
+  width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+}
+
+/* FLEXBOX ELEMENT BASE STYLES */
+.flexbox-element {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 1rem !important;
+  align-items: flex-start !important;
+}
+
+/* FLEXBOX CONTAINER GRID STYLES - For FLEXBOX-GRID directive */
+.flexbox-container[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  justify-items: center !important;
+  align-items: start !important;
+  max-width: 600px !important;
+  margin: 25px auto !important;
+  justify-content: center !important;
+  width: 100% !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: minmax(120px, auto) !important;
+  flex-wrap: unset !important;
+  flex-direction: unset !important;
+}
+
+/* FLEXBOX-GRID COMPONENT STYLES - For Vue template rendering */
+.flexbox-grid-container {
+  display: block !important;
+  margin: 25px auto !important;
+  max-width: 800px !important;
+  width: 100% !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.flexbox-grid-items {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  justify-items: center !important;
+  align-items: start !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  /* Debug background to see the grid */
+  background: rgba(0, 255, 0, 0.1) !important;
+  border: 2px solid rgba(0, 255, 0, 0.3) !important;
+  padding: 20px !important;
+}
+
+.flexbox-grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-height: 120px !important;
+  box-sizing: border-box !important;
+  /* Debug background to see individual items */
+  background: rgba(255, 0, 0, 0.1) !important;
+  border: 1px dashed rgba(255, 0, 0, 0.3) !important;
+}
+
+.flexbox-grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.flexbox-container[style*='display: grid'] img {
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Grid item styling for proper grid layout */
+.flexbox-container .grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 120px !important;
+}
+
+.flexbox-container .grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+}
+
+.flexbox-element.flex-row {
+  flex-direction: row !important;
+  align-items: flex-start !important;
+}
+
+.flexbox-element.flex-column {
+  flex-direction: column !important;
+}
+
+.flexbox-element.flex-center {
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.flexbox-element.flex-between {
+  justify-content: space-between !important;
+}
+
+.flexbox-element.flex-around {
+  justify-content: space-around !important;
+}
+
+/* Responsive behavior for FLEXBOX - Override Bootstrap */
+@media (max-width: 768px) {
+  .gnew-default-node .flexbox-container,
+  .rightside-content .flexbox-container,
+  .node-content .flexbox-container,
+  div.flexbox-container,
+  .flexbox-container {
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+    margin: 20px 0 !important;
+    margin-top: 20px !important;
+    margin-bottom: 20px !important;
+  }
+
+  .flexbox-container img {
+    max-width: 180px !important;
+    max-height: 120px !important;
+  }
+
+  .flexbox-container::before {
+    height: 20px;
+    margin-top: -20px;
+  }
+
+  .flexbox-container::after {
+    height: 20px;
+    margin-bottom: -20px;
+  }
+
+  /* Mobile card adjustments */
+  .flexbox-container .flexbox-card {
+    min-width: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin-bottom: 15px !important;
+  }
+
+  /* Mobile flexbox element adjustments */
+  .flexbox-element {
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+  }
+
+  .flexbox-element.flex-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .flexbox-element .flexbox-item {
+    flex: none !important;
+  }
+
+  /* Mobile-specific flexbox container adjustments */
+  .flexbox-container[style*='justify-content: center'] {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+  }
+
+  .flexbox-container[style*='justify-content: flex-start'] > * {
+    min-width: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin-bottom: 15px !important;
+  }
+
+  /* Mobile grid adjustments */
+  .flexbox-container[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+    max-width: 600px !important;
+  }
+
+  /* Mobile flexbox-grid component adjustments */
+  .flexbox-grid-items {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+    padding: 15px !important;
+  }
+
+  .flexbox-grid-item {
+    min-height: 100px !important;
+  }
+
+  .flexbox-container[style*='display: grid'] img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  .flexbox-container .grid-item {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* ULTRA-SPECIFIC BOOTSTRAP OVERRIDES FOR FLEXBOX-GRID */
+body .flexbox-container[style*='display: grid'],
+body .flexbox-container[style*='grid-template-columns'],
+body div[style*='display: grid'],
+html body .flexbox-container[style*='display: grid'],
+html body .flexbox-container[style*='grid-template-columns'],
+html body div[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  justify-items: center !important;
+  align-items: start !important;
+  max-width: 1000px !important;
+  margin: 25px auto !important;
+  justify-content: center !important;
+  width: 100% !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: minmax(120px, auto) !important;
+  flex-wrap: unset !important;
+  flex-direction: unset !important;
+  flex: unset !important;
+  flex-basis: unset !important;
+  flex-grow: unset !important;
+  flex-shrink: unset !important;
+  float: none !important;
+  clear: both !important;
+}
+
+body .flexbox-container[style*='display: grid'] .grid-item,
+body .flexbox-container[style*='grid-template-columns'] .grid-item,
+body div[style*='display: grid'] .grid-item,
+html body .flexbox-container[style*='display: grid'] .grid-item,
+html body .flexbox-container[style*='grid-template-columns'] .grid-item,
+html body div[style*='display: grid'] .grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 120px !important;
+  flex: unset !important;
+  flex-basis: unset !important;
+  flex-grow: unset !important;
+  flex-shrink: unset !important;
+  float: none !important;
+  clear: none !important;
+  /* Debugging borders to visualize grid cells */
+  border: 2px dashed rgba(255, 0, 0, 0.3) !important;
+  background: rgba(255, 255, 0, 0.1) !important;
+  /* Ensure proper grid positioning */
+  position: relative !important;
+  box-sizing: border-box !important;
+}
+
+body .flexbox-container[style*='display: grid'] .grid-item img,
+body .flexbox-container[style*='grid-template-columns'] .grid-item img,
+body div[style*='display: grid'] .grid-item img,
+html body .flexbox-container[style*='display: grid'] .grid-item img,
+html body .flexbox-container[style*='grid-template-columns'] .grid-item img,
+html body div[style*='display: grid'] .grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  float: none !important;
+  clear: none !important;
+}
+
+/* Mobile responsive for ultra-specific grid overrides */
+@media (max-width: 768px) {
+  body .flexbox-container[style*='display: grid'],
+  body .flexbox-container[style*='grid-template-columns'],
+  body div[style*='display: grid'],
+  html body .flexbox-container[style*='display: grid'],
+  html body .flexbox-container[style*='grid-template-columns'],
+  html body div[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+    max-width: 400px !important;
+  }
+
+  body .flexbox-container[style*='display: grid'] .grid-item,
+  body .flexbox-container[style*='grid-template-columns'] .grid-item,
+  body div[style*='display: grid'] .grid-item,
+  html body .flexbox-container[style*='display: grid'] .grid-item,
+  html body .flexbox-container[style*='grid-template-columns'] .grid-item,
+  html body div[style*='display: grid'] .grid-item {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* BOOTSTRAP GRID STYLES FOR FLEXBOX-GRID */
+.flexbox-container.row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  margin: 25px auto !important;
+  max-width: 1000px !important;
+  width: 100% !important;
+}
+
+.flexbox-container.row .col-sm-4,
+.flexbox-container.row .col-6 {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10px !important;
+  text-align: center !important;
+}
+
+.flexbox-container.row .col-sm-4 img,
+.flexbox-container.row .col-6 img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* GRID COLUMN STYLES FOR FLEXBOX-GRID */
+.flexbox-container .grid-col {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10px !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
+
+.flexbox-container .grid-col img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* CSS Grid container styles */
+.flexbox-container[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  justify-items: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  max-width: 860px !important;
+  margin: 25px auto !important;
+  box-sizing: border-box !important;
+}
+
+/* Ensure the flexbox container itself centers properly */
+.flexbox-container[style*='justify-content: center'] {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Force centering for grid containers */
+.flexbox-container[style*='display: flex'] {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+/* Mobile responsive for grid columns */
+@media (max-width: 768px) {
+  .flexbox-container .grid-col {
+    flex: 0 0 calc(50% - 10px) !important;
+    max-width: calc(50% - 10px) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .flexbox-container .grid-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* Mobile responsive for grid columns */
+@media (max-width: 768px) {
+  .flexbox-container[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .flexbox-container[style*='display: grid'] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+}
+
+.flexbox-container.row .col-4 {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10px !important;
+  text-align: center !important;
+}
+
+.flexbox-container.row .col-4 img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* PURE CSS GRID STYLES FOR FLEXBOX-GRID */
+.flexbox-container[style*='display: grid'] {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  max-width: 1000px !important;
+  margin: 25px auto !important;
+  justify-items: center !important;
+  align-items: start !important;
+}
+
+.flexbox-container[style*='display: grid'] .grid-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+}
+
+.flexbox-container[style*='display: grid'] .grid-item img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  margin: 0 auto !important;
+}
+
+/* Mobile responsive for CSS Grid */
+@media (max-width: 768px) {
+  .flexbox-container[style*='display: grid'] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .flexbox-container[style*='display: grid'] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+}

@@ -41,6 +41,11 @@ const router = createRouter({
       component: () => import('../views/FrontPage.vue'),
     },
     {
+      path: '/flexbox-test',
+      name: 'flexbox-test',
+      component: () => import('../views/FlexboxGridTest.vue'),
+    },
+    {
       path: '/openAI',
       name: 'openAI',
       component: () => import('../views/OAiView.vue'),
