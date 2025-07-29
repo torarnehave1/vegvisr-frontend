@@ -71,6 +71,12 @@
           <div v-if="contentPart.citation" class="quote-citation">— {{ contentPart.citation }}</div>
         </div>
 
+        <!-- FLEXBOX-GRID element using dedicated component -->
+        <FlexboxGrid
+          v-else-if="contentPart.type === 'flexbox-grid'"
+          :content="contentPart.content"
+        />
+
         <!-- Unknown formatted element -->
         <div v-else-if="contentPart.type === 'unknown'" class="unknown-element">
           <div class="unknown-header">
@@ -96,6 +102,7 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
+import FlexboxGrid from '@/components/FlexboxGrid.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -332,6 +339,111 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
 
   // Note: IMAGEQUOTE elements are now handled separately in parsedContent to create structured objects
 
+  // 8. Process FLEXBOX-GALLERY elements
+  processedText = processedText.replace(
+    /\[FLEXBOX-GALLERY\]([\s\S]*?)\[END\s+FLEXBOX\]/gs,
+    (match, content) => {
+      const cleanContent = content.trim()
+
+      // Process each image and wrap it in a proper container
+      let processedContent = cleanContent
+
+      // Handle regular markdown images and wrap each in a gallery item container
+      processedContent = processedContent.replace(
+        /!\[([^\]]*?)\]\(([^)]+)\)/g,
+        (imgMatch, altText, url) => {
+          return `<div class="gallery-item"><img src="${url}" alt="${altText}" class="gallery-image"></div>`
+        },
+      )
+
+      // Remove any line breaks that might interfere with flexbox
+      processedContent = processedContent.replace(/\n+/g, ' ').trim()
+
+      // Use flexbox layout with proper centering for gallery
+      const galleryStyles =
+        'display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: flex-start; max-width: 1000px'
+
+      return `\n\n<div class="flexbox-container" style="${galleryStyles}; margin: 25px auto;">${processedContent}</div>\n\n`
+    },
+  )
+
+  // 9. Process FLEXBOX-CARDS elements
+  processedText = processedText.replace(
+    /\[FLEXBOX-CARDS\]([\s\S]*?)\[END\s+FLEXBOX\]/gs,
+    (match, content) => {
+      const cleanContent = content.trim()
+
+      // Parse the content to extract complete cards
+      const cards = []
+      let currentCard = { title: '', image: '', text: '' }
+      let cardStarted = false
+
+      const lines = cleanContent
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line)
+
+      for (const line of lines) {
+        // Check for markdown title (bold text) - this starts a new card
+        const titleMatch = line.match(/^\*\*(.+?)\*\*$/)
+        if (titleMatch) {
+          // If we have a previous card that was started, save it
+          if (cardStarted && (currentCard.title || currentCard.image || currentCard.text)) {
+            cards.push({ ...currentCard })
+          }
+          // Start new card
+          currentCard = { title: titleMatch[1], image: '', text: '' }
+          cardStarted = true
+          continue
+        }
+
+        // Check for markdown image
+        const imageMatch = line.match(/!\[([^\]]*?)\]\(([^)]+)\)/)
+        if (imageMatch && cardStarted) {
+          const [, altText, url] = imageMatch
+          currentCard.image = `<img src="${url}" alt="${altText}" class="card-image">`
+          continue
+        }
+
+        // Everything else is text content
+        if (line && cardStarted) {
+          currentCard.text += (currentCard.text ? ' ' : '') + line
+        }
+      }
+
+      // Don't forget the last card
+      if (cardStarted && (currentCard.title || currentCard.image || currentCard.text)) {
+        cards.push(currentCard)
+      }
+
+      // Build the cards HTML
+      const processedCards = cards
+        .map((card) => {
+          let cardHTML = '<div class="flexbox-card">'
+
+          if (card.image) {
+            cardHTML += `<div class="card-image">${card.image}</div>`
+          }
+          if (card.title) {
+            cardHTML += `<h4 class="card-title">${card.title}</h4>`
+          }
+          if (card.text) {
+            cardHTML += `<div class="card-text">${card.text}</div>`
+          }
+
+          cardHTML += '</div>'
+          return cardHTML
+        })
+        .join('')
+
+      // Use flexbox layout for cards
+      const cardStyles =
+        'display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; max-width: 1000px'
+
+      return `\n\n<div class="flexbox-container" style="${cardStyles}; margin: 25px auto;">${processedCards}</div>\n\n`
+    },
+  )
+
   return processedText
 }
 
@@ -561,6 +673,67 @@ const parsedContent = computed(() => {
   try {
     const parts = []
     let remainingText = nodeContent.value
+
+    // Check for FLEXBOX-GRID blocks first (but not other FLEXBOX types)
+    const flexboxGridRegex = /\[FLEXBOX-GRID\]([\s\S]*?)\[END\s+FLEXBOX\]/gs
+    const flexboxMatches = [...nodeContent.value.matchAll(flexboxGridRegex)]
+
+    if (flexboxMatches.length > 0) {
+      let lastIndex = 0
+
+      for (const match of flexboxMatches) {
+        // Add text before this FLEXBOX-GRID block
+        if (match.index > lastIndex) {
+          const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
+          if (beforeText) {
+            const processedBefore = parseFormattedElements(beforeText)
+            let finalContent = marked(processedBefore, { breaks: true })
+
+            if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+              finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
+              finalContent = addImagequoteChangeButtons(
+                finalContent,
+                props.node.id,
+                nodeContent.value,
+              )
+            }
+
+            parts.push({ type: 'text', content: finalContent })
+          }
+        }
+
+        // Add the FLEXBOX-GRID block
+        const gridContent = match[1].trim()
+        parts.push({
+          type: 'flexbox-grid',
+          content: gridContent,
+        })
+
+        lastIndex = match.index + match[0].length
+      }
+
+      // Add any remaining text after the last FLEXBOX-GRID
+      if (lastIndex < nodeContent.value.length) {
+        const afterText = nodeContent.value.slice(lastIndex).trim()
+        if (afterText) {
+          const processedAfter = parseFormattedElements(afterText)
+          let finalContent = marked(processedAfter, { breaks: true })
+
+          if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+            finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
+            finalContent = addImagequoteChangeButtons(
+              finalContent,
+              props.node.id,
+              nodeContent.value,
+            )
+          }
+
+          parts.push({ type: 'text', content: finalContent })
+        }
+      }
+
+      return parts
+    }
 
     // Extract IMAGEQUOTE elements first and create structured objects
     const imagequoteRegex = /\[IMAGEQUOTE\s*([^\]]*)\]([\s\S]*?)\[END\s+IMAGEQUOTE\]/gs
