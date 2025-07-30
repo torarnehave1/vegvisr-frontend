@@ -3781,6 +3781,33 @@ const handleImageReplaced = async (replacementData) => {
       oldUrlFound: originalContent.includes(oldUrl),
     })
 
+    // Store attribution data in the node if available
+    if (replacementData.attribution && replacementData.attribution.requires_attribution) {
+      imageDebug('logReplacement', 'Storing attribution data', replacementData.attribution)
+      
+      // Initialize imageAttributions as an object if it doesn't exist
+      if (!nodeToUpdate.imageAttributions) {
+        nodeToUpdate.imageAttributions = {}
+      }
+      
+      // Store attribution data keyed by the new image URL
+      nodeToUpdate.imageAttributions[newUrl] = {
+        provider: replacementData.attribution.provider,
+        photographer: replacementData.attribution.photographer,
+        photographer_url: replacementData.attribution.photographer_url,
+        photographer_username: replacementData.attribution.photographer_username,
+        unsplash_url: replacementData.attribution.unsplash_url,
+        pexels_url: replacementData.attribution.pexels_url,
+        requires_attribution: replacementData.attribution.requires_attribution,
+        attribution_text: replacementData.attribution.provider === 'unsplash' 
+          ? `Photo by ${replacementData.attribution.photographer} on Unsplash`
+          : replacementData.attribution.provider === 'pexels'
+          ? `Photo by ${replacementData.attribution.photographer} on Pexels`
+          : `Photo by ${replacementData.attribution.photographer}`,
+        timestamp: Date.now()
+      }
+    }
+
     // Update the correct field on the node
     if (contentField === 'label') {
       nodeToUpdate.label = updatedContent
@@ -3792,11 +3819,12 @@ const handleImageReplaced = async (replacementData) => {
       ...graphData.value,
       nodes: graphData.value.nodes.map((node) => {
         if (node.id === nodeToUpdate.id) {
-          // Update the correct field based on what was changed
+          // Update the correct field based on what was changed and include imageAttributions
+          const updatedNode = { ...node, imageAttributions: nodeToUpdate.imageAttributions }
           if (contentField === 'label') {
-            return { ...node, label: updatedContent }
+            return { ...updatedNode, label: updatedContent }
           } else {
-            return { ...node, info: updatedContent }
+            return { ...updatedNode, info: updatedContent }
           }
         }
         return node

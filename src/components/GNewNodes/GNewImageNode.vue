@@ -15,15 +15,28 @@
 
     <!-- Image Container -->
     <div class="image-container" :style="imageContainerStyles">
-      <img
-        v-if="imageUrl"
-        :src="imageUrl"
-        :alt="imageAlt"
-        :style="imageStyles"
-        class="node-image"
-        @error="handleImageError"
-        @load="handleImageLoad"
-      />
+      <!-- Image with Attribution -->
+      <div v-if="imageUrl" class="image-change-wrapper">
+        <img
+          :src="imageUrl"
+          :alt="imageAlt"
+          :style="imageStyles"
+          class="node-image"
+          @error="handleImageError"
+          @load="handleImageLoad"
+        />
+
+        <!-- Attribution Overlay or Below -->
+        <div
+          v-if="imageAttribution"
+          :class="imageAttribution.isSmall ? 'image-attribution-below' : 'image-attribution-overlay'"
+        >
+          <div 
+            :class="imageAttribution.isSmall ? 'attribution-text-below' : 'attribution-text'" 
+            v-html="imageAttribution.html"
+          ></div>
+        </div>
+      </div>
 
       <!-- Image Error State -->
       <div v-else-if="imageError" class="image-error-state">
@@ -231,6 +244,52 @@ const nodeTypeDisplay = computed(() => {
   return typeLabels[type] || type.charAt(0).toUpperCase() + type.slice(1)
 })
 
+// Attribution computation
+const imageAttribution = computed(() => {
+  if (!props.node.imageAttributions || !imageUrl.value) {
+    return null
+  }
+
+  const attribution = props.node.imageAttributions[imageUrl.value]
+  if (!attribution) {
+    return null
+  }
+
+  // Check if this is a small contextual image (Rightside/Leftside with small dimensions)
+  const isSmallContextualImage = props.node.type === 'markdown-image' && 
+                                props.node.label && 
+                                (props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?width:\s*\d{1,3}px/i) ||
+                                 props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?height:\s*\d{1,3}px/i))
+
+  if (attribution.provider === 'pexels') {
+    const photographerName = attribution.photographer || 'Unknown'
+    const photographerUrl = attribution.photographer_url || '#'
+    const pexelsUrl = attribution.pexels_url || 'https://www.pexels.com'
+
+    return {
+      html: `Photo by <a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a> on <a href="${pexelsUrl}" target="_blank" rel="noopener" class="pexels-link">Pexels</a>`,
+      isSmall: isSmallContextualImage
+    }
+  }
+
+  if (attribution.provider === 'unsplash') {
+    const photographerName = attribution.photographer || 'Unknown'
+    const photographerUsername = attribution.photographer_username || photographerName.toLowerCase().replace(/\s+/g, '')
+    const unsplashUrl = attribution.unsplash_url || 'https://unsplash.com'
+    
+    // Unsplash requires UTM parameters for attribution links
+    const photographerUrl = `https://unsplash.com/@${photographerUsername}?utm_source=vegvisr&utm_medium=referral`
+    const photoUrl = `${unsplashUrl}?utm_source=vegvisr&utm_medium=referral`
+
+    return {
+      html: `Photo by <a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a> on <a href="${photoUrl}" target="_blank" rel="noopener" class="unsplash-link">Unsplash</a>`,
+      isSmall: isSmallContextualImage
+    }
+  }
+
+  return null
+})
+
 // Methods
 const parseMarkdownImage = () => {
   const regex = /!\[.*?\|(.+?)\]\((.+?)\)/
@@ -281,7 +340,76 @@ onMounted(() => {
   if (imageUrl.value) {
     imageLoading.value = true
   }
+  
+  // Add change image button functionality for attribution support
+  addChangeImageButtons()
 })
+
+// Methods for attribution support
+const addChangeImageButtons = () => {
+  if (typeof window === 'undefined') return
+
+  setTimeout(() => {
+    const changeImageBtns = document.querySelectorAll('.change-image-btn')
+    const googlePhotosBtns = document.querySelectorAll('.google-photos-btn')
+    
+    changeImageBtns.forEach(btn => {
+      if (!btn.hasClickListener) {
+        btn.addEventListener('click', handleChangeImageClick)
+        btn.hasClickListener = true
+      }
+    })
+    
+    googlePhotosBtns.forEach(btn => {
+      if (!btn.hasClickListener) {
+        btn.addEventListener('click', handleGooglePhotosClick)
+        btn.hasClickListener = true
+      }
+    })
+  }, 100)
+}
+
+const handleChangeImageClick = (event) => {
+  const btn = event.target
+  const imageUrl = btn.dataset.imageUrl
+  const imageAlt = btn.dataset.imageAlt
+  const imageType = btn.dataset.imageType
+  const imageContext = btn.dataset.imageContext
+  const nodeId = btn.dataset.nodeId
+  const nodeContent = btn.dataset.nodeContent
+
+  if (typeof window !== 'undefined' && window.openImageSelector) {
+    window.openImageSelector({
+      currentImageUrl: imageUrl,
+      currentImageAlt: imageAlt,
+      imageType: imageType,
+      context: imageContext,
+      nodeId: nodeId,
+      nodeContent: nodeContent
+    })
+  }
+}
+
+const handleGooglePhotosClick = (event) => {
+  const btn = event.target
+  const imageUrl = btn.dataset.imageUrl
+  const imageAlt = btn.dataset.imageAlt
+  const imageType = btn.dataset.imageType
+  const imageContext = btn.dataset.imageContext
+  const nodeId = btn.dataset.nodeId
+  const nodeContent = btn.dataset.nodeContent
+
+  if (typeof window !== 'undefined' && window.openGooglePhotosSelector) {
+    window.openGooglePhotosSelector({
+      currentImageUrl: imageUrl,
+      currentImageAlt: imageAlt,
+      imageType: imageType,
+      context: imageContext,
+      nodeId: nodeId,
+      nodeContent: nodeContent
+    })
+  }
+}
 </script>
 
 <style scoped>
@@ -331,11 +459,140 @@ onMounted(() => {
   margin-bottom: 15px;
 }
 
+.image-change-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
 .node-image {
   max-width: 100%;
   height: auto;
   display: block;
   border-radius: 8px;
+}
+
+/* Image Attribution Overlay Styles */
+.image-attribution-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  padding: clamp(4px, 2vw, 12px) clamp(6px, 3vw, 12px) clamp(6px, 2.5vw, 10px);
+  font-size: clamp(0.6rem, 1.5vw, 0.8rem);
+  line-height: 1.2;
+  z-index: 2;
+  container-type: inline-size;
+}
+
+/* For smaller images (width <= 300px), show attribution below instead of overlay */
+@container (max-width: 300px) {
+  .image-attribution-overlay {
+    position: static;
+    background: none;
+    padding: 8px 0 0 0;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    border-top: 1px solid #e9ecef;
+    margin-top: 8px;
+  }
+  
+  .attribution-text {
+    color: #495057 !important;
+    text-shadow: none !important;
+  }
+  
+  .attribution-text a {
+    color: #007bff !important;
+    border-bottom: 1px solid rgba(0, 123, 255, 0.3) !important;
+  }
+  
+  .attribution-text a:hover {
+    color: #0056b3 !important;
+    border-bottom-color: #0056b3 !important;
+    text-shadow: none !important;
+  }
+}
+
+/* For medium images (301px - 500px), use smaller overlay */
+@container (min-width: 301px) and (max-width: 500px) {
+  .image-attribution-overlay {
+    font-size: 0.7rem;
+    padding: 6px 8px 8px;
+    line-height: 1.15;
+  }
+}
+
+/* For larger images (501px+), use full overlay */
+@container (min-width: 501px) {
+  .image-attribution-overlay {
+    font-size: 0.8rem;
+    padding: 8px 12px 10px;
+    line-height: 1.2;
+  }
+}
+
+.attribution-text {
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.attribution-text a {
+  color: #ffffff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  transition: all 0.2s ease;
+}
+
+.attribution-text a:hover {
+  color: #f8f9fa;
+  border-bottom-color: #f8f9fa;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.photographer-link {
+  font-weight: 500;
+}
+
+.pexels-link,
+.unsplash-link {
+  font-weight: 600;
+}
+
+/* Attribution below image (for small contextual images like Rightside/Leftside) */
+.image-attribution-below {
+  margin-top: 4px;
+  padding: 6px 0;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  border-top: 1px solid #e9ecef;
+  text-align: left;
+}
+
+.attribution-text-below {
+  color: #495057;
+  font-size: 0.7rem;
+}
+
+.attribution-text-below a {
+  color: #007bff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0, 123, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+.attribution-text-below a:hover {
+  color: #0056b3;
+  border-bottom-color: #0056b3;
+}
+
+.attribution-text-below .photographer-link {
+  font-weight: 500;
+}
+
+.attribution-text-below .provider-link {
+  font-weight: 600;
 }
 
 .image-error-state,

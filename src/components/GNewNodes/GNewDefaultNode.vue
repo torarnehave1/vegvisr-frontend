@@ -59,6 +59,55 @@
           >
             — {{ contentPart.citation }}
           </div>
+          <!-- Attribution overlay for IMAGEQUOTE background images -->
+          <div
+            v-if="contentPart.attribution && contentPart.attribution.requires_attribution"
+            class="imagequote-attribution-overlay"
+          >
+            <div class="imagequote-attribution-text">
+              <span v-if="contentPart.attribution.provider === 'unsplash'">
+                Photo by 
+                <a 
+                  :href="`${contentPart.attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral`"
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="photographer-link"
+                >
+                  {{ contentPart.attribution.photographer }}
+                </a> on 
+                <a 
+                  href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="provider-link"
+                >
+                  Unsplash
+                </a>
+              </span>
+              <span v-else-if="contentPart.attribution.provider === 'pexels'">
+                Photo by 
+                <a 
+                  :href="contentPart.attribution.photographer_url"
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="photographer-link"
+                >
+                  {{ contentPart.attribution.photographer }}
+                </a> on 
+                <a 
+                  :href="contentPart.attribution.pexels_url"
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="provider-link"
+                >
+                  Pexels
+                </a>
+              </span>
+              <span v-else>
+                Photo by {{ contentPart.attribution.photographer }}
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- QUOTE element -->
@@ -482,6 +531,97 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     img.parentNode.insertBefore(imageWrapper, img)
     imageWrapper.appendChild(img)
 
+    // Check if this image has attribution data in the node
+    const nodeImageAttributions = props.node.imageAttributions || {}
+    const attribution = nodeImageAttributions[imageUrl]
+    
+    // Create attribution if attribution data exists
+    if (attribution && attribution.requires_attribution) {
+      // Determine if this is a small contextual image (Rightside/Leftside)
+      const isSmallContextualImage = imageType === 'Rightside' || imageType === 'Leftside' || 
+                                   imageAlt.match(/^(Rightside|Leftside)-\d+/i)
+      
+      if (isSmallContextualImage) {
+        // For small contextual images, add attribution below the image
+        const attributionDiv = document.createElement('div')
+        attributionDiv.className = 'image-attribution-below'
+        
+        const attributionText = document.createElement('div')
+        attributionText.className = 'attribution-text-below'
+        
+        if (attribution.provider === 'unsplash') {
+          attributionText.innerHTML = `
+            Photo by 
+            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral" 
+               target="_blank" rel="noopener noreferrer" class="photographer-link">
+              ${attribution.photographer}
+            </a> on 
+            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" 
+               target="_blank" rel="noopener noreferrer" class="provider-link">
+              Unsplash
+            </a>
+          `
+        } else if (attribution.provider === 'pexels') {
+          attributionText.innerHTML = `
+            Photo by 
+            <a href="${attribution.photographer_url}" 
+               target="_blank" rel="noopener noreferrer" class="photographer-link">
+              ${attribution.photographer}
+            </a> on 
+            <a href="${attribution.pexels_url}" 
+               target="_blank" rel="noopener noreferrer" class="provider-link">
+              Pexels
+            </a>
+          `
+        } else {
+          attributionText.innerHTML = `Photo by ${attribution.photographer}`
+        }
+        
+        attributionDiv.appendChild(attributionText)
+        
+        // Insert attribution after the image wrapper
+        imageWrapper.parentNode.insertBefore(attributionDiv, imageWrapper.nextSibling)
+      } else {
+        // For larger images (Header, etc.), use overlay
+        const attributionOverlay = document.createElement('div')
+        attributionOverlay.className = 'image-attribution-overlay'
+        
+        const attributionText = document.createElement('div')
+        attributionText.className = 'attribution-text'
+        
+        if (attribution.provider === 'unsplash') {
+          attributionText.innerHTML = `
+            Photo by 
+            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral" 
+               target="_blank" rel="noopener noreferrer" class="photographer-link">
+              ${attribution.photographer}
+            </a> on 
+            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" 
+               target="_blank" rel="noopener noreferrer" class="provider-link">
+              Unsplash
+            </a>
+          `
+        } else if (attribution.provider === 'pexels') {
+          attributionText.innerHTML = `
+            Photo by 
+            <a href="${attribution.photographer_url}" 
+               target="_blank" rel="noopener noreferrer" class="photographer-link">
+              ${attribution.photographer}
+            </a> on 
+            <a href="${attribution.pexels_url}" 
+               target="_blank" rel="noopener noreferrer" class="provider-link">
+              Pexels
+            </a>
+          `
+        } else {
+          attributionText.innerHTML = `Photo by ${attribution.photographer}`
+        }
+        
+        attributionOverlay.appendChild(attributionText)
+        imageWrapper.appendChild(attributionOverlay)
+      }
+    }
+
     // Create button container
     const buttonContainer = document.createElement('div')
     buttonContainer.className = 'image-button-container'
@@ -722,12 +862,19 @@ const parsedContent = computed(() => {
         fontSize: imageQuoteParams.fontSize || '1.5rem',
       }
 
+      // Check for attribution data for this IMAGEQUOTE background image
+      const nodeImageAttributions = props.node.imageAttributions || {}
+      const backgroundImageUrl = imageQuoteParams.backgroundImage
+      const attribution = backgroundImageUrl ? nodeImageAttributions[backgroundImageUrl] : null
+
       parts.push({
         type: 'IMAGEQUOTE',
         content: content,
         citation: imageQuoteParams.cited || null,
         containerStyles: containerStyles,
         contentStyles: contentStyles,
+        backgroundImageUrl: backgroundImageUrl,
+        attribution: attribution,
       })
 
       lastIndex = imagequoteRegex.lastIndex
@@ -1248,6 +1395,173 @@ const convertStylesToString = (styleObj) => {
   justify-content: center;
   margin-top: 10px;
   margin-bottom: 15px;
+}
+
+/* Image Attribution Overlay Styles */
+.node-content :deep(.image-change-wrapper) {
+  position: relative;
+  display: inline-block;
+}
+
+.node-content :deep(.image-attribution-overlay) {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  padding: clamp(4px, 2vw, 12px) clamp(6px, 3vw, 12px) clamp(6px, 2.5vw, 10px);
+  font-size: clamp(0.6rem, 1.5vw, 0.8rem);
+  line-height: 1.2;
+  z-index: 2;
+  container-type: inline-size;
+}
+
+/* For smaller images (width <= 300px), show attribution below instead of overlay */
+@container (max-width: 300px) {
+  .node-content :deep(.image-attribution-overlay) {
+    position: static;
+    background: none;
+    padding: 8px 0 0 0;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    border-top: 1px solid #e9ecef;
+    margin-top: 8px;
+  }
+  
+  .node-content :deep(.attribution-text) {
+    color: #495057 !important;
+    text-shadow: none !important;
+  }
+  
+  .node-content :deep(.attribution-text a) {
+    color: #007bff !important;
+    border-bottom: 1px solid rgba(0, 123, 255, 0.3) !important;
+  }
+  
+  .node-content :deep(.attribution-text a:hover) {
+    color: #0056b3 !important;
+    border-bottom-color: #0056b3 !important;
+    text-shadow: none !important;
+  }
+}
+
+/* For medium images (301px - 500px), use smaller overlay */
+@container (min-width: 301px) and (max-width: 500px) {
+  .node-content :deep(.image-attribution-overlay) {
+    font-size: 0.7rem;
+    padding: 6px 8px 8px;
+    line-height: 1.15;
+  }
+}
+
+/* For larger images (501px+), use full overlay */
+@container (min-width: 501px) {
+  .node-content :deep(.image-attribution-overlay) {
+    font-size: 0.8rem;
+    padding: 8px 12px 10px;
+    line-height: 1.2;
+  }
+}
+
+.node-content :deep(.attribution-text) {
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.node-content :deep(.attribution-text a) {
+  color: #ffffff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  transition: all 0.2s ease;
+}
+
+.node-content :deep(.attribution-text a:hover) {
+  color: #f8f9fa;
+  border-bottom-color: #f8f9fa;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.node-content :deep(.photographer-link) {
+  font-weight: 500;
+}
+
+.node-content :deep(.provider-link) {
+  font-weight: 600;
+}
+
+/* Attribution below image (for small contextual images like Rightside/Leftside) */
+.node-content :deep(.image-attribution-below) {
+  margin-top: 4px;
+  padding: 6px 0;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  border-top: 1px solid #e9ecef;
+  text-align: left;
+}
+
+.node-content :deep(.attribution-text-below) {
+  color: #495057;
+  font-size: 0.7rem;
+}
+
+.node-content :deep(.attribution-text-below a) {
+  color: #007bff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0, 123, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+.node-content :deep(.attribution-text-below a:hover) {
+  color: #0056b3;
+  border-bottom-color: #0056b3;
+}
+
+.node-content :deep(.attribution-text-below .photographer-link) {
+  font-weight: 500;
+}
+
+.node-content :deep(.attribution-text-below .provider-link) {
+  font-weight: 600;
+}
+
+/* IMAGEQUOTE Attribution Overlay Styles */
+.imagequote-attribution-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
+  padding: 8px 15px 12px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  z-index: 3;
+}
+
+.imagequote-attribution-text {
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  opacity: 0.9;
+}
+
+.imagequote-attribution-text a {
+  color: #ffffff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+  transition: all 0.2s ease;
+}
+
+.imagequote-attribution-text a:hover {
+  color: #f8f9fa;
+  border-bottom-color: #f8f9fa;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.imagequote-attribution-text .photographer-link {
+  font-weight: 500;
+}
+
+.imagequote-attribution-text .provider-link {
+  font-weight: 600;
 }
 
 .node-content :deep(.imagequote-image-btn) {
