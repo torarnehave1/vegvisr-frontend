@@ -308,13 +308,23 @@
             <!-- Prominent provider attribution -->
             <span v-if="searchProvider === 'pexels'" class="provider-attribution">
               • Photos provided by
-              <a href="https://www.pexels.com/" target="_blank" rel="noopener noreferrer" class="pexels-brand-link">
+              <a
+                href="https://www.pexels.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="pexels-brand-link"
+              >
                 Pexels
               </a>
             </span>
             <span v-else-if="searchProvider === 'unsplash'" class="provider-attribution">
               • Photos provided by
-              <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" target="_blank" rel="noopener noreferrer" class="unsplash-brand-link">
+              <a
+                href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="unsplash-brand-link"
+              >
                 Unsplash
               </a>
             </span>
@@ -656,18 +666,18 @@ const replaceImage = async () => {
             requires_attribution: true,
           }
         : selectedImage.value.pexels_url
-        ? {
-            provider: 'pexels',
-            photographer: selectedImage.value.photographer,
-            photographer_url: selectedImage.value.photographer_url,
-            pexels_url: selectedImage.value.pexels_url,
-            requires_attribution: true,
-          }
-        : {
-            provider: 'custom',
-            photographer: selectedImage.value.photographer,
-            requires_attribution: false,
-          },
+          ? {
+              provider: 'pexels',
+              photographer: selectedImage.value.photographer,
+              photographer_url: selectedImage.value.photographer_url,
+              pexels_url: selectedImage.value.pexels_url,
+              requires_attribution: true,
+            }
+          : {
+              provider: 'custom',
+              photographer: selectedImage.value.photographer,
+              requires_attribution: false,
+            },
     })
 
     closeModal()

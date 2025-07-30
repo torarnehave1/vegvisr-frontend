@@ -3798,7 +3798,9 @@ const searchPexelsImages = async (query, env, count = 1) => {
         url: photo.src.medium, // Use medium size for performance
         alt: photo.alt || query,
         photographer: photo.photographer,
-        photographer_url: photo.photographer_url || `https://www.pexels.com/@${photo.photographer.toLowerCase().replace(/\s+/g, '-')}`, // Photographer profile on Pexels
+        photographer_url:
+          photo.photographer_url ||
+          `https://www.pexels.com/@${photo.photographer.toLowerCase().replace(/\s+/g, '-')}`, // Photographer profile on Pexels
         pexels_url: photo.url || `https://www.pexels.com/photo/${photo.id}/`, // Direct link to photo page on Pexels
         id: photo.id,
         width: photo.width,
@@ -3812,8 +3814,8 @@ const searchPexelsImages = async (query, env, count = 1) => {
           small: photo.src.small,
           portrait: photo.src.portrait,
           landscape: photo.src.landscape,
-          tiny: photo.src.tiny
-        }
+          tiny: photo.src.tiny,
+        },
       }))
     } else {
       console.log('No Pexels images found for query:', query)
