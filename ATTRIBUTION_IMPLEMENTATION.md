@@ -5,11 +5,13 @@
 ### Features Implemented
 
 1. **Responsive Attribution Display**
+
    - **Small images (≤300px width)**: Attribution text appears BELOW the image with black text for better readability
    - **Medium images (301-500px width)**: Smaller overlay with reduced padding
    - **Large images (≥501px width)**: Full overlay with white text on dark background
 
 2. **Node Type Support**
+
    - ✅ **GNewDefaultNode**: Fulltext nodes with attribution overlays
    - ✅ **GNewImageNode**: Markdown-image nodes with attribution support
 
@@ -20,6 +22,7 @@
 ### Technical Implementation
 
 #### Responsive Breakpoints
+
 ```css
 /* Small images - attribution below */
 @container (max-width: 300px) {
@@ -43,16 +46,17 @@
 ```
 
 #### Attribution Data Structure
+
 ```javascript
 node.imageAttributions = {
   [imageUrl]: {
     provider: 'pexels' | 'unsplash',
     photographer: 'Photographer Name',
     photographer_url: 'https://...',
-    pexels_url: 'https://...',      // For Pexels
-    unsplash_url: 'https://...',    // For Unsplash
-    photographer_username: '...',   // For Unsplash UTM
-  }
+    pexels_url: 'https://...', // For Pexels
+    unsplash_url: 'https://...', // For Unsplash
+    photographer_username: '...', // For Unsplash UTM
+  },
 }
 ```
 
@@ -66,6 +70,7 @@ node.imageAttributions = {
 ### Files Modified
 
 1. `src/components/GNewNodes/GNewDefaultNode.vue`
+
    - Updated CSS with responsive attribution display
    - Enhanced container queries for different image sizes
 
@@ -78,6 +83,7 @@ node.imageAttributions = {
 ### Testing
 
 The implementation now provides:
+
 - ✅ Attribution visible in ImageSelector modal
 - ✅ Attribution overlays in fulltext nodes (responsive)
 - ✅ Attribution support in markdown-image nodes (responsive)

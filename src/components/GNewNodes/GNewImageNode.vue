@@ -29,10 +29,12 @@
         <!-- Attribution Overlay or Below -->
         <div
           v-if="imageAttribution"
-          :class="imageAttribution.isSmall ? 'image-attribution-below' : 'image-attribution-overlay'"
+          :class="
+            imageAttribution.isSmall ? 'image-attribution-below' : 'image-attribution-overlay'
+          "
         >
-          <div 
-            :class="imageAttribution.isSmall ? 'attribution-text-below' : 'attribution-text'" 
+          <div
+            :class="imageAttribution.isSmall ? 'attribution-text-below' : 'attribution-text'"
             v-html="imageAttribution.html"
           ></div>
         </div>
@@ -256,10 +258,11 @@ const imageAttribution = computed(() => {
   }
 
   // Check if this is a small contextual image (Rightside/Leftside with small dimensions)
-  const isSmallContextualImage = props.node.type === 'markdown-image' && 
-                                props.node.label && 
-                                (props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?width:\s*\d{1,3}px/i) ||
-                                 props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?height:\s*\d{1,3}px/i))
+  const isSmallContextualImage =
+    props.node.type === 'markdown-image' &&
+    props.node.label &&
+    (props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?width:\s*\d{1,3}px/i) ||
+      props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?height:\s*\d{1,3}px/i))
 
   if (attribution.provider === 'pexels') {
     const photographerName = attribution.photographer || 'Unknown'
@@ -268,22 +271,23 @@ const imageAttribution = computed(() => {
 
     return {
       html: `Photo by <a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a> on <a href="${pexelsUrl}" target="_blank" rel="noopener" class="pexels-link">Pexels</a>`,
-      isSmall: isSmallContextualImage
+      isSmall: isSmallContextualImage,
     }
   }
 
   if (attribution.provider === 'unsplash') {
     const photographerName = attribution.photographer || 'Unknown'
-    const photographerUsername = attribution.photographer_username || photographerName.toLowerCase().replace(/\s+/g, '')
+    const photographerUsername =
+      attribution.photographer_username || photographerName.toLowerCase().replace(/\s+/g, '')
     const unsplashUrl = attribution.unsplash_url || 'https://unsplash.com'
-    
+
     // Unsplash requires UTM parameters for attribution links
     const photographerUrl = `https://unsplash.com/@${photographerUsername}?utm_source=vegvisr&utm_medium=referral`
     const photoUrl = `${unsplashUrl}?utm_source=vegvisr&utm_medium=referral`
 
     return {
       html: `Photo by <a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a> on <a href="${photoUrl}" target="_blank" rel="noopener" class="unsplash-link">Unsplash</a>`,
-      isSmall: isSmallContextualImage
+      isSmall: isSmallContextualImage,
     }
   }
 
@@ -340,7 +344,7 @@ onMounted(() => {
   if (imageUrl.value) {
     imageLoading.value = true
   }
-  
+
   // Add change image button functionality for attribution support
   addChangeImageButtons()
 })
@@ -352,15 +356,15 @@ const addChangeImageButtons = () => {
   setTimeout(() => {
     const changeImageBtns = document.querySelectorAll('.change-image-btn')
     const googlePhotosBtns = document.querySelectorAll('.google-photos-btn')
-    
-    changeImageBtns.forEach(btn => {
+
+    changeImageBtns.forEach((btn) => {
       if (!btn.hasClickListener) {
         btn.addEventListener('click', handleChangeImageClick)
         btn.hasClickListener = true
       }
     })
-    
-    googlePhotosBtns.forEach(btn => {
+
+    googlePhotosBtns.forEach((btn) => {
       if (!btn.hasClickListener) {
         btn.addEventListener('click', handleGooglePhotosClick)
         btn.hasClickListener = true
@@ -385,7 +389,7 @@ const handleChangeImageClick = (event) => {
       imageType: imageType,
       context: imageContext,
       nodeId: nodeId,
-      nodeContent: nodeContent
+      nodeContent: nodeContent,
     })
   }
 }
@@ -406,7 +410,7 @@ const handleGooglePhotosClick = (event) => {
       imageType: imageType,
       context: imageContext,
       nodeId: nodeId,
-      nodeContent: nodeContent
+      nodeContent: nodeContent,
     })
   }
 }
@@ -497,17 +501,17 @@ const handleGooglePhotosClick = (event) => {
     border-top: 1px solid #e9ecef;
     margin-top: 8px;
   }
-  
+
   .attribution-text {
     color: #495057 !important;
     text-shadow: none !important;
   }
-  
+
   .attribution-text a {
     color: #007bff !important;
     border-bottom: 1px solid rgba(0, 123, 255, 0.3) !important;
   }
-  
+
   .attribution-text a:hover {
     color: #0056b3 !important;
     border-bottom-color: #0056b3 !important;
