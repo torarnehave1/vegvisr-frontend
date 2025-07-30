@@ -173,6 +173,25 @@
       <div class="search-section" :class="{ 'search-section-compact': searchResults.length > 0 }">
         <h4>🔍 Search New Images</h4>
 
+        <!-- Image Provider Toggle -->
+        <div class="provider-toggle-section">
+          <label class="provider-toggle-label">Image Source:</label>
+          <div class="provider-toggle">
+            <button
+              @click="searchProvider = 'pexels'"
+              :class="['provider-btn', { active: searchProvider === 'pexels' }]"
+            >
+              📷 Pexels
+            </button>
+            <button
+              @click="searchProvider = 'unsplash'"
+              :class="['provider-btn', { active: searchProvider === 'unsplash' }]"
+            >
+              🎨 Unsplash
+            </button>
+          </div>
+        </div>
+
         <!-- Upload and AI Generation Options -->
         <div class="image-source-options">
           <button
@@ -284,7 +303,22 @@
       <div v-if="searchResults.length > 0" class="results-section">
         <div class="results-header">
           <h4>🎨 Search Results</h4>
-          <div class="results-count">{{ searchResults.length }} professional images found</div>
+          <div class="results-count">
+            {{ searchResults.length }} professional images found
+            <!-- Prominent provider attribution -->
+            <span v-if="searchProvider === 'pexels'" class="provider-attribution">
+              • Photos provided by
+              <a href="https://www.pexels.com/" target="_blank" rel="noopener noreferrer" class="pexels-brand-link">
+                Pexels
+              </a>
+            </span>
+            <span v-else-if="searchProvider === 'unsplash'" class="provider-attribution">
+              • Photos provided by
+              <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" target="_blank" rel="noopener noreferrer" class="unsplash-brand-link">
+                Unsplash
+              </a>
+            </span>
+          </div>
         </div>
         <div class="image-grid">
           <div
@@ -297,7 +331,50 @@
             <img :src="image.url" :alt="image.alt" />
             <div class="image-overlay">
               <div class="image-info">
-                <p class="photographer">📸 {{ image.photographer }}</p>
+                <!-- Proper attribution for Unsplash images -->
+                <div v-if="image.photographer_username" class="attribution">
+                  <p class="photographer">
+                    📸 Photo by
+                    <a
+                      :href="`${image.photographer_url}?utm_source=vegvisr&utm_medium=referral`"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="photographer-link"
+                      >{{ image.photographer }}</a
+                    >
+                    on
+                    <a
+                      href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="unsplash-link"
+                      >Unsplash</a
+                    >
+                  </p>
+                </div>
+                <!-- Proper attribution for Pexels images -->
+                <div v-else-if="image.pexels_url" class="attribution">
+                  <p class="photographer">
+                    📸 Photo by
+                    <a
+                      :href="image.photographer_url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="photographer-link"
+                      >{{ image.photographer }}</a
+                    >
+                    on
+                    <a
+                      :href="image.pexels_url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="pexels-link"
+                      >Pexels</a
+                    >
+                  </p>
+                </div>
+                <!-- Fallback attribution -->
+                <p v-else class="photographer">📸 {{ image.photographer }}</p>
                 <p class="image-size">{{ getImageDimensions(image) }}</p>
               </div>
               <div v-if="selectedImage?.id === image.id" class="selected-indicator">✓ Selected</div>
@@ -308,7 +385,9 @@
 
       <div v-if="searching || uploading" class="loading-section">
         <div class="loading-spinner"></div>
-        <p v-if="searching">Searching Pexels for images...</p>
+        <p v-if="searching">
+          Searching {{ searchProvider === 'unsplash' ? 'Unsplash' : 'Pexels' }} for images...
+        </p>
         <p v-if="uploading">📤 Uploading pasted image...</p>
       </div>
 
@@ -323,7 +402,50 @@
         <div class="selected-image-preview" v-if="selectedImage">
           <h5>Selected Image Preview</h5>
           <img :src="selectedImage.url" :alt="selectedImage.alt" class="preview-image" />
-          <p class="preview-info">By {{ selectedImage.photographer }}</p>
+          <!-- Proper attribution in preview for Unsplash images -->
+          <div v-if="selectedImage.photographer_username" class="preview-attribution">
+            <p class="preview-info">
+              Photo by
+              <a
+                :href="`${selectedImage.photographer_url}?utm_source=vegvisr&utm_medium=referral`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="photographer-link"
+                >{{ selectedImage.photographer }}</a
+              >
+              on
+              <a
+                href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="unsplash-link"
+                >Unsplash</a
+              >
+            </p>
+          </div>
+          <!-- Proper attribution in preview for Pexels images -->
+          <div v-else-if="selectedImage.pexels_url" class="preview-attribution">
+            <p class="preview-info">
+              Photo by
+              <a
+                :href="selectedImage.photographer_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="photographer-link"
+                >{{ selectedImage.photographer }}</a
+              >
+              on
+              <a
+                :href="selectedImage.pexels_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="pexels-link"
+                >Pexels</a
+              >
+            </p>
+          </div>
+          <!-- Simple attribution fallback -->
+          <p v-else class="preview-info">By {{ selectedImage.photographer }}</p>
         </div>
 
         <div v-else-if="searchResults.length > 0" class="replacement-info">
@@ -398,6 +520,7 @@ const replacing = ref(false)
 const error = ref('')
 const pastedImage = ref(null)
 const uploading = ref(false)
+const searchProvider = ref('pexels') // 'pexels' or 'unsplash'
 
 // Upload and AI Generation state
 const isUploadingImage = ref(false)
@@ -447,7 +570,12 @@ const searchImages = async () => {
   error.value = ''
 
   try {
-    const response = await fetch('https://api.vegvisr.org/pexels-search', {
+    const endpoint =
+      searchProvider.value === 'unsplash'
+        ? 'https://api.vegvisr.org/unsplash-search'
+        : 'https://api.vegvisr.org/pexels-search'
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -491,12 +619,55 @@ const replaceImage = async () => {
   replacing.value = true
 
   try {
+    // Track download for Unsplash images (required by Unsplash API guidelines)
+    if (selectedImage.value.download_location && searchProvider.value === 'unsplash') {
+      try {
+        console.log('📊 Tracking Unsplash download for compliance...')
+        await fetch(`${API_BASE}/unsplash-download`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            download_location: selectedImage.value.download_location,
+          }),
+        })
+        console.log('✅ Unsplash download tracked successfully')
+      } catch (downloadError) {
+        console.warn('⚠️ Failed to track Unsplash download:', downloadError)
+        // Continue with image replacement even if tracking fails
+      }
+    }
+
     emit('image-replaced', {
       oldUrl: props.currentImageUrl,
       newUrl: selectedImage.value.url,
       newAlt: selectedImage.value.alt,
       photographer: selectedImage.value.photographer,
       imageType: props.imageType,
+      // Add provider-specific attribution data
+      attribution: selectedImage.value.download_location
+        ? {
+            provider: 'unsplash',
+            photographer: selectedImage.value.photographer,
+            photographer_username: selectedImage.value.photographer_username,
+            photographer_url: selectedImage.value.photographer_url,
+            unsplash_url: selectedImage.value.unsplash_url,
+            requires_attribution: true,
+          }
+        : selectedImage.value.pexels_url
+        ? {
+            provider: 'pexels',
+            photographer: selectedImage.value.photographer,
+            photographer_url: selectedImage.value.photographer_url,
+            pexels_url: selectedImage.value.pexels_url,
+            requires_attribution: true,
+          }
+        : {
+            provider: 'custom',
+            photographer: selectedImage.value.photographer,
+            requires_attribution: false,
+          },
     })
 
     closeModal()
@@ -1817,6 +1988,40 @@ watch(
   color: white;
 }
 
+.provider-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.provider-toggle button {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6c757d;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.provider-toggle button.active {
+  background: #6f42c1;
+  color: white;
+  box-shadow: 0 2px 4px rgba(111, 66, 193, 0.2);
+}
+
+.provider-toggle button:hover:not(.active) {
+  background: #e9ecef;
+  color: #495057;
+}
+
 .clipboard-paste-area {
   margin: 15px 0;
   padding: 15px;
@@ -2062,6 +2267,52 @@ watch(
 
 .photographer {
   font-weight: 500;
+}
+
+.photographer-link,
+.unsplash-link,
+.pexels-link {
+  color: #007bff;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.photographer-link:hover,
+.unsplash-link:hover,
+.pexels-link:hover {
+  text-decoration: underline;
+}
+
+.provider-attribution {
+  font-size: 0.8rem;
+  color: #666;
+  margin-left: 8px;
+}
+
+.pexels-brand-link,
+.unsplash-brand-link {
+  color: #007bff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.pexels-brand-link:hover,
+.unsplash-brand-link:hover {
+  text-decoration: underline;
+}
+
+.attribution {
+  margin-bottom: 4px;
+}
+
+.preview-attribution {
+  margin-top: 8px;
+}
+
+.preview-attribution .preview-info {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0;
 }
 
 .image-size {
