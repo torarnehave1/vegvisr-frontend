@@ -1006,6 +1006,71 @@ html body div[style*='display: grid'].flexbox-container {
   display: block !important;
 }
 
+/* FLEXBOX CARDS COLUMN STYLES - Responsive Flexbox Layout */
+.flexbox-container[class*='flexbox-cards-'] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  gap: 20px !important;
+  margin: 25px auto !important;
+  max-width: 1200px !important;
+}
+
+/* Calculate card width based on column count */
+.flexbox-container.flexbox-cards-1 .flexbox-card {
+  width: 100% !important;
+  max-width: 600px !important;
+}
+
+.flexbox-container.flexbox-cards-2 .flexbox-card {
+  width: calc(50% - 10px) !important;
+  max-width: none !important;
+  min-width: 280px !important;
+}
+
+.flexbox-container.flexbox-cards-3 .flexbox-card {
+  width: calc(33.333% - 14px) !important;
+  max-width: none !important;
+  min-width: 250px !important;
+}
+
+.flexbox-container.flexbox-cards-4 .flexbox-card {
+  width: calc(25% - 15px) !important;
+  max-width: none !important;
+  min-width: 200px !important;
+}
+
+.flexbox-container.flexbox-cards-5 .flexbox-card {
+  width: calc(20% - 16px) !important;
+  max-width: none !important;
+  min-width: 180px !important;
+}
+
+.flexbox-container.flexbox-cards-6 .flexbox-card {
+  width: calc(16.666% - 17px) !important;
+  max-width: none !important;
+  min-width: 160px !important;
+}
+
+/* Responsive behavior - maintain proper layout on smaller screens */
+@media (max-width: 768px) {
+  .flexbox-container[class*='flexbox-cards-'] .flexbox-card {
+    width: 100% !important;
+    min-width: auto !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .flexbox-container.flexbox-cards-3 .flexbox-card,
+  .flexbox-container.flexbox-cards-4 .flexbox-card,
+  .flexbox-container.flexbox-cards-5 .flexbox-card,
+  .flexbox-container.flexbox-cards-6 .flexbox-card {
+    width: calc(50% - 10px) !important;
+    min-width: 250px !important;
+  }
+}
+
 /* FLEXBOX GRID STYLES - Global Grid Layout with Maximum Specificity */
 .flexbox-element.flex-grid {
   display: grid !important;

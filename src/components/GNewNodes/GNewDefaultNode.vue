@@ -77,6 +77,19 @@
           :content="contentPart.content"
         />
 
+        <!-- FLEXBOX-CARDS element using dedicated component -->
+        <FlexboxCards
+          v-else-if="contentPart.type === 'flexbox-cards'"
+          :content="contentPart.content"
+          :columnCount="contentPart.columnCount"
+        />
+
+        <!-- FLEXBOX-GALLERY element using dedicated component -->
+        <FlexboxGallery
+          v-else-if="contentPart.type === 'flexbox-gallery'"
+          :content="contentPart.content"
+        />
+
         <!-- Unknown formatted element -->
         <div v-else-if="contentPart.type === 'unknown'" class="unknown-element">
           <div class="unknown-header">
@@ -103,6 +116,8 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import FlexboxGrid from '@/components/FlexboxGrid.vue'
+import FlexboxCards from '@/components/FlexboxCards.vue'
+import FlexboxGallery from '@/components/FlexboxGallery.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -338,111 +353,7 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
   )
 
   // Note: IMAGEQUOTE elements are now handled separately in parsedContent to create structured objects
-
-  // 8. Process FLEXBOX-GALLERY elements
-  processedText = processedText.replace(
-    /\[FLEXBOX-GALLERY\]([\s\S]*?)\[END\s+FLEXBOX\]/gs,
-    (match, content) => {
-      const cleanContent = content.trim()
-
-      // Process each image and wrap it in a proper container
-      let processedContent = cleanContent
-
-      // Handle regular markdown images and wrap each in a gallery item container
-      processedContent = processedContent.replace(
-        /!\[([^\]]*?)\]\(([^)]+)\)/g,
-        (imgMatch, altText, url) => {
-          return `<div class="gallery-item"><img src="${url}" alt="${altText}" class="gallery-image"></div>`
-        },
-      )
-
-      // Remove any line breaks that might interfere with flexbox
-      processedContent = processedContent.replace(/\n+/g, ' ').trim()
-
-      // Use flexbox layout with proper centering for gallery
-      const galleryStyles =
-        'display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: flex-start; max-width: 1000px'
-
-      return `\n\n<div class="flexbox-container" style="${galleryStyles}; margin: 25px auto;">${processedContent}</div>\n\n`
-    },
-  )
-
-  // 9. Process FLEXBOX-CARDS elements
-  processedText = processedText.replace(
-    /\[FLEXBOX-CARDS\]([\s\S]*?)\[END\s+FLEXBOX\]/gs,
-    (match, content) => {
-      const cleanContent = content.trim()
-
-      // Parse the content to extract complete cards
-      const cards = []
-      let currentCard = { title: '', image: '', text: '' }
-      let cardStarted = false
-
-      const lines = cleanContent
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line)
-
-      for (const line of lines) {
-        // Check for markdown title (bold text) - this starts a new card
-        const titleMatch = line.match(/^\*\*(.+?)\*\*$/)
-        if (titleMatch) {
-          // If we have a previous card that was started, save it
-          if (cardStarted && (currentCard.title || currentCard.image || currentCard.text)) {
-            cards.push({ ...currentCard })
-          }
-          // Start new card
-          currentCard = { title: titleMatch[1], image: '', text: '' }
-          cardStarted = true
-          continue
-        }
-
-        // Check for markdown image
-        const imageMatch = line.match(/!\[([^\]]*?)\]\(([^)]+)\)/)
-        if (imageMatch && cardStarted) {
-          const [, altText, url] = imageMatch
-          currentCard.image = `<img src="${url}" alt="${altText}" class="card-image">`
-          continue
-        }
-
-        // Everything else is text content
-        if (line && cardStarted) {
-          currentCard.text += (currentCard.text ? ' ' : '') + line
-        }
-      }
-
-      // Don't forget the last card
-      if (cardStarted && (currentCard.title || currentCard.image || currentCard.text)) {
-        cards.push(currentCard)
-      }
-
-      // Build the cards HTML
-      const processedCards = cards
-        .map((card) => {
-          let cardHTML = '<div class="flexbox-card">'
-
-          if (card.image) {
-            cardHTML += `<div class="card-image">${card.image}</div>`
-          }
-          if (card.title) {
-            cardHTML += `<h4 class="card-title">${card.title}</h4>`
-          }
-          if (card.text) {
-            cardHTML += `<div class="card-text">${card.text}</div>`
-          }
-
-          cardHTML += '</div>'
-          return cardHTML
-        })
-        .join('')
-
-      // Use flexbox layout for cards
-      const cardStyles =
-        'display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; max-width: 1000px'
-
-      return `\n\n<div class="flexbox-container" style="${cardStyles}; margin: 25px auto;">${processedCards}</div>\n\n`
-    },
-  )
+  // Note: FLEXBOX elements (GRID, CARDS, GALLERY) are now handled as structured components in parsedContent
 
   return processedText
 }
@@ -672,17 +583,16 @@ const parsedContent = computed(() => {
 
   try {
     const parts = []
-    let remainingText = nodeContent.value
 
-    // Check for FLEXBOX-GRID blocks first (but not other FLEXBOX types)
-    const flexboxGridRegex = /\[FLEXBOX-GRID\]([\s\S]*?)\[END\s+FLEXBOX\]/gs
-    const flexboxMatches = [...nodeContent.value.matchAll(flexboxGridRegex)]
+    // Extract all FLEXBOX elements first (GRID, CARDS, GALLERY) to create structured objects
+    const flexboxRegex = /\[FLEXBOX-(GRID|CARDS(?:-(\d+))?|GALLERY)\]([\s\S]*?)\[END\s+FLEXBOX\]/gs
+    const flexboxMatches = [...nodeContent.value.matchAll(flexboxRegex)]
 
     if (flexboxMatches.length > 0) {
       let lastIndex = 0
 
       for (const match of flexboxMatches) {
-        // Add text before this FLEXBOX-GRID block
+        // Add text before this FLEXBOX block
         if (match.index > lastIndex) {
           const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
           if (beforeText) {
@@ -702,17 +612,33 @@ const parsedContent = computed(() => {
           }
         }
 
-        // Add the FLEXBOX-GRID block
-        const gridContent = match[1].trim()
-        parts.push({
-          type: 'flexbox-grid',
-          content: gridContent,
-        })
+        // Determine FLEXBOX type and create structured object
+        const flexboxType = match[1].toLowerCase()
+        const content = match[3].trim()
+
+        if (flexboxType === 'grid') {
+          parts.push({
+            type: 'flexbox-grid',
+            content: content,
+          })
+        } else if (flexboxType.startsWith('cards')) {
+          const columnCount = match[2] ? parseInt(match[2], 10) : 3
+          parts.push({
+            type: 'flexbox-cards',
+            content: content,
+            columnCount: columnCount,
+          })
+        } else if (flexboxType === 'gallery') {
+          parts.push({
+            type: 'flexbox-gallery',
+            content: content,
+          })
+        }
 
         lastIndex = match.index + match[0].length
       }
 
-      // Add any remaining text after the last FLEXBOX-GRID
+      // Add any remaining text after the last FLEXBOX
       if (lastIndex < nodeContent.value.length) {
         const afterText = nodeContent.value.slice(lastIndex).trim()
         if (afterText) {
