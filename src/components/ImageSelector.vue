@@ -210,6 +210,14 @@
             <i class="bi bi-magic"></i>
             AI Generate
           </button>
+          <button
+            @click="openPortfolioModal"
+            class="btn btn-outline-info btn-source"
+            :disabled="isUploadingImage"
+          >
+            <i class="bi bi-folder-open"></i>
+            Portfolio
+          </button>
           <input
             ref="imageFileInput"
             type="file"
@@ -484,6 +492,30 @@
       @close="closeAIImageModal"
       @image-inserted="handleAIImageGenerated"
     />
+
+    <!-- Portfolio Modal -->
+    <div 
+      v-if="isPortfolioModalOpen" 
+      class="modal d-block" 
+      tabindex="-1" 
+      style="background-color: rgba(0,0,0,0.5);"
+    >
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Select from Portfolio</h5>
+            <button 
+              type="button" 
+              class="btn-close" 
+              @click="closePortfolioModal"
+            ></button>
+          </div>
+          <div class="modal-body p-0">
+            <R2Portfolio @image-selected="handlePortfolioImageSelected" />
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -491,6 +523,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import AIImageModal from './AIImageModal.vue'
+import R2Portfolio from '../views/R2Portfolio.vue'
 
 const props = defineProps({
   isOpen: {
@@ -535,6 +568,7 @@ const searchProvider = ref('pexels') // 'pexels' or 'unsplash'
 // Upload and AI Generation state
 const isUploadingImage = ref(false)
 const isAIImageModalOpen = ref(false)
+const isPortfolioModalOpen = ref(false)
 const imageFileInput = ref(null)
 
 // Dimensions state
@@ -1175,6 +1209,15 @@ const closeAIImageModal = () => {
   isAIImageModalOpen.value = false
 }
 
+// Portfolio Image functionality
+const openPortfolioModal = () => {
+  isPortfolioModalOpen.value = true
+}
+
+const closePortfolioModal = () => {
+  isPortfolioModalOpen.value = false
+}
+
 const handleAIImageGenerated = (imageData) => {
   console.log('=== AI Image Generated Debug ===')
   console.log('Raw imageData:', imageData)
@@ -1261,11 +1304,53 @@ const handleAIImageGenerated = (imageData) => {
       error.value = 'Failed to extract image URL from AI generated image.'
     }
   } catch (err) {
-    console.error('=== Error in handleAIImageGenerated ===')
-    console.error('Error details:', err)
-    console.error('Error message:', err.message)
-    console.error('Error stack:', err.stack)
+    console.error('=== AI Image Handler Error ===')
+    console.error('Error processing AI generated image:', err)
     error.value = 'Failed to process AI generated image.'
+  }
+}
+
+// Portfolio Image handler
+const handlePortfolioImageSelected = (imageData) => {
+  console.log('=== Portfolio Image Selected ===')
+  console.log('Portfolio imageData:', imageData)
+
+  try {
+    // Portfolio images come already optimized with imgix URLs
+    const imageUrl = imageData.optimizedUrl || imageData.url
+
+    if (imageUrl) {
+      // Create a selected image object from portfolio image
+      selectedImage.value = {
+        id: 'portfolio-' + Date.now(),
+        url: imageUrl,
+        alt: imageData.key || 'Portfolio Image',
+        photographer: 'Portfolio',
+      }
+
+      // Update the URL field
+      editableImageUrl.value = imageUrl
+      validateImageUrl()
+
+      // Clear search results
+      searchResults.value = []
+      pastedImage.value = null
+      pastedUrl.value = null
+
+      // Close the portfolio modal
+      closePortfolioModal()
+
+      console.log('Portfolio image selected:', selectedImage.value)
+
+      // Automatically replace the image
+      replaceImage()
+    } else {
+      console.error('Invalid portfolio image data:', imageData)
+      error.value = 'Failed to get portfolio image URL.'
+    }
+  } catch (err) {
+    console.error('Error processing portfolio image:', err)
+    error.value = 'Failed to process portfolio image.'
   }
 }
 
