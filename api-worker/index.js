@@ -3798,7 +3798,22 @@ const searchPexelsImages = async (query, env, count = 1) => {
         url: photo.src.medium, // Use medium size for performance
         alt: photo.alt || query,
         photographer: photo.photographer,
+        photographer_url: photo.photographer_url || `https://www.pexels.com/@${photo.photographer.toLowerCase().replace(/\s+/g, '-')}`, // Photographer profile on Pexels
+        pexels_url: photo.url || `https://www.pexels.com/photo/${photo.id}/`, // Direct link to photo page on Pexels
         id: photo.id,
+        width: photo.width,
+        height: photo.height,
+        // Additional sizes for different use cases
+        src: {
+          original: photo.src.original,
+          large2x: photo.src.large2x,
+          large: photo.src.large,
+          medium: photo.src.medium,
+          small: photo.src.small,
+          portrait: photo.src.portrait,
+          landscape: photo.src.landscape,
+          tiny: photo.src.tiny
+        }
       }))
     } else {
       console.log('No Pexels images found for query:', query)
@@ -3806,6 +3821,61 @@ const searchPexelsImages = async (query, env, count = 1) => {
     }
   } catch (error) {
     console.error('Error searching Pexels:', error)
+    return []
+  }
+}
+
+// --- Unsplash Image Search ---
+const searchUnsplashImages = async (query, env, count = 1) => {
+  if (!env.UNSPLASH_ACCESS_KEY) {
+    throw new Error('Unsplash Access Key not configured')
+  }
+
+  try {
+    console.log(`Searching Unsplash for: "${query}" (${count} images)`)
+
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`,
+      {
+        headers: {
+          Authorization: `Client-ID ${env.UNSPLASH_ACCESS_KEY}`,
+        },
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Unsplash API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.results && data.results.length > 0) {
+      return data.results.map((photo) => ({
+        url: photo.urls.regular, // Use regular size for good quality
+        alt: photo.alt_description || photo.description || query,
+        photographer: photo.user.name,
+        photographer_username: photo.user.username,
+        photographer_url: photo.user.links.html,
+        id: photo.id,
+        download_location: photo.links.download_location, // For download tracking (required by Unsplash API)
+        unsplash_url: `https://unsplash.com/photos/${photo.id}`, // Direct link to photo on Unsplash
+        width: photo.width,
+        height: photo.height,
+        // Additional sizes for different use cases
+        urls: {
+          raw: photo.urls.raw,
+          full: photo.urls.full,
+          regular: photo.urls.regular,
+          small: photo.urls.small,
+          thumb: photo.urls.thumb,
+        },
+      }))
+    } else {
+      console.log('No Unsplash images found for query:', query)
+      return []
+    }
+  } catch (error) {
+    console.error('Error searching Unsplash:', error)
     return []
   }
 }
@@ -3966,6 +4036,94 @@ const handlePexelsImageSearch = async (request, env) => {
   } catch (error) {
     console.error('Error in Pexels search endpoint:', error)
     return createErrorResponse('Failed to search Pexels images: ' + error.message, 500)
+  }
+}
+
+// --- Unsplash Image Search Endpoint ---
+const handleUnsplashImageSearch = async (request, env) => {
+  if (!env.UNSPLASH_ACCESS_KEY) {
+    return createErrorResponse('Unsplash Access Key not configured', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { query, count = 10 } = body
+
+  if (!query || typeof query !== 'string') {
+    return createErrorResponse('Query parameter is required and must be a string', 400)
+  }
+
+  try {
+    const images = await searchUnsplashImages(query, env, Math.min(count, 20))
+
+    return createResponse(
+      JSON.stringify({
+        query,
+        total: images.length,
+        images,
+        success: true,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in Unsplash search endpoint:', error)
+    return createErrorResponse('Failed to search Unsplash images: ' + error.message, 500)
+  }
+}
+
+// --- Unsplash Download Tracking Endpoint (Required by Unsplash API Guidelines) ---
+const handleUnsplashDownloadTracking = async (request, env) => {
+  if (!env.UNSPLASH_ACCESS_KEY) {
+    return createErrorResponse('Unsplash Access Key not configured', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { download_location } = body
+
+  if (!download_location || typeof download_location !== 'string') {
+    return createErrorResponse('download_location parameter is required and must be a string', 400)
+  }
+
+  try {
+    console.log('📊 Tracking Unsplash download:', download_location)
+
+    // Make the required download tracking request to Unsplash
+    // This is required by Unsplash API guidelines when users "download" or use images
+    const response = await fetch(download_location, {
+      method: 'GET',
+      headers: {
+        Authorization: `Client-ID ${env.UNSPLASH_ACCESS_KEY}`,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Unsplash download tracking failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    console.log('✅ Unsplash download tracking successful')
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        message: 'Download tracked successfully',
+        data: data,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in Unsplash download tracking:', error)
+    return createErrorResponse('Failed to track Unsplash download: ' + error.message, 500)
   }
 }
 
@@ -6108,6 +6266,14 @@ export default {
 
     if (pathname === '/pexels-search' && request.method === 'POST') {
       return await handlePexelsImageSearch(request, env)
+    }
+
+    if (pathname === '/unsplash-search' && request.method === 'POST') {
+      return await handleUnsplashImageSearch(request, env)
+    }
+
+    if (pathname === '/unsplash-download' && request.method === 'POST') {
+      return await handleUnsplashDownloadTracking(request, env)
     }
 
     if (pathname === '/google-photos-auth' && request.method === 'POST') {
