@@ -66,46 +66,46 @@
           >
             <div class="imagequote-attribution-text">
               <span v-if="contentPart.attribution.provider === 'unsplash'">
-                Photo by 
-                <a 
+                Photo by
+                <a
                   :href="`${contentPart.attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral`"
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="photographer-link"
                 >
                   {{ contentPart.attribution.photographer }}
-                </a> on 
-                <a 
+                </a>
+                on
+                <a
                   href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="provider-link"
                 >
                   Unsplash
                 </a>
               </span>
               <span v-else-if="contentPart.attribution.provider === 'pexels'">
-                Photo by 
-                <a 
+                Photo by
+                <a
                   :href="contentPart.attribution.photographer_url"
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="photographer-link"
                 >
                   {{ contentPart.attribution.photographer }}
-                </a> on 
-                <a 
+                </a>
+                on
+                <a
                   :href="contentPart.attribution.pexels_url"
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="provider-link"
                 >
                   Pexels
                 </a>
               </span>
-              <span v-else>
-                Photo by {{ contentPart.attribution.photographer }}
-              </span>
+              <span v-else> Photo by {{ contentPart.attribution.photographer }} </span>
             </div>
           </div>
         </div>
@@ -534,41 +534,43 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     // Check if this image has attribution data in the node
     const nodeImageAttributions = props.node.imageAttributions || {}
     const attribution = nodeImageAttributions[imageUrl]
-    
+
     // Create attribution if attribution data exists
     if (attribution && attribution.requires_attribution) {
       // Determine if this is a small contextual image (Rightside/Leftside)
-      const isSmallContextualImage = imageType === 'Rightside' || imageType === 'Leftside' || 
-                                   imageAlt.match(/^(Rightside|Leftside)-\d+/i)
-      
+      const isSmallContextualImage =
+        imageType === 'Rightside' ||
+        imageType === 'Leftside' ||
+        imageAlt.match(/^(Rightside|Leftside)-\d+/i)
+
       if (isSmallContextualImage) {
         // For small contextual images, add attribution below the image
         const attributionDiv = document.createElement('div')
         attributionDiv.className = 'image-attribution-below'
-        
+
         const attributionText = document.createElement('div')
         attributionText.className = 'attribution-text-below'
-        
+
         if (attribution.provider === 'unsplash') {
           attributionText.innerHTML = `
-            Photo by 
-            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral" 
+            Photo by
+            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral"
                target="_blank" rel="noopener noreferrer" class="photographer-link">
               ${attribution.photographer}
-            </a> on 
-            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" 
+            </a> on
+            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
                target="_blank" rel="noopener noreferrer" class="provider-link">
               Unsplash
             </a>
           `
         } else if (attribution.provider === 'pexels') {
           attributionText.innerHTML = `
-            Photo by 
-            <a href="${attribution.photographer_url}" 
+            Photo by
+            <a href="${attribution.photographer_url}"
                target="_blank" rel="noopener noreferrer" class="photographer-link">
               ${attribution.photographer}
-            </a> on 
-            <a href="${attribution.pexels_url}" 
+            </a> on
+            <a href="${attribution.pexels_url}"
                target="_blank" rel="noopener noreferrer" class="provider-link">
               Pexels
             </a>
@@ -576,39 +578,39 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
         } else {
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
         }
-        
+
         attributionDiv.appendChild(attributionText)
-        
+
         // Insert attribution after the image wrapper
         imageWrapper.parentNode.insertBefore(attributionDiv, imageWrapper.nextSibling)
       } else {
         // For larger images (Header, etc.), use overlay
         const attributionOverlay = document.createElement('div')
         attributionOverlay.className = 'image-attribution-overlay'
-        
+
         const attributionText = document.createElement('div')
         attributionText.className = 'attribution-text'
-        
+
         if (attribution.provider === 'unsplash') {
           attributionText.innerHTML = `
-            Photo by 
-            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral" 
+            Photo by
+            <a href="${attribution.photographer_url}?utm_source=vegvisr&utm_medium=referral"
                target="_blank" rel="noopener noreferrer" class="photographer-link">
               ${attribution.photographer}
-            </a> on 
-            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral" 
+            </a> on
+            <a href="https://unsplash.com/?utm_source=vegvisr&utm_medium=referral"
                target="_blank" rel="noopener noreferrer" class="provider-link">
               Unsplash
             </a>
           `
         } else if (attribution.provider === 'pexels') {
           attributionText.innerHTML = `
-            Photo by 
-            <a href="${attribution.photographer_url}" 
+            Photo by
+            <a href="${attribution.photographer_url}"
                target="_blank" rel="noopener noreferrer" class="photographer-link">
               ${attribution.photographer}
-            </a> on 
-            <a href="${attribution.pexels_url}" 
+            </a> on
+            <a href="${attribution.pexels_url}"
                target="_blank" rel="noopener noreferrer" class="provider-link">
               Pexels
             </a>
@@ -616,7 +618,7 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
         } else {
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
         }
-        
+
         attributionOverlay.appendChild(attributionText)
         imageWrapper.appendChild(attributionOverlay)
       }
@@ -1427,17 +1429,17 @@ const convertStylesToString = (styleObj) => {
     border-top: 1px solid #e9ecef;
     margin-top: 8px;
   }
-  
+
   .node-content :deep(.attribution-text) {
     color: #495057 !important;
     text-shadow: none !important;
   }
-  
+
   .node-content :deep(.attribution-text a) {
     color: #007bff !important;
     border-bottom: 1px solid rgba(0, 123, 255, 0.3) !important;
   }
-  
+
   .node-content :deep(.attribution-text a:hover) {
     color: #0056b3 !important;
     border-bottom-color: #0056b3 !important;

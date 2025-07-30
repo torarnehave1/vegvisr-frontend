@@ -3,9 +3,11 @@
 ## ✅ Implementation Complete
 
 ### Problem Identified
+
 The user pointed out that small contextual images like `Rightside-1` and `Leftside-1` (typically 180px × 180px) were using attribution overlays that made the text too cramped and hard to read.
 
 Example of problematic image:
+
 ```markdown
 ![Rightside-1|width: 180px; height: 180px; object-fit: 'cover'; object-position: 'center'; border-radius: '50%'; margin: '0 0 15px 20px'](https://images.pexels.com/photos/774548/pexels-photo-774548.jpeg)
 ```
@@ -13,9 +15,11 @@ Example of problematic image:
 ### Solution Implemented
 
 #### Smart Attribution Detection
+
 The system now detects small contextual images and shows attribution differently:
 
 1. **Small Contextual Images** (`Rightside-1`, `Leftside-1`, etc.):
+
    - Attribution appears **below** the image
    - **Black text** on light background for better readability
    - Clean border separation from image
@@ -29,24 +33,30 @@ The system now detects small contextual images and shows attribution differently
 #### Detection Logic
 
 **In GNewDefaultNode.vue:**
+
 ```javascript
 // Detects small contextual images by type and alt text
-const isSmallContextualImage = imageType === 'Rightside' || imageType === 'Leftside' || 
-                               imageAlt.match(/^(Rightside|Leftside)-\d+/i)
+const isSmallContextualImage =
+  imageType === 'Rightside' ||
+  imageType === 'Leftside' ||
+  imageAlt.match(/^(Rightside|Leftside)-\d+/i)
 ```
 
 **In GNewImageNode.vue:**
+
 ```javascript
 // Detects markdown images with small dimensions
-const isSmallContextualImage = props.node.type === 'markdown-image' && 
-                              props.node.label && 
-                              (props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?width:\s*\d{1,3}px/i) ||
-                               props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?height:\s*\d{1,3}px/i))
+const isSmallContextualImage =
+  props.node.type === 'markdown-image' &&
+  props.node.label &&
+  (props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?width:\s*\d{1,3}px/i) ||
+    props.node.label.match(/!\[(Rightside|Leftside)-\d+\|.*?height:\s*\d{1,3}px/i))
 ```
 
 ### CSS Implementation
 
 #### Attribution Below (Small Images)
+
 ```css
 .image-attribution-below {
   margin-top: 4px;
@@ -69,6 +79,7 @@ const isSmallContextualImage = props.node.type === 'markdown-image' &&
 ```
 
 #### Attribution Overlay (Large Images)
+
 ```css
 .image-attribution-overlay {
   position: absolute;
@@ -81,6 +92,7 @@ const isSmallContextualImage = props.node.type === 'markdown-image' &&
 ### Files Modified
 
 1. **`src/components/GNewNodes/GNewDefaultNode.vue`**:
+
    - Updated `addChangeImageButtons()` function with smart detection
    - Added CSS for `.image-attribution-below`
    - Enhanced attribution logic for contextual images
@@ -94,7 +106,8 @@ const isSmallContextualImage = props.node.type === 'markdown-image' &&
 
 ✅ **Before**: Small images (180px) had cramped overlay text that was hard to read
 
-✅ **After**: 
+✅ **After**:
+
 - **Small contextual images**: Clean black text below image with proper spacing
 - **Large images**: Elegant white overlay that doesn't obstruct content
 - **All sizes**: Proper Pexels/Unsplash attribution with working links
@@ -102,6 +115,7 @@ const isSmallContextualImage = props.node.type === 'markdown-image' &&
 ### Example Output
 
 **Small Rightside Image (180px)**:
+
 ```
 [Image: 180px × 180px circular photo]
 ────────────────────────────────
@@ -109,6 +123,7 @@ Photo by John Doe on Pexels
 ```
 
 **Large Header Image**:
+
 ```
 [Large header image with white overlay text at bottom]
 ```

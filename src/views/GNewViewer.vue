@@ -3784,12 +3784,12 @@ const handleImageReplaced = async (replacementData) => {
     // Store attribution data in the node if available
     if (replacementData.attribution && replacementData.attribution.requires_attribution) {
       imageDebug('logReplacement', 'Storing attribution data', replacementData.attribution)
-      
+
       // Initialize imageAttributions as an object if it doesn't exist
       if (!nodeToUpdate.imageAttributions) {
         nodeToUpdate.imageAttributions = {}
       }
-      
+
       // Store attribution data keyed by the new image URL
       nodeToUpdate.imageAttributions[newUrl] = {
         provider: replacementData.attribution.provider,
@@ -3799,12 +3799,13 @@ const handleImageReplaced = async (replacementData) => {
         unsplash_url: replacementData.attribution.unsplash_url,
         pexels_url: replacementData.attribution.pexels_url,
         requires_attribution: replacementData.attribution.requires_attribution,
-        attribution_text: replacementData.attribution.provider === 'unsplash' 
-          ? `Photo by ${replacementData.attribution.photographer} on Unsplash`
-          : replacementData.attribution.provider === 'pexels'
-          ? `Photo by ${replacementData.attribution.photographer} on Pexels`
-          : `Photo by ${replacementData.attribution.photographer}`,
-        timestamp: Date.now()
+        attribution_text:
+          replacementData.attribution.provider === 'unsplash'
+            ? `Photo by ${replacementData.attribution.photographer} on Unsplash`
+            : replacementData.attribution.provider === 'pexels'
+              ? `Photo by ${replacementData.attribution.photographer} on Pexels`
+              : `Photo by ${replacementData.attribution.photographer}`,
+        timestamp: Date.now(),
       }
     }
 
