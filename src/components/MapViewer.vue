@@ -33,17 +33,19 @@ corner.
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 
 const props = defineProps({
   path: { type: String, required: true },
   mapId: { type: String, default: 'efe3a8a8c093a07cf97c4b3c' },
+  height: { type: String, default: '600px' },
 })
 
 const emit = defineEmits(['place-changed'])
 
 const mapRef = ref(null)
 const markerRef = ref(null)
+const kmlMarkers = ref([]) // Track KML markers for cleanup
 const loading = ref(true)
 const error = ref(null)
 const apiKey = ref(null)
@@ -69,6 +71,207 @@ function loadGoogleMapsApi(key) {
     script.onerror = reject
     document.head.appendChild(script)
   })
+}
+
+// Function to clear existing KML markers
+function clearKmlMarkers() {
+  console.log('🧹 Clearing', kmlMarkers.value.length, 'existing markers')
+  kmlMarkers.value.forEach(marker => {
+    marker.setMap(null)
+  })
+  kmlMarkers.value = []
+  console.log('✅ Markers cleared')
+}
+
+// Function to load KML data and create markers
+async function loadKmlData(path, map) {
+  if (!path || !map) return
+  
+  // Clear existing KML markers
+  clearKmlMarkers()
+  
+  // Array to collect all points for bounds calculation
+  const allPoints = []
+  
+  try {
+    console.log('🗺️ Loading KML from:', path)
+    const response = await fetch(path)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch KML: ${response.status} ${response.statusText}`)
+    }
+    const kmlText = await response.text()
+    console.log('📄 KML content loaded, length:', kmlText.length)
+    
+    const parser = new window.DOMParser()
+    const kmlDoc = parser.parseFromString(kmlText, 'application/xml')
+    
+    // Check for XML parsing errors
+    const parseError = kmlDoc.querySelector('parsererror')
+    if (parseError) {
+      throw new Error(`KML parsing error: ${parseError.textContent}`)
+    }
+    
+    const placemarks = kmlDoc.getElementsByTagName('Placemark')
+    
+    console.log('🗺️ Found', placemarks.length, 'placemarks in KML')
+    
+    for (let i = 0; i < placemarks.length; i++) {
+      const placemark = placemarks[i]
+      const name = placemark.getElementsByTagName('name')[0]?.textContent || ''
+      const description = placemark.getElementsByTagName('description')[0]?.textContent || ''
+      
+      // Handle different geometry types
+      const point = placemark.getElementsByTagName('Point')[0]
+      const lineString = placemark.getElementsByTagName('LineString')[0]
+      const polygon = placemark.getElementsByTagName('Polygon')[0]
+      
+      if (point) {
+        // Handle Point geometry (markers)
+        const coords = point.getElementsByTagName('coordinates')[0]?.textContent.trim()
+        if (!coords) continue
+        const [lng, lat] = coords.split(',').map(Number)
+        if (isNaN(lat) || isNaN(lng)) continue
+
+        allPoints.push({ lat, lng })
+
+        // Create marker
+        const marker = new window.google.maps.Marker({
+          position: { lat, lng },
+          map: map,
+          title: name,
+          visible: true,
+          // Add a distinctive icon for uploaded KML markers
+          icon: {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+              <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="10" cy="10" r="8" fill="#ff4444" stroke="#ffffff" stroke-width="2"/>
+                <circle cx="10" cy="10" r="4" fill="#ffffff"/>
+              </svg>
+            `),
+            scaledSize: new window.google.maps.Size(20, 20),
+            anchor: new window.google.maps.Point(10, 10)
+          }
+        })
+
+        // Add to tracking array
+        kmlMarkers.value.push(marker)
+
+        // Info window for markers
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<h3>${name}</h3><p>${description}</p>`,
+        })
+        marker.addListener('click', () => {
+          infoWindow.open(map, marker)
+        })
+        
+      } else if (lineString) {
+        // Handle LineString geometry (paths)
+        const coords = lineString.getElementsByTagName('coordinates')[0]?.textContent.trim()
+        if (!coords) continue
+        
+        const path = coords.split(/\s+/).map(coord => {
+          const [lng, lat] = coord.split(',').map(Number)
+          return { lat, lng }
+        }).filter(point => !isNaN(point.lat) && !isNaN(point.lng))
+        
+        if (path.length < 2) continue
+        
+        // Add all path points for bounds calculation
+        allPoints.push(...path)
+        
+        console.log('🛤️ Creating path with', path.length, 'points')
+        
+        // Create polyline
+        const polyline = new window.google.maps.Polyline({
+          path: path,
+          geodesic: true,
+          strokeColor: '#FF0000',
+          strokeOpacity: 1.0,
+          strokeWeight: 3,
+          map: map
+        })
+        
+        // Add to tracking array (we'll track all map objects)
+        kmlMarkers.value.push({ setMap: (m) => polyline.setMap(m) })
+        
+        // Info window for paths (click on path)
+        if (name || description) {
+          polyline.addListener('click', (event) => {
+            const infoWindow = new window.google.maps.InfoWindow({
+              content: `<h3>${name || 'Path'}</h3><p>${description}</p>`,
+              position: event.latLng
+            })
+            infoWindow.open(map)
+          })
+        }
+        
+      } else if (polygon) {
+        // Handle Polygon geometry (areas)
+        const outerBoundary = polygon.getElementsByTagName('outerBoundaryIs')[0]
+        if (!outerBoundary) continue
+        
+        const linearRing = outerBoundary.getElementsByTagName('LinearRing')[0]
+        if (!linearRing) continue
+        
+        const coords = linearRing.getElementsByTagName('coordinates')[0]?.textContent.trim()
+        if (!coords) continue
+        
+        const path = coords.split(/\s+/).map(coord => {
+          const [lng, lat] = coord.split(',').map(Number)
+          return { lat, lng }
+        }).filter(point => !isNaN(point.lat) && !isNaN(point.lng))
+        
+        if (path.length < 3) continue
+        
+        // Add all polygon points for bounds calculation
+        allPoints.push(...path)
+        
+        console.log('🏞️ Creating polygon with', path.length, 'points')
+        
+        // Create polygon
+        const polygonShape = new window.google.maps.Polygon({
+          paths: path,
+          strokeColor: '#FF0000',
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillColor: '#FF0000',
+          fillOpacity: 0.2,
+          map: map
+        })
+        
+        // Add to tracking array
+        kmlMarkers.value.push({ setMap: (m) => polygonShape.setMap(m) })
+        
+        // Info window for polygons
+        if (name || description) {
+          polygonShape.addListener('click', (event) => {
+            const infoWindow = new window.google.maps.InfoWindow({
+              content: `<h3>${name || 'Area'}</h3><p>${description}</p>`,
+              position: event.latLng
+            })
+            infoWindow.open(map)
+          })
+        }
+      }
+    }
+    
+    console.log('✅ KML loaded successfully with', kmlMarkers.value.length, 'elements')
+    
+    // Center map on all KML elements if any exist
+    if (allPoints.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds()
+      allPoints.forEach(point => {
+        bounds.extend(point)
+      })
+      map.fitBounds(bounds)
+      console.log('🎯 Map centered on', allPoints.length, 'points from KML')
+    }
+    
+    error.value = null
+  } catch (err) {
+    console.error('❌ Error loading KML:', err)
+    error.value = `Error loading KML: ${err.message}`
+  }
 }
 
 async function handleMapRightClick(latLng, map) {
@@ -121,17 +324,28 @@ async function handleMapRightClick(latLng, map) {
 // Initialize map and components
 const initMap = async () => {
   try {
+    console.log('🗺️ Initializing map with API key:', apiKey.value ? '✅ Present' : '❌ Missing')
+    console.log('🗺️ Map ID:', props.mapId)
+    console.log('🗺️ KML Path:', props.path)
+    
     // Load Google Maps JS API with Places
     await loadGoogleMapsApi(apiKey.value)
     const google = window.google
+    console.log('✅ Google Maps API loaded successfully')
 
     // Create map
     const mapElementContainer = document.getElementById('map-element')
+    if (!mapElementContainer) {
+      throw new Error('Map element container not found')
+    }
+    
     mapElementContainer.innerHTML = ''
     const mapDiv = document.createElement('div')
     mapDiv.style.width = '100%'
-    mapDiv.style.height = '600px'
+    mapDiv.style.height = props.height
     mapElementContainer.appendChild(mapDiv)
+    
+    console.log('🗺️ Creating Google Map...')
     const map = new google.maps.Map(mapDiv, {
       center: { lat: 37.94100018383558, lng: 27.34237557534141 },
       zoom: 15,
@@ -139,54 +353,16 @@ const initMap = async () => {
       mapTypeControl: false,
     })
     mapRef.value = map
+    console.log('✅ Google Map created successfully')
 
     // Add right-click context menu for adding markers
     map.addListener('rightclick', (event) => {
       handleMapRightClick(event.latLng, map)
     })
 
-    // --- Fetch and parse KML, create markers manually ---
-    if (props.path) {
-      try {
-        const response = await fetch(props.path)
-        if (!response.ok) throw new Error('Failed to fetch KML')
-        const kmlText = await response.text()
-        const parser = new window.DOMParser()
-        const kmlDoc = parser.parseFromString(kmlText, 'application/xml')
-        const placemarks = kmlDoc.getElementsByTagName('Placemark')
-        for (let i = 0; i < placemarks.length; i++) {
-          const placemark = placemarks[i]
-          const name = placemark.getElementsByTagName('name')[0]?.textContent || ''
-          const description = placemark.getElementsByTagName('description')[0]?.textContent || ''
-          const coords = placemark.getElementsByTagName('coordinates')[0]?.textContent.trim()
-          if (!coords) continue
-          const [lng, lat] = coords.split(',').map(Number)
-          if (isNaN(lat) || isNaN(lng)) continue
-
-          // Create marker
-          const marker = new google.maps.Marker({
-            position: { lat, lng },
-            map: map,
-            title: name,
-            visible: true,
-          })
-
-          // Info window
-          const infoWindow = new google.maps.InfoWindow({
-            content: `<h3>${name}</h3><p>${description}</p>`,
-          })
-          marker.addListener('click', () => {
-            infoWindow.open(map, marker)
-          })
-        }
-        loading.value = false
-      } catch (err) {
-        error.value = `Error loading KML: ${err.message}`
-        loading.value = false
-      }
-    } else {
-      loading.value = false
-    }
+    // Load initial KML data
+    await loadKmlData(props.path, map)
+    loading.value = false
 
     // Add marker for autocomplete
     const marker = new google.maps.Marker({
@@ -224,6 +400,7 @@ const initMap = async () => {
     }
     // ---
   } catch (err) {
+    console.error('❌ Map initialization failed:', err)
     error.value = `Error initializing map: ${err.message}`
     loading.value = false
   }
@@ -246,6 +423,16 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+// Watch for path changes and reload KML
+watch(() => props.path, async (newPath, oldPath) => {
+  if (newPath !== oldPath && mapRef.value) {
+    console.log('🗺️ Path changed from', oldPath, 'to', newPath)
+    loading.value = true
+    await loadKmlData(newPath, mapRef.value)
+    loading.value = false
+  }
+})
 </script>
 
 <style scoped>
@@ -258,7 +445,7 @@ onMounted(async () => {
 
 .map-container {
   width: 100%;
-  height: 600px;
+  min-height: 400px;
   border-radius: 8px;
   overflow: hidden;
   position: relative;

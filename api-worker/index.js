@@ -455,6 +455,44 @@ const handleUpload = async (request, env) => {
   return createResponse(JSON.stringify({ url: fileUrl }))
 }
 
+// KML file upload handler
+const handleUploadKml = async (request, env) => {
+  const { KLM_BUCKET } = env
+  const formData = await request.formData()
+  const file = formData.get('file')
+
+  if (!file) {
+    return createErrorResponse('Missing file', 400)
+  }
+
+  const fileExtension = file.name ? file.name.split('.').pop().toLowerCase() : ''
+  if (fileExtension !== 'kml') {
+    return createErrorResponse('Invalid file type. Only .kml files are allowed.', 400)
+  }
+
+  // Generate unique filename with timestamp
+  const fileName = `${Date.now()}_${file.name}`
+  
+  try {
+    await KLM_BUCKET.put(fileName, file.stream(), {
+      httpMetadata: { 
+        contentType: 'application/vnd.google-earth.kml+xml',
+      },
+    })
+
+    // Return the file URL for the KML bucket
+    const fileUrl = `https://klm.vegvisr.org/${fileName}`
+    return createResponse(JSON.stringify({ 
+      url: fileUrl,
+      filename: fileName,
+      message: 'KML file uploaded successfully'
+    }))
+  } catch (error) {
+    console.error('Error uploading KML file:', error)
+    return createErrorResponse('Failed to upload KML file', 500)
+  }
+}
+
 const handleSearch = async (request, env) => {
   const query = new URL(request.url).searchParams.get('query')?.toLowerCase()
 
@@ -6186,6 +6224,9 @@ export default {
     }
     if (pathname === '/updatekml' && request.method === 'POST') {
       return await handleUpdateKml(request, env)
+    }
+    if (pathname === '/upload-kml' && request.method === 'POST') {
+      return await handleUploadKml(request, env)
     }
     if (pathname === '/suggest-title' && request.method === 'POST') {
       return await handleSuggestTitle(request, env)
