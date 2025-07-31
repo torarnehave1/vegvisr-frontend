@@ -289,6 +289,26 @@ export const useTemplateStore = defineStore('template', () => {
         color: '#28a745',
       },
     },
+    {
+      id: 'map-node',
+      category: 'Visual Elements',
+      icon: '🗺️',
+      label: 'Map Node',
+      description: 'Geographic map with KML overlay support',
+      template: {
+        type: 'map',
+        label: 'Map Node',
+        info: 'Interactive map displaying geographic information and KML overlays.',
+        color: '#e8f5e9',
+        visible: true,
+        position: { x: 100, y: 100 },
+        bibl: [],
+        imageWidth: '100%',
+        imageHeight: '400px',
+        path: '', // KML file path will be set when uploaded
+        mapId: 'efe3a8a8c093a07cf97c4b3c', // Default Google Maps style ID
+      },
+    },
 
     // Interactive Category
     {

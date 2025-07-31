@@ -42,6 +42,7 @@ import GNewMenuCreatorNode from './GNewNodes/GNewMenuCreatorNode.vue'
 import GNewLearnScriptNode from './GNewNodes/GNewLearnScriptNode.vue'
 import GNewSubscriptionNode from './GNewNodes/GNewSubscriptionNode.vue'
 import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
+import GNewMapNode from './GNewNodes/GNewMapNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -107,6 +108,8 @@ const nodeComponents = {
   subscription: GNewSubscriptionNode,
   // Email template node
   'email-template': GNewEmailTemplateNode,
+  // Map node
+  map: GNewMapNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
