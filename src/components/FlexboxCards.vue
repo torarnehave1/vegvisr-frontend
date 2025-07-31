@@ -1,7 +1,41 @@
 <template>
   <div class="flexbox-cards-container" :class="`flexbox-cards-${columnCount}`">
     <div v-for="(card, index) in cards" :key="index" class="flexbox-card">
-      <div v-if="card.image" class="card-image" v-html="card.image"></div>
+      <div v-if="card.image" class="card-image">
+        <div v-html="card.image"></div>
+        
+        <!-- Add image buttons if user is Superadmin and card has image -->
+        <div 
+          v-if="userStore.loggedIn && userStore.role === 'Superadmin' && card.imageUrl" 
+          class="image-button-container"
+        >
+          <button 
+            class="btn btn-sm btn-outline-primary change-image-btn"
+            :data-image-url="card.imageUrl"
+            :data-image-alt="`Card ${index + 1} image`"
+            :data-image-type="'FLEXBOX-CARDS'"
+            :data-image-context="`FLEXBOX-CARDS card ${index + 1}`"
+            :data-node-id="props.nodeId"
+            :data-node-content="props.nodeContent"
+            title="Change this image"
+          >
+            Change Image
+          </button>
+          <button 
+            class="btn btn-sm btn-outline-secondary google-photos-btn"
+            :data-image-url="card.imageUrl"
+            :data-image-alt="`Card ${index + 1} image`"
+            :data-image-type="'FLEXBOX-CARDS'"
+            :data-image-context="`FLEXBOX-CARDS card ${index + 1}`"
+            :data-node-id="props.nodeId"
+            :data-node-content="props.nodeContent"
+            title="Search Google Images"
+          >
+            Google Image
+          </button>
+        </div>
+      </div>
+      
       <h4 v-if="card.title" class="card-title">{{ card.title }}</h4>
       <div v-if="card.text" class="card-text">{{ card.text }}</div>
     </div>
@@ -10,6 +44,7 @@
 
 <script setup>
 import { defineProps, computed } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
   content: {
@@ -20,12 +55,22 @@ const props = defineProps({
     type: Number,
     default: 3,
   },
+  nodeId: {
+    type: String,
+    required: true,
+  },
+  nodeContent: {
+    type: String,
+    required: true,
+  },
 })
+
+const userStore = useUserStore()
 
 const cards = computed(() => {
   const cleanContent = props.content.trim()
   const cards = []
-  let currentCard = { title: '', image: '', text: '' }
+  let currentCard = { title: '', image: '', text: '', imageUrl: '' }
   let cardStarted = false
 
   const lines = cleanContent
@@ -42,7 +87,7 @@ const cards = computed(() => {
         cards.push({ ...currentCard })
       }
       // Start new card
-      currentCard = { title: titleMatch[1], image: '', text: '' }
+      currentCard = { title: titleMatch[1], image: '', text: '', imageUrl: '' }
       cardStarted = true
       continue
     }
@@ -52,6 +97,7 @@ const cards = computed(() => {
     if (imageMatch && cardStarted) {
       const [, altText, url] = imageMatch
       currentCard.image = `<img src="${url}" alt="${altText}" class="card-image">`
+      currentCard.imageUrl = url  // Store the URL for button functionality
       continue
     }
 
@@ -112,6 +158,19 @@ const cards = computed(() => {
   height: 200px;
   object-fit: cover;
   border-radius: 8px;
+}
+
+.image-button-container {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.change-image-btn,
+.google-photos-btn {
+  font-size: 0.8rem;
+  padding: 4px 8px;
 }
 
 .card-title {

@@ -49,10 +49,10 @@ const getOptimizedImageUrl = (baseUrl) => {
   return baseUrl + params
 }
 
-// Handle image selection
+// Handle image selection and emit to parent
 const selectImage = (img) => {
   const optimizedUrl = getOptimizedImageUrl(img.url)
-  console.log('📁 Portfolio image selected:', img.key, optimizedUrl)
+  console.log('📁 Simple portfolio image selected:', img.key, optimizedUrl)
   
   emit('image-selected', {
     key: img.key,
