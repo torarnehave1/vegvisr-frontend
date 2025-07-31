@@ -765,7 +765,11 @@ const parsedContent = computed(() => {
         const content = match[3].trim()
 
         // Process FLEXBOX content through addChangeImageButtons to add image editing buttons
-        const contentWithButtons = addChangeImageButtons(content, props.nodeId, props.nodeData?.originalContent || '')
+        const contentWithButtons = addChangeImageButtons(
+          content,
+          props.nodeId,
+          props.nodeData?.originalContent || '',
+        )
 
         if (flexboxType === 'grid') {
           parts.push({

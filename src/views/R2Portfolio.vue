@@ -1,8 +1,8 @@
 <template>
   <div class="portfolio-grid">
-    <div 
-      v-for="img in images" 
-      :key="img.key" 
+    <div
+      v-for="img in images"
+      :key="img.key"
       class="portfolio-card clickable"
       @click="selectImage(img)"
     >
@@ -53,12 +53,12 @@ const getOptimizedImageUrl = (baseUrl) => {
 const selectImage = (img) => {
   const optimizedUrl = getOptimizedImageUrl(img.url)
   console.log('📁 Simple portfolio image selected:', img.key, optimizedUrl)
-  
+
   emit('image-selected', {
     key: img.key,
     url: img.url,
     optimizedUrl: optimizedUrl,
-    size: img.size
+    size: img.size,
   })
 }
 
