@@ -2,13 +2,13 @@
   <div class="flexbox-grid">
     <div v-for="(image, index) in images" :key="index" class="grid-item">
       <img :src="image.src" :alt="image.alt" />
-      
+
       <!-- Add image buttons if user is Superadmin -->
-      <div 
-        v-if="userStore.loggedIn && userStore.role === 'Superadmin'" 
+      <div
+        v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
         class="image-button-container"
       >
-        <button 
+        <button
           class="btn btn-sm btn-outline-primary change-image-btn"
           :data-image-url="image.src"
           :data-image-alt="image.alt"
@@ -20,7 +20,7 @@
         >
           Change Image
         </button>
-        <button 
+        <button
           class="btn btn-sm btn-outline-secondary google-photos-btn"
           :data-image-url="image.src"
           :data-image-alt="image.alt"

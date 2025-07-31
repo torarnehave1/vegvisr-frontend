@@ -494,7 +494,7 @@
     />
 
     <!-- Portfolio Modal -->
-    <R2PortfolioModal 
+    <R2PortfolioModal
       :isOpen="isPortfolioModalOpen"
       @close="closePortfolioModal"
       @image-selected="handlePortfolioImageSelected"

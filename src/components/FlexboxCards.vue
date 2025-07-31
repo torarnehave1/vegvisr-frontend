@@ -3,13 +3,13 @@
     <div v-for="(card, index) in cards" :key="index" class="flexbox-card">
       <div v-if="card.image" class="card-image">
         <div v-html="card.image"></div>
-        
+
         <!-- Add image buttons if user is Superadmin and card has image -->
-        <div 
-          v-if="userStore.loggedIn && userStore.role === 'Superadmin' && card.imageUrl" 
+        <div
+          v-if="userStore.loggedIn && userStore.role === 'Superadmin' && card.imageUrl"
           class="image-button-container"
         >
-          <button 
+          <button
             class="btn btn-sm btn-outline-primary change-image-btn"
             :data-image-url="card.imageUrl"
             :data-image-alt="`Card ${index + 1} image`"
@@ -21,7 +21,7 @@
           >
             Change Image
           </button>
-          <button 
+          <button
             class="btn btn-sm btn-outline-secondary google-photos-btn"
             :data-image-url="card.imageUrl"
             :data-image-alt="`Card ${index + 1} image`"
@@ -35,7 +35,7 @@
           </button>
         </div>
       </div>
-      
+
       <h4 v-if="card.title" class="card-title">{{ card.title }}</h4>
       <div v-if="card.text" class="card-text">{{ card.text }}</div>
     </div>
@@ -97,7 +97,7 @@ const cards = computed(() => {
     if (imageMatch && cardStarted) {
       const [, altText, url] = imageMatch
       currentCard.image = `<img src="${url}" alt="${altText}" class="card-image">`
-      currentCard.imageUrl = url  // Store the URL for button functionality
+      currentCard.imageUrl = url // Store the URL for button functionality
       continue
     }
 

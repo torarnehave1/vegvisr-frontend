@@ -4,18 +4,13 @@
     v-if="isOpen"
     class="modal d-block"
     tabindex="-1"
-    style="background-color: rgba(0,0,0,0.5);"
+    style="background-color: rgba(0, 0, 0, 0.5)"
   >
     <div class="modal-dialog modal-xl" style="max-width: 1000px">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Select Portfolio Image</h5>
-          <button
-            type="button"
-            class="btn-close"
-            @click="closeModal"
-            aria-label="Close"
-          ></button>
+          <button type="button" class="btn-close" @click="closeModal" aria-label="Close"></button>
         </div>
         <div class="modal-body" style="max-height: 80vh; overflow-y: auto">
           <!-- Quality Controls Section -->
@@ -78,10 +73,7 @@
                     v-model="outputSettings.lockAspectRatio"
                   />
                   <label class="form-check-label fw-bold" for="lockAspectRatio">
-                    <i
-                      class="bi bi-lock-fill"
-                      v-if="outputSettings.lockAspectRatio"
-                    ></i>
+                    <i class="bi bi-lock-fill" v-if="outputSettings.lockAspectRatio"></i>
                     <i class="bi bi-unlock-fill" v-else></i>
                     Lock Aspect Ratio ({{ aspectRatio }})
                   </label>
@@ -152,10 +144,7 @@
             </div>
 
             <!-- Reset Button -->
-            <button
-              class="btn btn-sm btn-outline-secondary"
-              @click="resetQualitySettings"
-            >
+            <button class="btn btn-sm btn-outline-secondary" @click="resetQualitySettings">
               <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
             </button>
           </div>
@@ -186,9 +175,7 @@
               <strong>{{ outputSettings.width }}×{{ outputSettings.height }}</strong>
             </small>
           </div>
-          <button type="button" class="btn btn-secondary" @click="closeModal">
-            Close
-          </button>
+          <button type="button" class="btn btn-secondary" @click="closeModal">Close</button>
         </div>
       </div>
     </div>
@@ -201,8 +188,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 const props = defineProps({
   isOpen: {
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
 })
 
 const emit = defineEmits(['close', 'image-selected'])
@@ -216,7 +203,7 @@ const previewSettings = ref({
   width: 150,
   height: 94,
   lockAspectRatio: true,
-  originalAspectRatio: 150 / 94
+  originalAspectRatio: 150 / 94,
 })
 
 // Output settings for final selected image (full size)
@@ -225,7 +212,7 @@ const outputSettings = ref({
   width: 1920,
   height: 1080,
   lockAspectRatio: true,
-  originalAspectRatio: 1920 / 1080
+  originalAspectRatio: 1920 / 1080,
 })
 
 // Computed properties
@@ -239,7 +226,7 @@ const previewUrlParams = computed(() => {
   const presets = {
     ultraFast: `w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
     balanced: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
-    highQuality: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`
+    highQuality: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
   }
   return presets[settings.preset] || presets.balanced
 })
@@ -249,7 +236,7 @@ const outputUrlParams = computed(() => {
   const presets = {
     ultraFast: `w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
     balanced: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
-    highQuality: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`
+    highQuality: `w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
   }
   return presets[settings.preset] || presets.balanced
 })
@@ -257,16 +244,16 @@ const outputUrlParams = computed(() => {
 // Methods
 const getOptimizedImageUrl = (baseUrl) => {
   if (!baseUrl) return baseUrl
-  
+
   const settings = previewSettings.value
   const presets = {
     ultraFast: `?w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
     balanced: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
-    highQuality: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`
+    highQuality: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
   }
-  
+
   const params = presets[settings.preset] || presets.balanced
-  
+
   if (baseUrl.includes('?')) {
     return baseUrl.split('?')[0] + params
   }
@@ -275,16 +262,16 @@ const getOptimizedImageUrl = (baseUrl) => {
 
 const getOutputImageUrl = (baseUrl) => {
   if (!baseUrl) return baseUrl
-  
+
   const settings = outputSettings.value
   const presets = {
     ultraFast: `?w=${settings.width}&h=${settings.height}&fit=crop&auto=format,compress&q=30`,
     balanced: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2`,
-    highQuality: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`
+    highQuality: `?w=${settings.width}&h=${settings.height}&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5`,
   }
-  
+
   const params = presets[settings.preset] || presets.balanced
-  
+
   if (baseUrl.includes('?')) {
     return baseUrl.split('?')[0] + params
   }
@@ -295,11 +282,11 @@ const fetchR2Images = async () => {
   try {
     console.log('🖼️ Fetching R2 portfolio images...')
     const res = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
-    
+
     if (!res.ok) {
       throw new Error(`HTTP error! status: ${res.status}`)
     }
-    
+
     const data = await res.json()
     r2Images.value = data.images || []
     console.log(`✅ Successfully loaded ${r2Images.value.length} portfolio images`)
@@ -312,12 +299,12 @@ const fetchR2Images = async () => {
 const selectR2Image = (img) => {
   const optimizedUrl = getOutputImageUrl(img.url)
   console.log('📁 Portfolio image selected:', img.key, optimizedUrl)
-  
+
   emit('image-selected', {
     key: img.key,
     url: img.url,
     optimizedUrl: optimizedUrl,
-    size: img.size
+    size: img.size,
   })
 }
 
@@ -332,14 +319,18 @@ const updateImagePreview = () => {
 
 const onWidthChange = () => {
   if (outputSettings.value.lockAspectRatio) {
-    const newHeight = Math.round(outputSettings.value.width / outputSettings.value.originalAspectRatio)
+    const newHeight = Math.round(
+      outputSettings.value.width / outputSettings.value.originalAspectRatio,
+    )
     outputSettings.value.height = Math.max(50, Math.min(2000, newHeight))
   }
 }
 
 const onHeightChange = () => {
   if (outputSettings.value.lockAspectRatio) {
-    const newWidth = Math.round(outputSettings.value.height * outputSettings.value.originalAspectRatio)
+    const newWidth = Math.round(
+      outputSettings.value.height * outputSettings.value.originalAspectRatio,
+    )
     outputSettings.value.width = Math.max(50, Math.min(2000, newWidth))
   }
 }
@@ -350,23 +341,26 @@ const resetQualitySettings = () => {
     width: 150,
     height: 94,
     lockAspectRatio: true,
-    originalAspectRatio: 150 / 94
+    originalAspectRatio: 150 / 94,
   }
   outputSettings.value = {
     preset: 'highQuality',
     width: 1920,
     height: 1080,
     lockAspectRatio: true,
-    originalAspectRatio: 1920 / 1080
+    originalAspectRatio: 1920 / 1080,
   }
 }
 
 // Watch for modal opening to fetch images
-watch(() => props.isOpen, (newValue) => {
-  if (newValue) {
-    fetchR2Images()
-  }
-})
+watch(
+  () => props.isOpen,
+  (newValue) => {
+    if (newValue) {
+      fetchR2Images()
+    }
+  },
+)
 
 // Fetch images on mount if modal is already open
 onMounted(() => {
