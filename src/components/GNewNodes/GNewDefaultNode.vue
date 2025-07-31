@@ -124,6 +124,8 @@
         <FlexboxGrid
           v-else-if="contentPart.type === 'flexbox-grid'"
           :content="contentPart.content"
+          :nodeId="node.id"
+          :nodeContent="node.info || ''"
         />
 
         <!-- FLEXBOX-CARDS element using dedicated component -->
@@ -131,12 +133,16 @@
           v-else-if="contentPart.type === 'flexbox-cards'"
           :content="contentPart.content"
           :columnCount="contentPart.columnCount"
+          :nodeId="node.id"
+          :nodeContent="node.info || ''"
         />
 
         <!-- FLEXBOX-GALLERY element using dedicated component -->
         <FlexboxGallery
           v-else-if="contentPart.type === 'flexbox-gallery'"
           :content="contentPart.content"
+          :nodeId="node.id"
+          :nodeContent="node.info || ''"
         />
 
         <!-- Unknown formatted element -->
@@ -758,22 +764,25 @@ const parsedContent = computed(() => {
         const flexboxType = match[1].toLowerCase()
         const content = match[3].trim()
 
+        // Process FLEXBOX content through addChangeImageButtons to add image editing buttons
+        const contentWithButtons = addChangeImageButtons(content, props.nodeId, props.nodeData?.originalContent || '')
+
         if (flexboxType === 'grid') {
           parts.push({
             type: 'flexbox-grid',
-            content: content,
+            content: contentWithButtons,
           })
         } else if (flexboxType.startsWith('cards')) {
           const columnCount = match[2] ? parseInt(match[2], 10) : 3
           parts.push({
             type: 'flexbox-cards',
-            content: content,
+            content: contentWithButtons,
             columnCount: columnCount,
           })
         } else if (flexboxType === 'gallery') {
           parts.push({
             type: 'flexbox-gallery',
-            content: content,
+            content: contentWithButtons,
           })
         }
 

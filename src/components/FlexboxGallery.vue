@@ -2,19 +2,61 @@
   <div class="flexbox-gallery">
     <div v-for="(image, index) in images" :key="index" class="gallery-item">
       <img :src="image.src" :alt="image.alt" class="gallery-image" />
+      
+      <!-- Add image buttons if user is Superadmin -->
+      <div 
+        v-if="userStore.loggedIn && userStore.role === 'Superadmin'" 
+        class="image-button-container"
+      >
+        <button 
+          class="btn btn-sm btn-outline-primary change-image-btn"
+          :data-image-url="image.src"
+          :data-image-alt="image.alt"
+          :data-image-type="'FLEXBOX-GALLERY'"
+          :data-image-context="`FLEXBOX-GALLERY image ${index + 1}`"
+          :data-node-id="props.nodeId"
+          :data-node-content="props.nodeContent"
+          title="Change this image"
+        >
+          Change Image
+        </button>
+        <button 
+          class="btn btn-sm btn-outline-secondary google-photos-btn"
+          :data-image-url="image.src"
+          :data-image-alt="image.alt"
+          :data-image-type="'FLEXBOX-GALLERY'"
+          :data-image-context="`FLEXBOX-GALLERY image ${index + 1}`"
+          :data-node-id="props.nodeId"
+          :data-node-content="props.nodeContent"
+          title="Search Google Images"
+        >
+          Google Image
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { defineProps, computed } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
   content: {
     type: String,
     required: true,
   },
+  nodeId: {
+    type: String,
+    required: true,
+  },
+  nodeContent: {
+    type: String,
+    required: true,
+  },
 })
+
+const userStore = useUserStore()
 
 const images = computed(() => {
   const imageRegex = /!\[([^\]]*?)\]\(([^)]+)\)/g
@@ -60,6 +102,19 @@ const images = computed(() => {
   object-fit: cover;
   display: block;
   border-radius: 12px;
+}
+
+.image-button-container {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.change-image-btn,
+.google-photos-btn {
+  font-size: 0.8rem;
+  padding: 4px 8px;
 }
 
 /* Responsive design */

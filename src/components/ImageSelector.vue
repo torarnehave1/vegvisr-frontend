@@ -494,28 +494,11 @@
     />
 
     <!-- Portfolio Modal -->
-    <div 
-      v-if="isPortfolioModalOpen" 
-      class="modal d-block" 
-      tabindex="-1" 
-      style="background-color: rgba(0,0,0,0.5);"
-    >
-      <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Select from Portfolio</h5>
-            <button 
-              type="button" 
-              class="btn-close" 
-              @click="closePortfolioModal"
-            ></button>
-          </div>
-          <div class="modal-body p-0">
-            <R2Portfolio @image-selected="handlePortfolioImageSelected" />
-          </div>
-        </div>
-      </div>
-    </div>
+    <R2PortfolioModal 
+      :isOpen="isPortfolioModalOpen"
+      @close="closePortfolioModal"
+      @image-selected="handlePortfolioImageSelected"
+    />
   </div>
 </template>
 
@@ -523,7 +506,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import AIImageModal from './AIImageModal.vue'
-import R2Portfolio from '../views/R2Portfolio.vue'
+import R2PortfolioModal from './R2PortfolioModal.vue'
 
 const props = defineProps({
   isOpen: {
