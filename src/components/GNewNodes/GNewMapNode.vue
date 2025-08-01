@@ -77,7 +77,9 @@
       <div v-else class="map-empty-state">
         <div class="empty-icon">🗺️</div>
         <p>No map configured</p>
-        <small class="text-muted mt-2">Use the 📁 button in the header to upload a KML/KMZ file</small>
+        <small class="text-muted mt-2"
+          >Use the 📁 button in the header to upload a KML/KMZ file</small
+        >
       </div>
     </div>
 
@@ -87,7 +89,10 @@
     <!-- Upload Progress Indicator -->
     <div v-if="mapLoading" class="upload-progress">
       <div class="progress">
-        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+        <div
+          class="progress-bar progress-bar-striped progress-bar-animated"
+          style="width: 100%"
+        ></div>
       </div>
       <small class="text-muted">Uploading KML file...</small>
     </div>
@@ -149,9 +154,7 @@
                 class="form-control"
                 placeholder="Google Maps ID (optional)"
               />
-              <small class="form-text text-muted">
-                Leave empty to use default map style
-              </small>
+              <small class="form-text text-muted"> Leave empty to use default map style </small>
             </div>
           </div>
           <div class="modal-footer">
@@ -208,7 +211,7 @@ const mapSettings = ref({
   title: '',
   width: '',
   height: '',
-  mapId: ''
+  mapId: '',
 })
 
 // Computed properties
@@ -226,30 +229,32 @@ const mapPath = computed(() => {
 
 const mapContainerStyles = computed(() => {
   const styles = {}
-  
+
   if (props.node.imageWidth) {
-    styles.width = props.node.imageWidth.includes('%') || props.node.imageWidth.includes('px') 
-      ? props.node.imageWidth 
-      : `${props.node.imageWidth}px`
+    styles.width =
+      props.node.imageWidth.includes('%') || props.node.imageWidth.includes('px')
+        ? props.node.imageWidth
+        : `${props.node.imageWidth}px`
   }
-  
+
   if (props.node.imageHeight) {
-    styles.height = props.node.imageHeight.includes('%') || props.node.imageHeight.includes('px') 
-      ? props.node.imageHeight 
-      : `${props.node.imageHeight}px`
+    styles.height =
+      props.node.imageHeight.includes('%') || props.node.imageHeight.includes('px')
+        ? props.node.imageHeight
+        : `${props.node.imageHeight}px`
   }
-  
+
   // Default height if not specified
   if (!styles.height) {
     styles.height = '400px'
   }
-  
+
   return styles
 })
 
 const formattedInfo = computed(() => {
   if (!props.node.info) return ''
-  
+
   // Simple markdown-to-HTML conversion for basic formatting
   return props.node.info
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -287,7 +292,7 @@ const openMapSettings = () => {
     title: props.node.label || '',
     width: props.node.imageWidth || '100%',
     height: props.node.imageHeight || '400px',
-    mapId: props.node.mapId || ''
+    mapId: props.node.mapId || '',
   }
   showMapSettings.value = true
 }
@@ -302,9 +307,9 @@ const saveMapSettings = () => {
     label: mapSettings.value.title || props.node.label,
     imageWidth: mapSettings.value.width || '100%',
     imageHeight: mapSettings.value.height || '400px',
-    mapId: mapSettings.value.mapId || props.node.mapId
+    mapId: mapSettings.value.mapId || props.node.mapId,
   }
-  
+
   console.log('⚙️ Updating map settings:', updatedNode)
   emit('node-updated', updatedNode)
   closeMapSettings()
@@ -315,7 +320,7 @@ const editMapPath = () => {
   if (newPath && newPath !== mapPath.value) {
     const updatedNode = {
       ...props.node,
-      path: newPath
+      path: newPath,
     }
     console.log('🔗 Updating map path:', newPath)
     emit('node-updated', updatedNode)
@@ -327,9 +332,17 @@ const handleFileUpload = async (event) => {
   if (!file) return
 
   // Validate file type
-  const validTypes = ['application/vnd.google-earth.kml+xml', 'application/vnd.google-earth.kmz', '.kml', '.kmz']
-  const isValidType = validTypes.some(type => 
-    file.type === type || file.name.toLowerCase().endsWith('.kml') || file.name.toLowerCase().endsWith('.kmz')
+  const validTypes = [
+    'application/vnd.google-earth.kml+xml',
+    'application/vnd.google-earth.kmz',
+    '.kml',
+    '.kmz',
+  ]
+  const isValidType = validTypes.some(
+    (type) =>
+      file.type === type ||
+      file.name.toLowerCase().endsWith('.kml') ||
+      file.name.toLowerCase().endsWith('.kmz'),
   )
 
   if (!isValidType) {
@@ -351,11 +364,11 @@ const handleFileUpload = async (event) => {
       body: formData,
       headers: {
         // Don't set Content-Type - let browser set it for FormData
-      }
+      },
     })
 
     console.log('📡 Upload response status:', response.status)
-    
+
     if (!response.ok) {
       const errorText = await response.text()
       console.error('📡 Upload error response:', errorText)
@@ -364,7 +377,7 @@ const handleFileUpload = async (event) => {
 
     const result = await response.json()
     console.log('📡 Upload result:', result)
-    
+
     const uploadedPath = result.url || result.path || result.location
 
     if (!uploadedPath) {
@@ -377,7 +390,7 @@ const handleFileUpload = async (event) => {
       ...props.node,
       path: uploadedPath,
       // If no label exists, use filename
-      label: props.node.label || file.name.replace(/\.(kml|kmz)$/i, '')
+      label: props.node.label || file.name.replace(/\.(kml|kmz)$/i, ''),
     }
 
     console.log('✅ KML file uploaded successfully:', uploadedPath)
@@ -387,7 +400,6 @@ const handleFileUpload = async (event) => {
     setTimeout(() => {
       alert(`✅ KML file "${file.name}" uploaded successfully!`)
     }, 500)
-
   } catch (error) {
     console.error('❌ KML upload failed:', error)
     mapError.value = true

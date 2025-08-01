@@ -472,21 +472,23 @@ const handleUploadKml = async (request, env) => {
 
   // Generate unique filename with timestamp
   const fileName = `${Date.now()}_${file.name}`
-  
+
   try {
     await KLM_BUCKET.put(fileName, file.stream(), {
-      httpMetadata: { 
+      httpMetadata: {
         contentType: 'application/vnd.google-earth.kml+xml',
       },
     })
 
     // Return the file URL for the KML bucket
     const fileUrl = `https://klm.vegvisr.org/${fileName}`
-    return createResponse(JSON.stringify({ 
-      url: fileUrl,
-      filename: fileName,
-      message: 'KML file uploaded successfully'
-    }))
+    return createResponse(
+      JSON.stringify({
+        url: fileUrl,
+        filename: fileName,
+        message: 'KML file uploaded successfully',
+      }),
+    )
   } catch (error) {
     console.error('Error uploading KML file:', error)
     return createErrorResponse('Failed to upload KML file', 500)
