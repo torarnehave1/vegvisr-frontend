@@ -1,5 +1,22 @@
 <template>
   <div class="gnew-node-renderer">
+    <!-- Streamlined Reorder Controls (Admin Only) -->
+    <GNewNodeControlBar
+      v-if="showControls && nodeComponent"
+      :node-type="node.type || 'default'"
+      :position="nodePosition"
+      :total="totalNodes"
+      :is-first="nodePosition === 1"
+      :is-last="nodePosition === totalNodes"
+      :node-content="node.info || ''"
+      @format-node="$emit('format-node', node)"
+      @quick-format="$emit('quick-format', node, $event)"
+      @copy-node="$emit('copy-node', node)"
+      @move-up="$emit('move-up', node)"
+      @move-down="$emit('move-down', node)"
+      @open-reorder="$emit('open-reorder')"
+    />
+
     <component
       v-if="nodeComponent"
       :is="nodeComponent"
@@ -17,6 +34,9 @@
 <script setup>
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+
+// Import GNewNodeControlBar for streamlined reordering (GNewViewer specific)
+import GNewNodeControlBar from './GNewNodeControlBar.vue'
 
 // Import all node components
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
@@ -68,7 +88,36 @@ const props = defineProps({
 })
 
 // Emits
-const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
+const emit = defineEmits([
+  'node-updated',
+  'node-deleted',
+  'node-created',
+  'format-node',
+  'quick-format',
+  'copy-node',
+  'move-up',
+  'move-down',
+  'open-reorder',
+])
+
+// Computed properties for reordering
+const sortedNodes = computed(() => {
+  if (!props.graphData.nodes || props.graphData.nodes.length === 0) {
+    return []
+  }
+  return props.graphData.nodes
+    .filter((node) => node.visible !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+})
+
+const nodePosition = computed(() => {
+  const index = sortedNodes.value.findIndex((n) => n.id === props.node.id)
+  return index + 1
+})
+
+const totalNodes = computed(() => {
+  return sortedNodes.value.length
+})
 
 // Dynamic component mapping
 const nodeComponents = {

@@ -18,7 +18,7 @@
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
         <div class="nodes-container">
           <GNewNodeRenderer
-            v-for="node in graphData.nodes"
+            v-for="node in sortedNodes"
             :key="node.id"
             :node="node"
             :graphData="graphData"
@@ -1049,7 +1049,7 @@
           <h3>🔗 Graph Nodes</h3>
           <div class="nodes-container">
             <GNewNodeRenderer
-              v-for="node in graphData.nodes"
+              v-for="node in sortedNodes"
               :key="node.id"
               :node="node"
               :graphData="graphData"
@@ -1057,6 +1057,12 @@
               @node-updated="handleNodeUpdated"
               @node-deleted="handleNodeDeleted"
               @node-created="handleNodeCreated"
+              @move-up="moveNodeUp"
+              @move-down="moveNodeDown"
+              @open-reorder="openReorderModal"
+              @format-node="handleFormatNode"
+              @quick-format="handleQuickFormat"
+              @copy-node="handleCopyNode"
             />
 
             <!-- Real-time Professional Discussion -->
@@ -1311,6 +1317,25 @@ const savingNode = ref(false)
 // Color picker functionality
 const selectedColor = ref('#2c3e50')
 const showExpandedPalette = ref(false)
+
+// Computed property for sorted nodes (reordering support)
+const sortedNodes = computed(() => {
+  if (!graphData.value.nodes || graphData.value.nodes.length === 0) {
+    return []
+  }
+
+  // Filter visible nodes and sort by order property
+  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+
+  // Ensure all nodes have an order property
+  visibleNodes.forEach((node, index) => {
+    if (typeof node.order !== 'number') {
+      node.order = index + 1
+    }
+  })
+
+  return visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+})
 
 // Organized color categories based on color wheel principles
 const colorCategories = ref([
@@ -4358,6 +4383,134 @@ const handleEscKey = (event) => {
   ) {
     closeMobileMenu()
   }
+}
+
+// ===================================
+// REORDERING SYSTEM (copied from GraphViewer)
+// ===================================
+
+const moveNodeUp = async (node) => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+  const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
+
+  if (currentIndex > 0) {
+    // Swap orders with the node above
+    const nodeAbove = sortedNodes[currentIndex - 1]
+    const tempOrder = node.order
+    node.order = nodeAbove.order
+    nodeAbove.order = tempOrder
+
+    // Re-sort and update
+    await saveNodeOrder()
+  }
+}
+
+const moveNodeDown = async (node) => {
+  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+  const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
+
+  if (currentIndex < sortedNodes.length - 1) {
+    // Swap orders with the node below
+    const nodeBelow = sortedNodes[currentIndex + 1]
+    const tempOrder = node.order
+    node.order = nodeBelow.order
+    nodeBelow.order = tempOrder
+
+    // Re-sort and update
+    await saveNodeOrder()
+  }
+}
+
+const saveNodeOrder = async () => {
+  try {
+    // Sort main graph data
+    graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+
+    // Save to backend using same API as GraphViewer
+    const apiUrl = getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory')
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: graphData.value,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save node order.')
+    }
+
+    await response.json()
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    console.log('✅ Node order saved successfully')
+    statusMessage.value = 'Node order updated'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 2000)
+  } catch (error) {
+    console.error('❌ Error saving node order:', error)
+    statusMessage.value = 'Failed to save node order'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+  }
+}
+
+// Placeholder for future modal implementation
+const openReorderModal = () => {
+  console.log('🔄 Reorder modal - future implementation')
+  statusMessage.value = 'Full reorder modal coming soon - use up/down arrows for now'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3000)
+}
+
+// ===================================
+// NODE CONTROL HANDLERS (for GNewNodeControlBar)
+// ===================================
+
+const handleFormatNode = (node) => {
+  console.log('🤖 Format by AI requested for node:', node.id)
+  statusMessage.value = 'AI formatting feature coming soon'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 2000)
+}
+
+const handleQuickFormat = (node, formatType) => {
+  console.log('📝 Quick format requested:', formatType, 'for node:', node.id)
+
+  if (formatType === 'add_work_notes') {
+    // Add work note template to the node
+    const workNoteTemplate = "\n\n[WNOTE | Cited='Your Name']\nAdd your work note here\n[END WNOTE]"
+
+    // Add to node content
+    if (node.info) {
+      node.info += workNoteTemplate
+    } else {
+      node.info = workNoteTemplate.trim()
+    }
+
+    // Save the changes
+    saveNodeOrder()
+    statusMessage.value = 'Work note template added to node'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 2000)
+  }
+}
+
+const handleCopyNode = (node) => {
+  console.log('📋 Copy node requested for:', node.id)
+  statusMessage.value = 'Node copy feature coming soon'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 2000)
 }
 </script>
 
