@@ -217,6 +217,78 @@
           </div>
         </div>
 
+        <!-- Superadmin Affiliate Management Section -->
+        <div v-if="userRole === 'Superadmin'" class="mt-4">
+          <div
+            class="affiliate-management-card"
+            style="
+              background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+              border-radius: 12px;
+              padding: 1.5rem;
+              color: white;
+              position: relative;
+              overflow: hidden;
+            "
+          >
+            <div
+              class="affiliate-pattern"
+              style="
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 100px;
+                height: 100px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                transform: translate(30px, -30px);
+              "
+            ></div>
+            <div class="affiliate-content" style="position: relative; z-index: 2">
+              <h5 class="mb-3 d-flex align-items-center">
+                🎯 <span class="ms-2">Affiliate Partner Management</span>
+              </h5>
+              <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
+                Send professional invitation emails to potential affiliate partners. Manage
+                commission rates, track invitations, and grow your affiliate network.
+              </p>
+
+              <div class="affiliate-stats mb-3" style="opacity: 0.9">
+                <div class="row text-center">
+                  <div class="col-4">
+                    <div style="font-size: 1.2rem; font-weight: bold">
+                      {{ affiliateStats.totalInvitations || 0 }}
+                    </div>
+                    <small>Invitations Sent</small>
+                  </div>
+                  <div class="col-4">
+                    <div style="font-size: 1.2rem; font-weight: bold">
+                      {{ affiliateStats.activeAffiliates || 0 }}
+                    </div>
+                    <small>Active Affiliates</small>
+                  </div>
+                  <div class="col-4">
+                    <div style="font-size: 1.2rem; font-weight: bold">
+                      {{ affiliateStats.totalCommission || '0%' }}
+                    </div>
+                    <small>Avg Commission</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end">
+                <button
+                  @click="openAffiliateManagement"
+                  class="btn btn-light btn-sm"
+                  style="font-weight: 600"
+                >
+                  <i class="fas fa-envelope me-1"></i>
+                  Manage Affiliates
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- User Secret Section -->
         <div class="user-id-section alert alert-info mt-5">
           <p>Current User Secret:</p>
@@ -398,6 +470,27 @@
       @close="closeBrandingModal"
       @saved="handleBrandingSaved"
     />
+
+    <!-- Affiliate Management Modal -->
+    <div
+      v-if="showAffiliateManagement"
+      class="modal fade show"
+      style="display: block"
+      tabindex="-1"
+    >
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">🎯 Affiliate Partner Management</h5>
+            <button type="button" class="btn-close" @click="closeAffiliateManagement"></button>
+          </div>
+          <div class="modal-body p-0">
+            <AffiliateManagement />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-if="showAffiliateManagement" class="modal-backdrop fade show"></div>
 
     <!-- Subscription Modal -->
     <div
@@ -598,10 +691,12 @@ import { marked } from 'marked' // Import marked.js
 import { useRouter } from 'vue-router' // Import router
 import { apiUrls } from '@/config/api' // Import API configuration
 import BrandingModal from '@/components/BrandingModal.vue' // Import branding modal
+import AffiliateManagement from '@/components/AffiliateManagement.vue' // Import affiliate management
 
 export default {
   components: {
     BrandingModal,
+    AffiliateManagement,
   },
   data() {
     return {
@@ -628,6 +723,13 @@ export default {
       logoError: false,
       showBrandingModal: false,
       domainConfigs: [], // New: Array of domain configurations
+      // Affiliate management
+      showAffiliateManagement: false,
+      affiliateStats: {
+        totalInvitations: 0,
+        activeAffiliates: 0,
+        totalCommission: '15%',
+      },
       // Subscription management
       currentSubscriptions: [],
       showSubscriptionModal: false,
@@ -759,6 +861,11 @@ export default {
     this.waitForStore()
     this.fetchUserData() // Fetch user data on mount
     this.newMystmkraUserId = ''
+
+    // Load affiliate stats for Superadmins
+    if (this.userRole === 'Superadmin') {
+      this.loadAffiliateStats()
+    }
   },
   watch: {
     // Watch for changes in loggedIn state
@@ -1071,6 +1178,25 @@ export default {
     },
     closeBrandingModal() {
       this.showBrandingModal = false
+    },
+    openAffiliateManagement() {
+      this.showAffiliateManagement = true
+    },
+    closeAffiliateManagement() {
+      this.showAffiliateManagement = false
+    },
+    async loadAffiliateStats() {
+      try {
+        // This would be implemented when you have affiliate stats endpoints
+        // For now, using placeholder data
+        this.affiliateStats = {
+          totalInvitations: 12,
+          activeAffiliates: 8,
+          totalCommission: '15%',
+        }
+      } catch (error) {
+        console.error('Error loading affiliate stats:', error)
+      }
     },
     handleBrandingSaved(message, updatedDomainConfigs) {
       this.saveMessage = message

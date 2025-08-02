@@ -1,0 +1,8 @@
+{
+  "recipientEmail": "new.affiliate@example.com",
+  "recipientName": "New Affiliate User",
+  "senderName": "Superadmin",
+  "siteName": "Vegvisr.org",
+  "commissionRate": 15,
+  "domain": "vegvisr.org"
+}

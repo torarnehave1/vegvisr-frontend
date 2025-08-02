@@ -268,6 +268,32 @@ const router = createRouter({
         layout: null, // No layout for clean testing
       },
     },
+    {
+      path: '/affiliate',
+      name: 'affiliate',
+      component: () => import('../components/AffiliateDashboard.vue'),
+      meta: {
+        requiresAuth: true, // Require authentication for affiliate dashboard
+      },
+    },
+    {
+      path: '/affiliate/info',
+      name: 'affiliate-info',
+      component: () => import('../views/AffiliateInfoView.vue'),
+    },
+    {
+      path: '/affiliate/register',
+      name: 'affiliate-register',
+      component: () => import('../components/AffiliateRegistration.vue'),
+      props: (route) => ({
+        invitationToken: route.query.token,
+        embed: route.query?.embed === 'true',
+      }),
+      beforeEnter: (to, from, next) => {
+        to.meta.layout = to.query?.embed === 'true' ? EmbedLayout : DefaultLayout
+        next()
+      },
+    },
   ],
 })
 

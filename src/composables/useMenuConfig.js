@@ -54,6 +54,14 @@ export function useMenuConfig(menuConfigRef = null) {
       requiresAuth: false,
       roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
     },
+    {
+      id: 'affiliate-dashboard',
+      label: '💰 Affiliate',
+      path: '/affiliate/info',
+      icon: '',
+      requiresAuth: false,
+      roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+    },
 
     {
       id: 'github-issues',
