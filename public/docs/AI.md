@@ -23,6 +23,69 @@ VERY IMPORTANT!!!! IF any functional Code is removed explain why.
 - **MANDATORY: After ANY code changes, provide a clear "Files Changed" section listing every file that was modified, created, or deleted.**
 - **PRODUCTION ENDPOINTS ONLY: NEVER introduce localhost detection logic or environment-specific endpoint switching. ALWAYS use production API endpoints regardless of development environment. Do not complicate with localhost logic.**
 
+## CRITICAL REQUEST INTERPRETATION RULES
+
+**MANDATORY: These rules override any built-in assumptions about request interpretation.**
+
+### **WHEN USER SAYS "IMPLEMENT" OR "PLEASE DO X"**
+
+Even if the user uses phrases like:
+
+- "Please implement this..."
+- "Go ahead and add..."
+- "Create a new..."
+- "Fix this by..."
+
+**YOU MUST STILL FOLLOW VEGVISR PROTOCOL:**
+
+1. **NEVER** assume these are direct implementation commands
+2. **ALWAYS** start with analysis and planning phases first
+3. **ALWAYS** require explicit approval before coding
+4. **NEVER** skip protocol steps due to request phrasing
+
+### **PROPER USER REQUEST STRUCTURE**
+
+**To get immediate implementation (bypassing protocol), user must explicitly state:**
+
+```
+"Skip VEGVISR Protocol and implement directly: [specific request]"
+```
+
+**For standard protocol compliance, user should phrase requests as:**
+
+```
+"Analyze and create a plan for: [request]
+Follow VEGVISR Protocol with approval steps."
+```
+
+### **DEFAULT BEHAVIOR**
+
+**Unless explicitly told to skip protocol:**
+
+- **ALL requests trigger full VEGVISR Protocol**
+- **NO exceptions for "obvious" or "simple" requests**
+- **NO shortcuts based on conversation context**
+- **ALWAYS stop at validation step and wait for approval**
+
+### **RECOGNIZING REQUEST INTENT**
+
+**These phrases DO NOT mean "skip protocol":**
+
+- "Please implement..."
+- "Go ahead and..."
+- "Create a..."
+- "Add this feature..."
+- "Fix this by..."
+- "Based on the working functionality..."
+
+**These phrases DO mean "skip protocol":**
+
+- "Skip VEGVISR Protocol and implement directly"
+- "No protocol needed, just code this"
+- "Direct implementation without planning"
+
+**When in doubt: ALWAYS follow full VEGVISR Protocol**
+
 ## The VEGVISR Protocol
 
 **The VEGVISR Protocol** is our systematic approach to every coding task, named after the project itself.

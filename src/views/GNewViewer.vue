@@ -1030,6 +1030,75 @@
           </div>
         </div>
 
+        <!-- Reorder Modal (Admin Only) -->
+        <div
+          v-if="isReorderModalOpen && userStore.loggedIn && userStore.role === 'Superadmin'"
+          class="modal-overlay"
+          @click.self="closeReorderModal"
+        >
+          <div class="reorder-modal">
+            <div class="modal-header">
+              <h4>🔄 Reorder Nodes</h4>
+              <button @click="closeReorderModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+              <div class="reorder-instructions">
+                <p class="small text-muted">
+                  <i class="bi bi-info-circle"></i>
+                  Drag and drop nodes to reorder them, or use the position input fields.
+                </p>
+              </div>
+
+              <div class="reorder-list">
+                <div
+                  v-for="node in reorderableNodes"
+                  :key="node.id"
+                  class="reorder-item"
+                  draggable="true"
+                  @dragstart="onDragStart($event, node.id)"
+                  @dragend="onDragEnd"
+                  @drop="onDrop($event, node.id)"
+                  @dragover="onDragOver"
+                >
+                  <div class="node-info">
+                    <span class="node-icon">{{ getNodeTypeIcon(node.type) }}</span>
+                    <span class="node-name">{{ getNodeDisplayName(node) }}</span>
+                    <span class="node-type text-muted">({{ node.type }})</span>
+                  </div>
+
+                  <div class="position-controls">
+                    <label class="position-label">Position:</label>
+                    <input
+                      type="number"
+                      :value="getNodePosition(node)"
+                      @input="updateNodePosition(node.id, parseInt($event.target.value))"
+                      min="1"
+                      :max="reorderableNodes.length"
+                      class="position-input"
+                    />
+                    <span class="position-total">/ {{ reorderableNodes.length }}</span>
+                  </div>
+
+                  <div class="drag-handle">
+                    <i class="bi bi-grip-vertical"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button @click="resetOrder" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-clockwise"></i> Reset
+              </button>
+              <button @click="closeReorderModal" class="btn btn-secondary">Cancel</button>
+              <button @click="saveNodeOrder" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> Save Order
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Error Display -->
         <div v-if="error" class="alert alert-danger">
           <h5>❌ Error</h5>
@@ -1313,6 +1382,12 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+
+// Reorder modal functionality
+const isReorderModalOpen = ref(false)
+const reorderableNodes = ref([])
+const draggedNodeId = ref(null)
+const draggedFromIndex = ref(null)
 
 // Color picker functionality
 const selectedColor = ref('#2c3e50')
@@ -3661,6 +3736,32 @@ const getNodeDisplayName = (node) => {
   return node.label || `${node.type} node`
 }
 
+// Helper function to get node type icon for reorder modal
+const getNodeTypeIcon = (type) => {
+  const icons = {
+    title: '📄',
+    worknote: '📝',
+    'markdown-image': '🖼️',
+    'youtube-video': '📺',
+    map: '🗺️',
+    chart: '📊',
+    piechart: '🥧',
+    linechart: '📈',
+    timeline: '⏰',
+    swot: '📋',
+    bubblechart: '💭',
+    'mermaid-diagram': '🔀',
+    background: '🖼️',
+  }
+  return icons[type] || '📄'
+}
+
+// Helper function to get node position in reorder modal
+const getNodePosition = (node) => {
+  const index = reorderableNodes.value.findIndex((n) => n.id === node.id)
+  return index !== -1 ? index + 1 : 1
+}
+
 // Image editing modal functions
 const openImageSelector = (imageData) => {
   if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
@@ -4425,6 +4526,17 @@ const moveNodeDown = async (node) => {
 
 const saveNodeOrder = async () => {
   try {
+    // If called from reorder modal, update main graph data with reordered nodes
+    if (isReorderModalOpen.value && reorderableNodes.value.length > 0) {
+      // Update the order values in the main graph data
+      reorderableNodes.value.forEach((reorderedNode, index) => {
+        const originalNode = graphData.value.nodes.find((n) => n.id === reorderedNode.id)
+        if (originalNode) {
+          originalNode.order = index + 1
+        }
+      })
+    }
+
     // Sort main graph data
     graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 
@@ -4449,6 +4561,12 @@ const saveNodeOrder = async () => {
 
     console.log('✅ Node order saved successfully')
     statusMessage.value = 'Node order updated'
+
+    // Close reorder modal if open
+    if (isReorderModalOpen.value) {
+      closeReorderModal()
+    }
+
     setTimeout(() => {
       statusMessage.value = ''
     }, 2000)
@@ -4461,13 +4579,94 @@ const saveNodeOrder = async () => {
   }
 }
 
-// Placeholder for future modal implementation
+// Open reorder modal
 const openReorderModal = () => {
-  console.log('🔄 Reorder modal - future implementation')
-  statusMessage.value = 'Full reorder modal coming soon - use up/down arrows for now'
-  setTimeout(() => {
-    statusMessage.value = ''
-  }, 3000)
+  console.log('🔄 Opening reorder modal')
+
+  // Prepare reorderable nodes from visible nodes
+  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+  reorderableNodes.value = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+
+  // Open the modal
+  isReorderModalOpen.value = true
+}
+
+// Close reorder modal
+const closeReorderModal = () => {
+  isReorderModalOpen.value = false
+  draggedNodeId.value = null
+  draggedFromIndex.value = null
+  reorderableNodes.value = []
+}
+
+// Drag and drop functions for reorder modal
+const onDragStart = (event, nodeId) => {
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/html', event.target.outerHTML)
+
+  draggedNodeId.value = nodeId
+  draggedFromIndex.value = reorderableNodes.value.findIndex((node) => node.id === nodeId)
+
+  event.target.style.opacity = '0.5'
+}
+
+const onDragEnd = (event) => {
+  event.target.style.opacity = '1'
+}
+
+const onDrop = (event, targetNodeId) => {
+  event.preventDefault()
+
+  if (!draggedNodeId.value || draggedNodeId.value === targetNodeId) return
+
+  const draggedFromIdx = draggedFromIndex.value
+  const draggedToIdx = reorderableNodes.value.findIndex((node) => node.id === targetNodeId)
+
+  if (draggedFromIdx === -1 || draggedToIdx === -1) return
+
+  // Remove the dragged node from its original position
+  const draggedNode = reorderableNodes.value.splice(draggedFromIdx, 1)[0]
+
+  // Insert it at the new position
+  reorderableNodes.value.splice(draggedToIdx, 0, draggedNode)
+
+  // Update order values
+  reorderableNodes.value.forEach((node, index) => {
+    node.order = index + 1
+  })
+
+  console.log('🔄 Nodes reordered via drag and drop')
+}
+
+const onDragOver = (event) => {
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+// Update node position in reorder modal
+const updateNodePosition = (nodeId, newPosition) => {
+  const nodeIndex = reorderableNodes.value.findIndex((node) => node.id === nodeId)
+  if (nodeIndex === -1) return
+
+  const targetPosition = Math.max(1, Math.min(newPosition, reorderableNodes.value.length))
+  const node = reorderableNodes.value[nodeIndex]
+
+  // Remove node from current position
+  reorderableNodes.value.splice(nodeIndex, 1)
+
+  // Insert at new position (subtract 1 for 0-based index)
+  reorderableNodes.value.splice(targetPosition - 1, 0, node)
+
+  // Update all order values
+  reorderableNodes.value.forEach((n, index) => {
+    n.order = index + 1
+  })
+}
+
+// Reset order to original state
+const resetOrder = () => {
+  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+  reorderableNodes.value = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 }
 
 // ===================================
@@ -5963,6 +6162,236 @@ const handleCopyNode = (node) => {
   .gnew-viewer .flexbox-container[style*='display: grid'] {
     grid-template-columns: 1fr !important;
     gap: 10px !important;
+  }
+}
+
+/* ===================================
+   REORDER MODAL STYLES
+   =================================== */
+.reorder-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.reorder-modal .modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reorder-modal .modal-header h4 {
+  margin: 0;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.reorder-modal .modal-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.reorder-instructions {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.reorder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reorder-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: grab;
+}
+
+.reorder-item:hover {
+  background: #e9ecef;
+  border-color: #007bff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+}
+
+.reorder-item:active {
+  cursor: grabbing;
+}
+
+.reorder-item.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+.node-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.node-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.node-name {
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.node-type {
+  font-size: 12px;
+  font-style: italic;
+}
+
+.position-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 15px;
+}
+
+.position-label {
+  font-size: 12px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.position-input {
+  width: 60px;
+  padding: 4px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.position-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.position-total {
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.drag-handle {
+  color: #6c757d;
+  cursor: grab;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.2s ease;
+}
+
+.drag-handle:hover {
+  color: #007bff;
+  background: rgba(0, 123, 255, 0.1);
+}
+
+.reorder-modal .modal-footer {
+  padding: 20px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.reorder-modal .btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reorder-modal .btn-primary {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.reorder-modal .btn-primary:hover {
+  background: #0056b3;
+  border-color: #0056b3;
+  transform: translateY(-1px);
+}
+
+.reorder-modal .btn-secondary {
+  background: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+
+.reorder-modal .btn-secondary:hover {
+  background: #545b62;
+  border-color: #545b62;
+}
+
+.reorder-modal .btn-outline-secondary {
+  background: transparent;
+  color: #6c757d;
+  border-color: #6c757d;
+}
+
+.reorder-modal .btn-outline-secondary:hover {
+  background: #6c757d;
+  color: white;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .reorder-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .position-controls {
+    flex-direction: column;
+    gap: 4px;
+    margin-right: 10px;
+  }
+
+  .position-label {
+    display: none;
+  }
+
+  .reorder-item {
+    padding: 10px;
+  }
+
+  .node-info {
+    gap: 8px;
+  }
+
+  .node-icon {
+    font-size: 16px;
+    width: 20px;
   }
 }
 </style>
