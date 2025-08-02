@@ -1,0 +1,962 @@
+/**
+ * Affiliate Worker - Enhanced with Email Template Integration
+ * Handles affiliate program management, tracking, and email invitations
+ * Uses worker bindings for inter-worker communication
+ */
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url)
+    const path = url.pathname
+    const method = request.method
+
+    // CORS headers function
+    function addCorsHeaders(response) {
+      response.headers.set('Access-Control-Allow-Origin', '*')
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+      response.headers.set('Access-Control-Max-Age', '86400')
+      return response
+    }
+
+    // Handle preflight requests
+    if (method === 'OPTIONS') {
+      return addCorsHeaders(new Response(null, { status: 204 }))
+    }
+
+    try {
+      // ===========================================
+      // AFFILIATE REGISTRATION & MANAGEMENT
+      // ===========================================
+
+      // Register new affiliate (Updated to integrate with existing user system)
+      if (path === '/register-affiliate' && method === 'POST') {
+        console.log('📝 Received POST /register-affiliate request')
+
+        const { email, name, invitationToken, referredBy, domain } = await request.json()
+
+        if (!email || !name) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Email and name are required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+        const affiliateId = `aff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const referralCode = `${name.substring(0, 3).toUpperCase()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`
+
+        try {
+          // Check if user exists in config table
+          const existingUser = await db
+            .prepare('SELECT user_id, data FROM config WHERE email = ?')
+            .bind(email)
+            .first()
+
+          if (!existingUser) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error:
+                    'User must be registered first. Please complete user registration before becoming an affiliate.',
+                  action: 'register_first',
+                  registrationUrl: `https://vegvisr.org/register?email=${encodeURIComponent(email)}`,
+                }),
+                { status: 400 },
+              ),
+            )
+          }
+
+          // Check if already an affiliate
+          const existingAffiliate = await db
+            .prepare('SELECT affiliate_id FROM affiliates WHERE email = ?')
+            .bind(email)
+            .first()
+
+          if (existingAffiliate) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'User is already registered as an affiliate',
+                  affiliate: existingAffiliate,
+                }),
+                { status: 409 },
+              ),
+            )
+          }
+
+          // Add affiliate record
+          await db
+            .prepare(
+              `
+            INSERT INTO affiliates (
+              affiliate_id, email, name, referral_code, domain,
+              referred_by, status, commission_rate, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'active', 15.0, datetime('now'))
+          `,
+            )
+            .bind(
+              affiliateId,
+              email,
+              name,
+              referralCode,
+              domain || 'vegvisr.org',
+              referredBy || null,
+            )
+            .run()
+
+          // Update user data to include affiliate flag
+          const userData = JSON.parse(existingUser.data || '{}')
+          userData.isAffiliate = true
+          userData.affiliateId = affiliateId
+          userData.referralCode = referralCode
+
+          await db
+            .prepare('UPDATE config SET data = ? WHERE email = ?')
+            .bind(JSON.stringify(userData), email)
+            .run()
+
+          console.log(`✅ User ${email} is now an affiliate: ${affiliateId}`)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                affiliate: {
+                  affiliateId,
+                  email,
+                  name,
+                  referralCode,
+                  domain: domain || 'vegvisr.org',
+                  commissionRate: 15.0,
+                  status: 'active',
+                },
+              }),
+              { status: 201 },
+            ),
+          )
+        } catch (dbError) {
+          console.error('❌ Database error registering affiliate:', dbError)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to register affiliate',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Get affiliate dashboard data
+      if (path === '/affiliate-dashboard' && method === 'GET') {
+        const affiliateId = url.searchParams.get('affiliateId')
+
+        if (!affiliateId) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Affiliate ID required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Get affiliate info
+          const affiliate = await db
+            .prepare('SELECT * FROM affiliates WHERE affiliate_id = ?')
+            .bind(affiliateId)
+            .first()
+
+          if (!affiliate) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Affiliate not found' }), {
+                status: 404,
+              }),
+            )
+          }
+
+          // Get referral statistics
+          const stats = await db
+            .prepare(
+              `
+            SELECT
+              COUNT(*) as total_referrals,
+              COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted_referrals,
+              SUM(CASE WHEN status = 'converted' THEN commission_amount ELSE 0 END) as total_earnings,
+              SUM(CASE WHEN status = 'converted' AND paid = 0 THEN commission_amount ELSE 0 END) as pending_earnings
+            FROM referrals
+            WHERE affiliate_id = ?
+          `,
+            )
+            .bind(affiliateId)
+            .first()
+
+          // Get recent referrals
+          const recentReferrals = await db
+            .prepare(
+              `
+            SELECT * FROM referrals
+            WHERE affiliate_id = ?
+            ORDER BY created_at DESC
+            LIMIT 10
+          `,
+            )
+            .bind(affiliateId)
+            .all()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                affiliate: {
+                  id: affiliate.affiliate_id,
+                  name: affiliate.name,
+                  email: affiliate.email,
+                  referralCode: affiliate.referral_code,
+                  commissionRate: affiliate.commission_rate,
+                  status: affiliate.status,
+                },
+                statistics: {
+                  totalReferrals: stats?.total_referrals || 0,
+                  convertedReferrals: stats?.converted_referrals || 0,
+                  totalEarnings: stats?.total_earnings || 0,
+                  pendingEarnings: stats?.pending_earnings || 0,
+                  conversionRate:
+                    stats?.total_referrals > 0
+                      ? (((stats?.converted_referrals || 0) / stats.total_referrals) * 100).toFixed(
+                          2,
+                        )
+                      : '0.00',
+                },
+                recentReferrals: recentReferrals.results || [],
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate dashboard:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch dashboard data',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // ===========================================
+      // REFERRAL TRACKING
+      // ===========================================
+
+      // Track referral click
+      if (path === '/track-referral' && method === 'POST') {
+        const { referralCode, referredEmail, metadata } = await request.json()
+
+        if (!referralCode) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Referral code required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Find affiliate by referral code
+          const affiliate = await db
+            .prepare(
+              'SELECT affiliate_id, commission_rate FROM affiliates WHERE referral_code = ? AND status = "active"',
+            )
+            .bind(referralCode)
+            .first()
+
+          if (!affiliate) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Invalid referral code' }), {
+                status: 404,
+              }),
+            )
+          }
+
+          // Check for existing referral
+          if (referredEmail) {
+            const existing = await db
+              .prepare('SELECT id FROM referrals WHERE affiliate_id = ? AND referred_email = ?')
+              .bind(affiliate.affiliate_id, referredEmail)
+              .first()
+
+            if (existing) {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    message: 'Referral already tracked',
+                    referralId: existing.id,
+                  }),
+                  { status: 200 },
+                ),
+              )
+            }
+          }
+
+          // Create new referral tracking record
+          const referralId = `ref_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
+          await db
+            .prepare(
+              `
+            INSERT INTO referrals (
+              id, affiliate_id, referred_email, referral_code,
+              status, commission_rate, metadata, created_at
+            ) VALUES (?, ?, ?, ?, 'pending', ?, ?, datetime('now'))
+          `,
+            )
+            .bind(
+              referralId,
+              affiliate.affiliate_id,
+              referredEmail || null,
+              referralCode,
+              affiliate.commission_rate,
+              JSON.stringify(metadata || {}),
+            )
+            .run()
+
+          console.log(`✅ Referral tracked: ${referralId} for affiliate ${affiliate.affiliate_id}`)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                referralId,
+                affiliateId: affiliate.affiliate_id,
+                commissionRate: affiliate.commission_rate,
+              }),
+              { status: 201 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error tracking referral:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to track referral',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Convert referral (when user actually registers/purchases)
+      if (path === '/convert-referral' && method === 'POST') {
+        const { referredEmail, amount, orderId } = await request.json()
+
+        if (!referredEmail) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Referred email required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Find pending referral
+          const referral = await db
+            .prepare('SELECT * FROM referrals WHERE referred_email = ? AND status = "pending"')
+            .bind(referredEmail)
+            .first()
+
+          if (!referral) {
+            console.log(`⚠️ No pending referral found for email: ${referredEmail}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  message: 'No pending referral found',
+                }),
+                { status: 404 },
+              ),
+            )
+          }
+
+          // Calculate commission
+          const commissionAmount = amount ? amount * (referral.commission_rate / 100) : 0
+
+          // Update referral status
+          await db
+            .prepare(
+              `
+            UPDATE referrals SET
+              status = 'converted',
+              commission_amount = ?,
+              order_id = ?,
+              converted_at = datetime('now')
+            WHERE id = ?
+          `,
+            )
+            .bind(commissionAmount, orderId || null, referral.id)
+            .run()
+
+          console.log(`✅ Referral converted: ${referral.id}, commission: $${commissionAmount}`)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                referralId: referral.id,
+                affiliateId: referral.affiliate_id,
+                commissionAmount,
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error converting referral:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to convert referral',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // ===========================================
+      // EMAIL INVITATIONS WITH TEMPLATE INTEGRATION
+      // ===========================================
+
+      // List affiliate invitations (for Superadmin UI)
+      if (path === '/list-invitations' && method === 'GET') {
+        console.log('📋 Received GET /list-invitations request')
+
+        try {
+          const limit = parseInt(url.searchParams.get('limit')) || 10
+          const offset = parseInt(url.searchParams.get('offset')) || 0
+
+          const db = env.vegvisr_org
+
+          // Get invitations with pagination
+          const invitations = await db
+            .prepare(
+              `
+              SELECT
+                token, recipient_email, recipient_name, sender_name, site_name,
+                commission_type, commission_rate, commission_amount,
+                inviter_affiliate_id, domain, expires_at, created_at, status, used_at, used
+              FROM affiliate_invitations
+              ORDER BY created_at DESC
+              LIMIT ? OFFSET ?
+            `,
+            )
+            .bind(limit, offset)
+            .all()
+
+          // Get total count
+          const totalCount = await db
+            .prepare('SELECT COUNT(*) as count FROM affiliate_invitations')
+            .first()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                invitations: invitations.results || [],
+                totalCount: totalCount.count || 0,
+                limit,
+                offset,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate invitations:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch invitations',
+                invitations: [],
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Send affiliate invitation email
+      if (path === '/send-affiliate-invitation' && method === 'POST') {
+        console.log('📧 Received POST /send-affiliate-invitation request')
+
+        const {
+          recipientEmail,
+          recipientName,
+          senderName,
+          siteName,
+          commissionRate,
+          commissionType,
+          commissionAmount,
+          domain,
+          inviterAffiliateId,
+        } = await request.json()
+
+        if (!recipientEmail || !recipientName || !senderName) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'recipientEmail, recipientName, and senderName are required',
+              }),
+              { status: 400 },
+            ),
+          )
+        }
+
+        try {
+          // Generate invitation token for affiliate registration
+          const invitationToken = `invite_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+          // Check if user already exists in the system
+          const db = env.vegvisr_org
+          const existingUser = await db
+            .prepare('SELECT user_id, data FROM config WHERE email = ?')
+            .bind(recipientEmail)
+            .first()
+
+          // Check if user is already an affiliate
+          const existingAffiliate = await db
+            .prepare('SELECT affiliate_id FROM affiliates WHERE email = ?')
+            .bind(recipientEmail)
+            .first()
+
+          if (existingAffiliate) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'User is already registered as an affiliate',
+                  affiliate: existingAffiliate,
+                }),
+                { status: 409 },
+              ),
+            )
+          }
+
+          // Determine user type for template selection
+          const isExistingUser = !!existingUser
+
+          // Store invitation in database
+          await db
+            .prepare(
+              `
+            INSERT INTO affiliate_invitations (
+              token, recipient_email, recipient_name, sender_name,
+              inviter_affiliate_id, domain, commission_rate, commission_type, commission_amount,
+              expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `,
+            )
+            .bind(
+              invitationToken,
+              recipientEmail,
+              recipientName,
+              senderName,
+              inviterAffiliateId || null,
+              domain || 'vegvisr.org',
+              commissionRate || 15.0,
+              commissionType || 'percentage',
+              commissionAmount || null,
+              expiresAt.toISOString(),
+            )
+            .run()
+
+          // Create appropriate URLs based on user type
+          const affiliateRegistrationUrl = isExistingUser
+            ? `https://${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
+            : `https://${domain || 'vegvisr.org'}/affiliate-register?token=${invitationToken}`
+
+          // Prepare email template variables
+          const templateVariables = {
+            recipientName,
+            recipientEmail,
+            senderName,
+            siteName: siteName || domain || 'Vegvisr',
+            commissionRate: `${commissionRate || 15}`,
+            commissionType: commissionType || 'percentage',
+            commissionAmount: commissionAmount || '',
+            affiliateRegistrationUrl,
+            affiliateAcceptanceUrl: affiliateRegistrationUrl, // Same URL, different context
+            // Pre-calculated commission display for email template
+            commissionDisplay:
+              commissionType === 'fixed'
+                ? `$${commissionAmount || 50} per Sale`
+                : `${commissionRate || 15}% Commission`,
+            commissionDetails:
+              commissionType === 'fixed'
+                ? `$${commissionAmount || 50} fixed amount`
+                : `${commissionRate || 15}% commission`,
+          }
+
+          // Get the appropriate email template based on user type
+          const templateId = isExistingUser
+            ? 'affiliate_invitation_existing_user'
+            : 'affiliate_registration_invitation_simple'
+
+          const template = await env.vegvisr_org
+            .prepare('SELECT * FROM email_templates WHERE id = ? AND is_active = 1')
+            .bind(templateId)
+            .first()
+
+          if (!template) {
+            console.error(
+              `❌ ${isExistingUser ? 'Existing user' : 'New user'} affiliate email template not found`,
+            )
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Email template not found for ${isExistingUser ? 'existing user' : 'new user'} flow`,
+                  templateId,
+                }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          // Get template - slowyou.io will handle variable replacement
+          let emailBody = template.body
+          let emailSubject = template.subject
+
+          // Don't convert braces - let slowyou.io handle the variable replacement
+
+          // Send email via slowyou.io following VEGVISR protocol with variables
+          const slowyouUrl = 'https://slowyou.io/api/send-vegvisr-email'
+          let emailResult = {
+            success: false,
+            message: 'Email sending attempted',
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            status: 'attempted',
+            recipient: recipientEmail,
+            subject: emailSubject,
+            sentAt: new Date().toISOString(),
+          }
+
+          try {
+            const slowyouResponse = await fetch(slowyouUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${env.API_TOKEN}`,
+              },
+              body: JSON.stringify({
+                email: recipientEmail,
+                template: emailBody,
+                subject: emailSubject,
+                callbackUrl: affiliateRegistrationUrl,
+                variables: templateVariables, // Pass variables to slowyou.io for processing
+              }),
+            })
+
+            if (slowyouResponse.ok) {
+              emailResult.success = true
+              emailResult.message = 'Email sent successfully via slowyou.io'
+              emailResult.status = 'sent'
+            } else {
+              let errorData
+              try {
+                errorData = await slowyouResponse.text()
+              } catch (e) {
+                errorData = `Failed to read error response: ${e.message}`
+              }
+              emailResult.error = errorData
+              emailResult.status = 'failed'
+              console.error('❌ Slowyou.io error:', errorData)
+            }
+          } catch (fetchError) {
+            emailResult.error = fetchError.message
+            emailResult.status = 'failed'
+            console.error('❌ Slowyou.io fetch error:', fetchError)
+          }
+
+          console.log(
+            `✅ Affiliate invitation sent to ${recipientEmail} with token ${invitationToken}`,
+          )
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Affiliate invitation sent successfully',
+                invitationToken,
+                expiresAt: expiresAt.toISOString(),
+                emailResult,
+                // Debug information - what email content was generated
+                debugInfo: {
+                  isExistingUser,
+                  templateId,
+                  templateVariables,
+                  processedEmailBody: emailBody,
+                  processedEmailSubject: emailSubject,
+                  slowyouApiCall: {
+                    url: slowyouUrl,
+                    payload: {
+                      email: recipientEmail,
+                      template: emailBody,
+                      subject: emailSubject,
+                      callbackUrl: affiliateRegistrationUrl,
+                      variables: templateVariables,
+                    },
+                  },
+                },
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error sending affiliate invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to send affiliate invitation',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Validate affiliate invitation token
+      if (path === '/validate-invitation' && method === 'GET') {
+        const token = url.searchParams.get('token')
+
+        if (!token) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Invitation token required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          const invitation = await db
+            .prepare(
+              `
+            SELECT * FROM affiliate_invitations
+            WHERE token = ? AND expires_at > datetime('now') AND used = 0
+          `,
+            )
+            .bind(token)
+            .first()
+
+          if (!invitation) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Invalid or expired invitation token',
+                }),
+                { status: 404 },
+              ),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                invitation: {
+                  recipientEmail: invitation.recipient_email,
+                  recipientName: invitation.recipient_name,
+                  senderName: invitation.sender_name,
+                  domain: invitation.domain,
+                  commissionRate: invitation.commission_rate,
+                  expiresAt: invitation.expires_at,
+                },
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error validating invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to validate invitation',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Complete affiliate registration with invitation token
+      if (path === '/complete-invitation-registration' && method === 'POST') {
+        const { token, email, name, additionalInfo } = await request.json()
+
+        if (!token || !email || !name) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Token, email, and name are required',
+              }),
+              { status: 400 },
+            ),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Validate invitation token
+          const invitation = await db
+            .prepare(
+              `
+            SELECT * FROM affiliate_invitations
+            WHERE token = ? AND expires_at > datetime('now') AND used = 0
+          `,
+            )
+            .bind(token)
+            .first()
+
+          if (!invitation) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Invalid or expired invitation token',
+                }),
+                { status: 404 },
+              ),
+            )
+          }
+
+          // Create affiliate registration request
+          const registrationRequest = new Request('https://aff-worker/register-affiliate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              name,
+              domain: invitation.domain,
+              referredBy: invitation.inviter_affiliate_id,
+              commissionRate: invitation.commission_rate,
+              additionalInfo,
+            }),
+          })
+
+          // Register affiliate using internal endpoint
+          const registrationResponse = await this.fetch(registrationRequest, env)
+          const registrationResult = await registrationResponse.json()
+
+          if (!registrationResponse.ok) {
+            return addCorsHeaders(
+              new Response(JSON.stringify(registrationResult), {
+                status: registrationResponse.status,
+              }),
+            )
+          }
+
+          // Mark invitation as used
+          await db
+            .prepare(
+              'UPDATE affiliate_invitations SET used = 1, used_at = datetime("now") WHERE token = ?',
+            )
+            .bind(token)
+            .run()
+
+          console.log(
+            `✅ Affiliate registration completed via invitation: ${registrationResult.affiliate.affiliateId}`,
+          )
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Affiliate registration completed successfully',
+                affiliate: registrationResult.affiliate,
+              }),
+              { status: 201 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error completing invitation registration:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to complete registration',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // ===========================================
+      // ADMIN ENDPOINTS
+      // ===========================================
+
+      // Get all affiliates (admin only)
+      if (path === '/admin/affiliates' && method === 'GET') {
+        const db = env.vegvisr_org
+
+        try {
+          const affiliates = await db
+            .prepare(
+              `
+            SELECT
+              a.*,
+              COUNT(r.id) as total_referrals,
+              SUM(CASE WHEN r.status = 'converted' THEN r.commission_amount ELSE 0 END) as total_earnings
+            FROM affiliates a
+            LEFT JOIN referrals r ON a.affiliate_id = r.affiliate_id
+            GROUP BY a.affiliate_id
+            ORDER BY a.created_at DESC
+          `,
+            )
+            .all()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                affiliates: affiliates.results || [],
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliates:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch affiliates',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // 404 for unmatched routes
+      return addCorsHeaders(
+        new Response(JSON.stringify({ error: 'Endpoint not found' }), {
+          status: 404,
+        }),
+      )
+    } catch (error) {
+      console.error('❌ Affiliate Worker Error:', error)
+      return addCorsHeaders(
+        new Response(
+          JSON.stringify({
+            error: 'Internal server error',
+          }),
+          { status: 500 },
+        ),
+      )
+    }
+  },
+}

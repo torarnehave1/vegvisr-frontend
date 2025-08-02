@@ -2373,6 +2373,243 @@ export default {
 
       // Phase 3: Invitation Management Endpoints
 
+      // POST /send-affiliate-invitation - Register affiliate and send verification email
+      if (path === '/send-affiliate-invitation' && method === 'POST') {
+        console.log('📧 Received POST /send-affiliate-invitation request')
+
+        try {
+          const body = await request.json()
+          const {
+            recipientEmail,
+            recipientName,
+            senderName,
+            siteName,
+            commissionType,
+            commissionRate,
+            commissionAmount,
+            domain,
+          } = body
+
+          if (!recipientEmail || !recipientName || !senderName) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Missing required fields: recipientEmail, recipientName, senderName',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const db = env.vegvisr_org
+          const apiToken = env.API_TOKEN
+
+          if (!apiToken) {
+            console.error('Error: Missing API token')
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Missing API token' }), { status: 500 }),
+            )
+          }
+
+          // Check if user already exists
+          try {
+            const existingUserQuery = 'SELECT user_id, role FROM config WHERE email = ?'
+            const existingUser = await db.prepare(existingUserQuery).bind(recipientEmail).first()
+
+            if (existingUser) {
+              console.log(
+                `User with email ${recipientEmail} already exists with role: ${existingUser.role}`,
+              )
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    error: 'User with this email already exists',
+                    details: `Existing user has role: ${existingUser.role}`,
+                  }),
+                  { status: 409, headers: { 'Content-Type': 'application/json' } },
+                ),
+              )
+            }
+          } catch (dbError) {
+            console.error('Error checking for existing user:', dbError)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Failed to check database for existing user' }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          // Store affiliate invitation data in database first
+          const invitationToken = crypto.randomUUID()
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days from now
+
+          try {
+            const insertInvitationQuery = `
+              INSERT INTO affiliate_invitations (
+                token, recipient_email, recipient_name, sender_name, site_name,
+                commission_type, commission_rate, commission_amount, domain, 
+                expires_at, created_at, status
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            `
+
+            await db
+              .prepare(insertInvitationQuery)
+              .bind(
+                invitationToken,
+                recipientEmail,
+                recipientName,
+                senderName,
+                siteName || domain || 'Vegvisr',
+                commissionType || 'percentage',
+                commissionRate || 15.0,
+                commissionAmount || null,
+                domain || 'vegvisr.org',
+                expiresAt.toISOString(),
+                new Date().toISOString(),
+              )
+              .run()
+
+            console.log('Affiliate invitation stored in database with token:', invitationToken)
+          } catch (dbError) {
+            console.error('Error storing affiliate invitation:', dbError)
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Failed to store affiliate invitation' }), {
+                status: 500,
+              }),
+            )
+          }
+
+          // Call slowyou.io API to register user with affiliate role (triggers verification email)
+          const apiUrl = `https://slowyou.io/api/reg-user-vegvisr?email=${encodeURIComponent(recipientEmail)}`
+          console.log('Registering affiliate via VEGVISR protocol:', apiUrl)
+
+          const registrationResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiToken}`,
+            },
+          })
+
+          console.log('Registration response status:', registrationResponse.status)
+          const registrationBody = await registrationResponse.text()
+          console.log('Registration response body:', registrationBody)
+
+          if (!registrationResponse.ok) {
+            console.error(`Error from slowyou.io API: ${registrationResponse.status}`)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: `Failed to register affiliate. API returned status ${registrationResponse.status}`,
+                  details: registrationBody,
+                }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          // Parse registration response
+          let parsedRegistrationResponse
+          try {
+            parsedRegistrationResponse = JSON.parse(registrationBody)
+          } catch (parseError) {
+            console.error('Error parsing registration response:', parseError)
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ error: 'Failed to parse response from registration API' }),
+                { status: 500 },
+              ),
+            )
+          }
+
+          // Create user record in local database with affiliate role
+          try {
+            const userId = crypto.randomUUID()
+
+            const userData = {
+              profile: {
+                user_id: userId,
+                email: recipientEmail,
+                name: recipientName,
+                affiliate_invitation_token: invitationToken,
+              },
+              affiliate: {
+                invitation_token: invitationToken,
+                sender_name: senderName,
+                commission_type: commissionType || 'percentage',
+                commission_rate: commissionRate || 15.0,
+                commission_amount: commissionAmount || null,
+                status: 'invited',
+                invited_at: new Date().toISOString(),
+              },
+              settings: {
+                darkMode: false,
+                notifications: true,
+                theme: 'light',
+              },
+            }
+
+            const insertUserQuery = `
+              INSERT INTO config (user_id, email, emailVerificationToken, data, role)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(email) DO NOTHING
+            `
+
+            const { changes } = await db
+              .prepare(insertUserQuery)
+              .bind(
+                userId,
+                recipientEmail,
+                null, // emailVerificationToken filled during verification
+                JSON.stringify(userData),
+                'affiliate',
+              )
+              .run()
+
+            if (changes === 0) {
+              console.log('User record already exists - no database changes made')
+            } else {
+              console.log(`Successfully created affiliate user record: ${userId}`)
+            }
+          } catch (dbError) {
+            console.error('Error creating user record:', dbError)
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Failed to create user record' }), {
+                status: 500,
+              }),
+            )
+          }
+
+          // Return success response
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message:
+                  'Affiliate invitation sent successfully! User will receive a verification email.',
+                invitationToken: invitationToken,
+                expiresAt: expiresAt.toISOString(),
+                registrationResponse: parsedRegistrationResponse,
+                nextStep: 'User must check email and click verification link to activate account',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Error in affiliate invitation process:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to process affiliate invitation',
+                details: error.message,
+              }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
       // POST /api/chat-rooms/{roomId}/invite - Generate invitation and send email
       if (path.match(/^\/api\/chat-rooms\/([^\/]+)\/invite$/) && method === 'POST') {
         try {
@@ -2790,6 +3027,356 @@ export default {
             ),
           )
         }
+      }
+
+      // ===========================================
+      // AFFILIATE SYSTEM ENDPOINTS
+      // ===========================================
+
+      // Register as affiliate (requires existing user registration)
+      if (path === '/register-affiliate' && method === 'POST') {
+        console.log('📝 Received POST /register-affiliate request')
+
+        try {
+          const { email, name, domain } = await request.json()
+
+          if (!email || !name) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Email and name are required' }), {
+                status: 400,
+              }),
+            )
+          }
+
+          // Call aff-worker to handle affiliate registration (now requires existing user)
+          const affiliateRequest = new Request('https://aff-worker/register-affiliate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              name,
+              domain: domain || 'vegvisr.org',
+            }),
+          })
+
+          const affiliateResponse = await env.AFF_WORKER.fetch(affiliateRequest)
+          const affiliateResult = await affiliateResponse.json()
+
+          if (!affiliateResponse.ok) {
+            return addCorsHeaders(
+              new Response(JSON.stringify(affiliateResult), {
+                status: affiliateResponse.status,
+              }),
+            )
+          }
+
+          console.log(
+            `✅ Affiliate registered successfully: ${affiliateResult.affiliate.affiliateId}`,
+          )
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Affiliate registration successful',
+                affiliate: affiliateResult.affiliate,
+              }),
+              { status: 201 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error in affiliate registration:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to register affiliate',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Send affiliate invitation email
+      if (path === '/send-affiliate-invitation' && method === 'POST') {
+        console.log('📧 Received POST /send-affiliate-invitation request')
+
+        try {
+          const requestBody = await request.json()
+
+          // Forward request to aff-worker using worker binding
+          const invitationRequest = new Request('https://aff-worker/send-affiliate-invitation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          })
+
+          const invitationResponse = await env.AFF_WORKER.fetch(invitationRequest)
+          const result = await invitationResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: invitationResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error sending affiliate invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to send affiliate invitation',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Get affiliate dashboard data
+      if (path === '/affiliate-dashboard' && method === 'GET') {
+        try {
+          const affiliateId = url.searchParams.get('affiliateId')
+
+          if (!affiliateId) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Affiliate ID required' }), {
+                status: 400,
+              }),
+            )
+          }
+
+          // Forward request to aff-worker
+          const dashboardRequest = new Request(
+            `https://aff-worker/affiliate-dashboard?affiliateId=${affiliateId}`,
+            {
+              method: 'GET',
+            },
+          )
+
+          const dashboardResponse = await env.AFF_WORKER.fetch(dashboardRequest)
+          const result = await dashboardResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: dashboardResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate dashboard:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch dashboard data',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Get affiliate invitations (for Superadmin UI)
+      if (path === '/api/affiliate-invitations' && method === 'GET') {
+        try {
+          const limit = url.searchParams.get('limit') || '10'
+
+          // Forward request to aff-worker for invitation list
+          const invitationsRequest = new Request(
+            `https://aff-worker/list-invitations?limit=${limit}`,
+            {
+              method: 'GET',
+            },
+          )
+
+          const invitationsResponse = await env.AFF_WORKER.fetch(invitationsRequest)
+          const result = await invitationsResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: invitationsResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate invitations:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch invitations',
+                invitations: [], // Fallback empty array
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Track referral (when someone clicks affiliate link)
+      if (path === '/track-referral' && method === 'POST') {
+        try {
+          const requestBody = await request.json()
+
+          // Forward to aff-worker
+          const trackingRequest = new Request('https://aff-worker/track-referral', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          })
+
+          const trackingResponse = await env.AFF_WORKER.fetch(trackingRequest)
+          const result = await trackingResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: trackingResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error tracking referral:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to track referral',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Convert referral (when referred user registers/purchases)
+      if (path === '/convert-referral' && method === 'POST') {
+        try {
+          const requestBody = await request.json()
+
+          // Forward to aff-worker
+          const conversionRequest = new Request('https://aff-worker/convert-referral', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          })
+
+          const conversionResponse = await env.AFF_WORKER.fetch(conversionRequest)
+          const result = await conversionResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: conversionResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error converting referral:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to convert referral',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Validate affiliate invitation token
+      if (path === '/validate-invitation' && method === 'GET') {
+        try {
+          const token = url.searchParams.get('token')
+
+          // Forward to aff-worker
+          const validationRequest = new Request(
+            `https://aff-worker/validate-invitation?token=${token}`,
+            {
+              method: 'GET',
+            },
+          )
+
+          const validationResponse = await env.AFF_WORKER.fetch(validationRequest)
+          const result = await validationResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: validationResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error validating invitation:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to validate invitation',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Complete affiliate registration with invitation token
+      if (path === '/complete-invitation-registration' && method === 'POST') {
+        try {
+          const requestBody = await request.json()
+
+          // Forward to aff-worker
+          const completionRequest = new Request(
+            'https://aff-worker/complete-invitation-registration',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(requestBody),
+            },
+          )
+
+          const completionResponse = await env.AFF_WORKER.fetch(completionRequest)
+          const result = await completionResponse.json()
+
+          return addCorsHeaders(
+            new Response(JSON.stringify(result), {
+              status: completionResponse.status,
+            }),
+          )
+        } catch (error) {
+          console.error('❌ Error completing invitation registration:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to complete registration',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Integrate referral tracking into existing registration flow
+      if (path === '/sve2' && method === 'GET') {
+        const referralCode = url.searchParams.get('ref')
+        const userEmail = url.searchParams.get('email')
+
+        // If there's a referral code, track it
+        if (referralCode && userEmail) {
+          try {
+            const trackingRequest = new Request('https://aff-worker/track-referral', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                referralCode,
+                referredEmail: userEmail,
+                metadata: {
+                  source: 'registration',
+                  timestamp: new Date().toISOString(),
+                },
+              }),
+            })
+
+            // Track referral asynchronously (don't block registration)
+            env.AFF_WORKER.fetch(trackingRequest).catch((error) => {
+              console.error('❌ Failed to track referral during registration:', error)
+            })
+          } catch (error) {
+            console.error('❌ Error setting up referral tracking:', error)
+          }
+        }
+
+        // Continue with existing sve2 registration logic...
+        // (The existing sve2 endpoint code remains unchanged)
       }
 
       // Handle other routes
