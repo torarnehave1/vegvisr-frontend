@@ -185,82 +185,119 @@ export default {
         const db = env.vegvisr_org
 
         try {
-          // Get affiliate info by ID or email
-          let affiliate
+          // Get ALL affiliate deals for this user (supporting multiple deals per user)
+          let affiliates
           if (affiliateId) {
-            affiliate = await db
+            affiliates = await db
               .prepare('SELECT * FROM affiliates WHERE affiliate_id = ?')
               .bind(affiliateId)
-              .first()
+              .all()
           } else {
-            affiliate = await db
+            affiliates = await db
               .prepare('SELECT * FROM affiliates WHERE email = ? AND status = "active"')
               .bind(email)
-              .first()
+              .all()
           }
 
-          if (!affiliate) {
+          if (!affiliates.results || affiliates.results.length === 0) {
             return addCorsHeaders(
-              new Response(JSON.stringify({ error: 'Affiliate not found' }), {
+              new Response(JSON.stringify({ error: 'No affiliate deals found' }), {
                 status: 404,
               }),
             )
           }
 
-          // Get referral statistics
-          const stats = await db
-            .prepare(
-              `
-            SELECT
-              COUNT(*) as total_referrals,
-              COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted_referrals,
-              SUM(CASE WHEN status = 'converted' THEN commission_amount ELSE 0 END) as total_earnings,
-              SUM(CASE WHEN status = 'converted' AND paid = 0 THEN commission_amount ELSE 0 END) as pending_earnings
-            FROM referrals
-            WHERE affiliate_id = ?
-          `,
-            )
-            .bind(affiliateId)
-            .first()
+          // Process each affiliate deal
+          const deals = []
+          let totalStats = {
+            total_referrals: 0,
+            converted_referrals: 0,
+            total_earnings: 0,
+            pending_earnings: 0,
+          }
 
-          // Get recent referrals
-          const recentReferrals = await db
-            .prepare(
-              `
-            SELECT * FROM referrals
-            WHERE affiliate_id = ?
-            ORDER BY created_at DESC
-            LIMIT 10
-          `,
-            )
-            .bind(affiliateId)
-            .all()
+          for (const affiliate of affiliates.results) {
+            // Get referral statistics for this specific deal
+            const stats = await db
+              .prepare(
+                `
+              SELECT
+                COUNT(*) as total_referrals,
+                COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted_referrals,
+                SUM(CASE WHEN status = 'converted' THEN commission_amount ELSE 0 END) as total_earnings,
+                SUM(CASE WHEN status = 'converted' AND paid = 0 THEN commission_amount ELSE 0 END) as pending_earnings
+              FROM referrals
+              WHERE affiliate_id = ?
+            `,
+              )
+              .bind(affiliate.affiliate_id)
+              .first()
+
+            // Add to total stats
+            totalStats.total_referrals += stats?.total_referrals || 0
+            totalStats.converted_referrals += stats?.converted_referrals || 0
+            totalStats.total_earnings += stats?.total_earnings || 0
+            totalStats.pending_earnings += stats?.pending_earnings || 0
+
+            // Get recent referrals for this deal
+            const recentReferrals = await db
+              .prepare(
+                `
+              SELECT * FROM referrals
+              WHERE affiliate_id = ?
+              ORDER BY created_at DESC
+              LIMIT 5
+            `,
+              )
+              .bind(affiliate.affiliate_id)
+              .all()
+
+            deals.push({
+              id: affiliate.affiliate_id,
+              dealName: affiliate.deal_name,
+              referralCode: affiliate.referral_code,
+              commissionRate: affiliate.commission_rate,
+              commissionType: affiliate.commission_type,
+              domain: affiliate.domain,
+              status: affiliate.status,
+              createdAt: affiliate.created_at,
+              statistics: {
+                totalReferrals: stats?.total_referrals || 0,
+                convertedReferrals: stats?.converted_referrals || 0,
+                totalEarnings: stats?.total_earnings || 0,
+                pendingEarnings: stats?.pending_earnings || 0,
+                conversionRate:
+                  stats?.total_referrals > 0
+                    ? (((stats?.converted_referrals || 0) / stats.total_referrals) * 100).toFixed(2)
+                    : '0.00',
+              },
+              recentReferrals: recentReferrals.results || [],
+            })
+          }
+
+          // Use the first affiliate for general user info
+          const primaryAffiliate = affiliates.results[0]
 
           return addCorsHeaders(
             new Response(
               JSON.stringify({
                 success: true,
                 affiliate: {
-                  id: affiliate.affiliate_id,
-                  name: affiliate.name,
-                  email: affiliate.email,
-                  referralCode: affiliate.referral_code,
-                  commissionRate: affiliate.commission_rate,
-                  status: affiliate.status,
+                  name: primaryAffiliate.name,
+                  email: primaryAffiliate.email,
+                  totalDeals: deals.length,
                 },
-                statistics: {
-                  totalReferrals: stats?.total_referrals || 0,
-                  convertedReferrals: stats?.converted_referrals || 0,
-                  totalEarnings: stats?.total_earnings || 0,
-                  pendingEarnings: stats?.pending_earnings || 0,
+                deals: deals, // Array of all deals
+                overallStatistics: {
+                  totalReferrals: totalStats.total_referrals,
+                  convertedReferrals: totalStats.converted_referrals,
+                  totalEarnings: totalStats.total_earnings,
+                  pendingEarnings: totalStats.pending_earnings,
                   conversionRate:
-                    stats?.total_referrals > 0
-                      ? (((stats?.converted_referrals || 0) / stats.total_referrals) * 100).toFixed(
-                          2,
-                        )
+                    totalStats.total_referrals > 0
+                      ? ((totalStats.converted_referrals / totalStats.total_referrals) * 100).toFixed(2)
                       : '0.00',
                 },
-                recentReferrals: recentReferrals.results || [],
               }),
               { status: 200 },
             ),

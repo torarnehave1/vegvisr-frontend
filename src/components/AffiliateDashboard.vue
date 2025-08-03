@@ -58,25 +58,60 @@
             </div>
           </div>
 
-          <!-- Referral Link -->
-          <div class="card referral-card">
-            <h3>🔗 Your Referral Link</h3>
-            <div class="link-container">
-              <input
-                ref="referralLinkInput"
-                :value="referralLink"
-                readonly
-                class="referral-input"
-                @click="selectAllText"
-              />
-              <button @click="copyToClipboard" class="copy-button">
-                {{ copyButtonText }}
-              </button>
+          <!-- Multiple Affiliate Deals -->
+          <div class="card deals-card">
+            <h3>🎯 Your Affiliate Deals</h3>
+            <div v-if="affiliateDeals.length === 0" class="no-deals">
+              <p>No active deals found. Contact admin to get started!</p>
             </div>
-            <p class="link-help">
-              Share this link to earn {{ affiliateInfo.commissionRate || 15 }}% commission on
-              referrals!
-            </p>
+            <div v-else class="deals-list">
+              <div 
+                v-for="deal in affiliateDeals" 
+                :key="deal.id"
+                class="deal-item"
+              >
+                <div class="deal-header">
+                  <div class="deal-info">
+                    <h4>📊 {{ deal.dealName }}</h4>
+                    <div class="deal-meta">
+                      <span class="deal-code">Code: <strong>{{ deal.referralCode }}</strong></span>
+                      <span class="deal-commission">{{ deal.commissionRate }}% commission</span>
+                      <span class="deal-status" :class="deal.status">{{ deal.status }}</span>
+                    </div>
+                  </div>
+                  <div class="deal-stats">
+                    <div class="stat-mini">
+                      <div class="stat-value">{{ deal.statistics.totalReferrals }}</div>
+                      <div class="stat-label">Referrals</div>
+                    </div>
+                    <div class="stat-mini">
+                      <div class="stat-value">${{ deal.statistics.totalEarnings }}</div>
+                      <div class="stat-label">Earned</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="deal-link-section">
+                  <div class="link-container">
+                    <input
+                      :value="getReferralLink(deal)"
+                      readonly
+                      class="referral-input"
+                      @click="$event.target.select()"
+                    />
+                    <button 
+                      @click="copyDealLink(deal)" 
+                      class="copy-button"
+                    >
+                      {{ deal.copyButtonText || '📋 Copy' }}
+                    </button>
+                  </div>
+                  <p class="link-help">
+                    Share this link to earn {{ deal.commissionRate }}% commission on {{ deal.dealName }} referrals!
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Recent Activity -->
@@ -237,6 +272,8 @@
 </template>
 
 <script>
+import { useUserStore } from '@/stores/userStore' // Import Pinia store
+
 export default {
   name: 'AffiliateDashboard',
   props: {
@@ -257,13 +294,13 @@ export default {
 
       // Affiliate data
       affiliateInfo: {
-        id: null,
         name: '',
         email: '',
-        referralCode: '',
-        commissionRate: 15,
-        status: 'active',
+        totalDeals: 0,
       },
+
+      // Multiple deals per affiliate
+      affiliateDeals: [], // NEW: Array of deals
 
       // Statistics
       stats: {
@@ -298,16 +335,19 @@ export default {
       ],
     }
   },
+  setup() {
+    const userStore = useUserStore() // Use Pinia store
+
+    return {
+      userStore,
+    }
+  },
   computed: {
     siteName() {
       return (
         this.domain.charAt(0).toUpperCase() +
         this.domain.slice(1).replace('.org', '').replace('.com', '')
       )
-    },
-    referralLink() {
-      if (!this.affiliateInfo.referralCode) return ''
-      return `https://${this.domain}?ref=${this.affiliateInfo.referralCode}`
     },
     canSendInvitation() {
       return (
@@ -326,8 +366,8 @@ export default {
     async loadDashboardData() {
       this.isLoading = true
       try {
-        // Get current user email from the user store
-        const userEmail = this.$store?.state?.user?.email || this.$store?.getters?.userEmail
+        // Get current user email from the Pinia user store
+        const userEmail = this.userStore.email
         
         if (!userEmail) {
           console.error('No user email found')
@@ -341,8 +381,9 @@ export default {
 
         if (response.ok && data.success) {
           this.affiliateInfo = data.affiliate
-          this.stats = data.statistics
-          this.recentReferrals = data.recentReferrals
+          this.affiliateDeals = data.deals || [] // NEW: Store array of deals
+          this.stats = data.overallStatistics || data.statistics // Use overall stats, fallback to legacy
+          this.recentReferrals = data.recentReferrals || []
         } else {
           // User is not an affiliate, show registration option
           this.showAffiliateRegistration()
@@ -437,22 +478,34 @@ export default {
       this.$refs.referralLinkInput.select()
     },
 
-    async copyToClipboard() {
+    // Generate referral link for a specific deal
+    getReferralLink(deal) {
+      if (!deal || !deal.referralCode) return ''
+      const domain = deal.domain || this.domain
+      return `https://www.${domain}?ref=${deal.referralCode}&deal=${deal.dealName}`
+    },
+
+    // Copy deal-specific referral link
+    async copyDealLink(deal) {
+      const link = this.getReferralLink(deal)
       try {
-        await navigator.clipboard.writeText(this.referralLink)
-        this.copyButtonText = '✅ Copied!'
+        await navigator.clipboard.writeText(link)
+        deal.copyButtonText = '✅ Copied!'
         setTimeout(() => {
-          this.copyButtonText = '📋 Copy'
+          deal.copyButtonText = '📋 Copy'
         }, 2000)
       } catch (error) {
         console.error('Failed to copy to clipboard:', error)
-        // Fallback for older browsers
-        this.$refs.referralLinkInput.select()
-        document.execCommand('copy')
-        this.copyButtonText = '✅ Copied!'
-        setTimeout(() => {
-          this.copyButtonText = '📋 Copy'
-        }, 2000)
+        // Fallback: show link for manual copy
+        alert(`Copy this link: ${link}`)
+      }
+    },
+
+    async copyToClipboard() {
+      // This method is deprecated but kept for legacy support
+      const firstDeal = this.affiliateDeals[0]
+      if (firstDeal) {
+        this.copyDealLink(firstDeal)
       }
     },
 
@@ -865,6 +918,109 @@ export default {
   color: #6b7280;
   padding: 40px;
   font-style: italic;
+}
+
+/* Multi-Deal Styles */
+.deals-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.deals-card h3 {
+  color: white;
+  margin-bottom: 20px;
+}
+
+.no-deals {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.deals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.deal-item {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.deal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.deal-info h4 {
+  margin: 0 0 8px 0;
+  color: white;
+  font-size: 1.1em;
+}
+
+.deal-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.deal-code, .deal-commission {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.85em;
+}
+
+.deal-status {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  text-transform: capitalize;
+}
+
+.deal-status.active {
+  background: rgba(34, 197, 94, 0.3);
+  color: #dcfce7;
+}
+
+.deal-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.stat-mini {
+  text-align: center;
+}
+
+.stat-mini .stat-value {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: white;
+}
+
+.stat-mini .stat-label {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.deal-link-section {
+  margin-top: 16px;
+}
+
+.deal-link-section .link-container {
+  margin-bottom: 8px;
+}
+
+.deal-link-section .link-help {
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0;
+  font-size: 0.9em;
 }
 
 /* Responsive */
