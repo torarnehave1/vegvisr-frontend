@@ -142,6 +142,25 @@
               </div>
 
               <div class="form-group">
+                <label for="graphSelection">Knowledge Graph *</label>
+                <select
+                  id="graphSelection"
+                  v-model="invitationForm.selectedGraphId"
+                  class="form-input"
+                  required
+                >
+                  <option value="">Select a knowledge graph...</option>
+                  <option v-for="graph in availableGraphs" :key="graph.id" :value="graph.id">
+                    {{ graph.metadata?.title || graph.id }} 
+                    ({{ graph.nodes?.length || 0 }} nodes)
+                  </option>
+                </select>
+                <small class="form-help">
+                  Every affiliate must be assigned to a specific knowledge graph
+                </small>
+              </div>
+
+              <div class="form-group">
                 <label for="customMessage">Personal Message (Optional)</label>
                 <textarea
                   id="customMessage"
@@ -263,9 +282,13 @@ export default {
         recipientEmail: '',
         recipientName: '',
         customMessage: '',
+        selectedGraphId: '', // NEW: Selected graph for specific ambassador invitation
       },
       invitationMessage: '',
       invitationMessageType: 'success',
+
+      // Available graphs for ambassador invitations
+      availableGraphs: [], // NEW: List of graphs that can have ambassadors
 
       // Navigation tabs
       tabs: [
@@ -288,19 +311,32 @@ export default {
     },
     canSendInvitation() {
       return (
-        this.invitationForm.recipientEmail && this.invitationForm.recipientName && !this.isLoading
+        this.invitationForm.recipientEmail && 
+        this.invitationForm.recipientName && 
+        this.invitationForm.selectedGraphId && 
+        !this.isLoading
       )
     },
   },
   async mounted() {
     await this.loadDashboardData()
+    await this.loadAvailableGraphs() // NEW: Load graphs for ambassador selection
   },
   methods: {
     async loadDashboardData() {
       this.isLoading = true
       try {
-        // First check if user is registered as an affiliate
-        const response = await fetch(`/affiliate-dashboard?affiliateId=${this.userId}`)
+        // Get current user email from the user store
+        const userEmail = this.$store?.state?.user?.email || this.$store?.getters?.userEmail
+        
+        if (!userEmail) {
+          console.error('No user email found')
+          this.showAffiliateRegistration()
+          return
+        }
+
+        // Check if user is registered as an affiliate using email
+        const response = await fetch(`https://aff-worker.torarnehave.workers.dev/affiliate-dashboard?email=${encodeURIComponent(userEmail)}`)
         const data = await response.json()
 
         if (response.ok && data.success) {
@@ -316,6 +352,27 @@ export default {
         this.showError('Failed to load dashboard data')
       } finally {
         this.isLoading = false
+      }
+    },
+
+    async loadAvailableGraphs() {
+      try {
+        const response = await fetch('https://knowledge.vegvisr.org/graphs')
+        if (response.ok) {
+          const graphs = await response.json()
+          // Filter to only include graphs that could be suitable for ambassador programs
+          this.availableGraphs = graphs.filter(graph => 
+            graph.nodes && graph.nodes.length > 0 && graph.metadata?.title
+          ).sort((a, b) => 
+            (a.metadata?.title || a.id).localeCompare(b.metadata?.title || b.id)
+          )
+        } else {
+          console.warn('Failed to load graphs for ambassador selection')
+          this.availableGraphs = []
+        }
+      } catch (error) {
+        console.error('Error loading available graphs:', error)
+        this.availableGraphs = []
       }
     },
 
@@ -340,6 +397,7 @@ export default {
             domain: this.domain,
             inviterAffiliateId: this.affiliateInfo.id,
             customMessage: this.invitationForm.customMessage,
+            dealName: this.invitationForm.selectedGraphId, // Required graphId as dealName
           }),
         })
 
@@ -371,6 +429,7 @@ export default {
         recipientEmail: '',
         recipientName: '',
         customMessage: '',
+        selectedGraphId: '', // Reset graph selection
       }
     },
 
@@ -693,6 +752,13 @@ export default {
 .form-textarea:focus {
   outline: none;
   border-color: #4f46e5;
+}
+
+.form-help {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+  display: block;
 }
 
 .send-button {

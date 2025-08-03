@@ -6,32 +6,32 @@ const token = 'invite_1754203620085_yqhjbaakn2'
 
 console.log('Step 1: Validate invitation token...')
 fetch(`https://aff-worker.torarnehave.workers.dev/validate-invitation?token=${token}`)
-  .then(response => response.json())
-  .then(data => {
+  .then((response) => response.json())
+  .then((data) => {
     console.log('✅ Token validation result:', JSON.stringify(data, null, 2))
-    
+
     if (data.success) {
       console.log('\nStep 2: Complete invitation acceptance...')
-      
+
       return fetch('https://aff-worker.torarnehave.workers.dev/complete-invitation-registration', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           token: token,
           email: data.invitation.recipientEmail,
-          name: data.invitation.recipientName
-        })
+          name: data.invitation.recipientName,
+        }),
       })
     } else {
       throw new Error('Token validation failed')
     }
   })
-  .then(response => response.json())
-  .then(data => {
+  .then((response) => response.json())
+  .then((data) => {
     console.log('✅ Invitation acceptance result:', JSON.stringify(data, null, 2))
-    
+
     if (data.success) {
       console.log('\n🎉 SUCCESS! Affiliate invitation flow completed successfully!')
       console.log('📊 Summary:')
@@ -43,6 +43,6 @@ fetch(`https://aff-worker.torarnehave.workers.dev/validate-invitation?token=${to
       console.log('❌ Invitation acceptance failed:', data.error)
     }
   })
-  .catch(error => {
+  .catch((error) => {
     console.error('❌ Error in acceptance flow:', error)
   })
