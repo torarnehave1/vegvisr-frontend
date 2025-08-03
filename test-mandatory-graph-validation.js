@@ -20,10 +20,10 @@ fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ No dealName result:', JSON.stringify(data, null, 2))
-    
+
     // Test 2: Try with invalid graph ID (should fail)
     console.log('\nTest 2: Sending invitation with invalid graph ID (should fail)...')
-    
+
     return fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
       method: 'POST',
       headers: {
@@ -42,10 +42,10 @@ fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ Invalid graph ID result:', JSON.stringify(data, null, 2))
-    
+
     // Test 3: Try with valid graph ID (should succeed)
     console.log('\nTest 3: Sending invitation with valid graph ID (should succeed)...')
-    
+
     return fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
       method: 'POST',
       headers: {
@@ -64,11 +64,11 @@ fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ Valid graph ID result:', JSON.stringify(data, null, 2))
-    
+
     console.log('\n🎉 MANDATORY GRAPH VALIDATION TEST COMPLETE!')
     console.log('📊 Summary:')
     console.log('- ✅ Tested invitation without graph ID')
-    console.log('- ✅ Tested invitation with invalid graph ID') 
+    console.log('- ✅ Tested invitation with invalid graph ID')
     console.log('- ✅ Tested invitation with valid graph ID')
     console.log('- ✅ Every affiliate must now be connected to a valid graph!')
   })

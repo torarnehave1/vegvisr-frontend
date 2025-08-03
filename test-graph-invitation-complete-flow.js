@@ -14,7 +14,7 @@ const invitationData = {
   dealName: graphId, // Send as dealName, not selectedGraphId
   commissionType: 'percentage',
   commissionRate: 15,
-  domain: 'vegvisr.org'
+  domain: 'vegvisr.org',
 }
 
 fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
@@ -40,41 +40,63 @@ fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
           if (validationData.success) {
             console.log('\n✅ Step 3: Completing invitation acceptance...')
 
-            return fetch('https://aff-worker.torarnehave.workers.dev/complete-invitation-registration', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
+            return fetch(
+              'https://aff-worker.torarnehave.workers.dev/complete-invitation-registration',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  token: token,
+                  email: validationData.invitation.recipientEmail,
+                  name: validationData.invitation.recipientName,
+                }),
               },
-              body: JSON.stringify({
-                token: token,
-                email: validationData.invitation.recipientEmail,
-                name: validationData.invitation.recipientName,
-              }),
-            })
+            )
               .then((response) => response.json())
               .then((acceptanceData) => {
-                console.log('✅ Invitation acceptance result:', JSON.stringify(acceptanceData, null, 2))
+                console.log(
+                  '✅ Invitation acceptance result:',
+                  JSON.stringify(acceptanceData, null, 2),
+                )
 
                 if (acceptanceData.success) {
-                  console.log('\n🎉 SUCCESS! Complete affiliate invitation flow with graph completed!')
+                  console.log(
+                    '\n🎉 SUCCESS! Complete affiliate invitation flow with graph completed!',
+                  )
                   console.log('📊 Summary:')
                   console.log('- ✅ Invitation sent with graph ID:', graphId)
                   console.log('- ✅ Token validated')
                   console.log('- ✅ Invitation accepted')
                   console.log('- ✅ Affiliate account activated')
                   console.log('- ✅ Graph-affiliate connection established')
-                  
+
                   // Step 4: Verify the affiliate is connected to the graph
                   console.log('\n🔍 Step 4: Verifying graph-affiliate connection...')
-                  
-                  return fetch(`https://aff-worker.torarnehave.workers.dev/check-graph-ambassador-status?graphIds=${graphId}`)
+
+                  return fetch(
+                    `https://aff-worker.torarnehave.workers.dev/check-graph-ambassador-status?graphIds=${graphId}`,
+                  )
                     .then((response) => response.json())
                     .then((ambassadorData) => {
-                      console.log('✅ Graph ambassador status:', JSON.stringify(ambassadorData, null, 2))
-                      
-                      if (ambassadorData.success && ambassadorData.ambassadorStatus && ambassadorData.ambassadorStatus[graphId]) {
-                        console.log('\n🏆 FINAL SUCCESS! Graph-affiliate integration working perfectly!')
-                        console.log('- Graph has ambassador:', ambassadorData.ambassadorStatus[graphId])
+                      console.log(
+                        '✅ Graph ambassador status:',
+                        JSON.stringify(ambassadorData, null, 2),
+                      )
+
+                      if (
+                        ambassadorData.success &&
+                        ambassadorData.ambassadorStatus &&
+                        ambassadorData.ambassadorStatus[graphId]
+                      ) {
+                        console.log(
+                          '\n🏆 FINAL SUCCESS! Graph-affiliate integration working perfectly!',
+                        )
+                        console.log(
+                          '- Graph has ambassador:',
+                          ambassadorData.ambassadorStatus[graphId],
+                        )
                       } else {
                         console.log('⚠️ Warning: Graph ambassador status not detected')
                       }

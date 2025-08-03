@@ -65,16 +65,14 @@
               <p>No active deals found. Contact admin to get started!</p>
             </div>
             <div v-else class="deals-list">
-              <div 
-                v-for="deal in affiliateDeals" 
-                :key="deal.id"
-                class="deal-item"
-              >
+              <div v-for="deal in affiliateDeals" :key="deal.id" class="deal-item">
                 <div class="deal-header">
                   <div class="deal-info">
                     <h4>📊 {{ deal.dealName }}</h4>
                     <div class="deal-meta">
-                      <span class="deal-code">Code: <strong>{{ deal.referralCode }}</strong></span>
+                      <span class="deal-code"
+                        >Code: <strong>{{ deal.referralCode }}</strong></span
+                      >
                       <span class="deal-commission">{{ deal.commissionRate }}% commission</span>
                       <span class="deal-status" :class="deal.status">{{ deal.status }}</span>
                     </div>
@@ -90,7 +88,7 @@
                     </div>
                   </div>
                 </div>
-                
+
                 <div class="deal-link-section">
                   <div class="link-container">
                     <input
@@ -99,15 +97,13 @@
                       class="referral-input"
                       @click="$event.target.select()"
                     />
-                    <button 
-                      @click="copyDealLink(deal)" 
-                      class="copy-button"
-                    >
+                    <button @click="copyDealLink(deal)" class="copy-button">
                       {{ deal.copyButtonText || '📋 Copy' }}
                     </button>
                   </div>
                   <p class="link-help">
-                    Share this link to earn {{ deal.commissionRate }}% commission on {{ deal.dealName }} referrals!
+                    Share this link to earn {{ deal.commissionRate }}% commission on
+                    {{ deal.dealName }} referrals!
                   </p>
                 </div>
               </div>
@@ -186,7 +182,7 @@
                 >
                   <option value="">Select a knowledge graph...</option>
                   <option v-for="graph in availableGraphs" :key="graph.id" :value="graph.id">
-                    {{ graph.metadata?.title || graph.id }} 
+                    {{ graph.metadata?.title || graph.id }}
                     ({{ graph.nodes?.length || 0 }} nodes)
                   </option>
                 </select>
@@ -351,9 +347,9 @@ export default {
     },
     canSendInvitation() {
       return (
-        this.invitationForm.recipientEmail && 
-        this.invitationForm.recipientName && 
-        this.invitationForm.selectedGraphId && 
+        this.invitationForm.recipientEmail &&
+        this.invitationForm.recipientName &&
+        this.invitationForm.selectedGraphId &&
         !this.isLoading
       )
     },
@@ -368,7 +364,7 @@ export default {
       try {
         // Get current user email from the Pinia user store
         const userEmail = this.userStore.email
-        
+
         if (!userEmail) {
           console.error('No user email found')
           this.showAffiliateRegistration()
@@ -376,7 +372,9 @@ export default {
         }
 
         // Check if user is registered as an affiliate using email
-        const response = await fetch(`https://aff-worker.torarnehave.workers.dev/affiliate-dashboard?email=${encodeURIComponent(userEmail)}`)
+        const response = await fetch(
+          `https://aff-worker.torarnehave.workers.dev/affiliate-dashboard?email=${encodeURIComponent(userEmail)}`,
+        )
         const data = await response.json()
 
         if (response.ok && data.success) {
@@ -402,11 +400,9 @@ export default {
         if (response.ok) {
           const graphs = await response.json()
           // Filter to only include graphs that could be suitable for ambassador programs
-          this.availableGraphs = graphs.filter(graph => 
-            graph.nodes && graph.nodes.length > 0 && graph.metadata?.title
-          ).sort((a, b) => 
-            (a.metadata?.title || a.id).localeCompare(b.metadata?.title || b.id)
-          )
+          this.availableGraphs = graphs
+            .filter((graph) => graph.nodes && graph.nodes.length > 0 && graph.metadata?.title)
+            .sort((a, b) => (a.metadata?.title || a.id).localeCompare(b.metadata?.title || b.id))
         } else {
           console.warn('Failed to load graphs for ambassador selection')
           this.availableGraphs = []
@@ -970,7 +966,8 @@ export default {
   flex-wrap: wrap;
 }
 
-.deal-code, .deal-commission {
+.deal-code,
+.deal-commission {
   background: rgba(255, 255, 255, 0.2);
   padding: 4px 8px;
   border-radius: 6px;

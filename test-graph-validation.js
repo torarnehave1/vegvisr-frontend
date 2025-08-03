@@ -9,7 +9,7 @@ async function testGraphId(graphId) {
     const response = await fetch(`https://knowledge.vegvisr.org/graph/${graphId}`)
     console.log(`Status: ${response.status}`)
     console.log(`OK: ${response.ok}`)
-    
+
     if (response.ok) {
       const data = await response.text() // Use text() in case it's not JSON
       console.log(`Response preview: ${data.substring(0, 200)}...`)

@@ -4,13 +4,13 @@ console.log('🎯 Testing invitation with simple graph ID...')
 const invitationData = {
   recipientEmail: 'test@example.com',
   recipientName: 'Test User',
-  senderName: 'Admin User', 
+  senderName: 'Admin User',
   siteName: 'Vegvisr.org',
   selectedGraphId: 'test-graph', // Simple test ID
   dealName: 'test-graph',
   commissionType: 'percentage',
   commissionRate: 15,
-  domain: 'vegvisr.org'
+  domain: 'vegvisr.org',
 }
 
 fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
