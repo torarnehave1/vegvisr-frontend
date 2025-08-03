@@ -460,6 +460,16 @@
                             <i class="bi bi-person-badge"></i>
                             {{ graph.ambassadorStatus.affiliateCount }} Ambassadors
                           </span>
+                          <span
+                            v-if="hasAffiliate(graph.id)"
+                            class="badge bg-affiliate ms-2"
+                            :title="`This graph has ${getAffiliateDeal(graph.id)?.affiliateCount} affiliate partners`"
+                          >
+                            <i class="bi bi-handshake"></i>
+                            {{ getAffiliateDeal(graph.id)?.affiliateCount }} Affiliate{{
+                              getAffiliateDeal(graph.id)?.affiliateCount !== 1 ? 's' : ''
+                            }}
+                          </span>
                           <template v-if="graph.metadata?.category">
                             <span
                               v-for="(cat, index) in getCategories(graph.metadata.category)"
@@ -907,6 +917,9 @@ const r2Images = ref([])
 const r2ImageModal = ref(null)
 const selectedImage = ref(null)
 
+// Affiliate data for badge display (metadata-based approach)
+const affiliateCache = ref(new Map()) // Cache affiliate status per graph
+
 // Image Quality Settings
 const imageQualitySettings = ref({
   preset: 'balanced',
@@ -978,6 +991,68 @@ const checkAmbassadorStatus = async (graphIds) => {
     console.error('Failed to check ambassador status:', error)
   }
   return {}
+}
+
+// Check if a graph has affiliate partners by looking up the deal_name directly
+const checkAffiliateStatus = async (graphId) => {
+  if (affiliateCache.value.has(graphId)) {
+    return affiliateCache.value.get(graphId) || false
+  }
+
+  try {
+    console.log(`� Checking affiliate status for graph ${graphId}`)
+    const response = await fetch(
+      `https://aff-worker.torarnehave.workers.dev/check-affiliate-deal?deal_name=${encodeURIComponent(graphId)}`,
+    )
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log(`✅ Affiliate check result for ${graphId}:`, data)
+
+      const hasAffiliates = data.success && data.hasAffiliates
+      affiliateCache.value.set(graphId, hasAffiliates)
+      return hasAffiliates
+    } else {
+      console.log(`❌ API response not ok for ${graphId}:`, response.status)
+    }
+  } catch (error) {
+    console.error(`Failed to check affiliate status for ${graphId}:`, error)
+  }
+
+  affiliateCache.value.set(graphId, false)
+  return false
+}
+
+// Load affiliate deals to show affiliate badges (deprecated - keeping for compatibility)
+const loadAffiliateDeals = async () => {
+  console.log('📧 loadAffiliateDeals called but using direct graph lookup instead')
+  // No longer needed since we check per graph
+}
+
+// Check if a graph has affiliate partners (from metadata)
+const hasAffiliate = (graphId) => {
+  // Find the graph in our data
+  const graph = filteredGraphs.value.find((g) => g.id === graphId)
+  if (!graph || !graph.metadata) return false
+
+  // Check metadata for affiliate info
+  const affiliateInfo = graph.metadata.affiliates
+  if (!affiliateInfo) return false
+
+  return affiliateInfo.hasAffiliates === true && affiliateInfo.affiliateCount > 0
+}
+
+// Get affiliate deal info for a graph (metadata-based)
+const getAffiliateDeal = (graphId) => {
+  const graph = filteredGraphs.value.find((g) => g.id === graphId)
+  if (!graph || !graph.metadata || !graph.metadata.affiliates) return null
+
+  return {
+    dealName: graphId,
+    affiliateCount: graph.metadata.affiliates.affiliateCount,
+    hasAffiliates: graph.metadata.affiliates.hasAffiliates,
+    lastUpdated: graph.metadata.affiliates.lastUpdated,
+  }
 }
 
 // Vectorize a single graph
@@ -1071,6 +1146,9 @@ const fetchGraphs = async () => {
               return {
                 id: graph.id,
                 metadata: {
+                  // Preserve all existing metadata from the API
+                  ...graphData.metadata,
+                  // Override with specific fields that have fallbacks
                   title: graphData.metadata?.title || graph.title || 'Untitled Graph',
                   description: graphData.metadata?.description || '',
                   createdBy: graphData.metadata?.createdBy || 'Unknown',
@@ -2109,6 +2187,21 @@ const selectMetaArea = (area) => {
 
 .graph-meta .badge.bg-gold:hover {
   background-color: #ffed4a !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.graph-meta .badge.bg-affiliate {
+  background-color: #6f42c1 !important;
+  color: white !important;
+  border: 1px solid #5a34a3;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-meta .badge.bg-affiliate:hover {
+  background-color: #8a63d1 !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }

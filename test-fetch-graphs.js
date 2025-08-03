@@ -5,7 +5,7 @@ fetch('https://knowledge.vegvisr.org/api/graphs')
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ Available graphs:', JSON.stringify(data, null, 2))
-    
+
     if (data.graphs && Array.isArray(data.graphs)) {
       console.log(`\n📊 Found ${data.graphs.length} graphs:`)
       data.graphs.forEach((graph, index) => {
@@ -14,7 +14,7 @@ fetch('https://knowledge.vegvisr.org/api/graphs')
         console.log(`   Nodes: ${graph.nodes?.length || 0}`)
         console.log('')
       })
-      
+
       if (data.graphs.length > 0) {
         console.log(`🎯 Use this graph ID for testing: "${data.graphs[0].id}"`)
       }

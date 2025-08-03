@@ -80,7 +80,8 @@
                 </option>
               </select>
               <small class="form-text text-muted">
-                Every affiliate must be assigned to a specific knowledge graph. This determines their commission scope.
+                Every affiliate must be assigned to a specific knowledge graph. This determines
+                their commission scope.
               </small>
             </div>
           </div>
@@ -350,10 +351,11 @@ export default {
   },
   computed: {
     isFormValid() {
-      const basicValid = this.form.recipientEmail && 
-                        this.form.recipientName && 
-                        this.form.senderName &&
-                        this.form.selectedGraphId // Graph selection is required
+      const basicValid =
+        this.form.recipientEmail &&
+        this.form.recipientName &&
+        this.form.senderName &&
+        this.form.selectedGraphId // Graph selection is required
 
       if (this.form.commissionType === 'percentage') {
         return basicValid && this.form.commissionRate > 0
@@ -378,7 +380,9 @@ export default {
   methods: {
     async loadAvailableGraphs() {
       try {
-        const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/getknowgraphs')
+        const response = await fetch(
+          'https://knowledge-graph-worker.torarnehave.workers.dev/getknowgraphs',
+        )
         if (response.ok) {
           const data = await response.json()
           this.availableGraphs = data.results || []
@@ -401,16 +405,19 @@ export default {
         // Include the selected graph ID in the form data as dealName
         const invitationData = {
           ...this.form,
-          dealName: this.form.selectedGraphId // Map selectedGraphId to dealName for backend
+          dealName: this.form.selectedGraphId, // Map selectedGraphId to dealName for backend
         }
 
-        const response = await fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          'https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(invitationData),
           },
-          body: JSON.stringify(invitationData),
-        })
+        )
 
         const result = await response.json()
 
@@ -443,7 +450,9 @@ export default {
 
       try {
         // Use the correct affiliate worker endpoint
-        const response = await fetch('https://aff-worker.torarnehave.workers.dev/get-affiliate-invitations?limit=10')
+        const response = await fetch(
+          'https://aff-worker.torarnehave.workers.dev/get-affiliate-invitations?limit=10',
+        )
         if (response.ok) {
           const result = await response.json()
           this.recentInvitations = result.invitations || []

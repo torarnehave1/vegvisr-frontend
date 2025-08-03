@@ -7,13 +7,13 @@ console.log('\nStep 1: Creating new affiliate invitation...')
 const invitationData = {
   recipientEmail: 'test@example.com',
   recipientName: 'Test User',
-  senderName: 'Admin User', 
+  senderName: 'Admin User',
   siteName: 'Vegvisr.org',
   selectedGraphId: 'ai-automation-tools', // Use a valid graph ID
   dealName: 'ai-automation-tools', // Map to dealName for backend
   commissionType: 'percentage',
   commissionRate: 15,
-  domain: 'vegvisr.org'
+  domain: 'vegvisr.org',
 }
 
 fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
@@ -41,17 +41,20 @@ fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
           if (validationData.success) {
             // Step 3: Complete invitation acceptance
             console.log('\nStep 3: Completing invitation acceptance...')
-            return fetch('https://aff-worker.torarnehave.workers.dev/complete-invitation-registration', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
+            return fetch(
+              'https://aff-worker.torarnehave.workers.dev/complete-invitation-registration',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  token: token,
+                  email: validationData.invitation.recipientEmail,
+                  name: validationData.invitation.recipientName,
+                }),
               },
-              body: JSON.stringify({
-                token: token,
-                email: validationData.invitation.recipientEmail,
-                name: validationData.invitation.recipientName,
-              }),
-            })
+            )
           } else {
             throw new Error('Token validation failed: ' + validationData.error)
           }

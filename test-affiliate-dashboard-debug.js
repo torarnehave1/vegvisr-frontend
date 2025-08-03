@@ -5,11 +5,13 @@ console.log('🔍 Testing affiliate dashboard authentication...')
 const testEmail = 'torarnehave@gmail.com'
 
 console.log('Step 1: Testing affiliate dashboard API directly...')
-fetch(`https://aff-worker.torarnehave.workers.dev/affiliate-dashboard?email=${encodeURIComponent(testEmail)}`)
+fetch(
+  `https://aff-worker.torarnehave.workers.dev/affiliate-dashboard?email=${encodeURIComponent(testEmail)}`,
+)
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ API Response:', JSON.stringify(data, null, 2))
-    
+
     if (data.success && data.affiliate) {
       console.log('✅ Affiliate found!')
       console.log('📊 Affiliate data:')

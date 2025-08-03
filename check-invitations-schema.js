@@ -7,13 +7,13 @@ fetch(`https://aff-worker.torarnehave.workers.dev/validate-invitation?token=${te
   .then((response) => response.json())
   .then((data) => {
     console.log('✅ Invitation validation response:', JSON.stringify(data, null, 2))
-    
+
     if (data.success && data.invitation) {
       console.log('\n📋 Available fields in invitation object:')
-      Object.keys(data.invitation).forEach(key => {
+      Object.keys(data.invitation).forEach((key) => {
         console.log(`- ${key}: ${data.invitation[key]}`)
       })
-      
+
       // Check specifically for deal_name
       if ('deal_name' in data.invitation) {
         console.log('\n✅ deal_name field EXISTS in affiliate_invitations table!')
