@@ -294,6 +294,14 @@ const router = createRouter({
         next()
       },
     },
+    {
+      path: '/affiliate-accept',
+      name: 'affiliate-accept',
+      component: () => import('../components/AffiliateAcceptance.vue'),
+      props: (route) => ({
+        token: route.query.token,
+      }),
+    },
   ],
 })
 
