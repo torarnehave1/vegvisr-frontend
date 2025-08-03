@@ -64,6 +64,27 @@
             </div>
           </div>
 
+          <!-- Knowledge Graph Selection -->
+          <div class="row mb-3">
+            <div class="col-12">
+              <label for="graphSelection" class="form-label">Knowledge Graph *</label>
+              <select
+                v-model="form.selectedGraphId"
+                class="form-select"
+                id="graphSelection"
+                required
+              >
+                <option value="">Select a knowledge graph...</option>
+                <option v-for="graph in availableGraphs" :key="graph.id" :value="graph.id">
+                  {{ graph.title || graph.id }}
+                </option>
+              </select>
+              <small class="form-text text-muted">
+                Every affiliate must be assigned to a specific knowledge graph. This determines their commission scope.
+              </small>
+            </div>
+          </div>
+
           <!-- Commission Type & Amount -->
           <div class="row mb-3">
             <div class="col-md-4">
@@ -256,6 +277,7 @@
               <thead>
                 <tr>
                   <th>Recipient</th>
+                  <th>Knowledge Graph</th>
                   <th>Sender</th>
                   <th>Commission</th>
                   <th>Status</th>
@@ -268,6 +290,12 @@
                   <td>
                     <div>{{ invitation.recipient_name }}</div>
                     <small class="text-muted">{{ invitation.recipient_email }}</small>
+                  </td>
+                  <td>
+                    <span v-if="invitation.deal_name" class="badge bg-info">
+                      {{ invitation.deal_name }}
+                    </span>
+                    <span v-else class="text-muted">None</span>
                   </td>
                   <td>{{ invitation.sender_name }}</td>
                   <td>
@@ -304,11 +332,13 @@ export default {
         recipientName: '',
         senderName: '',
         siteName: 'Vegvisr.org',
+        selectedGraphId: '', // Required graph selection
         commissionType: 'percentage', // 'percentage' or 'fixed'
         commissionRate: 15,
         commissionAmount: 50,
         domain: 'vegvisr.org',
       },
+      availableGraphs: [], // Will be loaded from knowledge graph API
       sending: false,
       showPreview: false,
       successMessage: '',
@@ -320,7 +350,10 @@ export default {
   },
   computed: {
     isFormValid() {
-      const basicValid = this.form.recipientEmail && this.form.recipientName && this.form.senderName
+      const basicValid = this.form.recipientEmail && 
+                        this.form.recipientName && 
+                        this.form.senderName &&
+                        this.form.selectedGraphId // Graph selection is required
 
       if (this.form.commissionType === 'percentage') {
         return basicValid && this.form.commissionRate > 0
@@ -336,22 +369,47 @@ export default {
         this.$store.state.user.displayName || this.$store.state.user.email || ''
     }
 
+    // Load available knowledge graphs
+    this.loadAvailableGraphs()
+
     // Load recent invitations
     this.loadRecentInvitations()
   },
   methods: {
+    async loadAvailableGraphs() {
+      try {
+        const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/getknowgraphs')
+        if (response.ok) {
+          const data = await response.json()
+          this.availableGraphs = data.results || []
+        } else {
+          console.error('Failed to load graphs:', response.statusText)
+          this.errorMessage = 'Failed to load available knowledge graphs'
+        }
+      } catch (error) {
+        console.error('Error loading graphs:', error)
+        this.errorMessage = 'Network error: Could not load knowledge graphs'
+      }
+    },
+
     async sendInvitation() {
       this.sending = true
       this.successMessage = ''
       this.errorMessage = ''
 
       try {
-        const response = await fetch('https://test.vegvisr.org/send-affiliate-invitation', {
+        // Include the selected graph ID in the form data as dealName
+        const invitationData = {
+          ...this.form,
+          dealName: this.form.selectedGraphId // Map selectedGraphId to dealName for backend
+        }
+
+        const response = await fetch('https://aff-worker.torarnehave.workers.dev/send-affiliate-invitation', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(this.form),
+          body: JSON.stringify(invitationData),
         })
 
         const result = await response.json()
@@ -363,7 +421,7 @@ export default {
             expiresAt: result.expiresAt,
           }
 
-          // Reset form
+          // Reset form (but keep sender info and graph selection)
           this.form.recipientEmail = ''
           this.form.recipientName = ''
 
@@ -384,8 +442,8 @@ export default {
       this.loadingInvitations = true
 
       try {
-        // Note: This endpoint would need to be implemented in your backend
-        const response = await fetch('https://test.vegvisr.org/api/affiliate-invitations?limit=10')
+        // Use the correct affiliate worker endpoint
+        const response = await fetch('https://aff-worker.torarnehave.workers.dev/get-affiliate-invitations?limit=10')
         if (response.ok) {
           const result = await response.json()
           this.recentInvitations = result.invitations || []

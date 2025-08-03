@@ -28,12 +28,8 @@
           </div>
 
           <div class="invitation-info">
-            <div class="info-item">
-              <strong>Invited by:</strong> {{ invitation.senderName }}
-            </div>
-            <div class="info-item">
-              <strong>Domain:</strong> {{ invitation.domain }}
-            </div>
+            <div class="info-item"><strong>Invited by:</strong> {{ invitation.senderName }}</div>
+            <div class="info-item"><strong>Domain:</strong> {{ invitation.domain }}</div>
             <div class="info-item">
               <strong>Commission Rate:</strong> {{ invitation.commissionRate }}%
             </div>
@@ -57,9 +53,7 @@
             <button @click="acceptInvitation" class="btn-primary" :disabled="accepting">
               Accept Affiliate Invitation
             </button>
-            <button @click="decline" class="btn-secondary">
-              Decline
-            </button>
+            <button @click="decline" class="btn-secondary">Decline</button>
           </div>
         </div>
 
@@ -87,9 +81,7 @@
             <router-link to="/affiliate" class="btn-primary">
               Go to Affiliate Dashboard
             </router-link>
-            <router-link to="/" class="btn-secondary">
-              Go to Home
-            </router-link>
+            <router-link to="/" class="btn-secondary"> Go to Home </router-link>
           </div>
         </div>
       </div>
@@ -106,13 +98,13 @@ export default {
   setup() {
     const route = useRoute()
     const router = useRouter()
-    
+
     const loading = ref(true)
     const accepting = ref(false)
     const success = ref(false)
     const error = ref(null)
     const invitation = ref(null)
-    
+
     const token = route.query.token
 
     // Validate invitation token on mount
@@ -124,7 +116,9 @@ export default {
       }
 
       try {
-        const response = await fetch(`https://aff-worker.torarnehave.workers.dev/validate-invitation?token=${token}`)
+        const response = await fetch(
+          `https://aff-worker.torarnehave.workers.dev/validate-invitation?token=${token}`,
+        )
         const data = await response.json()
 
         if (response.ok && data.success) {
@@ -136,26 +130,29 @@ export default {
         console.error('Error validating invitation:', err)
         error.value = 'Failed to validate invitation'
       }
-      
+
       loading.value = false
     })
 
     // Accept the invitation
     const acceptInvitation = async () => {
       accepting.value = true
-      
+
       try {
-        const response = await fetch('https://aff-worker.torarnehave.workers.dev/complete-invitation-registration', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
+        const response = await fetch(
+          'https://aff-worker.torarnehave.workers.dev/complete-invitation-registration',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              token: token,
+              email: invitation.value.recipientEmail,
+              name: invitation.value.recipientName,
+            }),
           },
-          body: JSON.stringify({
-            token: token,
-            email: invitation.value.recipientEmail,
-            name: invitation.value.recipientName
-          })
-        })
+        )
 
         const data = await response.json()
 
@@ -168,7 +165,7 @@ export default {
         console.error('Error accepting invitation:', err)
         error.value = 'Failed to accept invitation'
       }
-      
+
       accepting.value = false
     }
 
@@ -184,7 +181,7 @@ export default {
         month: 'long',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
       })
     }
 
@@ -196,9 +193,9 @@ export default {
       invitation,
       acceptInvitation,
       decline,
-      formatDate
+      formatDate,
     }
-  }
+  },
 }
 </script>
 
@@ -224,7 +221,10 @@ export default {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
 }
 
-.loading-state, .error-state, .accepting-state, .success-state {
+.loading-state,
+.error-state,
+.accepting-state,
+.success-state {
   text-align: center;
   padding: 2rem;
 }
@@ -240,11 +240,16 @@ export default {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-.error-icon, .success-icon {
+.error-icon,
+.success-icon {
   font-size: 4rem;
   margin-bottom: 1rem;
 }

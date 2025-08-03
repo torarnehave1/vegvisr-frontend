@@ -29,11 +29,21 @@ export default {
       // AFFILIATE REGISTRATION & MANAGEMENT
       // ===========================================
 
-      // Register new affiliate (Updated to integrate with existing user system)
+      // Register new affiliate (Updated to integrate with existing user system + deal support)
       if (path === '/register-affiliate' && method === 'POST') {
         console.log('📝 Received POST /register-affiliate request')
 
-        const { email, name, invitationToken, referredBy, domain } = await request.json()
+        const {
+          email,
+          name,
+          invitationToken,
+          referredBy,
+          domain,
+          dealName,
+          commissionType,
+          commissionRate,
+          commissionAmount,
+        } = await request.json()
 
         if (!email || !name) {
           return addCorsHeaders(
@@ -68,17 +78,19 @@ export default {
             )
           }
 
-          // Check if already an affiliate
+          // Check if already an affiliate for this specific deal
           const existingAffiliate = await db
-            .prepare('SELECT affiliate_id FROM affiliates WHERE email = ?')
-            .bind(email)
+            .prepare(
+              'SELECT affiliate_id, deal_name FROM affiliates WHERE email = ? AND domain = ? AND deal_name = ?',
+            )
+            .bind(email, domain || 'vegvisr.org', dealName || 'default')
             .first()
 
           if (existingAffiliate) {
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
-                  error: 'User is already registered as an affiliate',
+                  error: `User is already registered as an affiliate for deal "${dealName || 'default'}" on domain "${domain || 'vegvisr.org'}"`,
                   affiliate: existingAffiliate,
                 }),
                 { status: 409 },
@@ -86,14 +98,15 @@ export default {
             )
           }
 
-          // Add affiliate record
+          // Add affiliate record with deal support
           await db
             .prepare(
               `
             INSERT INTO affiliates (
               affiliate_id, email, name, referral_code, domain,
-              referred_by, status, commission_rate, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'active', 15.0, datetime('now'))
+              referred_by, status, commission_rate, commission_type, commission_amount,
+              deal_name, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, datetime('now'))
           `,
             )
             .bind(
@@ -103,6 +116,10 @@ export default {
               referralCode,
               domain || 'vegvisr.org',
               referredBy || null,
+              commissionRate || 15.0,
+              commissionType || 'percentage',
+              commissionAmount || null,
+              dealName || 'default',
             )
             .run()
 
@@ -129,7 +146,10 @@ export default {
                   name,
                   referralCode,
                   domain: domain || 'vegvisr.org',
-                  commissionRate: 15.0,
+                  commissionRate: commissionRate || 15.0,
+                  commissionType: commissionType || 'percentage',
+                  commissionAmount: commissionAmount || null,
+                  dealName: dealName || 'default',
                   status: 'active',
                 },
               }),
@@ -152,10 +172,11 @@ export default {
       // Get affiliate dashboard data
       if (path === '/affiliate-dashboard' && method === 'GET') {
         const affiliateId = url.searchParams.get('affiliateId')
+        const email = url.searchParams.get('email')
 
-        if (!affiliateId) {
+        if (!affiliateId && !email) {
           return addCorsHeaders(
-            new Response(JSON.stringify({ error: 'Affiliate ID required' }), {
+            new Response(JSON.stringify({ error: 'Affiliate ID or email required' }), {
               status: 400,
             }),
           )
@@ -164,11 +185,19 @@ export default {
         const db = env.vegvisr_org
 
         try {
-          // Get affiliate info
-          const affiliate = await db
-            .prepare('SELECT * FROM affiliates WHERE affiliate_id = ?')
-            .bind(affiliateId)
-            .first()
+          // Get affiliate info by ID or email
+          let affiliate
+          if (affiliateId) {
+            affiliate = await db
+              .prepare('SELECT * FROM affiliates WHERE affiliate_id = ?')
+              .bind(affiliateId)
+              .first()
+          } else {
+            affiliate = await db
+              .prepare('SELECT * FROM affiliates WHERE email = ? AND status = "active"')
+              .bind(email)
+              .first()
+          }
 
           if (!affiliate) {
             return addCorsHeaders(
@@ -504,6 +533,7 @@ export default {
           commissionAmount,
           domain,
           inviterAffiliateId,
+          dealName, // New: Support for deal-specific invitations
         } = await request.json()
 
         if (!recipientEmail || !recipientName || !senderName) {
@@ -511,6 +541,18 @@ export default {
             new Response(
               JSON.stringify({
                 error: 'recipientEmail, recipientName, and senderName are required',
+              }),
+              { status: 400 },
+            ),
+          )
+        }
+
+        // Require dealName (graphId) - no more general affiliates
+        if (!dealName) {
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'dealName (graphId) is required. Every affiliate must be connected to a specific knowledge graph.',
               }),
               { status: 400 },
             ),
@@ -529,17 +571,19 @@ export default {
             .bind(recipientEmail)
             .first()
 
-          // Check if user is already an affiliate
+          // Check if user is already an affiliate for this specific deal
           const existingAffiliate = await db
-            .prepare('SELECT affiliate_id FROM affiliates WHERE email = ?')
-            .bind(recipientEmail)
+            .prepare(
+              'SELECT affiliate_id, deal_name FROM affiliates WHERE email = ? AND domain = ? AND deal_name = ?',
+            )
+            .bind(recipientEmail, domain || 'vegvisr.org', dealName || 'default')
             .first()
 
           if (existingAffiliate) {
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
-                  error: 'User is already registered as an affiliate',
+                  error: `User is already registered as an affiliate for deal "${dealName || 'default'}" on domain "${domain || 'vegvisr.org'}"`,
                   affiliate: existingAffiliate,
                 }),
                 { status: 409 },
@@ -550,15 +594,15 @@ export default {
           // Determine user type for template selection
           const isExistingUser = !!existingUser
 
-          // Store invitation in database
+          // Store invitation in database with deal information
           await db
             .prepare(
               `
             INSERT INTO affiliate_invitations (
               token, recipient_email, recipient_name, sender_name,
               inviter_affiliate_id, domain, commission_rate, commission_type, commission_amount,
-              expires_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+              deal_name, expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           `,
             )
             .bind(
@@ -571,14 +615,15 @@ export default {
               commissionRate || 15.0,
               commissionType || 'percentage',
               commissionAmount || null,
+              dealName || 'default', // Now properly storing the deal_name/graphId
               expiresAt.toISOString(),
             )
             .run()
 
           // Create appropriate URLs based on user type
           const affiliateRegistrationUrl = isExistingUser
-            ? `https://${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
-            : `https://${domain || 'vegvisr.org'}/affiliate-register?token=${invitationToken}`
+            ? `https://www.${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
+            : `https://www.${domain || 'vegvisr.org'}/affiliate-register?token=${invitationToken}`
 
           // Prepare email template variables
           const templateVariables = {
@@ -770,11 +815,13 @@ export default {
               JSON.stringify({
                 success: true,
                 invitation: {
+                  token: invitation.token,
                   recipientEmail: invitation.recipient_email,
                   recipientName: invitation.recipient_name,
                   senderName: invitation.sender_name,
                   domain: invitation.domain,
                   commissionRate: invitation.commission_rate,
+                  dealName: invitation.deal_name, // Include deal_name in response
                   expiresAt: invitation.expires_at,
                 },
               }),
@@ -834,7 +881,7 @@ export default {
             )
           }
 
-          // Create affiliate registration request
+          // Create affiliate registration request with deal support
           const registrationRequest = new Request('https://aff-worker/register-affiliate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -844,6 +891,9 @@ export default {
               domain: invitation.domain,
               referredBy: invitation.inviter_affiliate_id,
               commissionRate: invitation.commission_rate,
+              commissionType: invitation.commission_type || 'percentage',
+              commissionAmount: invitation.commission_amount,
+              dealName: invitation.deal_name || 'default', // Use the deal_name from invitation
               additionalInfo,
             }),
           })
@@ -934,6 +984,232 @@ export default {
             new Response(
               JSON.stringify({
                 error: 'Failed to fetch affiliates',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // ===========================================
+      // GRAPH AMBASSADOR ENDPOINTS (NEW)
+      // ===========================================
+
+      // Get affiliate deals by graph ID
+      if (path === '/affiliate-deals-by-graph' && method === 'GET') {
+        const graphId = url.searchParams.get('graphId')
+
+        if (!graphId) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Graph ID required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Get all affiliates for this graph (using deal_name as graphId)
+          const affiliates = await db
+            .prepare(
+              `
+              SELECT 
+                affiliate_id, email, name, commission_type, commission_amount, commission_rate,
+                status, created_at
+              FROM affiliates 
+              WHERE deal_name = ? AND status = 'active'
+              ORDER BY created_at DESC
+            `,
+            )
+            .bind(graphId)
+            .all()
+
+          // Get referral statistics for this graph
+          const stats = await db
+            .prepare(
+              `
+              SELECT
+                COUNT(DISTINCT r.affiliate_id) as active_affiliates,
+                COUNT(r.id) as total_referrals,
+                COUNT(CASE WHEN r.status = 'converted' THEN 1 END) as converted_referrals,
+                SUM(CASE WHEN r.status = 'converted' THEN r.commission_amount ELSE 0 END) as total_earnings
+              FROM affiliates a
+              LEFT JOIN referrals r ON a.affiliate_id = r.affiliate_id
+              WHERE a.deal_name = ?
+            `,
+            )
+            .bind(graphId)
+            .first()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                graphId,
+                ambassadors: affiliates.results || [],
+                statistics: {
+                  totalAmbassadors: (affiliates.results || []).length,
+                  activeAffiliates: stats?.active_affiliates || 0,
+                  totalReferrals: stats?.total_referrals || 0,
+                  convertedReferrals: stats?.converted_referrals || 0,
+                  totalEarnings: stats?.total_earnings || 0,
+                  conversionRate:
+                    stats?.total_referrals > 0
+                      ? (((stats?.converted_referrals || 0) / stats.total_referrals) * 100).toFixed(2)
+                      : '0.00',
+                },
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate deals by graph:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch affiliate deals',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Bulk check graph ambassador status
+      if (path === '/graph-ambassador-status' && method === 'GET') {
+        console.log('📊 Received GET /graph-ambassador-status request')
+        
+        const graphIds = url.searchParams.getAll('graphIds[]')
+        
+        if (!graphIds || graphIds.length === 0) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'At least one graph ID required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          const ambassadorStatus = {}
+
+          // Process each graph ID
+          for (const graphId of graphIds) {
+            // Get ambassador count and basic stats for this graph
+            const stats = await db
+              .prepare(
+                `
+                SELECT 
+                  COUNT(*) as ambassador_count,
+                  SUM(CASE WHEN commission_type = 'fixed' THEN commission_amount ELSE 0 END) as total_fixed_commissions,
+                  AVG(CASE WHEN commission_type = 'percentage' THEN commission_rate ELSE 0 END) as avg_percentage_rate
+                FROM affiliates 
+                WHERE deal_name = ? AND status = 'active'
+              `,
+              )
+              .bind(graphId)
+              .first()
+
+            // Get top affiliate for this graph (by creation date - could be enhanced later)
+            const topAffiliate = await db
+              .prepare(
+                `
+                SELECT name, email
+                FROM affiliates 
+                WHERE deal_name = ? AND status = 'active'
+                ORDER BY created_at ASC
+                LIMIT 1
+              `,
+              )
+              .bind(graphId)
+              .first()
+
+            const ambassadorCount = stats?.ambassador_count || 0
+            const hasAmbassadors = ambassadorCount > 0
+
+            ambassadorStatus[graphId] = {
+              hasAmbassadors,
+              affiliateCount: ambassadorCount,
+              totalCommissions: stats?.total_fixed_commissions || '0.00',
+              averageRate: stats?.avg_percentage_rate || 0,
+              topAffiliate: topAffiliate ? `${topAffiliate.name} (${topAffiliate.email})` : null,
+            }
+          }
+
+          console.log(`✅ Ambassador status checked for ${graphIds.length} graphs`)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                ambassadorStatus,
+                totalGraphsChecked: graphIds.length,
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error checking graph ambassador status:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to check ambassador status',
+              }),
+              { status: 500 },
+            ),
+          )
+        }
+      }
+
+      // Get ambassador graphs for a specific affiliate
+      if (path === '/affiliate-ambassador-graphs' && method === 'GET') {
+        const affiliateId = url.searchParams.get('affiliateId')
+
+        if (!affiliateId) {
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'Affiliate ID required' }), {
+              status: 400,
+            }),
+          )
+        }
+
+        const db = env.vegvisr_org
+
+        try {
+          // Get all graphs this affiliate is ambassador for
+          const ambassadorDeals = await db
+            .prepare(
+              `
+              SELECT 
+                deal_name as graph_id, commission_type, commission_amount, commission_rate,
+                created_at, status
+              FROM affiliates 
+              WHERE affiliate_id = ? AND status = 'active' AND deal_name != 'default'
+              ORDER BY created_at DESC
+            `,
+            )
+            .bind(affiliateId)
+            .all()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                affiliateId,
+                ambassadorGraphs: ambassadorDeals.results || [],
+                totalGraphs: (ambassadorDeals.results || []).length,
+              }),
+              { status: 200 },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching affiliate ambassador graphs:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch ambassador graphs',
               }),
               { status: 500 },
             ),

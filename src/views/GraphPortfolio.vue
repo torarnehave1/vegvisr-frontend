@@ -452,6 +452,14 @@
                             <i class="bi bi-search"></i>
                             {{ graph.vectorization.vectorCount }} Vectors
                           </span>
+                          <span
+                            v-if="graph.ambassadorStatus?.hasAmbassadors"
+                            class="badge bg-gold ms-2"
+                            :title="`${graph.ambassadorStatus.affiliateCount} affiliate ambassadors promoting this graph`"
+                          >
+                            <i class="bi bi-person-badge"></i>
+                            {{ graph.ambassadorStatus.affiliateCount }} Ambassadors
+                          </span>
                           <template v-if="graph.metadata?.category">
                             <span
                               v-for="(cat, index) in getCategories(graph.metadata.category)"
@@ -948,6 +956,30 @@ const checkVectorizationStatus = async (graphIds) => {
   return {}
 }
 
+// Check affiliate ambassador status for multiple graphs
+const checkAmbassadorStatus = async (graphIds) => {
+  try {
+    const response = await fetch(
+      'https://aff-worker.torarnehave.workers.dev/graph-ambassador-status',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ graphIds }),
+      },
+    )
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.statusMap
+    }
+  } catch (error) {
+    console.error('Failed to check ambassador status:', error)
+  }
+  return {}
+}
+
 // Vectorize a single graph
 const vectorizeGraph = async (graph) => {
   // Set vectorizing state
@@ -1095,6 +1127,21 @@ const fetchGraphs = async () => {
             isVectorized: status.isVectorized,
             isVectorizing: false,
             vectorCount: status.vectorCount,
+          }
+        })
+
+        // Check affiliate ambassador status for all graphs (NEW)
+        const ambassadorStatus = await checkAmbassadorStatus(graphIds)
+
+        // Add ambassador status to each graph (NEW)
+        graphs.value.forEach((graph) => {
+          const status = ambassadorStatus[graph.id] || { hasAmbassadors: false, affiliateCount: 0 }
+          graph.ambassadorStatus = {
+            hasAmbassadors: status.hasAmbassadors,
+            affiliateCount: status.affiliateCount,
+            totalCommissions: status.totalCommissions || '0.00',
+            averageRate: status.averageRate || 0,
+            topAffiliate: status.topAffiliate || null,
           }
         })
 
@@ -2049,6 +2096,21 @@ const selectMetaArea = (area) => {
   text-overflow: ellipsis;
   overflow: hidden;
   max-width: 95%;
+}
+
+.graph-meta .badge.bg-gold {
+  background-color: #ffd700 !important;
+  color: #333 !important;
+  border: 1px solid #e6c200;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-meta .badge.bg-gold:hover {
+  background-color: #ffed4a !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
 @media (max-width: 768px) {
