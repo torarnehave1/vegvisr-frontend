@@ -1032,60 +1032,200 @@ export default {
             )
           }
 
-          // Create affiliate registration request with deal support
-          const registrationRequest = new Request(
-            request.url.replace('/complete-invitation-registration', '/register-affiliate'),
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
+          // Register affiliate directly (no HTTP call to avoid self-call issues)
+          console.log('🔗 Processing affiliate registration for invitation acceptance')
+          
+          const affiliateId = `aff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          const referralCode = `${name.substring(0, 3).toUpperCase()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`
+
+          try {
+            // Check if user exists in config table
+            const existingUser = await db
+              .prepare('SELECT user_id, data FROM config WHERE email = ?')
+              .bind(email)
+              .first()
+
+            if (!existingUser) {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    error: 'User must be registered first. Please complete user registration before becoming an affiliate.',
+                    action: 'register_first',
+                    registrationUrl: `https://vegvisr.org/register?email=${encodeURIComponent(email)}`,
+                  }),
+                  { status: 400 },
+                ),
+              )
+            }
+
+            // Check if already an affiliate for this specific deal
+            const existingAffiliate = await db
+              .prepare(
+                'SELECT affiliate_id, deal_name FROM affiliates WHERE email = ? AND domain = ? AND deal_name = ?',
+              )
+              .bind(email, invitation.domain || 'vegvisr.org', invitation.deal_name || 'default')
+              .first()
+
+            if (existingAffiliate) {
+              console.log('✅ User is already an affiliate, marking invitation as completed')
+              
+              // Mark invitation as used and completed
+              await db
+                .prepare(
+                  'UPDATE affiliate_invitations SET used = 1, used_at = datetime("now"), status = "completed" WHERE token = ?',
+                )
+                .bind(token)
+                .run()
+
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    success: true,
+                    message: 'User is already an affiliate, invitation completed',
+                    affiliate: {
+                      affiliateId: existingAffiliate.affiliate_id,
+                      email: email,
+                      name: name,
+                      dealName: existingAffiliate.deal_name,
+                      status: 'active',
+                    },
+                  }),
+                  { status: 200 },
+                ),
+              )
+            }
+
+            // Check if user already exists as affiliate (for any deal)
+            const anyExistingAffiliate = await db
+              .prepare(
+                'SELECT affiliate_id, email, name FROM affiliates WHERE email = ? AND domain = ? LIMIT 1',
+              )
+              .bind(email, invitation.domain || 'vegvisr.org')
+              .first()
+
+            if (anyExistingAffiliate) {
+              console.log('✅ User has existing affiliate account, marking invitation as completed')
+              
+              // Mark invitation as used and completed
+              await db
+                .prepare(
+                  'UPDATE affiliate_invitations SET used = 1, used_at = datetime("now"), status = "completed" WHERE token = ?',
+                )
+                .bind(token)
+                .run()
+
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({
+                    success: true,
+                    message: 'User has existing affiliate account, invitation completed',
+                    affiliate: {
+                      affiliateId: anyExistingAffiliate.affiliate_id,
+                      email: email,
+                      name: name,
+                      referralCode: anyExistingAffiliate.affiliate_id.split('_')[2]?.toUpperCase() || 'EXISTING',
+                      domain: invitation.domain || 'vegvisr.org',
+                      commissionRate: invitation.commission_rate || 15.0,
+                      commissionType: invitation.commission_type || 'percentage',
+                      commissionAmount: invitation.commission_amount || null,
+                      dealName: invitation.deal_name || 'default',
+                      status: 'active',
+                    },
+                  }),
+                  { status: 200 },
+                ),
+              )
+            }
+
+            // Add new affiliate record
+            await db
+              .prepare(
+                `
+              INSERT INTO affiliates (
+                affiliate_id, email, name, referral_code, domain,
+                referred_by, status, commission_rate, commission_type, commission_amount,
+                deal_name, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, datetime('now'))
+            `,
+              )
+              .bind(
+                affiliateId,
                 email,
                 name,
-                domain: invitation.domain,
-                referredBy: invitation.inviter_affiliate_id,
-                commissionRate: invitation.commission_rate,
-                commissionType: invitation.commission_type || 'percentage',
-                commissionAmount: invitation.commission_amount,
-                dealName: invitation.deal_name || 'default', // Use the deal_name from invitation
-                additionalInfo,
-              }),
-            },
-          )
+                referralCode,
+                invitation.domain || 'vegvisr.org',
+                invitation.inviter_affiliate_id || null,
+                invitation.commission_rate || 15.0,
+                invitation.commission_type || 'percentage',
+                invitation.commission_amount || null,
+                invitation.deal_name || 'default',
+              )
+              .run()
 
-          // Register affiliate using internal endpoint
-          const registrationResponse = await this.fetch(registrationRequest, env)
-          const registrationResult = await registrationResponse.json()
+            // Update user data to include affiliate flag
+            const userData = JSON.parse(existingUser.data || '{}')
+            userData.isAffiliate = true
+            userData.affiliateId = affiliateId
+            userData.referralCode = referralCode
 
-          if (!registrationResponse.ok) {
+            await db
+              .prepare('UPDATE config SET data = ? WHERE email = ?')
+              .bind(JSON.stringify(userData), email)
+              .run()
+
+            console.log(`✅ User ${email} is now an affiliate: ${affiliateId}`)
+
+            // Update graph metadata with new affiliate information
+            if (invitation.deal_name && invitation.deal_name !== 'default') {
+              await updateGraphAffiliateMetadata(invitation.deal_name, env)
+            }
+
+            // Mark invitation as used and completed
+            await db
+              .prepare(
+                'UPDATE affiliate_invitations SET used = 1, used_at = datetime("now"), status = "completed" WHERE token = ?',
+              )
+              .bind(token)
+              .run()
+
+            console.log(`✅ Affiliate registration completed via invitation: ${affiliateId}`)
+
             return addCorsHeaders(
-              new Response(JSON.stringify(registrationResult), {
-                status: registrationResponse.status,
-              }),
+              new Response(
+                JSON.stringify({
+                  success: true,
+                  message: 'Affiliate registration completed successfully',
+                  affiliate: {
+                    affiliateId,
+                    email,
+                    name,
+                    referralCode,
+                    domain: invitation.domain || 'vegvisr.org',
+                    commissionRate: invitation.commission_rate || 15.0,
+                    commissionType: invitation.commission_type || 'percentage',
+                    commissionAmount: invitation.commission_amount || null,
+                    dealName: invitation.deal_name || 'default',
+                    status: 'active',
+                  },
+                }),
+                { status: 201 },
+              ),
+            )
+
+          } catch (registrationError) {
+            console.error('❌ Database error during affiliate registration:', registrationError)
+            console.error('❌ Registration error details:', registrationError.message || registrationError)
+            
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Failed to register affiliate',
+                  details: registrationError.message || 'Database error during registration',
+                }),
+                { status: 500 },
+              ),
             )
           }
-
-          // Mark invitation as used
-          await db
-            .prepare(
-              'UPDATE affiliate_invitations SET used = 1, used_at = datetime("now") WHERE token = ?',
-            )
-            .bind(token)
-            .run()
-
-          console.log(
-            `✅ Affiliate registration completed via invitation: ${registrationResult.affiliate.affiliateId}`,
-          )
-
-          return addCorsHeaders(
-            new Response(
-              JSON.stringify({
-                success: true,
-                message: 'Affiliate registration completed successfully',
-                affiliate: registrationResult.affiliate,
-              }),
-              { status: 201 },
-            ),
-          )
         } catch (error) {
           console.error('❌ Error completing invitation registration:', error)
           console.error('❌ Error message:', error.message || error)
