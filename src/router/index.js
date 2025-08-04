@@ -302,6 +302,14 @@ const router = createRouter({
         token: route.query.token,
       }),
     },
+    {
+      path: '/affiliate-register',
+      name: 'affiliate-register-token',
+      component: () => import('../components/AffiliateAcceptance.vue'),
+      props: (route) => ({
+        token: route.query.token,
+      }),
+    },
   ],
 })
 

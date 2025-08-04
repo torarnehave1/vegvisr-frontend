@@ -122,23 +122,42 @@ export default {
 
         try {
           // Check if user exists in config table
-          const existingUser = await db
+          let existingUser = await db
             .prepare('SELECT user_id, data FROM config WHERE email = ?')
             .bind(email)
             .first()
 
           if (!existingUser) {
-            return addCorsHeaders(
-              new Response(
-                JSON.stringify({
-                  error:
-                    'User must be registered first. Please complete user registration before becoming an affiliate.',
-                  action: 'register_first',
-                  registrationUrl: `https://vegvisr.org/register?email=${encodeURIComponent(email)}`,
-                }),
-                { status: 400 },
-              ),
-            )
+            // Create new user directly in config table for affiliate registration
+            console.log(`🆕 Creating new user account for affiliate: ${email}`)
+
+            const newUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            const userData = {
+              isAffiliate: true,
+              affiliateId: affiliateId,
+              referralCode: referralCode,
+              profile: {
+                name: name,
+                email: email,
+              },
+              domainConfigs: [],
+            }
+
+            await db
+              .prepare(
+                `INSERT INTO config (user_id, email, emailVerificationToken, data, role)
+                 VALUES (?, ?, ?, ?, ?)`,
+              )
+              .bind(newUserId, email, null, JSON.stringify(userData), 'user')
+              .run()
+
+            console.log(`✅ Created new user account: ${newUserId} for email: ${email}`)
+
+            // Set existingUser for the rest of the flow
+            existingUser = {
+              user_id: newUserId,
+              data: JSON.stringify(userData),
+            }
           }
 
           // Check if already an affiliate for this specific deal
@@ -771,10 +790,8 @@ export default {
             )
             .run()
 
-          // Create appropriate URLs based on user type
-          const affiliateRegistrationUrl = isExistingUser
-            ? `https://www.${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
-            : `https://www.${domain || 'vegvisr.org'}/affiliate-register?token=${invitationToken}`
+          // Create affiliate acceptance URL (same for all users)
+          const affiliateRegistrationUrl = `https://www.${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
 
           // Prepare email template variables
           const templateVariables = {
@@ -1034,28 +1051,48 @@ export default {
 
           // Register affiliate directly (no HTTP call to avoid self-call issues)
           console.log('🔗 Processing affiliate registration for invitation acceptance')
-          
+
           const affiliateId = `aff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
           const referralCode = `${name.substring(0, 3).toUpperCase()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`
 
           try {
             // Check if user exists in config table
-            const existingUser = await db
+            let existingUser = await db
               .prepare('SELECT user_id, data FROM config WHERE email = ?')
               .bind(email)
               .first()
 
             if (!existingUser) {
-              return addCorsHeaders(
-                new Response(
-                  JSON.stringify({
-                    error: 'User must be registered first. Please complete user registration before becoming an affiliate.',
-                    action: 'register_first',
-                    registrationUrl: `https://vegvisr.org/register?email=${encodeURIComponent(email)}`,
-                  }),
-                  { status: 400 },
-                ),
-              )
+              // Create new user directly in config table for affiliate registration
+              console.log(`🆕 Creating new user account for affiliate: ${email}`)
+
+              const newUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+              const userData = {
+                isAffiliate: true,
+                affiliateId: affiliateId,
+                referralCode: referralCode,
+                profile: {
+                  name: name,
+                  email: email,
+                },
+                domainConfigs: [],
+              }
+
+              await db
+                .prepare(
+                  `INSERT INTO config (user_id, email, emailVerificationToken, data, role)
+                   VALUES (?, ?, ?, ?, ?)`,
+                )
+                .bind(newUserId, email, null, JSON.stringify(userData), 'user')
+                .run()
+
+              console.log(`✅ Created new user account: ${newUserId} for email: ${email}`)
+
+              // Set existingUser for the rest of the flow
+              existingUser = {
+                user_id: newUserId,
+                data: JSON.stringify(userData),
+              }
             }
 
             // Check if already an affiliate for this specific deal
@@ -1068,7 +1105,7 @@ export default {
 
             if (existingAffiliate) {
               console.log('✅ User is already an affiliate, marking invitation as completed')
-              
+
               // Mark invitation as used and completed
               await db
                 .prepare(
@@ -1105,7 +1142,7 @@ export default {
 
             if (anyExistingAffiliate) {
               console.log('✅ User has existing affiliate account, marking invitation as completed')
-              
+
               // Mark invitation as used and completed
               await db
                 .prepare(
@@ -1123,7 +1160,9 @@ export default {
                       affiliateId: anyExistingAffiliate.affiliate_id,
                       email: email,
                       name: name,
-                      referralCode: anyExistingAffiliate.affiliate_id.split('_')[2]?.toUpperCase() || 'EXISTING',
+                      referralCode:
+                        anyExistingAffiliate.affiliate_id.split('_')[2]?.toUpperCase() ||
+                        'EXISTING',
                       domain: invitation.domain || 'vegvisr.org',
                       commissionRate: invitation.commission_rate || 15.0,
                       commissionType: invitation.commission_type || 'percentage',
@@ -1211,11 +1250,13 @@ export default {
                 { status: 201 },
               ),
             )
-
           } catch (registrationError) {
             console.error('❌ Database error during affiliate registration:', registrationError)
-            console.error('❌ Registration error details:', registrationError.message || registrationError)
-            
+            console.error(
+              '❌ Registration error details:',
+              registrationError.message || registrationError,
+            )
+
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
