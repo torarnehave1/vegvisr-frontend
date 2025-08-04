@@ -451,7 +451,7 @@ export default {
       try {
         // Use the correct affiliate worker endpoint
         const response = await fetch(
-          'https://aff-worker.torarnehave.workers.dev/get-affiliate-invitations?limit=10',
+          'https://aff-worker.torarnehave.workers.dev/list-invitations?limit=10',
         )
         if (response.ok) {
           const result = await response.json()
@@ -473,7 +473,8 @@ export default {
       const now = new Date()
       const expires = new Date(invitation.expires_at)
 
-      if (invitation.used_at) return 'Accepted'
+      // Check database status first, then fallback to used_at logic
+      if (invitation.status === 'completed' || invitation.used_at) return 'Accepted'
       if (now > expires) return 'Expired'
       return 'Pending'
     },
