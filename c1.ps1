@@ -1,0 +1,2 @@
+npx wrangler d1 execute vegvisr_org --command "DELETE FROM config where email like 'slowyou.net@gmail.com';" --json --remote --config=main-worker/wrangler.toml
+npx wrangler d1 execute vegvisr_org --command "DELETE FROM affiliate_invitations where recipient_email like 'slowyou.net@gmail.com';" --json --remote --config=main-worker/wrangler.toml

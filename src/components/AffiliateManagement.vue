@@ -262,60 +262,158 @@
       <div class="card">
         <div class="card-header">
           <h6>📋 Recent Affiliate Invitations</h6>
-          <button class="btn btn-sm btn-outline-secondary" @click="loadRecentInvitations">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
-          </button>
+          <div class="d-flex align-items-center gap-2">
+            <!-- Access Level Indicator -->
+            <span
+              v-if="userAccess.userRole"
+              class="badge"
+              :class="{
+                'bg-success': userAccess.userRole === 'superadmin',
+                'bg-info': userAccess.userRole !== 'superadmin',
+              }"
+              :title="
+                userAccess.userRole === 'superadmin'
+                  ? 'Viewing all invitations (Superadmin)'
+                  : 'Viewing your invitations only'
+              "
+            >
+              {{
+                userAccess.userRole === 'superadmin' ? '👑 All Invitations' : '🔒 My Invitations'
+              }}
+            </span>
+            <button class="btn btn-sm btn-outline-secondary" @click="loadRecentInvitations">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
         </div>
+
+        <!-- Filter Controls -->
+        <div class="card-body border-bottom">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label for="statusFilter" class="form-label">Status</label>
+              <select
+                id="statusFilter"
+                v-model="filters.status"
+                @change="applyFilters"
+                class="form-select form-select-sm"
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="accepted">Accepted</option>
+                <option value="expired">Expired</option>
+              </select>
+            </div>
+
+            <div class="col-md-3">
+              <label for="searchFilter" class="form-label">Search</label>
+              <input
+                id="searchFilter"
+                v-model="filters.search"
+                @input="debouncedSearch"
+                type="text"
+                class="form-control form-control-sm"
+                placeholder="Email or name..."
+              />
+            </div>
+
+            <div class="col-md-2">
+              <label for="dateFromFilter" class="form-label">From Date</label>
+              <input
+                id="dateFromFilter"
+                v-model="filters.dateFrom"
+                @change="applyFilters"
+                type="date"
+                class="form-control form-control-sm"
+              />
+            </div>
+
+            <div class="col-md-2">
+              <label for="dateToFilter" class="form-label">To Date</label>
+              <input
+                id="dateToFilter"
+                v-model="filters.dateTo"
+                @change="applyFilters"
+                type="date"
+                class="form-control form-control-sm"
+              />
+            </div>
+
+            <div class="col-md-2">
+              <div class="d-flex align-items-end h-100">
+                <button
+                  @click="clearFilters"
+                  class="btn btn-outline-secondary btn-sm"
+                  title="Clear all filters"
+                >
+                  <i class="bi bi-x-circle"></i> Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter Results Summary -->
+          <div v-if="filterResultsText" class="mt-2">
+            <small class="text-muted">{{ filterResultsText }}</small>
+          </div>
+        </div>
+
         <div class="card-body">
           <div v-if="loadingInvitations" class="text-center">
             <i class="spinner-border spinner-border-sm"></i> Loading...
           </div>
           <div v-else-if="recentInvitations.length === 0" class="text-muted text-center">
-            No recent invitations found
+            {{
+              filters.status !== 'all' || filters.search
+                ? 'No invitations match your filters'
+                : 'No recent invitations found'
+            }}
           </div>
-          <div v-else class="table-responsive">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Recipient</th>
-                  <th>Knowledge Graph</th>
-                  <th>Sender</th>
-                  <th>Commission</th>
-                  <th>Status</th>
-                  <th>Sent</th>
-                  <th>Expires</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="invitation in recentInvitations" :key="invitation.token">
-                  <td>
-                    <div>{{ invitation.recipient_name }}</div>
-                    <small class="text-muted">{{ invitation.recipient_email }}</small>
-                  </td>
-                  <td>
-                    <span v-if="invitation.deal_name" class="badge bg-info">
-                      {{ invitation.deal_name }}
-                    </span>
-                    <span v-else class="text-muted">None</span>
-                  </td>
-                  <td>{{ invitation.sender_name }}</td>
-                  <td>
-                    {{
-                      invitation.commission_type === 'fixed'
-                        ? `$${invitation.commission_amount}`
-                        : `${invitation.commission_rate}%`
-                    }}
-                  </td>
-                  <td>
-                    <span :class="getStatusClass(invitation)">
-                      {{ getStatusText(invitation) }}
-                    </span>
-                  </td>
-                  <td>{{ formatDate(invitation.created_at) }}</td>
-                  <td>{{ formatDate(invitation.expires_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-else class="table-responsive-container">
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Recipient</th>
+                    <th>Knowledge Graph</th>
+                    <th>Sender</th>
+                    <th>Commission</th>
+                    <th>Status</th>
+                    <th>Sent</th>
+                    <th>Expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="invitation in recentInvitations" :key="invitation.token">
+                    <td>
+                      <div>{{ invitation.recipient_name }}</div>
+                      <small class="text-muted">{{ invitation.recipient_email }}</small>
+                    </td>
+                    <td>
+                      <span v-if="invitation.deal_name" class="badge bg-info">
+                        {{ invitation.deal_name }}
+                      </span>
+                      <span v-else class="text-muted">None</span>
+                    </td>
+                    <td>{{ invitation.sender_name }}</td>
+                    <td>
+                      {{
+                        invitation.commission_type === 'fixed'
+                          ? `$${invitation.commission_amount}`
+                          : `${invitation.commission_rate}%`
+                      }}
+                    </td>
+                    <td>
+                      <span :class="getStatusClass(invitation)">
+                        {{ getStatusText(invitation) }}
+                      </span>
+                    </td>
+                    <td>{{ formatDate(invitation.created_at) }}</td>
+                    <td>{{ formatDate(invitation.expires_at) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -324,8 +422,14 @@
 </template>
 
 <script>
+import { useUserStore } from '@/stores/userStore'
+
 export default {
   name: 'AffiliateManagement',
+  setup() {
+    const userStore = useUserStore()
+    return { userStore }
+  },
   data() {
     return {
       form: {
@@ -347,6 +451,19 @@ export default {
       lastInvitation: null,
       recentInvitations: [],
       loadingInvitations: false,
+      // Filtering system
+      filters: {
+        status: 'all',
+        search: '',
+        dateFrom: '',
+        dateTo: '',
+        dealName: 'all',
+        senderName: '',
+      },
+      totalInvitations: 0,
+      filteredCount: 0,
+      searchTimeout: null,
+      userAccess: {}, // Store user access info from API response
     }
   },
   computed: {
@@ -363,12 +480,28 @@ export default {
         return basicValid && this.form.commissionAmount > 0
       }
     },
+
+    filterResultsText() {
+      if (this.totalInvitations === 0) return ''
+
+      const hasFilters =
+        this.filters.status !== 'all' ||
+        this.filters.search ||
+        this.filters.dateFrom ||
+        this.filters.dateTo
+
+      if (!hasFilters) {
+        return `Showing ${this.recentInvitations.length} of ${this.totalInvitations} invitations`
+      }
+
+      return `Found ${this.filteredCount} of ${this.totalInvitations} invitations`
+    },
   },
   mounted() {
     // Pre-fill sender name from user store if available
-    if (this.$store && this.$store.state.user) {
+    if (this.userStore.email) {
       this.form.senderName =
-        this.$store.state.user.displayName || this.$store.state.user.email || ''
+        this.userStore.displayName || this.userStore.name || this.userStore.email || ''
     }
 
     // Load available knowledge graphs
@@ -376,6 +509,13 @@ export default {
 
     // Load recent invitations
     this.loadRecentInvitations()
+  },
+
+  beforeUnmount() {
+    // Clear search timeout to prevent memory leaks
+    if (this.searchTimeout) {
+      clearTimeout(this.searchTimeout)
+    }
   },
   methods: {
     async loadAvailableGraphs() {
@@ -406,6 +546,7 @@ export default {
         const invitationData = {
           ...this.form,
           dealName: this.form.selectedGraphId, // Map selectedGraphId to dealName for backend
+          senderUserId: this.userStore.user_id, // Add current user's ID for inviter_affiliate_id
         }
 
         const response = await fetch(
@@ -449,19 +590,86 @@ export default {
       this.loadingInvitations = true
 
       try {
-        // Use the correct affiliate worker endpoint
+        // Build query parameters
+        const params = new URLSearchParams({
+          limit: '50', // Increased from 10 to show more with filtering
+          offset: '0',
+        })
+
+        // Add filters
+        if (this.filters.status !== 'all') {
+          params.set('status', this.filters.status)
+        }
+        if (this.filters.search) {
+          params.set('search', this.filters.search)
+        }
+        if (this.filters.dateFrom) {
+          params.set('dateFrom', this.filters.dateFrom)
+        }
+        if (this.filters.dateTo) {
+          params.set('dateTo', this.filters.dateTo)
+        }
+        if (this.filters.dealName !== 'all') {
+          params.set('dealName', this.filters.dealName)
+        }
+        if (this.filters.senderName) {
+          params.set('senderName', this.filters.senderName)
+        }
+
+        // Add user context for role-based filtering
+        if (this.userStore.user_id) {
+          params.set('currentUserId', this.userStore.user_id)
+        }
+        if (this.userStore.role) {
+          params.set('userRole', this.userStore.role)
+        }
+
         const response = await fetch(
-          'https://aff-worker.torarnehave.workers.dev/list-invitations?limit=10',
+          `https://aff-worker.torarnehave.workers.dev/list-invitations?${params.toString()}`,
         )
+
         if (response.ok) {
           const result = await response.json()
           this.recentInvitations = result.invitations || []
+          this.totalInvitations = result.totalCount || 0
+          this.filteredCount = result.totalCount || 0
+
+          // Store user access info for display
+          this.userAccess = result.userAccess || {}
         }
       } catch (error) {
         console.error('Error loading invitations:', error)
       } finally {
         this.loadingInvitations = false
       }
+    },
+
+    applyFilters() {
+      this.loadRecentInvitations()
+    },
+
+    debouncedSearch() {
+      // Clear existing timeout
+      if (this.searchTimeout) {
+        clearTimeout(this.searchTimeout)
+      }
+
+      // Set new timeout for search
+      this.searchTimeout = setTimeout(() => {
+        this.applyFilters()
+      }, 300) // 300ms delay
+    },
+
+    clearFilters() {
+      this.filters = {
+        status: 'all',
+        search: '',
+        dateFrom: '',
+        dateTo: '',
+        dealName: 'all',
+        senderName: '',
+      }
+      this.loadRecentInvitations()
     },
 
     formatDate(dateString) {
@@ -543,6 +751,62 @@ export default {
   color: #4f46e5;
 }
 
+.filter-controls {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.filter-controls .form-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #495057;
+  margin-bottom: 0.25rem;
+}
+
+.filter-controls .form-control,
+.filter-controls .form-select {
+  font-size: 0.875rem;
+}
+
+/* Scrollable table container */
+.table-responsive-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+}
+
+.table-responsive-container .table {
+  margin-bottom: 0;
+}
+
+.table-responsive-container .table thead th {
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa;
+  z-index: 10;
+  border-bottom: 2px solid #dee2e6;
+}
+
+/* Scrollbar styling for webkit browsers */
+.table-responsive-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.table-responsive-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.table-responsive-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.table-responsive-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
 @media (max-width: 768px) {
   .affiliate-management-panel {
     padding: 10px;
@@ -550,6 +814,11 @@ export default {
 
   .card-body {
     padding: 15px;
+  }
+
+  .filter-controls .col-md-3,
+  .filter-controls .col-md-2 {
+    margin-bottom: 1rem;
   }
 }
 </style>

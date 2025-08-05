@@ -10,6 +10,10 @@ wrangler d1 execute vegvisr_org --command "INSERT INTO config (user_id, data, pr
 
 > > npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM graphTemplates;" --json --remote --config=main-worker/wrangler.toml
 
+npx wrangler d1 execute vegvisr_org --command "DELETE FROM config where email like 'slowyou.net@gmail.com' ;" --json --remote --config=main-worker/wrangler.toml
+
+npx wrangler d1 execute vegvisr_org --command "DELETE FROM affiliate_invitations where recipient_email like 'slowyou.net@gmail.com' ;" --json --remote --config=main-worker/wrangler.toml
+
 npx wrangler d1 execute vegvisr_org --command "SELECT \* FROM config;" --json --remote --config=main-worker/wrangler.toml
 
 npx wrangler d1 execute vegvisr_org --remote --config=main-worker/wrangler.toml --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='config';" --json
