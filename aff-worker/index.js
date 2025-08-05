@@ -639,27 +639,97 @@ export default {
           const limit = parseInt(url.searchParams.get('limit')) || 10
           const offset = parseInt(url.searchParams.get('offset')) || 0
 
+          // Filter parameters
+          const statusFilter = url.searchParams.get('status')
+          const searchQuery = url.searchParams.get('search')
+          const dateFrom = url.searchParams.get('dateFrom')
+          const dateTo = url.searchParams.get('dateTo')
+          const dealName = url.searchParams.get('dealName')
+          const senderName = url.searchParams.get('senderName')
+
+          // User-specific filtering
+          const currentUserId = url.searchParams.get('currentUserId')
+          const userRole = url.searchParams.get('userRole')
+
           const db = env.vegvisr_org
 
-          // Get invitations with pagination
+          // Build dynamic WHERE clause and parameters
+          let whereClause = 'WHERE 1=1'
+          let queryParams = []
+
+          // Role-based filtering: Only superadmins see all invitations
+          if (userRole !== 'superadmin' && currentUserId) {
+            whereClause += ' AND inviter_affiliate_id = ?'
+            queryParams.push(currentUserId)
+            console.log(`🔒 Filtering invitations for user: ${currentUserId} (role: ${userRole})`)
+          } else if (userRole === 'superadmin') {
+            console.log(`👑 Superadmin access: showing all invitations`)
+          } else {
+            console.log(`⚠️ No user role or ID provided, showing limited results`)
+          }
+
+          // Status filter
+          if (statusFilter && statusFilter !== 'all') {
+            if (statusFilter === 'pending') {
+              whereClause +=
+                ' AND (status IS NULL OR status = "pending") AND expires_at > datetime("now") AND (used = 0 OR used IS NULL)'
+            } else if (statusFilter === 'accepted') {
+              whereClause += ' AND (status = "completed" OR used = 1 OR used_at IS NOT NULL)'
+            } else if (statusFilter === 'expired') {
+              whereClause += ' AND expires_at <= datetime("now") AND (used = 0 OR used IS NULL)'
+            }
+          }
+
+          // Search in recipient email/name
+          if (searchQuery) {
+            whereClause += ' AND (recipient_email LIKE ? OR recipient_name LIKE ?)'
+            const searchPattern = `%${searchQuery}%`
+            queryParams.push(searchPattern, searchPattern)
+          }
+
+          // Date range filter
+          if (dateFrom) {
+            whereClause += ' AND created_at >= ?'
+            queryParams.push(dateFrom)
+          }
+          if (dateTo) {
+            whereClause += ' AND created_at <= ?'
+            queryParams.push(dateTo)
+          }
+
+          // Deal name (knowledge graph) filter
+          if (dealName && dealName !== 'all') {
+            whereClause += ' AND deal_name = ?'
+            queryParams.push(dealName)
+          }
+
+          // Sender name filter
+          if (senderName) {
+            whereClause += ' AND sender_name LIKE ?'
+            queryParams.push(`%${senderName}%`)
+          }
+
+          // Get invitations with filtering and pagination
           const invitations = await db
             .prepare(
               `
               SELECT
                 token, recipient_email, recipient_name, sender_name, site_name,
                 commission_type, commission_rate, commission_amount,
-                inviter_affiliate_id, domain, expires_at, created_at, status, used_at, used
+                inviter_affiliate_id, domain, expires_at, created_at, status, used_at, used, deal_name
               FROM affiliate_invitations
+              ${whereClause}
               ORDER BY created_at DESC
               LIMIT ? OFFSET ?
             `,
             )
-            .bind(limit, offset)
+            .bind(...queryParams, limit, offset)
             .all()
 
-          // Get total count
+          // Get total count with same filters
           const totalCount = await db
-            .prepare('SELECT COUNT(*) as count FROM affiliate_invitations')
+            .prepare(`SELECT COUNT(*) as count FROM affiliate_invitations ${whereClause}`)
+            .bind(...queryParams)
             .first()
 
           return addCorsHeaders(
@@ -668,8 +738,25 @@ export default {
                 success: true,
                 invitations: invitations.results || [],
                 totalCount: totalCount.count || 0,
-                limit,
-                offset,
+                filteredCount: (invitations.results || []).length,
+                userAccess: {
+                  currentUserId: currentUserId,
+                  userRole: userRole,
+                  isFiltered: userRole !== 'superadmin' && !!currentUserId,
+                },
+                filters: {
+                  status: statusFilter,
+                  search: searchQuery,
+                  dateFrom: dateFrom,
+                  dateTo: dateTo,
+                  dealName: dealName,
+                  senderName: senderName,
+                },
+                pagination: {
+                  limit,
+                  offset,
+                  hasMore: (invitations.results || []).length === limit,
+                },
               }),
               { status: 200, headers: { 'Content-Type': 'application/json' } },
             ),
@@ -701,8 +788,8 @@ export default {
           commissionType,
           commissionAmount,
           domain,
-          inviterAffiliateId,
           dealName, // New: Support for deal-specific invitations
+          senderUserId, // Add sender user ID to use directly as inviter_affiliate_id
         } = await request.json()
 
         if (!recipientEmail || !recipientName || !senderName) {
@@ -734,8 +821,17 @@ export default {
           const invitationToken = `invite_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`
           const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
 
-          // Check if user already exists in the system
           const db = env.vegvisr_org
+
+          // Use the current user ID directly as inviter_affiliate_id
+          const currentUserAffiliateId = senderUserId || null
+          if (senderUserId) {
+            console.log(`🔗 Using sender user ID: ${senderUserId} as inviter_affiliate_id`)
+          } else {
+            console.log(`⚠️ No sender user ID provided`)
+          }
+
+          // Check if user already exists in the system
           const existingUser = await db
             .prepare('SELECT user_id, data FROM config WHERE email = ?')
             .bind(recipientEmail)
@@ -780,7 +876,7 @@ export default {
               recipientEmail,
               recipientName,
               senderName,
-              inviterAffiliateId || null,
+              currentUserAffiliateId, // Store the current user's ID (note: column name is inviter_affiliate_id but stores user_id)
               domain || 'vegvisr.org',
               commissionRate || 15.0,
               commissionType || 'percentage',
@@ -791,8 +887,8 @@ export default {
             .run()
 
           // Create affiliate acceptance URL (same for all users)
-          const affiliateRegistrationUrl = `https://www.${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
-
+          // const affiliateRegistrationUrl = `https://www.${domain || 'vegvisr.org'}/affiliate-accept?token=${invitationToken}`
+          const affiliateRegistrationUrl = `https://test.vegvisr.org/verify-email?invitationtoken=${invitationToken}`
           // Prepare email template variables
           const templateVariables = {
             recipientName,
@@ -816,9 +912,11 @@ export default {
           }
 
           // Get the appropriate email template based on user type
-          const templateId = isExistingUser
-            ? 'affiliate_invitation_existing_user'
-            : 'affiliate_registration_invitation_simple'
+          // const templateId = isExistingUser
+          //   ? 'affiliate_invitation_existing_user'
+          //  : 'affiliate_registration_invitation_simple'
+
+          const templateId = 'affiliate_registration_invitation_simple'
 
           const template = await env.vegvisr_org
             .prepare('SELECT * FROM email_templates WHERE id = ? AND is_active = 1')
@@ -914,6 +1012,11 @@ export default {
                   templateVariables,
                   processedEmailBody: emailBody,
                   processedEmailSubject: emailSubject,
+                  inviterInfo: {
+                    senderUserId: senderUserId,
+                    inviterAffiliateId: currentUserAffiliateId, // Note: This is actually storing user_id, not affiliate_id
+                    inviterFound: !!currentUserAffiliateId,
+                  },
                   slowyouApiCall: {
                     url: slowyouUrl,
                     payload: {
