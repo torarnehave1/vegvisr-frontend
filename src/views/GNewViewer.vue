@@ -3438,7 +3438,7 @@ const insertImageAtCursor = () => {
 
   // Store the current cursor position for later insertion
   insertCursorPosition.value = textarea.selectionStart
-  
+
   // Set up image selector in insert mode
   isInsertMode.value = true
   currentImageData.value = {
@@ -3449,7 +3449,7 @@ const insertImageAtCursor = () => {
     nodeId: editingNode.value.id,
     nodeContent: editingNode.value.info || '',
   }
-  
+
   // Open the ImageSelector modal
   isImageSelectorOpen.value = true
 }
@@ -3881,28 +3881,31 @@ const handleImageReplaced = async (replacementData) => {
     if (isInsertMode.value) {
       // Insert mode: Add image markdown at cursor position in edit modal
       const imageMarkdown = `![${replacementData.alt || 'Image'}](${replacementData.newUrl})`
-      
+
       const textarea = nodeContentTextarea.value
       if (textarea) {
         const value = editingNode.value.info || ''
-        const newValue = value.slice(0, insertCursorPosition.value) + imageMarkdown + value.slice(insertCursorPosition.value)
+        const newValue =
+          value.slice(0, insertCursorPosition.value) +
+          imageMarkdown +
+          value.slice(insertCursorPosition.value)
         editingNode.value.info = newValue
-        
+
         // Restore cursor position after the inserted text
         nextTick(() => {
           textarea.focus()
           textarea.setSelectionRange(
-            insertCursorPosition.value + imageMarkdown.length, 
-            insertCursorPosition.value + imageMarkdown.length
+            insertCursorPosition.value + imageMarkdown.length,
+            insertCursorPosition.value + imageMarkdown.length,
           )
         })
       }
-      
+
       statusMessage.value = `✅ Image inserted successfully! Image by ${replacementData.photographer || 'Unknown'}`
       setTimeout(() => {
         statusMessage.value = ''
       }, 3000)
-      
+
       // Reset insert mode
       isInsertMode.value = false
       insertCursorPosition.value = 0
