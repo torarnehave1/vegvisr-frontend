@@ -6,6 +6,63 @@ import { generateText } from 'ai'
  * @property {Ai} AI
  */
 
+// Shared content parsing utilities (extracted from GNewDefaultNode)
+const parseStyleString = (style) => {
+  return style
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const colonIndex = s.indexOf(':')
+      if (colonIndex === -1) return ''
+
+      const k = s.substring(0, colonIndex).trim()
+      const v = s.substring(colonIndex + 1).trim()
+
+      if (!k || !v) return ''
+
+      // Special handling for background-image to preserve url() quotes
+      if (k === 'background-image' && v.includes('url(')) {
+        return `${k}:${v}`
+      }
+
+      // For other properties, remove outer quotes but preserve inner content
+      const cleanValue = v.replace(/^['"]|['"]$/g, '')
+      return `${k}:${cleanValue}`
+    })
+    .join(';')
+}
+
+const parseQuoteParams = (style) => {
+  // Parse both 'Cited=value' and 'param: value' formats
+  const citedMatch = style.match(/Cited\s*=\s*['"]?([^'";]+)['"]?/i)
+  if (citedMatch) {
+    return citedMatch[1].trim()
+  }
+
+  // Try colon format
+  const colonMatch = style.match(/cited\s*:\s*['"]?([^'";]+)['"]?/i)
+  if (colonMatch) {
+    return colonMatch[1].trim()
+  }
+
+  return 'Unknown'
+}
+
+// Simple markdown processor for slideshow content
+const processMarkdown = (text) => {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/_(.*?)_/g, '<em>$1</em>')
+    .replace(/^#{1,6}\s*(.+)/gm, (match, heading) => {
+      const level = match.split('#').length - 1
+      return `<h${level}>${heading.replace(/^#+\s*/, '')}</h${level}>`
+    })
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+}
+
 // Helper function to generate error HTML
 function generateErrorHtml(message) {
   return `<!DOCTYPE html>
@@ -28,6 +85,550 @@ function generateErrorHtml(message) {
     </div>
 </body>
 </html>`
+}
+
+// Helper function to parse slideshow content from fulltext nodes
+function parseSlideshowFromFulltext(content) {
+  const slides = []
+  let metadata = {}
+
+  // Extract metadata from [SLIDE_META] block
+  const metaMatch = content.match(/\[SLIDE_META([^\]]*)\]/)
+  if (metaMatch) {
+    const metaContent = metaMatch[1]
+    const themeMatch = metaContent.match(/theme="([^"]*)"/)
+    const titleMatch = metaContent.match(/title="([^"]*)"/)
+    const subtitleMatch = metaContent.match(/subtitle="([^"]*)"/)
+
+    if (themeMatch) metadata.theme = themeMatch[1]
+    if (titleMatch) metadata.title = titleMatch[1]
+    if (subtitleMatch) metadata.subtitle = subtitleMatch[1]
+  }
+
+  // First try to find [SLIDE] markers and their content
+  const slideRegex = /\[SLIDE([^\]]*)\](.*?)(?=\[SLIDE|\[SLIDE_META|$)/gs
+  let match
+
+  while ((match = slideRegex.exec(content)) !== null) {
+    const slideProps = match[1]
+    const slideContent = match[2].trim()
+
+    if (slideContent) {
+      // Extract title from slide properties
+      const titleMatch = slideProps.match(/title="([^"]*)"/)
+      const title = titleMatch ? titleMatch[1] : ''
+
+      slides.push({
+        title: title,
+        content: slideContent,
+      })
+    }
+  }
+
+  // If no [SLIDE] blocks found, try to parse simple markdown with --- separators
+  if (slides.length === 0) {
+    const simpleSections = content
+      .split('---')
+      .map((section) => section.trim())
+      .filter((section) => section.length > 0)
+
+    simpleSections.forEach((section, index) => {
+      // Extract title from first heading if available
+      const titleMatch = section.match(/^#\s*(.+)/m)
+      const title = titleMatch ? titleMatch[1] : `Slide ${index + 1}`
+
+      slides.push({
+        title: title,
+        content: section,
+      })
+    })
+  }
+
+  return { metadata, slides }
+}
+
+// Helper function to generate slideshow HTML
+function generateSlideshowHtml(slideshowData, theme, nodeLabel) {
+  const { metadata, slides } = slideshowData
+  const themeName = theme || metadata.theme || 'nibi'
+  const title = metadata.title || nodeLabel || 'Untitled Presentation'
+
+  const slideHtmls = slides
+    .map((slide, index) => {
+      // Process slide content with proper element handling following GNewDefaultNode order
+      let processedContent = slide.content
+
+      // 1. Process FANCY elements (NO markdown processing - just content.trim())
+      processedContent = processedContent.replace(
+        /\[FANCY\s*\|([^\]]*)\]([\s\S]*?)\[END\s+FANCY\]/gs,
+        (match, style, content) => {
+          const css = parseStyleString(style)
+          // FANCY elements do NOT process markdown - just use content.trim()
+          return `<div class="fancy-title" style="${css}">${content.trim()}</div>`
+        },
+      )
+
+      // 2. Process QUOTE elements (before SECTION to match GNewDefaultNode order)
+      processedContent = processedContent.replace(
+        /\[QUOTE\s*\|([^\]]*)\]([\s\S]*?)\[END\s+QUOTE\]/gs,
+        (match, style, content) => {
+          const cited = parseQuoteParams(style)
+          const processedQuoteContent = processMarkdown(content.trim())
+          return `<div class="fancy-quote">${processedQuoteContent}<cite>— ${cited}</cite></div>`
+        },
+      )
+
+      // 3. Process SECTION elements
+      processedContent = processedContent.replace(
+        /\[SECTION\s*\|([^\]]*)\]([\s\S]*?)\[END\s+SECTION\]/gs,
+        (match, style, content) => {
+          const css = parseStyleString(style)
+          const processedSectionContent = processMarkdown(content.trim())
+          return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${processedSectionContent}</div>`
+        },
+      )
+
+      // Process other elements (keeping existing logic for now)
+      processedContent = processedContent.replace(
+        /!\[([^\]]*)\|[^\]]*\]\(([^)]+)\)/g,
+        '<img src="$2" alt="$1" class="slide-image" />',
+      ) // Apply basic markdown processing to remaining content
+      processedContent = processMarkdown(processedContent)
+
+      if (processedContent.trim()) {
+        processedContent = '<div class="slide-content"><p>' + processedContent + '</p></div>'
+      }
+
+      return `
+      <div class="slide ${index === 0 ? 'active' : ''}" data-slide="${index + 1}">
+        <div class="slide-header">
+          <h2 class="slide-title">${slide.title}</h2>
+          <div class="slide-number">${index + 1} / ${slides.length}</div>
+        </div>
+        ${processedContent}
+      </div>`
+    })
+    .join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title} - Vegvisr Slideshow</title>
+    <style>
+        ${getSlideshowCSS(themeName)}
+    </style>
+</head>
+<body>
+    <div class="slideshow-container" data-theme="${themeName}">
+        <div class="slideshow-header">
+            <h1 class="presentation-title">${title}</h1>
+            ${metadata.subtitle ? `<div class="presentation-subtitle">${metadata.subtitle}</div>` : ''}
+        </div>
+
+        <div class="slides-wrapper">
+            ${slideHtmls}
+        </div>
+
+        <div class="slideshow-controls">
+            <button onclick="previousSlide()" class="control-btn">‹ Previous</button>
+            <div class="slide-indicator">
+                <span id="current-slide">1</span> of <span id="total-slides">${slides.length}</span>
+            </div>
+            <button onclick="nextSlide()" class="control-btn">Next ›</button>
+        </div>
+
+        <div class="slideshow-footer">
+            <div class="footer-left">
+                <a href="https://vegvisr.org" target="_blank">Vegvisr.org</a>
+            </div>
+            <div class="footer-right">
+                <button onclick="toggleFullscreen()" class="control-btn">⛶ Fullscreen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        ${getSlideshowJS()}
+    </script>
+</body>
+</html>`
+}
+
+// Helper function to get slideshow CSS based on theme
+function getSlideshowCSS(theme) {
+  const baseCSS = `
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #333;
+        overflow: hidden;
+        height: 100vh;
+    }
+
+    .slideshow-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .slideshow-header {
+        text-align: center;
+        margin-bottom: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .presentation-title {
+        color: #2c3e50;
+        font-size: 2.5em;
+        margin-bottom: 5px;
+        font-weight: 600;
+    }
+
+    .presentation-meta {
+        color: #7f8c8d;
+        font-size: 0.9em;
+    }
+
+    .slides-wrapper {
+        flex: 1;
+        position: relative;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        overflow: hidden;
+    }
+
+    .slide {
+        display: none;
+        padding: 40px;
+        height: 100%;
+        overflow-y: auto;
+        position: relative;
+    }
+
+    .slide.active {
+        display: block;
+    }
+
+    .slide-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        padding-bottom: 15px;
+        border-bottom: 3px solid #3498db;
+    }
+
+    .slide-title {
+        color: #2c3e50;
+        font-size: 2.2em;
+        font-weight: 600;
+    }
+
+    .slide-number {
+        background: #3498db;
+        color: white;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9em;
+    }
+
+    .slide-content {
+        font-size: 1.2em;
+        line-height: 1.8;
+        color: #34495e;
+    }
+
+    .slide-content h1, .slide-content h2, .slide-content h3 {
+        color: #2c3e50;
+        margin: 20px 0 15px 0;
+    }
+
+    .slide-content p {
+        margin-bottom: 15px;
+    }
+
+    .slide-content ul, .slide-content ol {
+        margin: 15px 0 15px 30px;
+    }
+
+    .slide-content li {
+        margin-bottom: 8px;
+    }
+
+    /* QUOTE elements - matching GNewDefaultNode styling */
+    .fancy-quote {
+        background: #f8f9fa;
+        border-left: 4px solid #3498db;
+        padding: 20px;
+        margin: 20px 0;
+        font-style: italic;
+        font-size: 1.1em;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .fancy-quote cite {
+        display: block;
+        margin-top: 10px;
+        font-style: normal;
+        font-weight: 600;
+        color: #6c757d;
+        font-size: 0.9em;
+    }
+
+    /* SECTION elements - matching GNewDefaultNode styling */
+    .section {
+        /* Styles are applied inline from parseStyleString, but base styles here */
+        border-radius: 8px;
+        margin: 15px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 15px;
+    }
+
+    /* Legacy styles for backward compatibility */
+    .slide-quote {
+        background: #ecf0f1;
+        border-left: 4px solid #3498db;
+        padding: 20px;
+        margin: 20px 0;
+        font-style: italic;
+        font-size: 1.1em;
+    }
+
+    .slide-section {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin: 20px 0;
+        border: 1px solid #e9ecef;
+    }
+
+    /* FANCY elements - matching GNewDefaultNode styling */
+    .fancy-title {
+        margin: 1.5em 0;
+        padding: 1.5em;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+        position: relative;
+        overflow: hidden;
+        text-align: center;
+        font-size: 1.8em;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+
+    .fancy-title::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #007bff, #6610f2, #e83e8c, #fd7e14);
+    }
+
+    /* Legacy styles for backward compatibility */
+    .slide-fancy {
+        text-align: center;
+        font-size: 1.5em;
+        font-weight: 600;
+        color: #e74c3c;
+        margin: 25px 0;
+    }
+
+    .slide-image {
+        max-width: 100%;
+        height: auto;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        margin: 20px 0;
+    }
+
+    .slideshow-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px 25px;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .control-btn {
+        background: #3498db;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1em;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .control-btn:hover {
+        background: #2980b9;
+        transform: translateY(-2px);
+    }
+
+    .control-btn:active {
+        transform: translateY(0);
+    }
+
+    .slide-indicator {
+        font-size: 1.1em;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+
+    .slideshow-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 15px;
+        padding: 0 10px;
+    }
+
+    .footer-left a {
+        color: white;
+        text-decoration: none;
+        font-weight: 600;
+        opacity: 0.8;
+    }
+
+    .footer-left a:hover {
+        opacity: 1;
+    }
+
+    .footer-right {
+        display: flex;
+        gap: 10px;
+    }
+  `
+
+  // Theme-specific styles
+  const themeStyles = {
+    nibi: `
+      body { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); }
+      .presentation-title { color: #1e3c72; }
+      .slide-header { border-bottom-color: #1e3c72; }
+      .slide-number { background: #1e3c72; }
+      .control-btn { background: #1e3c72; }
+      .control-btn:hover { background: #16325c; }
+      .slide-quote { border-left-color: #1e3c72; }
+    `,
+    academic: `
+      body { background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); }
+      .presentation-title { color: #2c3e50; }
+      .slide-header { border-bottom-color: #2c3e50; }
+      .slide-number { background: #2c3e50; }
+      .control-btn { background: #2c3e50; }
+      .control-btn:hover { background: #1a252f; }
+    `,
+    business: `
+      body { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
+      .presentation-title { color: #27ae60; }
+      .slide-header { border-bottom-color: #27ae60; }
+      .slide-number { background: #27ae60; }
+      .control-btn { background: #27ae60; }
+      .control-btn:hover { background: #1e8449; }
+    `,
+  }
+
+  return baseCSS + (themeStyles[theme] || themeStyles.default || '')
+}
+
+// Helper function to get slideshow JavaScript
+function getSlideshowJS() {
+  return `
+    let currentSlide = 1;
+    const totalSlides = document.querySelectorAll('.slide').length;
+
+    function showSlide(n) {
+        const slides = document.querySelectorAll('.slide');
+        if (n > totalSlides) currentSlide = 1;
+        if (n < 1) currentSlide = totalSlides;
+
+        slides.forEach(slide => slide.classList.remove('active'));
+        slides[currentSlide - 1].classList.add('active');
+
+        document.getElementById('current-slide').textContent = currentSlide;
+    }
+
+    function nextSlide() {
+        currentSlide++;
+        showSlide(currentSlide);
+    }
+
+    function previousSlide() {
+        currentSlide--;
+        showSlide(currentSlide);
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    function exportToPDF() {
+        window.print();
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        switch(e.key) {
+            case 'ArrowRight':
+            case ' ':
+                e.preventDefault();
+                nextSlide();
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                previousSlide();
+                break;
+            case 'Escape':
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                }
+                break;
+            case 'f':
+            case 'F':
+                e.preventDefault();
+                toggleFullscreen();
+                break;
+        }
+    });
+
+    // Initialize
+    showSlide(1);
+
+    // Auto-advance slides (optional, can be enabled via query parameter)
+    const urlParams = new URLSearchParams(window.location.search);
+    const autoAdvance = urlParams.get('auto');
+    if (autoAdvance) {
+        const interval = parseInt(autoAdvance) || 5000;
+        setInterval(() => {
+            nextSlide();
+        }, interval);
+    }
+  `
 }
 
 // Helper function to generate knowledge graph HTML
@@ -1161,6 +1762,77 @@ export default {
           })
         } catch (error) {
           console.error('[Worker] Error fetching graph templates:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
+      // Slideshow endpoint - generates HTML slideshow from fulltext node
+      if (pathname === '/slideshow' && request.method === 'GET') {
+        try {
+          const urlParams = new URLSearchParams(url.search)
+          const nodeId = urlParams.get('nodeId')
+          const graphId = urlParams.get('graphId')
+          const theme = urlParams.get('theme') || 'nibi'
+
+          if (!nodeId || !graphId) {
+            return new Response('Missing nodeId or graphId parameter', {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          console.log(`[Worker] Generating slideshow for node ${nodeId} in graph ${graphId}`)
+
+          // Fetch the graph data
+          const graphQuery = `SELECT data FROM knowledge_graphs WHERE id = ?`
+          const graphResult = await env.vegvisr_org.prepare(graphQuery).bind(graphId).first()
+
+          if (!graphResult) {
+            return new Response('Graph not found', {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
+
+          const graphData = JSON.parse(graphResult.data)
+          const targetNode = graphData.nodes.find((node) => node.id === nodeId)
+
+          if (!targetNode) {
+            return new Response('Node not found', {
+              status: 404,
+              headers: corsHeaders,
+            })
+          }
+
+          if (targetNode.type !== 'fulltext' && targetNode.type !== 'slideshow') {
+            return new Response('Node is not a fulltext or slideshow node', {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          // Parse slideshow content from the fulltext node
+          const slideshowData = parseSlideshowFromFulltext(targetNode.info)
+
+          if (slideshowData.slides.length === 0) {
+            return new Response('No slideshow content found in node', {
+              status: 400,
+              headers: corsHeaders,
+            })
+          }
+
+          // Generate HTML slideshow
+          const slideshowHtml = generateSlideshowHtml(slideshowData, theme, targetNode.label)
+
+          return new Response(slideshowHtml, {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'text/html' },
+          })
+        } catch (error) {
+          console.error('[Worker] Error generating slideshow:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
             headers: corsHeaders,

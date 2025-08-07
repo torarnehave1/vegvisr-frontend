@@ -198,9 +198,88 @@ Vegvisr.org features a sophisticated **Multi-Model AI Image Generation System** 
 - **POST /generate-image-prompt**: AI-powered prompt enhancement and optimization
 - **GET /list-r2-images**: R2 storage image inventory and management
 
+## Norwegian Audio Transcription System
+
+Vegvisr.org features a specialized **Norwegian Audio Transcription Worker** that provides high-quality audio-to-text transcription specifically optimized for Norwegian language content, with automatic audio format detection and text improvement capabilities.
+
+### Core Transcription Features
+
+#### 🎙️ **Advanced Audio Processing**
+
+- **Multi-Format Support**: Automatic detection and processing of WAV, MP3, M4A, FLAC, and WebM audio formats
+- **Audio Format Detection**: Intelligent header analysis to detect actual audio format regardless of file extension
+- **R2 Storage Integration**: Secure audio file storage using Cloudflare R2 with metadata preservation
+- **Quality Optimization**: Audio preprocessing and format correction for optimal transcription accuracy
+
+#### 🇳🇴 **Norwegian Language Specialization**
+
+- **Norwegian Whisper Models**: Dedicated Norwegian Whisper models (nb-whisper-small) for superior accuracy
+- **Cultural Context Preservation**: Norwegian-specific language processing maintaining cultural nuances
+- **Text Improvement Integration**: Post-transcription text enhancement using Norwegian text improvement worker
+- **Contextual Processing**: Support for context-aware transcription with background information
+
+#### ⚡ **Dual Processing Pipeline**
+
+- **Primary Transcription**: High-performance transcription via Hetzner-hosted Norwegian Whisper service
+- **Text Enhancement**: Secondary processing using Cloudflare Workers AI (Llama 3.3 70B Fast) for text improvement
+- **Combined Output**: Both raw and improved transcription text provided in response
+- **Fallback Handling**: Graceful degradation if text improvement is unavailable
+
+### Technical Implementation
+
+#### **Norwegian Transcription Worker Endpoints**
+
+- **POST /**: Main transcription endpoint accepting direct audio file uploads
+- **POST /upload**: Audio file upload to R2 storage with format validation
+- **POST /transcribe-from-url**: Transcription from pre-uploaded R2 audio URLs
+- **GET /health**: Service health check with feature enumeration
+
+#### **Audio Processing Pipeline**
+
+- **Format Detection**: Binary header analysis for accurate format identification
+- **Content Validation**: MIME type and file extension validation for security
+- **R2 Storage**: Secure cloud storage with custom metadata and content type preservation
+- **Service Integration**: Direct integration with Hetzner Norwegian transcription service
+
+#### **Quality & Performance Features**
+
+- **Error Handling**: Comprehensive error reporting with detailed debugging information
+- **Processing Metrics**: Response time tracking for both transcription and improvement phases
+- **Service Binding**: Efficient worker-to-worker communication for text improvement
+- **Metadata Preservation**: Complete audio file metadata tracking throughout pipeline
+
+### Integration Architecture
+
+#### **External Service Integration**
+
+- **Hetzner Transcription Service**: Primary Norwegian Whisper service at `https://transcribe.vegvisr.org/transcribe`
+- **API Token Authentication**: Secure API token-based authentication with external service
+- **Norwegian Text Worker**: Service binding integration for post-transcription text improvement
+- **Cloudflare R2**: Audio file storage with domain-consistent URL structure (`audio.vegvisr.org`)
+
+#### **Response Format**
+
+```json
+{
+  "success": true,
+  "transcription": {
+    "raw_text": "Original transcription from Whisper",
+    "improved_text": "Enhanced text from AI improvement",
+    "language": "no",
+    "processing_time": 2340,
+    "improvement_time": 890
+  },
+  "metadata": {
+    "model": "nb-whisper-small",
+    "transcription_server": "Hetzner",
+    "text_improvement": "Cloudflare Workers AI - Llama 3.3 70B Fast"
+  }
+}
+```
+
 ## Transcript Processing System
 
-Vegvisr.org includes an advanced **AI-Powered Transcript Processing System** that transforms audio/video transcripts into comprehensive Norwegian knowledge graphs using sophisticated language processing and content structuring.
+Vegvisr.org includes an advanced **AI-Powered Transcript Processing System** that transforms existing audio/video transcripts into comprehensive Norwegian knowledge graphs using sophisticated language processing and content structuring.
 
 ### Core Transcript Features
 
@@ -1085,5 +1164,244 @@ The Brand Worker serves as an intelligent proxy system that powers custom domain
 - **CORS Management**: Automatic CORS header injection for cross-origin compatibility
 - **JSON Response Handling**: Intelligent parsing and re-serialization of API responses
 - **Error Handling**: Structured JSON error responses with comprehensive error reporting
+
+_This overview provides a quick reference for developers and integrators to understand the main API surface of Vegvisr.org. For detailed request/response formats, see the relevant worker source files or API documentation._
+
+## Chat Worker System
+
+Vegvisr.org features a comprehensive **Real-Time Chat System** powered by dedicated chat workers that enable seamless communication and collaboration within knowledge graph contexts.
+
+### Core Chat Features
+
+#### 💬 **Multi-Room Chat Architecture**
+
+- **Room-Based Organization**: Independent chat rooms with unique room IDs and configurable settings
+- **Invitation System**: Email-based invitations with token validation and acceptance workflows
+- **User Management**: Role-based access control with room administrators and participants
+- **Cross-Domain Support**: Chat functionality integrated across all custom domain deployments
+
+#### 🔐 **Secure Invitation Flow**
+
+- **Token-Based Invitations**: Cryptographically secure invitation tokens with expiration
+- **Email Integration**: Professional email templates with branding support via email-worker
+- **User Validation**: Existing user detection and new user registration workflows
+- **Access Control**: Room-specific permissions and invitation validation
+
+#### ⚡ **Real-Time Communication**
+
+- **WebSocket Integration**: Real-time message delivery and presence indicators
+- **Message Threading**: Structured conversations with reply and threading support
+- **File Sharing**: Document and media sharing within chat contexts
+- **Notification System**: Push notifications and email alerts for important messages
+
+### Technical Implementation
+
+#### **Chat Worker Endpoints**
+
+- **POST /create-room**: Create new chat rooms with configuration settings
+- **POST /invite-user**: Send email invitations to join specific rooms
+- **GET /validate-invitation**: Validate invitation tokens and room access
+- **POST /accept-invitation**: Complete invitation acceptance workflow
+- **GET /room-members**: List participants and their roles in specific rooms
+
+#### **Integration Features**
+
+- **Email Worker Integration**: Professional invitation emails with custom branding
+- **User System Integration**: Seamless integration with existing user authentication
+- **Knowledge Graph Context**: Chat rooms can be associated with specific knowledge graphs
+- **Multi-Language Support**: Internationalized chat interface and notifications
+
+## Affiliate System (aff-worker)
+
+Vegvisr.org includes a sophisticated **Affiliate Marketing System** currently under active development, designed to enable comprehensive referral tracking and commission management across the platform.
+
+### Core Affiliate Features
+
+#### 🎯 **Multi-Level Affiliate Management**
+
+- **Deal-Specific Affiliates**: Each affiliate registration tied to specific knowledge graphs (dealName/graphId)
+- **Referral Code Generation**: Automatic generation of unique referral codes for tracking
+- **Commission Tracking**: Support for both percentage-based and fixed-amount commissions
+- **Multi-Domain Support**: Affiliate programs across all custom domain deployments
+
+#### 📊 **Advanced Analytics & Tracking**
+
+- **Real-Time Statistics**: Conversion rates, earnings tracking, and referral performance metrics
+- **Dashboard Interface**: Comprehensive affiliate dashboard with earnings overview
+- **Invitation Management**: Email-based affiliate recruitment with professional templates
+- **Payout Management**: Automated commission calculations and payout tracking
+
+#### 🔄 **Dual Registration Flow**
+
+- **Direct Registration**: Self-service affiliate signup for existing users
+- **Invitation-Based**: Email invitation system for recruiting new affiliates
+- **Existing User Handling**: Special workflow for users who already have platform accounts
+- **Token Validation**: Secure invitation token system with expiration and validation
+
+### Technical Architecture
+
+#### **Affiliate Worker Endpoints**
+
+- **POST /register-affiliate**: Direct affiliate registration for existing users
+- **POST /send-affiliate-invitation**: Send branded email invitations to potential affiliates
+- **GET /affiliate-dashboard**: Retrieve dashboard data with statistics and earnings
+- **GET /list-invitations**: Administrative interface for managing all invitations
+- **POST /accept-invitation**: Complete invitation acceptance and affiliate activation
+
+#### **Integration Components**
+
+- **Email Template Integration**: Professional affiliate invitation emails via email-worker
+- **User System Integration**: Seamless integration with config table and user authentication
+- **Commission Calculation**: Automated tracking of referrals and commission calculations
+- **Graph Association**: Each affiliate deal associated with specific knowledge graph content
+
+#### **Development Status**
+
+- **Core Functionality**: ✅ Registration, invitations, and tracking implemented
+- **Email Integration**: ✅ Professional templates and delivery system
+- **Dashboard Interface**: 🚧 Under active development
+- **Payment Processing**: 🚧 Commission payout system in development
+- **Analytics Enhancement**: 🚧 Advanced reporting and analytics features
+
+## Vectorize Knowledge Graph Search
+
+Vegvisr.org incorporates advanced **AI-Powered Vector Search** capabilities that enable semantic search across knowledge graphs using Cloudflare's Vectorize service and AI embeddings.
+
+### Core Vector Search Features
+
+#### 🧠 **Intelligent Content Analysis**
+
+- **Semantic Embeddings**: Convert knowledge graph content into vector representations using BGE-base-en-v1.5 model
+- **Hybrid Search**: Combines vector similarity search with traditional keyword matching for optimal results
+- **Content Extraction**: Intelligent parsing of node content, titles, and metadata for comprehensive indexing
+- **Graph-Level Indexing**: Automatic vectorization of entire knowledge graphs with incremental updates
+
+#### 🔍 **Advanced Search Capabilities**
+
+- **Natural Language Queries**: Users can search using natural language questions and concepts
+- **Relevance Scoring**: AI-powered relevance scoring with confidence metrics
+- **Multi-Modal Search**: Support for searching across text, metadata, and structured content
+- **Search Analytics**: Comprehensive logging and analytics for search performance optimization
+
+#### ⚡ **Performance & Scalability**
+
+- **Cloudflare Vectorize**: Leverages Cloudflare's distributed vector database for fast queries
+- **Incremental Indexing**: Efficient updates when knowledge graphs are modified
+- **Caching Strategy**: Smart caching of embeddings and search results
+- **Fallback Systems**: Graceful degradation to keyword search when vector search unavailable
+
+### Technical Implementation
+
+#### **Vector Search Worker Endpoints**
+
+- **POST /index-graph**: Vectorize individual knowledge graphs for search indexing
+- **POST /search**: Perform hybrid vector and keyword search across indexed content
+- **POST /reindex-all**: Bulk reindexing of all knowledge graphs in the system
+- **GET /analyze-content**: Content analysis and embedding quality assessment
+- **POST /vectorization-status**: Check vectorization status for multiple graphs
+
+#### **AI Integration**
+
+- **Cloudflare Workers AI**: Direct integration with Cloudflare's AI models for embedding generation
+- **BGE-base-en-v1.5 Model**: High-quality English language embeddings optimized for semantic search
+- **Content Processing**: Intelligent content chunking and metadata extraction for optimal search results
+- **Quality Validation**: Embedding validation and quality checks for search accuracy
+
+#### **Search Modes**
+
+- **Vector Search**: Pure semantic similarity search using AI embeddings
+- **Keyword Search**: Traditional text-based search with filtering and ranking
+- **Hybrid Search**: Combined approach leveraging both vector and keyword methods for best results
+
+### Frontend Integration
+
+#### **Search Interface Components**
+
+- **Smart Search Toggle**: Switch between keyword and semantic search modes
+- **Real-Time Suggestions**: AI-powered search suggestions and query enhancement
+- **Results Visualization**: Enhanced results display with relevance scoring and match explanations
+- **Search Analytics**: User search behavior tracking and optimization insights
+
+## Email Templates System
+
+Vegvisr.org features a comprehensive **Email Template Management System** that provides professional, branded email communications across all platform features including affiliate invitations, chat invitations, and system notifications.
+
+### Core Email Template Features
+
+#### 📧 **Professional Template Engine**
+
+- **Multi-Language Support**: Templates available in Norwegian (nb), English (en), Turkish (tr), German (de), and Spanish (es)
+- **Variable Substitution**: Dynamic content insertion using both Handlebars {{variable}} and simple {variable} syntax
+- **HTML & Text Versions**: Professional HTML templates with plain text fallbacks
+- **Template Versioning**: Active/inactive template management with version control
+
+#### 🎨 **Advanced Template Types**
+
+- **Affiliate Registration Invitations**: Professional affiliate recruitment emails with commission details
+- **Chat Room Invitations**: Branded chat invitation emails with room access links
+- **System Notifications**: Platform updates, security alerts, and administrative communications
+- **Custom Domain Branding**: Template customization based on domain-specific branding
+
+#### 🔧 **AI-Powered Template Generation**
+
+- **GPT-4 Integration**: AI-powered email template generation with customizable prompts
+- **Tone Selection**: Professional, friendly, formal, casual, and urgent tone options
+- **Type-Specific Generation**: Specialized templates for invitations, notifications, welcome emails
+- **Variable Optimization**: AI suggests appropriate variables for template customization
+
+### Technical Architecture
+
+#### **Email Worker Endpoints**
+
+- **POST /render-template**: Render templates with variable substitution and validation
+- **GET /templates**: List available templates with filtering by language and type
+- **POST /render-and-send-template**: Complete email rendering and delivery pipeline
+- **GET /templates/{id}**: Retrieve specific template details and metadata
+
+#### **Template Processing Engine**
+
+- **Handlebars Integration**: Full Handlebars template processing for complex conditional logic
+- **Variable Validation**: Type checking and validation for template variables
+- **Content Sanitization**: Security measures to prevent XSS and injection attacks
+- **Error Handling**: Comprehensive error reporting for template rendering issues
+
+#### **Database Integration**
+
+- **email_templates Table**: Centralized template storage with metadata and versioning
+- **Language Code Support**: Multi-language template management and selection
+- **Active Status Management**: Enable/disable templates without deletion
+- **Template Categories**: Organized template types for easy management and selection
+
+### Email Delivery Integration
+
+#### **Multi-Service Support**
+
+- **Slowyou.io Integration**: Primary email delivery service with VEGVISR protocol support
+- **Variable Processing**: Server-side variable replacement for security and reliability
+- **Delivery Tracking**: Message ID generation and delivery status monitoring
+- **Error Handling**: Comprehensive error reporting and fallback mechanisms
+
+#### **Branding Integration**
+
+- **Domain-Specific Templates**: Custom templates based on sender domain branding
+- **Logo Integration**: Automatic logo insertion based on domain configuration
+- **Color Scheme Adaptation**: Template styling based on domain branding settings
+- **Custom Signatures**: Domain-specific email signatures and contact information
+
+### Template Management Interface
+
+#### **Administrative Features**
+
+- **Template Builder**: Visual template creation and editing interface
+- **Variable Management**: Dynamic variable addition and validation
+- **Preview System**: Real-time template preview with test data
+- **Deployment Pipeline**: Template testing and production deployment workflow
+
+#### **Developer Tools**
+
+- **API Testing**: Built-in tools for testing template rendering and delivery
+- **Variable Documentation**: Automatic documentation generation for template variables
+- **Error Debugging**: Detailed error messages and debugging information
+- **Performance Monitoring**: Template rendering performance metrics and optimization
 
 _This overview provides a quick reference for developers and integrators to understand the main API surface of Vegvisr.org. For detailed request/response formats, see the relevant worker source files or API documentation._

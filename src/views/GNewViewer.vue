@@ -23,6 +23,7 @@
             :node="node"
             :graphData="graphData"
             :showControls="false"
+            :graphId="currentGraphId"
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
             @node-created="handleNodeCreated"
@@ -413,6 +414,24 @@
                 <small class="form-text text-muted">
                   Select a color and click "Insert Color" to add it at your cursor position
                 </small>
+              </div>
+
+              <!-- Image Insert Section -->
+              <div class="form-group">
+                <label class="form-label">📷 Insert Image:</label>
+                <div class="image-insert-container">
+                  <button
+                    @click="insertImageAtCursor"
+                    class="btn btn-outline-primary"
+                    type="button"
+                    title="Insert image markdown at cursor position"
+                  >
+                    📷 Insert Image
+                  </button>
+                  <small class="form-text text-muted">
+                    Inserts image markdown template: <code>![Alt Text](Image URL)</code>
+                  </small>
+                </div>
               </div>
             </div>
 
@@ -1352,6 +1371,10 @@ const currentImageData = ref({
   nodeId: '',
   nodeContent: '',
 })
+
+// Image insert state for edit modal
+const isInsertMode = ref(false)
+const insertCursorPosition = ref(0)
 
 const isGooglePhotosSelectorOpen = ref(false)
 const currentGooglePhotosData = ref({
@@ -3409,6 +3432,28 @@ const insertColorAtCursor = () => {
   })
 }
 
+const insertImageAtCursor = () => {
+  const textarea = nodeContentTextarea.value
+  if (!textarea) return
+
+  // Store the current cursor position for later insertion
+  insertCursorPosition.value = textarea.selectionStart
+  
+  // Set up image selector in insert mode
+  isInsertMode.value = true
+  currentImageData.value = {
+    url: '',
+    alt: '',
+    type: '',
+    context: '',
+    nodeId: editingNode.value.id,
+    nodeContent: editingNode.value.info || '',
+  }
+  
+  // Open the ImageSelector modal
+  isImageSelectorOpen.value = true
+}
+
 const saveNodeChanges = async () => {
   if (!editingNode.value.id) {
     console.error('No node ID to save')
@@ -3829,9 +3874,43 @@ const closeGooglePhotosSelector = () => {
 
 // Image replacement handler
 const handleImageReplaced = async (replacementData) => {
-  imageDebug('logReplacement', 'Image replacement started', replacementData)
+  imageDebug('logReplacement', 'Image replacement/insertion started', replacementData)
 
   try {
+    // Handle insert mode differently from replacement mode
+    if (isInsertMode.value) {
+      // Insert mode: Add image markdown at cursor position in edit modal
+      const imageMarkdown = `![${replacementData.alt || 'Image'}](${replacementData.newUrl})`
+      
+      const textarea = nodeContentTextarea.value
+      if (textarea) {
+        const value = editingNode.value.info || ''
+        const newValue = value.slice(0, insertCursorPosition.value) + imageMarkdown + value.slice(insertCursorPosition.value)
+        editingNode.value.info = newValue
+        
+        // Restore cursor position after the inserted text
+        nextTick(() => {
+          textarea.focus()
+          textarea.setSelectionRange(
+            insertCursorPosition.value + imageMarkdown.length, 
+            insertCursorPosition.value + imageMarkdown.length
+          )
+        })
+      }
+      
+      statusMessage.value = `✅ Image inserted successfully! Image by ${replacementData.photographer || 'Unknown'}`
+      setTimeout(() => {
+        statusMessage.value = ''
+      }, 3000)
+      
+      // Reset insert mode
+      isInsertMode.value = false
+      insertCursorPosition.value = 0
+      closeImageSelector()
+      return
+    }
+
+    // Original replacement mode logic follows...
     // Find the node to update
     const nodeToUpdate = graphData.value.nodes.find(
       (node) => node.id === currentImageData.value.nodeId,
@@ -5252,6 +5331,29 @@ const handleCopyNode = (node) => {
     width: 35px;
     height: 35px;
   }
+}
+
+/* Image Insert Styles */
+.image-insert-container {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.image-insert-container .btn {
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.image-insert-container .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
 }
 
 /* IMAGEQUOTE Creator Modal */
