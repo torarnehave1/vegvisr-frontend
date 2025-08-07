@@ -931,6 +931,10 @@ export default {
             'vegvisr.norsegong.com',
             'movemetime.com',
             'www.movemetime.com',
+            'universi.no',
+            'www.universi.no',
+            'alivenesslab.org',
+            'www.alivenesslab.org',
           ]
 
           // Check which of these domains exist in KV and belong to this user
