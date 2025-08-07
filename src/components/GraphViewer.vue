@@ -37,12 +37,30 @@
             <MermaidDiagram :code="node.info || 'graph TD; A-->B;'" />
           </div>
         </template>
+        <template v-else-if="node.type === 'slideshow'">
+          <h3 class="node-label">{{ node.label }}</h3>
+          <div class="slideshow-preview">
+            <p class="slideshow-description">Interactive slideshow presentation</p>
+            <button @click="openSlideshowInNewWindow(node)" class="btn-slideshow">
+              🎞️ Show Slideshow
+            </button>
+            <div class="slide-count">{{ getSlideshowSlideCount(node.info) }} slides</div>
+          </div>
+          <!-- Debug info -->
+          <div style="font-size: 12px; color: #666; margin-top: 10px">
+            Debug: type={{ node.type }}, id={{ node.id }}
+          </div>
+        </template>
         <template v-else>
           <h3 class="node-label">{{ node.label }}</h3>
           <div
             class="node-info"
             v-html="convertToHtml(node.info || 'No additional information available.')"
           ></div>
+          <!-- Debug info for non-slideshow nodes -->
+          <div style="font-size: 12px; color: #999; margin-top: 5px">
+            Debug: type={{ node.type || 'undefined' }}, id={{ node.id }}
+          </div>
         </template>
       </div>
     </div>
@@ -182,6 +200,17 @@ const parseMarkdownImage = (markdown) => {
   return null
 }
 
+const getSlideshowSlideCount = (content) => {
+  if (!content) return 0
+  const slides = content.split('---').filter((slide) => slide.trim())
+  return slides.length
+}
+
+const openSlideshowInNewWindow = (node) => {
+  const slideshowUrl = `https://knowledge.vegvisr.org/slideshow?content=${encodeURIComponent(node.info)}&title=${encodeURIComponent(node.label)}`
+  window.open(slideshowUrl, '_blank', 'width=1024,height=768,resizable=yes,scrollbars=yes')
+}
+
 onMounted(() => {
   fetchGraphData()
 })
@@ -204,5 +233,43 @@ watch(
   border: 1px solid #ddd;
   border-radius: 8px;
   background-color: #f9f9f9;
+}
+
+.slideshow-preview {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  background-color: #f8f9fa;
+  text-align: center;
+}
+
+.slideshow-description {
+  margin: 0 0 1rem 0;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.btn-slideshow {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-bottom: 0.5rem;
+}
+
+.btn-slideshow:hover {
+  background-color: #0056b3;
+}
+
+.slide-count {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin-top: 0.5rem;
 }
 </style>

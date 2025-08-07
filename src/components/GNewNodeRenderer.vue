@@ -24,6 +24,7 @@
       :graphData="graphData"
       :isPreview="isPreview"
       :showControls="showControls"
+      :graphId="graphId"
       @node-updated="handleNodeUpdated"
       @node-deleted="handleNodeDeleted"
       @node-created="handleNodeCreated"
@@ -63,6 +64,7 @@ import GNewLearnScriptNode from './GNewNodes/GNewLearnScriptNode.vue'
 import GNewSubscriptionNode from './GNewNodes/GNewSubscriptionNode.vue'
 import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
 import GNewMapNode from './GNewNodes/GNewMapNode.vue'
+import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -84,6 +86,10 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true,
+  },
+  graphId: {
+    type: String,
+    default: '',
   },
 })
 
@@ -159,6 +165,8 @@ const nodeComponents = {
   'email-template': GNewEmailTemplateNode,
   // Map node
   map: GNewMapNode,
+  // Slideshow node
+  slideshow: GNewSlideshowNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
