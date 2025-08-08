@@ -503,7 +503,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import AIImageModal from './AIImageModal.vue'
 import R2PortfolioModal from './R2PortfolioModal.vue'
@@ -975,10 +975,16 @@ const generateContextSearch = async () => {
 
 // Clipboard paste functionality
 const handlePaste = async (event) => {
+  console.log('📋 Paste event triggered:', event)
   event.preventDefault()
 
   const items = event.clipboardData?.items
-  if (!items) return
+  if (!items) {
+    console.log('⚠️ No clipboard items found')
+    return
+  }
+
+  console.log('📋 Clipboard items:', Array.from(items).map(item => item.type))
 
   // First check for text (URLs)
   for (let item of items) {
@@ -1340,11 +1346,15 @@ const handlePortfolioImageSelected = (imageData) => {
 // Google Photos functionality moved to dedicated GooglePhotosSelector component
 
 const addPasteListener = () => {
+  // Remove any existing listener first to avoid duplicates
+  document.removeEventListener('paste', handlePaste)
   document.addEventListener('paste', handlePaste)
+  console.log('📋 Paste listener added')
 }
 
 const removePasteListener = () => {
   document.removeEventListener('paste', handlePaste)
+  console.log('📋 Paste listener removed')
 }
 
 // Legacy OAuth check - Google Photos OAuth now handled by GooglePhotosSelector
@@ -1363,7 +1373,10 @@ watch(
   () => props.isOpen,
   (newValue) => {
     if (newValue) {
-      addPasteListener()
+      // Add a small delay to ensure DOM is ready
+      nextTick(() => {
+        addPasteListener()
+      })
       // Initialize URL state
       originalImageUrl.value = props.currentImageUrl
       editableImageUrl.value = props.currentImageUrl

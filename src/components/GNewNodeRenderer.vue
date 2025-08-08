@@ -65,7 +65,7 @@ import GNewSubscriptionNode from './GNewNodes/GNewSubscriptionNode.vue'
 import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
 import GNewMapNode from './GNewNodes/GNewMapNode.vue'
 import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
-import GNewAdvertisementManagerNode from './GNewNodes/GNewAdvertisementManagerNode.vue'
+import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
 
 // Store access
 const userStore = useUserStore()
