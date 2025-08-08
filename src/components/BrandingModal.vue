@@ -50,6 +50,21 @@
                         {{ config.domain }}
                         <i class="bi bi-box-arrow-up-right ms-1"></i>
                       </a>
+                      <!-- Change indicators -->
+                      <span
+                        v-if="domainStore.newDomains.has(config.domain)"
+                        class="badge bg-success ms-2"
+                        title="This domain is new and will be saved to server"
+                      >
+                        NEW
+                      </span>
+                      <span
+                        v-else-if="domainStore.updatedDomains.has(config.domain)"
+                        class="badge bg-warning text-dark ms-2"
+                        title="This domain has unsaved changes"
+                      >
+                        MODIFIED
+                      </span>
                     </h5>
                     <div class="domain-meta">
                       <span v-if="config.logo" class="badge bg-success">✓ Logo</span>
@@ -597,14 +612,32 @@
               {{ domainConfigs.length }} domain{{ domainConfigs.length !== 1 ? 's' : '' }}
               configured
             </small>
+            <!-- Change tracking info -->
+            <div v-if="hasUnsavedChanges" class="mt-1">
+              <span class="badge bg-warning text-dark">
+                {{ changeSummary }}
+              </span>
+            </div>
           </div>
           <div>
             <button
               @click="saveAllDomains"
-              class="btn btn-success me-2"
-              :disabled="domainConfigs.length === 0"
+              class="btn me-2"
+              :class="hasUnsavedChanges ? 'btn-warning' : 'btn-success'"
+              :disabled="!hasUnsavedChanges && domainConfigs.length === 0"
             >
-              Save All Domains
+              <span
+                v-if="isSaving"
+                class="spinner-border spinner-border-sm me-2"
+                role="status"
+              ></span>
+              {{
+                isSaving
+                  ? 'Saving...'
+                  : hasUnsavedChanges
+                    ? `Save Changes (${changeStats.total})`
+                    : 'All Saved'
+              }}
             </button>
             <button @click="closeModal" class="btn btn-outline-secondary">Close</button>
           </div>
@@ -612,9 +645,26 @@
 
         <!-- Edit View Footer -->
         <div v-if="viewMode === 'edit'" class="w-100 d-flex justify-content-end">
-          <button @click="backToList" class="btn btn-secondary me-2">Cancel</button>
-          <button @click="saveDomain" :disabled="!canSaveDomain()" class="btn btn-primary">
-            {{ editingDomainIndex !== null ? 'Update Domain' : 'Add Domain' }}
+          <button @click="backToList" class="btn btn-secondary me-2" :disabled="isSavingDomain">
+            Cancel
+          </button>
+          <button
+            @click="saveDomain"
+            :disabled="!canSaveDomain() || isSavingDomain"
+            class="btn btn-primary"
+          >
+            <span
+              v-if="isSavingDomain"
+              class="spinner-border spinner-border-sm me-2"
+              role="status"
+            ></span>
+            {{
+              isSavingDomain
+                ? 'Saving...'
+                : editingDomainIndex !== null
+                  ? 'Update Domain'
+                  : 'Add Domain'
+            }}
           </button>
         </div>
       </div>
@@ -657,7 +707,7 @@
 import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useMenuTemplateStore } from '@/stores/menuTemplateStore'
-import { apiUrls } from '@/config/api'
+import { useDomainStore } from '@/stores/domainStore'
 import AIImageModal from './AIImageModal.vue'
 import AdminDomainModal from './AdminDomainModal.vue'
 import MenuTemplateCreator from './MenuTemplateCreator.vue'
@@ -683,8 +733,6 @@ export default {
   data() {
     return {
       currentStep: 1,
-      isSaving: false,
-      domainConfigs: [...this.existingDomainConfigs], // Initialize with existing configs
       editingDomainIndex: null, // Index of domain being edited, null for new domain
       formData: {
         domain: '',
@@ -721,6 +769,7 @@ export default {
       filteredSuggestions: [],
       isDeletingExisting: false,
       isUploadingLogo: false,
+      isSavingDomain: false,
       isAILogoModalOpen: false,
       isAdminDomainModalOpen: false,
       frontPageError: '',
@@ -737,30 +786,26 @@ export default {
     const userStore = useUserStore()
     const portfolioStore = usePortfolioStore()
     const menuTemplateStore = useMenuTemplateStore()
-    return { userStore, portfolioStore, menuTemplateStore }
+    const domainStore = useDomainStore()
+    return { userStore, portfolioStore, menuTemplateStore, domainStore }
   },
   watch: {
-    existingDomainConfigs: {
-      handler(newConfigs) {
-        console.log('Updating domain configs from props:', newConfigs)
-        this.domainConfigs = [...newConfigs]
-      },
-      immediate: true,
-    },
     isOpen: {
       handler(newValue) {
         if (newValue) {
-          console.log('BrandingModal opened, current domainConfigs:', this.domainConfigs)
-          // Fetch domain configs from KV and system-wide meta areas when modal opens
-          this.fetchDomainConfigsFromKV()
+          console.log('BrandingModal opened, loading domains...')
+          // Load domains from store when modal opens
+          this.loadDomains()
           this.fetchMetaAreas()
 
           // Ensure proper focus management for keyboard events
           this.$nextTick(() => {
             const modalOverlay = this.$el
-            if (modalOverlay) {
+            if (modalOverlay && typeof modalOverlay.setAttribute === 'function') {
               modalOverlay.setAttribute('tabindex', '0')
-              modalOverlay.focus()
+              if (typeof modalOverlay.focus === 'function') {
+                modalOverlay.focus()
+              }
             }
           })
         }
@@ -769,6 +814,26 @@ export default {
     },
   },
   computed: {
+    // Domain store getters
+    domainConfigs() {
+      return this.domainStore.allDomains
+    },
+    hasUnsavedChanges() {
+      return this.domainStore.hasUnsavedChanges
+    },
+    changeSummary() {
+      return this.domainStore.changeSummary
+    },
+    changeStats() {
+      return this.domainStore.changeStats
+    },
+    isSaving() {
+      return this.domainStore.isSaving
+    },
+    isLoading() {
+      return this.domainStore.isLoading
+    },
+
     availableCategories() {
       // Get meta areas from portfolio store and format them for the UI
       return this.portfolioStore.allMetaAreas.map((metaArea) => ({
@@ -832,15 +897,14 @@ export default {
           id: 'gnew',
           label: '🧪 GNew Viewer',
           path: '/gnew-viewer',
-          roles: ['Superadmin', 'Subscriber'],
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
         },
       ]
     },
   },
   mounted() {
-    console.log('BrandingModal mounted with existingDomainConfigs:', this.existingDomainConfigs)
-    this.loadExistingDomainConfigs()
-    this.fetchDomainConfigsFromKV()
+    console.log('BrandingModal mounted')
+    this.loadDomains()
     this.fetchMetaAreas()
     this.loadUserGraphs()
     this.fetchMenuTemplates()
@@ -850,9 +914,11 @@ export default {
       this.$nextTick(() => {
         // Focus the modal overlay to ensure keyboard events work
         const modalOverlay = this.$el
-        if (modalOverlay && modalOverlay.focus) {
+        if (modalOverlay && typeof modalOverlay.setAttribute === 'function') {
           modalOverlay.setAttribute('tabindex', '0')
-          modalOverlay.focus()
+          if (typeof modalOverlay.focus === 'function') {
+            modalOverlay.focus()
+          }
         }
       })
     }
@@ -878,151 +944,17 @@ export default {
         this.closeModal()
       }
     },
-    loadExistingDomainConfigs() {
-      // Load existing domain configurations from props
-      this.domainConfigs = [...this.existingDomainConfigs]
-      console.log('Loaded existing domain configs from props:', this.domainConfigs)
-    },
-    async fetchDomainConfigsFromKV() {
-      // Fetch domain configurations from user profile + KV store
+    // Domain management methods
+    async loadDomains() {
       try {
-        console.log(
-          'Fetching domain configs from user profile + KV for user:',
-          this.userStore.email,
-        )
-
-        // Step 1: Get the list of domains from user's profile data
-        const response = await fetch(apiUrls.getUserData(this.userStore.email))
-
-        if (!response.ok) {
-          console.error('Failed to fetch user data:', response.status, response.statusText)
-          return
-        }
-
-        const userData = await response.json()
-        console.log('Fetched user data:', userData)
-
-        let domainList = []
-
-        // Extract domain list from user data
-        if (
-          userData.data &&
-          userData.data.domainConfigs &&
-          Array.isArray(userData.data.domainConfigs)
-        ) {
-          // New multi-domain structure - extract domain names
-          domainList = userData.data.domainConfigs.map((config) => config.domain).filter(Boolean)
-          console.log('Found domains in user profile:', domainList)
-        } else if (userData.data && userData.data.branding && userData.data.branding.mySite) {
-          // Legacy single domain structure
-          domainList = [userData.data.branding.mySite]
-          console.log('Found legacy domain in user profile:', domainList)
-        }
-
-        if (domainList.length === 0) {
-          console.log('No domains found in user profile, trying to detect from known domains')
-          // Fallback: try common domain patterns for this user
-          const knownDomains = [
-            'norsegong.com',
-            'www.norsegong.com',
-            'salt.norsegong.com',
-            'sweet.norsegong.com',
-            'torarne.xyzvibe.com',
-            'vegvisr.norsegong.com',
-            'movemetime.com',
-            'www.movemetime.com',
-            'universi.no',
-            'www.universi.no',
-            'alivenesslab.org',
-            'www.alivenesslab.org',
-          ]
-
-          // Check which of these domains exist in KV and belong to this user
-          for (const domain of knownDomains) {
-            try {
-              const kvResponse = await fetch(apiUrls.getSiteConfig(domain))
-              if (kvResponse.ok) {
-                const siteConfig = await kvResponse.json()
-                if (siteConfig.owner === this.userStore.email) {
-                  domainList.push(domain)
-                  console.log(`Found owned domain: ${domain}`)
-                }
-              }
-            } catch (error) {
-              console.log(`Could not check domain ${domain}:`, error)
-            }
-          }
-
-          if (domainList.length === 0) {
-            console.log('No domains found even with fallback detection')
-            return
-          }
-        }
-
-        // Step 2: Fetch detailed configuration from KV for each domain
-        const domainConfigs = []
-
-        for (const domain of domainList) {
-          try {
-            console.log(`Fetching KV config for domain: ${domain}`)
-            const kvResponse = await fetch(apiUrls.getSiteConfig(domain))
-
-            if (kvResponse.ok) {
-              const siteConfig = await kvResponse.json()
-              console.log(`KV config for ${domain}:`, siteConfig)
-
-              // Convert KV format to modal format
-              const modalConfig = {
-                domain: siteConfig.domain,
-                logo: siteConfig.branding?.myLogo || '',
-                contentFilter: siteConfig.branding?.contentFilter || 'none',
-                selectedCategories: siteConfig.branding?.selectedCategories || [],
-                mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || '',
-                menuConfig: siteConfig.menuConfig || {
-                  enabled: false,
-                  visibleItems: [
-                    'graph-editor',
-                    'graph-canvas',
-                    'graph-portfolio',
-                    'graph-viewer',
-                    'search',
-                    'user-dashboard',
-                    'github-issues',
-                    'sandbox',
-                    'gnew',
-                  ],
-                },
-              }
-
-              domainConfigs.push(modalConfig)
-            } else if (kvResponse.status === 404) {
-              console.log(`No KV config found for ${domain}, using fallback`)
-              // Create fallback config if KV entry doesn't exist
-              const fallbackConfig = {
-                domain: domain,
-                logo: '',
-                contentFilter: 'none',
-                selectedCategories: [],
-                mySiteFrontPage: '',
-              }
-              domainConfigs.push(fallbackConfig)
-            } else {
-              console.error(`Error fetching KV config for ${domain}:`, kvResponse.status)
-            }
-          } catch (error) {
-            console.error(`Error processing domain ${domain}:`, error)
-          }
-        }
-
-        // Step 3: Update the modal with the fetched configurations
-        if (domainConfigs.length > 0) {
-          this.domainConfigs = domainConfigs
-          console.log('Updated domain configs from KV:', this.domainConfigs)
-        }
+        await this.domainStore.loadDomains(this.userStore.email)
+        console.log('Domains loaded into store:', this.domainConfigs.length)
       } catch (error) {
-        console.error('Error fetching domain configs from KV:', error)
+        console.error('Error loading domains:', error)
+        this.$emit('saved', `❌ Error loading domains: ${error.message}`)
       }
     },
+
     addNewDomain() {
       this.editingDomainIndex = null
       this.formData = {
@@ -1048,6 +980,7 @@ export default {
       }
       this.viewMode = 'edit'
     },
+
     editDomain(index) {
       this.editingDomainIndex = index
       const config = this.domainConfigs[index]
@@ -1080,112 +1013,37 @@ export default {
           this.validateFrontPageGraph()
         })
       }
-      // Apply menu template if one is selected
-      if (this.formData.menuConfig.selectedTemplate) {
-        this.$nextTick(() => {
-          this.applyMenuTemplate()
-        })
-      }
       this.viewMode = 'edit'
     },
+
     async removeDomain(index) {
       const domainConfig = this.domainConfigs[index]
       const domainName = domainConfig.domain
 
       if (
         confirm(
-          `Are you sure you want to remove the domain "${domainName}"?\n\nThis will:\n- Delete the DNS record\n- Delete the worker route\n- Delete the site configuration\n\nThis action cannot be undone.`,
+          `Are you sure you want to remove the domain "${domainName}"?\n\nThis will be removed from your configuration.`,
         )
       ) {
         try {
-          console.log('🗑️ Starting domain deletion for:', domainName)
-
-          // Extract subdomain and root domain from the full domain
-          const domainParts = domainName.split('.')
-          const subdomain = domainParts[0]
-          const rootDomain = domainParts.slice(1).join('.') // e.g., "norsegong.com"
-
-          console.log('🎯 Parsed domain:', { subdomain, rootDomain, fullDomain: domainName })
-
-          // Call the delete API
-          const response = await fetch('https://api.vegvisr.org/delete-custom-domain', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              subdomain,
-              rootDomain,
-            }),
-          })
-
-          const result = await response.json()
-          console.log('🗑️ Delete API response:', JSON.stringify(result, null, 2))
-
-          if (response.ok && result.overallSuccess) {
-            // Success - remove from local array
-            this.domainConfigs.splice(index, 1)
-            console.log('✅ Domain successfully deleted and removed from list')
-
-            // Show success message
-            alert(
-              `✅ Domain "${domainName}" has been successfully removed!\n\nDeleted:\n- DNS Record: ${result.dnsSetup?.deleted ? 'Yes' : 'Not found'}\n- Worker Route: ${result.workerSetup?.deleted ? 'Yes' : 'Not found'}\n- KV Configuration: ${result.kvSetup?.deleted ? 'Yes' : 'Not found'}`,
-            )
-          } else {
-            // Partial success or failure
-            let errorMessage = `❌ Failed to completely remove domain "${domainName}"`
-
-            if (result.dnsSetup && !result.dnsSetup.success) {
-              errorMessage += `\n- DNS: ${result.dnsSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
-            }
-            if (result.workerSetup && !result.workerSetup.success) {
-              errorMessage += `\n- Worker Route: ${result.workerSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
-            }
-            if (result.kvSetup && !result.kvSetup.success) {
-              errorMessage += `\n- KV Store: ${result.kvSetup.errors?.map((e) => e.message).join('; ') || 'Failed'}`
-            }
-
-            // Ask user if they want to remove from list anyway
-            const removeAnyway = confirm(
-              errorMessage + '\n\nDo you want to remove it from the list anyway?',
-            )
-            if (removeAnyway) {
-              this.domainConfigs.splice(index, 1)
-              console.log('⚠️ Domain removed from list despite deletion errors')
-            }
-          }
+          console.log('Removing domain from store:', domainName)
+          this.domainStore.removeDomain(domainName)
+          console.log('Domain removed from store successfully')
         } catch (error) {
-          console.error('❌ Error during domain deletion:', error)
-          alert(
-            `❌ Error removing domain "${domainName}": ${error.message}\n\nThe domain was not removed from the list.`,
-          )
+          console.error('Error removing domain:', error)
+          this.$emit('saved', `❌ Error removing domain: ${error.message}`)
         }
       }
     },
-    backToList() {
-      this.viewMode = 'list'
-      this.editingDomainIndex = null
-      this.clearFormData()
-    },
-    clearFormData() {
-      this.formData = {
-        domain: '',
-        logo: '',
-        contentFilter: 'none',
-        selectedCategories: [],
-        mySiteFrontPage: '',
-      }
-      this.metaAreaInput = ''
-      this.domainError = ''
-      this.logoError = ''
-    },
-    canSaveDomain() {
-      return (
-        this.formData.domain && !this.domainError && (this.formData.logo ? !this.logoError : true)
-      )
-    },
+
     saveDomain() {
-      if (!this.canSaveDomain()) return
+      if (!this.canSaveDomain()) {
+        console.log('Cannot save domain - validation failed')
+        return
+      }
+
+      console.log('Saving domain to store...')
+      this.isSavingDomain = true
 
       const newConfig = {
         domain: this.formData.domain,
@@ -1196,18 +1054,97 @@ export default {
         menuConfig: this.formData.menuConfig,
       }
 
-      if (this.editingDomainIndex !== null) {
-        // Update existing domain
-        this.domainConfigs[this.editingDomainIndex] = newConfig
-        console.log('Updated domain config at index', this.editingDomainIndex, newConfig)
-      } else {
-        // Add new domain
-        this.domainConfigs.push(newConfig)
-        console.log('Added new domain config:', newConfig)
+      try {
+        if (this.editingDomainIndex !== null) {
+          // Update existing domain
+          const originalDomain = this.domainConfigs[this.editingDomainIndex].domain
+          this.domainStore.updateDomain(originalDomain, newConfig)
+          console.log('Updated domain in store:', originalDomain)
+        } else {
+          // Add new domain
+          this.domainStore.addDomain(newConfig)
+          console.log('Added new domain to store:', newConfig.domain)
+        }
+
+        // Go back to list view
+        this.backToList()
+
+        console.log('Domain saved to store. Changes:', this.changeSummary)
+      } catch (error) {
+        console.error('Error saving domain to store:', error)
+        this.$emit('saved', `❌ Error saving domain: ${error.message}`)
+      } finally {
+        this.isSavingDomain = false
+      }
+    },
+
+    async saveAllDomains() {
+      if (!this.hasUnsavedChanges) {
+        this.$emit('saved', 'No changes to save')
+        return
       }
 
-      this.backToList()
+      try {
+        console.log('Saving changes to server:', this.changeSummary)
+
+        const result = await this.domainStore.saveChanges(this.userStore.email)
+
+        if (result.success) {
+          const message = `✅ Successfully saved ${result.stats.total} changes (${this.changeSummary})`
+          this.$emit('saved', message, this.domainConfigs)
+          this.closeModal()
+        } else {
+          const errors = result.errors.map((e) => `${e.domain}: ${e.error}`).join(', ')
+          this.$emit('saved', `❌ Some domains failed to save: ${errors}`)
+        }
+      } catch (error) {
+        console.error('Error saving all domains:', error)
+        this.$emit('saved', `❌ Error saving domains: ${error.message}`)
+      }
     },
+
+    // Form management methods
+    backToList() {
+      this.viewMode = 'list'
+      this.editingDomainIndex = null
+      this.clearFormData()
+    },
+
+    clearFormData() {
+      this.formData = {
+        domain: '',
+        logo: '',
+        contentFilter: 'none',
+        selectedCategories: [],
+        mySiteFrontPage: '',
+        menuConfig: {
+          enabled: false,
+          selectedTemplate: '',
+          visibleItems: [
+            'graph-editor',
+            'graph-canvas',
+            'graph-portfolio',
+            'graph-viewer',
+            'search',
+            'user-dashboard',
+            'github-issues',
+            'sandbox',
+            'gnew',
+          ],
+        },
+      }
+      this.metaAreaInput = ''
+      this.domainError = ''
+      this.logoError = ''
+    },
+
+    canSaveDomain() {
+      return (
+        this.formData.domain && !this.domainError && (this.formData.logo ? !this.logoError : true)
+      )
+    },
+
+    // Domain validation methods
     validateDomain() {
       this.domainError = ''
       try {
@@ -1415,62 +1352,77 @@ export default {
       }
     },
 
-    async saveAllDomains() {
-      this.isSaving = true
-
-      try {
-        // Get current user data to preserve existing settings
-        const currentResponse = await fetch(apiUrls.getUserData(this.userStore.email))
-        let currentData = {}
-        if (currentResponse.ok) {
-          currentData = await currentResponse.json()
-          console.log('Current user data:', JSON.stringify(currentData, null, 2))
-        }
-
-        const payload = {
-          email: this.userStore.email,
-          bio: currentData.bio || '',
-          profileimage: currentData.profileimage || '',
-          data: {
-            ...currentData.data,
-            domainConfigs: this.domainConfigs, // New multi-domain structure
-            // Keep legacy branding for backward compatibility
-            branding:
-              this.domainConfigs.length > 0
-                ? {
-                    mySite: this.domainConfigs[0].domain,
-                    myLogo: this.domainConfigs[0].logo,
-                    mySiteFrontPage: this.domainConfigs[0].mySiteFrontPage || '',
-                  }
-                : {},
+    convertModalToKVFormat(domainConfig) {
+      // Convert from modal format to KV storage format for main-worker
+      return {
+        domain: domainConfig.domain,
+        owner: this.userStore.email,
+        branding: {
+          myLogo: domainConfig.logo || '',
+          contentFilter: domainConfig.contentFilter,
+          selectedCategories: domainConfig.selectedCategories || [],
+          mySiteFrontPage: domainConfig.mySiteFrontPage || '',
+          site_title: this.getDomainTitleFromConfig(domainConfig),
+          menuConfig: domainConfig.menuConfig || {
+            enabled: false,
+            selectedTemplate: '',
+            visibleItems: [],
+            templateData: null,
           },
-        }
-
-        console.log('Saving domain configuration payload:', JSON.stringify(payload, null, 2))
-
-        const response = await fetch(apiUrls.updateUserData(), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to save domain configurations')
-        }
-
-        const result = await response.json()
-        console.log('Save domain configuration response:', JSON.stringify(result, null, 2))
-
-        // Emit success with updated domain configs
-        this.$emit('saved', 'All domain configurations saved successfully!', this.domainConfigs)
-        this.closeModal()
-      } catch (error) {
-        console.error('Error saving domain configurations:', error)
-        this.$emit('saved', `Error: ${error.message}`)
-      } finally {
-        this.isSaving = false
+        },
+        contentFilter: {
+          metaAreas: domainConfig.selectedCategories || [],
+        },
       }
     },
+
+    getDomainTitleFromConfig(domainConfig) {
+      if (!domainConfig.domain) return 'Your Brand'
+
+      const parts = domainConfig.domain.split('.')
+
+      // Main domains: "example.com" or "www.example.com"
+      if (parts.length === 2 || (parts.length === 3 && parts[0] === 'www')) {
+        const mainPart = parts.length === 2 ? parts[0] : parts[1]
+        return mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+      }
+
+      // Subdomains: "sub.example.com"
+      const subdomain = parts[0]
+      return subdomain !== 'www'
+        ? subdomain.charAt(0).toUpperCase() + subdomain.slice(1)
+        : parts[1].charAt(0).toUpperCase() + parts[1].slice(1)
+    },
+
+    convertKVToModalFormat(siteConfig) {
+      // Convert from KV storage format to modal format
+      return {
+        domain: siteConfig.domain,
+        logo: siteConfig.branding?.myLogo || siteConfig.logo || '',
+        contentFilter: siteConfig.branding?.contentFilter || siteConfig.content_filter || 'none',
+        selectedCategories:
+          siteConfig.branding?.selectedCategories || siteConfig.selected_categories || [],
+        mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || siteConfig.front_page_graph || '',
+        menuConfig: siteConfig.menuConfig ||
+          siteConfig.menu_config || {
+            enabled: false,
+            selectedTemplate: '',
+            visibleItems: [
+              'graph-editor',
+              'graph-canvas',
+              'graph-portfolio',
+              'graph-viewer',
+              'search',
+              'user-dashboard',
+              'github-issues',
+              'sandbox',
+              'gnew',
+            ],
+            templateData: null,
+          },
+      }
+    },
+
     closeModal() {
       this.viewMode = 'list'
       this.editingDomainIndex = null
@@ -1800,7 +1752,7 @@ export default {
             imageUrl = match ? match[1] : null
           } else if (imageData.label && imageData.label.includes('http')) {
             // If the URL is directly in the label
-            const urlMatch = imageData.label.match(/(https?:\/\/[^\s\)]+)/)
+            const urlMatch = imageData.label.match(/(https?:\/\/[^\s)]+)/)
             imageUrl = urlMatch ? urlMatch[1] : null
           }
         }
