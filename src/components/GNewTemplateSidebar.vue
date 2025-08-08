@@ -275,6 +275,7 @@ const getTemplateIcon = (template) => {
     notes: '📄',
     title: '🎯',
     action_test: '🤖',
+    advertisement_manager: '📢',
   }
   return iconMap[template.type] || '🧩'
 }
@@ -297,6 +298,7 @@ const getTemplateDescription = (template) => {
     notes: 'Concise notes and insights',
     title: 'Section headers and titles',
     action_test: 'AI endpoint testing interface',
+    advertisement_manager: 'Manage advertisements for knowledge graphs',
   }
   return descriptions[template.type] || node.type || 'Custom template'
 }
