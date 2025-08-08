@@ -16,6 +16,14 @@
       </div>
 
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
+        <!-- Public Advertisement Display -->
+        <GNewAdvertisementDisplay
+          v-if="currentGraphId"
+          :knowledgeGraphId="currentGraphId"
+          position="top"
+          :maxAds="1"
+        />
+        
         <div class="nodes-container">
           <GNewNodeRenderer
             v-for="node in sortedNodes"
@@ -1146,6 +1154,14 @@
 
         <!-- Graph Content -->
         <div v-else-if="graphData.nodes.length > 0" class="graph-content">
+          <!-- Top Advertisement Display -->
+          <GNewAdvertisementDisplay
+            v-if="currentGraphId"
+            :knowledgeGraphId="currentGraphId"
+            position="top"
+            :maxAds="1"
+          />
+          
           <h3>🔗 Graph Nodes</h3>
           <div class="nodes-container">
             <GNewNodeRenderer
@@ -1170,6 +1186,14 @@
               <GraphChatPanel :graph-id="currentGraphId" :graph-data="graphData" />
             </div>
           </div>
+
+          <!-- Bottom Advertisement Display -->
+          <GNewAdvertisementDisplay
+            v-if="currentGraphId"
+            :knowledgeGraphId="currentGraphId"
+            position="bottom"
+            :maxAds="2"
+          />
 
           <!-- Graph-Level Social Features -->
           <div v-if="userStore.loggedIn" class="graph-social-section">
@@ -1291,6 +1315,7 @@ import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
+import GNewAdvertisementDisplay from '@/components/GNewAdvertisementDisplay.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
