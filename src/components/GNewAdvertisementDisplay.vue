@@ -1,8 +1,8 @@
 <template>
   <div v-if="advertisements.length > 0" class="advertisement-display">
-    <div 
-      v-for="ad in activeAdvertisements" 
-      :key="ad.id" 
+    <div
+      v-for="ad in activeAdvertisements"
+      :key="ad.id"
       class="advertisement-banner"
       :class="getBannerClass(ad)"
     >
@@ -13,9 +13,9 @@
         </div>
         <!-- Rich content with [FANCY] element support -->
         <div class="banner-content-rich">
-          <GNewDefaultNode 
-            :node="{ info: ad.content }" 
-            :showControls="false" 
+          <GNewDefaultNode
+            :node="{ info: ad.content }"
+            :showControls="false"
             class="banner-fancy-content"
           />
         </div>
@@ -57,9 +57,7 @@ const loading = ref(false)
 
 // Computed
 const activeAdvertisements = computed(() => {
-  return advertisements.value
-    .filter(ad => ad.status === 'active')
-    .slice(0, props.maxAds)
+  return advertisements.value.filter((ad) => ad.status === 'active').slice(0, props.maxAds)
 })
 
 // Methods
@@ -71,10 +69,10 @@ const fetchAdvertisements = async () => {
     const response = await fetch(
       `https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${props.knowledgeGraphId}`,
     )
-    
+
     if (response.ok) {
       const result = await response.json()
-      
+
       // Handle different response formats
       if (Array.isArray(result)) {
         advertisements.value = result
@@ -100,13 +98,13 @@ const getBannerClass = (ad) => {
     'banner-standard': ad.budget <= 100,
     [`banner-${props.position}`]: true,
     // Add aspect ratio class if specified
-    [`banner-aspect-${ad.aspect_ratio}`]: ad.aspect_ratio && ad.aspect_ratio !== 'default'
+    [`banner-aspect-${ad.aspect_ratio}`]: ad.aspect_ratio && ad.aspect_ratio !== 'default',
   }
 }
 
 const trackClick = (ad) => {
   console.log('📊 Advertisement clicked:', ad.title)
-  
+
   // Track click analytics
   // You could send this to your analytics API
   fetch('https://advertisement-worker.torarnehave.workers.dev/api/track-click', {
@@ -118,7 +116,7 @@ const trackClick = (ad) => {
       timestamp: new Date().toISOString(),
     }),
   }).catch(console.error)
-  
+
   // For now, just show the content
   alert(`Advertisement: ${ad.title}\n\n${ad.content}`)
 }
@@ -316,13 +314,13 @@ onMounted(() => {
   .advertisement-banner {
     padding: 12px;
   }
-  
+
   .banner-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 5px;
   }
-  
+
   .banner-actions {
     flex-direction: column;
     align-items: stretch;
