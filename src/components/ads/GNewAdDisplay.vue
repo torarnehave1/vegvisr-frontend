@@ -1,9 +1,6 @@
 <template>
   <div v-if="activeAdvertisements.length" class="advertisement-display">
-    <div
-      v-for="ad in activeAdvertisements"
-      :key="`ad-${ad.id}`"
-    >
+    <div v-for="ad in activeAdvertisements" :key="`ad-${ad.id}`">
       <GAdCarousel
         :title="ad.title"
         :aspect-ratio="ad.aspect_ratio"
@@ -13,21 +10,12 @@
         @action="trackClick(ad)"
       >
         <template #default="{ slide }">
-          <GNewDefaultNode
-            :node="{ info: slide }"
-            :showControls="false"
-            class="ad-slide-content"
-          />
+          <GNewDefaultNode :node="{ info: slide }" :showControls="false" class="ad-slide-content" />
         </template>
       </GAdCarousel>
     </div>
   </div>
-  <div 
-    v-else-if="!loading" 
-    class="no-ads-message"
-  >
-    No advertisements to display.
-  </div>
+  <div v-else-if="!loading" class="no-ads-message">No advertisements to display.</div>
 </template>
 
 <script setup>
@@ -36,34 +24,33 @@ import GAdCarousel from './GAdCarousel.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 
 const props = defineProps({
-  knowledgeGraphId: { 
-    type: String, 
-    required: true 
+  knowledgeGraphId: {
+    type: String,
+    required: true,
   },
-  position: { 
-    type: String, 
-    default: 'top' 
+  position: {
+    type: String,
+    default: 'top',
   },
-  maxAds: { 
-    type: Number, 
-    default: 2 
+  maxAds: {
+    type: Number,
+    default: 2,
   },
-  ads: { 
-    type: Array, 
-    default: null 
-  }
+  ads: {
+    type: Array,
+    default: null,
+  },
 })
 
 const advertisements = ref([])
 const loading = ref(false)
 
-const sourceAds = computed(() => 
-  Array.isArray(props.ads) ? props.ads : advertisements.value
-)
+const sourceAds = computed(() => (Array.isArray(props.ads) ? props.ads : advertisements.value))
 
 const activeAdvertisements = computed(() => {
-  const filteredAds = sourceAds.value
-    .filter(ad => String(ad?.status || '').toLowerCase() === 'active')
+  const filteredAds = sourceAds.value.filter(
+    (ad) => String(ad?.status || '').toLowerCase() === 'active',
+  )
   return props.maxAds ? filteredAds.slice(0, props.maxAds) : filteredAds
 })
 
@@ -71,17 +58,17 @@ const getAdSlides = (ad) => {
   if (!ad.content || typeof ad.content !== 'string') return []
   return ad.content
     .split(/\n\s*---\s*\n/g)
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
 }
 
 const fetchAdvertisements = async () => {
   if (!props.knowledgeGraphId || Array.isArray(props.ads)) return
-  
+
   loading.value = true
   try {
     const resp = await fetch(
-      `https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${props.knowledgeGraphId}`
+      `https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${props.knowledgeGraphId}`,
     )
     if (resp.ok) {
       const result = await resp.json()
@@ -108,9 +95,9 @@ const trackClick = (ad) => {
     body: JSON.stringify({
       advertisement_id: ad.id,
       knowledge_graph_id: props.knowledgeGraphId,
-      timestamp: new Date().toISOString()
-    })
-  }).catch(error => {
+      timestamp: new Date().toISOString(),
+    }),
+  }).catch((error) => {
     console.error('Failed to track click:', error)
   })
 }
