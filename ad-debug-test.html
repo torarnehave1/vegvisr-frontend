@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Ad Debug Test</title>
+  </head>
+  <body>
+    <h1>Advertisement Debug Test</h1>
+
+    <div id="debug-info">
+      <h2>Testing API</h2>
+      <button onclick="testAdApi()">Test Advertisement API</button>
+      <div id="results"></div>
+    </div>
+
+    <script>
+      async function testAdApi() {
+        const resultsDiv = document.getElementById('results')
+        resultsDiv.innerHTML = 'Testing...'
+
+        try {
+          const response = await fetch(
+            'https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=graph_1752497085291',
+          )
+
+          if (response.ok) {
+            const data = await response.json()
+            console.log('API Response:', data)
+
+            resultsDiv.innerHTML = `
+                        <h3>API Response:</h3>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                        
+                        <h3>Active Ads:</h3>
+                        ${
+                          data.data
+                            ?.filter((ad) => ad.status === 'active')
+                            .map(
+                              (ad) => `
+                            <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
+                                <strong>${ad.title}</strong><br>
+                                Status: ${ad.status}<br>
+                                Aspect Ratio: ${ad.aspect_ratio}<br>
+                                ID: ${ad.id}
+                            </div>
+                        `,
+                            )
+                            .join('') || 'No active ads found'
+                        }
+                    `
+          } else {
+            resultsDiv.innerHTML = `<p style="color: red;">API Error: ${response.status}</p>`
+          }
+        } catch (error) {
+          console.error('Error:', error)
+          resultsDiv.innerHTML = `<p style="color: red;">Network Error: ${error.message}</p>`
+        }
+      }
+    </script>
+  </body>
+</html>

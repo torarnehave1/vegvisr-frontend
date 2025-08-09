@@ -46,6 +46,15 @@
                 {{ ad.saving ? '💾 Saving...' : '💾 Save' }}
               </button>
               <button @click="deleteAd(index)" class="btn btn-xs btn-danger">🗑️</button>
+              <span v-if="ad.saveStatus === 'saved'" class="ad-save-status saved" title="Saved"
+                >✓ Saved</span
+              >
+              <span
+                v-else-if="ad.saveStatus === 'error'"
+                class="ad-save-status error"
+                :title="ad.errorMessage"
+                >⚠️ Error</span
+              >
             </div>
           </div>
 
@@ -59,6 +68,7 @@
                   type="text"
                   class="form-control"
                   placeholder="Enter title..."
+                  @input="onFieldInput(ad)"
                 />
               </div>
               <div class="form-group">
@@ -82,6 +92,7 @@
                   class="form-control content-textarea"
                   placeholder="Enter content... Use [FANCY] elements for rich formatting!"
                   rows="4"
+                  @input="onFieldInput(ad)"
                 ></textarea>
                 <div class="content-tools">
                   <button
@@ -95,10 +106,54 @@
                   </button>
                 </div>
               </div>
+              <p v-if="ad.validationError" class="validation-error">{{ ad.validationError }}</p>
               <small class="form-text text-muted">
                 💡 Tip: Use [FANCY] elements for styled content. Example: [FANCY | font-size: 2em;
                 color: #007bff; text-align: center]Your Title[END FANCY]
               </small>
+            </div>
+
+            <!-- Slide Editor for Multi-Slide Ads -->
+            <div
+              v-if="isAdReel(ad)"
+              class="slide-editor-section"
+              :key="`slides-${index}-${ad.content?.split('---').length || 0}-${reactivityTrigger}`"
+            >
+              <div class="slide-editor-header">
+                <label>🎭 Slide Editor (Reel Mode)</label>
+                <small class="text-muted">Edit individual slides and their images</small>
+              </div>
+              <div class="slides-list">
+                <div
+                  v-for="(slide, slideIndex) in getAdSlides(ad)"
+                  :key="`slide-${index}-${slideIndex}-${reactivityTrigger}-${slide.content?.substring(0, 20) || 'empty'}`"
+                  class="slide-item"
+                >
+                  <div class="slide-header">
+                    <span class="slide-number">Slide {{ slideIndex + 1 }}</span>
+                    <div class="slide-controls">
+                      <button
+                        @click="insertImage(index, slideIndex)"
+                        class="btn btn-xs btn-outline-primary"
+                        title="Change image for this slide"
+                      >
+                        🖼️ Change Image
+                      </button>
+                    </div>
+                  </div>
+                  <div class="slide-preview">
+                    <div
+                      class="slide-content-preview"
+                      :key="`preview-${index}-${slideIndex}-${reactivityTrigger}-${slide.content?.length || 0}`"
+                    >
+                      <GNewDefaultNode :node="{ info: slide.content }" :showControls="false" />
+                    </div>
+                    <div v-if="slide.backgroundImage" class="slide-image-info">
+                      <small class="text-muted">Background: {{ slide.backgroundImage }}</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Additional Fields -->
@@ -169,7 +224,15 @@
 
       <!-- Actions -->
       <div class="manager-actions">
-        <button @click="refreshAds" class="btn btn-sm btn-outline-secondary">🔄 Refresh</button>
+        <div class="left-actions">
+          <label class="autosave-toggle">
+            <input type="checkbox" v-model="autosaveEnabled" />
+            <span>Autosave</span>
+          </label>
+        </div>
+        <div class="right-actions">
+          <button @click="refreshAds" class="btn btn-sm btn-outline-secondary">🔄 Refresh</button>
+        </div>
       </div>
     </div>
 
@@ -183,14 +246,22 @@
       @close="closeImageSelector"
       @image-replaced="handleImageSelected"
     />
+
+    <!-- Local Toast Notifications -->
+    <div class="toast-container">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
+        <span class="toast-message">{{ t.message }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
+import { parseAdSlides, replaceSlideImage, serializeAdSlides } from '@/utils/adContentParser'
 
 // Props
 const props = defineProps({
@@ -212,6 +283,12 @@ const advertisements = ref([])
 const showImageSelector = ref(false)
 const currentImageContext = ref('')
 const currentAdIndex = ref(null)
+const currentSlideIndex = ref(null)
+const toasts = ref([])
+const autosaveEnabled = ref(false)
+const debounceTimers = new WeakMap()
+const slideEditingMode = ref(false)
+const reactivityTrigger = ref(0) // Force reactivity updates
 
 // Computed
 const nodeTitle = computed(() => props.node.label || 'Advertisement Manager')
@@ -222,6 +299,38 @@ const knowledgeGraphId = computed(() => {
   const urlParams = new URLSearchParams(window.location.search)
   return urlParams.get('graphId') || urlParams.get('id')
 })
+
+// Parse slides for each ad (reactive computed)
+const getAdSlides = (ad) => {
+  // Include reactivityTrigger to force re-computation
+  reactivityTrigger.value
+  if (!ad.content) return []
+  return parseAdSlides(ad.content)
+}
+
+// Check if ad has multiple slides (is a reel)
+const isAdReel = (ad) => {
+  // Include reactivityTrigger to force re-computation
+  reactivityTrigger.value
+  return getAdSlides(ad).length > 1
+}
+
+// Force reactivity update
+const forceReactivityUpdate = () => {
+  reactivityTrigger.value++
+}
+
+// Trigger global ad refresh event for viewers
+const triggerAdRefreshEvent = () => {
+  // Use localStorage event to communicate with other components/tabs
+  const refreshData = {
+    timestamp: Date.now(),
+    graphId: knowledgeGraphId.value,
+    action: 'ad_updated',
+  }
+  localStorage.setItem('adRefreshTrigger', JSON.stringify(refreshData))
+  console.log('🔄 Triggered ad refresh event for graph:', knowledgeGraphId.value)
+}
 
 // Helper functions
 const getPreviewClass = (ad) => {
@@ -259,16 +368,23 @@ const addNewAd = () => {
     status: 'draft',
     aspect_ratio: 'default',
     saving: false,
+    saveStatus: null,
+    errorMessage: '',
+    validationError: '',
   })
 }
 
 const saveAd = async (ad) => {
   if (!ad.title || !ad.content) {
-    alert('Please fill in title and content')
+    ad.validationError = 'Please fill in title and content before saving.'
+    showToast('Please fill in title and content', 'warning')
     return
   }
 
   ad.saving = true
+  ad.validationError = ''
+  ad.saveStatus = null
+  ad.errorMessage = ''
   try {
     const payload = {
       knowledge_graph_id: knowledgeGraphId.value,
@@ -294,14 +410,27 @@ const saveAd = async (ad) => {
     if (response.ok) {
       const result = await response.json()
       if (!ad.id && result.id) ad.id = result.id
-      alert('Advertisement saved successfully!')
+      ad.saveStatus = 'saved'
+      showToast('Advertisement saved', 'success')
+
+      // Trigger ad refresh in viewers
+      triggerAdRefreshEvent()
+
+      // Clear the saved badge after a short delay
+      setTimeout(() => {
+        ad.saveStatus = null
+      }, 2500)
     } else {
       const error = await response.json()
-      alert(`Failed to save: ${error.error || 'Unknown error'}`)
+      ad.saveStatus = 'error'
+      ad.errorMessage = error.error || 'Unknown error'
+      showToast(`Failed to save: ${ad.errorMessage}`, 'error')
     }
   } catch (error) {
     console.error('Save error:', error)
-    alert('Failed to save advertisement')
+    ad.saveStatus = 'error'
+    ad.errorMessage = error?.message || 'Failed to save advertisement'
+    showToast(ad.errorMessage, 'error')
   } finally {
     ad.saving = false
   }
@@ -317,6 +446,8 @@ const deleteAd = async (index) => {
         `https://advertisement-worker.torarnehave.workers.dev/api/advertisements/${ad.id}`,
         { method: 'DELETE' },
       )
+      // Trigger ad refresh in viewers after successful delete
+      triggerAdRefreshEvent()
     } catch (error) {
       console.error('Delete error:', error)
     }
@@ -343,53 +474,81 @@ Your fancy content here
   console.log('📝 Advertisement content after template insertion:', ad.content)
 }
 
-const insertImage = (index) => {
+const insertImage = (index, slideIndex = null) => {
   currentAdIndex.value = index
-  currentImageContext.value = 'Advertisement Image'
+  currentSlideIndex.value = slideIndex
+  currentImageContext.value =
+    slideIndex !== null ? `Advertisement Image - Slide ${slideIndex + 1}` : 'Advertisement Image'
   showImageSelector.value = true
-  console.log('🖼️ Opening ImageSelector for ad index:', index)
+  console.log('🖼️ Opening ImageSelector for ad index:', index, 'slide index:', slideIndex)
 }
 
 const closeImageSelector = () => {
   console.log('🖼️ Closing ImageSelector')
   showImageSelector.value = false
   currentAdIndex.value = null
+  currentSlideIndex.value = null
   currentImageContext.value = ''
 }
 
 const handleImageSelected = (imageData) => {
   console.log('🖼️ handleImageSelected called with:', imageData)
   console.log('📍 currentAdIndex.value:', currentAdIndex.value)
+  console.log('📍 currentSlideIndex.value:', currentSlideIndex.value)
 
   if (currentAdIndex.value !== null && imageData.newUrl) {
     const ad = advertisements.value[currentAdIndex.value]
     console.log('📝 Advertisement before URL replacement:', ad)
     console.log('📄 Content before replacement:', ad.content)
 
-    // Replace the FANCYIMG.png URL in any existing FANCY elements with the selected image
     if (ad.content) {
-      const originalContent = ad.content
+      // If we're editing a specific slide, use the new slide-specific editor
+      if (currentSlideIndex.value !== null) {
+        console.log('🎯 Updating specific slide:', currentSlideIndex.value)
+        try {
+          const newContent = replaceSlideImage(
+            ad.content,
+            currentSlideIndex.value,
+            imageData.newUrl,
+          )
+          ad.content = newContent
 
-      // Try replacing without quotes first
-      ad.content = ad.content.replace(
-        /https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png/g,
-        imageData.newUrl,
-      )
-      console.log('🔄 After first replacement (no quotes):', ad.content)
+          // Force Vue to detect the change and update slide parsing
+          advertisements.value = [...advertisements.value]
+          forceReactivityUpdate()
 
-      // Also replace the URL if it's wrapped in quotes
-      ad.content = ad.content.replace(
-        /'https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png'/g,
-        `'${imageData.newUrl}'`,
-      )
-      console.log('🔄 After second replacement (with quotes):', ad.content)
-
-      if (originalContent === ad.content) {
-        console.warn('⚠️ No URL replacement occurred! Original content:', originalContent)
-        console.warn('⚠️ Looking for pattern: https://vegvisr.imgix.net/FANCYIMG.png')
-        console.warn("⚠️ Or pattern with quotes: 'https://vegvisr.imgix.net/FANCYIMG.png'")
+          console.log('✅ Slide-specific URL replacement successful!')
+          showToast(`Slide ${currentSlideIndex.value + 1} image updated`, 'success')
+        } catch (error) {
+          console.error('❌ Error updating slide:', error)
+          showToast('Error updating slide image', 'error')
+        }
       } else {
-        console.log('✅ URL replacement successful!')
+        // Fallback to old method for backward compatibility
+        const originalContent = ad.content
+
+        // Try replacing without quotes first
+        ad.content = ad.content.replace(
+          /https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png/g,
+          imageData.newUrl,
+        )
+        console.log('🔄 After first replacement (no quotes):', ad.content)
+
+        // Also replace the URL if it's wrapped in quotes
+        ad.content = ad.content.replace(
+          /'https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png'/g,
+          `'${imageData.newUrl}'`,
+        )
+        console.log('🔄 After second replacement (with quotes):', ad.content)
+
+        if (originalContent === ad.content) {
+          console.warn('⚠️ No URL replacement occurred! Original content:', originalContent)
+          console.warn('⚠️ Looking for pattern: https://vegvisr.imgix.net/FANCYIMG.png')
+          console.warn("⚠️ Or pattern with quotes: 'https://vegvisr.imgix.net/FANCYIMG.png'")
+        } else {
+          console.log('✅ URL replacement successful!')
+          showToast('Image updated', 'success')
+        }
       }
     } else {
       console.warn('⚠️ No content found in advertisement')
@@ -426,6 +585,57 @@ const refreshAds = async () => {
 }
 
 onMounted(refreshAds)
+
+// Simple toast system (local to this component)
+const showToast = (message, type = 'success') => {
+  const id = Date.now() + Math.random()
+  toasts.value.push({ id, message, type })
+  setTimeout(() => {
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+  }, 3000)
+}
+
+// Debounced autosave when toggled on
+const onFieldInput = (ad) => {
+  // Force reactivity update for slide detection
+  forceReactivityUpdate()
+
+  if (!autosaveEnabled.value) return
+  // clear previous timer
+  const existing = debounceTimers.get(ad)
+  if (existing) clearTimeout(existing)
+  const t = setTimeout(() => {
+    if (ad.title && ad.content && !ad.saving) {
+      saveAd(ad)
+    }
+  }, 800)
+  debounceTimers.set(ad, t)
+}
+
+// Ctrl+S to save all ads with required fields
+const onKeyDown = (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    const candidates = advertisements.value.filter((ad) => !ad.saving && ad.title && ad.content)
+    if (candidates.length === 0) {
+      showToast('Nothing to save', 'warning')
+      return
+    }
+    // Save sequentially to avoid spamming the API
+    ;(async () => {
+      for (const ad of candidates) {
+        await saveAd(ad)
+      }
+    })()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
 </script>
 
 <style scoped>
@@ -683,9 +893,18 @@ onMounted(refreshAds)
 
 .manager-actions {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
   padding-top: 15px;
   border-top: 1px solid #e9ecef;
+}
+
+.autosave-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #2c3e50;
 }
 
 /* Button Styles */
@@ -775,6 +994,23 @@ onMounted(refreshAds)
   color: white;
 }
 
+.ad-save-status {
+  margin-left: 8px;
+  font-size: 0.8rem;
+}
+.ad-save-status.saved {
+  color: #198754;
+}
+.ad-save-status.error {
+  color: #dc3545;
+}
+
+.validation-error {
+  margin-top: 6px;
+  color: #dc3545;
+  font-size: 0.85rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .form-row {
@@ -835,7 +1071,75 @@ onMounted(refreshAds)
 
 .preview-aspect-vegvisr-node {
   aspect-ratio: 2/1;
-  max-width: 500px;
+  max-width: 600px;
+}
+
+/* Slide Editor Styles */
+.slide-editor-section {
+  margin: 20px 0;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.slide-editor-header {
+  margin-bottom: 15px;
+}
+
+.slide-editor-header label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #495057;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.slides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.slide-item {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.slide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background: #f1f3f4;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.slide-number {
+  font-weight: 600;
+  color: #495057;
+}
+
+.slide-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.slide-preview {
+  padding: 15px;
+}
+
+.slide-content-preview {
+  margin-bottom: 10px;
+}
+
+.slide-image-info {
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  word-break: break-all;
 }
 
 .preview-aspect-info {
@@ -846,5 +1150,36 @@ onMounted(refreshAds)
   font-size: 0.75rem;
   color: #6c757d;
   text-align: center;
+}
+
+/* Toasts */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2000;
+}
+.toast {
+  padding: 10px 14px;
+  border-radius: 6px;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 180px;
+}
+.toast.success {
+  background: #198754;
+}
+.toast.error {
+  background: #dc3545;
+}
+.toast.warning {
+  background: #ffc107;
+  color: #212529;
+}
+.toast-message {
+  font-size: 0.9rem;
 }
 </style>
