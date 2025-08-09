@@ -219,8 +219,8 @@ async function createAdvertisement(db, data) {
       INSERT INTO advertisements (
         id, knowledge_graph_id, title, content,
         target_audience, campaign_name, budget, status,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at, aspect_ratio
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .bind(
@@ -234,6 +234,7 @@ async function createAdvertisement(db, data) {
         data.status || 'draft',
         now,
         now,
+        data.aspect_ratio || 'default',
       )
       .run()
 
@@ -361,6 +362,7 @@ async function updateAdvertisement(db, id, data) {
         campaign_name = COALESCE(?, campaign_name),
         budget = COALESCE(?, budget),
         status = COALESCE(?, status),
+        aspect_ratio = COALESCE(?, aspect_ratio),
         updated_at = ?
       WHERE id = ?
     `,
@@ -372,6 +374,7 @@ async function updateAdvertisement(db, id, data) {
         data.campaign_name || null,
         data.budget || null,
         data.status || null,
+        data.aspect_ratio || null,
         now,
         id,
       )

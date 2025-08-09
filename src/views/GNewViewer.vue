@@ -1,7 +1,28 @@
 <template>
   <div class="gnew-viewer">
+    <!-- Debug: Show which section is active -->
+    <div
+      style="
+        background: #fff3cd;
+        padding: 10px;
+        margin: 10px;
+        border: 1px solid #ffeaa7;
+        font-size: 12px;
+      "
+    >
+      🐛 Debug: userStore.loggedIn={{ userStore.loggedIn }}, loading={{ loading }}, error={{
+        !!error
+      }}, graphData.nodes.length={{ graphData.nodes?.length || 0 }}, currentGraphId={{
+        currentGraphId
+      }}
+    </div>
+
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
+      <div style="background: #e3f2fd; padding: 5px; margin: 5px; font-size: 11px">
+        📱 PUBLIC VIEW MODE
+      </div>
+
       <!-- Graph Content -->
       <div v-if="loading" class="loading-state">
         <div class="spinner-border text-primary" role="status">
@@ -16,13 +37,52 @@
       </div>
 
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
-        <!-- Public Advertisement Display -->
-        <GNewAdvertisementDisplay
-          v-if="currentGraphId"
-          :knowledgeGraphId="currentGraphId"
-          position="top"
-          :maxAds="1"
-        />
+        <div style="background: #e8f5e8; padding: 5px; margin: 5px; font-size: 11px">
+          📊 GRAPH CONTENT LOADED
+        </div>
+        <!-- Ads (Public) - Phase 1: Static slots, single fetch in viewer -->
+        <div v-if="currentGraphId" class="ads-layout ads-public">
+          <!-- Debug: Show basic info -->
+          <div
+            v-if="!adsBySlot.heroTop?.length"
+            style="background: #ffe6e6; padding: 10px; margin: 10px 0; border: 1px solid #ff9999"
+          >
+            ⚠️ No hero ads found. Graph ID: {{ currentGraphId }}, Total ads: {{ adsAll.length }},
+            Active: {{ activeAds.length }}
+            <button
+              @click="fetchAdvertisementsForGraph"
+              style="
+                margin-left: 10px;
+                padding: 2px 8px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+              "
+            >
+              🔄 Refresh Ads
+            </button>
+          </div>
+
+          <!-- Hero Top (16:9) -->
+          <GNewAdvertisementDisplay
+            v-if="adsBySlot.heroTop?.length"
+            :knowledgeGraphId="currentGraphId"
+            position="top"
+            :maxAds="1"
+            :ads="adsBySlot.heroTop"
+          />
+
+          <!-- Leaderboard Top (8.1:1) -->
+          <GNewAdvertisementDisplay
+            v-if="adsBySlot.leaderboardTop?.length"
+            :knowledgeGraphId="currentGraphId"
+            position="top"
+            :maxAds="1"
+            :ads="adsBySlot.leaderboardTop"
+          />
+        </div>
 
         <div class="nodes-container">
           <GNewNodeRenderer
@@ -1154,13 +1214,47 @@
 
         <!-- Graph Content -->
         <div v-else-if="graphData.nodes.length > 0" class="graph-content">
-          <!-- Top Advertisement Display -->
-          <GNewAdvertisementDisplay
-            v-if="currentGraphId"
-            :knowledgeGraphId="currentGraphId"
-            position="top"
-            :maxAds="1"
-          />
+          <div style="background: #fff3cd; padding: 5px; margin: 5px; font-size: 11px">
+            👑 ADMIN VIEW - currentGraphId={{ currentGraphId }}, adsAll={{ adsAll.length }},
+            heroTop={{ adsBySlot.heroTop?.length || 0 }}
+          </div>
+
+          <!-- Ads (Admin) - Phase 1: Static slots, single fetch in viewer -->
+          <div v-if="currentGraphId" class="ads-layout ads-admin">
+            <!-- Debug: Show ads status -->
+            <div
+              v-if="!adsBySlot.heroTop?.length"
+              style="background: #ffe6e6; padding: 10px; margin: 10px 0; border: 1px solid #ff9999"
+            >
+              ⚠️ ADMIN: No hero ads found. Graph ID: {{ currentGraphId }}, Total ads:
+              {{ adsAll.length }}, Active: {{ activeAds.length }}
+            </div>
+
+            <!-- Hero Top (16:9) -->
+            <div
+              v-if="adsBySlot.heroTop?.length"
+              style="background: #ff6b6b; padding: 20px; margin: 10px; border: 3px solid #000"
+            >
+              <h3 style="color: white">🎯 HERO AD CONTAINER (Testing)</h3>
+              <div>Ad Title: {{ adsBySlot.heroTop[0]?.title }}</div>
+              <div>Ad Aspect: {{ adsBySlot.heroTop[0]?.aspect_ratio }}</div>
+              <GNewAdvertisementDisplay
+                :knowledgeGraphId="currentGraphId"
+                position="top"
+                :maxAds="1"
+                :ads="adsBySlot.heroTop"
+              />
+            </div>
+
+            <!-- Leaderboard Top (8.1:1) -->
+            <GNewAdvertisementDisplay
+              v-if="adsBySlot.leaderboardTop?.length"
+              :knowledgeGraphId="currentGraphId"
+              position="top"
+              :maxAds="1"
+              :ads="adsBySlot.leaderboardTop"
+            />
+          </div>
 
           <h3>🔗 Graph Nodes</h3>
           <div class="nodes-container">
@@ -1187,12 +1281,21 @@
             </div>
           </div>
 
-          <!-- Bottom Advertisement Display -->
+          <!-- Bottom Slots -->
           <GNewAdvertisementDisplay
-            v-if="currentGraphId"
+            v-if="adsBySlot.leaderboardBottom?.length"
+            :knowledgeGraphId="currentGraphId"
+            position="bottom"
+            :maxAds="1"
+            :ads="adsBySlot.leaderboardBottom"
+          />
+
+          <GNewAdvertisementDisplay
+            v-if="adsBySlot.footer?.length"
             :knowledgeGraphId="currentGraphId"
             position="bottom"
             :maxAds="2"
+            :ads="adsBySlot.footer"
           />
 
           <!-- Graph-Level Social Features -->
@@ -1397,6 +1500,152 @@ const graphMetadata = computed(() => {
     created_date: graphData.value?.created_date || graphData.value?.metadata?.created_date,
   }
 })
+
+// Phase 1: Advertisements (single fetch + static slots)
+const adsAll = ref([])
+const adsLoading = ref(false)
+const fetchAdvertisementsForGraph = async () => {
+  if (!currentGraphId.value) return
+  console.log('🎯 Fetching ads for graph:', currentGraphId.value)
+  adsLoading.value = true
+  try {
+    const resp = await fetch(
+      `https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${currentGraphId.value}`,
+    )
+    console.log('🎯 Ads fetch response:', resp.status, resp.ok)
+    if (resp.ok) {
+      const result = await resp.json()
+      console.log('🎯 Ads raw result:', result)
+      const list = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.data)
+          ? result.data
+          : Array.isArray(result?.results)
+            ? result.results
+            : []
+      console.log('🎯 Ads processed list:', list)
+      adsAll.value = list || []
+    } else {
+      adsAll.value = []
+    }
+  } catch (err) {
+    console.error('🎯 Ads fetch error:', err)
+    adsAll.value = []
+  } finally {
+    adsLoading.value = false
+  }
+}
+
+const activeAds = computed(() =>
+  (adsAll.value || []).filter((a) => String(a?.status || '').toLowerCase() === 'active'),
+)
+
+const normalizeAspect = (val) =>
+  String(val || 'default')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-')
+
+const adsBySlot = computed(() => {
+  console.log('🎯 Computing adsBySlot, activeAds:', activeAds.value)
+  const hero = []
+  const ldr = []
+  const footer = []
+  const used = new Set()
+
+  for (const ad of activeAds.value) {
+    const aspect = normalizeAspect(ad?.aspect_ratio)
+    console.log('🎯 Processing ad:', ad.title, 'aspect:', aspect, 'original:', ad?.aspect_ratio)
+    if (aspect === 'hero-banner') {
+      if (hero.length < 1) {
+        hero.push(ad)
+        used.add(ad.id)
+        console.log('🎯 Added to hero:', ad.title)
+      }
+    }
+  }
+
+  for (const ad of activeAds.value) {
+    if (used.has(ad.id)) continue
+    const aspect = normalizeAspect(ad?.aspect_ratio)
+    if (aspect === 'web-leaderboard') {
+      if (ldr.length < 2) {
+        ldr.push(ad)
+        used.add(ad.id)
+      }
+    }
+  }
+
+  for (const ad of activeAds.value) {
+    if (used.has(ad.id)) continue
+    const aspect = normalizeAspect(ad?.aspect_ratio)
+    if (aspect === 'web-banner' || aspect === 'default') {
+      footer.push(ad)
+      used.add(ad.id)
+    }
+  }
+
+  // Phase 1 fallback: send any remaining ratios to footer (static placement)
+  for (const ad of activeAds.value) {
+    if (!used.has(ad.id)) {
+      footer.push(ad)
+      used.add(ad.id)
+    }
+  }
+
+  const result = {
+    heroTop: hero.slice(0, 1),
+    leaderboardTop: ldr.slice(0, 1),
+    leaderboardBottom: ldr.slice(1, 2),
+    footer: footer.slice(0, 3),
+  }
+  console.log('🎯 Final adsBySlot result:', result)
+  return result
+})
+
+// Trigger initial and reactive ad fetches
+onMounted(() => {
+  console.log('🎯 onMounted - currentGraphId:', currentGraphId.value)
+  if (currentGraphId.value) {
+    console.log('🎯 onMounted - calling fetchAdvertisementsForGraph')
+    fetchAdvertisementsForGraph()
+  }
+
+  // Listen for ad refresh events from Ad Manager
+  const handleAdRefresh = (event) => {
+    if (event.key === 'adRefreshTrigger' && event.newValue) {
+      try {
+        const refreshData = JSON.parse(event.newValue)
+        console.log('🔄 Received ad refresh event:', refreshData)
+
+        // Check if the refresh is for the current graph
+        if (refreshData.graphId === currentGraphId.value) {
+          console.log('🔄 Refreshing ads for current graph:', currentGraphId.value)
+          fetchAdvertisementsForGraph()
+        }
+      } catch (error) {
+        console.error('❌ Error parsing ad refresh event:', error)
+      }
+    }
+  }
+
+  window.addEventListener('storage', handleAdRefresh)
+
+  // Cleanup on unmount
+  onUnmounted(() => {
+    window.removeEventListener('storage', handleAdRefresh)
+  })
+})
+watch(
+  () => currentGraphId.value,
+  (id) => {
+    console.log('🎯 watch currentGraphId changed to:', id)
+    if (id) {
+      console.log('🎯 watch - calling fetchAdvertisementsForGraph')
+      fetchAdvertisementsForGraph()
+    }
+  },
+)
 
 // Image editing modal state
 const isImageSelectorOpen = ref(false)
