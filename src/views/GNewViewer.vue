@@ -23,7 +23,7 @@
           position="top"
           :maxAds="1"
         />
-        
+
         <div class="nodes-container">
           <GNewNodeRenderer
             v-for="node in sortedNodes"
@@ -1161,7 +1161,7 @@
             position="top"
             :maxAds="1"
           />
-          
+
           <h3>🔗 Graph Nodes</h3>
           <div class="nodes-container">
             <GNewNodeRenderer

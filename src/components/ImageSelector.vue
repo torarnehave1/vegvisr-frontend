@@ -984,7 +984,10 @@ const handlePaste = async (event) => {
     return
   }
 
-  console.log('📋 Clipboard items:', Array.from(items).map(item => item.type))
+  console.log(
+    '📋 Clipboard items:',
+    Array.from(items).map((item) => item.type),
+  )
 
   // First check for text (URLs)
   for (let item of items) {

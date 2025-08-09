@@ -7,8 +7,12 @@
         <div class="node-type-badge-inline">📢 Advertisement Manager</div>
       </div>
       <div v-if="!isPreview" class="node-controls">
-        <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">✏️</button>
-        <button @click="deleteNode" class="btn btn-sm btn-outline-danger" title="Delete Node">🗑️</button>
+        <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">
+          ✏️
+        </button>
+        <button @click="deleteNode" class="btn btn-sm btn-outline-danger" title="Delete Node">
+          🗑️
+        </button>
       </div>
     </div>
 
@@ -33,7 +37,7 @@
       <!-- Advertisements List -->
       <div v-if="advertisements.length > 0" class="advertisements-list">
         <h5>📋 Current Advertisements</h5>
-        
+
         <div v-for="(ad, index) in advertisements" :key="ad.id || index" class="advertisement-item">
           <div class="ad-header">
             <div class="ad-status-badge" :class="'status-' + ad.status">{{ ad.status }}</div>
@@ -44,17 +48,28 @@
               <button @click="deleteAd(index)" class="btn btn-xs btn-danger">🗑️</button>
             </div>
           </div>
-          
+
           <!-- Inline Editor -->
           <div class="ad-editor">
             <div class="form-row">
               <div class="form-group">
                 <label>Campaign Title:</label>
-                <input v-model="ad.title" type="text" class="form-control" placeholder="Enter title..." />
+                <input
+                  v-model="ad.title"
+                  type="text"
+                  class="form-control"
+                  placeholder="Enter title..."
+                />
               </div>
               <div class="form-group">
                 <label>Budget ($):</label>
-                <input v-model.number="ad.budget" type="number" class="form-control" placeholder="0" min="0" />
+                <input
+                  v-model.number="ad.budget"
+                  type="number"
+                  class="form-control"
+                  placeholder="0"
+                  min="0"
+                />
               </div>
             </div>
 
@@ -69,13 +84,20 @@
                   rows="4"
                 ></textarea>
                 <div class="content-tools">
-                  <button @click="insertFancyTemplate(index)" class="btn btn-xs btn-outline-primary">✨ Add FANCY</button>
-                  <button @click="insertImage(index)" class="btn btn-xs btn-outline-secondary">🖼️ Add Image</button>
+                  <button
+                    @click="insertFancyTemplate(index)"
+                    class="btn btn-xs btn-outline-primary"
+                  >
+                    ✨ Add FANCY
+                  </button>
+                  <button @click="insertImage(index)" class="btn btn-xs btn-outline-secondary">
+                    🖼️ Add Image
+                  </button>
                 </div>
               </div>
               <small class="form-text text-muted">
-                💡 Tip: Use [FANCY] elements for styled content. 
-                Example: [FANCY | font-size: 2em; color: #007bff; text-align: center]Your Title[END FANCY]
+                💡 Tip: Use [FANCY] elements for styled content. Example: [FANCY | font-size: 2em;
+                color: #007bff; text-align: center]Your Title[END FANCY]
               </small>
             </div>
 
@@ -83,7 +105,12 @@
             <div class="form-row">
               <div class="form-group">
                 <label>Target Audience:</label>
-                <input v-model="ad.target_audience" type="text" class="form-control" placeholder="Describe audience..." />
+                <input
+                  v-model="ad.target_audience"
+                  type="text"
+                  class="form-control"
+                  placeholder="Describe audience..."
+                />
               </div>
               <div class="form-group">
                 <label>Aspect Ratio:</label>
@@ -121,7 +148,10 @@
                 <div class="preview-content">
                   <GNewDefaultNode :node="{ info: ad.content }" :showControls="false" />
                 </div>
-                <div v-if="ad.aspect_ratio && ad.aspect_ratio !== 'default'" class="preview-aspect-info">
+                <div
+                  v-if="ad.aspect_ratio && ad.aspect_ratio !== 'default'"
+                  class="preview-aspect-info"
+                >
                   📐 {{ getAspectRatioLabel(ad.aspect_ratio) }}
                 </div>
               </div>
@@ -168,7 +198,7 @@ const props = defineProps({
   graphData: { type: Object, default: () => ({ nodes: [], edges: [] }) },
   showControls: { type: Boolean, default: true },
   isPreview: { type: Boolean, default: false },
-  graphId: { type: String, default: '' }
+  graphId: { type: String, default: '' },
 })
 
 // Emits
@@ -210,7 +240,7 @@ const getAspectRatioLabel = (aspectRatio) => {
     'web-banner': 'Web Banner (7.8:1)',
     'hero-banner': 'Hero Banner (16:9)',
     'medium-rectangle': 'Medium Rectangle (1.2:1)',
-    'vegvisr-node': 'Vegvisr Node (2:1)'
+    'vegvisr-node': 'Vegvisr Node (2:1)',
   }
   return labels[aspectRatio] || aspectRatio
 }
@@ -228,7 +258,7 @@ const addNewAd = () => {
     budget: 0,
     status: 'draft',
     aspect_ratio: 'default',
-    saving: false
+    saving: false,
   })
 }
 
@@ -248,17 +278,17 @@ const saveAd = async (ad) => {
       target_audience: ad.target_audience,
       budget: ad.budget,
       status: ad.status,
-      aspect_ratio: ad.aspect_ratio || 'default'
+      aspect_ratio: ad.aspect_ratio || 'default',
     }
 
-    const url = ad.id 
+    const url = ad.id
       ? `https://advertisement-worker.torarnehave.workers.dev/api/advertisements/${ad.id}`
       : 'https://advertisement-worker.torarnehave.workers.dev/api/advertisements'
-    
+
     const response = await fetch(url, {
       method: ad.id ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
 
     if (response.ok) {
@@ -283,7 +313,10 @@ const deleteAd = async (index) => {
 
   if (ad.id) {
     try {
-      await fetch(`https://advertisement-worker.torarnehave.workers.dev/api/advertisements/${ad.id}`, { method: 'DELETE' })
+      await fetch(
+        `https://advertisement-worker.torarnehave.workers.dev/api/advertisements/${ad.id}`,
+        { method: 'DELETE' },
+      )
     } catch (error) {
       console.error('Delete error:', error)
     }
@@ -295,18 +328,18 @@ const insertFancyTemplate = (index) => {
   const template = `[FANCY | font-size: 4.5em; color: lightblue; background-image: url('https://vegvisr.imgix.net/FANCYIMG.png'); text-align: center]
 Your fancy content here
 [END FANCY]`
-  
+
   console.log('✨ Inserting FANCY template for ad index:', index)
   console.log('📄 Template being inserted:', template)
-  
+
   const ad = advertisements.value[index]
-  
+
   if (ad.content) {
     ad.content += '\n\n' + template
   } else {
     ad.content = template
   }
-  
+
   console.log('📝 Advertisement content after template insertion:', ad.content)
 }
 
@@ -327,34 +360,34 @@ const closeImageSelector = () => {
 const handleImageSelected = (imageData) => {
   console.log('🖼️ handleImageSelected called with:', imageData)
   console.log('📍 currentAdIndex.value:', currentAdIndex.value)
-  
+
   if (currentAdIndex.value !== null && imageData.newUrl) {
     const ad = advertisements.value[currentAdIndex.value]
     console.log('📝 Advertisement before URL replacement:', ad)
     console.log('📄 Content before replacement:', ad.content)
-    
-      // Replace the FANCYIMG.png URL in any existing FANCY elements with the selected image
-      if (ad.content) {
-        const originalContent = ad.content
-        
-        // Try replacing without quotes first
-        ad.content = ad.content.replace(
-          /https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png/g,
-          imageData.newUrl
-        )
-        console.log('🔄 After first replacement (no quotes):', ad.content)
-        
-        // Also replace the URL if it's wrapped in quotes
-        ad.content = ad.content.replace(
-          /'https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png'/g,
-          `'${imageData.newUrl}'`
-        )
-        console.log('🔄 After second replacement (with quotes):', ad.content)
-        
-        if (originalContent === ad.content) {
+
+    // Replace the FANCYIMG.png URL in any existing FANCY elements with the selected image
+    if (ad.content) {
+      const originalContent = ad.content
+
+      // Try replacing without quotes first
+      ad.content = ad.content.replace(
+        /https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png/g,
+        imageData.newUrl,
+      )
+      console.log('🔄 After first replacement (no quotes):', ad.content)
+
+      // Also replace the URL if it's wrapped in quotes
+      ad.content = ad.content.replace(
+        /'https:\/\/vegvisr\.imgix\.net\/FANCYIMG\.png'/g,
+        `'${imageData.newUrl}'`,
+      )
+      console.log('🔄 After second replacement (with quotes):', ad.content)
+
+      if (originalContent === ad.content) {
         console.warn('⚠️ No URL replacement occurred! Original content:', originalContent)
         console.warn('⚠️ Looking for pattern: https://vegvisr.imgix.net/FANCYIMG.png')
-        console.warn('⚠️ Or pattern with quotes: \'https://vegvisr.imgix.net/FANCYIMG.png\'')
+        console.warn("⚠️ Or pattern with quotes: 'https://vegvisr.imgix.net/FANCYIMG.png'")
       } else {
         console.log('✅ URL replacement successful!')
       }
@@ -364,25 +397,27 @@ const handleImageSelected = (imageData) => {
   } else {
     console.warn('⚠️ Missing currentAdIndex or newUrl:', {
       currentAdIndex: currentAdIndex.value,
-      newUrl: imageData?.newUrl
+      newUrl: imageData?.newUrl,
     })
   }
-  
+
   closeImageSelector()
 }
 
 const refreshAds = async () => {
   if (!knowledgeGraphId.value) return
   try {
-    const response = await fetch(`https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${knowledgeGraphId.value}`)
+    const response = await fetch(
+      `https://advertisement-worker.torarnehave.workers.dev/api/advertisements?knowledge_graph_id=${knowledgeGraphId.value}`,
+    )
     if (response.ok) {
       const result = await response.json()
-      const ads = Array.isArray(result) ? result : (result.data || result.results || [])
-      advertisements.value = ads.map(ad => ({ 
-        ...ad, 
+      const ads = Array.isArray(result) ? result : result.data || result.results || []
+      advertisements.value = ads.map((ad) => ({
+        ...ad,
         saving: false,
         // Ensure aspect_ratio field exists for existing ads
-        aspect_ratio: ad.aspect_ratio || 'default'
+        aspect_ratio: ad.aspect_ratio || 'default',
       }))
     }
   } catch (error) {
@@ -514,9 +549,18 @@ onMounted(refreshAds)
   text-transform: uppercase;
 }
 
-.status-active { background: #d4edda; color: #155724; }
-.status-draft { background: #fff3cd; color: #856404; }
-.status-paused { background: #f8d7da; color: #721c24; }
+.status-active {
+  background: #d4edda;
+  color: #155724;
+}
+.status-draft {
+  background: #fff3cd;
+  color: #856404;
+}
+.status-paused {
+  background: #f8d7da;
+  color: #721c24;
+}
 
 .ad-controls {
   display: flex;
@@ -662,34 +706,98 @@ onMounted(refreshAds)
   cursor: not-allowed;
 }
 
-.btn-xs { padding: 4px 8px; font-size: 0.75rem; }
-.btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
 
-.btn-primary { background: #007bff; border-color: #007bff; color: white; }
-.btn-primary:hover:not(:disabled) { background: #0056b3; border-color: #0056b3; }
+.btn-primary {
+  background: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #0056b3;
+  border-color: #0056b3;
+}
 
-.btn-success { background: #28a745; border-color: #28a745; color: white; }
-.btn-success:hover:not(:disabled) { background: #218838; border-color: #218838; }
+.btn-success {
+  background: #28a745;
+  border-color: #28a745;
+  color: white;
+}
+.btn-success:hover:not(:disabled) {
+  background: #218838;
+  border-color: #218838;
+}
 
-.btn-danger { background: #dc3545; border-color: #dc3545; color: white; }
-.btn-danger:hover:not(:disabled) { background: #c82333; border-color: #c82333; }
+.btn-danger {
+  background: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+  border-color: #c82333;
+}
 
-.btn-outline-primary { background: transparent; border-color: #007bff; color: #007bff; }
-.btn-outline-primary:hover:not(:disabled) { background: #007bff; color: white; }
+.btn-outline-primary {
+  background: transparent;
+  border-color: #007bff;
+  color: #007bff;
+}
+.btn-outline-primary:hover:not(:disabled) {
+  background: #007bff;
+  color: white;
+}
 
-.btn-outline-secondary { background: transparent; border-color: #6c757d; color: #6c757d; }
-.btn-outline-secondary:hover:not(:disabled) { background: #6c757d; color: white; }
+.btn-outline-secondary {
+  background: transparent;
+  border-color: #6c757d;
+  color: #6c757d;
+}
+.btn-outline-secondary:hover:not(:disabled) {
+  background: #6c757d;
+  color: white;
+}
 
-.btn-outline-danger { background: transparent; border-color: #dc3545; color: #dc3545; }
-.btn-outline-danger:hover:not(:disabled) { background: #dc3545; color: white; }
+.btn-outline-danger {
+  background: transparent;
+  border-color: #dc3545;
+  color: #dc3545;
+}
+.btn-outline-danger:hover:not(:disabled) {
+  background: #dc3545;
+  color: white;
+}
 
 /* Responsive */
 @media (max-width: 768px) {
-  .form-row { grid-template-columns: 1fr; }
-  .node-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .quick-create-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .ad-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .content-tools { flex-direction: column; }
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  .node-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .quick-create-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .ad-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .content-tools {
+    flex-direction: column;
+  }
 }
 
 /* Preview Aspect Ratio Styles */
