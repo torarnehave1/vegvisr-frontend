@@ -1,7 +1,7 @@
 <template>
   <div class="advertisement-display" v-if="activeAdvertisements.length">
     <div
-      v-for="ad in activeAdvertisements"
+      v-for="(ad, index) in activeAdvertisements"
       :key="`ad-${ad.id}-${ad.content?.length || 0}-${splitSlides(ad.content).length}`"
       class="advertisement-item"
     >
@@ -20,6 +20,9 @@
           :indicators="true"
           :arrows="true"
           :loop="true"
+          :autoPlay="true"
+          :autoPlayInterval="5000"
+          :pauseOnHover="true"
           labelPrefix="Ad slide"
           ariaLabel="Advertisement carousel"
         >
