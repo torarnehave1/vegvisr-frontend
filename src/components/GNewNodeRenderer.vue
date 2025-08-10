@@ -190,6 +190,14 @@ const nodeComponent = computed(() => {
     }
   }
 
+  // Hide advertisement manager for non-Superadmin users
+  if (nodeType === 'advertisement_manager') {
+    if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+      console.log('🚫 Advertisement manager node hidden - requires Superadmin role')
+      return null
+    }
+  }
+
   return nodeComponents[nodeType] || nodeComponents['default']
 })
 

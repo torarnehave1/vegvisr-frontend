@@ -277,13 +277,64 @@ img.leftside {
   text-align: right;
   width: 100%;
   max-width: 100%;
-  background-size: 100% auto;
+  background-size: cover; /* Changed from 100% auto to cover for better image display */
   background-repeat: no-repeat;
   background-position: center;
   min-height: 10px;
   height: auto;
-  display: block;
+  display: flex; /* Changed to flex for better content centering */
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
+}
+
+/* Enhanced FANCY element styles for GNew system - Support custom width/height */
+.fancy-title[style*='width'] {
+  box-sizing: border-box !important; /* Ensure proper box model */
+  flex-shrink: 0 !important; /* Prevent shrinking in flex containers */
+  overflow: hidden !important; /* Prevent content overflow */
+}
+
+.fancy-title[style*='height'] {
+  box-sizing: border-box !important; /* Ensure proper box model */
+  flex-shrink: 0 !important; /* Prevent shrinking in flex containers */
+  overflow: hidden !important; /* Prevent content overflow */
+}
+
+/* When both width and height are specified, respect them exactly */
+.fancy-title[style*='width'][style*='height'] {
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  display: block !important; /* Use block display for precise sizing */
+  overflow: hidden !important;
+}
+
+/* Additional specificity for inline styles with background images */
+.fancy-title[style*='background-image'][style*='width'],
+.fancy-title[style*='background-image'][style*='height'] {
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+/* Center the fancy title container when it has custom dimensions */
+.fancy-title[style*='width'] {
+  margin: 0.5em auto !important; /* Center horizontally when width is custom */
+}
+
+/* Override any container constraints that might interfere */
+.node-content .fancy-title[style*='width'],
+.advertisement-content .fancy-title[style*='width'],
+.slide-content-preview .fancy-title[style*='width'] {
+  flex: none !important; /* Don't let flex containers override */
+  max-width: none !important; /* Remove max-width constraints */
+}
+
+.node-content .fancy-title[style*='height'],
+.advertisement-content .fancy-title[style*='height'],
+.slide-content-preview .fancy-title[style*='height'] {
+  flex: none !important; /* Don't let flex containers override */
+  min-height: 0 !important; /* Remove min-height constraints */
 }
 
 /* Enhanced FANCY element styles for GNew system */

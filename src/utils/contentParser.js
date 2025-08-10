@@ -26,6 +26,16 @@ export const parseStyleString = (style) => {
         return `${k}:${v}`
       }
 
+      // Special handling for width and height - ensure units are added if missing
+      if (k === 'width' || k === 'height') {
+        // If the value is just a number, add px
+        if (/^\d+(\.\d+)?$/.test(v)) {
+          return `${k}:${v}px`
+        }
+        // If it already has units or is a percentage, keep as is
+        return `${k}:${v}`
+      }
+
       // For other properties, remove outer quotes but preserve inner content
       const cleanValue = v.replace(/^['"]|['"]$/g, '')
       return `${k}:${cleanValue}`

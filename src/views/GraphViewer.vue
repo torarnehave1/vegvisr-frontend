@@ -1413,6 +1413,18 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
             return `${k}:${v}`
           }
 
+          // Special handling for width and height - ensure units are added if missing
+          if (k === 'width' || k === 'height') {
+            // If the value is just a number, add px
+            if (/^\d+(\.\d+)?$/.test(v)) {
+              console.log(`✅ Adding px to ${k}: ${v} -> ${v}px`)
+              return `${k}:${v}px`
+            }
+            // If it already has units or is a percentage, keep as is
+            console.log(`✅ Keeping ${k} as is: ${v}`)
+            return `${k}:${v}`
+          }
+
           // For other properties, remove outer quotes but preserve inner content
           const cleanValue = v.replace(/^['"]|['"]$/g, '')
           return `${k}:${cleanValue}`
