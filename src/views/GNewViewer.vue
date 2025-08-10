@@ -1,28 +1,7 @@
 <template>
   <div class="gnew-viewer">
-    <!-- Debug: Show which section is active -->
-    <div
-      style="
-        background: #fff3cd;
-        padding: 10px;
-        margin: 10px;
-        border: 1px solid #ffeaa7;
-        font-size: 12px;
-      "
-    >
-      🐛 Debug: userStore.loggedIn={{ userStore.loggedIn }}, loading={{ loading }}, error={{
-        !!error
-      }}, graphData.nodes.length={{ graphData.nodes?.length || 0 }}, currentGraphId={{
-        currentGraphId
-      }}
-    </div>
-
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
-      <div style="background: #e3f2fd; padding: 5px; margin: 5px; font-size: 11px">
-        📱 PUBLIC VIEW MODE
-      </div>
-
       <!-- Graph Content -->
       <div v-if="loading" class="loading-state">
         <div class="spinner-border text-primary" role="status">
@@ -37,34 +16,8 @@
       </div>
 
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
-        <div style="background: #e8f5e8; padding: 5px; margin: 5px; font-size: 11px">
-          📊 GRAPH CONTENT LOADED
-        </div>
         <!-- Ads (Public) - Phase 1: Static slots, single fetch in viewer -->
         <div v-if="currentGraphId" class="ads-layout ads-public">
-          <!-- Debug: Show basic info -->
-          <div
-            v-if="!adsBySlot.heroTop?.length"
-            style="background: #ffe6e6; padding: 10px; margin: 10px 0; border: 1px solid #ff9999"
-          >
-            ⚠️ No hero ads found. Graph ID: {{ currentGraphId }}, Total ads: {{ adsAll.length }},
-            Active: {{ activeAds.length }}
-            <button
-              @click="fetchAdvertisementsForGraph"
-              style="
-                margin-left: 10px;
-                padding: 2px 8px;
-                background: #007bff;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                cursor: pointer;
-              "
-            >
-              🔄 Refresh Ads
-            </button>
-          </div>
-
           <!-- Hero Top (16:9) -->
           <GNewAdvertisementDisplay
             v-if="adsBySlot.heroTop?.length"
@@ -1214,11 +1167,6 @@
 
         <!-- Graph Content -->
         <div v-else-if="graphData.nodes.length > 0" class="graph-content">
-          <div style="background: #fff3cd; padding: 5px; margin: 5px; font-size: 11px">
-            👑 ADMIN VIEW - currentGraphId={{ currentGraphId }}, adsAll={{ adsAll.length }},
-            heroTop={{ adsBySlot.heroTop?.length || 0 }}
-          </div>
-
           <!-- Ads (Admin) - Phase 1: Static slots, single fetch in viewer -->
           <div v-if="currentGraphId" class="ads-layout ads-admin">
             <!-- Debug: Show ads status -->
@@ -1231,13 +1179,7 @@
             </div>
 
             <!-- Hero Top (16:9) -->
-            <div
-              v-if="adsBySlot.heroTop?.length"
-              style="background: #ff6b6b; padding: 20px; margin: 10px; border: 3px solid #000"
-            >
-              <h3 style="color: white">🎯 HERO AD CONTAINER (Testing)</h3>
-              <div>Ad Title: {{ adsBySlot.heroTop[0]?.title }}</div>
-              <div>Ad Aspect: {{ adsBySlot.heroTop[0]?.aspect_ratio }}</div>
+            <div v-if="adsBySlot.heroTop?.length">
               <GNewAdvertisementDisplay
                 :knowledgeGraphId="currentGraphId"
                 position="top"

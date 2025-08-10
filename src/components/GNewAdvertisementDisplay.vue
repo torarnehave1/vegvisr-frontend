@@ -3,55 +3,35 @@
     <div
       v-for="ad in activeAdvertisements"
       :key="`ad-${ad.id}-${ad.content?.length || 0}-${splitSlides(ad.content).length}`"
-      class="advertisement-banner"
-      :class="getBannerClass(ad)"
+      class="advertisement-item"
     >
-      <div class="banner-content">
-        <div class="banner-header">
-          <span class="banner-title">{{ ad.title }}</span>
-          <span class="banner-sponsored">Sponsored</span>
-        </div>
-
-        <!-- Phase A: Manual carousel when multiple sections are present -->
-        <template v-if="splitSlides(ad.content).length <= 1">
-          <div class="banner-content-rich" :key="`single-${ad.id}-${ad.content?.length || 0}`">
+      <!-- Simplified rendering just like in the manager -->
+      <template v-if="splitSlides(ad.content).length <= 1">
+        <GNewDefaultNode
+          :node="{ info: ad.content }"
+          :showControls="false"
+          class="advertisement-content"
+        />
+      </template>
+      <template v-else>
+        <GAdReel
+          :key="`reel-${ad.id}-${splitSlides(ad.content).length}-${ad.content?.length || 0}`"
+          :slides="splitSlides(ad.content)"
+          :indicators="true"
+          :arrows="true"
+          :loop="true"
+          labelPrefix="Ad slide"
+          ariaLabel="Advertisement carousel"
+        >
+          <template #default="{ slide }">
             <GNewDefaultNode
-              :node="{ info: ad.content }"
+              :node="{ info: slide }"
               :showControls="false"
-              class="banner-fancy-content"
+              class="advertisement-content"
             />
-          </div>
-        </template>
-        <template v-else>
-          <GAdReel
-            :key="`reel-${ad.id}-${splitSlides(ad.content).length}-${ad.content?.length || 0}`"
-            :slides="splitSlides(ad.content)"
-            :indicators="true"
-            :arrows="true"
-            :loop="true"
-            labelPrefix="Ad slide"
-            ariaLabel="Advertisement carousel"
-          >
-            <template #default="{ slide }">
-              <div class="banner-content-rich">
-                <GNewDefaultNode
-                  :node="{ info: slide }"
-                  :showControls="false"
-                  class="banner-fancy-content"
-                />
-              </div>
-            </template>
-          </GAdReel>
-        </template>
-
-        <div v-if="ad.target_audience" class="banner-audience">
-          <small>Target: {{ ad.target_audience }}</small>
-        </div>
-        <div class="banner-actions">
-          <button @click="trackClick(ad)" class="banner-cta">Learn More</button>
-          <button @click="reportAd(ad)" class="banner-report" title="Report Ad">⚠️</button>
-        </div>
-      </div>
+          </template>
+        </GAdReel>
+      </template>
     </div>
   </div>
   <div v-else style="background: #ffebee; color: #c62828; padding: 10px; border-radius: 6px">
@@ -177,151 +157,137 @@ onMounted(() => {
 <style scoped>
 .advertisement-display {
   margin: 20px 0;
-}
-.advertisement-banner {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 15px;
-  margin-bottom: 15px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  transition: all 0.3s ease;
-}
-.advertisement-banner:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
-}
-.banner-premium {
-  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-  border-color: #f39c12;
-}
-.banner-standard {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-}
-.banner-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center; /* Center the entire advertisement display */
+  width: 100%;
 }
-.banner-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+
+.advertisement-item {
+  margin-bottom: 20px;
+  max-width: 800px; /* Limit width so image is centered but not full container width */
+  width: 100%;
+  position: relative; /* Enable positioning for carousel arrows */
 }
-.banner-title {
-  font-weight: 600;
-  color: #2c3e50;
-  font-size: 1.1rem;
-}
-.banner-sponsored {
-  background: #6c757d;
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-.banner-content-rich {
-  flex: 1;
-}
-.banner-fancy-content {
+
+/* Clean advertisement content styling - matching the manager */
+.advertisement-content {
   background: none !important;
   border: none !important;
   box-shadow: none !important;
   padding: 0 !important;
   margin: 0 !important;
+  width: 100%;
+  position: relative; /* Enable positioning for carousel elements */
 }
-.banner-audience {
-  color: #6c757d;
-  font-style: italic;
-}
-.banner-actions {
+
+/* Style the node content to match manager display */
+.advertisement-content .node-content {
+  min-height: 200px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  position: relative; /* Enable positioning for carousel arrows */
 }
-.banner-cta {
-  background: #007bff;
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.2s ease;
+
+/* Style the fancy title to match manager display */
+.advertisement-content .fancy-title {
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 200px;
+  border-radius: 8px; /* Add slight rounding for better appearance */
+  width: 100%;
 }
-.banner-cta:hover {
-  background: #0056b3;
+
+/* Override for custom width/height in advertisements */
+.advertisement-content .fancy-title[style*='width'] {
+  width: auto !important; /* Allow inline width to override default */
+  max-width: none !important; /* Remove constraints when custom width is set */
 }
-.banner-report {
-  background: none;
-  border: none;
-  color: #6c757d;
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 3px;
-  transition: color 0.2s ease;
+
+.advertisement-content .fancy-title[style*='height'] {
+  height: auto !important; /* Allow inline height to override default */
+  min-height: auto !important; /* Remove constraints when custom height is set */
 }
-.banner-report:hover {
-  color: #dc3545;
+
+/* When both width and height are specified, respect them exactly */
+.advertisement-content .fancy-title[style*='width'][style*='height'] {
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  min-height: auto !important;
 }
-.banner-top {
-  border-left: 4px solid #007bff;
+
+/* Carousel container styling */
+.advertisement-item :deep(.carousel-container) {
+  position: relative;
+  width: 100%;
 }
-.banner-bottom {
-  border-left: 4px solid #28a745;
+
+/* Carousel navigation arrows - overlay on image */
+.advertisement-item :deep(.carousel-nav) {
+  position: absolute !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 10 !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  color: white !important;
+  border: none !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  font-size: 18px !important;
+  transition: background-color 0.2s ease !important;
 }
-.banner-sidebar {
-  border-left: 4px solid #6f42c1;
+
+.advertisement-item :deep(.carousel-nav:hover) {
+  background: rgba(0, 0, 0, 0.8) !important;
 }
-.banner-between-nodes {
-  border-left: 4px solid #fd7e14;
-  margin: 30px 0;
+
+.advertisement-item :deep(.carousel-nav.prev) {
+  left: 10px !important;
 }
-.banner-aspect-instagram-square {
-  aspect-ratio: 1/1;
-  max-width: 400px;
+
+.advertisement-item :deep(.carousel-nav.next) {
+  right: 10px !important;
 }
-.banner-aspect-facebook-feed {
-  aspect-ratio: 1.91/1;
-  max-width: 600px;
+
+/* Carousel indicators - overlay at bottom */
+.advertisement-item :deep(.carousel-indicators) {
+  position: absolute !important;
+  bottom: 15px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 10 !important;
+  display: flex !important;
+  gap: 8px !important;
 }
-.banner-aspect-web-leaderboard {
-  aspect-ratio: 8.1/1;
-  max-width: 728px;
-  min-height: 90px;
+
+.advertisement-item :deep(.carousel-indicator) {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s ease !important;
 }
-.banner-aspect-web-banner {
-  aspect-ratio: 7.8/1;
-  max-width: 468px;
-  min-height: 60px;
+
+.advertisement-item :deep(.carousel-indicator.active) {
+  background: rgba(255, 255, 255, 1) !important;
 }
-.banner-aspect-hero-banner {
-  aspect-ratio: 16/9;
-  max-width: 800px;
-}
-.banner-aspect-medium-rectangle {
-  aspect-ratio: 1.2/1;
-  max-width: 300px;
-}
-.banner-aspect-vegvisr-node {
-  aspect-ratio: 2/1;
-  max-width: 500px;
-}
-@media (max-width: 768px) {
-  .advertisement-banner {
-    padding: 12px;
-  }
-  .banner-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-  }
-  .banner-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
+
+/* Ensure carousel content also follows the same styling */
+.advertisement-display .slide-content {
+  width: 100%;
 }
 </style>
 transition: color 0.2s ease;

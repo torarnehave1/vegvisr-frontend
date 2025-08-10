@@ -376,6 +376,11 @@ const insertFancyTemplate = (index) => {
       template:
         '[FANCY | font-size: 1.2em; color: #6f42c1; background: #f8f9fa; text-align: center; padding: 12px; border-left: 4px solid #6f42c1]\n✨ Premium Feature Available\n[END FANCY]',
     },
+    {
+      name: 'Image Banner with Custom Size',
+      template:
+        "[FANCY | font-size: 1.5em; color: lightblue; background-image: url('https://images.pexels.com/photos/163142/glasses-notebook-wooden-business-163142.jpeg?auto=compress&cs=tinysrgb&h=350'); text-align: center; width: 800px; height: 240px]\nYour banner content here\n[END FANCY]",
+    },
   ]
 
   // Show template selector

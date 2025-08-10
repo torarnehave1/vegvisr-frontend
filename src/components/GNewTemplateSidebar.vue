@@ -199,8 +199,21 @@ const fetchTemplates = async () => {
 
 // Computed properties
 const filteredTemplates = computed(() => {
-  if (!searchQuery.value.trim()) return databaseTemplates.value
-  return databaseTemplates.value.filter(
+  let templates = databaseTemplates.value
+
+  // Filter out advertisement manager for non-Superadmin users
+  templates = templates.filter((template) => {
+    if (template.nodes && template.nodes[0] && template.nodes[0].type === 'advertisement_manager') {
+      if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+        console.log('🚫 Advertisement manager template hidden - requires Superadmin role')
+        return false
+      }
+    }
+    return true
+  })
+
+  if (!searchQuery.value.trim()) return templates
+  return templates.filter(
     (template) =>
       template.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       template.category.toLowerCase().includes(searchQuery.value.toLowerCase()),
@@ -216,8 +229,18 @@ const categories = computed(() => {
 })
 
 const popularTemplates = computed(() => {
+  // Filter out advertisement manager for non-Superadmin users
+  let templates = databaseTemplates.value.filter((template) => {
+    if (template.nodes && template.nodes[0] && template.nodes[0].type === 'advertisement_manager') {
+      if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+        return false
+      }
+    }
+    return true
+  })
+
   // Show first 8 templates in collapsed view
-  return databaseTemplates.value.slice(0, 8)
+  return templates.slice(0, 8)
 })
 
 // Methods
@@ -243,7 +266,19 @@ const toggleCategory = (category) => {
 }
 
 const getTemplatesByCategory = (category) => {
-  return databaseTemplates.value.filter((template) => (template.category || 'General') === category)
+  return databaseTemplates.value.filter((template) => {
+    // Check category match
+    if ((template.category || 'General') !== category) return false
+
+    // Filter out advertisement manager for non-Superadmin users
+    if (template.nodes && template.nodes[0] && template.nodes[0].type === 'advertisement_manager') {
+      if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+        return false
+      }
+    }
+
+    return true
+  })
 }
 
 const getCategoryIcon = (category) => {

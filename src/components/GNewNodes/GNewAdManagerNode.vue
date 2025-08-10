@@ -456,7 +456,7 @@ const deleteAd = async (index) => {
 }
 
 const insertFancyTemplate = (index) => {
-  const template = `[FANCY | font-size: 4.5em; color: lightblue; background-image: url('https://vegvisr.imgix.net/FANCYIMG.png'); text-align: center]
+  const template = `[FANCY | font-size: 1.5em; color: lightblue; background-image: url('https://images.pexels.com/photos/163142/glasses-notebook-wooden-business-163142.jpeg?auto=compress&cs=tinysrgb&h=350'); text-align: center; width: 800px; height: 240px]
 Your fancy content here
 [END FANCY]`
 
@@ -1133,6 +1133,27 @@ onUnmounted(() => {
 
 .slide-content-preview {
   margin-bottom: 10px;
+}
+
+/* Allow custom width/height in slide previews */
+.slide-content-preview :deep(.fancy-title[style*='width']) {
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  max-width: none !important;
+}
+
+.slide-content-preview :deep(.fancy-title[style*='height']) {
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  min-height: 0 !important;
+}
+
+.slide-content-preview :deep(.fancy-title[style*='width'][style*='height']) {
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  display: block !important;
 }
 
 .slide-image-info {

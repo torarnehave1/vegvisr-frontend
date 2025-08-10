@@ -414,7 +414,8 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
 }
 
 const parseStyleString = (style) => {
-  return style
+  console.log('parseStyleString input:', style)
+  const result = style
     .split(';')
     .map((s) => s.trim())
     .filter(Boolean)
@@ -432,11 +433,29 @@ const parseStyleString = (style) => {
         return `${k}:${v}`
       }
 
+      // Special handling for width and height - ensure units are added if missing
+      if (k === 'width' || k === 'height') {
+        console.log(`Processing ${k}: ${v}`)
+        // If the value is just a number, add px
+        if (/^\d+(\.\d+)?$/.test(v)) {
+          const processed = `${k}:${v}px`
+          console.log(`Added px units: ${processed}`)
+          return processed
+        }
+        // If it already has units or is a percentage, keep as is
+        const processed = `${k}:${v}`
+        console.log(`Keeping as is: ${processed}`)
+        return processed
+      }
+
       // For other properties, remove outer quotes but preserve inner content
       const cleanValue = v.replace(/^['"]|['"]$/g, '')
       return `${k}:${cleanValue}`
     })
     .join(';')
+
+  console.log('parseStyleString output:', result)
+  return result
 }
 
 const parseImageQuoteParams = (params) => {
