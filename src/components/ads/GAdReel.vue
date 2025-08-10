@@ -3,20 +3,28 @@
     class="ad-reel"
     role="region"
     :aria-label="ariaLabel"
-    @keydown.left.prevent="goPrev"
-    @keydown.right.prevent="goNext"
+    @keydown.left.prevent="() => handleUserInteraction(goPrev)"
+    @keydown.right.prevent="() => handleUserInteraction(goNext)"
+    @mouseenter="props.pauseOnHover && stopAutoPlay()"
+    @mouseleave="props.pauseOnHover && startAutoPlay()"
     tabindex="0"
   >
     <div class="reel-viewport">
-      <!-- Render only the active slide to keep it simple/perf-friendly for Phase A -->
-      <div
-        class="reel-slide"
-        :key="`slide-${currentIndex}-${slides[currentIndex]?.substring(0, 50) || 'empty'}`"
+      <!-- Container that slides left/right -->
+      <div 
+        class="reel-container" 
+        :style="{ transform: `translateX(-${currentIndex * 100}%)` }"
       >
-        <slot :slide="slides[currentIndex]">
-          <!-- Fallback: render raw text if no slot provided -->
-          <div class="reel-default-slide">{{ slides[currentIndex] }}</div>
-        </slot>
+        <div
+          v-for="(slide, index) in slides"
+          :key="`slide-${index}-${slide?.substring(0, 50) || 'empty'}`"
+          class="reel-slide"
+        >
+          <slot :slide="slide">
+            <!-- Fallback: render raw text if no slot provided -->
+            <div class="reel-default-slide">{{ slide }}</div>
+          </slot>
+        </div>
       </div>
     </div>
 
@@ -26,7 +34,7 @@
         v-if="arrows"
         type="button"
         class="reel-arrow left"
-        @click="goPrev"
+        @click="() => handleUserInteraction(goPrev)"
         :aria-label="`Previous slide (${currentIndex + 1} of ${slides.length})`"
       >
         ‹
@@ -35,7 +43,7 @@
         v-if="arrows"
         type="button"
         class="reel-arrow right"
-        @click="goNext"
+        @click="() => handleUserInteraction(goNext)"
         :aria-label="`Next slide (${currentIndex + 1} of ${slides.length})`"
       >
         ›
@@ -50,7 +58,7 @@
             :aria-selected="i === currentIndex"
             role="tab"
             :aria-label="`${labelPrefix} ${i + 1} of ${slides.length}`"
-            @click="goTo(i)"
+            @click="() => handleUserInteraction(() => goTo(i))"
           />
         </li>
       </ul>
@@ -59,7 +67,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   slides: { type: Array, required: true },
@@ -69,6 +77,9 @@ const props = defineProps({
   loop: { type: Boolean, default: true },
   labelPrefix: { type: String, default: 'Slide' },
   ariaLabel: { type: String, default: 'Advertisement carousel' },
+  autoPlay: { type: Boolean, default: true },
+  autoPlayInterval: { type: Number, default: 4000 }, // 4 seconds
+  pauseOnHover: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['slideChange'])
@@ -116,6 +127,53 @@ const goNext = () => {
   if (currentIndex.value < props.slides.length - 1) return goTo(currentIndex.value + 1)
   if (props.loop) return goTo(0)
 }
+
+// Auto-play functionality
+let autoPlayTimer = null
+
+const startAutoPlay = () => {
+  if (props.autoPlay && props.slides.length > 1) {
+    autoPlayTimer = setInterval(() => {
+      goNext()
+    }, props.autoPlayInterval)
+  }
+}
+
+const stopAutoPlay = () => {
+  if (autoPlayTimer) {
+    clearInterval(autoPlayTimer)
+    autoPlayTimer = null
+  }
+}
+
+const restartAutoPlay = () => {
+  stopAutoPlay()
+  startAutoPlay()
+}
+
+// Start auto-play when component mounts
+onMounted(() => {
+  if (props.autoPlay) {
+    startAutoPlay()
+  }
+})
+
+// Clean up timer when component unmounts
+onUnmounted(() => {
+  stopAutoPlay()
+})
+
+// Restart auto-play when user interacts (so it doesn't feel broken)
+const handleUserInteraction = (action) => {
+  if (props.autoPlay) {
+    stopAutoPlay()
+    action()
+    // Restart after a short delay to give user time to interact further
+    setTimeout(startAutoPlay, 1000)
+  } else {
+    action()
+  }
+}
 </script>
 
 <style scoped>
@@ -126,9 +184,20 @@ const goNext = () => {
 .reel-viewport {
   position: relative;
   width: 100%;
+  overflow: hidden; /* Hide slides that are not visible */
 }
+
+.reel-container {
+  display: flex;
+  width: 100%;
+  transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smooth easing */
+}
+
 .reel-slide {
   width: 100%;
+  flex-shrink: 0; /* Prevent slides from shrinking */
+  position: relative;
+  backface-visibility: hidden; /* Optimize for smoother animations */
 }
 .reel-controls {
   display: flex;
