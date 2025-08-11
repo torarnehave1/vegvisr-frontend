@@ -1169,6 +1169,15 @@
         <div v-else-if="graphData.nodes.length > 0" class="graph-content">
           <!-- Ads (Admin) - Phase 1: Static slots, single fetch in viewer -->
           <div v-if="currentGraphId" class="ads-layout ads-admin">
+            <!-- Debug: Show ads status -->
+            <div
+              v-if="!adsBySlot.heroTop?.length"
+              style="background: #ffe6e6; padding: 10px; margin: 10px 0; border: 1px solid #ff9999; opacity: 0; height: 0; overflow: hidden;"
+            >
+              ⚠️ ADMIN: No hero ads found. Graph ID: {{ currentGraphId }}, Total ads:
+              {{ adsAll.length }}, Active: {{ activeAds.length }}
+            </div>
+
             <!-- Hero Top (16:9) -->
             <div v-if="adsBySlot.heroTop?.length">
               <GNewAdvertisementDisplay
