@@ -75,6 +75,51 @@ const getAnalysisPrompt = (analysisType, customPrompt = '') => {
   return prompts[analysisType] || prompts.general
 }
 
+// Parse context data from AI response
+const parseContextData = (contextText) => {
+  const context = {}
+
+  try {
+    const lines = contextText.split('\n').map(line => line.trim()).filter(line => line)
+
+    for (const line of lines) {
+      if (line.includes(':')) {
+        const [key, ...valueParts] = line.split(':')
+        const value = valueParts.join(':').trim()
+
+        switch (key.trim().toLowerCase()) {
+          case 'domain':
+            context.domain = value
+            break
+          case 'geography':
+            context.geography = value
+            break
+          case 'content type':
+            context.contentType = value
+            break
+          case 'suggested graph type':
+            context.suggestedGraphType = value
+            break
+          case 'suggested node types':
+            context.suggestedNodeTypes = value.split(',').map(type => type.trim())
+            break
+        }
+      }
+    }
+
+    return context
+  } catch (error) {
+    console.warn('Failed to parse context data:', error)
+    return {
+      domain: 'Unknown',
+      geography: 'Unknown',
+      contentType: 'Unknown',
+      suggestedGraphType: 'General Analysis',
+      suggestedNodeTypes: ['concept', 'info']
+    }
+  }
+}
+
 // Main image analysis handler
 const handleAnalyzeImage = async (request, env) => {
   try {
@@ -93,7 +138,8 @@ const handleAnalyzeImage = async (request, env) => {
       analysisType = 'general',
       model = 'gpt-4o',
       maxTokens = 1024,
-      includeImageContext = false,
+      enableContextDetection = false,
+      requestedOutputs = {},
     } = requestBody
 
     console.log('📝 Analysis request:', {
@@ -103,6 +149,8 @@ const handleAnalyzeImage = async (request, env) => {
       model,
       maxTokens,
       promptLength: prompt?.length || 0,
+      enableContextDetection,
+      requestedOutputs,
     })
 
     // Validate input
@@ -120,7 +168,28 @@ const handleAnalyzeImage = async (request, env) => {
     }
 
     // Prepare the analysis prompt
-    const analysisPrompt = prompt || getAnalysisPrompt(analysisType)
+    let analysisPrompt = prompt || getAnalysisPrompt(analysisType)
+
+    // Enhanced prompt for context detection
+    if (enableContextDetection) {
+      analysisPrompt += `
+
+Additional instructions for AI context analysis:
+1. After your main analysis, provide a context assessment in this exact format:
+[CONTEXT_START]
+Domain: [identify the main field/domain like Economics, Medical, Technical, Academic, etc.]
+Geography: [identify geographic context like Norwegian Market, European Union, Global, etc.]
+Content Type: [identify content type like Chart, Document, Diagram, Photo, etc.]
+Suggested Graph Type: [suggest appropriate knowledge graph structure]
+Suggested Node Types: [list recommended node types like economic_entity, concept, person, location, etc.]
+[CONTEXT_END]
+
+2. If creating multiple nodes, also provide structured node data in this format:
+[NODES_START]
+[{"label": "Node Name", "type": "node_type", "content": "node description", "color": "#colorcode"}]
+[NODES_END]`
+    }
+
     console.log('🤖 Using analysis prompt:', analysisPrompt.substring(0, 100) + '...')
 
     // Prepare image data for OpenAI API
@@ -206,21 +275,54 @@ const handleAnalyzeImage = async (request, env) => {
       return createErrorResponse('No analysis result received from OpenAI', 500)
     }
 
+    // Parse context and structured data if context detection was enabled
+    let context = null
+    let structuredNodes = null
+    let cleanAnalysis = analysisResult
+
+    if (enableContextDetection) {
+      // Extract context information
+      const contextMatch = analysisResult.match(/\[CONTEXT_START\](.*?)\[CONTEXT_END\]/s)
+      if (contextMatch) {
+        const contextText = contextMatch[1].trim()
+        context = parseContextData(contextText)
+        // Remove context section from main analysis
+        cleanAnalysis = analysisResult.replace(/\[CONTEXT_START\].*?\[CONTEXT_END\]/s, '').trim()
+      }
+
+      // Extract structured nodes
+      const nodesMatch = analysisResult.match(/\[NODES_START\](.*?)\[NODES_END\]/s)
+      if (nodesMatch) {
+        try {
+          structuredNodes = JSON.parse(nodesMatch[1].trim())
+          // Remove nodes section from main analysis
+          cleanAnalysis = cleanAnalysis.replace(/\[NODES_START\].*?\[NODES_END\]/s, '').trim()
+        } catch (error) {
+          console.warn('Failed to parse structured nodes:', error)
+        }
+      }
+    }
+
     // Prepare response
     const response = {
       success: true,
-      analysis: analysisResult,
+      analysis: cleanAnalysis,
+      context: context,
+      structuredNodes: structuredNodes,
       metadata: {
         model: openaiData.model,
         analysisType: analysisType,
-        promptUsed: analysisPrompt,
+        promptUsed: analysisPrompt.substring(0, 200) + '...',
         usage: openaiData.usage,
         timestamp: new Date().toISOString(),
+        contextDetectionEnabled: enableContextDetection,
       },
     }
 
     console.log('📊 Analysis completed successfully:', {
-      analysisLength: analysisResult.length,
+      analysisLength: cleanAnalysis.length,
+      hasContext: !!context,
+      hasStructuredNodes: !!structuredNodes,
       tokensUsed: openaiData.usage?.total_tokens || 0,
     })
 
