@@ -179,14 +179,14 @@ const handleAnalyzeImage = async (request, env) => {
 
     // Add context about legitimate public information extraction
     if (analysisType === 'public_document' || analysisType === 'name_extraction' || analysisType === 'text' || analysisType === 'public_verified') {
-      const verifiedText = analysisType === 'public_verified' 
-        ? 'The user has confirmed this information is from a publicly accessible source and has verified its public nature.' 
+      const verifiedText = analysisType === 'public_verified'
+        ? 'The user has confirmed this information is from a publicly accessible source and has verified its public nature.'
         : 'This appears to be from a public or published source.';
-      
+
       // Enhanced prompting for reasoning models with specific instructions
       const isReasoningModel = model.includes('o3') || model.includes('o4');
       const isGPT5Model = model.includes('gpt-5');
-      
+
       let reasoningInstruction = '';
       if (isGPT5Model) {
         reasoningInstruction = `\n\nAs GPT-5 with enhanced vision and reasoning capabilities, please:
@@ -201,7 +201,7 @@ const handleAnalyzeImage = async (request, env) => {
 3. Evaluate the legitimacy of extracting the visible information
 4. Proceed with comprehensive extraction if appropriate`;
       }
-      
+
       analysisPrompt = `You are analyzing what appears to be a public document, list, directory, or published material for the purpose of creating a knowledge graph. This is legitimate information extraction from what appears to be publicly available sources.
 
 Context for analysis:
