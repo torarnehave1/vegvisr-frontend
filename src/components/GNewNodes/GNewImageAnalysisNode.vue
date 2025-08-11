@@ -203,6 +203,36 @@
         </div>
       </div>
 
+      <!-- AI Context Detection Section -->
+      <div v-if="aiContext" class="ai-context-section">
+        <h6 class="context-title">
+          <span class="context-icon">🤖</span>
+          AI Context Detection
+        </h6>
+        <div class="context-display">
+          <div class="context-item">
+            <span class="context-label">Domain:</span>
+            <span class="context-value">{{ aiContext.domain }}</span>
+          </div>
+          <div class="context-item">
+            <span class="context-label">Geography:</span>
+            <span class="context-value">{{ aiContext.geography }}</span>
+          </div>
+          <div class="context-item">
+            <span class="context-label">Content Type:</span>
+            <span class="context-value">{{ aiContext.contentType }}</span>
+          </div>
+          <div class="context-item">
+            <span class="context-label">Suggested Graph:</span>
+            <span class="context-value">{{ aiContext.suggestedGraphType }}</span>
+          </div>
+          <div v-if="aiContext.suggestedNodeTypes" class="context-item">
+            <span class="context-label">Recommended Nodes:</span>
+            <span class="context-value">{{ aiContext.suggestedNodeTypes.join(', ') }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Analysis Options -->
       <div class="analysis-options">
         <div class="option-group">
@@ -213,8 +243,20 @@
         </div>
         <div class="option-group">
           <label class="option-checkbox">
+            <input type="checkbox" v-model="createAIGraph" />
+            <span class="option-label">🤖 Create New Knowledge AI-suggested graph structure</span>
+          </label>
+        </div>
+        <div class="option-group">
+          <label class="option-checkbox">
+            <input type="checkbox" v-model="createMultipleNodes" />
+            <span class="option-label">📊 Create multiple structured nodes in this Knowledge Graph</span>
+          </label>
+        </div>
+        <div class="option-group">
+          <label class="option-checkbox">
             <input type="checkbox" v-model="includeImageContext" />
-            <span class="option-label">🔗 Include image context in analysis</span>
+            <span class="option-label">🔗 Include image context in analysis (surroundings, metadata)</span>
           </label>
         </div>
       </div>
@@ -289,7 +331,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 // Props
 const props = defineProps({
@@ -320,10 +362,13 @@ const imagePreviewUrl = ref('')
 const analysisType = ref('general')
 const analysisPrompt = ref('')
 const createResultNode = ref(true)
+const createAIGraph = ref(false)
+const createMultipleNodes = ref(false)
 const includeImageContext = ref(false)
 const isAnalyzing = ref(false)
 const loadingMessage = ref('')
 const analysisResult = ref('')
+const aiContext = ref(null)
 const resultNodeCreated = ref(false)
 const error = ref('')
 const successMessage = ref('')
@@ -409,7 +454,8 @@ const loadImageFromUrl = async () => {
     }
 
     img.src = imageUrl.value
-  } catch (err) {
+  } catch (urlError) {
+    console.error('Image URL error:', urlError)
     error.value = 'Invalid image URL'
   }
 }
@@ -476,6 +522,12 @@ const analyzeImage = async () => {
         model: selectedModel.value,
         maxTokens: maxTokens.value,
         includeImageContext: includeImageContext.value,
+        enableContextDetection: createAIGraph.value || createMultipleNodes.value,
+        requestedOutputs: {
+          fulltext: createResultNode.value,
+          aiGraph: createAIGraph.value,
+          multipleNodes: createMultipleNodes.value,
+        },
       }
     } else {
       // File-based image - convert to base64
@@ -488,6 +540,12 @@ const analyzeImage = async () => {
         model: selectedModel.value,
         maxTokens: maxTokens.value,
         includeImageContext: includeImageContext.value,
+        enableContextDetection: createAIGraph.value || createMultipleNodes.value,
+        requestedOutputs: {
+          fulltext: createResultNode.value,
+          aiGraph: createAIGraph.value,
+          multipleNodes: createMultipleNodes.value,
+        },
       }
     }
 
@@ -518,15 +576,41 @@ const analyzeImage = async () => {
 
     analysisResult.value = data.analysis
 
+    // Store AI context if provided
+    if (data.context) {
+      aiContext.value = data.context
+      console.log('AI Context detected:', data.context)
+    }
+
     successMessage.value = 'Image analysis completed successfully!'
 
-    // Auto-create node if enabled
+    // Create nodes based on selected options
+    const createdNodes = []
+
+    // Create fulltext node if enabled
     if (createResultNode.value) {
-      await createFulltextNode()
+      const fulltextNode = await createFulltextNode()
+      if (fulltextNode) createdNodes.push(fulltextNode)
     }
-  } catch (err) {
-    error.value = err.message || 'Failed to analyze image'
-    console.error('Image analysis error:', err)
+
+    // Create AI-suggested graph structure if enabled
+    if (createAIGraph.value && data.graphStructure) {
+      const graphNodes = await createAIGraphStructure(data.graphStructure)
+      createdNodes.push(...graphNodes)
+    }
+
+    // Create multiple structured nodes if enabled
+    if (createMultipleNodes.value && data.structuredNodes) {
+      const structuredNodes = await createMultipleStructuredNodes(data.structuredNodes)
+      createdNodes.push(...structuredNodes)
+    }
+
+    if (createdNodes.length > 1) {
+      successMessage.value = `✅ Created ${createdNodes.length} nodes successfully!`
+    }
+  } catch (error) {
+    error.value = error.message || 'Failed to analyze image'
+    console.error('Image analysis error:', error)
   } finally {
     isAnalyzing.value = false
     loadingMessage.value = ''
@@ -545,8 +629,99 @@ const convertImageToBase64 = (file) => {
   })
 }
 
+const createAIGraphStructure = async (graphStructure) => {
+  if (!graphStructure || !graphStructure.nodes) return []
+
+  const createdNodes = []
+  let nodeIndex = 0
+
+  try {
+    for (const nodeData of graphStructure.nodes) {
+      const newNode = {
+        id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        label: nodeData.label || `AI Node ${nodeIndex + 1}`,
+        info: nodeData.content || nodeData.info || '',
+        type: nodeData.type || 'concept',
+        color: nodeData.color || '#e8f0ff',
+        visible: true,
+        x: (props.node.x || 0) + 300 + (nodeIndex * 200),
+        y: (props.node.y || 0) + 100 + (nodeIndex * 150),
+        bibl: [
+          `Generated from AI context analysis`,
+          `Domain: ${aiContext.value?.domain || 'Unknown'}`,
+          `Geography: ${aiContext.value?.geography || 'Unknown'}`,
+          `Created on ${new Date().toISOString().split('T')[0]}`,
+        ],
+      }
+
+      emit('node-created', newNode)
+      createdNodes.push(newNode)
+      nodeIndex++
+    }
+
+    successMessage.value = `✅ Created ${createdNodes.length} AI-suggested nodes!`
+    return createdNodes
+  } catch (error) {
+    console.error('Error creating AI graph structure:', error)
+    return createdNodes
+  }
+}
+
+const createMultipleStructuredNodes = async (structuredNodes) => {
+  if (!structuredNodes || !Array.isArray(structuredNodes)) return []
+
+  const createdNodes = []
+  let nodeIndex = 0
+
+  try {
+    for (const nodeData of structuredNodes) {
+      const newNode = {
+        id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        label: nodeData.label || nodeData.title || `Structured Node ${nodeIndex + 1}`,
+        info: nodeData.content || nodeData.description || nodeData.info || '',
+        type: nodeData.type || 'info',
+        color: getNodeColor(nodeData.type),
+        visible: true,
+        x: (props.node.x || 0) + 300,
+        y: (props.node.y || 0) + 100 + (nodeIndex * 120),
+        bibl: [
+          `Extracted from image analysis`,
+          `Analysis type: ${analysisType.value}`,
+          `Node type: ${nodeData.type || 'info'}`,
+          `Generated on ${new Date().toISOString().split('T')[0]}`,
+        ],
+      }
+
+      emit('node-created', newNode)
+      createdNodes.push(newNode)
+      nodeIndex++
+    }
+
+    successMessage.value = `✅ Created ${createdNodes.length} structured nodes!`
+    return createdNodes
+  } catch (error) {
+    console.error('Error creating structured nodes:', error)
+    return createdNodes
+  }
+}
+
+const getNodeColor = (nodeType) => {
+  const colorMap = {
+    fulltext: '#e8f5e8',
+    concept: '#e8f0ff',
+    person: '#fff0e8',
+    location: '#f0fff0',
+    object: '#ffe8f0',
+    technical: '#f0f8ff',
+    medical: '#fff8e8',
+    economic: '#e8fff8',
+    default: '#f8f8f8',
+  }
+  return colorMap[nodeType] || colorMap.default
+}
+
 const createFulltextNode = async () => {
-  if (!analysisResult.value) return
+  if (!analysisResult.value) return null
 
   try {
     const newNode = {
@@ -567,10 +742,11 @@ const createFulltextNode = async () => {
 
     emit('node-created', newNode)
     resultNodeCreated.value = true
-    successMessage.value = 'Fulltext node created with analysis results!'
-  } catch (err) {
+    return newNode
+  } catch (error) {
     error.value = 'Failed to create fulltext node'
-    console.error('Node creation error:', err)
+    console.error('Node creation error:', error)
+    return null
   }
 }
 
@@ -580,14 +756,16 @@ const copyResult = async () => {
   try {
     await navigator.clipboard.writeText(analysisResult.value)
     successMessage.value = 'Analysis result copied to clipboard!'
-  } catch (err) {
+  } catch (error) {
     error.value = 'Failed to copy result to clipboard'
+    console.error('Copy error:', error)
   }
 }
 
 const resetAnalysis = () => {
   clearImage()
   analysisResult.value = ''
+  aiContext.value = null
   resultNodeCreated.value = false
   error.value = ''
   successMessage.value = ''
@@ -1180,5 +1358,56 @@ watch(analysisType, updateAnalysisPrompt)
 
 .paste-area:hover .paste-text {
   color: #007bff;
+}
+
+/* AI Context Section */
+.ai-context-section {
+  background: #f8f9ff;
+  border: 1px solid #e0e8ff;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.context-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.context-icon {
+  font-size: 1.2rem;
+}
+
+.context-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.context-label {
+  font-weight: 500;
+  color: #555;
+  min-width: 100px;
+}
+
+.context-value {
+  color: #333;
+  background: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+  flex: 1;
 }
 </style>
