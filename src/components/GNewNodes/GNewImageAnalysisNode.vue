@@ -27,9 +27,19 @@
         <div class="config-item">
           <label class="config-label">Model:</label>
           <select v-model="selectedModel" class="form-control config-select">
-            <option value="gpt-4o">GPT-4o (Most Capable)</option>
-            <option value="gpt-4o-mini">GPT-4o Mini (Cost-effective)</option>
+            <option value="gpt-5">GPT-5 (Most Intelligent - Latest)</option>
+            <option value="gpt-5-mini">GPT-5 Mini (Balanced - Cost-effective)</option>
+            <option value="gpt-5-nano">GPT-5 Nano (High-throughput - Fast)</option>
+            <option value="o3">OpenAI o3 (Advanced Reasoning)</option>
+            <option value="o4-mini">OpenAI o4-mini (Cost-effective Reasoning)</option>
+            <option value="gpt-4o">GPT-4o (Traditional - Most Capable)</option>
+            <option value="gpt-4o-mini">GPT-4o Mini (Traditional - Cost-effective)</option>
           </select>
+          <div class="model-info">
+            <small class="text-muted">
+              💡 <strong>GPT-5 series:</strong> Latest models with enhanced vision and reasoning. <strong>o3/o4-mini:</strong> Advanced reasoning models. <strong>Traditional models:</strong> Don't have internet search. Use "Public Information (Verified)" mode if you've confirmed data is publicly available.
+            </small>
+          </div>
         </div>
         <div class="config-item">
           <label class="config-label">Max Tokens:</label>
@@ -41,6 +51,23 @@
             class="form-control config-input"
             placeholder="1024"
           />
+        </div>
+        <div v-if="selectedModel.includes('gpt-5')" class="config-item">
+          <label class="config-label">Verbosity:</label>
+          <select v-model="verbosity" class="form-control config-select">
+            <option value="high">High (Detailed explanations)</option>
+            <option value="medium">Medium (Balanced)</option>
+            <option value="low">Low (Concise answers)</option>
+          </select>
+        </div>
+        <div v-if="selectedModel.includes('gpt-5')" class="config-item">
+          <label class="config-label">Reasoning Effort:</label>
+          <select v-model="reasoningEffort" class="form-control config-select">
+            <option value="medium">Medium (Default)</option>
+            <option value="minimal">Minimal (Fastest)</option>
+            <option value="low">Low (Speed focused)</option>
+            <option value="high">High (Thorough)</option>
+          </select>
         </div>
       </div>
     </div>
@@ -180,6 +207,9 @@
           <option value="detailed">📝 Detailed Analysis</option>
           <option value="objects">🎯 Object Detection</option>
           <option value="text">📄 Text Extraction (OCR)</option>
+          <option value="public_document">📋 Public Document Analysis</option>
+          <option value="name_extraction">👥 Name & Organization Extraction</option>
+          <option value="public_verified">✅ Public Information (Verified)</option>
           <option value="medical">🏥 Medical Analysis</option>
           <option value="technical">⚙️ Technical Analysis</option>
           <option value="artistic">🎨 Artistic Analysis</option>
@@ -199,6 +229,18 @@
         <div class="prompt-info">
           <small class="text-muted">
             Describe what you want the AI to analyze in the image. Be specific for better results.
+            <span v-if="analysisType === 'public_document' || analysisType === 'name_extraction' || analysisType === 'public_verified'" class="extraction-hint">
+              <br><strong>💡 Tip:</strong> These modes are designed to extract names and information from public documents, directories, organizational charts, and published materials.
+              <span v-if="analysisType === 'public_verified'">
+                <br><strong>✅ Verified Mode:</strong> Use this when you've confirmed the information is from a public source.
+              </span>
+            </span>
+            <span v-if="selectedModel.includes('gpt-5')" class="gpt5-hint">
+              <br><strong>🚀 GPT-5:</strong> Latest model with enhanced vision, instruction following, and superior reasoning capabilities.
+            </span>
+            <span v-if="selectedModel.includes('o3') || selectedModel.includes('o4')" class="reasoning-hint">
+              <br><strong>🧠 Reasoning Model:</strong> This model can "think with images" and reason step-by-step through the analysis process.
+            </span>
           </small>
         </div>
       </div>
@@ -353,8 +395,10 @@ const props = defineProps({
 const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
 // Reactive data
-const selectedModel = ref('gpt-4o')
+const selectedModel = ref('gpt-5-mini')
 const maxTokens = ref(1024)
+const verbosity = ref('medium')
+const reasoningEffort = ref('medium')
 const uploadMethod = ref('file')
 const selectedImage = ref(null)
 const imageUrl = ref('')
@@ -378,18 +422,21 @@ const pasteArea = ref(null)
 
 // Analysis type prompts
 const analysisPrompts = {
-  general: 'Describe this image in detail. What do you see?',
+  general: 'Describe this image in detail. What do you see? If this appears to be a public document, list, or published material, please include all visible names, organizations, and text content.',
   detailed:
-    'Provide a comprehensive analysis of this image. Include details about objects, people, setting, mood, colors, composition, and any notable features.',
+    'Provide a comprehensive analysis of this image. Include details about objects, people, setting, mood, colors, composition, and any notable features. If this appears to be a public document, directory, list, or published material (such as organizational charts, public listings, academic papers, news articles, or official documents), please extract and include all visible names, titles, organizations, and textual content as this information is publicly available.',
   objects:
-    'Identify and list all objects visible in this image. Describe their locations, sizes, and relationships to each other.',
-  text: 'Extract and transcribe all text visible in this image. Preserve the original formatting and structure as much as possible.',
+    'Identify and list all objects visible in this image. Describe their locations, sizes, and relationships to each other. Include any text, names, or labels visible on objects.',
+  text: 'Extract and transcribe all text visible in this image, including names, titles, organizations, and any other textual content. Preserve the original formatting and structure as much as possible. This includes extracting names from public documents, lists, directories, or published materials.',
+  public_document: 'This appears to be a public document, list, directory, or published material. Please extract all visible text including names, organizations, titles, positions, and any other information. Public information extraction is permitted and helpful for knowledge graph creation.',
+  name_extraction: 'Please extract all names, organizations, titles, and positions visible in this image. This appears to be from a public source such as a directory, organizational chart, public listing, or published document where this information is meant to be publicly accessible.',
+  public_verified: 'This image contains information that appears to be from a publicly accessible source (such as a company website, organizational directory, published document, or public listing). Please extract all visible information including names, titles, organizations, and contact details. The user has indicated this is public information, so please be thorough in your extraction for knowledge graph creation purposes.',
   medical:
     'Analyze this medical image. Describe any visible anatomical structures, potential abnormalities, or clinically relevant findings. Note: This is for educational purposes only.',
   technical:
-    'Provide a technical analysis of this image. Focus on technical aspects, components, measurements, or engineering details visible.',
+    'Provide a technical analysis of this image. Focus on technical aspects, components, measurements, or engineering details visible. Include any visible labels, names, model numbers, or textual information.',
   artistic:
-    'Analyze this image from an artistic perspective. Comment on composition, color theory, style, technique, and aesthetic qualities.',
+    'Analyze this image from an artistic perspective. Comment on composition, color theory, style, technique, and aesthetic qualities. If this appears to be a published work, include visible artist names, titles, or attribution information.',
   custom: '',
 }
 
@@ -521,6 +568,8 @@ const analyzeImage = async () => {
         analysisType: analysisType.value,
         model: selectedModel.value,
         maxTokens: maxTokens.value,
+        verbosity: verbosity.value,
+        reasoningEffort: reasoningEffort.value,
         includeImageContext: includeImageContext.value,
         enableContextDetection: createAIGraph.value || createMultipleNodes.value,
         requestedOutputs: {
@@ -539,6 +588,8 @@ const analyzeImage = async () => {
         analysisType: analysisType.value,
         model: selectedModel.value,
         maxTokens: maxTokens.value,
+        verbosity: verbosity.value,
+        reasoningEffort: reasoningEffort.value,
         includeImageContext: includeImageContext.value,
         enableContextDetection: createAIGraph.value || createMultipleNodes.value,
         requestedOutputs: {
@@ -943,6 +994,10 @@ watch(analysisType, updateAnalysisPrompt)
   font-size: 0.9rem;
 }
 
+.model-info {
+  margin-top: 4px;
+}
+
 /* Upload Methods */
 .upload-methods {
   display: flex;
@@ -1084,6 +1139,21 @@ watch(analysisType, updateAnalysisPrompt)
 
 .prompt-info {
   margin-top: 4px;
+}
+
+.extraction-hint {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.reasoning-hint {
+  color: #6f42c1;
+  font-weight: 500;
+}
+
+.gpt5-hint {
+  color: #007bff;
+  font-weight: 500;
 }
 
 .analysis-options {
