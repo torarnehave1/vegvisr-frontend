@@ -1,82 +1,102 @@
 <template>
   <div class="gnew-node-control-bar">
-    <!-- Reordering Actions Group -->
-    <div class="control-group reorder-group">
-      <div class="reorder-mini">
+    <!-- Control Bar Header with Toggle -->
+    <div class="control-bar-header">
+      <!-- Toggle Button for Node Content -->
+      <button
+        @click="$emit('toggle-content')"
+        class="control-btn toggle-btn"
+        :title="isCollapsed ? 'Expand Node Content' : 'Collapse Node Content'"
+        :aria-label="isCollapsed ? 'Expand node content' : 'Collapse node content'"
+      >
+        <span class="icon">{{ isCollapsed ? '🔽' : '🔼' }}</span>
+        <span class="btn-text">{{ isCollapsed ? 'Show' : 'Hide' }}</span>
+      </button>
+
+      <!-- Node Type and Position Info -->
+      <div class="node-info">
+        <span class="node-type-badge">{{ nodeType }}</span>
+        <span class="position-info">{{ position }}/{{ total }}</span>
+      </div>
+    </div>
+
+    <!-- Always Visible: Full Control Groups -->
+    <div class="control-groups-container">
+      <!-- Reordering Actions Group -->
+      <div class="control-group reorder-group">
+        <div class="reorder-mini">
+          <button
+            @click="$emit('move-up')"
+            :disabled="isFirst"
+            class="control-btn reorder-btn"
+            title="Move Up"
+            :aria-label="`Move ${nodeType} node up`"
+          >
+            <span class="icon">⬆️</span>
+          </button>
+          <button
+            @click="$emit('move-down')"
+            :disabled="isLast"
+            class="control-btn reorder-btn"
+            title="Move Down"
+            :aria-label="`Move ${nodeType} node down`"
+          >
+            <span class="icon">⬇️</span>
+          </button>
+        </div>
+
         <button
-          @click="$emit('move-up')"
-          :disabled="isFirst"
+          @click="$emit('open-reorder')"
           class="control-btn reorder-btn"
-          title="Move Up"
-          :aria-label="`Move ${nodeType} node up`"
+          title="Reorder All Nodes (Draggable Modal)"
+          aria-label="Open reorder modal for all nodes"
         >
-          <span class="icon">⬆️</span>
-        </button>
-        <span class="position-mini" :title="`Position ${position} of ${total}`">
-          {{ position }}/{{ total }}
-        </span>
-        <button
-          @click="$emit('move-down')"
-          :disabled="isLast"
-          class="control-btn reorder-btn"
-          title="Move Down"
-          :aria-label="`Move ${nodeType} node down`"
-        >
-          <span class="icon">⬇️</span>
+          <span class="icon">📋</span>
+          <span class="btn-text">Order</span>
         </button>
       </div>
 
-      <button
-        @click="$emit('open-reorder')"
-        class="control-btn reorder-btn"
-        title="Reorder All Nodes (Draggable Modal)"
-        aria-label="Open reorder modal for all nodes"
-      >
-        <span class="icon">📋</span>
-        <span class="btn-text">Order</span>
-      </button>
-    </div>
+      <!-- AI Formatting & Content Actions Group -->
+      <div class="control-group format-group">
+        <button
+          @click="$emit('format-node')"
+          class="control-btn ai-format-btn"
+          title="Format by AI"
+          :aria-label="`Format ${nodeType} node using AI`"
+        >
+          <span class="icon">🤖</span>
+          <span class="btn-text">Format by AI</span>
+        </button>
 
-    <!-- AI Formatting & Content Actions Group -->
-    <div class="control-group format-group">
-      <button
-        @click="$emit('format-node')"
-        class="control-btn ai-format-btn"
-        title="Format by AI"
-        :aria-label="`Format ${nodeType} node using AI`"
-      >
-        <span class="icon">🤖</span>
-        <span class="btn-text">Format by AI</span>
-      </button>
+        <button
+          @click="$emit('quick-format', 'add_work_notes')"
+          class="control-btn quick-btn"
+          title="Add Work Notes"
+          :aria-label="`Add work notes to ${nodeType} node`"
+        >
+          <span class="icon">📝</span>
+          <span class="btn-text">Work Notes</span>
+        </button>
+      </div>
 
-      <button
-        @click="$emit('quick-format', 'add_work_notes')"
-        class="control-btn quick-btn"
-        title="Add Work Notes"
-        :aria-label="`Add work notes to ${nodeType} node`"
-      >
-        <span class="icon">📝</span>
-        <span class="btn-text">Work Notes</span>
-      </button>
-    </div>
-
-    <!-- Copy Actions Group -->
-    <div class="control-group copy-group">
-      <button
-        @click="$emit('copy-node')"
-        class="control-btn copy-btn"
-        title="Copy to Another Graph"
-        :aria-label="`Copy ${nodeType} node to another graph`"
-      >
-        <span class="icon">📋</span>
-        <span class="btn-text">Copy</span>
-      </button>
+      <!-- Copy Actions Group -->
+      <div class="control-group copy-group">
+        <button
+          @click="$emit('copy-node')"
+          class="control-btn copy-btn"
+          title="Copy to Another Graph"
+          :aria-label="`Copy ${nodeType} node to another graph`"
+        >
+          <span class="icon">📋</span>
+          <span class="btn-text">Copy</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-const props = defineProps({
+defineProps({
   nodeType: {
     type: String,
     default: 'node',
@@ -101,24 +121,68 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  isCollapsed: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 // Events this component emits
-defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-format', 'copy-node'])
+defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-format', 'copy-node', 'toggle-content'])
 </script>
 
 <style scoped>
 .gnew-node-control-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 12px;
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
   border: 1px solid #dee2e6;
   border-radius: 8px;
   margin-bottom: 15px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  padding: 8px 12px;
+}
+
+/* Header section with toggle and info */
+.control-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.node-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-type-badge {
+  background: #6c757d;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.position-info {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+/* Control groups container */
+.control-groups-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
 }
 
 .control-group {
@@ -160,6 +224,7 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  min-height: 32px;
 }
 
 .control-btn:hover:not(:disabled) {
@@ -177,6 +242,17 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
   opacity: 0.5;
   cursor: not-allowed;
   background: #f8f9fa;
+}
+
+/* Toggle button styling */
+.toggle-btn {
+  background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+  color: white;
+  font-weight: 600;
+}
+
+.toggle-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #495057 0%, #343a40 100%);
 }
 
 .reorder-btn {
@@ -221,17 +297,6 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
   gap: 4px;
 }
 
-.position-mini {
-  font-size: 0.75rem;
-  color: #666;
-  font-weight: 600;
-  min-width: 32px;
-  text-align: center;
-  padding: 2px 4px;
-  background: rgba(255, 255, 255, 0.8);
-  border-radius: 3px;
-}
-
 .icon {
   font-size: 1rem;
   line-height: 1;
@@ -245,9 +310,18 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
 /* Responsive design */
 @media (max-width: 768px) {
   .gnew-node-control-bar {
+    margin-bottom: 10px;
+  }
+
+  .control-bar-header {
+    flex-direction: column;
+    gap: 6px;
+    text-align: center;
+  }
+
+  .control-groups-container {
     flex-direction: column;
     gap: 8px;
-    padding: 6px 8px;
   }
 
   .control-group {
@@ -269,6 +343,11 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
   .reorder-mini {
     width: 100%;
     justify-content: center;
+  }
+
+  /* Keep toggle button text visible on mobile */
+  .toggle-btn .btn-text {
+    display: inline;
   }
 }
 
