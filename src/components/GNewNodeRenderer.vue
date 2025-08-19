@@ -250,7 +250,7 @@ const toggleNodeContent = () => {
 const getCollapsedPreview = () => {
   const label = props.node.label || 'Untitled'
   const info = props.node.info || ''
-  
+
   // Show first 100 characters of content as preview
   const preview = info.substring(0, 100)
   return preview ? `${label}: ${preview}${info.length > 100 ? '...' : ''}` : label
