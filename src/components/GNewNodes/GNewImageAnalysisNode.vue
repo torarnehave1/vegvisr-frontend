@@ -27,17 +27,13 @@
         <div class="config-item">
           <label class="config-label">Model:</label>
           <select v-model="selectedModel" class="form-control config-select">
-            <option value="gpt-5">GPT-5 (Most Intelligent - Latest)</option>
-            <option value="gpt-5-mini">GPT-5 Mini (Balanced - Cost-effective)</option>
-            <option value="gpt-5-nano">GPT-5 Nano (High-throughput - Fast)</option>
-            <option value="o3">OpenAI o3 (Advanced Reasoning)</option>
-            <option value="o4-mini">OpenAI o4-mini (Cost-effective Reasoning)</option>
-            <option value="gpt-4o">GPT-4o (Traditional - Most Capable)</option>
-            <option value="gpt-4o-mini">GPT-4o Mini (Traditional - Cost-effective)</option>
+            <option value="gpt-4o">GPT-4o (Most Capable Vision Model)</option>
+            <option value="gpt-4o-mini">GPT-4o Mini (Cost-effective Vision Model)</option>
+            <option value="gpt-4-vision-preview">GPT-4 Vision Preview (Legacy)</option>
           </select>
           <div class="model-info">
             <small class="text-muted">
-              💡 <strong>GPT-5 series:</strong> Latest models with enhanced vision and reasoning. <strong>o3/o4-mini:</strong> Advanced reasoning models. <strong>Traditional models:</strong> Don't have internet search. Use "Public Information (Verified)" mode if you've confirmed data is publicly available.
+              💡 <strong>GPT-4o:</strong> Latest and most capable vision model with enhanced understanding. <strong>GPT-4o Mini:</strong> Cost-effective alternative with good performance. <strong>GPT-4 Vision Preview:</strong> Legacy model for compatibility.
             </small>
           </div>
         </div>
@@ -52,7 +48,7 @@
             placeholder="1024"
           />
         </div>
-        <div v-if="selectedModel.includes('gpt-5')" class="config-item">
+        <div v-if="false" class="config-item">
           <label class="config-label">Verbosity:</label>
           <select v-model="verbosity" class="form-control config-select">
             <option value="high">High (Detailed explanations)</option>
@@ -60,7 +56,7 @@
             <option value="low">Low (Concise answers)</option>
           </select>
         </div>
-        <div v-if="selectedModel.includes('gpt-5')" class="config-item">
+        <div v-if="false" class="config-item">
           <label class="config-label">Reasoning Effort:</label>
           <select v-model="reasoningEffort" class="form-control config-select">
             <option value="medium">Medium (Default)</option>
@@ -235,11 +231,8 @@
                 <br><strong>✅ Verified Mode:</strong> Use this when you've confirmed the information is from a public source.
               </span>
             </span>
-            <span v-if="selectedModel.includes('gpt-5')" class="gpt5-hint">
-              <br><strong>🚀 GPT-5:</strong> Latest model with enhanced vision, instruction following, and superior reasoning capabilities.
-            </span>
-            <span v-if="selectedModel.includes('o3') || selectedModel.includes('o4')" class="reasoning-hint">
-              <br><strong>🧠 Reasoning Model:</strong> This model can "think with images" and reason step-by-step through the analysis process.
+            <span v-if="selectedModel === 'gpt-4o'" class="gpt4o-hint">
+              <br><strong>🚀 GPT-4o:</strong> Latest vision model with enhanced image understanding and reasoning capabilities.
             </span>
           </small>
         </div>
@@ -395,7 +388,7 @@ const props = defineProps({
 const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
 // Reactive data
-const selectedModel = ref('gpt-5-mini')
+const selectedModel = ref('gpt-4o-mini')
 const maxTokens = ref(1024)
 const verbosity = ref('medium')
 const reasoningEffort = ref('medium')
