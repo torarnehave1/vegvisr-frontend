@@ -11,10 +11,7 @@
   >
     <div class="reel-viewport">
       <!-- Container that slides left/right -->
-      <div 
-        class="reel-container" 
-        :style="{ transform: `translateX(-${currentIndex * 100}%)` }"
-      >
+      <div class="reel-container" :style="{ transform: `translateX(-${currentIndex * 100}%)` }">
         <div
           v-for="(slide, index) in slides"
           :key="`slide-${index}-${slide?.substring(0, 50) || 'empty'}`"
