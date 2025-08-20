@@ -183,25 +183,6 @@ const handleAnalyzeImage = async (request, env) => {
         ? 'The user has confirmed this information is from a publicly accessible source and has verified its public nature.'
         : 'This appears to be from a public or published source.';
 
-      // Enhanced prompting for reasoning models with specific instructions
-      const isReasoningModel = model.includes('o3') || model.includes('o4');
-      const isGPT5Model = model.includes('gpt-5');
-
-      let reasoningInstruction = '';
-      if (isGPT5Model) {
-        reasoningInstruction = `\n\nAs GPT-5 with enhanced vision and reasoning capabilities, please:
-1. Use your improved instruction following to carefully analyze the document type
-2. Apply your superior reasoning to determine if this is legitimate public information
-3. Leverage your enhanced vision capabilities to extract all visible text accurately
-4. Be thorough yet efficient in your extraction process`;
-      } else if (isReasoningModel) {
-        reasoningInstruction = `\n\nAs a reasoning model, please think through this step-by-step:
-1. First, analyze what type of document this appears to be
-2. Consider whether the information seems to be from a public source
-3. Evaluate the legitimacy of extracting the visible information
-4. Proceed with comprehensive extraction if appropriate`;
-      }
-
       analysisPrompt = `You are analyzing what appears to be a public document, list, directory, or published material for the purpose of creating a knowledge graph. This is legitimate information extraction from what appears to be publicly available sources.
 
 Context for analysis:
@@ -209,7 +190,7 @@ Context for analysis:
 - The user is requesting extraction of visible information for knowledge management
 - Names and organizational information in public documents are meant to be accessible
 - This is similar to reading information from a business directory, organizational chart, or published document
-- The purpose is educational/informational knowledge graph creation${reasoningInstruction}
+- The purpose is educational/informational knowledge graph creation
 
 ${analysisPrompt}
 
@@ -266,58 +247,30 @@ Suggested Node Types: [list recommended node types like economic_entity, concept
       }
     }
 
-    // Prepare OpenAI API request - use Responses API for GPT-5, Chat Completions for others
-    const isGPT5 = model.includes('gpt-5')
-    let openaiRequest, apiEndpoint
-
-    if (isGPT5) {
-      // Use Responses API for GPT-5
-      openaiRequest = {
-        model: model,
-        input: [
-          imageData,
-          {
-            type: 'text',
-            text: analysisPrompt,
-          },
-        ],
-        reasoning: {
-          effort: reasoningEffort,
+    // Prepare OpenAI API request - use Chat Completions API for all models
+    const openaiRequest = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            imageData,
+            {
+              type: 'text',
+              text: analysisPrompt,
+            },
+          ],
         },
-        text: {
-          verbosity: verbosity,
-        },
-        max_tokens: maxTokens,
-      }
-      apiEndpoint = 'https://api.openai.com/v1/responses'
-    } else {
-      // Use Chat Completions API for other models
-      openaiRequest = {
-        model: model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              imageData,
-              {
-                type: 'text',
-                text: analysisPrompt,
-              },
-            ],
-          },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.1,
-      }
-      apiEndpoint = 'https://api.openai.com/v1/chat/completions'
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.1,
     }
+    const apiEndpoint = 'https://api.openai.com/v1/chat/completions'
 
     console.log('📤 Sending request to OpenAI API:', {
       model: openaiRequest.model,
       endpoint: apiEndpoint,
       maxTokens: openaiRequest.max_tokens,
-      verbosity: isGPT5 ? verbosity : 'N/A',
-      reasoningEffort: isGPT5 ? reasoningEffort : 'N/A',
     })
 
     // Call OpenAI API
@@ -346,20 +299,10 @@ Suggested Node Types: [list recommended node types like economic_entity, concept
       choicesCount: openaiData.choices?.length || 0,
     })
 
-    // Extract analysis result based on API type
-    let analysisResult
-    if (isGPT5) {
-      // Responses API format
-      analysisResult = openaiData.text?.content
-      if (!analysisResult) {
-        return createErrorResponse('No analysis result received from GPT-5', 500)
-      }
-    } else {
-      // Chat Completions API format
-      analysisResult = openaiData.choices[0]?.message?.content
-      if (!analysisResult) {
-        return createErrorResponse('No analysis result received from OpenAI', 500)
-      }
+    // Extract analysis result from Chat Completions API
+    let analysisResult = openaiData.choices[0]?.message?.content
+    if (!analysisResult) {
+      return createErrorResponse('No analysis result received from OpenAI', 500)
     }
 
     // Parse context and structured data if context detection was enabled
