@@ -2253,6 +2253,28 @@ export default {
 /* Multi-Domain Management Styles */
 .domain-list {
   margin-bottom: 20px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* Custom scrollbar for domain list */
+.domain-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.domain-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.domain-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.domain-list::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
 }
 
 .domain-item {

@@ -227,9 +227,9 @@ async function handleSubscribe(request, env, corsHeaders) {
       }
     }
 
-    // Notify external server (sloyou.io)
+    // Notify external server (slowyou.io)
     try {
-      await fetch('https://sloyou.io/api/subscription-created', {
+      await fetch('https://slowyou.io/api/subscription-created', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -350,7 +350,7 @@ async function handleUnsubscribe(request, env, corsHeaders) {
 
     // Notify external server
     try {
-      await fetch('https://sloyou.io/api/subscription-cancelled', {
+      await fetch('https://slowyou.io/api/subscription-cancelled', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
