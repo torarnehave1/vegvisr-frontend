@@ -1858,3 +1858,142 @@ html body div[style*='display: grid'] .grid-item img {
   font-weight: 600 !important;
   color: #333 !important;
 }
+
+/* Image Analysis Multi-Image Grid Styles */
+/* Override Bootstrap grid conflicts */
+.gnew-image-analysis-node .image-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+  gap: 16px !important;
+  margin-top: 16px !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+.gnew-image-analysis-node .image-preview-item {
+  position: relative !important;
+  border: 1px solid #ddd !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: #f9f9f9 !important;
+  aspect-ratio: 4/3 !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.gnew-image-analysis-node .image-preview-item:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.gnew-image-analysis-node .image-preview-item img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Also keep the old selectors for any remaining usage */
+.gnew-image-analysis-node .image-collection {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+  gap: 16px !important;
+  margin-top: 16px !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+.gnew-image-analysis-node .collection-image {
+  position: relative !important;
+  border: 1px solid #ddd !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: #f9f9f9 !important;
+  aspect-ratio: 4/3 !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.gnew-image-analysis-node .collection-image:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.gnew-image-analysis-node .collection-image img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.gnew-image-analysis-node .image-controls {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  display: flex !important;
+  gap: 4px !important;
+  z-index: 10 !important;
+}
+
+.gnew-image-analysis-node .control-btn {
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 3px !important;
+  width: 24px !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  font-size: 12px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.gnew-image-analysis-node .control-btn:hover {
+  background: rgba(0, 0, 0, 0.9) !important;
+}
+
+.gnew-image-analysis-node .image-order {
+  position: absolute !important;
+  bottom: 4px !important;
+  left: 4px !important;
+  background: rgba(0, 122, 204, 0.9) !important;
+  color: white !important;
+  border-radius: 3px !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+  font-weight: bold !important;
+  z-index: 10 !important;
+}
+
+/* Responsive adjustments for image collection */
+@media (max-width: 768px) {
+  .gnew-image-analysis-node .image-grid,
+  .gnew-image-analysis-node .image-collection {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .gnew-image-analysis-node .image-grid,
+  .gnew-image-analysis-node .image-collection {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .gnew-image-analysis-node .comparison-container {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+}

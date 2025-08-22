@@ -78,6 +78,197 @@ const getAnalysisPrompt = (analysisType, customPrompt = '') => {
   return prompts[analysisType] || prompts.general
 }
 
+// Collection analysis prompts
+const getCollectionPrompt = (collectionType, customPrompt = '') => {
+  const prompts = {
+    recipe_ingredients: `
+      Analyze these ingredients as a complete recipe collection:
+      1. Identify each ingredient visible
+      2. Estimate quantities where possible
+      3. Determine what type of dish this could make
+      4. Assess if ingredients are complete for the recipe
+      5. Note any missing essential ingredients
+      6. Provide cooking suggestions or recipe steps
+
+      Format your response with:
+      [INGREDIENTS_START]
+      List each ingredient with: name, quantity, category
+      [INGREDIENTS_END]
+
+      [RECIPE_ANALYSIS_START]
+      Recipe type, difficulty, estimated time, completeness assessment
+      [RECIPE_ANALYSIS_END]
+
+      [SUGGESTIONS_START]
+      Missing ingredients, cooking tips, recipe improvements
+      [SUGGESTIONS_END]
+    `,
+
+    packing_list: `
+      Analyze these items as a packing/equipment list:
+      1. Categorize each item (clothing, tools, food, etc.)
+      2. Identify the likely purpose/destination (hiking, travel, work, etc.)
+      3. Assess completeness for the intended purpose
+      4. Note any critical missing items
+      5. Suggest additions or removals
+
+      Format your response with:
+      [ITEMS_START]
+      List each item with: name, category, purpose
+      [ITEMS_END]
+
+      [PURPOSE_ANALYSIS_START]
+      Likely destination/activity, preparation level, completeness score
+      [PURPOSE_ANALYSIS_END]
+
+      [RECOMMENDATIONS_START]
+      Missing items, suggestions, improvements
+      [RECOMMENDATIONS_END]
+    `,
+
+    sequence_story: `
+      Analyze these images as a sequence/story:
+      1. Describe the progression through each image
+      2. Identify the timeline and story arc
+      3. Note key changes between images
+      4. Provide overall narrative summary
+
+      Format your response with:
+      [SEQUENCE_START]
+      Image-by-image progression description
+      [SEQUENCE_END]
+
+      [STORY_ARC_START]
+      Beginning, middle, end, overall narrative
+      [STORY_ARC_END]
+
+      [CHANGES_START]
+      Key changes, transitions, developments
+      [CHANGES_END]
+    `,
+
+    product_collection: `
+      Analyze these items as a product collection:
+      1. Categorize products by type and function
+      2. Identify brand/style consistency
+      3. Assess collection completeness and theme
+      4. Note quality and condition of items
+
+      Format your response with:
+      [PRODUCTS_START]
+      List each product with: name, category, brand, condition
+      [PRODUCTS_END]
+
+      [COLLECTION_ANALYSIS_START]
+      Theme, consistency, quality assessment, completeness
+      [COLLECTION_ANALYSIS_END]
+
+      [INSIGHTS_START]
+      Collection insights, missing items, recommendations
+      [INSIGHTS_END]
+    `,
+
+    custom: customPrompt || 'Analyze this collection of images as a cohesive whole.'
+  }
+
+  return prompts[collectionType] || prompts.custom
+}
+
+// Comparison analysis prompts
+const getComparisonPrompt = (comparisonType, customPrompt = '') => {
+  const prompts = {
+    spot_differences: `
+      Compare these two images systematically:
+      1. Examine every area for visual differences
+      2. Note additions, removals, or changes
+      3. Describe the location of each difference
+      4. Rate the significance of each change
+      5. Provide a comprehensive difference summary
+
+      Format your response with:
+      [DIFFERENCES_START]
+      List each difference with: location, description, significance (high/medium/low)
+      [DIFFERENCES_END]
+
+      [SIMILARITY_SCORE_START]
+      Overall similarity percentage and assessment
+      [SIMILARITY_SCORE_END]
+
+      [SUMMARY_START]
+      Overall comparison summary and key findings
+      [SUMMARY_END]
+    `,
+
+    before_after: `
+      Analyze the transformation between these images:
+      1. Describe the overall change or improvement
+      2. List specific modifications made
+      3. Assess the quality of the transformation
+      4. Note any positive or negative aspects
+      5. Suggest further improvements if applicable
+
+      Format your response with:
+      [CHANGES_START]
+      Major changes, minor changes, improvements
+      [CHANGES_END]
+
+      [ASSESSMENT_START]
+      Quality of transformation, positive/negative aspects
+      [ASSESSMENT_END]
+
+      [RECOMMENDATIONS_START]
+      Further improvement suggestions
+      [RECOMMENDATIONS_END]
+    `,
+
+    quality_comparison: `
+      Compare the quality, condition, or state of objects in these images:
+      1. Rate quality/condition of items in each image
+      2. Identify wear, damage, or deterioration
+      3. Compare overall state and functionality
+      4. Provide quality scores and recommendations
+
+      Format your response with:
+      [QUALITY_SCORES_START]
+      Image A quality score, Image B quality score, comparison
+      [QUALITY_SCORES_END]
+
+      [CONDITION_ANALYSIS_START]
+      Detailed condition assessment, wear patterns, damage
+      [CONDITION_ANALYSIS_END]
+
+      [RECOMMENDATIONS_START]
+      Maintenance suggestions, replacement needs, improvements
+      [RECOMMENDATIONS_END]
+    `,
+
+    variant_analysis: `
+      Compare these product/item variants:
+      1. Identify different features, colors, sizes, or specifications
+      2. Note design variations and functional differences
+      3. Assess which variant might be better for different use cases
+      4. Provide comparative analysis of pros and cons
+
+      Format your response with:
+      [VARIANTS_START]
+      Feature differences, specifications, design variations
+      [VARIANTS_END]
+
+      [COMPARISON_START]
+      Pros and cons of each variant, use case recommendations
+      [COMPARISON_END]
+
+      [VERDICT_START]
+      Overall recommendation based on typical use cases
+      [VERDICT_END]
+    `,
+
+    custom: customPrompt || 'Compare these two images and identify key differences.'
+  }
+
+  return prompts[comparisonType] || prompts.custom
+}
+
 // Parse context data from AI response
 const parseContextData = (contextText) => {
   const context = {}
@@ -123,7 +314,582 @@ const parseContextData = (contextText) => {
   }
 }
 
-// Main image analysis handler
+// Parse collection analysis data
+const parseCollectionData = (analysisText) => {
+  const result = {
+    ingredients: [],
+    items: [],
+    products: [],
+    sequence: [],
+    analysis: {},
+    suggestions: [],
+    cleanAnalysis: analysisText
+  }
+
+  try {
+    // Parse ingredients (for recipe analysis)
+    const ingredientsMatch = analysisText.match(/\[INGREDIENTS_START\](.*?)\[INGREDIENTS_END\]/s)
+    if (ingredientsMatch) {
+      result.ingredients = parseListSection(ingredientsMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[INGREDIENTS_START\].*?\[INGREDIENTS_END\]/s, '').trim()
+    }
+
+    // Parse items (for packing list analysis)
+    const itemsMatch = analysisText.match(/\[ITEMS_START\](.*?)\[ITEMS_END\]/s)
+    if (itemsMatch) {
+      result.items = parseListSection(itemsMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[ITEMS_START\].*?\[ITEMS_END\]/s, '').trim()
+    }
+
+    // Parse products (for product collection analysis)
+    const productsMatch = analysisText.match(/\[PRODUCTS_START\](.*?)\[PRODUCTS_END\]/s)
+    if (productsMatch) {
+      result.products = parseListSection(productsMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[PRODUCTS_START\].*?\[PRODUCTS_END\]/s, '').trim()
+    }
+
+    // Parse sequence (for story analysis)
+    const sequenceMatch = analysisText.match(/\[SEQUENCE_START\](.*?)\[SEQUENCE_END\]/s)
+    if (sequenceMatch) {
+      result.sequence = parseSequenceSection(sequenceMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[SEQUENCE_START\].*?\[SEQUENCE_END\]/s, '').trim()
+    }
+
+    // Parse analysis sections
+    const analysisMatches = [
+      { key: 'recipe', pattern: /\[RECIPE_ANALYSIS_START\](.*?)\[RECIPE_ANALYSIS_END\]/s },
+      { key: 'purpose', pattern: /\[PURPOSE_ANALYSIS_START\](.*?)\[PURPOSE_ANALYSIS_END\]/s },
+      { key: 'collection', pattern: /\[COLLECTION_ANALYSIS_START\](.*?)\[COLLECTION_ANALYSIS_END\]/s },
+      { key: 'story', pattern: /\[STORY_ARC_START\](.*?)\[STORY_ARC_END\]/s }
+    ]
+
+    analysisMatches.forEach(({ key, pattern }) => {
+      const match = analysisText.match(pattern)
+      if (match) {
+        result.analysis[key] = match[1].trim()
+        result.cleanAnalysis = result.cleanAnalysis.replace(pattern, '').trim()
+      }
+    })
+
+    // Parse suggestions
+    const suggestionsMatches = [
+      /\[SUGGESTIONS_START\](.*?)\[SUGGESTIONS_END\]/s,
+      /\[RECOMMENDATIONS_START\](.*?)\[RECOMMENDATIONS_END\]/s,
+      /\[INSIGHTS_START\](.*?)\[INSIGHTS_END\]/s
+    ]
+
+    suggestionsMatches.forEach(pattern => {
+      const match = analysisText.match(pattern)
+      if (match) {
+        result.suggestions = result.suggestions.concat(parseListItems(match[1]))
+        result.cleanAnalysis = result.cleanAnalysis.replace(pattern, '').trim()
+      }
+    })
+
+    return result
+  } catch (error) {
+    console.warn('Failed to parse collection data:', error)
+    return { ...result, cleanAnalysis: analysisText }
+  }
+}
+
+// Parse comparison analysis data
+const parseComparisonData = (analysisText) => {
+  const result = {
+    differences: [],
+    changes: [],
+    qualityScores: {},
+    variants: [],
+    assessment: {},
+    recommendations: [],
+    similarityScore: null,
+    cleanAnalysis: analysisText
+  }
+
+  try {
+    // Parse differences
+    const differencesMatch = analysisText.match(/\[DIFFERENCES_START\](.*?)\[DIFFERENCES_END\]/s)
+    if (differencesMatch) {
+      result.differences = parseListSection(differencesMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[DIFFERENCES_START\].*?\[DIFFERENCES_END\]/s, '').trim()
+    }
+
+    // Parse changes
+    const changesMatch = analysisText.match(/\[CHANGES_START\](.*?)\[CHANGES_END\]/s)
+    if (changesMatch) {
+      result.changes = parseListSection(changesMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[CHANGES_START\].*?\[CHANGES_END\]/s, '').trim()
+    }
+
+    // Parse quality scores
+    const qualityMatch = analysisText.match(/\[QUALITY_SCORES_START\](.*?)\[QUALITY_SCORES_END\]/s)
+    if (qualityMatch) {
+      result.qualityScores = parseQualityScores(qualityMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[QUALITY_SCORES_START\].*?\[QUALITY_SCORES_END\]/s, '').trim()
+    }
+
+    // Parse variants
+    const variantsMatch = analysisText.match(/\[VARIANTS_START\](.*?)\[VARIANTS_END\]/s)
+    if (variantsMatch) {
+      result.variants = parseListSection(variantsMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[VARIANTS_START\].*?\[VARIANTS_END\]/s, '').trim()
+    }
+
+    // Parse similarity score
+    const similarityMatch = analysisText.match(/\[SIMILARITY_SCORE_START\](.*?)\[SIMILARITY_SCORE_END\]/s)
+    if (similarityMatch) {
+      const scoreText = similarityMatch[1].trim()
+      const scoreMatch = scoreText.match(/(\d+)%/)
+      if (scoreMatch) {
+        result.similarityScore = parseInt(scoreMatch[1])
+      }
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[SIMILARITY_SCORE_START\].*?\[SIMILARITY_SCORE_END\]/s, '').trim()
+    }
+
+    // Parse assessment sections
+    const assessmentMatches = [
+      { key: 'transformation', pattern: /\[ASSESSMENT_START\](.*?)\[ASSESSMENT_END\]/s },
+      { key: 'condition', pattern: /\[CONDITION_ANALYSIS_START\](.*?)\[CONDITION_ANALYSIS_END\]/s },
+      { key: 'comparison', pattern: /\[COMPARISON_START\](.*?)\[COMPARISON_END\]/s },
+      { key: 'verdict', pattern: /\[VERDICT_START\](.*?)\[VERDICT_END\]/s },
+      { key: 'summary', pattern: /\[SUMMARY_START\](.*?)\[SUMMARY_END\]/s }
+    ]
+
+    assessmentMatches.forEach(({ key, pattern }) => {
+      const match = analysisText.match(pattern)
+      if (match) {
+        result.assessment[key] = match[1].trim()
+        result.cleanAnalysis = result.cleanAnalysis.replace(pattern, '').trim()
+      }
+    })
+
+    // Parse recommendations
+    const recommendationsMatch = analysisText.match(/\[RECOMMENDATIONS_START\](.*?)\[RECOMMENDATIONS_END\]/s)
+    if (recommendationsMatch) {
+      result.recommendations = parseListItems(recommendationsMatch[1])
+      result.cleanAnalysis = result.cleanAnalysis.replace(/\[RECOMMENDATIONS_START\].*?\[RECOMMENDATIONS_END\]/s, '').trim()
+    }
+
+    return result
+  } catch (error) {
+    console.warn('Failed to parse comparison data:', error)
+    return { ...result, cleanAnalysis: analysisText }
+  }
+}
+
+// Helper functions for parsing
+const parseListSection = (text) => {
+  return text.split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('[') && !line.endsWith(']'))
+    .map(line => {
+      // Try to parse structured items like "name: value, category: value"
+      if (line.includes(':')) {
+        const parts = {}
+        const segments = line.split(',').map(s => s.trim())
+        segments.forEach(segment => {
+          const [key, ...valueParts] = segment.split(':')
+          if (key && valueParts.length) {
+            parts[key.trim().toLowerCase()] = valueParts.join(':').trim()
+          }
+        })
+        return Object.keys(parts).length > 0 ? parts : { description: line }
+      }
+      return { description: line }
+    })
+}
+
+const parseSequenceSection = (text) => {
+  return text.split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('[') && !line.endsWith(']'))
+    .map((line, index) => ({
+      step: index + 1,
+      description: line
+    }))
+}
+
+const parseListItems = (text) => {
+  return text.split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('[') && !line.endsWith(']'))
+    .map(line => line.replace(/^[-*•]\s*/, '')) // Remove bullet points
+}
+
+const parseQualityScores = (text) => {
+  const scores = {}
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line)
+
+  lines.forEach(line => {
+    if (line.toLowerCase().includes('image a')) {
+      const scoreMatch = line.match(/(\d+(?:\.\d+)?)[/\s]/)
+      if (scoreMatch) scores.imageA = parseFloat(scoreMatch[1])
+    } else if (line.toLowerCase().includes('image b')) {
+      const scoreMatch = line.match(/(\d+(?:\.\d+)?)[/\s]/)
+      if (scoreMatch) scores.imageB = parseFloat(scoreMatch[1])
+    }
+  })
+
+  return scores
+}
+
+// Collection analysis handler
+const handleAnalyzeCollection = async (request, env) => {
+  try {
+    console.log('🔍 Collection analysis request received:', {
+      method: request.method,
+      url: request.url,
+      timestamp: new Date().toISOString(),
+    })
+
+    const requestBody = await request.json()
+    const {
+      images = [],
+      collectionType = 'custom',
+      prompt,
+      model = 'gpt-4o-mini',
+      maxTokens = 2048,
+      enableContextDetection = false,
+    } = requestBody
+
+    console.log('📝 Collection analysis request:', {
+      imageCount: images.length,
+      collectionType,
+      model,
+      maxTokens,
+      promptLength: prompt?.length || 0,
+    })
+
+    // Validate input
+    if (!images || images.length === 0) {
+      return createErrorResponse('Missing required parameter: images array', 400)
+    }
+
+    if (images.length > 10) {
+      return createErrorResponse('Maximum 10 images allowed per collection analysis', 400)
+    }
+
+    if (!env.OPENAI_API_KEY) {
+      return createErrorResponse('OpenAI API key not configured', 500)
+    }
+
+    // Prepare analysis prompt
+    const analysisPrompt = prompt || getCollectionPrompt(collectionType)
+
+    console.log('🤖 Using collection analysis prompt:', analysisPrompt.substring(0, 100) + '...')
+
+    // Prepare images for OpenAI API
+    const imageContent = images.map((imageData, index) => {
+      if (typeof imageData === 'string') {
+        // URL or base64 string
+        const imageUrl = imageData.startsWith('data:') ? imageData : imageData
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageUrl,
+            detail: 'high',
+          },
+        }
+      } else if (imageData.url) {
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageData.url,
+            detail: 'high',
+          },
+        }
+      } else if (imageData.base64) {
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageData.base64,
+            detail: 'high',
+          },
+        }
+      }
+      throw new Error(`Invalid image format at index ${index}`)
+    })
+
+    // Create content array with images and text
+    const content = [
+      ...imageContent,
+      {
+        type: 'text',
+        text: analysisPrompt,
+      },
+    ]
+
+    // Prepare OpenAI API request
+    const openaiRequest = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: content,
+        },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.1,
+    }
+
+    console.log('📤 Sending collection analysis to OpenAI API:', {
+      model: openaiRequest.model,
+      imageCount: imageContent.length,
+      maxTokens: openaiRequest.max_tokens,
+    })
+
+    // Call OpenAI API
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(openaiRequest),
+    })
+
+    if (!openaiResponse.ok) {
+      const errorData = await openaiResponse.json()
+      console.error('❌ OpenAI API error:', errorData)
+      return createErrorResponse(
+        `OpenAI API error: ${errorData.error?.message || 'Unknown error'}`,
+        openaiResponse.status,
+      )
+    }
+
+    const openaiData = await openaiResponse.json()
+    console.log('✅ Collection analysis response received:', {
+      model: openaiData.model,
+      usage: openaiData.usage,
+      choicesCount: openaiData.choices?.length || 0,
+    })
+
+    const analysisResult = openaiData.choices[0]?.message?.content
+    if (!analysisResult) {
+      return createErrorResponse('No analysis result received from OpenAI', 500)
+    }
+
+    // Parse structured collection data
+    const collectionData = parseCollectionData(analysisResult)
+
+    // Prepare response
+    const response = {
+      success: true,
+      analysis: collectionData.cleanAnalysis,
+      collectionType: collectionType,
+      collectionData: {
+        ingredients: collectionData.ingredients,
+        items: collectionData.items,
+        products: collectionData.products,
+        sequence: collectionData.sequence,
+        analysis: collectionData.analysis,
+        suggestions: collectionData.suggestions,
+      },
+      metadata: {
+        model: openaiData.model,
+        collectionType: collectionType,
+        imageCount: images.length,
+        usage: openaiData.usage,
+        timestamp: new Date().toISOString(),
+      },
+    }
+
+    console.log('📊 Collection analysis completed successfully:', {
+      analysisLength: collectionData.cleanAnalysis.length,
+      itemsFound: collectionData.ingredients.length + collectionData.items.length + collectionData.products.length,
+      suggestionsCount: collectionData.suggestions.length,
+      tokensUsed: openaiData.usage?.total_tokens || 0,
+    })
+
+    return createResponse(JSON.stringify(response))
+  } catch (error) {
+    console.error('❌ Error in collection analysis:', error)
+    return createErrorResponse(`Collection analysis failed: ${error.message}`, 500)
+  }
+}
+
+// Comparison analysis handler
+const handleAnalyzeComparison = async (request, env) => {
+  try {
+    console.log('🔍 Comparison analysis request received:', {
+      method: request.method,
+      url: request.url,
+      timestamp: new Date().toISOString(),
+    })
+
+    const requestBody = await request.json()
+    const {
+      imageA,
+      imageB,
+      comparisonType = 'spot_differences',
+      prompt,
+      model = 'gpt-4o-mini',
+      maxTokens = 2048,
+    } = requestBody
+
+    console.log('📝 Comparison analysis request:', {
+      hasImageA: !!imageA,
+      hasImageB: !!imageB,
+      comparisonType,
+      model,
+      maxTokens,
+      promptLength: prompt?.length || 0,
+    })
+
+    // Validate input
+    if (!imageA || !imageB) {
+      return createErrorResponse('Missing required parameters: imageA and imageB', 400)
+    }
+
+    if (!env.OPENAI_API_KEY) {
+      return createErrorResponse('OpenAI API key not configured', 500)
+    }
+
+    // Prepare analysis prompt
+    const analysisPrompt = prompt || getComparisonPrompt(comparisonType)
+
+    console.log('🤖 Using comparison analysis prompt:', analysisPrompt.substring(0, 100) + '...')
+
+    // Prepare images for OpenAI API
+    const prepareImage = (imageData) => {
+      if (typeof imageData === 'string') {
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageData,
+            detail: 'high',
+          },
+        }
+      } else if (imageData.url) {
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageData.url,
+            detail: 'high',
+          },
+        }
+      } else if (imageData.base64) {
+        return {
+          type: 'image_url',
+          image_url: {
+            url: imageData.base64,
+            detail: 'high',
+          },
+        }
+      }
+      throw new Error('Invalid image format')
+    }
+
+    const imageAContent = prepareImage(imageA)
+    const imageBContent = prepareImage(imageB)
+
+    // Create content array
+    const content = [
+      {
+        type: 'text',
+        text: 'Image A (Reference/Before):',
+      },
+      imageAContent,
+      {
+        type: 'text',
+        text: 'Image B (Comparison/After):',
+      },
+      imageBContent,
+      {
+        type: 'text',
+        text: analysisPrompt,
+      },
+    ]
+
+    // Prepare OpenAI API request
+    const openaiRequest = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: content,
+        },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.1,
+    }
+
+    console.log('📤 Sending comparison analysis to OpenAI API:', {
+      model: openaiRequest.model,
+      comparisonType: comparisonType,
+      maxTokens: openaiRequest.max_tokens,
+    })
+
+    // Call OpenAI API
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(openaiRequest),
+    })
+
+    if (!openaiResponse.ok) {
+      const errorData = await openaiResponse.json()
+      console.error('❌ OpenAI API error:', errorData)
+      return createErrorResponse(
+        `OpenAI API error: ${errorData.error?.message || 'Unknown error'}`,
+        openaiResponse.status,
+      )
+    }
+
+    const openaiData = await openaiResponse.json()
+    console.log('✅ Comparison analysis response received:', {
+      model: openaiData.model,
+      usage: openaiData.usage,
+      choicesCount: openaiData.choices?.length || 0,
+    })
+
+    const analysisResult = openaiData.choices[0]?.message?.content
+    if (!analysisResult) {
+      return createErrorResponse('No analysis result received from OpenAI', 500)
+    }
+
+    // Parse structured comparison data
+    const comparisonData = parseComparisonData(analysisResult)
+
+    // Prepare response
+    const response = {
+      success: true,
+      analysis: comparisonData.cleanAnalysis,
+      comparisonType: comparisonType,
+      comparisonData: {
+        differences: comparisonData.differences,
+        changes: comparisonData.changes,
+        qualityScores: comparisonData.qualityScores,
+        variants: comparisonData.variants,
+        assessment: comparisonData.assessment,
+        recommendations: comparisonData.recommendations,
+        similarityScore: comparisonData.similarityScore,
+      },
+      metadata: {
+        model: openaiData.model,
+        comparisonType: comparisonType,
+        usage: openaiData.usage,
+        timestamp: new Date().toISOString(),
+      },
+    }
+
+    console.log('📊 Comparison analysis completed successfully:', {
+      analysisLength: comparisonData.cleanAnalysis.length,
+      differencesFound: comparisonData.differences.length,
+      changesFound: comparisonData.changes.length,
+      similarityScore: comparisonData.similarityScore,
+      tokensUsed: openaiData.usage?.total_tokens || 0,
+    })
+
+    return createResponse(JSON.stringify(response))
+  } catch (error) {
+    console.error('❌ Error in comparison analysis:', error)
+    return createErrorResponse(`Comparison analysis failed: ${error.message}`, 500)
+  }
+}
 const handleAnalyzeImage = async (request, env) => {
   try {
     console.log('🔍 Image analysis request received:', {
@@ -402,6 +1168,18 @@ export default {
         case '/analyze-image':
           if (request.method === 'POST') {
             return await handleAnalyzeImage(request, env)
+          }
+          return createErrorResponse('Method not allowed. Use POST.', 405)
+
+        case '/analyze-collection':
+          if (request.method === 'POST') {
+            return await handleAnalyzeCollection(request, env)
+          }
+          return createErrorResponse('Method not allowed. Use POST.', 405)
+
+        case '/compare-images':
+          if (request.method === 'POST') {
+            return await handleAnalyzeComparison(request, env)
           }
           return createErrorResponse('Method not allowed. Use POST.', 405)
 
