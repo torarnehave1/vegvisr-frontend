@@ -227,6 +227,63 @@
           />
         </div>
 
+        <!-- Custom Attribution Fields (shown after uploading custom image) -->
+        <div v-if="showAttributionFields" class="custom-attribution-section">
+          <h5>📷 Photo Attribution (Optional)</h5>
+          <p class="attribution-help">Add attribution information for your uploaded image</p>
+
+          <div class="attribution-fields">
+            <div class="form-group">
+              <label for="photographer-name">Photographer Name:</label>
+              <input
+                id="photographer-name"
+                type="text"
+                v-model="customPhotographer"
+                placeholder="e.g., John Doe"
+                class="form-control"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="photographer-url">Photographer URL (Optional):</label>
+              <input
+                id="photographer-url"
+                type="url"
+                v-model="customPhotographerUrl"
+                placeholder="e.g., https://portfolio.example.com"
+                class="form-control"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="custom-attribution">Custom Attribution Text (Optional):</label>
+              <input
+                id="custom-attribution"
+                type="text"
+                v-model="customAttribution"
+                placeholder="e.g., Photo taken in Paris, France"
+                class="form-control"
+              />
+            </div>
+
+            <div class="attribution-actions">
+              <button
+                @click="applyCustomAttribution"
+                class="btn btn-primary btn-sm"
+                :disabled="!customPhotographer.trim()"
+              >
+                ✓ Apply Attribution
+              </button>
+              <button
+                @click="skipAttribution"
+                class="btn btn-secondary btn-sm"
+              >
+                Skip Attribution
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Clipboard Paste Area -->
         <div class="clipboard-paste-area" v-if="!pastedImage && !pastedUrl">
           <div class="paste-info">
@@ -554,6 +611,12 @@ const isAIImageModalOpen = ref(false)
 const isPortfolioModalOpen = ref(false)
 const imageFileInput = ref(null)
 
+// Attribution fields for uploaded images
+const showAttributionFields = ref(false)
+const customPhotographer = ref('')
+const customPhotographerUrl = ref('')
+const customAttribution = ref('')
+
 // Dimensions state
 const currentDimensions = ref({ width: null, height: null })
 const newDimensions = ref({ width: null, height: null })
@@ -693,7 +756,9 @@ const replaceImage = async () => {
           : {
               provider: 'custom',
               photographer: selectedImage.value.photographer,
-              requires_attribution: false,
+              photographer_url: selectedImage.value.photographer_url,
+              custom_attribution: selectedImage.value.custom_attribution,
+              requires_attribution: !!(selectedImage.value.photographer || selectedImage.value.custom_attribution),
             },
     })
 
@@ -718,6 +783,11 @@ const closeModal = () => {
   originalImageUrl.value = ''
   urlPreview.value = ''
   pastedUrl.value = null
+  // Reset attribution fields
+  showAttributionFields.value = false
+  customPhotographer.value = ''
+  customPhotographerUrl.value = ''
+  customAttribution.value = ''
   removePasteListener()
   emit('close')
 }
@@ -1180,8 +1250,13 @@ const handleImageUpload = async (event) => {
 
     console.log('Image uploaded successfully:', data.url)
 
-    // Automatically replace the image with the uploaded one
-    replaceImage()
+    // Show attribution fields for custom images
+    showAttributionFields.value = true
+
+    // Clear any previous attribution values
+    customPhotographer.value = ''
+    customPhotographerUrl.value = ''
+    customAttribution.value = ''
   } catch (err) {
     console.error('Error uploading image:', err)
     error.value = 'Failed to upload image. Please try again.'
@@ -1190,6 +1265,32 @@ const handleImageUpload = async (event) => {
     // Clear the file input
     event.target.value = ''
   }
+}
+
+// Custom Attribution Functions
+const applyCustomAttribution = () => {
+  if (selectedImage.value && customPhotographer.value.trim()) {
+    // Update the selected image with custom attribution data
+    selectedImage.value.photographer = customPhotographer.value.trim()
+    selectedImage.value.photographer_url = customPhotographerUrl.value.trim() || null
+    selectedImage.value.custom_attribution = customAttribution.value.trim() || null
+
+    console.log('Custom attribution applied:', {
+      photographer: selectedImage.value.photographer,
+      photographer_url: selectedImage.value.photographer_url,
+      custom_attribution: selectedImage.value.custom_attribution
+    })
+  }
+
+  // Hide attribution fields and proceed with image replacement
+  showAttributionFields.value = false
+  replaceImage()
+}
+
+const skipAttribution = () => {
+  // Hide attribution fields and proceed with image replacement without custom attribution
+  showAttributionFields.value = false
+  replaceImage()
 }
 
 // AI Image Generation functionality
@@ -2664,6 +2765,100 @@ watch(
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+/* Custom Attribution Styles */
+.custom-attribution-section {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 15px 0;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.custom-attribution-section h5 {
+  margin: 0 0 8px 0;
+  color: #495057;
+  font-weight: 600;
+}
+
+.attribution-help {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin: 0 0 15px 0;
+}
+
+.attribution-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.attribution-fields .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.attribution-fields label {
+  font-weight: 500;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.attribution-fields .form-control {
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.attribution-fields .form-control:focus {
+  border-color: #6f42c1;
+  outline: 0;
+  box-shadow: 0 0 0 0.2rem rgba(111, 66, 193, 0.25);
+}
+
+.attribution-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.attribution-actions .btn {
+  flex: 1;
+  min-width: 120px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom attribution styling for nodes */
+.photographer-name {
+  font-weight: 500;
+  color: inherit;
+}
+
+/* Mobile responsive attribution form */
+@media (max-width: 576px) {
+  .attribution-actions {
+    flex-direction: column;
+  }
+
+  .attribution-actions .btn {
+    width: 100%;
   }
 }
 </style>

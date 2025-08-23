@@ -310,6 +310,14 @@ const router = createRouter({
         token: route.query.token,
       }),
     },
+    {
+      path: '/branding',
+      name: 'branding',
+      component: () => import('../views/BrandingPage.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+    },
   ],
 })
 
