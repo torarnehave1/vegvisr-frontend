@@ -310,8 +310,7 @@ img.leftside {
 }
 
 /* Additional specificity for inline styles with background images */
-.fancy-title[style*='background-image'][style*='width'],
-.fancy-title[style*='background-image'][style*='height'] {
+.fancy-title[style*='background-image'] {
   background-size: cover !important;
   background-position: center !important;
   background-repeat: no-repeat !important;
