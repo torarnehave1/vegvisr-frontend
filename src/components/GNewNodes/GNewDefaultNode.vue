@@ -1249,6 +1249,19 @@ const convertStylesToString = (styleObj) => {
   z-index: 1;
 }
 
+.fancy-title {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+  font-weight: bold;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .section-element {
   margin: 1.5em 0;
   padding: 1.5em;
