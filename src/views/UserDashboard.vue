@@ -209,7 +209,7 @@
                   class="btn btn-light btn-sm"
                   style="font-weight: 600"
                 >
-                  <i class="fas fa-cog me-1"></i>
+                  <i class="fas fa-external-link-alt me-1"></i>
                   {{ domainConfigs.length > 0 ? 'Manage Domains' : 'Setup Branding' }}
                 </button>
               </div>
@@ -1174,7 +1174,8 @@ export default {
       }
     },
     openBrandingModal() {
-      this.showBrandingModal = true
+      // Navigate to the dedicated branding page instead of opening modal
+      this.$router.push('/branding')
     },
     closeBrandingModal() {
       this.showBrandingModal = false

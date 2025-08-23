@@ -600,6 +600,25 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
               Pexels
             </a>
           `
+        } else if (attribution.provider === 'custom') {
+          // Handle custom attribution for small contextual images
+          let customAttributionHtml = 'Photo by '
+
+          if (attribution.photographer_url && attribution.photographer_url.trim()) {
+            customAttributionHtml += `
+              <a href="${attribution.photographer_url}"
+                 target="_blank" rel="noopener noreferrer" class="photographer-link">
+                ${attribution.photographer || 'Unknown'}
+              </a>`
+          } else {
+            customAttributionHtml += `<span class="photographer-name">${attribution.photographer || 'Unknown'}</span>`
+          }
+
+          if (attribution.custom_attribution && attribution.custom_attribution.trim()) {
+            customAttributionHtml += ` - ${attribution.custom_attribution}`
+          }
+
+          attributionText.innerHTML = customAttributionHtml
         } else {
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
         }
@@ -640,6 +659,25 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
               Pexels
             </a>
           `
+        } else if (attribution.provider === 'custom') {
+          // Handle custom attribution for overlay images
+          let customAttributionHtml = 'Photo by '
+
+          if (attribution.photographer_url && attribution.photographer_url.trim()) {
+            customAttributionHtml += `
+              <a href="${attribution.photographer_url}"
+                 target="_blank" rel="noopener noreferrer" class="photographer-link">
+                ${attribution.photographer || 'Unknown'}
+              </a>`
+          } else {
+            customAttributionHtml += `<span class="photographer-name">${attribution.photographer || 'Unknown'}</span>`
+          }
+
+          if (attribution.custom_attribution && attribution.custom_attribution.trim()) {
+            customAttributionHtml += ` - ${attribution.custom_attribution}`
+          }
+
+          attributionText.innerHTML = customAttributionHtml
         } else {
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
         }
@@ -1640,5 +1678,11 @@ const convertStylesToString = (styleObj) => {
     font-size: 0.8rem;
     padding: 10px 12px;
   }
+}
+
+/* Custom attribution styling */
+.node-content :deep(.photographer-name) {
+  font-weight: 500;
+  color: inherit;
 }
 </style>

@@ -114,7 +114,7 @@
     </header>
 
     <!-- Dedicated Search Bar Section -->
-    <section class="search-bar-section">
+    <section v-if="showSearchBar" class="search-bar-section">
       <div class="container-fluid">
         <div class="row justify-content-center">
           <div class="col-12 col-md-8 col-lg-6">
@@ -163,7 +163,7 @@ import { useMenuConfig } from '@/composables/useMenuConfig'
 
 const userStore = useUserStore()
 const router = useRouter()
-const { currentLogo, currentSiteTitle, isCustomDomain, currentMenuConfig } = useBranding()
+const { currentLogo, currentSiteTitle, isCustomDomain, currentMenuConfig, showSearchBar } = useBranding()
 
 // Use menu configuration system
 const { visibleMenuItems } = useMenuConfig(currentMenuConfig)

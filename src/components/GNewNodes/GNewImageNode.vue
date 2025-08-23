@@ -291,6 +291,29 @@ const imageAttribution = computed(() => {
     }
   }
 
+  if (attribution.provider === 'custom') {
+    const photographerName = attribution.photographer || 'Unknown'
+    const photographerUrl = attribution.photographer_url
+    const customText = attribution.custom_attribution
+
+    let html = 'Photo by '
+
+    if (photographerUrl && photographerUrl.trim()) {
+      html += `<a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a>`
+    } else {
+      html += `<span class="photographer-name">${photographerName}</span>`
+    }
+
+    if (customText && customText.trim()) {
+      html += ` - ${customText}`
+    }
+
+    return {
+      html: html,
+      isSmall: isSmallContextualImage,
+    }
+  }
+
   return null
 })
 
@@ -775,5 +798,11 @@ const handleGooglePhotosClick = (event) => {
     font-size: 0.8rem;
     padding: 8px 10px;
   }
+}
+
+/* Custom attribution styling */
+.photographer-name {
+  font-weight: 500;
+  color: inherit;
 }
 </style>

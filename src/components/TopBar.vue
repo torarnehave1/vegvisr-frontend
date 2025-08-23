@@ -66,7 +66,7 @@
   </div>
 
   <!-- Dedicated Search Bar Section -->
-  <div class="search-bar-section">
+  <div v-if="showSearchBar" class="search-bar-section">
     <div class="container-fluid">
       <div class="row justify-content-center">
         <div class="col-12 col-md-8 col-lg-6">
@@ -105,9 +105,11 @@ import { defineProps, defineEmits } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
+import { useBranding } from '@/composables/useBranding'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { showSearchBar } = useBranding()
 
 defineProps({
   selectedGraphId: String,

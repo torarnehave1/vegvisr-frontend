@@ -291,6 +291,25 @@ export function useBranding() {
     return null
   })
 
+  // Get search bar visibility setting
+  const showSearchBar = computed(() => {
+    // Check KV site configuration for search bar setting
+    if (isCustomDomain.value && siteConfig.value?.branding?.showSearchBar !== undefined) {
+      console.log('Using search bar setting from KV site config:', siteConfig.value.branding.showSearchBar)
+      return siteConfig.value.branding.showSearchBar
+    }
+
+    // Fallback to user store search bar setting
+    if (userStore.branding?.showSearchBar !== undefined && userStore.branding?.mySite === currentDomain.value) {
+      console.log('Using search bar setting from user store:', userStore.branding.showSearchBar)
+      return userStore.branding.showSearchBar
+    }
+
+    // Default - show search bar
+    console.log('No custom search bar setting found - defaulting to true')
+    return true
+  })
+
   return {
     currentDomain,
     isCustomDomain,
@@ -303,5 +322,6 @@ export function useBranding() {
     initialize,
     currentFrontPage,
     currentMenuConfig,
+    showSearchBar,
   }
 }

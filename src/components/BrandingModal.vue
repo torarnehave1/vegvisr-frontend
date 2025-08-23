@@ -5,7 +5,7 @@
     @click="handleOverlayClick"
     @keydown="handleKeydown"
   >
-    <div class="branding-modal" @click.stop>
+    <div class="branding-modal" :class="{ 'edit-mode': viewMode === 'edit' }" @click.stop>
       <div class="modal-header">
         <h2>🎨 Custom Domain Branding Setup</h2>
         <div class="modal-header-actions">
@@ -35,7 +35,12 @@
 
           <!-- Existing Domains List -->
           <div v-if="domainConfigs.length > 0" class="domain-list mb-4">
-            <h4>Your Configured Domains</h4>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h4 class="mb-0">Your Configured Domains</h4>
+              <small class="text-muted" v-if="domainConfigs.length > 3">
+                <i class="bi bi-arrow-up-down"></i> Scroll to see all
+              </small>
+            </div>
             <div v-for="(config, index) in domainConfigs" :key="index" class="domain-item">
               <div class="domain-card">
                 <div class="domain-header">
@@ -77,6 +82,12 @@
                               ? config.selectedCategories.length + ' Filters'
                               : 'Custom Filter'
                         }}
+                      </span>
+                      <span v-if="config.showSearchBar !== false" class="badge bg-primary ms-1">
+                        <i class="bi bi-search"></i> Search Bar
+                      </span>
+                      <span v-else class="badge bg-secondary ms-1">
+                        <i class="bi bi-search-x"></i> No Search
                       </span>
                     </div>
                   </div>
@@ -327,6 +338,27 @@
                   <li>Come back here to select which meta areas to show on your domain</li>
                 </ol>
               </div>
+            </div>
+          </div>
+
+          <!-- Search Bar Visibility Toggle -->
+          <div class="form-group">
+            <label class="form-label">
+              <strong>Search Bar Settings:</strong>
+            </label>
+            <div class="form-check mb-3">
+              <input
+                id="showSearchBar"
+                v-model="formData.showSearchBar"
+                type="checkbox"
+                class="form-check-input"
+              />
+              <label for="showSearchBar" class="form-check-label">
+                Show search bar on knowledge graphs
+              </label>
+            </div>
+            <div class="form-text mb-3">
+              Controls whether the global search bar is displayed on knowledge graph pages. When disabled, users will need to use the dedicated search page to find content.
             </div>
           </div>
 
@@ -740,6 +772,7 @@ export default {
         contentFilter: 'none',
         selectedCategories: [],
         mySiteFrontPage: '',
+        showSearchBar: true, // Default to showing search bar
         menuConfig: {
           enabled: false,
           selectedTemplate: '',
@@ -963,6 +996,7 @@ export default {
         contentFilter: 'none',
         selectedCategories: [],
         mySiteFrontPage: '',
+        showSearchBar: true, // Default to showing search bar
         menuConfig: {
           enabled: false,
           visibleItems: [
@@ -990,6 +1024,7 @@ export default {
         contentFilter: config.contentFilter || 'none',
         selectedCategories: config.selectedCategories || [],
         mySiteFrontPage: config.mySiteFrontPage || '',
+        showSearchBar: config.showSearchBar !== undefined ? config.showSearchBar : true, // Default to true if not set
         menuConfig: config.menuConfig || {
           enabled: false,
           visibleItems: [
@@ -1051,6 +1086,7 @@ export default {
         contentFilter: this.formData.contentFilter,
         selectedCategories: this.formData.selectedCategories,
         mySiteFrontPage: this.formData.mySiteFrontPage,
+        showSearchBar: this.formData.showSearchBar,
         menuConfig: this.formData.menuConfig,
       }
 
@@ -1117,6 +1153,7 @@ export default {
         contentFilter: 'none',
         selectedCategories: [],
         mySiteFrontPage: '',
+        showSearchBar: true, // Default to showing search bar
         menuConfig: {
           enabled: false,
           selectedTemplate: '',
@@ -1362,6 +1399,7 @@ export default {
           contentFilter: domainConfig.contentFilter,
           selectedCategories: domainConfig.selectedCategories || [],
           mySiteFrontPage: domainConfig.mySiteFrontPage || '',
+          showSearchBar: domainConfig.showSearchBar !== undefined ? domainConfig.showSearchBar : true,
           site_title: this.getDomainTitleFromConfig(domainConfig),
           menuConfig: domainConfig.menuConfig || {
             enabled: false,
@@ -1403,6 +1441,7 @@ export default {
         selectedCategories:
           siteConfig.branding?.selectedCategories || siteConfig.selected_categories || [],
         mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || siteConfig.front_page_graph || '',
+        showSearchBar: siteConfig.branding?.showSearchBar !== undefined ? siteConfig.branding.showSearchBar : true,
         menuConfig: siteConfig.menuConfig ||
           siteConfig.menu_config || {
             enabled: false,
@@ -1978,13 +2017,19 @@ export default {
 .branding-modal {
   background: #fff;
   border-radius: 16px;
-  width: 90%;
-  max-width: 800px;
+  width: 95%;
+  max-width: 1200px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   position: relative;
+}
+
+/* Increase height for edit mode to accommodate more content */
+.branding-modal.edit-mode {
+  max-height: 95vh;
+  max-width: 1400px;
 }
 
 .modal-header {
@@ -2031,8 +2076,65 @@ export default {
 
 .modal-content {
   flex: 1;
-  padding: 30px;
-  overflow-y: auto;
+  padding: 30px 30px 60px 30px; /* Extra bottom padding to ensure content is scrollable */
+  overflow-y: scroll !important; /* Force scrollbar to always show */
+  overflow-x: hidden;
+  /* Ensure proper scrolling with better height calculation */
+  min-height: 0;
+  max-height: calc(90vh - 120px); /* Account for header and padding */
+  /* Force scrollbar visibility */
+  scrollbar-width: auto; /* Firefox */
+  -ms-overflow-style: auto; /* IE/Edge */
+}
+
+/* Better scrolling for edit mode with more content */
+.branding-modal.edit-mode .modal-content {
+  max-height: calc(95vh - 120px);
+  overflow-y: scroll !important;
+}
+
+/* Make scrollbar more visible and prominent */
+.modal-content::-webkit-scrollbar {
+  width: 12px;
+  background: #f0f0f0;
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: #e9ecef;
+  border-radius: 6px;
+  margin: 5px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: #6c757d;
+  border-radius: 6px;
+  border: 2px solid #e9ecef;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: #495057;
+}
+
+.modal-content::-webkit-scrollbar-thumb:active {
+  background: #343a40;
+}
+
+/* Force scrollbar to always be visible */
+.modal-content {
+  scrollbar-width: thick; /* Firefox - thick scrollbar */
+  scrollbar-color: #6c757d #e9ecef; /* Firefox - thumb and track color */
+}
+
+/* Add scroll indicator shadow when content overflows */
+.modal-content::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 20px;
+  background: linear-gradient(transparent, rgba(255, 255, 255, 0.8));
+  pointer-events: none;
+  margin: 0 -30px -60px -30px;
 }
 
 .step-indicator {
@@ -2255,26 +2357,32 @@ export default {
   margin-bottom: 20px;
   max-height: 400px;
   overflow-y: auto;
-  padding-right: 8px;
+  padding-right: 12px;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #f8f9fa;
 }
 
 /* Custom scrollbar for domain list */
 .domain-list::-webkit-scrollbar {
-  width: 8px;
+  width: 12px;
 }
 
 .domain-list::-webkit-scrollbar-track {
   background: #f1f1f1;
-  border-radius: 4px;
+  border-radius: 6px;
+  margin: 4px;
 }
 
 .domain-list::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+  background: #6c757d;
+  border-radius: 6px;
+  border: 2px solid #f1f1f1;
 }
 
 .domain-list::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: #495057;
 }
 
 .domain-item {
@@ -2864,14 +2972,22 @@ export default {
 
 @media (max-width: 768px) {
   .branding-modal {
-    width: 95%;
+    width: 98%;
+    max-width: none;
     max-height: 95vh;
+    margin: 1vh auto;
   }
 
   .modal-header,
   .modal-content,
   .modal-footer {
-    padding: 20px;
+    padding: 15px;
+  }
+
+  .domain-list {
+    max-height: 300px;
+    padding: 12px;
+    margin-bottom: 15px;
   }
 
   .step-indicator {
