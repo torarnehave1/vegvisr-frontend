@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXIF Data Test - Vegvisr Images</title>
+    <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .result {
+            background: #f5f5f5;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        img {
+            max-width: 300px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>EXIF Data Test - Vegvisr Images</h1>
+    
+    <div class="test-section">
+        <h2>Test Image from Imgix</h2>
+        <p><strong>Image URL:</strong> https://vegvisr.imgix.net/1755945807275.JPG</p>
+        
+        <img id="testImage" crossorigin="anonymous" src="https://vegvisr.imgix.net/1755945807275.JPG" alt="Test image">
+        
+        <div>
+            <button onclick="testExifFromUrl()">Test EXIF from URL</button>
+            <button onclick="testExifWithFetch()">Test EXIF with Fetch</button>
+            <button onclick="testImageHeaders()">Check Image Headers</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Upload Test</h2>
+        <p>Upload your own image to test EXIF extraction:</p>
+        <input type="file" id="fileInput" accept="image/*">
+        <button onclick="testUploadedFile()">Analyze Uploaded File</button>
+        <div id="uploadResults"></div>
+    </div>
+
+    <script>
+        function addResult(containerId, content, type = 'result') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = content;
+            container.appendChild(div);
+        }
+
+        function clearResults(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+
+        // Test 1: Try to extract EXIF directly from img element
+        function testExifFromUrl() {
+            clearResults('results');
+            addResult('results', 'Testing EXIF extraction from image element...', 'warning');
+            
+            const img = document.getElementById('testImage');
+            
+            EXIF.getData(img, function() {
+                const allMetaData = EXIF.getAllTags(this);
+                const dateTime = EXIF.getTag(this, "DateTime");
+                const dateTimeOriginal = EXIF.getTag(this, "DateTimeOriginal");
+                const dateTimeDigitized = EXIF.getTag(this, "DateTimeDigitized");
+                const camera = EXIF.getTag(this, "Model");
+                const gpsLat = EXIF.getTag(this, "GPSLatitude");
+                const gpsLon = EXIF.getTag(this, "GPSLongitude");
+                
+                if (Object.keys(allMetaData).length === 0) {
+                    addResult('results', 'No EXIF data found in image element. This is expected for web-optimized images.', 'warning');
+                } else {
+                    addResult('results', `Found EXIF data:
+DateTime: ${dateTime || 'Not found'}
+DateTimeOriginal: ${dateTimeOriginal || 'Not found'}
+DateTimeDigitized: ${dateTimeDigitized || 'Not found'}
+Camera Model: ${camera || 'Not found'}
+GPS Latitude: ${gpsLat || 'Not found'}
+GPS Longitude: ${gpsLon || 'Not found'}
+
+All metadata: ${JSON.stringify(allMetaData, null, 2)}`, 'success');
+                }
+            });
+        }
+
+        // Test 2: Try to fetch the image and extract EXIF
+        async function testExifWithFetch() {
+            clearResults('results');
+            addResult('results', 'Attempting to fetch image and extract EXIF...', 'warning');
+            
+            try {
+                const response = await fetch('https://vegvisr.imgix.net/1755945807275.JPG', {
+                    mode: 'cors'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                
+                addResult('results', `Successfully fetched image: ${arrayBuffer.byteLength} bytes`, 'success');
+                
+                // Create a blob and analyze
+                const blob = new Blob([uint8Array], { type: 'image/jpeg' });
+                
+                EXIF.getData(blob, function() {
+                    const allMetaData = EXIF.getAllTags(this);
+                    const dateTime = EXIF.getTag(this, "DateTime");
+                    const dateTimeOriginal = EXIF.getTag(this, "DateTimeOriginal");
+                    
+                    if (Object.keys(allMetaData).length === 0) {
+                        addResult('results', 'No EXIF data found in fetched image. Imgix likely strips EXIF data during processing.', 'warning');
+                    } else {
+                        addResult('results', `EXIF data found:
+DateTime: ${dateTime}
+DateTimeOriginal: ${dateTimeOriginal}
+All metadata: ${JSON.stringify(allMetaData, null, 2)}`, 'success');
+                    }
+                });
+                
+            } catch (error) {
+                addResult('results', `Error fetching image: ${error.message}`, 'error');
+            }
+        }
+
+        // Test 3: Check HTTP headers for any metadata
+        async function testImageHeaders() {
+            clearResults('results');
+            addResult('results', 'Checking HTTP headers...', 'warning');
+            
+            try {
+                const response = await fetch('https://vegvisr.imgix.net/1755945807275.JPG', {
+                    method: 'HEAD'
+                });
+                
+                const headers = {};
+                for (let [key, value] of response.headers.entries()) {
+                    headers[key] = value;
+                }
+                
+                addResult('results', `HTTP Headers:
+${JSON.stringify(headers, null, 2)}`, 'success');
+                
+                // Check for specific metadata headers
+                const metadataHeaders = ['last-modified', 'x-amz-meta-', 'content-type'];
+                const foundMetadata = Object.keys(headers).filter(key => 
+                    metadataHeaders.some(meta => key.toLowerCase().includes(meta))
+                );
+                
+                if (foundMetadata.length > 0) {
+                    addResult('results', `Potential metadata headers found: ${foundMetadata.join(', ')}`, 'success');
+                } else {
+                    addResult('results', 'No obvious metadata headers found.', 'warning');
+                }
+                
+            } catch (error) {
+                addResult('results', `Error checking headers: ${error.message}`, 'error');
+            }
+        }
+
+        // Test 4: Test with user-uploaded file
+        function testUploadedFile() {
+            clearResults('uploadResults');
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                addResult('uploadResults', 'Please select a file first.', 'warning');
+                return;
+            }
+            
+            addResult('uploadResults', `Analyzing uploaded file: ${file.name} (${file.size} bytes)`, 'warning');
+            
+            EXIF.getData(file, function() {
+                const allMetaData = EXIF.getAllTags(this);
+                const dateTime = EXIF.getTag(this, "DateTime");
+                const dateTimeOriginal = EXIF.getTag(this, "DateTimeOriginal");
+                const dateTimeDigitized = EXIF.getTag(this, "DateTimeDigitized");
+                const camera = EXIF.getTag(this, "Model");
+                const make = EXIF.getTag(this, "Make");
+                const gpsLat = EXIF.getTag(this, "GPSLatitude");
+                const gpsLon = EXIF.getTag(this, "GPSLongitude");
+                
+                if (Object.keys(allMetaData).length === 0) {
+                    addResult('uploadResults', 'No EXIF data found in uploaded file.', 'warning');
+                } else {
+                    addResult('uploadResults', `EXIF data found in uploaded file:
+File: ${file.name}
+DateTime: ${dateTime || 'Not found'}
+DateTimeOriginal: ${dateTimeOriginal || 'Not found'}
+DateTimeDigitized: ${dateTimeDigitized || 'Not found'}
+Camera Make: ${make || 'Not found'}
+Camera Model: ${camera || 'Not found'}
+GPS Latitude: ${gpsLat || 'Not found'}
+GPS Longitude: ${gpsLon || 'Not found'}
+
+All EXIF data:
+${JSON.stringify(allMetaData, null, 2)}`, 'success');
+                }
+            });
+        }
+
+        // Auto-run first test when page loads
+        window.onload = function() {
+            setTimeout(testExifFromUrl, 1000);
+        };
+    </script>
+</body>
+</html>

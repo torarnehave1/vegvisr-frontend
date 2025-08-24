@@ -292,20 +292,32 @@ const imageAttribution = computed(() => {
   }
 
   if (attribution.provider === 'custom') {
-    const photographerName = attribution.photographer || 'Unknown'
+    // Filter out meaningless photographer names
+    const photographer = attribution.photographer && !['Portfolio', 'Unknown', ''].includes(attribution.photographer.trim())
+      ? attribution.photographer
+      : null
+
     const photographerUrl = attribution.photographer_url
     const customText = attribution.custom_attribution
 
-    let html = 'Photo by '
+    // Only show attribution if we have meaningful content
+    if (!photographer && !customText) {
+      return null
+    }
 
-    if (photographerUrl && photographerUrl.trim()) {
-      html += `<a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographerName}</a>`
-    } else {
-      html += `<span class="photographer-name">${photographerName}</span>`
+    let html = ''
+
+    if (photographer) {
+      html += 'Photo by '
+      if (photographerUrl && photographerUrl.trim()) {
+        html += `<a href="${photographerUrl}" target="_blank" rel="noopener" class="photographer-link">${photographer}</a>`
+      } else {
+        html += `<span class="photographer-name">${photographer}</span>`
+      }
     }
 
     if (customText && customText.trim()) {
-      html += ` - ${customText}`
+      html += photographer ? ` - ${customText}` : customText
     }
 
     return {

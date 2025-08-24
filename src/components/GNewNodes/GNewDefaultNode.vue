@@ -105,7 +105,9 @@
                   Pexels
                 </a>
               </span>
-              <span v-else> Photo by {{ contentPart.attribution.photographer }} </span>
+              <span v-else-if="contentPart.attribution.photographer && !['Portfolio', 'Unknown', ''].includes(contentPart.attribution.photographer.trim())">
+                Photo by {{ contentPart.attribution.photographer }}
+              </span>
             </div>
           </div>
         </div>
@@ -619,8 +621,12 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
           }
 
           attributionText.innerHTML = customAttributionHtml
-        } else {
+        } else if (attribution.photographer && !['Portfolio', 'Unknown', ''].includes(attribution.photographer.trim())) {
+          // Only show attribution if photographer name is meaningful
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
+        } else {
+          // Skip attribution for meaningless photographer names
+          return
         }
 
         attributionDiv.appendChild(attributionText)
@@ -678,8 +684,12 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
           }
 
           attributionText.innerHTML = customAttributionHtml
-        } else {
+        } else if (attribution.photographer && !['Portfolio', 'Unknown', ''].includes(attribution.photographer.trim())) {
+          // Only show attribution if photographer name is meaningful
           attributionText.innerHTML = `Photo by ${attribution.photographer}`
+        } else {
+          // Skip attribution for meaningless photographer names
+          return
         }
 
         attributionOverlay.appendChild(attributionText)
@@ -694,8 +704,11 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     // Create change image button
     const changeButton = document.createElement('button')
     changeButton.className = 'change-image-btn'
-    changeButton.innerHTML = '🔄 Change Image'
-    changeButton.title = 'Change this image'
+
+    // Check if this image has existing attribution to determine button text
+    const hasAttribution = attribution && attribution.requires_attribution
+    changeButton.innerHTML = hasAttribution ? '🔄 Update Image' : '🔄 Change Image'
+    changeButton.title = hasAttribution ? 'Update this image and attribution' : 'Change this image'
 
     // Add click handler data
     changeButton.setAttribute('data-image-url', imageUrl)
@@ -704,6 +717,20 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     changeButton.setAttribute('data-image-context', imageContext)
     changeButton.setAttribute('data-node-id', nodeId)
     changeButton.setAttribute('data-node-content', originalContent)
+
+    // Create Update Attribution button
+    const updateAttributionButton = document.createElement('button')
+    updateAttributionButton.className = 'update-attribution-btn'
+    updateAttributionButton.innerHTML = '✏️ Update Attribution'
+    updateAttributionButton.title = 'Update photo attribution'
+
+    // Add click handler data for attribution button
+    updateAttributionButton.setAttribute('data-image-url', imageUrl)
+    updateAttributionButton.setAttribute('data-image-alt', imageAlt)
+    updateAttributionButton.setAttribute('data-image-type', imageType)
+    updateAttributionButton.setAttribute('data-image-context', imageContext)
+    updateAttributionButton.setAttribute('data-node-id', nodeId)
+    updateAttributionButton.setAttribute('data-node-content', originalContent)
 
     // Create Google Photos button
     const googleButton = document.createElement('button')
@@ -721,6 +748,7 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
 
     // Add buttons to container
     buttonContainer.appendChild(changeButton)
+    buttonContainer.appendChild(updateAttributionButton)
     buttonContainer.appendChild(googleButton)
 
     // Insert button container after the image wrapper
@@ -1426,6 +1454,7 @@ const convertStylesToString = (styleObj) => {
 }
 
 .node-content :deep(.change-image-btn),
+.node-content :deep(.update-attribution-btn),
 .node-content :deep(.google-photos-btn) {
   background: #007bff;
   color: white;
@@ -1439,6 +1468,7 @@ const convertStylesToString = (styleObj) => {
 }
 
 .node-content :deep(.change-image-btn:hover),
+.node-content :deep(.update-attribution-btn:hover),
 .node-content :deep(.google-photos-btn:hover) {
   background: #0056b3;
   transform: translateY(-1px);
@@ -1446,6 +1476,7 @@ const convertStylesToString = (styleObj) => {
 }
 
 .node-content :deep(.change-image-btn:active),
+.node-content :deep(.update-attribution-btn:active),
 .node-content :deep(.google-photos-btn:active) {
   transform: translateY(0);
   box-shadow: none;
