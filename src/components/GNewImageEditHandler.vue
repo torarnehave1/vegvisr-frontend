@@ -5,10 +5,15 @@
     <ImageSelector
       v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
       :is-open="isImageSelectorOpen"
-      :image-data="currentImageData"
-      :graph-context="{ type: 'image-replacement' }"
+      :current-image-url="currentImageData.url"
+      :current-image-alt="currentImageData.alt"
+      :image-type="currentImageData.type"
+      :image-context="currentImageData.context"
+      :node-content="currentImageData.nodeContent"
+      :current-image-attribution="currentImageData.attribution"
       @close="closeImageSelector"
       @image-replaced="handleImageReplaced"
+      @attribution-updated="handleAttributionUpdated"
     />
 
     <!-- Google Photos Selector Modal -->
@@ -19,6 +24,21 @@
       @close="closeGooglePhotosSelector"
       @photo-selected="handleGooglePhotoSelected"
     />
+
+    <!-- Attribution Modal -->
+    <AttributionModal
+      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      :is-open="isAttributionModalOpen"
+      :image-url="currentAttributionData.imageUrl"
+      :image-alt="currentAttributionData.imageAlt"
+      :image-type="currentAttributionData.imageType"
+      :image-context="currentAttributionData.imageContext"
+      :node-id="currentAttributionData.nodeId"
+      :current-attribution="currentAttributionData.attribution"
+      @close="closeAttributionModal"
+      @attribution-saved="handleAttributionSaved"
+      @attribution-removed="handleAttributionRemoved"
+    />
   </div>
 </template>
 
@@ -28,6 +48,7 @@ import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
+import AttributionModal from '@/components/AttributionModal.vue'
 
 // Props
 const props = defineProps({
@@ -69,6 +90,17 @@ const currentGooglePhotosData = ref({
   nodeContent: '',
 })
 
+// Attribution Modal state
+const isAttributionModalOpen = ref(false)
+const currentAttributionData = ref({
+  imageUrl: '',
+  imageAlt: '',
+  imageType: '',
+  imageContext: '',
+  nodeId: '',
+  attribution: null,
+})
+
 // Image Selector Functions
 const openImageSelector = (imageData) => {
   if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
@@ -86,6 +118,7 @@ const openImageSelector = (imageData) => {
     context: imageData.context || 'No context provided',
     nodeId: imageData.nodeId,
     nodeContent: imageData.nodeContent || '',
+    attribution: imageData.attribution || null,
   }
   isImageSelectorOpen.value = true
 }
@@ -132,6 +165,166 @@ const closeGooglePhotosSelector = () => {
     context: '',
     nodeId: '',
     nodeContent: '',
+  }
+}
+
+// Attribution Modal Functions
+const openAttributionModal = (attributionData) => {
+  if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
+    console.log('Attribution editing access denied - requires Superadmin role')
+    return
+  }
+
+  console.log('=== GNew Image Edit: Opening Attribution Modal ===')
+  console.log('Attribution data:', attributionData)
+
+  currentAttributionData.value = {
+    imageUrl: attributionData.imageUrl,
+    imageAlt: attributionData.imageAlt || '',
+    imageType: attributionData.imageType || 'Unknown',
+    imageContext: attributionData.imageContext || 'No context provided',
+    nodeId: attributionData.nodeId,
+    attribution: attributionData.attribution || null,
+  }
+  isAttributionModalOpen.value = true
+}
+
+const closeAttributionModal = () => {
+  isAttributionModalOpen.value = false
+  currentAttributionData.value = {
+    imageUrl: '',
+    imageAlt: '',
+    imageType: '',
+    imageContext: '',
+    nodeId: '',
+    attribution: null,
+  }
+}
+
+// Attribution handlers
+const handleAttributionSaved = async (attributionData) => {
+  console.log('=== GNew Image Edit: Attribution Saved ===')
+  console.log('Attribution data:', attributionData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = props.graphData.nodes.find(
+      (node) => node.id === attributionData.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for attribution update')
+    }
+
+    // Update node's attribution data
+    const updatedNode = {
+      ...nodeToUpdate,
+      imageAttributions: {
+        ...nodeToUpdate.imageAttributions,
+        [attributionData.imageUrl]: attributionData.attribution
+      }
+    }
+
+    const updatedGraphData = {
+      ...props.graphData,
+      nodes: props.graphData.nodes.map((node) =>
+        node.id === updatedNode.id ? updatedNode : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch(
+      props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    emit('graph-updated', updatedGraphData)
+    emit('status-message', {
+      type: 'success',
+      message: 'Attribution updated successfully!',
+    })
+
+    closeAttributionModal()
+  } catch (error) {
+    console.error('GNew Image Edit: Error updating attribution:', error)
+    emit('status-message', {
+      type: 'error',
+      message: 'Failed to update attribution. Please try again.',
+    })
+  }
+}
+
+const handleAttributionRemoved = async (attributionData) => {
+  console.log('=== GNew Image Edit: Attribution Removed ===')
+  console.log('Attribution data:', attributionData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = props.graphData.nodes.find(
+      (node) => node.id === attributionData.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for attribution removal')
+    }
+
+    // Remove attribution data
+    const updatedImageAttributions = { ...nodeToUpdate.imageAttributions }
+    delete updatedImageAttributions[attributionData.imageUrl]
+
+    const updatedNode = {
+      ...nodeToUpdate,
+      imageAttributions: updatedImageAttributions
+    }
+
+    const updatedGraphData = {
+      ...props.graphData,
+      nodes: props.graphData.nodes.map((node) =>
+        node.id === updatedNode.id ? updatedNode : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch(
+      props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    emit('graph-updated', updatedGraphData)
+    emit('status-message', {
+      type: 'success',
+      message: 'Attribution removed successfully!',
+    })
+
+    closeAttributionModal()
+  } catch (error) {
+    console.error('GNew Image Edit: Error removing attribution:', error)
+    emit('status-message', {
+      type: 'error',
+      message: 'Failed to remove attribution. Please try again.',
+    })
   }
 }
 
@@ -319,6 +512,77 @@ const handleGooglePhotoSelected = async (selectionData) => {
   }
 }
 
+// Attribution update handler
+const handleAttributionUpdated = async (attributionData) => {
+  console.log('=== GNew Image Edit: Attribution Updated ===')
+  console.log('Attribution data:', attributionData)
+
+  try {
+    // Find the node to update
+    const nodeToUpdate = props.graphData.nodes.find(
+      (node) => node.id === currentImageData.value.nodeId,
+    )
+    if (!nodeToUpdate) {
+      throw new Error('Node not found for attribution update')
+    }
+
+    // Update node's attribution data (stored in the attribution field or similar)
+    const updatedNode = {
+      ...nodeToUpdate,
+      imageAttributions: {
+        ...nodeToUpdate.imageAttributions,
+        [attributionData.imageUrl]: attributionData.attribution
+      }
+    }
+
+    const updatedGraphData = {
+      ...props.graphData,
+      nodes: props.graphData.nodes.map((node) =>
+        node.id === updatedNode.id ? updatedNode : node,
+      ),
+    }
+
+    // Save to backend
+    const response = await fetch(
+      props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save attribution update.')
+    }
+
+    await response.json()
+
+    // Update store
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+    // Emit events to parent
+    emit('status-message', {
+      type: 'success',
+      message: attributionData.attribution ? 'Attribution updated successfully!' : 'Attribution removed successfully!',
+    })
+
+    emit('graph-updated', updatedGraphData)
+
+    closeImageSelector()
+  } catch (error) {
+    console.error('GNew Image Edit: Error updating attribution:', error)
+    emit('status-message', {
+      type: 'error',
+      message: 'Failed to update attribution. Please try again.',
+    })
+  }
+}
+
 // Event listener attachment for image edit buttons
 const attachImageChangeListeners = () => {
   console.log('=== GNew Image Edit: Attaching Change Image Button Listeners ===')
@@ -359,14 +623,40 @@ const attachImageChangeListeners = () => {
     })
   })
 
+  // Update Attribution button listeners
+  const updateAttributionButtons = document.querySelectorAll('.update-attribution-btn')
+  console.log('Found Update Attribution buttons:', updateAttributionButtons.length)
+  updateAttributionButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const btn = event.target
+      const nodeId = btn.getAttribute('data-node-id')
+      const imageUrl = btn.getAttribute('data-image-url')
+
+      // Find the node and get current attribution
+      const node = props.graphData.nodes.find(n => n.id === nodeId)
+      const currentAttribution = node?.imageAttributions?.[imageUrl] || null
+
+      const attributionData = {
+        imageUrl: imageUrl,
+        imageAlt: btn.getAttribute('data-image-alt'),
+        imageType: btn.getAttribute('data-image-type'),
+        imageContext: btn.getAttribute('data-image-context'),
+        nodeId: nodeId,
+        attribution: currentAttribution,
+      }
+      openAttributionModal(attributionData)
+    })
+  })
+
   console.log(
-    'GNew Image Edit: Change image and Google Photos button listeners attached successfully',
+    'GNew Image Edit: Change image, Google Photos, and Attribution button listeners attached successfully',
   )
 }
 
-// Expose the attach function for external use
+// Expose the functions for external use
 defineExpose({
   attachImageChangeListeners,
+  openAttributionModal,
 })
 
 // Lifecycle hooks
@@ -383,7 +673,5 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.gnew-image-edit-handler {
-  /* This component only handles modals and events - no visual styling needed */
-}
+/* Placeholder for future styling */
 </style>

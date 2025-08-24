@@ -1336,6 +1336,14 @@
       @photo-selected="handleGooglePhotoSelected"
     />
 
+    <!-- Image Edit Handler - manages image editing modals -->
+    <GNewImageEditHandler
+      :graph-data="graphData"
+      :api-endpoint="getApiEndpoint"
+      @status-message="handleStatusMessage"
+      @graph-updated="handleGraphUpdated"
+    />
+
     <!-- ShareModal -->
     <ShareModal
       v-if="showShareModal"
@@ -1345,6 +1353,77 @@
       :show-ai-share="showAIShare"
       @close="closeShareModal"
     />
+
+    <!-- Simple Attribution Modal -->
+    <div v-if="showAttributionModal" class="modal-overlay" @click="closeAttributionModal">
+      <div class="attribution-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Update Image Attribution</h3>
+          <button @click="closeAttributionModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- EXIF Data Section -->
+          <div v-if="imageExifData || loadingExif" class="exif-section">
+            <h4>📷 Image Metadata</h4>
+            <div v-if="loadingExif" class="loading-exif">
+              <span>🔄 Extracting image metadata...</span>
+            </div>
+            <div v-else-if="imageExifData">
+              <div class="exif-grid">
+                <div v-if="imageExifData.dateTimeOriginal" class="exif-item">
+                  <strong>📅 Date Taken:</strong> {{ formatDateTime(imageExifData.dateTimeOriginal) }}
+                </div>
+                <div v-if="cleanCameraInfo" class="exif-item">
+                  <strong>📱 Camera:</strong> {{ cleanCameraInfo }}
+                </div>
+                <div v-if="imageExifData.gps.decimal" class="exif-item">
+                  <strong>📍 Location:</strong>
+                  {{ imageExifData.gps.decimal.latitude.toFixed(6) }}, {{ imageExifData.gps.decimal.longitude.toFixed(6) }}
+                  <a :href="`https://maps.google.com/?q=${imageExifData.gps.decimal.latitude},${imageExifData.gps.decimal.longitude}`" target="_blank" class="map-link">
+                    🗺️ View on map
+                  </a>
+                </div>
+                <div v-if="imageExifData.settings.iso" class="exif-item">
+                  <strong>⚙️ Settings:</strong>
+                  ISO {{ imageExifData.settings.iso }}
+                  <span v-if="imageExifData.settings.aperture">, f/{{ imageExifData.settings.aperture }}</span>
+                  <span v-if="imageExifData.settings.shutterSpeed">, {{ imageExifData.settings.shutterSpeed }}s</span>
+                </div>
+
+                <!-- Debug information -->
+                <details class="exif-debug">
+                  <summary>🔧 Debug Info (Raw EXIF Data)</summary>
+                  <pre>{{ JSON.stringify(imageExifData, null, 2) }}</pre>
+                </details>
+              </div>
+            </div>
+            <div v-else class="no-exif">
+              <span>ℹ️ No metadata found in this image</span>
+            </div>
+            <hr />
+          </div>
+
+          <!-- Attribution Form -->
+          <h4>✏️ Edit Attribution</h4>
+          <div class="form-group">
+            <label>Photographer Name</label>
+            <input v-model="attributionForm.photographer" type="text" class="form-control" placeholder="Enter photographer name" />
+          </div>
+          <div class="form-group">
+            <label>Photographer URL (optional)</label>
+            <input v-model="attributionForm.photographerUrl" type="url" class="form-control" placeholder="https://photographer-website.com" />
+          </div>
+          <div class="form-group">
+            <label>Custom Attribution (optional)</label>
+            <input v-model="attributionForm.customText" type="text" class="form-control" placeholder="Additional attribution text" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeAttributionModal" class="btn btn-secondary">Cancel</button>
+          <button @click="saveAttribution" class="btn btn-primary">Save Attribution</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1358,6 +1437,7 @@ import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
+import GNewImageEditHandler from '@/components/GNewImageEditHandler.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewAdvertisementDisplay from '@/components/GNewAdvertisementDisplay.vue'
@@ -1612,6 +1692,32 @@ const currentGooglePhotosData = ref({
   context: '',
   nodeId: '',
   nodeContent: '',
+})
+
+// Simple Attribution Modal state
+const showAttributionModal = ref(false)
+const currentAttributionImageData = ref({
+  nodeId: '',
+  imageUrl: '',
+})
+const attributionForm = ref({
+  photographer: '',
+  photographerUrl: '',
+  customText: '',
+})
+
+// EXIF data for attribution
+const imageExifData = ref(null)
+const loadingExif = ref(false)
+
+// Computed property to clean camera info (remove null characters)
+const cleanCameraInfo = computed(() => {
+  if (!imageExifData.value?.camera) return null
+
+  const make = imageExifData.value.camera.make?.replace(/\0/g, '').trim()
+  const model = imageExifData.value.camera.model?.replace(/\0/g, '').trim()
+
+  return [make, model].filter(Boolean).join(' ') || null
 })
 
 // IMAGEQUOTE functionality
@@ -4187,6 +4293,7 @@ const openImageSelector = (imageData) => {
     context: imageData.context || 'No context provided',
     nodeId: imageData.nodeId,
     nodeContent: imageData.nodeContent || '',
+    attribution: imageData.attribution || null,
   }
   isImageSelectorOpen.value = true
 }
@@ -4200,6 +4307,7 @@ const closeImageSelector = () => {
     context: '',
     nodeId: '',
     nodeContent: '',
+    attribution: null,
   }
 }
 
@@ -4592,13 +4700,21 @@ const attachImageChangeListeners = () => {
   changeImageButtons.forEach((button) => {
     button.addEventListener('click', (event) => {
       const btn = event.target
+      const nodeId = btn.getAttribute('data-node-id')
+      const imageUrl = btn.getAttribute('data-image-url')
+
+      // Find the node and get current attribution
+      const node = graphData.value.nodes.find(n => n.id === nodeId)
+      const currentAttribution = node?.imageAttributions?.[imageUrl] || null
+
       const imageData = {
-        url: btn.getAttribute('data-image-url'),
+        url: imageUrl,
         alt: btn.getAttribute('data-image-alt'),
         type: btn.getAttribute('data-image-type'),
         context: btn.getAttribute('data-image-context'),
-        nodeId: btn.getAttribute('data-node-id'),
+        nodeId: nodeId,
         nodeContent: btn.getAttribute('data-node-content'),
+        attribution: currentAttribution,
       }
       openImageSelector(imageData)
     })
@@ -4632,6 +4748,41 @@ const attachImageChangeListeners = () => {
       console.log('IMAGEQUOTE image button clicked - implement IMAGEQUOTE image editing modal')
       console.log('Node ID:', btn.getAttribute('data-node-id'))
       console.log('IMAGEQUOTE index:', btn.getAttribute('data-imagequote-index'))
+    })
+  })
+
+  // Update Attribution button listeners - SIMPLE VERSION
+  const updateAttributionButtons = document.querySelectorAll('.update-attribution-btn')
+  console.log('Found Update Attribution buttons:', updateAttributionButtons.length)
+  updateAttributionButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const btn = event.target
+      const nodeId = btn.getAttribute('data-node-id')
+      const imageUrl = btn.getAttribute('data-image-url')
+
+      // Find current attribution and populate form
+      const node = graphData.value.nodes.find(n => n.id === nodeId)
+      const currentAttribution = node?.imageAttributions?.[imageUrl]
+
+      currentAttributionImageData.value = { nodeId, imageUrl }
+
+      // Pre-populate form with existing attribution
+      if (currentAttribution && currentAttribution.provider === 'custom') {
+        attributionForm.value = {
+          photographer: currentAttribution.photographer || '',
+          photographerUrl: currentAttribution.photographer_url || '',
+          customText: currentAttribution.custom_attribution || ''
+        }
+      } else {
+        attributionForm.value = { photographer: '', photographerUrl: '', customText: '' }
+      }
+
+      // Extract EXIF data from the image
+      extractImageExif(imageUrl).then(exifData => {
+        imageExifData.value = exifData
+      })
+
+      showAttributionModal.value = true
     })
   })
 
@@ -5155,6 +5306,179 @@ const handleCopyNode = (node) => {
   setTimeout(() => {
     statusMessage.value = ''
   }, 2000)
+}
+
+// Handler for status messages from GNewImageEditHandler
+const handleStatusMessage = (message) => {
+  console.log('Status message from Image Edit Handler:', message)
+  if (message.type === 'error') {
+    statusMessage.value = message.message
+  } else {
+    statusMessage.value = message.message
+  }
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3000)
+}
+
+// Handler for graph updates from GNewImageEditHandler
+const handleGraphUpdated = (updatedGraphData) => {
+  console.log('Graph updated from Image Edit Handler')
+  graphData.value = updatedGraphData
+}
+
+// EXIF extraction function for existing images - SIMPLE VERSION LIKE TEST
+const extractImageExif = async (imageUrl) => {
+  if (!imageUrl) return null
+
+  // Get original image URL without Imgix transformations
+  let originalUrl = imageUrl
+  if (imageUrl.includes('vegvisr.imgix.net') && imageUrl.includes('?')) {
+    // Extract just the base URL without query parameters
+    originalUrl = imageUrl.split('?')[0]
+    console.log('🔍 Using original URL for EXIF:', originalUrl)
+  } else {
+    console.log('🔍 Extracting EXIF from:', imageUrl)
+  }
+
+  loadingExif.value = true
+
+  try {
+    // Simple approach - just like the test page
+    const response = await fetch(originalUrl)
+    const blob = await response.blob()
+
+    console.log('📦 Fetched blob:', blob.size, 'bytes, type:', blob.type)
+
+    return new Promise((resolve) => {
+      EXIF.getData(blob, function() {
+        const allTags = EXIF.getAllTags(this)
+        console.log('🏷️ All EXIF tags found:', allTags)
+
+        const exifData = {
+          dateTime: EXIF.getTag(this, "DateTime"),
+          dateTimeOriginal: EXIF.getTag(this, "DateTimeOriginal"),
+          camera: {
+            make: EXIF.getTag(this, "Make")?.replace(/\0/g, '').trim(),
+            model: EXIF.getTag(this, "Model")?.replace(/\0/g, '').trim(),
+          },
+          gps: {
+            latitude: EXIF.getTag(this, "GPSLatitude"),
+            longitude: EXIF.getTag(this, "GPSLongitude"),
+            latitudeRef: EXIF.getTag(this, "GPSLatitudeRef"),
+            longitudeRef: EXIF.getTag(this, "GPSLongitudeRef"),
+          },
+          settings: {
+            iso: EXIF.getTag(this, "ISOSpeedRatings"),
+            aperture: EXIF.getTag(this, "FNumber"),
+            shutterSpeed: EXIF.getTag(this, "ExposureTime"),
+          },
+          allTags: allTags
+        }
+
+        // Convert GPS if available
+        if (exifData.gps.latitude && exifData.gps.longitude) {
+          const lat = convertDMSToDD(exifData.gps.latitude, exifData.gps.latitudeRef)
+          const lon = convertDMSToDD(exifData.gps.longitude, exifData.gps.longitudeRef)
+          exifData.gps.decimal = { latitude: lat, longitude: lon }
+        }
+
+        console.log('� Simple EXIF data:', exifData)
+        resolve(exifData)
+      })
+    })
+  } catch (error) {
+    console.error('❌ EXIF error:', error)
+    return null
+  } finally {
+    loadingExif.value = false
+  }
+}
+
+// Helper function to convert GPS coordinates
+const convertDMSToDD = (dms, ref) => {
+  if (!dms || !Array.isArray(dms) || dms.length !== 3) return null
+  let dd = dms[0] + dms[1]/60 + dms[2]/3600
+  if (ref === "S" || ref === "W") dd = dd * -1
+  return dd
+}
+
+// Helper function to format EXIF datetime
+const formatDateTime = (dateTimeString) => {
+  if (!dateTimeString) return 'Unknown'
+  try {
+    // EXIF format is "YYYY:MM:DD HH:MM:SS"
+    const [datePart, timePart] = dateTimeString.split(' ')
+    const [year, month, day] = datePart.split(':')
+    const [hours, minutes] = timePart.split(':')
+
+    // Format as DD/MM/YYYY HH:mm
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year} ${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
+  } catch (error) {
+    return dateTimeString
+  }
+}
+
+// Simple Attribution Modal functions
+const closeAttributionModal = () => {
+  showAttributionModal.value = false
+  attributionForm.value = { photographer: '', photographerUrl: '', customText: '' }
+  imageExifData.value = null // Reset EXIF data
+}
+
+const saveAttribution = async () => {
+  try {
+    const { nodeId, imageUrl } = currentAttributionImageData.value
+    const node = graphData.value.nodes.find(n => n.id === nodeId)
+
+    if (!node) {
+      throw new Error('Node not found')
+    }
+
+    // Create attribution object
+    const attribution = {
+      provider: 'custom',
+      photographer: attributionForm.value.photographer.trim() || null,
+      photographer_url: attributionForm.value.photographerUrl.trim() || null,
+      custom_attribution: attributionForm.value.customText.trim() || null,
+      requires_attribution: !!(attributionForm.value.photographer.trim() || attributionForm.value.customText.trim())
+    }
+
+    // Update node attribution
+    if (!node.imageAttributions) {
+      node.imageAttributions = {}
+    }
+    node.imageAttributions[imageUrl] = attribution
+
+    // Save to backend
+    const response = await fetch(getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentGraphId.value,
+        graphData: graphData.value,
+        override: true
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save')
+    }
+
+    statusMessage.value = 'Attribution updated successfully!'
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+    closeAttributionModal()
+
+    // Reattach button listeners after DOM updates
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+
+  } catch (error) {
+    console.error('Error saving attribution:', error)
+    statusMessage.value = 'Failed to save attribution'
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+  }
 }
 </script>
 
@@ -6895,5 +7219,146 @@ const handleCopyNode = (node) => {
   .print-button {
     display: none !important;
   }
+}
+
+/* Simple Attribution Modal */
+.attribution-modal {
+  background: white;
+  border-radius: 8px;
+  width: 500px;
+  max-width: 90vw;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.attribution-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.attribution-modal .modal-header h3 {
+  margin: 0;
+  color: #343a40;
+}
+
+.attribution-modal .modal-body {
+  padding: 20px;
+}
+
+.attribution-modal .form-group {
+  margin-bottom: 15px;
+}
+
+.attribution-modal .form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.attribution-modal .form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.attribution-modal .form-control:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.attribution-modal .modal-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 20px;
+  border-top: 1px solid #e9ecef;
+}
+
+/* EXIF Data Styles */
+.exif-section {
+  margin-bottom: 20px;
+}
+
+.exif-section h4 {
+  margin: 0 0 15px 0;
+  color: #495057;
+  font-size: 1.1em;
+}
+
+.exif-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.exif-item {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.exif-item strong {
+  color: #495057;
+  margin-right: 8px;
+}
+
+.map-link {
+  margin-left: 8px;
+  color: #007bff;
+  text-decoration: none;
+  font-size: 0.8em;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
+.loading-exif {
+  padding: 15px;
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.no-exif {
+  padding: 10px;
+  color: #6c757d;
+  font-style: italic;
+  text-align: center;
+}
+
+.exif-section hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid #e9ecef;
+}
+
+.exif-debug {
+  margin-top: 15px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+.exif-debug summary {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  cursor: pointer;
+  font-size: 0.85em;
+  color: #6c757d;
+}
+
+.exif-debug pre {
+  margin: 0;
+  padding: 12px;
+  background: #f8f9fa;
+  font-size: 0.75em;
+  overflow-x: auto;
+  white-space: pre-wrap;
 }
 </style>

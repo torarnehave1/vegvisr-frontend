@@ -227,63 +227,6 @@
           />
         </div>
 
-        <!-- Custom Attribution Fields (shown after uploading custom image) -->
-        <div v-if="showAttributionFields" class="custom-attribution-section">
-          <h5>📷 Photo Attribution (Optional)</h5>
-          <p class="attribution-help">Add attribution information for your uploaded image</p>
-
-          <div class="attribution-fields">
-            <div class="form-group">
-              <label for="photographer-name">Photographer Name:</label>
-              <input
-                id="photographer-name"
-                type="text"
-                v-model="customPhotographer"
-                placeholder="e.g., John Doe"
-                class="form-control"
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="photographer-url">Photographer URL (Optional):</label>
-              <input
-                id="photographer-url"
-                type="url"
-                v-model="customPhotographerUrl"
-                placeholder="e.g., https://portfolio.example.com"
-                class="form-control"
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="custom-attribution">Custom Attribution Text (Optional):</label>
-              <input
-                id="custom-attribution"
-                type="text"
-                v-model="customAttribution"
-                placeholder="e.g., Photo taken in Paris, France"
-                class="form-control"
-              />
-            </div>
-
-            <div class="attribution-actions">
-              <button
-                @click="applyCustomAttribution"
-                class="btn btn-primary btn-sm"
-                :disabled="!customPhotographer.trim()"
-              >
-                ✓ Apply Attribution
-              </button>
-              <button
-                @click="skipAttribution"
-                class="btn btn-secondary btn-sm"
-              >
-                Skip Attribution
-              </button>
-            </div>
-          </div>
-        </div>
-
         <!-- Clipboard Paste Area -->
         <div class="clipboard-paste-area" v-if="!pastedImage && !pastedUrl">
           <div class="paste-info">
@@ -561,7 +504,6 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
-import { useUserStore } from '../stores/userStore'
 import AIImageModal from './AIImageModal.vue'
 import R2PortfolioModal from './R2PortfolioModal.vue'
 
@@ -611,12 +553,6 @@ const isAIImageModalOpen = ref(false)
 const isPortfolioModalOpen = ref(false)
 const imageFileInput = ref(null)
 
-// Attribution fields for uploaded images
-const showAttributionFields = ref(false)
-const customPhotographer = ref('')
-const customPhotographerUrl = ref('')
-const customAttribution = ref('')
-
 // Dimensions state
 const currentDimensions = ref({ width: null, height: null })
 const newDimensions = ref({ width: null, height: null })
@@ -630,9 +566,6 @@ const originalImageUrl = ref('')
 const applyingUrl = ref(false)
 const urlPreview = ref('')
 const pastedUrl = ref(null)
-
-// Use userStore for user management
-const userStore = useUserStore()
 
 // Always use production API base URL
 const API_BASE = 'https://api.vegvisr.org'
@@ -783,18 +716,8 @@ const closeModal = () => {
   originalImageUrl.value = ''
   urlPreview.value = ''
   pastedUrl.value = null
-  // Reset attribution fields
-  showAttributionFields.value = false
-  customPhotographer.value = ''
-  customPhotographerUrl.value = ''
-  customAttribution.value = ''
   removePasteListener()
   emit('close')
-}
-
-const getImageDimensions = (image) => {
-  // This would ideally come from the Pexels API response
-  return 'Medium size' // Placeholder
 }
 
 // Computed properties for dimensions
@@ -1200,6 +1123,68 @@ const clearPastedUrl = () => {
   error.value = ''
 }
 
+// EXIF extraction function
+const extractExifData = (file) => {
+  return new Promise((resolve) => {
+    EXIF.getData(file, function() {
+      const allTags = EXIF.getAllTags(this)
+      console.log('🏷️ All EXIF tags found in upload:', allTags)
+
+      const exifData = {
+        dateTime: EXIF.getTag(this, "DateTime"),
+        dateTimeOriginal: EXIF.getTag(this, "DateTimeOriginal"),
+        dateTimeDigitized: EXIF.getTag(this, "DateTimeDigitized"),
+        camera: {
+          make: EXIF.getTag(this, "Make"),
+          model: EXIF.getTag(this, "Model"),
+        },
+        gps: {
+          latitude: EXIF.getTag(this, "GPSLatitude"),
+          longitude: EXIF.getTag(this, "GPSLongitude"),
+          latitudeRef: EXIF.getTag(this, "GPSLatitudeRef"),
+          longitudeRef: EXIF.getTag(this, "GPSLongitudeRef"),
+          altitude: EXIF.getTag(this, "GPSAltitude"),
+          altitudeRef: EXIF.getTag(this, "GPSAltitudeRef"),
+        },
+        settings: {
+          iso: EXIF.getTag(this, "ISOSpeedRatings") || EXIF.getTag(this, "PhotographicSensitivity"),
+          aperture: EXIF.getTag(this, "FNumber") || EXIF.getTag(this, "ApertureValue"),
+          shutterSpeed: EXIF.getTag(this, "ExposureTime") || EXIF.getTag(this, "ShutterSpeedValue"),
+          focalLength: EXIF.getTag(this, "FocalLength"),
+          exposureMode: EXIF.getTag(this, "ExposureMode"),
+          whiteBalance: EXIF.getTag(this, "WhiteBalance"),
+        },
+        imageInfo: {
+          description: EXIF.getTag(this, "ImageDescription"),
+          orientation: EXIF.getTag(this, "Orientation"),
+          xResolution: EXIF.getTag(this, "XResolution"),
+          yResolution: EXIF.getTag(this, "YResolution"),
+          software: EXIF.getTag(this, "Software"),
+        },
+        allTags: allTags // Include all tags for debugging
+      }
+
+      // Convert GPS coordinates to decimal degrees if available
+      if (exifData.gps.latitude && exifData.gps.longitude) {
+        const lat = convertDMSToDD(exifData.gps.latitude, exifData.gps.latitudeRef)
+        const lon = convertDMSToDD(exifData.gps.longitude, exifData.gps.longitudeRef)
+        exifData.gps.decimal = { latitude: lat, longitude: lon }
+      }
+
+      resolve(exifData)
+    })
+  })
+}
+
+// Helper function to convert GPS coordinates from DMS to decimal degrees
+const convertDMSToDD = (dms, ref) => {
+  if (!dms || !Array.isArray(dms) || dms.length !== 3) return null
+
+  let dd = dms[0] + dms[1]/60 + dms[2]/3600
+  if (ref === "S" || ref === "W") dd = dd * -1
+  return dd
+}
+
 // Upload functionality
 const triggerImageUpload = () => {
   imageFileInput.value?.click()
@@ -1214,6 +1199,11 @@ const handleImageUpload = async (event) => {
 
   isUploadingImage.value = true
   error.value = ''
+
+  // Extract EXIF data before uploading
+  console.log('Extracting EXIF data from uploaded image...')
+  const exifData = await extractExifData(file)
+  console.log('EXIF data extracted:', exifData)
 
   const formData = new FormData()
   formData.append('file', file)
@@ -1231,12 +1221,15 @@ const handleImageUpload = async (event) => {
 
     const data = await response.json()
 
-    // Create a selected image object from the uploaded image
+    // Create a selected image object from the uploaded image with EXIF data
     selectedImage.value = {
       id: 'uploaded-' + Date.now(),
       url: data.url,
       alt: file.name.replace(/\.[^/.]+$/, ''), // Remove file extension for alt text
       photographer: 'Uploaded by user',
+      exifData: exifData, // Include EXIF data
+      uploadDate: new Date().toISOString(), // When it was uploaded
+      originalFileName: file.name,
     }
 
     // Update the URL field to show the new uploaded image URL
@@ -1249,14 +1242,6 @@ const handleImageUpload = async (event) => {
     pastedUrl.value = null
 
     console.log('Image uploaded successfully:', data.url)
-
-    // Show attribution fields for custom images
-    showAttributionFields.value = true
-
-    // Clear any previous attribution values
-    customPhotographer.value = ''
-    customPhotographerUrl.value = ''
-    customAttribution.value = ''
   } catch (err) {
     console.error('Error uploading image:', err)
     error.value = 'Failed to upload image. Please try again.'
@@ -1265,32 +1250,6 @@ const handleImageUpload = async (event) => {
     // Clear the file input
     event.target.value = ''
   }
-}
-
-// Custom Attribution Functions
-const applyCustomAttribution = () => {
-  if (selectedImage.value && customPhotographer.value.trim()) {
-    // Update the selected image with custom attribution data
-    selectedImage.value.photographer = customPhotographer.value.trim()
-    selectedImage.value.photographer_url = customPhotographerUrl.value.trim() || null
-    selectedImage.value.custom_attribution = customAttribution.value.trim() || null
-
-    console.log('Custom attribution applied:', {
-      photographer: selectedImage.value.photographer,
-      photographer_url: selectedImage.value.photographer_url,
-      custom_attribution: selectedImage.value.custom_attribution
-    })
-  }
-
-  // Hide attribution fields and proceed with image replacement
-  showAttributionFields.value = false
-  replaceImage()
-}
-
-const skipAttribution = () => {
-  // Hide attribution fields and proceed with image replacement without custom attribution
-  showAttributionFields.value = false
-  replaceImage()
 }
 
 // AI Image Generation functionality
@@ -1348,7 +1307,7 @@ const handleAIImageGenerated = (imageData) => {
       if (imageData.label && imageData.label.includes('http')) {
         console.log('=== Extracting from label field ===')
         // If the URL is directly in the label
-        const urlMatch = imageData.label.match(/(https?:\/\/[^\s\)]+)/)
+        const urlMatch = imageData.label.match(/(https?:\/\/[^\s)]+)/)
         console.log('Label URL match result:', urlMatch)
         imageUrl = urlMatch ? urlMatch[1] : null
       } else if (imageData.url) {
@@ -1418,7 +1377,7 @@ const handlePortfolioImageSelected = (imageData) => {
         id: 'portfolio-' + Date.now(),
         url: imageUrl,
         alt: imageData.key || 'Portfolio Image',
-        photographer: 'Portfolio',
+        photographer: '', // Start empty - let user fill in attribution
       }
 
       // Update the URL field
