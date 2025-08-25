@@ -47,7 +47,8 @@
           <div v-if="errors.email" class="invalid-feedback">{{ errors.email }}</div>
         </div>
 
-        <div class="form-group">
+        <!-- Only show subscription type selector if user choice is allowed -->
+        <div class="form-group" v-if="allowUserChoice">
           <label for="subscription-type">Subscribe to</label>
           <select
             id="subscription-type"
@@ -208,6 +209,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
 export default {
   name: 'GNewSubscriptionNode',
@@ -228,6 +230,7 @@ export default {
   setup(props) {
     const userStore = useUserStore()
     const portfolioStore = usePortfolioStore()
+    const knowledgeGraphStore = useKnowledgeGraphStore()
 
     // Reactive state
     const formData = ref({
@@ -255,7 +258,30 @@ export default {
     const selectedMetaAreas = ref([])
 
     // Node data
-    const nodeData = computed(() => props.node.data || {})
+    // Node data - read from template info field first, then data field
+    const nodeData = computed(() => {
+      try {
+        // Try to parse the info field from the database template
+        const templateInfo = JSON.parse(props.node.info || '{}')
+        return {
+          title: templateInfo.title || props.node.data?.title || 'Subscribe to Updates',
+          description: templateInfo.description || props.node.data?.description || "Subscribe to receive notifications about new content in your areas of interest. You'll need to verify your email address to activate your subscription.",
+          ...templateInfo
+        }
+      } catch {
+        // Fallback to data field if info parsing fails
+        return props.node.data || {}
+      }
+    })
+
+    // Auto-subscription detection
+    const isAutoSubscription = computed(() => {
+      return nodeData.value.auto_subscribe_to_graph === true
+    })
+
+    const allowUserChoice = computed(() => {
+      return nodeData.value.allow_user_choice !== false
+    })
 
     // Get categories and meta areas from portfolio store (same pattern as BrandingModal)
     const availableCategories = computed(() => {
@@ -268,6 +294,12 @@ export default {
 
     // Validation
     const canSubscribe = computed(() => {
+      // For auto-subscription, just need email
+      if (isAutoSubscription.value) {
+        return formData.value.email && !isLoading.value
+      }
+
+      // Regular subscription validation
       const hasTarget =
         formData.value.subscription_type === 'meta_area'
           ? selectedMetaAreas.value.length > 0
@@ -295,16 +327,19 @@ export default {
         newErrors.email = 'Please enter a valid email address'
       }
 
-      if (!formData.value.subscription_type) {
-        newErrors.subscription_type = 'Please select a subscription type'
-      }
-
-      if (formData.value.subscription_type === 'meta_area') {
-        if (selectedMetaAreas.value.length === 0) {
-          newErrors.target_id = 'Please select at least one meta area'
+      // Skip subscription type and target validation for auto-subscription
+      if (!isAutoSubscription.value) {
+        if (!formData.value.subscription_type) {
+          newErrors.subscription_type = 'Please select a subscription type'
         }
-      } else if (!formData.value.target_input.trim()) {
-        newErrors.target_id = 'Please enter a category'
+
+        if (formData.value.subscription_type === 'meta_area') {
+          if (selectedMetaAreas.value.length === 0) {
+            newErrors.target_id = 'Please select at least one meta area'
+          }
+        } else if (!formData.value.target_input.trim()) {
+          newErrors.target_id = 'Please enter a category'
+        }
       }
 
       errors.value = newErrors
@@ -477,7 +512,16 @@ export default {
     }
 
     const subscribe = async () => {
-      if (!validateForm()) return
+      console.log('🔥 Subscribe function called!')
+      console.log('Auto subscription:', isAutoSubscription.value)
+      console.log('Email:', formData.value.email)
+      console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
+      
+      const isValid = validateForm()
+      console.log('Form validation result:', isValid)
+      console.log('Validation errors:', errors.value)
+      
+      if (!isValid) return
 
       isLoading.value = true
       errorMessage.value = ''
@@ -487,7 +531,74 @@ export default {
         let subscriptionResults = []
         let isNewSubscriber = false
 
-        if (formData.value.subscription_type === 'meta_area') {
+        // Handle auto-subscription - use same API as regular subscription
+        if (isAutoSubscription.value) {
+          // Get meta areas from graph metadata (not individual nodes)
+          console.log('🔍 Graph data:', props.graphData)
+          console.log('🔍 Graph metadata:', props.graphData?.metadata)
+          
+          const metaAreaString = props.graphData?.metadata?.metaArea || ''
+          console.log('🔍 Meta area string:', metaAreaString)
+          
+          const graphMetaAreas = metaAreaString
+            .split('#')
+            .map((area) => area.trim())
+            .filter((area) => area.length > 0)
+          
+          console.log('🔍 Found meta areas:', graphMetaAreas)
+          
+          if (graphMetaAreas.length === 0) {
+            errorMessage.value = 'No meta areas found in this graph to subscribe to.'
+            return
+          }
+
+          // Use the first meta area (or could be random)
+          const targetMetaArea = graphMetaAreas[0]
+          
+          successMessage.value = '📝 Creating subscription...'
+
+          const subscriptionData = {
+            email: formData.value.email,
+            subscription_type: 'meta_area',
+            target_id: targetMetaArea,
+            target_title: targetMetaArea,
+            subscribed_at: new Date().toISOString(),
+          }
+
+          console.log('📤 Sending subscription data:', subscriptionData)
+
+          const response = await fetch(
+            'https://subscription-worker.torarnehave.workers.dev/subscribe',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${userStore.token}`,
+              },
+              body: JSON.stringify(subscriptionData),
+            },
+          )
+
+          console.log('📨 Response status:', response.status)
+          const data = await response.json()
+          console.log('📨 Response data:', data)
+
+          if (data.success) {
+            subscriptionResults.push({
+              success: true,
+              unsubscribe_token: data.unsubscribe_token,
+            })
+
+            if (data.user_status === 'new_subscriber') {
+              isNewSubscriber = true
+            }
+          } else {
+            subscriptionResults.push({
+              success: false,
+              error: data.error,
+            })
+          }
+        } else if (formData.value.subscription_type === 'meta_area') {
           // Handle multiple meta area subscriptions
           successMessage.value = `📝 Creating ${selectedMetaAreas.value.length} subscription${selectedMetaAreas.value.length > 1 ? 's' : ''}...`
 
@@ -679,6 +790,8 @@ export default {
       filteredCategories,
       filteredMetaAreas,
       selectedMetaAreas,
+      isAutoSubscription,
+      allowUserChoice,
       clearError,
       validateForm,
       onSubscriptionTypeChange,
