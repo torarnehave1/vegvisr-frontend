@@ -80,6 +80,30 @@ export const useUserStore = defineStore('user', {
       this.googlePhotosConnected = false
       this.googlePhotosCredentials = null
       localStorage.removeItem('user')
+
+      // Clear all password verification sessions for security
+      this.clearPasswordSessions()
+    },
+
+    // Clear all password verification sessions
+    clearPasswordSessions() {
+      // Find and remove all graph password verification sessions
+      const keysToRemove = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && key.startsWith('graph_password_verified_')) {
+          keysToRemove.push(key)
+        }
+      }
+
+      keysToRemove.forEach(key => {
+        sessionStorage.removeItem(key)
+        console.log('🔒 Cleared password session:', key)
+      })
+
+      if (keysToRemove.length > 0) {
+        console.log(`🔒 Security: Cleared ${keysToRemove.length} password verification sessions`)
+      }
     },
 
     // Google Photos Integration

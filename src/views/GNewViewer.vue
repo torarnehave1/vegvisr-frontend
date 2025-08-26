@@ -1424,6 +1424,40 @@
         </div>
       </div>
     </div>
+
+    <!-- Password Verification Modal -->
+    <div v-if="showPasswordModal" class="modal-overlay">
+      <div class="password-modal" @click.stop>
+        <div class="modal-header">
+          <h3>🔒 Password Required</h3>
+        </div>
+        <div class="modal-body">
+          <p>This Knowledge Graph is password protected. Please enter the password to view the content.</p>
+          <div class="password-input-container">
+            <input
+              v-model="passwordInput"
+              type="password"
+              placeholder="Enter password"
+              class="password-input"
+              @keyup.enter="verifyPassword"
+              :disabled="passwordLoading"
+            />
+            <div v-if="passwordError" class="password-error">
+              {{ passwordError }}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closePasswordModal" class="btn-secondary" :disabled="passwordLoading">
+            Cancel
+          </button>
+          <button @click="verifyPassword" class="btn-primary" :disabled="passwordLoading || !passwordInput.trim()">
+            <span v-if="passwordLoading">🔄 Verifying...</span>
+            <span v-else>🔓 Unlock</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1499,6 +1533,13 @@ const loading = ref(false)
 const error = ref(null)
 const statusMessage = ref('')
 const duplicatingGraph = ref(false)
+
+// Password verification state
+const showPasswordModal = ref(false)
+const passwordInput = ref('')
+const passwordError = ref('')
+const passwordLoading = ref(false)
+const isPasswordVerified = ref(false)
 
 // Computed properties
 const currentGraphId = computed(() => {
@@ -1628,10 +1669,21 @@ const adsBySlot = computed(() => {
 // Trigger initial and reactive ad fetches
 onMounted(() => {
   console.log('🎯 onMounted - currentGraphId:', currentGraphId.value)
+
+  // Load the graph when component mounts
   if (currentGraphId.value) {
     console.log('🎯 onMounted - calling fetchAdvertisementsForGraph')
     fetchAdvertisementsForGraph()
+    loadGraph()
   }
+
+  // Security: Clear password sessions when page is refreshed or closed
+  const handleBeforeUnload = () => {
+    // Clear all password verification sessions on page unload for security
+    userStore.clearPasswordSessions()
+  }
+
+  window.addEventListener('beforeunload', handleBeforeUnload)
 
   // Listen for ad refresh events from Ad Manager
   const handleAdRefresh = (event) => {
@@ -1656,6 +1708,7 @@ onMounted(() => {
   // Cleanup on unmount
   onUnmounted(() => {
     window.removeEventListener('storage', handleAdRefresh)
+    window.removeEventListener('beforeunload', handleBeforeUnload)
   })
 })
 watch(
@@ -1665,6 +1718,20 @@ watch(
     if (id) {
       console.log('🎯 watch - calling fetchAdvertisementsForGraph')
       fetchAdvertisementsForGraph()
+    }
+  },
+)
+
+// Security: Watch for user logout to clear password sessions
+watch(
+  () => userStore.loggedIn,
+  (isLoggedIn) => {
+    if (!isLoggedIn) {
+      console.log('🔒 User logged out - clearing password verification sessions')
+      userStore.clearPasswordSessions()
+      // Also reset password verification state
+      isPasswordVerified.value = false
+      showPasswordModal.value = false
     }
   },
 )
@@ -2423,12 +2490,42 @@ const filteredMobileTemplates = computed(() => {
 })
 
 // Methods
+// Clear password verification sessions for graphs other than the current one
+const clearOtherGraphPasswordSessions = (currentGraphId) => {
+  const keysToRemove = []
+
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i)
+    if (key && key.startsWith('graph_password_verified_')) {
+      // Extract graph ID from the session key
+      const sessionGraphId = key.replace('graph_password_verified_', '')
+
+      // Only remove sessions for other graphs, keep current graph session
+      if (sessionGraphId !== currentGraphId) {
+        keysToRemove.push(key)
+      }
+    }
+  }
+
+  keysToRemove.forEach(key => {
+    sessionStorage.removeItem(key)
+    console.log('🔒 Cleared password session for other graph:', key)
+  })
+
+  if (keysToRemove.length > 0) {
+    console.log(`🔒 Security: Cleared ${keysToRemove.length} password sessions when switching to graph ${currentGraphId}`)
+  }
+}
+
 const loadGraph = async () => {
   const graphId = knowledgeGraphStore.currentGraphId
   if (!graphId) {
     error.value = 'No graph ID is set in the store.'
     return
   }
+
+  // Clear password verification sessions for other graphs when switching
+  clearOtherGraphPasswordSessions(graphId)
 
   loading.value = true
   error.value = null
@@ -2443,6 +2540,23 @@ const loadGraph = async () => {
     }
 
     const data = await response.json()
+
+    // Check if graph is password protected
+    if (data.metadata?.passwordProtected && !isPasswordVerified.value) {
+      // Check if we have a valid session for this graph
+      const sessionKey = `graph_password_verified_${graphId}`
+      const isSessionValid = sessionStorage.getItem(sessionKey) === 'true'
+
+      if (!isSessionValid) {
+        // Show password modal and return without loading graph
+        showPasswordModal.value = true
+        loading.value = false
+        return
+      } else {
+        // Session is valid, mark as verified
+        isPasswordVerified.value = true
+      }
+    }
 
     // Process and clean data
     const uniqueNodes = []
@@ -2463,6 +2577,9 @@ const loadGraph = async () => {
       nodes: uniqueNodes.filter((node) => node.visible !== false),
     }
 
+    // Update the store with the current graph data including metadata
+    knowledgeGraphStore.setCurrentGraph(graphData.value)
+
     console.log(
       `✅ Graph auto-loaded: ${graphData.value.metadata?.title || 'Untitled'} - Nodes: ${graphData.value.nodes.length}`,
     )
@@ -2481,6 +2598,70 @@ const loadGraph = async () => {
 
 const refreshData = () => {
   loadGraph()
+}
+
+// Password verification functions
+const verifyPassword = async () => {
+  if (!passwordInput.value.trim()) {
+    passwordError.value = 'Please enter a password'
+    return
+  }
+
+  passwordLoading.value = true
+  passwordError.value = ''
+
+  try {
+    const graphId = knowledgeGraphStore.currentGraphId
+
+    // Get current graph data to compare password
+    const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch graph data')
+    }
+
+    const data = await response.json()
+    const storedPasswordHash = data.metadata?.passwordHash
+
+    if (!storedPasswordHash) {
+      passwordError.value = 'This graph is not password protected'
+      return
+    }
+
+    // Simple password verification (using base64 decode for demo)
+    // In production, this should use proper bcrypt verification
+    const enteredPasswordHash = btoa(passwordInput.value)
+
+    if (enteredPasswordHash === storedPasswordHash) {
+      // Password correct
+      isPasswordVerified.value = true
+      showPasswordModal.value = false
+
+      // Store session verification
+      const sessionKey = `graph_password_verified_${graphId}`
+      sessionStorage.setItem(sessionKey, 'true')
+
+      // Clear password input
+      passwordInput.value = ''
+
+      // Load the graph
+      await loadGraph()
+    } else {
+      passwordError.value = 'Incorrect password'
+    }
+  } catch (error) {
+    console.error('Password verification error:', error)
+    passwordError.value = 'Failed to verify password. Please try again.'
+  } finally {
+    passwordLoading.value = false
+  }
+}
+
+const closePasswordModal = () => {
+  showPasswordModal.value = false
+  passwordInput.value = ''
+  passwordError.value = ''
+  // Redirect to home or show message
+  router.push('/')
 }
 
 // Mobile menu methods
@@ -2786,7 +2967,41 @@ const getTemplatesByCategory = (category) => {
     return []
   }
 
-  const filtered = mobileTemplates.value.filter((template) => template.category === category)
+  let filtered = mobileTemplates.value.filter((template) => template.category === category)
+
+  // Filter out password protection templates for unauthorized users
+  filtered = filtered.filter((template) => {
+    // Check if this is a password protection template
+    const hasPasswordProtectionNode = template.nodes?.some(node => node.type === 'password-protection')
+
+    if (hasPasswordProtectionNode) {
+      // If user is not logged in, hide the template
+      if (!userStore.loggedIn) {
+        console.log('🚫 Password protection template hidden - user not logged in')
+        return false
+      }
+
+      // Allow Superadmin to see all password protection templates
+      if (userStore.role === 'Superadmin') {
+        console.log('✅ Password protection template visible - user is Superadmin')
+        return true
+      }
+
+      // Check if user is the graph owner
+      const graphOwner = graphData.value?.metadata?.createdBy
+      const userEmail = userStore.email || userStore.user?.email
+
+      if (!graphOwner || !userEmail || graphOwner !== userEmail) {
+        console.log('🚫 Password protection template hidden - user is not graph owner')
+        return false
+      }
+
+      console.log('✅ Password protection template visible - user is graph owner')
+    }
+
+    return true
+  })
+
   console.log(`Templates for category "${category}":`, filtered.length, filtered)
   return filtered
 }
@@ -4047,7 +4262,7 @@ const handleNodeUpdated = async (updatedNode) => {
     }, 5000)
 
     // Reload the graph data to ensure consistency
-    await fetchGraphData()
+    await loadGraph()
   }
 }
 
@@ -4134,7 +4349,7 @@ const handleNodeDeleted = async (nodeId) => {
     }, 5000)
 
     // Reload the graph data to ensure consistency
-    await fetchGraphData()
+    await loadGraph()
   }
 }
 
@@ -7360,5 +7575,130 @@ const saveAttribution = async () => {
   font-size: 0.75em;
   overflow-x: auto;
   white-space: pre-wrap;
+}
+
+/* Password Modal Styles */
+.password-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 450px;
+  width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease-out;
+}
+
+.password-modal .modal-header {
+  padding: 1.5rem 2rem 0.5rem;
+  border-bottom: none;
+}
+
+.password-modal .modal-header h3 {
+  font-size: 1.5rem;
+  color: #333;
+  margin: 0;
+  text-align: center;
+}
+
+.password-modal .modal-body {
+  padding: 1rem 2rem;
+}
+
+.password-modal .modal-body p {
+  color: #666;
+  text-align: center;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.password-input-container {
+  margin-bottom: 1rem;
+}
+
+.password-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: border-color 0.2s ease;
+  background: #fafbfc;
+}
+
+.password-input:focus {
+  outline: none;
+  border-color: #0366d6;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+}
+
+.password-input:disabled {
+  background: #f1f3f4;
+  color: #6a737d;
+  cursor: not-allowed;
+}
+
+.password-error {
+  color: #d73a49;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+  padding: 8px 12px;
+  background: #ffeef0;
+  border: 1px solid #fdb8c0;
+  border-radius: 6px;
+}
+
+.password-modal .modal-footer {
+  padding: 1rem 2rem 2rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  border-top: none;
+}
+
+.password-modal .btn-secondary,
+.password-modal .btn-primary {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 100px;
+}
+
+.password-modal .btn-secondary {
+  background: #f1f3f4;
+  color: #586069;
+}
+
+.password-modal .btn-secondary:hover:not(:disabled) {
+  background: #e1e4e8;
+}
+
+.password-modal .btn-primary {
+  background: #0366d6;
+  color: white;
+}
+
+.password-modal .btn-primary:hover:not(:disabled) {
+  background: #0256cc;
+}
+
+.password-modal .btn-primary:disabled,
+.password-modal .btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 </style>

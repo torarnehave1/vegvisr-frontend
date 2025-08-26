@@ -4,10 +4,10 @@ async function addSubscriptionTemplate() {
   const template = {
     name: 'Auto-Graph Subscription',
     nodes: JSON.stringify([{
-      id: "auto_subscription_node", 
+      id: "auto_subscription_node",
       label: "Subscribe to All Graph Updates",
       color: "#6c757d",
-      type: "subscription", 
+      type: "subscription",
       info: JSON.stringify({
         auto_subscribe_to_graph: true,
         allow_user_choice: false,
@@ -15,7 +15,7 @@ async function addSubscriptionTemplate() {
         description: "Subscribe to receive notifications about all new content added to this knowledge graph. You'll automatically be subscribed to all areas and categories."
       }),
       bibl: [],
-      imageWidth: "100%", 
+      imageWidth: "100%",
       imageHeight: "100%",
       visible: true,
       path: null
@@ -27,7 +27,7 @@ async function addSubscriptionTemplate() {
   try {
     console.log('🚀 Adding Auto-Graph Subscription Template...')
     console.log('Template:', template)
-    
+
     const response = await fetch('https://knowledge.vegvisr.org/addTemplate', {
       method: 'POST',
       headers: {

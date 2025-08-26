@@ -12,6 +12,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const graphJson = ref('{}') // Initialize with an empty JSON structure
   const currentGraphId = ref(localStorage.getItem('currentGraphId') || null) // Retrieve from local storage
   const currentVersion = ref(null) // Track the currently loaded version
+  const currentGraph = ref(null) // Store the complete current graph data including metadata
 
   const undoStack = ref([]) // Stack to track undo actions
   const redoStack = ref([]) // Stack to track redo actions
@@ -100,6 +101,10 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
 
   const setCurrentVersion = (version) => {
     currentVersion.value = version
+  }
+
+  const setCurrentGraph = (graphData) => {
+    currentGraph.value = graphData
   }
 
   const pushToUndoStack = (action) => {
@@ -248,11 +253,13 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     graphJson,
     currentGraphId,
     currentVersion,
+    currentGraph,
     resetGraph,
     updateGraph,
     updateGraphFromJson,
     setCurrentGraphId,
     setCurrentVersion,
+    setCurrentGraph,
     undoStack,
     redoStack,
     pushToUndoStack,

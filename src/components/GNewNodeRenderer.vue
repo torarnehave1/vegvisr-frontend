@@ -80,6 +80,7 @@ import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
 import GNewMapNode from './GNewNodes/GNewMapNode.vue'
 import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
 import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
+import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -184,6 +185,8 @@ const nodeComponents = {
   slideshow: GNewSlideshowNode,
   // Advertisement Manager node
   advertisement_manager: GNewAdvertisementManagerNode,
+  // Password Protection node
+  'password-protection': GNewPasswordProtectionNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
@@ -209,6 +212,33 @@ const nodeComponent = computed(() => {
     if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
       console.log('🚫 Advertisement manager node hidden - requires Superadmin role')
       return null
+    }
+  }
+
+  // Hide password protection nodes for unauthorized users
+  if (nodeType === 'password-protection') {
+    if (!userStore.loggedIn) {
+      console.log('🚫 Password protection node hidden - user not logged in')
+      return null
+    }
+
+    // Allow Superadmin to see all password protection nodes
+    if (userStore.role === 'Superadmin') {
+      console.log('✅ Password protection node visible - user is Superadmin')
+    } else {
+      // Check if user is the graph owner
+      const graphOwner = props.graphData?.metadata?.createdBy
+      const userEmail = userStore.email || userStore.user?.email
+
+      if (!graphOwner || !userEmail || graphOwner !== userEmail) {
+        console.log('🚫 Password protection node hidden - user is not graph owner', {
+          graphOwner,
+          userEmail,
+          match: graphOwner === userEmail
+        })
+        return null
+      }
+      console.log('✅ Password protection node visible - user is graph owner')
     }
   }
 

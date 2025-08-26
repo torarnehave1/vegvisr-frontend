@@ -516,11 +516,11 @@ export default {
       console.log('Auto subscription:', isAutoSubscription.value)
       console.log('Email:', formData.value.email)
       console.log('Graph ID:', knowledgeGraphStore.currentGraphId)
-      
+
       const isValid = validateForm()
       console.log('Form validation result:', isValid)
       console.log('Validation errors:', errors.value)
-      
+
       if (!isValid) return
 
       isLoading.value = true
@@ -536,17 +536,17 @@ export default {
           // Get meta areas from graph metadata (not individual nodes)
           console.log('🔍 Graph data:', props.graphData)
           console.log('🔍 Graph metadata:', props.graphData?.metadata)
-          
+
           const metaAreaString = props.graphData?.metadata?.metaArea || ''
           console.log('🔍 Meta area string:', metaAreaString)
-          
+
           const graphMetaAreas = metaAreaString
             .split('#')
             .map((area) => area.trim())
             .filter((area) => area.length > 0)
-          
+
           console.log('🔍 Found meta areas:', graphMetaAreas)
-          
+
           if (graphMetaAreas.length === 0) {
             errorMessage.value = 'No meta areas found in this graph to subscribe to.'
             return
@@ -554,7 +554,7 @@ export default {
 
           // Use the first meta area (or could be random)
           const targetMetaArea = graphMetaAreas[0]
-          
+
           successMessage.value = '📝 Creating subscription...'
 
           const subscriptionData = {
