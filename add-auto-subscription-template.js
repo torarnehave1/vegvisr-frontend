@@ -54,7 +54,7 @@ async function addAutoSubscriptionTemplate() {
     } else {
       const errorText = await response.text()
       console.error('❌ Failed to add template:', response.status, errorText)
-      
+
       console.log('\n📋 Manual Database Insertion Required:')
       console.log('Table: graphTemplates')
       console.log('SQL:')
@@ -80,7 +80,7 @@ async function addTraditionalSubscriptionTemplate() {
   const template = {
     id: `subscription_traditional_${Date.now()}`,
     name: 'Traditional Subscription Node',
-    category: 'subscription', 
+    category: 'subscription',
     nodes: JSON.stringify([
       {
         id: 'subscription-traditional-node',
@@ -128,7 +128,7 @@ async function addTraditionalSubscriptionTemplate() {
 async function addBothTemplates() {
   await addAutoSubscriptionTemplate()
   await addTraditionalSubscriptionTemplate()
-  
+
   console.log('\n🎉 Done! You now have two subscription template options:')
   console.log('1. Auto-Graph Subscription Node - Simplified, subscribes to everything in the graph')
   console.log('2. Traditional Subscription Node - Manual selection of categories/meta areas')

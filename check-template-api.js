@@ -6,7 +6,7 @@ async function checkTemplateAPI() {
   try {
     const response = await fetch('https://knowledge.vegvisr.org/getTemplates')
     const data = await response.json()
-    
+
     console.log('🔍 Current template structure:')
     if (data.results && data.results.length > 0) {
       const sample = data.results[0]
