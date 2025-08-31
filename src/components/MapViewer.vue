@@ -29,6 +29,19 @@ corner.
       </div>
       <div id="map-element"></div>
     </div>
+
+    <!-- Image Modal -->
+    <div v-if="showImageModal" class="image-modal-overlay" @click="closeImageModal">
+      <div class="image-modal-content" @click.stop>
+        <div class="image-modal-header">
+          <h4>{{ modalImageTitle }}</h4>
+          <button class="image-modal-close" @click="closeImageModal">&times;</button>
+        </div>
+        <div class="image-modal-body">
+          <img :src="modalImageUrl" :alt="modalImageTitle" class="modal-image" />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -50,6 +63,29 @@ const loading = ref(true)
 const error = ref(null)
 const apiKey = ref(null)
 const currentUrl = ref(window.location.href)
+
+// Image modal state
+const showImageModal = ref(false)
+const modalImageUrl = ref('')
+const modalImageTitle = ref('')
+
+// Image modal functions
+const openImageModal = (imageUrl, title) => {
+  modalImageUrl.value = imageUrl
+  modalImageTitle.value = title
+  showImageModal.value = true
+  document.body.style.overflow = 'hidden' // Prevent background scrolling
+}
+
+const closeImageModal = () => {
+  showImageModal.value = false
+  modalImageUrl.value = ''
+  modalImageTitle.value = ''
+  document.body.style.overflow = 'auto' // Restore scrolling
+}
+
+// Make openImageModal globally available for onclick handlers
+window.openImageModal = openImageModal
 
 // Helper to load Google Maps JS API with Places library
 function loadGoogleMapsApi(key) {
@@ -195,13 +231,18 @@ async function loadKmlData(path, map) {
 
                 // Use Cloudflare Worker to proxy the image and bypass CORS
                 const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+                const largeProxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl.replace('800', '1200'))}`
 
                 imageElements.push(`
                   <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" alt="${name} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                    <img src="${proxyImageUrl}" 
+                         alt="${name} - Image ${i + 1}" 
+                         style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
                          onload="console.log('✅ Image ${i + 1} loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
                          onerror="console.log('❌ Image ${i + 1} failed to load via proxy'); this.style.display='none';"
-                         style="opacity: 0; transition: opacity 0.3s ease;">
+                         onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
+                         onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
+                         onclick="openImageModal('${largeProxyImageUrl}', '${name} - Image ${i + 1}')">
                   </div>
                 `)
               }
@@ -294,13 +335,18 @@ async function loadKmlData(path, map) {
                 const cleanImageUrl = imageUrl.replace('{size}', '800')
                 // Use Cloudflare Worker to proxy the image and bypass CORS
                 const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+                const largeProxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl.replace('800', '1200'))}`
 
                 imageElements.push(`
                   <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" alt="${name || 'Path'} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                    <img src="${proxyImageUrl}" 
+                         alt="${name || 'Path'} - Image ${i + 1}" 
+                         style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
                          onload="console.log('✅ Path image ${i + 1} loaded via proxy'); this.style.opacity='1'"
                          onerror="console.log('❌ Path image ${i + 1} failed via proxy'); this.style.display='none'"
-                         style="opacity: 0; transition: opacity 0.3s ease;">
+                         onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
+                         onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
+                         onclick="openImageModal('${largeProxyImageUrl}', '${name || 'Path'} - Image ${i + 1}')">
                   </div>
                 `)
               }
@@ -395,13 +441,18 @@ async function loadKmlData(path, map) {
                 const cleanImageUrl = imageUrl.replace('{size}', '800')
                 // Use Cloudflare Worker to proxy the image and bypass CORS
                 const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+                const largeProxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl.replace('800', '1200'))}`
 
                 imageElements.push(`
                   <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" alt="${name || 'Area'} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                    <img src="${proxyImageUrl}" 
+                         alt="${name || 'Area'} - Image ${i + 1}" 
+                         style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
                          onload="console.log('✅ Polygon image ${i + 1} loaded via proxy'); this.style.opacity='1'"
                          onerror="console.log('❌ Polygon image ${i + 1} failed via proxy'); this.style.display='none'"
-                         style="opacity: 0; transition: opacity 0.3s ease;">
+                         onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
+                         onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
+                         onclick="openImageModal('${largeProxyImageUrl}', '${name || 'Area'} - Image ${i + 1}')">
                   </div>
                 `)
               }
@@ -743,5 +794,93 @@ watch(
 
 .custom-info-window .close-btn:hover {
   color: #000;
+}
+
+/* Image Modal Styles */
+.image-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+.image-modal-content {
+  background: white;
+  border-radius: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.image-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8f9fa;
+}
+
+.image-modal-header h4 {
+  margin: 0;
+  color: #333;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.image-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.image-modal-close:hover {
+  background: #e9ecef;
+  color: #333;
+}
+
+.image-modal-body {
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: calc(90vh - 80px);
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
 }
 </style>
