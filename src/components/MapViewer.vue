@@ -225,26 +225,53 @@ async function loadKmlData(path, map) {
               console.log(`🔗 Found imageUrl ${i + 1}:`, imageUrl)
 
               if (imageUrl) {
-                // Clean up the image URL (remove size placeholder if it exists)
-                const cleanImageUrl = imageUrl.replace('{size}', '800')
-                console.log(`✨ Clean imageUrl ${i + 1}:`, cleanImageUrl)
+                // Check if it's a YouTube thumbnail (doesn't need proxy)
+                const isYouTube = imageUrl.includes('youtube.com') || imageUrl.includes('ytimg.com')
 
-                // Use Cloudflare Worker to proxy the image and bypass CORS
-                const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
-                const largeProxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl.replace('800', '1200'))}`
+                if (isYouTube) {
+                  // Direct YouTube thumbnail - no proxy needed
+                  const videoId = imageUrl.match(/\/vi\/([^/]+)/)?.[1] || 'unknown'
+                  const youTubeUrl = `https://www.youtube.com/watch?v=${videoId}`
 
-                imageElements.push(`
-                  <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" 
-                         alt="${name} - Image ${i + 1}" 
-                         style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
-                         onload="console.log('✅ Image ${i + 1} loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
-                         onerror="console.log('❌ Image ${i + 1} failed to load via proxy'); this.style.display='none';"
-                         onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
-                         onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
-                         onclick="openImageModal('${largeProxyImageUrl}', '${name} - Image ${i + 1}')">
-                  </div>
-                `)
+                  imageElements.push(`
+                    <div style="margin: 5px;">
+                      <div style="position: relative; display: inline-block;">
+                        <img src="${imageUrl}"
+                             alt="${name} - YouTube Video ${i + 1}"
+                             style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
+                             onload="console.log('✅ YouTube thumbnail ${i + 1} loaded'); this.style.opacity='1';"
+                             onerror="console.log('❌ YouTube thumbnail ${i + 1} failed'); this.style.display='none';"
+                             onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
+                             onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
+                             onclick="window.open('${youTubeUrl}', '_blank')">
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,0,0,0.8); border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                          <div style="width: 0; height: 0; border-left: 15px solid white; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 3px;"></div>
+                        </div>
+                      </div>
+                    </div>
+                  `)
+                } else {
+                  // Google Earth image - needs proxy
+                  const cleanImageUrl = imageUrl.replace('{size}', '800')
+                  console.log(`✨ Clean imageUrl ${i + 1}:`, cleanImageUrl)
+
+                  // Use Cloudflare Worker to proxy the image and bypass CORS
+                  const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+                  const largeProxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl.replace('800', '1200'))}`
+
+                  imageElements.push(`
+                    <div style="margin: 5px;">
+                      <img src="${proxyImageUrl}"
+                           alt="${name} - Image ${i + 1}"
+                           style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
+                           onload="console.log('✅ Image ${i + 1} loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
+                           onerror="console.log('❌ Image ${i + 1} failed to load via proxy'); this.style.display='none';"
+                           onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)';"
+                           onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.1)';"
+                           onclick="openImageModal('${largeProxyImageUrl}', '${name} - Image ${i + 1}')">
+                    </div>
+                  `)
+                }
               }
             }
 
@@ -256,11 +283,11 @@ async function loadKmlData(path, map) {
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
-                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} images from Google Earth</div>` : ''}
+                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} media items</div>` : ''}
                 <div style="display: none; padding: 15px; background: #e3f2fd; border-radius: 8px; border: 2px solid #2196F3; max-width: 280px; margin: 0 auto;">
                   <div style="font-size: 1.8em; margin-bottom: 8px;">🏔️</div>
-                  <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Images</div>
-                  <div style="color: #666; font-size: 0.85em;">Images temporarily unavailable</div>
+                  <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Media</div>
+                  <div style="color: #666; font-size: 0.85em;">Media temporarily unavailable</div>
                 </div>
               </div>`
             }
@@ -339,8 +366,8 @@ async function loadKmlData(path, map) {
 
                 imageElements.push(`
                   <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" 
-                         alt="${name || 'Path'} - Image ${i + 1}" 
+                    <img src="${proxyImageUrl}"
+                         alt="${name || 'Path'} - Image ${i + 1}"
                          style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
                          onload="console.log('✅ Path image ${i + 1} loaded via proxy'); this.style.opacity='1'"
                          onerror="console.log('❌ Path image ${i + 1} failed via proxy'); this.style.display='none'"
@@ -445,8 +472,8 @@ async function loadKmlData(path, map) {
 
                 imageElements.push(`
                   <div style="margin: 5px;">
-                    <img src="${proxyImageUrl}" 
-                         alt="${name || 'Area'} - Image ${i + 1}" 
+                    <img src="${proxyImageUrl}"
+                         alt="${name || 'Area'} - Image ${i + 1}"
                          style="width: 280px; height: 180px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease; opacity: 0;"
                          onload="console.log('✅ Polygon image ${i + 1} loaded via proxy'); this.style.opacity='1'"
                          onerror="console.log('❌ Polygon image ${i + 1} failed via proxy'); this.style.display='none'"
