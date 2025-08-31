@@ -281,13 +281,13 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
+                : 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start;'
 
               console.log(`🎨 Grid style: ${gridStyle}`)
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
-                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} media items</div>` : ''}
+                ${imageElements.length > 1 ? `<div style="flex-basis: 100%; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} media items</div>` : ''}
                 <div style="display: none; padding: 15px; background: #e3f2fd; border-radius: 8px; border: 2px solid #2196F3; max-width: 280px; margin: 0 auto;">
                   <div style="font-size: 1.8em; margin-bottom: 8px;">🏔️</div>
                   <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Media</div>
@@ -392,11 +392,11 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
+                : 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start;'
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
-                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} path images</div>` : ''}
+                ${imageElements.length > 1 ? `<div style="flex-basis: 100%; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} path images</div>` : ''}
               </div>`
 
               console.log(`🛤️ Path: Created ${imageElements.length} path image elements`)
@@ -501,11 +501,11 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
+                : 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start;'
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
-                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} area images</div>` : ''}
+                ${imageElements.length > 1 ? `<div style="flex-basis: 100%; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} area images</div>` : ''}
               </div>`
 
               console.log(`🏔️ Polygon: Created ${imageElements.length} polygon image elements`)
