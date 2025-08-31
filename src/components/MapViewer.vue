@@ -114,13 +114,13 @@ async function loadKmlData(path, map) {
     const placemarks = kmlDoc.getElementsByTagName('Placemark')
 
     console.log('🗺️ Found', placemarks.length, 'placemarks in KML')
-    
+
     // Log first placemark details for debugging
     if (placemarks.length > 0) {
       const firstPlacemark = placemarks[0]
       const firstName = firstPlacemark.getElementsByTagName('name')[0]?.textContent || 'No name'
       console.log('🏷️ First placemark name:', firstName)
-      
+
       // Check if it has carousel/image
       const hasCarousel = firstPlacemark.getElementsByTagName('gx:Carousel')[0] || firstPlacemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
       console.log('📦 First placemark has carousel:', !!hasCarousel)
@@ -184,14 +184,14 @@ async function loadKmlData(path, map) {
               // Clean up the image URL (remove size placeholder if it exists)
               const cleanImageUrl = imageUrl.replace('{size}', '800')
               console.log('✨ Clean imageUrl:', cleanImageUrl)
-              
+
               // Use Cloudflare Worker to proxy the image and bypass CORS
               const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
-              
+
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
-                     onload="console.log('✅ Image loaded successfully via Cloudflare proxy'); this.style.opacity='1';" 
-                     onerror="console.log('❌ Image failed to load via proxy'); this.style.display='none'; this.nextElementSibling.style.display='block';" 
+                <img src="${proxyImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+                     onload="console.log('✅ Image loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
+                     onerror="console.log('❌ Image failed to load via proxy'); this.style.display='none'; this.nextElementSibling.style.display='block';"
                      style="opacity: 0; transition: opacity 0.3s ease;">
                 <div style="display: none; padding: 15px; background: #e3f2fd; border-radius: 8px; border: 2px solid #2196F3; max-width: 280px; margin: 0 auto;">
                   <div style="font-size: 1.8em; margin-bottom: 8px;">🏔️</div>
@@ -264,8 +264,8 @@ async function loadKmlData(path, map) {
               // Use Cloudflare Worker to proxy the image and bypass CORS
               const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
-                     onload="console.log('✅ Path image loaded via proxy'); this.style.display='block'" 
+                <img src="${proxyImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+                     onload="console.log('✅ Path image loaded via proxy'); this.style.display='block'"
                      onerror="console.log('❌ Path image failed via proxy'); this.style.display='none'">
               </div>`
             }
@@ -342,8 +342,8 @@ async function loadKmlData(path, map) {
               // Use Cloudflare Worker to proxy the image and bypass CORS
               const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
-                     onload="console.log('✅ Polygon image loaded via proxy'); this.style.display='block'" 
+                <img src="${proxyImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+                     onload="console.log('✅ Polygon image loaded via proxy'); this.style.display='block'"
                      onerror="console.log('❌ Polygon image failed via proxy'); this.style.display='none'">
               </div>`
             }
