@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KML Debug Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .debug-title {
+            color: #333;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .file-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #ccc;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .image-item {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .image-preview {
+            max-width: 200px;
+            max-height: 150px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .youtube-preview {
+            width: 200px;
+            height: 150px;
+            background: #000;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .console-output {
+            background: #1e1e1e;
+            color: #f0f0f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗺️ KML Debug Viewer</h1>
+    <p>This tool helps debug KML files to understand how many images and what types of content are being detected.</p>
+
+    <div class="debug-section">
+        <h2 class="debug-title">📁 Load KML File</h2>
+        <input type="file" id="kmlFile" accept=".kml" class="file-input">
+        <div id="fileInfo" style="margin-top: 10px; color: #666;"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2 class="debug-title">🔍 Analysis Results</h2>
+        <div id="results" class="results">
+            <p style="color: #999;">Please select a KML file to analyze...</p>
+        </div>
+    </div>
+
+    <div class="debug-section">
+        <h2 class="debug-title">📋 Console Output</h2>
+        <div id="consoleOutput" class="console-output">Ready to analyze KML file...</div>
+    </div>
+
+    <script>
+        let consoleLog = '';
+        
+        function addLog(message) {
+            consoleLog += new Date().toLocaleTimeString() + ' - ' + message + '\n';
+            document.getElementById('consoleOutput').textContent = consoleLog;
+            document.getElementById('consoleOutput').scrollTop = document.getElementById('consoleOutput').scrollHeight;
+        }
+
+        function isYouTubeUrl(url) {
+            return url && (url.includes('youtube.com') || url.includes('youtu.be'));
+        }
+
+        function getYouTubeVideoId(url) {
+            const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+            return match ? match[1] : null;
+        }
+
+        function analyzeKML(kmlContent) {
+            addLog('🔍 Starting KML analysis...');
+            
+            const parser = new DOMParser();
+            const kmlDoc = parser.parseFromString(kmlContent, 'text/xml');
+            
+            if (kmlDoc.getElementsByTagName('parsererror').length > 0) {
+                addLog('❌ Error parsing KML file');
+                return;
+            }
+
+            addLog('✅ KML file parsed successfully');
+
+            // Find all gx:Image elements
+            const gxImages = kmlDoc.getElementsByTagName('gx:Image');
+            const gxImagesNS = kmlDoc.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image');
+            
+            const allGxImages = [...gxImages, ...gxImagesNS];
+            
+            addLog(`📊 Found ${allGxImages.length} gx:Image elements`);
+
+            let results = `<h3>🖼️ Found ${allGxImages.length} gx:Image Elements</h3>`;
+            
+            if (allGxImages.length === 0) {
+                results += '<p style="color: #999;">No gx:Image elements found in this KML file.</p>';
+            } else {
+                allGxImages.forEach((gxImage, index) => {
+                    addLog(`🔍 Analyzing gx:Image ${index + 1}...`);
+                    
+                    const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || 
+                                   gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent;
+                    
+                    if (imageUrl) {
+                        const cleanImageUrl = imageUrl.replace('{size}', '800');
+                        const isYoutube = isYouTubeUrl(cleanImageUrl);
+                        
+                        addLog(`📸 Image ${index + 1}: ${isYoutube ? 'YouTube Video' : 'Google Earth Image'}`);
+                        addLog(`🔗 URL: ${cleanImageUrl}`);
+                        
+                        results += `<div class="image-item">
+                            <h4>Image ${index + 1} ${isYoutube ? '🎥' : '📷'}</h4>
+                            <p><strong>Type:</strong> ${isYoutube ? 'YouTube Video' : 'Google Earth Image'}</p>
+                            <p><strong>URL:</strong> <code>${cleanImageUrl}</code></p>`;
+                        
+                        if (isYoutube) {
+                            const videoId = getYouTubeVideoId(cleanImageUrl);
+                            results += `<p><strong>Video ID:</strong> ${videoId}</p>
+                                       <div class="youtube-preview">▶️ YouTube Video</div>`;
+                        } else {
+                            const proxyUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`;
+                            results += `<p><strong>Proxy URL:</strong> <code>${proxyUrl}</code></p>
+                                       <img src="${proxyUrl}" alt="Image ${index + 1}" class="image-preview" 
+                                            onload="addLog('✅ Image ${index + 1} loaded successfully')"
+                                            onerror="addLog('❌ Image ${index + 1} failed to load')">`;
+                        }
+                        
+                        results += '</div>';
+                    } else {
+                        addLog(`⚠️ Image ${index + 1}: No imageUrl found`);
+                        results += `<div class="image-item">
+                            <h4>Image ${index + 1} ⚠️</h4>
+                            <p style="color: #d32f2f;">No imageUrl found in this gx:Image element</p>
+                        </div>`;
+                    }
+                });
+            }
+
+            // Also check for regular Placemarks with images
+            const placemarks = kmlDoc.getElementsByTagName('Placemark');
+            addLog(`📍 Found ${placemarks.length} Placemark elements`);
+            
+            let placemarkImages = 0;
+            for (const placemark of placemarks) {
+                const gxImagesInPlacemark = [
+                    ...placemark.getElementsByTagName('gx:Image'),
+                    ...placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')
+                ];
+                placemarkImages += gxImagesInPlacemark.length;
+            }
+            
+            addLog(`📊 Total gx:Image elements in Placemarks: ${placemarkImages}`);
+
+            results += `
+                <h3>📊 Summary</h3>
+                <ul>
+                    <li><strong>Total gx:Image elements:</strong> ${allGxImages.length}</li>
+                    <li><strong>gx:Images in Placemarks:</strong> ${placemarkImages}</li>
+                    <li><strong>Total Placemarks:</strong> ${placemarks.length}</li>
+                </ul>
+            `;
+
+            document.getElementById('results').innerHTML = results;
+            addLog('✅ Analysis complete!');
+        }
+
+        document.getElementById('kmlFile').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                addLog(`📁 Selected file: ${file.name} (${file.size} bytes)`);
+                document.getElementById('fileInfo').textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    analyzeKML(e.target.result);
+                };
+                reader.onerror = function() {
+                    addLog('❌ Error reading file');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Make addLog available globally for image loading callbacks
+        window.addLog = addLog;
+    </script>
+</body>
+</html>

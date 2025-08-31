@@ -214,6 +214,7 @@ async function loadKmlData(path, map) {
           // Get ALL gx:Image elements, not just the first one
           const gxImages = carousel.getElementsByTagName('gx:Image') || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')
           console.log(`🖼️ Found ${gxImages.length} gx:Image elements`)
+          console.log('🔍 Carousel innerHTML length:', carousel.innerHTML.length)
 
           if (gxImages.length > 0) {
             const imageElements = []
@@ -222,7 +223,7 @@ async function loadKmlData(path, map) {
             for (let i = 0; i < gxImages.length; i++) {
               const gxImage = gxImages[i]
               const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
-              console.log(`🔗 Found imageUrl ${i + 1}:`, imageUrl)
+              console.log(`🔗 Processing image ${i + 1}/${gxImages.length}:`, imageUrl ? imageUrl.substring(0, 50) + '...' : 'NO URL')
 
               if (imageUrl) {
                 // Check if it's a YouTube thumbnail (doesn't need proxy)
@@ -276,11 +277,14 @@ async function loadKmlData(path, map) {
             }
 
             if (imageElements.length > 0) {
+              console.log(`📊 Created ${imageElements.length} image elements`)
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
                 : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
 
+              console.log(`🎨 Grid style: ${gridStyle}`)
+              
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} media items</div>` : ''}
@@ -290,6 +294,11 @@ async function loadKmlData(path, map) {
                   <div style="color: #666; font-size: 0.85em;">Media temporarily unavailable</div>
                 </div>
               </div>`
+              
+              console.log(`✨ Final imageContent length: ${imageContent.length} characters`)
+              
+              // Log the complete imageContent for debugging
+              console.log(`📝 Complete imageContent:`, imageContent)
             }
           }
         }
@@ -389,6 +398,9 @@ async function loadKmlData(path, map) {
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} path images</div>` : ''}
               </div>`
+              
+              console.log(`🛤️ Path: Created ${imageElements.length} path image elements`)
+              console.log(`📝 Path imageContent:`, imageContent)
             }
           }
         }        // Info window for paths (click on path) with enhanced content
@@ -495,6 +507,9 @@ async function loadKmlData(path, map) {
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} area images</div>` : ''}
               </div>`
+              
+              console.log(`🏔️ Polygon: Created ${imageElements.length} polygon image elements`)
+              console.log(`📝 Polygon imageContent:`, imageContent)
             }
           }
         }        // Info window for polygons with enhanced content

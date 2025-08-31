@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Glunka_4.kml Images</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .image-test {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .image-item {
+            margin: 15px 0;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #f9f9f9;
+        }
+        .test-image {
+            max-width: 300px;
+            max-height: 200px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 10px 0;
+        }
+        .youtube-frame {
+            width: 300px;
+            height: 200px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        .loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗺️ Glunka_4.kml Image Test</h1>
+    <p>Testing the 5 media items from the Glunka_4.kml file to verify they load correctly.</p>
+
+    <div class="image-test">
+        <h2>🖼️ Image Loading Tests</h2>
+        <div id="imageResults">Loading images...</div>
+    </div>
+
+    <script>
+        // The 5 image URLs from Glunka_4.kml
+        const mediaItems = [
+            {
+                type: 'Google Earth Image',
+                url: 'https://earth.usercontent.google.com/hostedimage/e/*/4ADbDBKtrWGD0gFyvqSg95v0d83-R2QR7hx5Dy-ls8fWztqQYPjnctD7SznZpK0n73fXb8yLmx4XpttANVLO8LKMh4JwA-BpSOF1FUQl7RtEa1YEfx6TYtFWiEfyYubsq9vrRYkMBq74GwY_-PiUDKREQF6SywEtJPq55eXaY-o3jy1B-BDhkA2VxRg60fSVcGofJATFDry0aZ982WC8nb9145mFom-dau6mid0d3i7O3WTWU2ryy_YNelSl_jH2Itnxh1-mm8PYs94_udpLvsilMxWM2G8XF6xzbU_X6fg?authuser=0&fife=s800'
+            },
+            {
+                type: 'Google Earth Image',
+                url: 'https://earth.usercontent.google.com/hostedimage/e/*/4ADbDBKuwiECDa016pxKKb2oV_MB8v4KX8YVrP_BLFLPDwj-y1c051EJ7LK5NDrAX35s1Qrxiwyzd6btoeiAKftTzxj2VSr74-VG5v0nBQcsR7ThsgW4jmdYTNnKS-EAwg8lsu8fuQGUOiWn0ZmWigbo2rbh9-JQMSQ7SoDHjj1XzqtlRQFD3vQJ36ExGESOYIxAl2We674DjsrPv_3xGAYrZ5xdPl-mntz0jm2RPtpbLjhaockVxpJCgYwH8am67vAfQzUqLmNSGa6dvJsuXz3m6P9fhPVC_E-oV0mEd4w?authuser=0&fife=s800'
+            },
+            {
+                type: 'Google Earth Image',
+                url: 'https://earth.usercontent.google.com/hostedimage/e/*/4ADbDBKv4vGw-x3ndbG3ceQVB9xwqolzuQEQK6oot72qSrkgwn5sMAsDsV1JAbuCYfvKMi0xUaIIMyZ6Sv3swHklYyLMuFxKjN39Q4YQR2emWYGY9zIYdLmUarbf9RzXCu3yGHtRPcTZ2elAyctId-uUWPA4WXjt5GZy_u9UYqEAxLphrz0T6ucxgU9P-5JUTJtLuIYL95uskwj6VFxdiUMQa4U0FV5ybXoNx6IRQc6MK5nnS4iAKwcTfSJWEPOvkVaZf3bUo7BdGpflbwnd8j7PaYJ6dW3r82VeKZ_NDGA?authuser=0&fife=s800'
+            },
+            {
+                type: 'YouTube Video',
+                url: 'https://img.youtube.com/vi/O9UwUwtYp18/hqdefault.jpg',
+                videoId: 'O9UwUwtYp18'
+            },
+            {
+                type: 'Google Earth Image',
+                url: 'https://earth.usercontent.google.com/hostedimage/e/*/4ADbDBKtvD9ihB0SrLWVwvH1P65cadN_kKdbBkP65tEd8woQT0AGxZ6GP9IQsVY5cpoeyM80VoFI7Tf2e5yk7I4ZHfGjQOlrNfJQYnocwRwOqsgImtPcep4BVIuxAy86ikBGUqO3_2FZwjHZGRIdWc4uUvikuEunPRvdARYW6VSKjbL3wrPzVjeA04zl_rvi-PhtFTN0CxAgL4r68CB3JWASppLEUuaUJU4cxdveDPJrm2h18hpInnxeTr9vb0rBID1dVW5nQqh2A9fRUjROPzvUhhQc6aPHkGQyKMzI?authuser=0&fife=s800'
+            }
+        ];
+
+        function createImageTest(item, index) {
+            const div = document.createElement('div');
+            div.className = 'image-item';
+            div.innerHTML = `
+                <h3>${item.type} ${index + 1}</h3>
+                <div class="status loading" id="status-${index}">⏳ Loading...</div>
+                <div id="content-${index}"></div>
+                <p><small><strong>URL:</strong> ${item.url}</small></p>
+            `;
+            return div;
+        }
+
+        function testImage(item, index) {
+            const statusEl = document.getElementById(`status-${index}`);
+            const contentEl = document.getElementById(`content-${index}`);
+
+            if (item.type === 'YouTube Video') {
+                // Test YouTube thumbnail
+                const img = new Image();
+                img.onload = () => {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ YouTube thumbnail loaded';
+                    contentEl.innerHTML = `
+                        <img src="${item.url}" class="test-image" alt="YouTube thumbnail">
+                        <br>
+                        <iframe class="youtube-frame" 
+                                src="https://www.youtube.com/embed/${item.videoId}" 
+                                frameborder="0" 
+                                allowfullscreen>
+                        </iframe>
+                    `;
+                };
+                img.onerror = () => {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '❌ YouTube thumbnail failed';
+                };
+                img.src = item.url;
+            } else {
+                // Test Google Earth image through proxy
+                const proxyUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(item.url)}`;
+                
+                const img = new Image();
+                img.onload = () => {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ Image loaded via proxy';
+                    contentEl.innerHTML = `
+                        <img src="${proxyUrl}" class="test-image" alt="Google Earth Image ${index + 1}">
+                        <br>
+                        <small><strong>Proxy URL:</strong> ${proxyUrl}</small>
+                    `;
+                };
+                img.onerror = () => {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '❌ Image failed via proxy';
+                    
+                    // Try direct loading as fallback
+                    const directImg = new Image();
+                    directImg.onload = () => {
+                        statusEl.className = 'status success';
+                        statusEl.textContent = '✅ Image loaded directly (no CORS issue)';
+                        contentEl.innerHTML = `<img src="${item.url}" class="test-image" alt="Google Earth Image ${index + 1}">`;
+                    };
+                    directImg.onerror = () => {
+                        statusEl.textContent = '❌ Image failed both proxy and direct';
+                    };
+                    directImg.src = item.url;
+                };
+                img.src = proxyUrl;
+            }
+        }
+
+        // Create and test all images
+        const resultsContainer = document.getElementById('imageResults');
+        resultsContainer.innerHTML = '';
+
+        mediaItems.forEach((item, index) => {
+            const testDiv = createImageTest(item, index);
+            resultsContainer.appendChild(testDiv);
+            
+            // Start testing after a small delay
+            setTimeout(() => testImage(item, index), index * 200);
+        });
+
+        console.log('🧪 Image test page loaded');
+        console.log('📊 Testing 5 media items from Glunka_4.kml');
+        console.log('Expected: 4 Google Earth images + 1 YouTube video');
+    </script>
+</body>
+</html>
