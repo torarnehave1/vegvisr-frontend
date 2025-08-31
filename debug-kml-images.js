@@ -1,9 +1,6 @@
 // Debug script to check KML image parsing
 // Run this in browser console to debug the KML image issue
 
-// Debug script to check KML image parsing
-// Run this in browser console to debug the KML image issue
-
 async function debugKMLImages() {
   const kmlUrl = 'https://klm.vegvisr.org/1756667918863_Glunka_4.kml'
   
@@ -35,7 +32,7 @@ async function debugKMLImages() {
       const placemark = placemarks[i]
       const name = placemark.getElementsByTagName('name')[0]?.textContent
       
-      console.log(`�️ Placemark ${i + 1}: "${name}"`)
+      console.log(`🏷️ Placemark ${i + 1}: "${name}"`)
       
       const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || 
                       placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
@@ -155,9 +152,6 @@ async function debugKMLImages() {
 // Run the debug
 debugKMLImages()
 
-// Run the debug
-debugKMLImages()
-
 console.log(`
 🧪 KML IMAGE DEBUG INSTRUCTIONS:
 1. Open browser console
@@ -168,4 +162,8 @@ console.log(`
    - Which detection method works
    - If images load successfully
    - Any error messages
+
+💡 If fetch is blocked by CSP, use the alternative method:
+   - Load your actual map page with KML
+   - Use the enhanced MapViewer console logging instead
 `)
