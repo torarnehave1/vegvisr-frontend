@@ -169,34 +169,57 @@ async function loadKmlData(path, map) {
         // Add to tracking array
         kmlMarkers.value.push(marker)
 
-        // Extract image from KML if it exists
+        // Extract images from KML if they exist (support multiple images)
         let imageContent = ''
         console.log('🔍 Checking placemark for images:', name)
         const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
         console.log('📦 Found carousel:', !!carousel)
         if (carousel) {
-          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
-          console.log('🖼️ Found gx:Image:', !!gxImage)
-          if (gxImage) {
-            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
-            console.log('🔗 Found imageUrl:', imageUrl)
-            if (imageUrl) {
-              // Clean up the image URL (remove size placeholder if it exists)
-              const cleanImageUrl = imageUrl.replace('{size}', '800')
-              console.log('✨ Clean imageUrl:', cleanImageUrl)
+          // Get ALL gx:Image elements, not just the first one
+          const gxImages = carousel.getElementsByTagName('gx:Image') || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')
+          console.log(`🖼️ Found ${gxImages.length} gx:Image elements`)
 
-              // Use Cloudflare Worker to proxy the image and bypass CORS
-              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+          if (gxImages.length > 0) {
+            const imageElements = []
 
-              imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-                     onload="console.log('✅ Image loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
-                     onerror="console.log('❌ Image failed to load via proxy'); this.style.display='none'; this.nextElementSibling.style.display='block';"
-                     style="opacity: 0; transition: opacity 0.3s ease;">
+            // Process each image
+            for (let i = 0; i < gxImages.length; i++) {
+              const gxImage = gxImages[i]
+              const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+              console.log(`🔗 Found imageUrl ${i + 1}:`, imageUrl)
+
+              if (imageUrl) {
+                // Clean up the image URL (remove size placeholder if it exists)
+                const cleanImageUrl = imageUrl.replace('{size}', '800')
+                console.log(`✨ Clean imageUrl ${i + 1}:`, cleanImageUrl)
+
+                // Use Cloudflare Worker to proxy the image and bypass CORS
+                const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+
+                imageElements.push(`
+                  <div style="margin: 5px;">
+                    <img src="${proxyImageUrl}" alt="${name} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                         onload="console.log('✅ Image ${i + 1} loaded successfully via Cloudflare proxy'); this.style.opacity='1';"
+                         onerror="console.log('❌ Image ${i + 1} failed to load via proxy'); this.style.display='none';"
+                         style="opacity: 0; transition: opacity 0.3s ease;">
+                  </div>
+                `)
+              }
+            }
+
+            if (imageElements.length > 0) {
+              // Create a responsive grid layout for multiple images
+              const gridStyle = imageElements.length === 1
+                ? 'text-align: center;'
+                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+
+              imageContent = `<div style="${gridStyle} margin: 10px 0;">
+                ${imageElements.join('')}
+                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} images from Google Earth</div>` : ''}
                 <div style="display: none; padding: 15px; background: #e3f2fd; border-radius: 8px; border: 2px solid #2196F3; max-width: 280px; margin: 0 auto;">
                   <div style="font-size: 1.8em; margin-bottom: 8px;">🏔️</div>
-                  <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Image</div>
-                  <div style="color: #666; font-size: 0.85em;">Image temporarily unavailable</div>
+                  <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Images</div>
+                  <div style="color: #666; font-size: 0.85em;">Images temporarily unavailable</div>
                 </div>
               </div>`
             }
@@ -252,27 +275,50 @@ async function loadKmlData(path, map) {
         // Add to tracking array (we'll track all map objects)
         kmlMarkers.value.push({ setMap: (m) => polyline.setMap(m) })
 
-        // Extract image from KML if it exists
+        // Extract images from KML if they exist (support multiple images)
         let imageContent = ''
         const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
         if (carousel) {
-          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
-          if (gxImage) {
-            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
-            if (imageUrl) {
-              const cleanImageUrl = imageUrl.replace('{size}', '800')
-              // Use Cloudflare Worker to proxy the image and bypass CORS
-              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
-              imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-                     onload="console.log('✅ Path image loaded via proxy'); this.style.display='block'"
-                     onerror="console.log('❌ Path image failed via proxy'); this.style.display='none'">
+          // Get ALL gx:Image elements, not just the first one
+          const gxImages = carousel.getElementsByTagName('gx:Image') || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')
+
+          if (gxImages.length > 0) {
+            const imageElements = []
+
+            // Process each image
+            for (let i = 0; i < gxImages.length; i++) {
+              const gxImage = gxImages[i]
+              const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+
+              if (imageUrl) {
+                const cleanImageUrl = imageUrl.replace('{size}', '800')
+                // Use Cloudflare Worker to proxy the image and bypass CORS
+                const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+
+                imageElements.push(`
+                  <div style="margin: 5px;">
+                    <img src="${proxyImageUrl}" alt="${name || 'Path'} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                         onload="console.log('✅ Path image ${i + 1} loaded via proxy'); this.style.opacity='1'"
+                         onerror="console.log('❌ Path image ${i + 1} failed via proxy'); this.style.display='none'"
+                         style="opacity: 0; transition: opacity 0.3s ease;">
+                  </div>
+                `)
+              }
+            }
+
+            if (imageElements.length > 0) {
+              // Create a responsive grid layout for multiple images
+              const gridStyle = imageElements.length === 1
+                ? 'text-align: center;'
+                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+
+              imageContent = `<div style="${gridStyle} margin: 10px 0;">
+                ${imageElements.join('')}
+                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} path images</div>` : ''}
               </div>`
             }
           }
-        }
-
-        // Info window for paths (click on path) with enhanced content
+        }        // Info window for paths (click on path) with enhanced content
         if (name || description || imageContent) {
           const infoContent = `
             <div style="max-width: 320px;">
@@ -330,27 +376,50 @@ async function loadKmlData(path, map) {
         // Add to tracking array
         kmlMarkers.value.push({ setMap: (m) => polygonShape.setMap(m) })
 
-        // Extract image from KML if it exists
+        // Extract images from KML if they exist (support multiple images)
         let imageContent = ''
         const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
         if (carousel) {
-          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
-          if (gxImage) {
-            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
-            if (imageUrl) {
-              const cleanImageUrl = imageUrl.replace('{size}', '800')
-              // Use Cloudflare Worker to proxy the image and bypass CORS
-              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
-              imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${proxyImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-                     onload="console.log('✅ Polygon image loaded via proxy'); this.style.display='block'"
-                     onerror="console.log('❌ Polygon image failed via proxy'); this.style.display='none'">
+          // Get ALL gx:Image elements, not just the first one
+          const gxImages = carousel.getElementsByTagName('gx:Image') || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')
+
+          if (gxImages.length > 0) {
+            const imageElements = []
+
+            // Process each image
+            for (let i = 0; i < gxImages.length; i++) {
+              const gxImage = gxImages[i]
+              const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+
+              if (imageUrl) {
+                const cleanImageUrl = imageUrl.replace('{size}', '800')
+                // Use Cloudflare Worker to proxy the image and bypass CORS
+                const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+
+                imageElements.push(`
+                  <div style="margin: 5px;">
+                    <img src="${proxyImageUrl}" alt="${name || 'Area'} - Image ${i + 1}" style="max-width: 280px; max-height: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                         onload="console.log('✅ Polygon image ${i + 1} loaded via proxy'); this.style.opacity='1'"
+                         onerror="console.log('❌ Polygon image ${i + 1} failed via proxy'); this.style.display='none'"
+                         style="opacity: 0; transition: opacity 0.3s ease;">
+                  </div>
+                `)
+              }
+            }
+
+            if (imageElements.length > 0) {
+              // Create a responsive grid layout for multiple images
+              const gridStyle = imageElements.length === 1
+                ? 'text-align: center;'
+                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+
+              imageContent = `<div style="${gridStyle} margin: 10px 0;">
+                ${imageElements.join('')}
+                ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} area images</div>` : ''}
               </div>`
             }
           }
-        }
-
-        // Info window for polygons with enhanced content
+        }        // Info window for polygons with enhanced content
         if (name || description || imageContent) {
           const infoContent = `
             <div style="max-width: 320px;">
