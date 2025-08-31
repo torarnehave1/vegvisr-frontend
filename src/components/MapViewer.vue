@@ -114,6 +114,17 @@ async function loadKmlData(path, map) {
     const placemarks = kmlDoc.getElementsByTagName('Placemark')
 
     console.log('🗺️ Found', placemarks.length, 'placemarks in KML')
+    
+    // Log first placemark details for debugging
+    if (placemarks.length > 0) {
+      const firstPlacemark = placemarks[0]
+      const firstName = firstPlacemark.getElementsByTagName('name')[0]?.textContent || 'No name'
+      console.log('🏷️ First placemark name:', firstName)
+      
+      // Check if it has carousel/image
+      const hasCarousel = firstPlacemark.getElementsByTagName('gx:Carousel')[0] || firstPlacemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
+      console.log('📦 First placemark has carousel:', !!hasCarousel)
+    }
 
     for (let i = 0; i < placemarks.length; i++) {
       const placemark = placemarks[i]
@@ -160,16 +171,21 @@ async function loadKmlData(path, map) {
 
         // Extract image from KML if it exists
         let imageContent = ''
+        console.log('🔍 Checking placemark for images:', name)
         const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
+        console.log('📦 Found carousel:', !!carousel)
         if (carousel) {
           const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
+          console.log('🖼️ Found gx:Image:', !!gxImage)
           if (gxImage) {
             const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+            console.log('🔗 Found imageUrl:', imageUrl)
             if (imageUrl) {
               // Clean up the image URL (remove size placeholder if it exists)
               const cleanImageUrl = imageUrl.replace('{size}', '800')
+              console.log('✨ Clean imageUrl:', cleanImageUrl)
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${cleanImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+                <img src="${cleanImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'; console.log('✅ Image loaded successfully');" onerror="this.style.display='none'; console.log('❌ Image failed to load');">
               </div>`
             }
           }
