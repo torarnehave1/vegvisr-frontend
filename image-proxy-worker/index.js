@@ -39,17 +39,21 @@ export default {
       // Validate the target URL
       const target = new URL(targetUrl);
 
-      // Security: Only allow Google Earth images
+      // Security: Only allow Google Earth and related Google image domains
       const allowedHosts = [
         'www.google.com',
         'google.com',
         'earth.google.com',
+        'earth.usercontent.google.com', // This was missing!
         'kh.google.com',
         'kh.googleusercontent.com',
         'lh3.googleusercontent.com',
         'lh4.googleusercontent.com',
         'lh5.googleusercontent.com',
-        'lh6.googleusercontent.com'
+        'lh6.googleusercontent.com',
+        'lh7.googleusercontent.com',
+        'usercontent.google.com', // General Google user content
+        'googleusercontent.com'  // General Google user content
       ];
 
       if (!allowedHosts.includes(target.hostname)) {
