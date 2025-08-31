@@ -4,7 +4,7 @@
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
-    
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -15,25 +15,25 @@ export default {
         },
       })
     }
-    
+
     // Extract the image URL from query parameter
     const imageUrl = url.searchParams.get('url')
-    
+
     if (!imageUrl) {
-      return new Response('Missing url parameter', { 
+      return new Response('Missing url parameter', {
         status: 400,
         headers: { 'Access-Control-Allow-Origin': '*' }
       })
     }
-    
+
     // Validate it's a Google Earth image URL for security
     if (!imageUrl.includes('earth.usercontent.google.com')) {
-      return new Response('Invalid image source', { 
+      return new Response('Invalid image source', {
         status: 403,
         headers: { 'Access-Control-Allow-Origin': '*' }
       })
     }
-    
+
     try {
       // Fetch the image from Google Earth
       const response = await fetch(imageUrl, {
@@ -42,14 +42,14 @@ export default {
           'Referer': 'https://earth.google.com/',
         },
       })
-      
+
       if (!response.ok) {
-        return new Response('Image not found', { 
+        return new Response('Image not found', {
           status: 404,
           headers: { 'Access-Control-Allow-Origin': '*' }
         })
       }
-      
+
       // Return the image with CORS headers
       const newResponse = new Response(response.body, {
         status: response.status,
@@ -60,11 +60,11 @@ export default {
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
         },
       })
-      
+
       return newResponse
-      
+
     } catch (error) {
-      return new Response('Failed to fetch image', { 
+      return new Response('Failed to fetch image', {
         status: 500,
         headers: { 'Access-Control-Allow-Origin': '*' }
       })

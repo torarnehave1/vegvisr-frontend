@@ -38,7 +38,7 @@ export default {
     try {
       // Validate the target URL
       const target = new URL(targetUrl);
-      
+
       // Security: Only allow Google Earth images
       const allowedHosts = [
         'www.google.com',
