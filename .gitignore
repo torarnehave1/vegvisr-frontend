@@ -29,6 +29,7 @@ VERSION
 *.sw?
 
 *.tsbuildinfo
+.wrangler/
 /api-worker/wrangler.toml
 /api-worker/tsconfig.json
 
@@ -38,3 +39,4 @@ VERSION
 main-worker/wrangler.toml
 /dev-workder/wrangler.toml
 dev-worker/wrangler.toml
+nodetest.js

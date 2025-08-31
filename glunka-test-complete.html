@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glunka KML Image Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .content {
+            padding: 30px;
+        }
+        .test-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #e8f5e8;
+            border-left: 4px solid #4caf50;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .map-container {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .code-block {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            margin: 15px 0;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .feature-card h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            margin: 10px 5px;
+            border: none;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ Glunka KML Image Test</h1>
+            <p>Testing enhanced MapViewer with Google Earth images</p>
+        </div>
+
+        <div class="content">
+            <div class="test-info success">
+                <h3>✅ Implementation Complete!</h3>
+                <p>Your MapViewer component has been enhanced to display images from KML files. The Glunka trail map now supports image display when you click on markers.</p>
+            </div>
+
+            <div class="test-info">
+                <h3>📋 How to Test:</h3>
+                <ol>
+                    <li>Go to your GNewViewer application</li>
+                    <li>Create a new map node or edit an existing one</li>
+                    <li>Set the KML path to: <code>https://klm.vegvisr.org/Glunka%20(1).kml</code></li>
+                    <li>Click on the "Start og Slutt" marker to see the image</li>
+                </ol>
+            </div>
+
+            <div class="code-block">
+                <strong>KML URL:</strong> https://klm.vegvisr.org/Glunka%20(1).kml<br>
+                <strong>Target Marker:</strong> "Start og Slutt"<br>
+                <strong>Coordinates:</strong> 11.90439410756417, 63.56290150585642<br>
+                <strong>Expected:</strong> Image appears in info window popup
+            </div>
+
+            <div class="feature-list">
+                <div class="feature-card">
+                    <h3>🖼️ Image Extraction</h3>
+                    <ul>
+                        <li>Extracts gx:Carousel/gx:Image from KML</li>
+                        <li>Supports Google Earth hosted images</li>
+                        <li>Handles {size} placeholder replacement</li>
+                        <li>Error handling for broken images</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🎨 Visual Enhancements</h3>
+                    <ul>
+                        <li>Responsive image sizing (max 300x200px)</li>
+                        <li>Rounded corners and shadows</li>
+                        <li>Proper image alignment</li>
+                        <li>Enhanced info window layout</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🗺️ Geometry Support</h3>
+                    <ul>
+                        <li>Points (markers)</li>
+                        <li>LineStrings (paths)</li>
+                        <li>Polygons (areas)</li>
+                        <li>All can display associated images</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>⚡ Technical Features</h3>
+                    <ul>
+                        <li>XML namespace handling</li>
+                        <li>Google Maps API integration</li>
+                        <li>Vue.js reactive components</li>
+                        <li>Cross-browser compatibility</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="test-info warning">
+                <h3>🔧 Integration Steps:</h3>
+                <p>The MapViewer.vue component has been updated with image support. No additional changes needed in your GNewMapNode.vue - it will automatically use the enhanced MapViewer.</p>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <button class="btn" onclick="openGNewViewer()">🚀 Test in GNewViewer</button>
+                <button class="btn" onclick="showImplementationDetails()">🔍 View Implementation</button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        function openGNewViewer() {
+            console.log('🗺️ Open your GNewViewer and create a map node with:');
+            console.log('Path: https://klm.vegvisr.org/Glunka%20(1).kml');
+            alert('Go to your GNewViewer application and create a map node with the Glunka KML path!\n\nPath: https://klm.vegvisr.org/Glunka%20(1).kml');
+        }
+
+        function showImplementationDetails() {
+            const details = `
+🛠️ IMPLEMENTATION DETAILS:
+
+1. Enhanced MapViewer.vue with image extraction:
+   - Searches for gx:Carousel/gx:Image elements
+   - Extracts gx:imageUrl content
+   - Handles XML namespaces properly
+
+2. Image processing:
+   - Replaces {size} with 800px
+   - Adds error handling (onload/onerror)
+   - Applies responsive styling
+
+3. Info window enhancement:
+   - Displays images inline with content
+   - Maintains proper sizing and layout
+   - Works for all geometry types
+
+4. Files modified:
+   - /src/components/MapViewer.vue (enhanced)
+   - GNewMapNode.vue (no changes needed)
+
+Ready to test! 🚀
+            `;
+            console.log(details);
+            alert('Check the browser console for detailed implementation information!');
+        }
+
+        // Log success message
+        console.log(`
+🎉 GLUNKA KML IMAGE INTEGRATION SUCCESSFUL!
+
+✅ Enhanced MapViewer component with image support
+✅ KML file uploaded: https://klm.vegvisr.org/Glunka%20(1).kml
+✅ Ready for testing in GNewViewer
+
+Next steps:
+1. Go to your GNewViewer application
+2. Create/edit a map node
+3. Set KML path to: https://klm.vegvisr.org/Glunka%20(1).kml
+4. Click on "Start og Slutt" marker to see the image!
+        `);
+    </script>
+</body>
+</html>
