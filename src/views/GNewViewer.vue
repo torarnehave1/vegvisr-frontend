@@ -4077,6 +4077,8 @@ const openNodeEditModal = (node) => {
     label: node.label || '',
     info: node.info || '',
     type: node.type || 'default',
+    // Preserve any additional properties (like _emailTemplate, _emailField for virtual nodes)
+    ...node
   }
   showNodeEditModal.value = true
 }
@@ -4147,6 +4149,48 @@ const saveNodeChanges = async () => {
   savingNode.value = true
 
   try {
+    // Check if this is a virtual email template node
+    if (editingNode.value.id && editingNode.value.id.startsWith('email-template-')) {
+      // For virtual email template nodes, we need to handle them specially
+      console.log('🎯 GNewViewer: Saving virtual email template node:', editingNode.value)
+      
+      // Extract template info from the node ID
+      const templateInfo = editingNode.value._emailTemplate
+      const fieldName = editingNode.value._emailField
+      
+      console.log('🎯 GNewViewer: Template info:', templateInfo)
+      console.log('🎯 GNewViewer: Field name:', fieldName)
+      console.log('🎯 GNewViewer: Content:', editingNode.value.info)
+      
+      if (templateInfo && fieldName) {
+        // Update the template content directly
+        templateInfo[fieldName] = editingNode.value.info
+        console.log('🎯 GNewViewer: Updated template directly:', templateInfo)
+        
+        // Emit an event that the EmailManager can listen for
+        const eventDetail = {
+          templateId: templateInfo.id,
+          field: fieldName,
+          content: editingNode.value.info
+        }
+        console.log('🎯 GNewViewer: Dispatching event with detail:', eventDetail)
+        
+        window.dispatchEvent(new CustomEvent('emailTemplateContentUpdated', {
+          detail: eventDetail
+        }))
+      } else {
+        console.error('🔥 GNewViewer: Missing template info or field name!', { templateInfo, fieldName })
+      }
+      
+      // Close the modal
+      closeNodeEditModal()
+      statusMessage.value = 'Email template content updated!'
+      setTimeout(() => {
+        statusMessage.value = ''
+      }, 2000)
+      return
+    }
+
     // Update the node in the local graph data
     const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === editingNode.value.id)
     if (nodeIndex !== -1) {

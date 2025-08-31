@@ -158,9 +158,35 @@ async function loadKmlData(path, map) {
         // Add to tracking array
         kmlMarkers.value.push(marker)
 
-        // Info window for markers
+        // Extract image from KML if it exists
+        let imageContent = ''
+        const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
+        if (carousel) {
+          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
+          if (gxImage) {
+            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+            if (imageUrl) {
+              // Clean up the image URL (remove size placeholder if it exists)
+              const cleanImageUrl = imageUrl.replace('{size}', '800')
+              imageContent = `<div style="text-align: center; margin: 10px 0;">
+                <img src="${cleanImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+              </div>`
+            }
+          }
+        }
+
+        // Info window for markers with enhanced content including images
+        const infoContent = `
+          <div style="max-width: 320px;">
+            <h3 style="margin: 0 0 8px 0; color: #333;">${name}</h3>
+            ${imageContent}
+            ${description ? `<p style="margin: 8px 0 0 0; color: #666;">${description}</p>` : ''}
+          </div>
+        `
+        
         const infoWindow = new window.google.maps.InfoWindow({
-          content: `<h3>${name}</h3><p>${description}</p>`,
+          content: infoContent,
+          maxWidth: 350,
         })
         marker.addListener('click', () => {
           infoWindow.open(map, marker)
@@ -198,12 +224,36 @@ async function loadKmlData(path, map) {
         // Add to tracking array (we'll track all map objects)
         kmlMarkers.value.push({ setMap: (m) => polyline.setMap(m) })
 
-        // Info window for paths (click on path)
-        if (name || description) {
+        // Extract image from KML if it exists
+        let imageContent = ''
+        const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
+        if (carousel) {
+          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
+          if (gxImage) {
+            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+            if (imageUrl) {
+              const cleanImageUrl = imageUrl.replace('{size}', '800')
+              imageContent = `<div style="text-align: center; margin: 10px 0;">
+                <img src="${cleanImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+              </div>`
+            }
+          }
+        }
+
+        // Info window for paths (click on path) with enhanced content
+        if (name || description || imageContent) {
+          const infoContent = `
+            <div style="max-width: 320px;">
+              <h3 style="margin: 0 0 8px 0; color: #333;">${name || 'Path'}</h3>
+              ${imageContent}
+              ${description ? `<p style="margin: 8px 0 0 0; color: #666;">${description}</p>` : ''}
+            </div>
+          `
           polyline.addListener('click', (event) => {
             const infoWindow = new window.google.maps.InfoWindow({
-              content: `<h3>${name || 'Path'}</h3><p>${description}</p>`,
+              content: infoContent,
               position: event.latLng,
+              maxWidth: 350,
             })
             infoWindow.open(map)
           })
@@ -248,12 +298,36 @@ async function loadKmlData(path, map) {
         // Add to tracking array
         kmlMarkers.value.push({ setMap: (m) => polygonShape.setMap(m) })
 
-        // Info window for polygons
-        if (name || description) {
+        // Extract image from KML if it exists
+        let imageContent = ''
+        const carousel = placemark.getElementsByTagName('gx:Carousel')[0] || placemark.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Carousel')[0]
+        if (carousel) {
+          const gxImage = carousel.getElementsByTagName('gx:Image')[0] || carousel.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'Image')[0]
+          if (gxImage) {
+            const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
+            if (imageUrl) {
+              const cleanImageUrl = imageUrl.replace('{size}', '800')
+              imageContent = `<div style="text-align: center; margin: 10px 0;">
+                <img src="${cleanImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+              </div>`
+            }
+          }
+        }
+
+        // Info window for polygons with enhanced content
+        if (name || description || imageContent) {
+          const infoContent = `
+            <div style="max-width: 320px;">
+              <h3 style="margin: 0 0 8px 0; color: #333;">${name || 'Area'}</h3>
+              ${imageContent}
+              ${description ? `<p style="margin: 8px 0 0 0; color: #666;">${description}</p>` : ''}
+            </div>
+          `
           polygonShape.addListener('click', (event) => {
             const infoWindow = new window.google.maps.InfoWindow({
-              content: `<h3>${name || 'Area'}</h3><p>${description}</p>`,
+              content: infoContent,
               position: event.latLng,
+              maxWidth: 350,
             })
             infoWindow.open(map)
           })

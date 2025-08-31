@@ -80,6 +80,7 @@ import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
 import GNewMapNode from './GNewNodes/GNewMapNode.vue'
 import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
 import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
+import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
 import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
 
 // Store access
@@ -179,6 +180,8 @@ const nodeComponents = {
   subscription: GNewSubscriptionNode,
   // Email template node
   'email-template': GNewEmailTemplateNode,
+  // Email manager node
+  'email-manager': GNewEmailManagerNode,
   // Map node
   map: GNewMapNode,
   // Slideshow node
@@ -211,6 +214,14 @@ const nodeComponent = computed(() => {
   if (nodeType === 'advertisement_manager') {
     if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
       console.log('🚫 Advertisement manager node hidden - requires Superadmin role')
+      return null
+    }
+  }
+
+  // Hide email manager for non-Admin users
+  if (nodeType === 'email-manager') {
+    if (!userStore.loggedIn || !['Admin', 'Superadmin'].includes(userStore.role)) {
+      console.log('🚫 Email manager node hidden - requires Admin/Superadmin role')
       return null
     }
   }

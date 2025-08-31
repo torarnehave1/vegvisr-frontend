@@ -552,6 +552,300 @@ export default {
         }
       }
 
+      // ========================
+      // EMAIL TEMPLATES CRUD ENDPOINTS
+      // ========================
+
+      // GET /email-templates - List all email templates
+      if (path === '/email-templates' && method === 'GET') {
+        try {
+          const templates = await env.vegvisr_org
+            .prepare(
+              'SELECT id, template_name, template_type, language_code, subject, body, variables, is_active, created_at, updated_at FROM email_templates ORDER BY created_at DESC',
+            )
+            .all()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                templates: templates.results || [],
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching email templates:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch email templates',
+                details: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // GET /email-templates/{id} - Get single email template
+      if (path.startsWith('/email-templates/') && method === 'GET') {
+        try {
+          const templateId = path.split('/')[2]
+
+          const template = await env.vegvisr_org
+            .prepare('SELECT * FROM email_templates WHERE id = ?')
+            .bind(templateId)
+            .first()
+
+          if (!template) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Template not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                template: template,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error fetching email template:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to fetch email template',
+                details: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // POST /email-templates - Create new email template
+      if (path === '/email-templates' && method === 'POST') {
+        try {
+          const templateData = await request.json()
+
+          // Generate ID if not provided
+          const templateId = templateData.id || `template_${Date.now()}`
+
+          // Validate required fields
+          if (!templateData.template_name || !templateData.subject || !templateData.body) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Missing required fields: template_name, subject, body',
+                }),
+                {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          const result = await env.vegvisr_org
+            .prepare(`
+              INSERT INTO email_templates (
+                id, template_name, template_type, language_code,
+                subject, body, variables, is_default, created_by, is_active
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `)
+            .bind(
+              templateId,
+              templateData.template_name,
+              templateData.template_type || 'general',
+              templateData.language_code || 'en',
+              templateData.subject,
+              templateData.body,
+              templateData.variables || '[]',
+              templateData.is_default || 0,
+              templateData.created_by || 'email_manager',
+              templateData.is_active || 1
+            )
+            .run()
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Email template created successfully',
+                templateId: templateId,
+                meta: result.meta,
+              }),
+              {
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error creating email template:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to create email template',
+                details: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // PUT /email-templates/{id} - Update email template
+      if (path.startsWith('/email-templates/') && method === 'PUT') {
+        try {
+          const templateId = path.split('/')[2]
+          const templateData = await request.json()
+
+          const result = await env.vegvisr_org
+            .prepare(`
+              UPDATE email_templates
+              SET template_name = ?, template_type = ?, language_code = ?,
+                  subject = ?, body = ?, variables = ?, is_active = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `)
+            .bind(
+              templateData.template_name,
+              templateData.template_type,
+              templateData.language_code,
+              templateData.subject,
+              templateData.body,
+              templateData.variables,
+              templateData.is_active,
+              templateId
+            )
+            .run()
+
+          if (result.changes === 0) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Template not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Email template updated successfully',
+                meta: result.meta,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error updating email template:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to update email template',
+                details: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
+      // DELETE /email-templates/{id} - Delete email template
+      if (path.startsWith('/email-templates/') && method === 'DELETE') {
+        try {
+          const templateId = path.split('/')[2]
+
+          const result = await env.vegvisr_org
+            .prepare('DELETE FROM email_templates WHERE id = ?')
+            .bind(templateId)
+            .run()
+
+          if (result.changes === 0) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  error: 'Template not found',
+                }),
+                {
+                  status: 404,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            )
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Email template deleted successfully',
+                meta: result.meta,
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error deleting email template:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                error: 'Failed to delete email template',
+                details: error.message,
+              }),
+              {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          )
+        }
+      }
+
       // Default response for unknown endpoints
       return addCorsHeaders(
         new Response(
@@ -567,6 +861,8 @@ export default {
               '/generate-slowyou-link (POST)',
               '/templates (GET)',
               '/templates/{id} (GET)',
+              '/email-templates (GET, POST)',
+              '/email-templates/{id} (GET, PUT, DELETE)',
             ],
           }),
           {
