@@ -1,7 +1,7 @@
 <template>
   <div class="glunka-test-container">
     <h1>🗺️ Glunka KML Image Test</h1>
-    
+
     <div class="test-info">
       <h3>📋 Test Instructions:</h3>
       <ol>
