@@ -281,7 +281,7 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
 
               console.log(`🎨 Grid style: ${gridStyle}`)
               
@@ -392,7 +392,7 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
@@ -501,7 +501,7 @@ async function loadKmlData(path, map) {
               // Create a responsive grid layout for multiple images
               const gridStyle = imageElements.length === 1
                 ? 'text-align: center;'
-                : 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; justify-items: center;'
+                : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
 
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
