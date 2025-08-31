@@ -46,7 +46,7 @@
           <h5>➕ Create New Email Template</h5>
           <button @click="addNewTemplate" class="btn btn-sm btn-success" v-if="!editingTemplate?.isNew">+ Add Template</button>
         </div>
-        
+
         <!-- New Template Form (when adding) -->
         <div v-if="editingTemplate && editingTemplate.isNew" class="new-template-form">
           <div class="form-row">
@@ -79,7 +79,7 @@
               </select>
             </div>
           </div>
-          
+
           <div class="form-group">
             <label>Subject:</label>
             <input
@@ -89,7 +89,7 @@
               placeholder="Enter email subject"
             />
           </div>
-          
+
               <div class="form-group">
                 <label>Body:</label>
                 <div class="body-input-section">
@@ -100,7 +100,7 @@
                       rows="4"
                       placeholder="Enter email body content or use Advanced Editor..."
                     ></textarea>
-                    <button 
+                    <button
                       @click="openAdvancedEditor(editingTemplate, 'body')"
                       class="btn btn-sm btn-outline-primary edit-advanced-btn"
                       title="Open advanced markdown editor"
@@ -124,7 +124,7 @@
               List of variables that can be used in the subject and body
             </small>
           </div>
-          
+
           <div class="form-actions">
             <button @click="saveTemplate" class="btn btn-sm btn-success">
               💾 {{ editingTemplate.isNew ? 'Create Template' : 'Save Template' }}
@@ -255,7 +255,7 @@
                       rows="4"
                       placeholder="Enter email body content or use Advanced Editor..."
                     ></textarea>
-                    <button 
+                    <button
                       @click="openAdvancedEditor(editingTemplate, 'body')"
                       class="btn btn-sm btn-outline-primary edit-advanced-btn"
                       title="Open advanced markdown editor"
@@ -362,7 +362,7 @@ export default {
   },
   mounted() {
     this.loadEmailTemplates()
-    
+
     // Listen for email template content updates from the advanced editor modal
     window.addEventListener('emailTemplateContentUpdated', this.handleTemplateContentUpdate)
     console.log('🎯 EmailManager: Event listener registered for emailTemplateContentUpdated')
@@ -406,7 +406,7 @@ export default {
     // Open the advanced editor modal (reusing GNewViewer's node edit modal)
     openAdvancedEditor(template, field) {
       console.log('🚀 EmailManager: Opening advanced editor for:', { template, field })
-      
+
       // Create a virtual node for editing the email template content
       const virtualNode = {
         id: `email-template-${template.id || 'new'}-${field}`,
@@ -432,17 +432,17 @@ export default {
     handleTemplateContentUpdate(event) {
       console.log('🔄 EmailManager: Event received!', event)
       const { templateId, field, content } = event.detail
-      
+
       console.log('🔄 EmailManager: Received template content update:', { templateId, field, content })
       console.log('🔄 EmailManager: Current editing template:', this.editingTemplate)
-      
+
       // Update the editing template if it exists
       if (this.editingTemplate) {
         console.log('🔄 EmailManager: Updating editingTemplate field:', field)
         this.editingTemplate[field] = content
         console.log('✅ EmailManager: Updated editing template:', this.editingTemplate)
       }
-      
+
       // Also try to update any template in the list that matches
       if (templateId && templateId !== 'new') {
         const templateIndex = this.emailTemplates.findIndex(t => t.id == templateId)
@@ -451,7 +451,7 @@ export default {
           console.log('✅ EmailManager: Updated template in list:', this.emailTemplates[templateIndex])
         }
       }
-      
+
       // Force re-render to make sure Vue picks up the changes
       this.$forceUpdate()
     },
@@ -486,19 +486,19 @@ export default {
     // Handle the custom event when email template content is saved from advanced editor
     handleEmailTemplateSaved(event) {
       const { nodeId, content } = event.detail
-      
+
       console.log('Email template saved:', { nodeId, content })
-      
+
       if (this.currentEditingTemplate && this.currentEditingField) {
         // Update the template field with the saved content
         this.currentEditingTemplate[this.currentEditingField] = content
-        
+
         console.log(`Updated ${this.currentEditingField} for template:`, this.currentEditingTemplate.template_name)
-        
+
         // Clear the editing references
         this.currentEditingTemplate = null
         this.currentEditingField = null
-        
+
         // Force reactivity update
         this.$forceUpdate()
       }
@@ -544,7 +544,7 @@ export default {
         if (this.editingTemplate.isNew) {
           // Create new template
           templateData.created_by = 'email_manager_ui'
-          
+
           const response = await fetch('https://email-worker.torarnehave.workers.dev/email-templates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

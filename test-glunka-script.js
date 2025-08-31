@@ -19,7 +19,7 @@ const testGlunkaMap = () => {
   }
 
   console.log('🗺️ Creating test Glunka map node:', mapNode)
-  
+
   // If you're in GNewViewer, you can add this node to your graph
   // The exact method depends on your graph management system
   return mapNode

@@ -183,7 +183,7 @@ async function loadKmlData(path, map) {
             ${description ? `<p style="margin: 8px 0 0 0; color: #666;">${description}</p>` : ''}
           </div>
         `
-        
+
         const infoWindow = new window.google.maps.InfoWindow({
           content: infoContent,
           maxWidth: 350,
