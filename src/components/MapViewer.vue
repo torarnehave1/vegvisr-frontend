@@ -261,8 +261,12 @@ async function loadKmlData(path, map) {
             const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
             if (imageUrl) {
               const cleanImageUrl = imageUrl.replace('{size}', '800')
+              // Use Cloudflare Worker to proxy the image and bypass CORS
+              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${cleanImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+                <img src="${proxyImageUrl}" alt="${name || 'Path'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
+                     onload="console.log('✅ Path image loaded via proxy'); this.style.display='block'" 
+                     onerror="console.log('❌ Path image failed via proxy'); this.style.display='none'">
               </div>`
             }
           }
@@ -335,8 +339,12 @@ async function loadKmlData(path, map) {
             const imageUrl = gxImage.getElementsByTagName('gx:imageUrl')[0]?.textContent || gxImage.getElementsByTagNameNS('http://www.google.com/kml/ext/2.2', 'imageUrl')[0]?.textContent
             if (imageUrl) {
               const cleanImageUrl = imageUrl.replace('{size}', '800')
+              // Use Cloudflare Worker to proxy the image and bypass CORS
+              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${cleanImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'" onerror="this.style.display='none'">
+                <img src="${proxyImageUrl}" alt="${name || 'Area'}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
+                     onload="console.log('✅ Polygon image loaded via proxy'); this.style.display='block'" 
+                     onerror="console.log('❌ Polygon image failed via proxy'); this.style.display='none'">
               </div>`
             }
           }
