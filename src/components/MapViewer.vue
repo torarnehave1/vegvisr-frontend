@@ -184,8 +184,20 @@ async function loadKmlData(path, map) {
               // Clean up the image URL (remove size placeholder if it exists)
               const cleanImageUrl = imageUrl.replace('{size}', '800')
               console.log('✨ Clean imageUrl:', cleanImageUrl)
+              
+              // Use Cloudflare Worker to proxy the image and bypass CORS
+              const proxyImageUrl = `https://image-proxy.torarnehave.workers.dev/?url=${encodeURIComponent(cleanImageUrl)}`
+              
               imageContent = `<div style="text-align: center; margin: 10px 0;">
-                <img src="${cleanImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onload="this.style.display='block'; console.log('✅ Image loaded successfully');" onerror="this.style.display='none'; console.log('❌ Image failed to load');">
+                <img src="${proxyImageUrl}" alt="${name}" style="max-width: 300px; max-height: 200px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" 
+                     onload="console.log('✅ Image loaded successfully via Cloudflare proxy'); this.style.opacity='1';" 
+                     onerror="console.log('❌ Image failed to load via proxy'); this.style.display='none'; this.nextElementSibling.style.display='block';" 
+                     style="opacity: 0; transition: opacity 0.3s ease;">
+                <div style="display: none; padding: 15px; background: #e3f2fd; border-radius: 8px; border: 2px solid #2196F3; max-width: 280px; margin: 0 auto;">
+                  <div style="font-size: 1.8em; margin-bottom: 8px;">🏔️</div>
+                  <div style="color: #1976D2; font-weight: bold; margin-bottom: 5px;">Google Earth Image</div>
+                  <div style="color: #666; font-size: 0.85em;">Image temporarily unavailable</div>
+                </div>
               </div>`
             }
           }
