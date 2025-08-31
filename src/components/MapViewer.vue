@@ -284,7 +284,7 @@ async function loadKmlData(path, map) {
                 : 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; justify-items: center;'
 
               console.log(`🎨 Grid style: ${gridStyle}`)
-              
+
               imageContent = `<div style="${gridStyle} margin: 10px 0;">
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} media items</div>` : ''}
@@ -294,9 +294,9 @@ async function loadKmlData(path, map) {
                   <div style="color: #666; font-size: 0.85em;">Media temporarily unavailable</div>
                 </div>
               </div>`
-              
+
               console.log(`✨ Final imageContent length: ${imageContent.length} characters`)
-              
+
               // Log the complete imageContent for debugging
               console.log(`📝 Complete imageContent:`, imageContent)
             }
@@ -398,7 +398,7 @@ async function loadKmlData(path, map) {
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} path images</div>` : ''}
               </div>`
-              
+
               console.log(`🛤️ Path: Created ${imageElements.length} path image elements`)
               console.log(`📝 Path imageContent:`, imageContent)
             }
@@ -507,7 +507,7 @@ async function loadKmlData(path, map) {
                 ${imageElements.join('')}
                 ${imageElements.length > 1 ? `<div style="grid-column: 1/-1; text-align: center; margin-top: 8px; color: #666; font-size: 0.85em;">${imageElements.length} area images</div>` : ''}
               </div>`
-              
+
               console.log(`🏔️ Polygon: Created ${imageElements.length} polygon image elements`)
               console.log(`📝 Polygon imageContent:`, imageContent)
             }
