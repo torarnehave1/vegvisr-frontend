@@ -16,6 +16,7 @@ import R2Portfolio from '../views/R2Portfolio.vue'
 import ProxyTest from '../views/ProxyTest.vue'
 import SandboxWorkspace from '../components/SandboxWorkspace.vue'
 import GnewAdmin from '@/views/GnewAdmin.vue' // Import the new GnewAdmin component
+import GNewViewer from '@/views/GNewViewer.vue' // Direct import to avoid chunking issues
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -244,7 +245,7 @@ const router = createRouter({
     {
       path: '/gnew',
       name: 'gnew',
-      component: () => import('../views/GNewViewer.vue'),
+      component: GNewViewer,
       meta: {
         requiresAuth: true,
         layout: null,
@@ -253,7 +254,7 @@ const router = createRouter({
     {
       path: '/gnew-viewer',
       name: 'gnew-viewer',
-      component: () => import('../views/GNewViewer.vue'),
+      component: GNewViewer,
       props: (route) => ({ graphId: route.query.graphId || '' }), // Pass graphId as a prop
       meta: {
         layout: null,
