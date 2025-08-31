@@ -2011,20 +2011,19 @@ html body div[style*='display: grid'] .grid-item img {
   width: auto !important;
 }
 
-/* KML Image Grid Container - Override Bootstrap */
-.custom-info-window div[style*="display: grid"] {
-  display: grid !important;
-  grid-template-columns: repeat(3, 1fr) !important;
+/* KML Image Flexbox Container - Override Bootstrap */
+.custom-info-window div[style*="display: flex"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
   gap: 8px !important;
-  justify-items: center !important;
-  align-items: start !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
   margin: 10px 0 !important;
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
   /* Override any Bootstrap classes */
-  flex: none !important;
-  flex-wrap: unset !important;
+  grid-template-columns: unset !important;
 }
 
 /* KML Image Elements - Force proper sizing */
@@ -2087,14 +2086,15 @@ html body div[style*='display: grid'] .grid-item img {
   pointer-events: none !important;
 }
 
-/* KML Media Counter */
-.custom-info-window div[style*="grid-column: 1/-1"] {
-  grid-column: 1/-1 !important;
+/* KML Media Counter for Flexbox */
+.custom-info-window div[style*="flex-basis: 100%"] {
+  flex-basis: 100% !important;
   text-align: center !important;
   margin-top: 8px !important;
   color: #666 !important;
   font-size: 0.85em !important;
   width: 100% !important;
+  order: 999 !important;
 }
 
 /* Responsive adjustments for KML images */
@@ -2105,8 +2105,7 @@ html body div[style*='display: grid'] .grid-item img {
     padding: 12px !important;
   }
 
-  .custom-info-window div[style*="display: grid"] {
-    grid-template-columns: repeat(2, 1fr) !important;
+  .custom-info-window div[style*="display: flex"] {
     gap: 6px !important;
   }
 
@@ -2128,8 +2127,7 @@ html body div[style*='display: grid'] .grid-item img {
     padding: 10px !important;
   }
 
-  .custom-info-window div[style*="display: grid"] {
-    grid-template-columns: repeat(2, 1fr) !important;
+  .custom-info-window div[style*="display: flex"] {
     gap: 4px !important;
   }
 
