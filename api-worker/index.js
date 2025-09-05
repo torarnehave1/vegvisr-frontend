@@ -1142,6 +1142,236 @@ const handleClaudeTest = async (request, env) => {
   }
 }
 
+const handleGPT4Test = async (request, env) => {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { prompt, returnType = 'fulltext', graphContext } = body
+  if (!prompt || typeof prompt !== 'string') {
+    return createErrorResponse('Prompt input is missing or invalid', 400)
+  }
+
+  try {
+    // Prepare the message content with optional graph context
+    let messageContent = prompt
+    if (graphContext && graphContext.trim()) {
+      messageContent = `Context from knowledge graph:\n${graphContext}\n\nQuestion: ${prompt}\n\nPlease use the provided context to inform your response when relevant, but focus on answering the specific question asked.`
+    }
+
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.openai.com/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4',
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: messageContent,
+        },
+      ],
+    })
+
+    const generatedText = completion.choices[0].message.content.trim()
+
+    // Handle different return types
+    if (returnType === 'action') {
+      // Return action_test node
+      return createResponse(
+        JSON.stringify({
+          id: `action_${Date.now()}`,
+          label: 'https://api.vegvisr.org/gpt-4-test',
+          type: 'action_test',
+          info: generatedText,
+          color: '#e8f4fd',
+          model: 'gpt-4',
+          prompt: prompt,
+        }),
+      )
+    } else if (returnType === 'both') {
+      // Generate follow-up question
+      const followUpCompletion = await client.chat.completions.create({
+        model: 'gpt-4',
+        temperature: 0.8,
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
+          },
+        ],
+      })
+
+      const followUpQuestion = followUpCompletion.choices[0].message.content.trim()
+
+      // Return both fulltext and action nodes
+      return createResponse(
+        JSON.stringify({
+          type: 'both',
+          fulltext: {
+            id: `fulltext_${Date.now()}`,
+            label: 'GPT-4 Answer',
+            type: 'fulltext',
+            info: generatedText,
+            color: '#e8f4fd',
+            model: 'gpt-4',
+            prompt: prompt,
+          },
+          action: {
+            id: `action_${Date.now() + 1}`,
+            label: 'https://api.vegvisr.org/gpt-4-test',
+            type: 'action_test',
+            info: followUpQuestion,
+            color: '#e8f4fd',
+          },
+        }),
+      )
+    } else {
+      // Default: return fulltext node
+      return createResponse(
+        JSON.stringify({
+          id: `gpt4_${Date.now()}`,
+          label: 'GPT-4 Answer',
+          type: 'fulltext',
+          info: generatedText,
+          color: '#e8f4fd',
+          model: 'gpt-4',
+          prompt: prompt,
+        }),
+      )
+    }
+  } catch (error) {
+    return createErrorResponse(`GPT-4 API error: ${error.message}`, 500)
+  }
+}
+
+const handleGPT5Test = async (request, env) => {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: OpenAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { prompt, returnType = 'fulltext', graphContext } = body
+  if (!prompt || typeof prompt !== 'string') {
+    return createErrorResponse('Prompt input is missing or invalid', 400)
+  }
+
+  try {
+    // Prepare the message content with optional graph context
+    let messageContent = prompt
+    if (graphContext && graphContext.trim()) {
+      messageContent = `Context from knowledge graph:\n${graphContext}\n\nQuestion: ${prompt}\n\nPlease use the provided context to inform your response when relevant, but focus on answering the specific question asked.`
+    }
+
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.openai.com/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'gpt-5', // Note: This model may not be available yet, will use gpt-4o as fallback
+      temperature: 0.7,
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: messageContent,
+        },
+      ],
+    })
+
+    const generatedText = completion.choices[0].message.content.trim()
+
+    // Handle different return types
+    if (returnType === 'action') {
+      // Return action_test node
+      return createResponse(
+        JSON.stringify({
+          id: `action_${Date.now()}`,
+          label: 'https://api.vegvisr.org/gpt-5-test',
+          type: 'action_test',
+          info: generatedText,
+          color: '#f0f8ff',
+          model: 'gpt-5',
+          prompt: prompt,
+        }),
+      )
+    } else if (returnType === 'both') {
+      // Generate follow-up question
+      const followUpCompletion = await client.chat.completions.create({
+        model: 'gpt-5',
+        temperature: 0.8,
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
+          },
+        ],
+      })
+
+      const followUpQuestion = followUpCompletion.choices[0].message.content.trim()
+
+      // Return both fulltext and action nodes
+      return createResponse(
+        JSON.stringify({
+          type: 'both',
+          fulltext: {
+            id: `fulltext_${Date.now()}`,
+            label: 'GPT-5 Answer',
+            type: 'fulltext',
+            info: generatedText,
+            color: '#f0f8ff',
+            model: 'gpt-5',
+            prompt: prompt,
+          },
+          action: {
+            id: `action_${Date.now() + 1}`,
+            label: 'https://api.vegvisr.org/gpt-5-test',
+            type: 'action_test',
+            info: followUpQuestion,
+            color: '#f0f8ff',
+          },
+        }),
+      )
+    } else {
+      // Default: return fulltext node
+      return createResponse(
+        JSON.stringify({
+          id: `gpt5_${Date.now()}`,
+          label: 'GPT-5 Answer',
+          type: 'fulltext',
+          info: generatedText,
+          color: '#f0f8ff',
+          model: 'gpt-5',
+          prompt: prompt,
+        }),
+      )
+    }
+  } catch (error) {
+    return createErrorResponse(`GPT-5 API error: ${error.message}`, 500)
+  }
+}
+
 // Updated endpoint for versatile AI action with response format
 const handleAIAction = async (request, env) => {
   let body
@@ -6221,6 +6451,12 @@ export default {
     }
     if (pathname === '/claude-test' && request.method === 'POST') {
       return await handleClaudeTest(request, env)
+    }
+    if (pathname === '/gpt-4-test' && request.method === 'POST') {
+      return await handleGPT4Test(request, env)
+    }
+    if (pathname === '/gpt-5-test' && request.method === 'POST') {
+      return await handleGPT5Test(request, env)
     }
     if (pathname === '/aiaction' && request.method === 'POST') {
       return await handleAIAction(request, env)

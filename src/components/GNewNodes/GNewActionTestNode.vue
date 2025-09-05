@@ -33,6 +33,8 @@
           <option value="claude">🧠 Claude AI (Advanced Reasoning)</option>
           <option value="grok">🤔 Grok AI (Philosophical Insights)</option>
           <option value="gemini">⚡ Google Gemini (Fast Responses)</option>
+          <option value="gpt4">🧩 GPT-4 (Structured Reasoning)</option>
+          <option value="gpt5">🚀 GPT-5 (Next Generation AI)</option>
           <option value="generic">⚙️ Generic AI (Custom Formatting)</option>
         </select>
       </div>
@@ -206,6 +208,16 @@ const aiProviders = {
     name: '⚡ Google Gemini',
     endpoint: 'https://api.vegvisr.org/gemini-test',
     description: 'Fast Responses',
+  },
+  gpt4: {
+    name: '🧩 GPT-4',
+    endpoint: 'https://api.vegvisr.org/gpt-4-test',
+    description: 'Structured Reasoning',
+  },
+  gpt5: {
+    name: '🚀 GPT-5',
+    endpoint: 'https://api.vegvisr.org/gpt-5-test',
+    description: 'Next Generation AI',
   },
   generic: {
     name: '⚙️ Generic AI',

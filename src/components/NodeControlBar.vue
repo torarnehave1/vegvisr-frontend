@@ -74,6 +74,12 @@
           <option value="https://api.vegvisr.org/gemini-test">
             ⚡ Google Gemini (Fast Responses)
           </option>
+          <option value="https://api.vegvisr.org/gpt-4-test">
+            🧩 GPT-4 (Structured Reasoning)
+          </option>
+          <option value="https://api.vegvisr.org/gpt-5-test">
+            🚀 GPT-5 (Next Generation AI)
+          </option>
           <option value="https://api.vegvisr.org/aiaction">
             ⚙️ Generic AI (Custom Formatting)
           </option>
