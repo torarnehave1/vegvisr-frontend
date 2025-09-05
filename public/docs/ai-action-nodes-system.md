@@ -172,10 +172,10 @@ testEndpoint(endpoint, content)
 
 **Features:**
 
-- Advanced reasoning and analysis capabilities
-- Excellent at complex tasks and nuanced responses
-- Strong safety guidelines and helpful responses
-- Latest Claude 3.5 Sonnet model
+- Advanced reasoning and analytical capabilities
+- High-quality structured responses
+- Context-aware processing with graph integration
+- Supports fulltext, action, and both return types
 
 **Request Format:**
 
@@ -190,7 +190,7 @@ testEndpoint(endpoint, content)
 ```json
 {
   "id": "claude_${timestamp}",
-  "label": "Claude Response",
+  "label": "Claude Answer",
   "type": "fulltext",
   "info": "AI generated content",
   "color": "#f4e5d3",
@@ -198,6 +198,78 @@ testEndpoint(endpoint, content)
   "prompt": "original prompt"
 }
 ```
+
+### 5. 🧩 GPT-4 (OpenAI) - `/gpt-4-test`
+
+**Model:** `gpt-4`  
+**API Key:** `env.OPENAI_API_KEY`  
+**Base URL:** `https://api.openai.com/v1`
+
+**Features:**
+
+- Structured reasoning and problem-solving
+- Excellent for complex analysis and detailed explanations
+- High accuracy in logical thinking
+- Supports fulltext, action, and both return types
+
+**Request Format:**
+
+```json
+{
+  "prompt": "Your question or topic"
+}
+```
+
+**Response Format:**
+
+```json
+{
+  "id": "gpt4_${timestamp}",
+  "label": "GPT-4 Answer",
+  "type": "fulltext",
+  "info": "AI generated content",
+  "color": "#e8f4fd",
+  "model": "gpt-4",
+  "prompt": "original prompt"
+}
+```
+
+### 6. 🚀 GPT-5 (OpenAI) - `/gpt-5-test`
+
+**Model:** `gpt-5` (fallback to gpt-4o if unavailable)  
+**API Key:** `env.OPENAI_API_KEY`  
+**Base URL:** `https://api.openai.com/v1`
+
+**Features:**
+
+- Next generation AI with enhanced capabilities
+- Superior reasoning and creative problem solving
+- Advanced context understanding
+- Supports fulltext, action, and both return types
+
+**Request Format:**
+
+```json
+{
+  "prompt": "Your question or topic"
+}
+```
+
+**Response Format:**
+
+```json
+{
+  "id": "gpt5_${timestamp}",
+  "label": "GPT-5 Answer",
+  "type": "fulltext",
+  "info": "AI generated content",
+  "color": "#f0f8ff",
+  "model": "gpt-5",
+  "prompt": "original prompt"
+}
+```
+
+### 7. Generic AI Action - `/aiaction`
 
 ### 5. Generic AI Action - `/aiaction`
 
@@ -272,6 +344,8 @@ Instead of manually entering endpoint URLs, users can now:
 🧠 Claude AI (Advanced Reasoning)          - https://api.vegvisr.org/claude-test
 🤔 Grok AI (Philosophical Insights)        - https://api.vegvisr.org/groktest
 ⚡ Google Gemini (Fast Responses)           - https://api.vegvisr.org/gemini-test
+🧩 GPT-4 (Structured Reasoning)            - https://api.vegvisr.org/gpt-4-test
+🚀 GPT-5 (Next Generation AI)              - https://api.vegvisr.org/gpt-5-test
 ⚙️ Generic AI (Custom Formatting)          - https://api.vegvisr.org/aiaction
 ```
 
@@ -389,6 +463,8 @@ Action test nodes get special UI treatment:
 - 🧠 Claude AI: ~2-4 seconds (high quality, advanced reasoning)
 - Grok: ~3-5 seconds (includes bibliography generation)
 - Gemini: ~1-2 seconds (fast external API)
+- 🧩 GPT-4: ~2-3 seconds (structured reasoning, reliable)
+- 🚀 GPT-5: ~2-4 seconds (next generation AI, enhanced capabilities)
 - Generic AI: Variable based on provider and model
 
 **Rate Limiting:**
