@@ -1287,19 +1287,14 @@ const handleGPT5Test = async (request, env) => {
       baseURL: 'https://api.openai.com/v1',
     })
 
-    const completion = await client.chat.completions.create({
-      model: 'gpt-5', // Note: This model may not be available yet, will use gpt-4o as fallback
-      temperature: 0.7,
-      max_tokens: 3000,
-      messages: [
-        {
-          role: 'user',
-          content: messageContent,
-        },
-      ],
+    const completion = await client.responses.create({
+      model: 'gpt-5',
+      input: messageContent,
+      reasoning: { effort: 'medium' },
+      text: { verbosity: 'medium' },
     })
 
-    const generatedText = completion.choices[0].message.content.trim()
+    const generatedText = completion.output_text.trim()
 
     // Handle different return types
     if (returnType === 'action') {
@@ -1317,19 +1312,14 @@ const handleGPT5Test = async (request, env) => {
       )
     } else if (returnType === 'both') {
       // Generate follow-up question
-      const followUpCompletion = await client.chat.completions.create({
+      const followUpCompletion = await client.responses.create({
         model: 'gpt-5',
-        temperature: 0.8,
-        max_tokens: 200,
-        messages: [
-          {
-            role: 'user',
-            content: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
-          },
-        ],
+        input: `Based on this answer: "${generatedText}", generate ONE thoughtful follow-up question that would lead to deeper insights. Return ONLY the question, no explanations.`,
+        reasoning: { effort: 'low' },
+        text: { verbosity: 'low' },
       })
 
-      const followUpQuestion = followUpCompletion.choices[0].message.content.trim()
+      const followUpQuestion = followUpCompletion.output_text.trim()
 
       // Return both fulltext and action nodes
       return createResponse(
