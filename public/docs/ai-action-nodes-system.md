@@ -172,7 +172,7 @@ testEndpoint(endpoint, content)
 
 **Features:**
 
-- Advanced reasoning and analytical capabilities
+ - Advanced reasoning and analytical capabilities
 - High-quality structured responses
 - Context-aware processing with graph integration
 - Supports fulltext, action, and both return types
