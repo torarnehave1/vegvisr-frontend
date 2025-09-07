@@ -1,6 +1,12 @@
 <template>
   <div class="gnew-node-renderer">
-    <!-- Streamlined Reorder Controls (Admin Only) -->
+    <!-- Streamlined Reorder Conimport GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
+import GNewMapNode from './GNewNodes/GNewMapNode.vue'
+import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
+import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
+import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
+import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
+import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'(Admin Only) -->
     <GNewNodeControlBar
       v-if="showControls && nodeComponent"
       :node-type="node.type || 'default'"
@@ -82,6 +88,7 @@ import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
 import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
 import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
 import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
+import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -190,6 +197,8 @@ const nodeComponents = {
   advertisement_manager: GNewAdvertisementManagerNode,
   // Password Protection node
   'password-protection': GNewPasswordProtectionNode,
+  // Mermaid diagram node
+  'mermaid-diagram': GNewMermaidNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
