@@ -2,12 +2,12 @@
   <div class="gnew-mermaid-node">
     <!-- Node Title -->
     <h3 v-if="node.label" class="node-label">{{ node.label }}</h3>
-    
+
     <!-- Mermaid Diagram -->
     <div class="mermaid-wrapper">
       <Mermaid :code="node.info" />
     </div>
-    
+
     <!-- Optional Bibliography -->
     <div v-if="node.bibl && node.bibl.length > 0" class="node-bibliography">
       <h6>📚 References:</h6>
@@ -114,22 +114,22 @@ const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
     background: #2d3748;
     color: #e2e8f0;
   }
-  
+
   .node-label {
     color: #e2e8f0;
     border-bottom-color: #4a5568;
   }
-  
+
   .mermaid-wrapper,
   .node-bibliography {
     background: #4a5568;
     border-color: #718096;
   }
-  
+
   .node-bibliography {
     border-left-color: #63b3ed;
   }
-  
+
   .bibliography-item {
     color: #a0aec0;
   }
