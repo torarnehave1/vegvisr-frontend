@@ -10,14 +10,19 @@
         </button>
       </div>
 
-      <!-- Template Gallery -->
+            <!-- Template Gallery Toggle -->
       <div class="form-group">
-        <button @click="showTemplates = !showTemplates" class="btn btn-outline-secondary mb-3">
+        <button @click="toggleTemplates" class="btn btn-outline-secondary mb-3">
           {{ showTemplates ? 'Hide Templates' : 'Show Templates' }}
         </button>
+        <!-- Show selected template info if one is selected -->
+        <div v-if="selectedTemplate && !showTemplates" class="selected-template-info">
+          <span class="badge bg-primary">Selected: {{ selectedTemplate.name }}</span>
+          <button @click="clearTemplate" class="btn btn-sm btn-outline-danger ms-2">Clear</button>
+        </div>
       </div>
 
-      <!-- Template Gallery (conditionally rendered) -->
+      <!-- Template Gallery (ONLY templates visible when showing) -->
       <div v-if="showTemplates" class="template-gallery">
         <div class="gallery-header">
           <h4>Choose a Template</h4>
@@ -69,24 +74,27 @@
         </div>
       </div>
 
-      <!-- History Section -->
-      <div v-if="showHistory" class="history-section">
-        <div class="history-header">
-          <h4>Previous Requests</h4>
-          <button @click="showHistory = false" class="btn btn-sm btn-link">Hide History</button>
-        </div>
-        <div class="history-list">
-          <div v-for="item in nodeHistory" :key="item.id" class="history-item">
-            <div class="history-content">
-              <p class="request-text">{{ item.request_text }}</p>
-              <small class="timestamp">{{ formatDate(item.created_at) }}</small>
+      <!-- Form Content (ONLY shown when not showing templates AND template is selected OR no template needed) -->
+      <div v-if="!showTemplates && (selectedTemplate || !requiresTemplate)" class="form-content">
+
+        <!-- History Section -->
+        <div v-if="showHistory" class="history-section">
+          <div class="history-header">
+            <h4>Previous Requests</h4>
+            <button @click="showHistory = false" class="btn btn-sm btn-link">Hide History</button>
+          </div>
+          <div class="history-list">
+            <div v-for="item in nodeHistory" :key="item.id" class="history-item">
+              <div class="history-content">
+                <p class="request-text">{{ item.request_text }}</p>
+                <small class="timestamp">{{ formatDate(item.created_at) }}</small>
+              </div>
+              <button @click="usePreviousRequest(item)" class="btn btn-sm btn-outline-primary">
+                Use
+              </button>
             </div>
-            <button @click="usePreviousRequest(item)" class="btn btn-sm btn-outline-primary">
-              Use
-            </button>
           </div>
         </div>
-      </div>
 
       <!-- Main Form -->
       <div class="form-group">
@@ -172,6 +180,9 @@
         <div class="preview-content">
           <textarea v-model="aiNodePreview" class="form-control" rows="10" readonly></textarea>
         </div>
+      </div>
+
+      <!-- Close form-content div -->
       </div>
 
       <!-- Action Buttons -->
@@ -592,6 +603,24 @@ const selectTemplate = (template) => {
   showTemplates.value = false // Hide templates after selection
 }
 
+// New methods for improved UX
+const toggleTemplates = () => {
+  showTemplates.value = !showTemplates.value
+  // If hiding templates, ensure we have either a template selected or don't require one
+  if (!showTemplates.value && !selectedTemplate.value) {
+    requiresTemplate.value = false
+  }
+}
+
+const clearTemplate = () => {
+  selectedTemplate.value = null
+  aiNodeRequest.value = ''
+  requiresTemplate.value = false
+}
+
+// Add reactive property for template requirement
+const requiresTemplate = ref(false)
+
 const currentNodeData = () => {
   // Function to extract current node data using knowledgeGraphStore
   // Return the first visible node from the store as the current node
@@ -678,6 +707,51 @@ watch(contextType, (newValue) => {
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+/* Ensure template gallery can scroll properly */
+.template-gallery {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 12px; /* More space for scrollbar */
+  margin-right: -12px; /* Compensate for padding */
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8f9fa;
+}
+
+/* Much more visible custom scrollbar styling */
+.template-gallery::-webkit-scrollbar {
+  width: 12px; /* Wider scrollbar */
+}
+
+.template-gallery::-webkit-scrollbar-track {
+  background: #e9ecef;
+  border-radius: 6px;
+  border: 2px solid #ffffff;
+}
+
+.template-gallery::-webkit-scrollbar-thumb {
+  background: #6c757d; /* Darker for better visibility */
+  border-radius: 6px;
+  border: 2px solid #ffffff;
+  min-height: 40px; /* Minimum height for thumb */
+}
+
+.template-gallery::-webkit-scrollbar-thumb:hover {
+  background: #495057; /* Even darker on hover */
+}
+
+.template-gallery::-webkit-scrollbar-thumb:active {
+  background: #343a40; /* Darkest when clicked */
+}
+
+/* Firefox scrollbar styling */
+.template-gallery {
+  scrollbar-width: thick;
+  scrollbar-color: #6c757d #e9ecef;
 }
 
 .form-group {
@@ -767,6 +841,8 @@ watch(contextType, (newValue) => {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px;
   margin-top: 15px;
+  padding: 10px 0;
+  min-height: 200px; /* Ensure minimum height for scrolling */
 }
 
 .template-card {
@@ -852,6 +928,37 @@ watch(contextType, (newValue) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
+  position: sticky;
+  top: 0;
+  background: #f8f9fa;
+  z-index: 10;
+  padding: 10px 0;
+  border-bottom: 2px solid #dee2e6;
+}
+
+/* Selected template info styling */
+.selected-template-info {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px;
+  background: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+}
+
+.selected-template-info .badge {
+  font-size: 0.9rem;
+}
+
+/* Form content styling */
+.form-content {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .gallery-controls {
