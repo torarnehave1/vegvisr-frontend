@@ -2995,7 +2995,7 @@ Return only JSON: {"nodes": [...], "edges": []}`
 // --- AI Generate Node Endpoint ---
 const handleAIGenerateNode = async (request, env) => {
   try {
-    const { userRequest, graphId, username, contextType, contextData } = await request.json()
+    const { userRequest, graphId, username, contextType, contextData, preferredModel = 'grok' } = await request.json()
 
     console.log('=== AI Generate Node Debug ===')
     console.log('userRequest:', userRequest)
@@ -3008,6 +3008,7 @@ const handleAIGenerateNode = async (request, env) => {
       'contextData length/size:',
       contextData ? Object.keys(contextData).length : 'null/undefined',
     )
+    console.log('preferredModel:', preferredModel)
     console.log('===============================')
 
     if (!userRequest) {
@@ -3100,14 +3101,30 @@ Return a JSON object with the following structure:
 "content": "generated_content"
 }`
 
+    // Multi-model support with fallback to existing Grok behavior
+    const modelConfigs = {
+      grok: { apiKey: env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1', model: 'grok-3-beta' },
+      gpt4: { apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-4' },
+      gpt5: { apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-5' },
+      claude: { apiKey: env.ANTHROPIC_API_KEY, baseURL: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20240620' },
+      gemini: { apiKey: env.GOOGLE_GEMINI_API_KEY, baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-1.5-pro' }
+    }
+
+    // Select model config with fallback to grok (existing behavior)
+    let selectedConfig = modelConfigs[preferredModel] || modelConfigs.grok
+    if (!selectedConfig.apiKey) {
+      console.log(`Preferred model ${preferredModel} not available, falling back to grok`)
+      selectedConfig = modelConfigs.grok
+    }
+
     // Generate content
     const client = new OpenAI({
-      apiKey: env.XAI_API_KEY,
-      baseURL: 'https://api.x.ai/v1',
+      apiKey: selectedConfig.apiKey,
+      baseURL: selectedConfig.baseURL,
     })
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: selectedConfig.model,
       temperature: 0.7,
       max_tokens: 1000,
       messages: [
