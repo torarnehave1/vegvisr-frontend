@@ -161,6 +161,22 @@
           <option value="none">No Context</option>
         </select>
       </div>
+
+      <!-- AI Model Selection -->
+      <div class="form-group">
+        <label for="modelSelection">AI Model:</label>
+        <select id="modelSelection" v-model="selectedModel" class="form-control">
+          <option value="grok">Grok-3-Beta (xAI) - Best for reasoning</option>
+          <option value="gpt4">GPT-4 (OpenAI) - General purpose</option>
+          <option value="gpt5">GPT-5 (OpenAI) - Latest model</option>
+          <option value="claude">Claude-3.5-Sonnet (Anthropic) - Best for analysis</option>
+          <option value="gemini">Gemini-1.5-Pro (Google) - Multimodal support</option>
+        </select>
+        <small class="form-text text-muted">
+          Different models excel at different tasks. Grok is default for reasoning, Claude for analysis.
+        </small>
+      </div>
+
       <!-- Context Display for Superadmin -->
       <div v-if="userStore.role === 'Superadmin'" class="form-group">
         <label for="contextDisplay">Context Data (Superadmin View):</label>
@@ -259,6 +275,9 @@ const templateCache = {
 // Context state
 const contextType = ref('none')
 const displayContext = ref('')
+
+// AI Model selection
+const selectedModel = ref('grok')
 
 // Load templates with retry mechanism
 const loadTemplates = async (retryCount = 0) => {
@@ -495,6 +514,7 @@ const generateNode = async () => {
           : contextType.value === 'all'
             ? { nodes: knowledgeGraphStore.nodes, edges: knowledgeGraphStore.edges }
             : null,
+      preferredModel: selectedModel.value,
     }
 
     console.log('Request payload:', JSON.stringify(requestPayload, null, 2))

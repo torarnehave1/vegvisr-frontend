@@ -286,6 +286,13 @@
           >
             🎨 Create IMAGEQUOTE
           </button>
+          <EnhancedAIButton
+            v-if="userStore.loggedIn"
+            buttonText="Enhanced AI Node"
+            :requiresAuth="true"
+            minRole="User"
+            @node-created="handleEnhancedAINodeCreated"
+          />
           <button
             @click="openShareModal"
             class="btn btn-outline-success"
@@ -1480,6 +1487,7 @@ import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
 import GraphChatPanel from '@/components/GraphChatPanel.vue'
+import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 
 // Props
 const props = defineProps({
@@ -4395,6 +4403,10 @@ const handleNodeDeleted = async (nodeId) => {
     // Reload the graph data to ensure consistency
     await loadGraph()
   }
+}
+
+const handleEnhancedAINodeCreated = async (nodeData) => {
+  await handleNodeCreated(nodeData)
 }
 
 const handleNodeCreated = async (newNode) => {
