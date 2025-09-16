@@ -4,8 +4,7 @@
 // @author Tor Arne Håve
 // @license MIT
 
-import { marked } from 'marked'
-import { OpenAI } from 'openai'
+ 
 
 // Utility functions
 const corsHeaders = {
