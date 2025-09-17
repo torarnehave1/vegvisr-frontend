@@ -1223,11 +1223,6 @@
               @quick-format="handleQuickFormat"
               @copy-node="handleCopyNode"
             />
-
-            <!-- Real-time Professional Discussion -->
-            <div v-if="graphData.nodes.length > 0" class="graph-chat-section">
-              <GraphChatPanel :graph-id="currentGraphId" :graph-data="graphData" />
-            </div>
           </div>
 
           <!-- Bottom Slots -->
@@ -1486,7 +1481,6 @@ import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
-import GraphChatPanel from '@/components/GraphChatPanel.vue'
 import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 
 // Props
@@ -5950,15 +5944,6 @@ const saveAttribution = async () => {
   background: #f8f9fa;
   padding: 20px;
   border-radius: 8px;
-}
-
-.graph-chat-section {
-  margin-top: 30px;
-  padding: 20px;
-  background: #ffffff;
-  border: 1px solid #e9ecef;
-  border-radius: 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .graph-social-public {
