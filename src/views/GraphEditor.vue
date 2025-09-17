@@ -46,7 +46,7 @@
         </div>
       </div>
     </div>
-    
+
     <!-- Transcript Processor Modal -->
     <TranscriptProcessorModal
       :isOpen="showTranscriptProcessor"
@@ -507,9 +507,9 @@ const handleTranscriptImported = (knowledgeGraph) => {
         info: node.info || '',
         size: 3, // Medium size for imported nodes
       },
-      position: { 
-        x: 200 + index * 150, 
-        y: 200 + Math.floor(index / 5) * 200 
+      position: {
+        x: 200 + index * 150,
+        y: 200 + Math.floor(index / 5) * 200
       },
     }
 
@@ -528,13 +528,13 @@ const handleTranscriptImported = (knowledgeGraph) => {
           info: edge.info || null,
         },
       }
-      
+
       cyInstance.add(cytoscapeEdge)
     })
   }
 
   // Run layout to organize new nodes
-  cyInstance.layout({ 
+  cyInstance.layout({
     name: 'cose',
     idealEdgeLength: 150,
     nodeRepulsion: 4000,

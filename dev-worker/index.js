@@ -1358,7 +1358,7 @@ export default {
           // Check if this graph exists in the main knowledge_graphs table first
           const checkGraphExistsQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
           const graphExists = await env.vegvisr_org.prepare(checkGraphExistsQuery).bind(id).first()
-          
+
           // Fetch the current version of the graph from history table
           const currentVersionQuery = `SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?`
           const currentVersionResult = await env.vegvisr_org

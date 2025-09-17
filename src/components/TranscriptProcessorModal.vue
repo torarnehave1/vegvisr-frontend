@@ -253,7 +253,7 @@
             </div>
           </div>
         </div>
-        
+
         <!-- Compact version shown with knowledge graph -->
         <div v-else class="video-metadata-compact">
           <div class="compact-video-info">
@@ -1812,7 +1812,7 @@ const createNewGraph = async () => {
 
     // Generate unique graph ID
     const graphId = `graph_${Date.now()}`
-    
+
     // Save the new graph using saveGraphWithHistory for proper versioning
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
@@ -1820,10 +1820,10 @@ const createNewGraph = async () => {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken,
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         id: graphId,
         graphData,
-        override: true 
+        override: true
       }),
     })
 

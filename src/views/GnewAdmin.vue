@@ -282,7 +282,7 @@
 
     <!-- Graph Selector Modal (will be implemented in next phase) -->
     <!-- <GraphSelectorModal v-if="showGraphSelector" @close="closeGraphSelector" @select="selectGraph" /> -->
-    
+
     <!-- Transcript Processor Modal -->
     <TranscriptProcessorModal
       :isOpen="showTranscriptProcessor"
@@ -665,9 +665,9 @@ const handleTranscriptImported = (knowledgeGraph) => {
       imageHeight: node.imageHeight || '100%',
       visible: node.visible !== false,
       path: node.path || null,
-      position: { 
-        x: 200 + index * 150, 
-        y: 200 + Math.floor(index / 5) * 200 
+      position: {
+        x: 200 + index * 150,
+        y: 200 + Math.floor(index / 5) * 200
       },
     }
 
@@ -684,26 +684,26 @@ const handleTranscriptImported = (knowledgeGraph) => {
         type: edge.type || null,
         info: edge.info || null,
       }
-      
+
       graphData.value.edges.push(newEdge)
     })
   }
 
   hasChanges.value = true
   successMessage.value = `Successfully imported ${knowledgeGraph.nodes.length} nodes from transcript!`
-  
+
   console.log(`Added ${knowledgeGraph.nodes.length} transcript nodes to current graph`)
 }
 
 const handleNewGraphCreated = async (event) => {
   console.log('New graph created from transcript:', event)
-  
+
   // The graph has already been created by the TranscriptProcessorModal
   // We just need to load it into the current interface
   try {
     const graphId = event.graphId
     const eventGraphData = event.graphData
-    
+
     console.log('Loading created transcript graph with ID:', graphId)
 
     // Set the current graph for the interface
@@ -728,7 +728,7 @@ const handleNewGraphCreated = async (event) => {
     })
 
     successMessage.value = `Transcript graph "${eventGraphData.metadata.title}" loaded successfully!`
-    
+
     console.log('Successfully loaded transcript graph into GnewAdmin interface')
 
     // Clear success message after 5 seconds
