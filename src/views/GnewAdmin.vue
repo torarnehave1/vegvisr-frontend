@@ -42,6 +42,10 @@
             <span class="btn-text">Create New Graph</span>
             <span v-if="isCreating" class="spinner-border spinner-border-sm ms-2"></span>
           </button>
+          <button @click="showTranscriptProcessor = true" class="btn btn-process-transcript">
+            <span class="btn-icon">🎙️</span>
+            <span class="btn-text">Process Transcript</span>
+          </button>
         </div>
 
         <!-- Graph Selection -->
@@ -278,6 +282,14 @@
 
     <!-- Graph Selector Modal (will be implemented in next phase) -->
     <!-- <GraphSelectorModal v-if="showGraphSelector" @close="closeGraphSelector" @select="selectGraph" /> -->
+    
+    <!-- Transcript Processor Modal -->
+    <TranscriptProcessorModal
+      :isOpen="showTranscriptProcessor"
+      @close="showTranscriptProcessor = false"
+      @graph-imported="handleTranscriptImported"
+      @new-graph-created="handleNewGraphCreated"
+    />
   </div>
 </template>
 
@@ -288,6 +300,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useUserStore } from '@/stores/userStore'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
+import TranscriptProcessorModal from '@/components/TranscriptProcessorModal.vue'
 
 // Router and Stores
 const router = useRouter()
@@ -311,6 +324,7 @@ const graphData = ref({ nodes: [], edges: [] })
 
 // Create Graph Modal State
 const showCreateGraphModal = ref(false)
+const showTranscriptProcessor = ref(false)
 const newGraphForm = ref({
   title: '',
   description: '',
@@ -629,6 +643,104 @@ const showGraphMetadata = () => {
   console.log('Graph metadata modal will be added later')
 }
 
+// Transcript processor event handlers
+const handleTranscriptImported = (knowledgeGraph) => {
+  console.log('Importing transcript knowledge graph to GnewAdmin:', knowledgeGraph)
+
+  if (!knowledgeGraph || !knowledgeGraph.nodes) {
+    console.warn('Invalid knowledge graph data')
+    return
+  }
+
+  // Add nodes to the current graph data
+  knowledgeGraph.nodes.forEach((node, index) => {
+    const newNode = {
+      id: node.id || `transcript_${Date.now()}_${index}`,
+      label: node.label || 'Imported Node',
+      color: node.color || '#f9f9f9',
+      type: node.type || 'fulltext',
+      info: node.info || '',
+      bibl: Array.isArray(node.bibl) ? node.bibl : [],
+      imageWidth: node.imageWidth || '100%',
+      imageHeight: node.imageHeight || '100%',
+      visible: node.visible !== false,
+      path: node.path || null,
+      position: { 
+        x: 200 + index * 150, 
+        y: 200 + Math.floor(index / 5) * 200 
+      },
+    }
+
+    graphData.value.nodes.push(newNode)
+  })
+
+  // Add edges if any exist
+  if (knowledgeGraph.edges && Array.isArray(knowledgeGraph.edges)) {
+    knowledgeGraph.edges.forEach((edge, index) => {
+      const newEdge = {
+        id: `transcript_edge_${Date.now()}_${index}`,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type || null,
+        info: edge.info || null,
+      }
+      
+      graphData.value.edges.push(newEdge)
+    })
+  }
+
+  hasChanges.value = true
+  successMessage.value = `Successfully imported ${knowledgeGraph.nodes.length} nodes from transcript!`
+  
+  console.log(`Added ${knowledgeGraph.nodes.length} transcript nodes to current graph`)
+}
+
+const handleNewGraphCreated = async (event) => {
+  console.log('New graph created from transcript:', event)
+  
+  // The graph has already been created by the TranscriptProcessorModal
+  // We just need to load it into the current interface
+  try {
+    const graphId = event.graphId
+    const eventGraphData = event.graphData
+    
+    console.log('Loading created transcript graph with ID:', graphId)
+
+    // Set the current graph for the interface
+    currentGraph.value = {
+      id: graphId,
+      ...eventGraphData.metadata,
+    }
+
+    // Set the graph data for display
+    graphData.value = {
+      nodes: eventGraphData.nodes,
+      edges: eventGraphData.edges,
+      metadata: eventGraphData.metadata,
+    }
+
+    // Update the store (it should already be updated by TranscriptProcessorModal)
+    graphStore.setCurrentGraphId(graphId)
+    graphStore.updateGraphFromJson({
+      nodes: eventGraphData.nodes,
+      edges: eventGraphData.edges,
+      metadata: eventGraphData.metadata,
+    })
+
+    successMessage.value = `Transcript graph "${eventGraphData.metadata.title}" loaded successfully!`
+    
+    console.log('Successfully loaded transcript graph into GnewAdmin interface')
+
+    // Clear success message after 5 seconds
+    setTimeout(() => {
+      successMessage.value = ''
+    }, 5000)
+  } catch (err) {
+    console.error('Error loading created transcript graph:', err)
+    error.value = 'Failed to load transcript graph: ' + err.message
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   loadCurrentGraph()
@@ -736,6 +848,13 @@ watch(
   gap: 1.5rem;
 }
 
+.primary-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .primary-actions .btn-create-graph {
   background: linear-gradient(45deg, #28a745, #20c997);
   color: white;
@@ -754,6 +873,26 @@ watch(
 .btn-create-graph:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+}
+
+.primary-actions .btn-process-transcript {
+  background: linear-gradient(45deg, #17a2b8, #138496);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(23, 162, 184, 0.3);
+}
+
+.btn-process-transcript:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(23, 162, 184, 0.4);
 }
 
 .graph-selection {

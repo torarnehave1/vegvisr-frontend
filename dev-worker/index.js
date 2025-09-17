@@ -1355,7 +1355,11 @@ export default {
 
           console.log(`[Worker] Saving graph with history for ID: ${id}`)
 
-          // Fetch the current version of the graph
+          // Check if this graph exists in the main knowledge_graphs table first
+          const checkGraphExistsQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
+          const graphExists = await env.vegvisr_org.prepare(checkGraphExistsQuery).bind(id).first()
+          
+          // Fetch the current version of the graph from history table
           const currentVersionQuery = `SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?`
           const currentVersionResult = await env.vegvisr_org
             .prepare(currentVersionQuery)
@@ -1363,19 +1367,26 @@ export default {
             .first()
           const currentVersion = currentVersionResult?.version || 0
 
-          // Check for version mismatch only if override is false
-          if (!override && graphData.metadata.version !== currentVersion) {
-            return new Response(
-              JSON.stringify({
-                error: 'Version mismatch. Please reload the latest version of the graph.',
-                currentVersion,
-              }),
-              { status: 409, headers: corsHeaders },
-            )
+          // For completely new graphs, we should start with version 1 regardless of metadata
+          let newVersion
+          if (!graphExists && currentVersion === 0) {
+            // This is a brand new graph - start at version 1
+            newVersion = 1
+            console.log(`[Worker] New graph detected, starting at version 1 for ID: ${id}`)
+          } else {
+            // This is an existing graph - check for version mismatch only if override is false
+            if (!override && graphData.metadata.version !== currentVersion) {
+              return new Response(
+                JSON.stringify({
+                  error: 'Version mismatch. Please reload the latest version of the graph.',
+                  currentVersion,
+                }),
+                { status: 409, headers: corsHeaders },
+              )
+            }
+            // Increment the version for existing graphs
+            newVersion = currentVersion + 1
           }
-
-          // Increment the version
-          const newVersion = currentVersion + 1
           graphData.metadata.version = newVersion // Update the version in metadata
 
           // Ensure nodes include the bibl field
