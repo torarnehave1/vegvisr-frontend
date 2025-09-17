@@ -169,85 +169,98 @@
         </div>
       </div>
 
-      <!-- Video Metadata Display -->
-      <div v-if="videoMetadata && transcriptText" class="video-metadata-section">
-        <h4>📹 Video Information</h4>
-        <div class="metadata-card">
-          <div class="metadata-header">
-            <div class="video-thumbnail-large">
-              <img
-                :src="videoMetadata.thumbnail"
-                :alt="videoMetadata.title"
-                @error="handleImageError"
-              />
-              <div class="video-overlay">
-                <a
-                  :href="`https://www.youtube.com/watch?v=${videoId}`"
-                  target="_blank"
-                  class="btn btn-sm btn-primary"
+      <!-- Video Metadata Display - Compact version when showing knowledge graph -->
+      <div v-if="videoMetadata && transcriptText" class="video-metadata-section" :class="{ 'compact-mode': knowledgeGraphPreview }">
+        <div v-if="!knowledgeGraphPreview">
+          <h4>📹 Video Information</h4>
+          <div class="metadata-card">
+            <div class="metadata-header">
+              <div class="video-thumbnail-large">
+                <img
+                  :src="videoMetadata.thumbnail"
+                  :alt="videoMetadata.title"
+                  @error="handleImageError"
+                />
+                <div class="video-overlay">
+                  <a
+                    :href="`https://www.youtube.com/watch?v=${videoId}`"
+                    target="_blank"
+                    class="btn btn-sm btn-primary"
+                  >
+                    🎬 Watch on YouTube
+                  </a>
+                </div>
+              </div>
+              <div class="video-details">
+                <h5 class="video-title-meta">{{ videoMetadata.title }}</h5>
+                <div class="video-info-meta">
+                  <div class="info-item">
+                    <i class="bi bi-person-circle"></i>
+                    <span>{{ videoMetadata.channelTitle || 'Unknown Channel' }}</span>
+                  </div>
+                  <div class="info-item" v-if="videoMetadata.duration">
+                    <i class="bi bi-clock"></i>
+                    <span>{{ formatDuration(videoMetadata.duration) }}</span>
+                  </div>
+                  <div class="info-item" v-if="videoMetadata.publishedAt">
+                    <i class="bi bi-calendar"></i>
+                    <span>{{ formatDate(videoMetadata.publishedAt) }}</span>
+                  </div>
+                  <div class="info-item">
+                    <i class="bi bi-translate"></i>
+                    <span>{{ videoMetadata.transcriptLanguage || 'Auto-detected' }}</span>
+                  </div>
+                  <div class="info-item">
+                    <i class="bi bi-file-text"></i>
+                    <span>{{ videoMetadata.transcriptFormat || 'TXT' }} format</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="videoMetadata.description" class="video-description-meta">
+              <div class="description-header">
+                <strong>📝 Description:</strong>
+                <button
+                  @click="showFullDescription = !showFullDescription"
+                  class="btn btn-sm btn-outline-secondary"
                 >
-                  🎬 Watch on YouTube
-                </a>
+                  {{ showFullDescription ? 'Show Less' : 'Show More' }}
+                </button>
+              </div>
+              <div class="description-content" :class="{ expanded: showFullDescription }">
+                {{
+                  showFullDescription
+                    ? videoMetadata.description
+                    : videoMetadata.description.slice(0, 300) + '...'
+                }}
               </div>
             </div>
-            <div class="video-details">
-              <h5 class="video-title-meta">{{ videoMetadata.title }}</h5>
-              <div class="video-info-meta">
-                <div class="info-item">
-                  <i class="bi bi-person-circle"></i>
-                  <span>{{ videoMetadata.channelTitle || 'Unknown Channel' }}</span>
-                </div>
-                <div class="info-item" v-if="videoMetadata.duration">
-                  <i class="bi bi-clock"></i>
-                  <span>{{ formatDuration(videoMetadata.duration) }}</span>
-                </div>
-                <div class="info-item" v-if="videoMetadata.publishedAt">
-                  <i class="bi bi-calendar"></i>
-                  <span>{{ formatDate(videoMetadata.publishedAt) }}</span>
-                </div>
-                <div class="info-item">
-                  <i class="bi bi-translate"></i>
-                  <span>{{ videoMetadata.transcriptLanguage || 'Auto-detected' }}</span>
-                </div>
-                <div class="info-item">
-                  <i class="bi bi-file-text"></i>
-                  <span>{{ videoMetadata.transcriptFormat || 'TXT' }} format</span>
-                </div>
+
+            <div class="transcript-stats">
+              <div class="stat-item">
+                <strong>{{ transcriptText.length.toLocaleString() }}</strong>
+                <span>Characters</span>
+              </div>
+              <div class="stat-item">
+                <strong>{{ Math.round(transcriptText.split(' ').length) }}</strong>
+                <span>Words</span>
+              </div>
+              <div class="stat-item">
+                <strong>{{ Math.round(transcriptText.length / 1000) }}</strong>
+                <span>KB Text</span>
               </div>
             </div>
           </div>
-
-          <div v-if="videoMetadata.description" class="video-description-meta">
-            <div class="description-header">
-              <strong>📝 Description:</strong>
-              <button
-                @click="showFullDescription = !showFullDescription"
-                class="btn btn-sm btn-outline-secondary"
-              >
-                {{ showFullDescription ? 'Show Less' : 'Show More' }}
-              </button>
-            </div>
-            <div class="description-content" :class="{ expanded: showFullDescription }">
-              {{
-                showFullDescription
-                  ? videoMetadata.description
-                  : videoMetadata.description.slice(0, 300) + '...'
-              }}
-            </div>
-          </div>
-
-          <div class="transcript-stats">
-            <div class="stat-item">
-              <strong>{{ transcriptText.length.toLocaleString() }}</strong>
-              <span>Characters</span>
-            </div>
-            <div class="stat-item">
-              <strong>{{ Math.round(transcriptText.split(' ').length) }}</strong>
-              <span>Words</span>
-            </div>
-            <div class="stat-item">
-              <strong>{{ Math.round(transcriptText.length / 1000) }}</strong>
-              <span>KB Text</span>
+        </div>
+        
+        <!-- Compact version shown with knowledge graph -->
+        <div v-else class="video-metadata-compact">
+          <div class="compact-video-info">
+            <img :src="videoMetadata.thumbnail" :alt="videoMetadata.title" class="compact-thumbnail" />
+            <div class="compact-details">
+              <div class="compact-title">🎬 {{ videoMetadata.title.length > 60 ? videoMetadata.title.substring(0, 60) + '...' : videoMetadata.title }}</div>
+              <div class="compact-meta">{{ videoMetadata.channelTitle }} • {{ formatDuration(videoMetadata.duration) }} • {{ transcriptText.split(' ').length }} words</div>
             </div>
           </div>
         </div>
@@ -324,29 +337,6 @@
                 <span class="node-type">{{ node.type }}</span>
               </div>
               <div class="node-preview">{{ (node.info || '').substring(0, 150) }}...</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Import Options -->
-        <div v-if="knowledgeGraphPreview" class="import-options">
-          <h5>Choose Import Option:</h5>
-          <div v-if="knowledgeGraphPreview?.fallbackMode" class="alert alert-info mb-3">
-            <strong>ℹ️ Local Processing Mode:</strong> This content was processed locally due to API
-            unavailability. While functional, it lacks AI translation and enhancement features.
-          </div>
-          <div class="option-cards">
-            <div class="option-card">
-              <div class="option-icon">📥</div>
-              <div class="option-title">Add to Current Graph</div>
-              <div class="option-description">Merge these nodes into your currently open graph</div>
-            </div>
-            <div class="option-card">
-              <div class="option-icon">➕</div>
-              <div class="option-title">Create New Graph</div>
-              <div class="option-description">
-                Create a brand new knowledge graph with these nodes
-              </div>
             </div>
           </div>
         </div>
@@ -1820,14 +1810,21 @@ const createNewGraph = async () => {
     console.log('Sample node:', graphData.nodes[0])
     console.log('==========================')
 
-    // Save the new graph
-    const response = await fetch('https://knowledge.vegvisr.org/saveknowgraph', {
+    // Generate unique graph ID
+    const graphId = `graph_${Date.now()}`
+    
+    // Save the new graph using saveGraphWithHistory for proper versioning
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken,
       },
-      body: JSON.stringify({ graphData }),
+      body: JSON.stringify({ 
+        id: graphId,
+        graphData,
+        override: true 
+      }),
     })
 
     console.log('=== SAVE RESPONSE ===')
@@ -1840,15 +1837,15 @@ const createNewGraph = async () => {
       console.log('Created graph ID:', result.id)
       console.log('===================')
 
-      // Update the knowledge graph store with new graph ID and data
-      knowledgeGraphStore.setCurrentGraphId(result.id)
+      // Update the knowledge graph store with the graph ID and data
+      knowledgeGraphStore.setCurrentGraphId(graphId) // Use our generated ID
       knowledgeGraphStore.updateGraphFromJson(graphData)
 
-      console.log('Updated store with new graph ID:', result.id)
+      console.log('Updated store with new graph ID:', graphId)
       console.log('Graph title:', graphData.metadata.title)
 
       alert(`Ny kunnskapsgraf opprettet: "${graphData.metadata.title}"`)
-      emit('new-graph-created', { graphId: result.id, graphData })
+      emit('new-graph-created', { graphId: graphId, graphData }) // Use our generated ID
       close()
     } else {
       const errorText = await response.text()
@@ -1899,11 +1896,11 @@ const close = () => {
 
 .modal-content {
   background: white;
-  padding: 30px;
+  padding: 20px;
   border-radius: 12px;
   width: 90%;
-  max-width: 800px;
-  max-height: 90vh;
+  max-width: 900px;
+  max-height: 85vh;
   overflow-y: auto;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   position: relative;
@@ -2122,78 +2119,114 @@ const close = () => {
 }
 
 .preview-section {
-  margin: 20px 0;
+  margin: 15px 0;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 15px;
+  background: #f8f9fa;
 }
 
 .preview-stats {
   display: flex;
-  gap: 20px;
-  margin: 20px 0;
+  gap: 15px;
+  margin: 15px 0;
+  justify-content: center;
 }
 
 .stat-card {
-  background: #e9ecef;
-  padding: 15px;
-  border-radius: 8px;
+  background: white;
+  padding: 10px 15px;
+  border-radius: 6px;
   text-align: center;
-  flex: 1;
+  flex: 0 0 auto;
+  min-width: 80px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
 .stat-card strong {
   display: block;
-  font-size: 1.5em;
+  font-size: 1.3em;
   color: #007bff;
+  margin-bottom: 2px;
 }
 
 .nodes-preview {
-  margin: 20px 0;
+  margin: 15px 0;
 }
 
 .node-list {
-  max-height: 300px;
+  max-height: 200px;
   overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: white;
 }
 
 .node-item {
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 10px;
-  background: #f9f9f9;
+  border-bottom: 1px solid #f1f1f1;
+  padding: 8px 12px;
+  background: white;
+  margin-bottom: 0;
+}
+
+.node-item:last-child {
+  border-bottom: none;
 }
 
 .node-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .node-label {
-  font-weight: bold;
+  font-weight: 500;
   color: #333;
+  font-size: 0.9em;
 }
 
 .node-type {
   background: #007bff;
   color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.8em;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.75em;
 }
 
 .node-preview {
   color: #666;
-  font-size: 0.9em;
-  line-height: 1.4;
+  font-size: 0.85em;
+  line-height: 1.3;
 }
 
 .modal-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 30px;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #e9ecef;
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  background: white;
+  margin-left: -20px;
+  margin-right: -20px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.post-processing-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.post-processing-actions .btn {
+  font-size: 0.9em;
+  padding: 8px 16px;
 }
 
 .form-group {
@@ -2207,56 +2240,53 @@ const close = () => {
   color: #333;
 }
 
-/* Import Options Styling */
-.import-options {
-  margin: 20px 0;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.import-options h5 {
-  margin-bottom: 15px;
-  color: #333;
-  text-align: center;
-}
-
-.option-cards {
-  display: flex;
-  gap: 15px;
-}
-
-.option-card {
-  flex: 1;
-  background: white;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-  transition: all 0.3s ease;
-}
-
-.option-card:hover {
-  border-color: #007bff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.1);
-}
-
-.option-icon {
-  font-size: 2em;
+.video-metadata-section.compact-mode {
   margin-bottom: 10px;
 }
 
-.option-title {
-  font-weight: bold;
-  margin-bottom: 8px;
-  color: #333;
+.video-metadata-compact {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 15px;
 }
 
-.option-description {
+.compact-video-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compact-thumbnail {
+  width: 60px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.compact-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-title {
+  font-weight: 500;
   font-size: 0.9em;
+  color: #333;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-meta {
+  font-size: 0.8em;
   color: #666;
-  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .video-description {

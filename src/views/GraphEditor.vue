@@ -2,9 +2,32 @@
   <div class="container-fluid">
     <div class="row">
       <div class="col-md-8" style="height: 100vh">
-        <button @click="toggleInfoOnly" style="position: absolute; z-index: 10; margin: 10px">
-          {{ infoOnly ? 'Show All' : 'Show Info Only' }}
-        </button>
+        <!-- Action buttons positioned at the top -->
+        <div class="graph-editor-toolbar" style="position: absolute; z-index: 10; margin: 10px; display: flex; gap: 10px;">
+          <button @click="toggleInfoOnly" class="btn btn-outline-secondary">
+            {{ infoOnly ? 'Show All' : 'Show Info Only' }}
+          </button>
+          <!-- Always visible test button -->
+          <button
+            @click="showTranscriptProcessor = true"
+            class="btn btn-warning"
+            title="Test - Always visible"
+          >
+            🧪 Test Modal
+          </button>
+          <button
+            v-if="userStore.loggedIn"
+            @click="showTranscriptProcessor = true"
+            class="btn btn-success"
+            title="Process YouTube videos or transcripts into knowledge graphs"
+          >
+            🎙️ Process Transcript
+          </button>
+          <!-- Debug info -->
+          <div style="position: absolute; top: 50px; left: 10px; background: yellow; padding: 5px; font-size: 12px; z-index: 1000;">
+            Debug: userStore.loggedIn = {{ userStore.loggedIn }}, userStore.role = {{ userStore.role }}
+          </div>
+        </div>
         <div id="cy" style="width: 100%; height: 100%"></div>
       </div>
       <div
@@ -23,18 +46,30 @@
         </div>
       </div>
     </div>
+    
+    <!-- Transcript Processor Modal -->
+    <TranscriptProcessorModal
+      :isOpen="showTranscriptProcessor"
+      @close="showTranscriptProcessor = false"
+      @graph-imported="handleTranscriptImported"
+      @new-graph-created="handleNewGraphCreated"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, nextTick } from 'vue' // <-- import nextTick
 import cytoscape from 'cytoscape'
+import TranscriptProcessorModal from '../components/TranscriptProcessorModal.vue'
+import { useUserStore } from '@/stores/userStore'
 
+const userStore = useUserStore()
 let cyInstance = null
 const selectedElement = ref(null)
 const infoOnly = ref(false)
 const isSubgraphActive = ref(false)
 const currentSubDegreeMap = ref(null) // <-- Add this reactive variable
+const showTranscriptProcessor = ref(false)
 
 // Subgraph for Yggdrasil
 const yggdrasilSubgraph = {
@@ -452,12 +487,67 @@ const toggleInfoOnly = async () => {
   selectedElement.value = null
 }
 
-function loadMainGraph() {
-  if (!cyInstance) return
-  cyInstance.elements().remove()
-  cyInstance.add(mainElements)
-  cyInstance.layout({ name: 'cose' }).run()
-  selectedElement.value = null
+// Handle imported transcript nodes
+const handleTranscriptImported = (knowledgeGraph) => {
+  console.log('Importing transcript knowledge graph to GraphEditor:', knowledgeGraph)
+
+  if (!cyInstance || !knowledgeGraph || !knowledgeGraph.nodes) {
+    console.warn('Invalid cytoscape instance or knowledge graph data')
+    return
+  }
+
+  // Add nodes to the current graph
+  knowledgeGraph.nodes.forEach((node, index) => {
+    const cytoscapeNode = {
+      data: {
+        id: node.id || `transcript_${Date.now()}_${index}`,
+        label: node.label || 'Imported Node',
+        color: node.color || '#f9f9f9',
+        type: node.type || 'fulltext',
+        info: node.info || '',
+        size: 3, // Medium size for imported nodes
+      },
+      position: { 
+        x: 200 + index * 150, 
+        y: 200 + Math.floor(index / 5) * 200 
+      },
+    }
+
+    cyInstance.add(cytoscapeNode)
+  })
+
+  // Add edges if any exist in the knowledge graph
+  if (knowledgeGraph.edges && Array.isArray(knowledgeGraph.edges)) {
+    knowledgeGraph.edges.forEach((edge, index) => {
+      const cytoscapeEdge = {
+        data: {
+          id: `transcript_edge_${Date.now()}_${index}`,
+          source: edge.source,
+          target: edge.target,
+          type: edge.type || null,
+          info: edge.info || null,
+        },
+      }
+      
+      cyInstance.add(cytoscapeEdge)
+    })
+  }
+
+  // Run layout to organize new nodes
+  cyInstance.layout({ 
+    name: 'cose',
+    idealEdgeLength: 150,
+    nodeRepulsion: 4000,
+  }).run()
+
+  console.log(`Added ${knowledgeGraph.nodes.length} transcript nodes to graph`)
+}
+
+// Handle creation of new graph (not applicable in GraphEditor context, but needed for modal)
+const handleNewGraphCreated = (newGraph) => {
+  console.log('New graph creation requested in GraphEditor - redirecting to import:', newGraph)
+  // In GraphEditor context, treat new graph creation as import
+  handleTranscriptImported(newGraph)
 }
 
 onMounted(() => {
@@ -493,6 +583,28 @@ onMounted(() => {
           'border-width': 0.5,
           'border-color': '#000',
           'border-style': 'dashed',
+        },
+      },
+      {
+        selector: 'node[type="youtube-video"]',
+        style: {
+          shape: 'rectangle',
+          'background-color': '#FF0000', // YouTube red
+          'border-width': 2,
+          'border-color': '#000',
+          label: (ele) => {
+            // Extract title from YouTube markdown format
+            const match = ele.data('label').match(/!\[YOUTUBE src=.+?\](.+?)\[END YOUTUBE\]/)
+            return match ? match[1] : ele.data('label')
+          },
+          'text-wrap': 'wrap',
+          'text-max-width': '180px',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'font-size': '12px',
+          color: '#fff',
+          width: '200px',
+          height: '112px', // 16:9 aspect ratio for video thumbnail
         },
       },
       {
