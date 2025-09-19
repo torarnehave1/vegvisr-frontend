@@ -5622,7 +5622,7 @@ const extractImageExif = async (imageUrl) => {
         resolve(null)
         return
       }
-      
+
       window.EXIF.getData(blob, function() {
         const allTags = window.EXIF.getAllTags(this)
         console.log('🏷️ All EXIF tags found:', allTags)
