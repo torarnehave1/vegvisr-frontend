@@ -627,6 +627,13 @@ const searchImages = async () => {
   }
 }
 
+const getImageDimensions = (image) => {
+  if (image.width && image.height) {
+    return `${image.width} × ${image.height}`
+  }
+  return 'Unknown size'
+}
+
 const quickSearch = (tag) => {
   searchQuery.value = tag
   searchImages()
@@ -1126,40 +1133,46 @@ const clearPastedUrl = () => {
 // EXIF extraction function
 const extractExifData = (file) => {
   return new Promise((resolve) => {
-    EXIF.getData(file, function() {
-      const allTags = EXIF.getAllTags(this)
+    if (typeof window.EXIF === 'undefined') {
+      console.warn('EXIF library not loaded, returning empty EXIF data')
+      resolve(null)
+      return
+    }
+    
+    window.EXIF.getData(file, function() {
+      const allTags = window.EXIF.getAllTags(this)
       console.log('🏷️ All EXIF tags found in upload:', allTags)
 
       const exifData = {
-        dateTime: EXIF.getTag(this, "DateTime"),
-        dateTimeOriginal: EXIF.getTag(this, "DateTimeOriginal"),
-        dateTimeDigitized: EXIF.getTag(this, "DateTimeDigitized"),
+        dateTime: window.EXIF.getTag(this, "DateTime"),
+        dateTimeOriginal: window.EXIF.getTag(this, "DateTimeOriginal"),
+        dateTimeDigitized: window.EXIF.getTag(this, "DateTimeDigitized"),
         camera: {
-          make: EXIF.getTag(this, "Make"),
-          model: EXIF.getTag(this, "Model"),
+          make: window.EXIF.getTag(this, "Make"),
+          model: window.EXIF.getTag(this, "Model"),
         },
         gps: {
-          latitude: EXIF.getTag(this, "GPSLatitude"),
-          longitude: EXIF.getTag(this, "GPSLongitude"),
-          latitudeRef: EXIF.getTag(this, "GPSLatitudeRef"),
-          longitudeRef: EXIF.getTag(this, "GPSLongitudeRef"),
-          altitude: EXIF.getTag(this, "GPSAltitude"),
-          altitudeRef: EXIF.getTag(this, "GPSAltitudeRef"),
+          latitude: window.EXIF.getTag(this, "GPSLatitude"),
+          longitude: window.EXIF.getTag(this, "GPSLongitude"),
+          latitudeRef: window.EXIF.getTag(this, "GPSLatitudeRef"),
+          longitudeRef: window.EXIF.getTag(this, "GPSLongitudeRef"),
+          altitude: window.EXIF.getTag(this, "GPSAltitude"),
+          altitudeRef: window.EXIF.getTag(this, "GPSAltitudeRef"),
         },
         settings: {
-          iso: EXIF.getTag(this, "ISOSpeedRatings") || EXIF.getTag(this, "PhotographicSensitivity"),
-          aperture: EXIF.getTag(this, "FNumber") || EXIF.getTag(this, "ApertureValue"),
-          shutterSpeed: EXIF.getTag(this, "ExposureTime") || EXIF.getTag(this, "ShutterSpeedValue"),
-          focalLength: EXIF.getTag(this, "FocalLength"),
-          exposureMode: EXIF.getTag(this, "ExposureMode"),
-          whiteBalance: EXIF.getTag(this, "WhiteBalance"),
+          iso: window.EXIF.getTag(this, "ISOSpeedRatings") || window.EXIF.getTag(this, "PhotographicSensitivity"),
+          aperture: window.EXIF.getTag(this, "FNumber") || window.EXIF.getTag(this, "ApertureValue"),
+          shutterSpeed: window.EXIF.getTag(this, "ExposureTime") || window.EXIF.getTag(this, "ShutterSpeedValue"),
+          focalLength: window.EXIF.getTag(this, "FocalLength"),
+          exposureMode: window.EXIF.getTag(this, "ExposureMode"),
+          whiteBalance: window.EXIF.getTag(this, "WhiteBalance"),
         },
         imageInfo: {
-          description: EXIF.getTag(this, "ImageDescription"),
-          orientation: EXIF.getTag(this, "Orientation"),
-          xResolution: EXIF.getTag(this, "XResolution"),
-          yResolution: EXIF.getTag(this, "YResolution"),
-          software: EXIF.getTag(this, "Software"),
+          description: window.EXIF.getTag(this, "ImageDescription"),
+          orientation: window.EXIF.getTag(this, "Orientation"),
+          xResolution: window.EXIF.getTag(this, "XResolution"),
+          yResolution: window.EXIF.getTag(this, "YResolution"),
+          software: window.EXIF.getTag(this, "Software"),
         },
         allTags: allTags // Include all tags for debugging
       }

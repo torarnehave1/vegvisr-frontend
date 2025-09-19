@@ -3770,7 +3770,8 @@ const useCreatorImageUrl = async () => {
     })
 
     creatorUrlPreviewImage.value = creatorImageUrl.value
-  } catch (error) {
+  } catch (err) {
+    console.error('Image URL validation error:', err)
     creatorImageError.value = 'Invalid image URL or image failed to load.'
   } finally {
     isLoadingCreatorUrl.value = false
@@ -5616,27 +5617,33 @@ const extractImageExif = async (imageUrl) => {
     console.log('📦 Fetched blob:', blob.size, 'bytes, type:', blob.type)
 
     return new Promise((resolve) => {
-      EXIF.getData(blob, function() {
-        const allTags = EXIF.getAllTags(this)
+      if (typeof window.EXIF === 'undefined') {
+        console.warn('EXIF library not loaded, returning empty EXIF data')
+        resolve(null)
+        return
+      }
+      
+      window.EXIF.getData(blob, function() {
+        const allTags = window.EXIF.getAllTags(this)
         console.log('🏷️ All EXIF tags found:', allTags)
 
         const exifData = {
-          dateTime: EXIF.getTag(this, "DateTime"),
-          dateTimeOriginal: EXIF.getTag(this, "DateTimeOriginal"),
+          dateTime: window.EXIF.getTag(this, "DateTime"),
+          dateTimeOriginal: window.EXIF.getTag(this, "DateTimeOriginal"),
           camera: {
-            make: EXIF.getTag(this, "Make")?.replace(/\0/g, '').trim(),
-            model: EXIF.getTag(this, "Model")?.replace(/\0/g, '').trim(),
+            make: window.EXIF.getTag(this, "Make")?.replace(/\0/g, '').trim(),
+            model: window.EXIF.getTag(this, "Model")?.replace(/\0/g, '').trim(),
           },
           gps: {
-            latitude: EXIF.getTag(this, "GPSLatitude"),
-            longitude: EXIF.getTag(this, "GPSLongitude"),
-            latitudeRef: EXIF.getTag(this, "GPSLatitudeRef"),
-            longitudeRef: EXIF.getTag(this, "GPSLongitudeRef"),
+            latitude: window.EXIF.getTag(this, "GPSLatitude"),
+            longitude: window.EXIF.getTag(this, "GPSLongitude"),
+            latitudeRef: window.EXIF.getTag(this, "GPSLatitudeRef"),
+            longitudeRef: window.EXIF.getTag(this, "GPSLongitudeRef"),
           },
           settings: {
-            iso: EXIF.getTag(this, "ISOSpeedRatings"),
-            aperture: EXIF.getTag(this, "FNumber"),
-            shutterSpeed: EXIF.getTag(this, "ExposureTime"),
+            iso: window.EXIF.getTag(this, "ISOSpeedRatings"),
+            aperture: window.EXIF.getTag(this, "FNumber"),
+            shutterSpeed: window.EXIF.getTag(this, "ExposureTime"),
           },
           allTags: allTags
         }
@@ -5652,8 +5659,8 @@ const extractImageExif = async (imageUrl) => {
         resolve(exifData)
       })
     })
-  } catch (error) {
-    console.error('❌ EXIF error:', error)
+  } catch (err) {
+    console.error('❌ EXIF error:', err)
     return null
   } finally {
     loadingExif.value = false
@@ -5679,7 +5686,8 @@ const formatDateTime = (dateTimeString) => {
 
     // Format as DD/MM/YYYY HH:mm
     return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year} ${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
-  } catch (error) {
+  } catch (err) {
+    console.error('Date format error:', err)
     return dateTimeString
   }
 }
