@@ -1138,7 +1138,7 @@ const extractExifData = (file) => {
       resolve(null)
       return
     }
-    
+
     window.EXIF.getData(file, function() {
       const allTags = window.EXIF.getAllTags(this)
       console.log('🏷️ All EXIF tags found in upload:', allTags)
