@@ -601,10 +601,8 @@ ${description ? `**Description:**\n${description.length > 500 ? description.subs
         console.log('videoId.value exists:', !!videoId.value)
       }
 
-      setTimeout(() => {
-        knowledgeGraphPreview.value = result.knowledgeGraph
-        isProcessing.value = false
-      }, 1000)
+      knowledgeGraphPreview.value = result.knowledgeGraph
+      isProcessing.value = false
 
       return result.knowledgeGraph
 
@@ -624,10 +622,8 @@ ${description ? `**Description:**\n${description.length > 500 ? description.subs
           processingProgress.value = 100
           processingMessage.value = 'Knowledge graph ready (local)'
 
-          setTimeout(() => {
-            knowledgeGraphPreview.value = fallbackResult
-            isProcessing.value = false
-          }, 1000)
+          knowledgeGraphPreview.value = fallbackResult
+          isProcessing.value = false
           return fallbackResult
         }
       } catch (fallbackError) {
