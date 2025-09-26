@@ -319,6 +319,15 @@ const router = createRouter({
         requiresAuth: true,
       },
     },
+    {
+      path: '/transcript-processor',
+      name: 'transcript-processor',
+      component: () => import('../views/TranscriptProcessorView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null, // Clean layout for focused workflow
+      },
+    },
   ],
 })
 
