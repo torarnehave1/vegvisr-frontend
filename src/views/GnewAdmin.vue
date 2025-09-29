@@ -46,6 +46,10 @@
             <span class="btn-icon">🎙️</span>
             <span class="btn-text">Process Transcript</span>
           </button>
+          <button @click="openTestModal" class="btn btn-test-modal">
+            <span class="btn-icon">🧪</span>
+            <span class="btn-text">Test Modal</span>
+          </button>
         </div>
 
         <!-- Graph Selection -->
@@ -283,13 +287,13 @@
     <!-- Graph Selector Modal (will be implemented in next phase) -->
     <!-- <GraphSelectorModal v-if="showGraphSelector" @close="closeGraphSelector" @select="selectGraph" /> -->
 
-    <!-- Transcript Processor Modal - Keep for backward compatibility if needed -->
-    <!-- <TranscriptProcessorModal
+    <!-- Transcript Processor Modal - For testing comparison -->
+    <TranscriptProcessorModal
       :isOpen="showTranscriptProcessor"
       @close="showTranscriptProcessor = false"
       @graph-imported="handleTranscriptImported"
       @new-graph-created="handleNewGraphCreated"
-    /> -->
+    />
   </div>
 </template>
 
@@ -300,7 +304,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useUserStore } from '@/stores/userStore'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
-// import TranscriptProcessorModal from '@/components/TranscriptProcessorModal.vue'
+import TranscriptProcessorModal from '@/components/TranscriptProcessorModal.vue'
 
 // Router and Stores
 const router = useRouter()
@@ -324,7 +328,7 @@ const graphData = ref({ nodes: [], edges: [] })
 
 // Create Graph Modal State
 const showCreateGraphModal = ref(false)
-// const showTranscriptProcessor = ref(false) // Not needed with page navigation
+const showTranscriptProcessor = ref(false) // For testing modal comparison
 const newGraphForm = ref({
   title: '',
   description: '',
@@ -648,8 +652,13 @@ const goToTranscriptProcessor = () => {
   router.push('/transcript-processor')
 }
 
-// Transcript processor event handlers - Disabled since using page navigation
-/* const handleTranscriptImported = (knowledgeGraph) => {
+// Open transcript processor modal for testing
+const openTestModal = () => {
+  showTranscriptProcessor.value = true
+}
+
+// Transcript processor event handlers - Re-enabled for modal testing
+const handleTranscriptImported = (knowledgeGraph) => {
   console.log('Importing transcript knowledge graph to GnewAdmin:', knowledgeGraph)
 
   if (!knowledgeGraph || !knowledgeGraph.nodes) {
@@ -744,7 +753,7 @@ const handleNewGraphCreated = async (event) => {
     console.error('Error loading created transcript graph:', err)
     error.value = 'Failed to load transcript graph: ' + err.message
   }
-} */
+}
 
 // Lifecycle
 onMounted(() => {
