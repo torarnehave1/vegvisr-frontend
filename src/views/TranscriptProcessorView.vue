@@ -21,21 +21,28 @@
     <!-- Progress Indicator -->
     <div class="progress-section" v-if="transcriptText || isProcessing || knowledgeGraphPreview">
       <div class="container">
-        <div class="progress-indicator">
-          <div class="step" :class="{ active: currentStep >= 1, completed: currentStep > 1 }">
-            <div class="step-number">1</div>
-            <div class="step-label">Input Source</div>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div class="progress-indicator flex-grow-1">
+            <div class="step" :class="{ active: currentStep >= 1, completed: currentStep > 1 }">
+              <div class="step-number">1</div>
+              <div class="step-label">Input Source</div>
+            </div>
+            <div class="step-separator"></div>
+            <div class="step" :class="{ active: currentStep >= 2, completed: currentStep > 2 }">
+              <div class="step-number">2</div>
+              <div class="step-label">Process</div>
+            </div>
+            <div class="step-separator"></div>
+            <div class="step" :class="{ active: currentStep >= 3, completed: currentStep > 3 }">
+              <div class="step-number">3</div>
+              <div class="step-label">Review & Export</div>
+            </div>
           </div>
-          <div class="step-separator"></div>
-          <div class="step" :class="{ active: currentStep >= 2, completed: currentStep > 2 }">
-            <div class="step-number">2</div>
-            <div class="step-label">Process</div>
-          </div>
-          <div class="step-separator"></div>
-          <div class="step" :class="{ active: currentStep >= 3, completed: currentStep > 3 }">
-            <div class="step-number">3</div>
-            <div class="step-label">Review & Export</div>
-          </div>
+
+          <!-- Test Modal Button -->
+          <button @click="openTestModal" class="btn btn-outline-primary ms-3">
+            <i class="fas fa-flask me-1"></i> Test Modal
+          </button>
         </div>
       </div>
     </div>
@@ -369,14 +376,20 @@
                 </div>
               </div>
             </div>
-          </div>
         </div>
-</template>
+      </div>
 
-<script setup>
+      <!-- Test Modal -->
+      <TranscriptProcessorModal
+        v-if="showTestModal"
+        @close="closeTestModal"
+        @graph-imported="closeTestModal"
+      />
+</template><script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTranscriptProcessor } from '@/composables/useTranscriptProcessor'
+import TranscriptProcessorModal from '@/components/TranscriptProcessorModal.vue'
 
 // Router
 const router = useRouter()
@@ -419,6 +432,16 @@ const currentStep = ref(1)
 const inputMethod = ref('upload')
 const selectedFile = ref(null)
 const pastedText = ref('')
+const showTestModal = ref(false)
+
+// Function to open test modal
+const openTestModal = () => {
+  showTestModal.value = true
+}
+
+const closeTestModal = () => {
+  showTestModal.value = false
+}
 
 // Navigation methods
 const goBack = () => {
