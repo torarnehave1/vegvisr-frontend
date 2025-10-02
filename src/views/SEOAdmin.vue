@@ -50,6 +50,13 @@
               </div>
             </div>
           </div>
+
+          <!-- Info when no user graphs available -->
+          <div v-else-if="userStore.loggedIn" class="no-graphs-info">
+            <small class="text-muted">
+              💡 <strong>Tip:</strong> Enter your graph ID above (e.g., graph_1234567890) to load and generate SEO pages
+            </small>
+          </div>
         </div>
       </div>
 
@@ -893,16 +900,29 @@ const copyToClipboard = async (text) => {
 onMounted(async () => {
   if (userStore.loggedIn && userStore.email) {
     try {
-      // Fetch user's graphs
+      // Fetch user's graphs with CORS handling
       const response = await fetch(
-        `https://knowledge.vegvisr.org/getUserGraphs?email=${userStore.email}`
+        `https://knowledge.vegvisr.org/getknowgraphs`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+          mode: 'cors'
+        }
       )
+
       if (response.ok) {
         const data = await response.json()
-        userGraphs.value = data.graphs || []
+        userGraphs.value = data.results || []
+        console.log(`Loaded ${userGraphs.value.length} user graphs`)
+      } else {
+        console.warn('Failed to load user graphs:', response.status, response.statusText)
       }
     } catch (error) {
-      console.error('Error loading user graphs:', error)
+      console.warn('User graphs not available (CORS or network issue):', error.message)
+      // This is not a critical error - user can still manually enter graph IDs
+      // Don't show error to user as it's an optional feature
     }
   }
 })
@@ -1040,6 +1060,15 @@ onMounted(async () => {
   font-size: 0.875rem;
   color: #6c757d;
   font-family: monospace;
+}
+
+/* No graphs info */
+.no-graphs-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #17a2b8;
 }
 
 /* Graph Info */

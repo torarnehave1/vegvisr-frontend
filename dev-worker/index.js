@@ -1148,6 +1148,8 @@ export default {
         }
       }
 
+
+
       if (pathname === '/getknowgraphs' && request.method === 'GET') {
         try {
           console.log('[Worker] Fetching list of knowledge graphs')
