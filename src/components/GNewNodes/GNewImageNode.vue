@@ -167,7 +167,7 @@ const nodeTitle = computed(() => {
     const match = props.node.label?.match(/!\[([^\]]*)\|/)
     return match?.[1] || props.node.label || null
   }
-  
+
   return props.node.label || null
 })
 
@@ -209,12 +209,12 @@ const imageStyles = computed(() => {
     // First check for new format with individual style properties
     if (props.node.imageWidth) styles.width = props.node.imageWidth
     if (props.node.imageHeight) styles.height = props.node.imageHeight
-    
+
     // Check for imageStyles object
     if (props.node.imageStyles && typeof props.node.imageStyles === 'object') {
       Object.assign(styles, props.node.imageStyles)
     }
-    
+
     // Fall back to old markdown format parsing if no direct styles found
     if (Object.keys(styles).length === 0) {
       const parsed = parseMarkdownImage()
