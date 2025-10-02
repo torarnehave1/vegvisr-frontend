@@ -639,10 +639,10 @@ const autoSelectImageFromGraph = () => {
       for (const match of htmlImageMatches) {
         const imageUrl = match[1]
         const altText = match[2] || ''
-        
+
         // Decode HTML entities in the URL
         const decodedUrl = imageUrl.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-        
+
         foundImages.push({
           url: decodedUrl,
           title: altText || node.label || 'HTML Image',
