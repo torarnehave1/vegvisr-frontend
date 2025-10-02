@@ -654,7 +654,7 @@ const autoSelectImageFromGraph = () => {
     if (node.type === 'image' || node.type === 'markdown-image') {
       let imageUrl = node.path || node.url || ''
       let imageTitle = node.label || node.title || 'Image'
-      
+
       // If no direct path, try extracting from markdown format (backward compatibility)
       if (!imageUrl && node.label) {
         const markdownMatch = node.label.match(/!\[([^\]]*)\|?[^\]]*\]\(([^)]+)\)/)
@@ -664,7 +664,7 @@ const autoSelectImageFromGraph = () => {
           console.log('SEO Admin: Extracted from markdown label:', imageUrl)
         }
       }
-      
+
       console.log('SEO Admin: Found image node with URL:', imageUrl, 'Title:', imageTitle)
       if (imageUrl) {
         foundImages.push({
@@ -677,7 +677,7 @@ const autoSelectImageFromGraph = () => {
 
     // Images in markdown content (including node labels)
     const contentToCheck = [node.info, node.label].filter(Boolean)
-    
+
     for (const content of contentToCheck) {
       if (content && typeof content === 'string') {
         // Enhanced markdown pattern to catch more variations including custom styling
@@ -687,7 +687,7 @@ const autoSelectImageFromGraph = () => {
           /!\[(.*?)\]\(([^)\s]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi,  // Any image extension
           /!\[\]\((https?:\/\/[^\s)]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi  // Empty alt text
         ]
-        
+
         for (const pattern of markdownPatterns) {
           const imageMatches = content.matchAll(pattern)
           for (const match of imageMatches) {
