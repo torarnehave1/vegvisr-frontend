@@ -328,6 +328,16 @@ const router = createRouter({
         layout: null, // Clean layout for focused workflow
       },
     },
+    {
+      path: '/seo-admin',
+      name: 'seo-admin',
+      component: () => import('../views/SEOAdmin.vue'),
+      meta: {
+        requiresAuth: true,
+        requiresSuperadmin: true, // Only superadmins can access
+        layout: null,
+      },
+    },
   ],
 })
 
