@@ -632,6 +632,25 @@ const autoSelectImageFromGraph = () => {
       }
     }
 
+    // Images in HTML content (img tags)
+    if (node.info && typeof node.info === 'string') {
+      // Look for HTML img tags with src attribute
+      const htmlImageMatches = node.info.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*(?:alt=["']([^"']*)["'])?[^>]*>/gi)
+      for (const match of htmlImageMatches) {
+        const imageUrl = match[1]
+        const altText = match[2] || ''
+        
+        // Decode HTML entities in the URL
+        const decodedUrl = imageUrl.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        
+        foundImages.push({
+          url: decodedUrl,
+          title: altText || node.label || 'HTML Image',
+          source: `HTML img from: ${node.label || 'Untitled'}`
+        })
+      }
+    }
+
     // Check for imgix or other image URLs in various node properties
     const checkProperties = ['path', 'url', 'src', 'image', 'thumbnail']
     for (const prop of checkProperties) {
