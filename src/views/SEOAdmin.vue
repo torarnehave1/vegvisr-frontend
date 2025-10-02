@@ -650,42 +650,59 @@ const autoSelectImageFromGraph = () => {
   for (const node of graphData.value.nodes) {
     console.log('SEO Admin: Checking node:', node.label || node.id, 'Type:', node.type)
 
-    // Direct image nodes
+    // Direct image nodes - prefer clean format, fall back to markdown parsing
     if (node.type === 'image' || node.type === 'markdown-image') {
-      const imageUrl = node.path || node.url || ''
-      console.log('SEO Admin: Found image node with URL:', imageUrl)
+      let imageUrl = node.path || node.url || ''
+      let imageTitle = node.label || node.title || 'Image'
+      
+      // If no direct path, try extracting from markdown format (backward compatibility)
+      if (!imageUrl && node.label) {
+        const markdownMatch = node.label.match(/!\[([^\]]*)\|?[^\]]*\]\(([^)]+)\)/)
+        if (markdownMatch) {
+          imageUrl = markdownMatch[2]
+          imageTitle = markdownMatch[1] || imageTitle
+          console.log('SEO Admin: Extracted from markdown label:', imageUrl)
+        }
+      }
+      
+      console.log('SEO Admin: Found image node with URL:', imageUrl, 'Title:', imageTitle)
       if (imageUrl) {
         foundImages.push({
           url: imageUrl,
-          title: node.label || node.title || 'Image',
+          title: imageTitle,
           source: 'Direct image node'
         })
       }
     }
 
-    // Images in markdown content
-    if (node.info && typeof node.info === 'string') {
-      // Enhanced markdown pattern to catch more variations
-      const markdownPatterns = [
-        /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,  // Standard markdown
-        /!\[(.*?)\]\(([^)\s]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi,  // Any image extension
-        /!\[\]\((https?:\/\/[^\s)]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi  // Empty alt text
-      ]
-
-      for (const pattern of markdownPatterns) {
-        const imageMatches = node.info.matchAll(pattern)
-        for (const match of imageMatches) {
-          console.log('SEO Admin: Found markdown image:', match[2] || match[1])
-          foundImages.push({
-            url: match[2] || match[1],
-            title: match[1] || node.label || 'Image from content',
-            source: `Markdown from: ${node.label || 'Untitled'}`
-          })
+    // Images in markdown content (including node labels)
+    const contentToCheck = [node.info, node.label].filter(Boolean)
+    
+    for (const content of contentToCheck) {
+      if (content && typeof content === 'string') {
+        // Enhanced markdown pattern to catch more variations including custom styling
+        const markdownPatterns = [
+          /!\[([^\]]*)\|[^\]]*\]\(([^)]+)\)/g,  // Custom format with styling: ![title|style](url)
+          /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,  // Standard markdown
+          /!\[(.*?)\]\(([^)\s]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi,  // Any image extension
+          /!\[\]\((https?:\/\/[^\s)]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi  // Empty alt text
+        ]
+        
+        for (const pattern of markdownPatterns) {
+          const imageMatches = content.matchAll(pattern)
+          for (const match of imageMatches) {
+            const imageUrl = match[2] || match[1]
+            const imageTitle = match[1] || node.label || 'Image from content'
+            console.log('SEO Admin: Found markdown image:', imageUrl, 'with title:', imageTitle)
+            foundImages.push({
+              url: imageUrl,
+              title: imageTitle,
+              source: `Markdown from: ${node.label || 'Untitled'}`
+            })
+          }
         }
       }
-    }
-
-    // Images in HTML content (img tags) - enhanced detection
+    }    // Images in HTML content (img tags) - enhanced detection
     if (node.info && typeof node.info === 'string') {
       // Multiple patterns to catch different HTML img tag formats
       const htmlPatterns = [

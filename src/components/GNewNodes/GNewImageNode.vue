@@ -159,10 +159,15 @@ const imageMetadata = ref(null)
 // Computed properties
 const nodeTitle = computed(() => {
   if (props.node.type === 'markdown-image') {
-    // For markdown images, extract title from label if available
+    // If we have a path (new format), use the label as-is
+    if (props.node.path && props.node.label && !props.node.label.includes('![')) {
+      return props.node.label
+    }
+    // For old markdown format, extract title from markdown syntax
     const match = props.node.label?.match(/!\[([^\]]*)\|/)
-    return match?.[1] || null
+    return match?.[1] || props.node.label || null
   }
+  
   return props.node.label || null
 })
 
@@ -182,13 +187,14 @@ const formattedContent = computed(() => {
 })
 
 const imageUrl = computed(() => {
+  // For markdown-image nodes, prefer path field, fall back to parsing label
   if (props.node.type === 'markdown-image') {
-    return parseMarkdownImage()?.url || null
+    return props.node.path || parseMarkdownImage()?.url || null
   } else if (props.node.type === 'portfolio-image') {
     return props.node.path || null
   } else {
-    // background and other image types
-    return props.node.label || null
+    // background and other image types - check path first, then label
+    return props.node.path || props.node.label || null
   }
 })
 
@@ -200,9 +206,21 @@ const imageStyles = computed(() => {
   const styles = {}
 
   if (props.node.type === 'markdown-image') {
-    const parsed = parseMarkdownImage()
-    if (parsed?.styles) {
-      Object.assign(styles, parsed.styles)
+    // First check for new format with individual style properties
+    if (props.node.imageWidth) styles.width = props.node.imageWidth
+    if (props.node.imageHeight) styles.height = props.node.imageHeight
+    
+    // Check for imageStyles object
+    if (props.node.imageStyles && typeof props.node.imageStyles === 'object') {
+      Object.assign(styles, props.node.imageStyles)
+    }
+    
+    // Fall back to old markdown format parsing if no direct styles found
+    if (Object.keys(styles).length === 0) {
+      const parsed = parseMarkdownImage()
+      if (parsed?.styles) {
+        Object.assign(styles, parsed.styles)
+      }
     }
   }
 
