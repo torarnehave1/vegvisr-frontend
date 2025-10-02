@@ -643,13 +643,13 @@ const autoSelectImageFromGraph = () => {
   }
 
   console.log('SEO Admin: Starting image detection for', graphData.value.nodes.length, 'nodes')
-  
+
   // Find all images in the graph
   const foundImages = []
 
   for (const node of graphData.value.nodes) {
     console.log('SEO Admin: Checking node:', node.label || node.id, 'Type:', node.type)
-    
+
     // Direct image nodes
     if (node.type === 'image' || node.type === 'markdown-image') {
       const imageUrl = node.path || node.url || ''
@@ -671,7 +671,7 @@ const autoSelectImageFromGraph = () => {
         /!\[(.*?)\]\(([^)\s]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi,  // Any image extension
         /!\[\]\((https?:\/\/[^\s)]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi  // Empty alt text
       ]
-      
+
       for (const pattern of markdownPatterns) {
         const imageMatches = node.info.matchAll(pattern)
         for (const match of imageMatches) {
@@ -693,7 +693,7 @@ const autoSelectImageFromGraph = () => {
         /<img[^>]+src=([^\s>]+)[^>]*>/gi,  // No quotes around src
         /<img[^>]*data-src=["']([^"']+)["'][^>]*/gi  // Lazy loading images
       ]
-      
+
       for (const pattern of htmlPatterns) {
         const htmlImageMatches = node.info.matchAll(pattern)
         for (const match of htmlImageMatches) {
@@ -732,8 +732,8 @@ const autoSelectImageFromGraph = () => {
     for (const prop of checkProperties) {
       if (node[prop] && typeof node[prop] === 'string') {
         // More flexible image detection
-        if (node[prop].match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$|#)/i) || 
-            node[prop].includes('imgix.net') || 
+        if (node[prop].match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$|#)/i) ||
+            node[prop].includes('imgix.net') ||
             node[prop].includes('cloudinary.com') ||
             node[prop].includes('unsplash.com')) {
           console.log(`SEO Admin: Found image in property ${prop}:`, node[prop])
