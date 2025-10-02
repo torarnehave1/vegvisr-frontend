@@ -1461,11 +1461,20 @@
       </div>
     </div>
   </div>
+
+  <!-- Copy Node Modal -->
+  <CopyNodeModal
+    ref="copyNodeModal"
+    :node-data="selectedNodeToCopy"
+    :current-graph-id="route.query.graphId"
+    @node-copied="handleNodeCopied"
+  />
 </template>
 
 <script setup>
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Modal } from 'bootstrap'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useBranding } from '@/composables/useBranding'
@@ -1474,6 +1483,7 @@ import AIImageModal from '@/components/AIImageModal.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import GNewImageEditHandler from '@/components/GNewImageEditHandler.vue'
+import CopyNodeModal from '@/components/CopyNodeModal.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewAdvertisementDisplay from '@/components/GNewAdvertisementDisplay.vue'
@@ -5566,12 +5576,43 @@ const handleQuickFormat = (node, formatType) => {
   }
 }
 
+// Copy node functionality
+const selectedNodeToCopy = ref(null)
+const copyNodeModal = ref(null)
+
 const handleCopyNode = (node) => {
   console.log('📋 Copy node requested for:', node.id)
-  statusMessage.value = 'Node copy feature coming soon'
+
+  selectedNodeToCopy.value = {
+    ...node,
+    position: node.position || { x: 0, y: 0 },
+  }
+
+  // Show the modal using Bootstrap Modal
+  const modalElement = document.getElementById('copyNodeModal')
+  if (modalElement) {
+    const modal = new Modal(modalElement)
+    modal.show()
+
+    // Call the show method on the modal component to fetch graphs
+    if (copyNodeModal.value) {
+      copyNodeModal.value.show()
+    }
+  }
+}
+
+const handleNodeCopied = (copyInfo) => {
+  console.log('📋 Node Copied Successfully')
+  console.log('Copy info:', copyInfo)
+
+  // Show success message
+  statusMessage.value = `Node "${copyInfo.sourceNode.label}" copied to "${copyInfo.targetGraph.metadata?.title}" with new ID: ${copyInfo.newNodeId}`
   setTimeout(() => {
     statusMessage.value = ''
-  }, 2000)
+  }, 5000)
+
+  // Reset the selected node
+  selectedNodeToCopy.value = null
 }
 
 // Handler for status messages from GNewImageEditHandler

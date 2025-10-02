@@ -20,6 +20,62 @@
           ></button>
         </div>
         <div class="modal-body">
+          <!-- Create New Graph Option -->
+          <div class="mb-4">
+            <div class="card border-success">
+              <div class="card-header bg-light">
+                <h6 class="mb-0">
+                  <i class="bi bi-plus-circle text-success me-2"></i>
+                  Create New Graph
+                </h6>
+              </div>
+              <div class="card-body">
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label small">Graph Title *</label>
+                    <input
+                      type="text"
+                      v-model="newGraphTitle"
+                      class="form-control form-control-sm"
+                      placeholder="Enter graph title..."
+                      :class="{ 'is-invalid': showNewGraphValidation && !newGraphTitle.trim() }"
+                    />
+                    <div v-if="showNewGraphValidation && !newGraphTitle.trim()" class="invalid-feedback">
+                      Title is required
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small">Description</label>
+                    <input
+                      type="text"
+                      v-model="newGraphDescription"
+                      class="form-control form-control-sm"
+                      placeholder="Optional description..."
+                    />
+                  </div>
+                </div>
+                <div class="mt-3">
+                  <button
+                    type="button"
+                    class="btn btn-success btn-sm"
+                    :disabled="copying || !newGraphTitle.trim()"
+                    @click="copyToNewGraph"
+                  >
+                    <span v-if="copying" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <i v-else class="bi bi-plus-circle me-1"></i>
+                    {{ copying ? 'Creating...' : 'Copy to New Graph' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-center text-muted my-3">
+            <hr class="my-2" />
+            <small>OR copy to an existing graph</small>
+            <hr class="my-2" />
+          </div>
+
           <!-- Search -->
           <div class="mb-3">
             <input
@@ -100,7 +156,7 @@
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="!selectedGraph || copying"
+            :disabled="!selectedGraph || copying || creatingNewGraph"
             @click="copyNode"
           >
             <span v-if="copying" class="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -136,6 +192,12 @@ const searchQuery = ref('')
 const sortBy = ref('title')
 const sortDirection = ref('asc')
 const selectedGraph = ref(null)
+
+// New graph creation state
+const creatingNewGraph = ref(false)
+const newGraphTitle = ref('')
+const newGraphDescription = ref('')
+const newGraphError = ref('')
 
 // Computed properties
 const filteredGraphs = computed(() => {
@@ -341,11 +403,95 @@ const copyNode = async () => {
   }
 }
 
+const copyToNewGraph = async () => {
+  if (!props.nodeData || !newGraphTitle.value.trim()) {
+    newGraphError.value = 'Please enter a graph title'
+    return
+  }
+
+  creatingNewGraph.value = true
+  newGraphError.value = ''
+
+  try {
+    console.log('=== Copy to New Graph Debug ===')
+    console.log('Source node:', props.nodeData)
+    console.log('New graph title:', newGraphTitle.value)
+    console.log('New graph description:', newGraphDescription.value)
+
+    // Create a new graph with the copied node
+    const newNodeId = crypto.randomUUID()
+    const copiedNode = {
+      ...props.nodeData,
+      id: newNodeId,
+    }
+
+    const newGraphData = {
+      metadata: {
+        title: newGraphTitle.value.trim(),
+        description: newGraphDescription.value.trim(),
+        createdBy: 'User', // You might want to get this from auth context
+        updatedAt: new Date().toISOString(),
+        category: '',
+      },
+      nodes: [copiedNode],
+      edges: [],
+    }
+
+    console.log('New graph data:', newGraphData)
+
+    // Create the new graph
+    const response = await fetch('https://knowledge.vegvisr.org/createknowgraph', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        graphData: newGraphData,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to create new graph')
+    }
+
+    const result = await response.json()
+    console.log('New graph created successfully:', result)
+
+    // Emit success event
+    emit('node-copied', {
+      sourceNode: props.nodeData,
+      targetGraph: { id: result.id, ...newGraphData },
+      newNodeId: newNodeId,
+      newGraphCreated: true,
+    })
+
+    // Reset form
+    newGraphTitle.value = ''
+    newGraphDescription.value = ''
+    selectedGraph.value = null
+
+    // Close modal
+    const modalElement = document.getElementById('copyNodeModal')
+    if (modalElement) {
+      const modal = window.bootstrap?.Modal?.getInstance(modalElement)
+      modal?.hide()
+    }
+  } catch (error) {
+    console.error('Error creating new graph and copying node:', error)
+    newGraphError.value = 'Failed to create new graph: ' + error.message
+  } finally {
+    creatingNewGraph.value = false
+  }
+}
+
 // Expose methods for parent component
 defineExpose({
   show: () => {
     fetchGraphs()
     selectedGraph.value = null
+    newGraphTitle.value = ''
+    newGraphDescription.value = ''
+    newGraphError.value = ''
   },
 })
 
