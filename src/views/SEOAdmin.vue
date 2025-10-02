@@ -376,7 +376,7 @@ const isConfigValid = computed(() => {
     !slugError.value &&
     seoConfig.value.description
   )
-  
+
   console.log('Config validation:', {
     slug: seoConfig.value.slug,
     slugError: slugError.value,
@@ -384,7 +384,7 @@ const isConfigValid = computed(() => {
     ogImage: seoConfig.value.ogImage,
     isValid: hasRequiredFields
   })
-  
+
   return hasRequiredFields
 })
 
@@ -563,16 +563,16 @@ const testWorkerConnection = async () => {
   try {
     console.log('Testing worker connection...')
     const response = await fetch('https://seo.vegvisr.org/health')
-    
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
-    
+
     const result = await response.json()
     console.log('Health check result:', result)
-    
+
     successMessage.value = `✅ Worker connection successful! Status: ${result.status}`
-    
+
   } catch (error) {
     console.error('Worker connection failed:', error)
     errorMessage.value = `❌ Worker connection failed: ${error.message}`
@@ -623,7 +623,7 @@ const generateStaticPage = async () => {
     })
 
     console.log('Response status:', response.status)
-    
+
     if (!response.ok) {
       let errorText
       try {
@@ -645,7 +645,7 @@ const generateStaticPage = async () => {
   } catch (error) {
     console.error('Error generating static page:', error)
     errorMessage.value = 'Failed to generate static page: ' + error.message
-    
+
     // Additional debugging info
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       errorMessage.value += ' (Network error - check if worker is deployed and accessible)'

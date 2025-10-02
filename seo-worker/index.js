@@ -111,14 +111,14 @@ async function handleGenerate(request, env, corsHeaders) {
           html,
           createdAt: new Date().toISOString(),
         }
-        
+
         console.log('Storing page data for slug:', slug)
         await env.SEO_PAGES.put(`graph:${slug}`, JSON.stringify(pageData))
 
         // Also store a mapping from graphId to slug
         console.log('Storing mapping for graphId:', graphId)
         await env.SEO_PAGES.put(`mapping:${graphId}`, slug)
-        
+
         console.log('Successfully stored data in KV')
       } catch (kvError) {
         console.error('KV storage error:', kvError)
@@ -171,7 +171,7 @@ async function handleGraphPage(request, env, url, corsHeaders) {
   let pageData = null
   console.log('Looking for slug:', slug)
   console.log('KV binding available:', !!env.SEO_PAGES)
-  
+
   if (env.SEO_PAGES) {
     try {
       const stored = await env.SEO_PAGES.get(`graph:${slug}`)
