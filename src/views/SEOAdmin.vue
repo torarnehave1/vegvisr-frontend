@@ -154,6 +154,26 @@
                 </div>
               </div>
 
+              <!-- Manual URL input -->
+              <div class="manual-url-input">
+                <label class="form-label">Or enter image URL directly:</label>
+                <div class="url-input-group">
+                  <input
+                    v-model="seoConfig.ogImage"
+                    type="url"
+                    class="form-control"
+                    placeholder="https://example.com/image.jpg"
+                  />
+                  <button 
+                    @click="seoConfig.ogImage = ''"
+                    class="btn btn-outline-danger btn-sm"
+                    :disabled="!seoConfig.ogImage"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
               <!-- Image selection options -->
               <div class="og-selection-buttons">
                 <button
@@ -161,13 +181,18 @@
                   class="btn btn-outline-primary"
                   :disabled="!graphData.nodes?.length"
                 >
-                  🤖 Auto-select from Graph
+                  🤖 Select from Graph ({{ availableGraphImages.length || 0 }} found)
                 </button>
                 <button @click="openImageSelector" class="btn btn-outline-secondary">
                   🖼️ Choose from Portfolio
                 </button>
-                <button @click="openCustomImageUpload" class="btn btn-outline-info">
-                  📁 Upload Custom Image
+                <button 
+                  @click="openCustomImageUpload" 
+                  class="btn btn-outline-info"
+                  :disabled="uploadingImage"
+                >
+                  <span v-if="uploadingImage" class="spinner-border spinner-border-sm me-1"></span>
+                  {{ uploadingImage ? 'Uploading...' : '📁 Upload New Image' }}
                 </button>
               </div>
             </div>
@@ -334,6 +359,58 @@
         </div>
       </div>
     </div>
+
+    <!-- Image Selection Modal -->
+    <div v-if="showImageSelectionModal" class="modal-overlay" @click="showImageSelectionModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Select Image from Graph</h3>
+          <button @click="showImageSelectionModal = false" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="image-grid">
+            <div
+              v-for="(image, index) in availableGraphImages"
+              :key="index"
+              class="image-option"
+              @click="selectImageFromGraph(image.url)"
+            >
+              <img :src="image.url" :alt="image.title" class="thumbnail" />
+              <div class="image-info">
+                <div class="image-title">{{ image.title }}</div>
+                <div class="image-source">{{ image.source }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Portfolio Image Modal -->
+    <div v-if="showPortfolioModal" class="modal-overlay" @click="showPortfolioModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Select from Portfolio</h3>
+          <button @click="showPortfolioModal = false" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="image-grid">
+            <div
+              v-for="(image, index) in portfolioImages"
+              :key="index"
+              class="image-option"
+              @click="selectPortfolioImage(image.url || image.src)"
+            >
+              <img :src="image.thumbnail || image.url || image.src" :alt="image.title || image.name" class="thumbnail" />
+              <div class="image-info">
+                <div class="image-title">{{ image.title || image.name || 'Untitled' }}</div>
+                <div class="image-source">Portfolio</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -368,6 +445,13 @@ const staticPageGenerated = ref(false)
 const generatedURL = ref('')
 const successMessage = ref('')
 const errorMessage = ref('')
+
+// Image selection
+const showImageSelectionModal = ref(false)
+const availableGraphImages = ref([])
+const showPortfolioModal = ref(false)
+const portfolioImages = ref([])
+const uploadingImage = ref(false)
 
 // Computed
 const isConfigValid = computed(() => {
@@ -520,39 +604,140 @@ const generateAIDescription = async () => {
 const autoSelectImageFromGraph = () => {
   if (!graphData.value.nodes || graphData.value.nodes.length === 0) return
 
-  // Find first image in nodes
+  // Find all images in the graph
+  const foundImages = []
+
   for (const node of graphData.value.nodes) {
+    // Direct image nodes
     if (node.type === 'image' || node.type === 'markdown-image') {
-      seoConfig.value.ogImage = node.path || node.url || ''
-      return
+      const imageUrl = node.path || node.url || ''
+      if (imageUrl) {
+        foundImages.push({
+          url: imageUrl,
+          title: node.label || node.title || 'Image',
+          source: 'Direct image node'
+        })
+      }
     }
 
-    // Check for images in node content (markdown)
+    // Images in markdown content
     if (node.info && typeof node.info === 'string') {
-      const imageMatch = node.info.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/)
-      if (imageMatch && imageMatch[1]) {
-        seoConfig.value.ogImage = imageMatch[1]
-        return
+      const imageMatches = node.info.matchAll(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g)
+      for (const match of imageMatches) {
+        foundImages.push({
+          url: match[2],
+          title: match[1] || node.label || 'Image from content',
+          source: `From node: ${node.label || 'Untitled'}`
+        })
+      }
+    }
+
+    // Check for imgix or other image URLs in various node properties
+    const checkProperties = ['path', 'url', 'src', 'image', 'thumbnail']
+    for (const prop of checkProperties) {
+      if (node[prop] && typeof node[prop] === 'string' && node[prop].match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i)) {
+        foundImages.push({
+          url: node[prop],
+          title: node.label || node.title || 'Image',
+          source: `Property: ${prop}`
+        })
       }
     }
   }
 
-  // If no image found, you could set a default
-  // seoConfig.value.ogImage = 'https://vegvisr.imgix.net/default-og-image.jpg'
+  // If we found images, show selection modal
+  if (foundImages.length > 0) {
+    availableGraphImages.value = foundImages
+    showImageSelectionModal.value = true
+  } else {
+    // Set a default image if no images found
+    seoConfig.value.ogImage = 'https://vegvisr.imgix.net/default-og-image.jpg'
+    successMessage.value = 'No images found in graph, using default image'
+    setTimeout(() => { successMessage.value = '' }, 3000)
+  }
 }
 
 const clearOGImage = () => {
   seoConfig.value.ogImage = ''
 }
 
-const openImageSelector = () => {
-  // TODO: Integrate with your existing portfolio image selector
-  alert('Image selector coming soon - for now, paste image URL or use auto-select')
+const selectImageFromGraph = (imageUrl) => {
+  seoConfig.value.ogImage = imageUrl
+  showImageSelectionModal.value = false
+  successMessage.value = 'Image selected successfully!'
+  setTimeout(() => { successMessage.value = '' }, 3000)
+}
+
+const openImageSelector = async () => {
+  try {
+    // Load portfolio images from your existing API
+    const response = await fetch('https://vegvisr.imgix.net/api/images') // Adjust URL as needed
+    if (response.ok) {
+      portfolioImages.value = await response.json()
+      showPortfolioModal.value = true
+    } else {
+      // Fallback: show manual input
+      const url = prompt('Enter image URL:')
+      if (url && url.startsWith('http')) {
+        seoConfig.value.ogImage = url
+        successMessage.value = 'Image URL added successfully!'
+        setTimeout(() => { successMessage.value = '' }, 3000)
+      }
+    }
+  } catch (error) {
+    console.error('Error loading portfolio:', error)
+    // Fallback: show manual input
+    const url = prompt('Enter image URL:')
+    if (url && url.startsWith('http')) {
+      seoConfig.value.ogImage = url
+      successMessage.value = 'Image URL added successfully!'
+      setTimeout(() => { successMessage.value = '' }, 3000)
+    }
+  }
+}
+
+const selectPortfolioImage = (imageUrl) => {
+  seoConfig.value.ogImage = imageUrl
+  showPortfolioModal.value = false
+  successMessage.value = 'Portfolio image selected!'
+  setTimeout(() => { successMessage.value = '' }, 3000)
 }
 
 const openCustomImageUpload = () => {
-  // TODO: Integrate with your existing R2 upload system
-  alert('Custom upload coming soon - for now, paste image URL or use auto-select')
+  // Create a file input element
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    uploadingImage.value = true
+    try {
+      // TODO: Replace with your actual R2 upload endpoint
+      const formData = new FormData()
+      formData.append('image', file)
+
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        seoConfig.value.ogImage = result.url
+        successMessage.value = 'Image uploaded successfully!'
+      } else {
+        throw new Error('Upload failed')
+      }
+    } catch (error) {
+      console.error('Upload error:', error)
+      errorMessage.value = 'Failed to upload image: ' + error.message
+    } finally {
+      uploadingImage.value = false
+    }
+  }
+  input.click()
 }
 
 const testWorkerConnection = async () => {
@@ -1064,6 +1249,139 @@ onMounted(async () => {
   margin-bottom: 0.5rem;
 }
 
+/* Manual URL Input */
+.manual-url-input {
+  margin-bottom: 1rem;
+}
+
+.url-input-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.url-input-group input {
+  flex: 1;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 800px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+  background: #f8f9fa;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.btn-close:hover {
+  background: #e9ecef;
+  color: #2c3e50;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+/* Image Grid */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.image-option {
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.image-option:hover {
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.image-option .thumbnail {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-info {
+  padding: 0.75rem;
+}
+
+.image-title {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-source {
+  font-size: 0.75rem;
+  color: #6c757d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Loading States */
+.spinner-border-sm {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .header-title {
@@ -1092,6 +1410,19 @@ onMounted(async () => {
 
   .action-buttons .btn {
     width: 100%;
+  }
+
+  .url-input-group {
+    flex-direction: column;
+  }
+
+  .image-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+
+  .modal-content {
+    margin: 1rem;
+    max-height: 90vh;
   }
 }
 </style>
