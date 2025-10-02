@@ -98,20 +98,34 @@ async function handleGenerate(request, env, corsHeaders) {
     })
 
     // Store in KV (if env.SEO_PAGES is configured)
+    console.log('Checking KV binding:', !!env.SEO_PAGES)
     if (env.SEO_PAGES) {
-      await env.SEO_PAGES.put(`graph:${slug}`, JSON.stringify({
-        graphId,
-        slug,
-        title,
-        description,
-        ogImage,
-        keywords,
-        html,
-        createdAt: new Date().toISOString(),
-      }))
+      try {
+        const pageData = {
+          graphId,
+          slug,
+          title,
+          description,
+          ogImage,
+          keywords,
+          html,
+          createdAt: new Date().toISOString(),
+        }
+        
+        console.log('Storing page data for slug:', slug)
+        await env.SEO_PAGES.put(`graph:${slug}`, JSON.stringify(pageData))
 
-      // Also store a mapping from graphId to slug
-      await env.SEO_PAGES.put(`mapping:${graphId}`, slug)
+        // Also store a mapping from graphId to slug
+        console.log('Storing mapping for graphId:', graphId)
+        await env.SEO_PAGES.put(`mapping:${graphId}`, slug)
+        
+        console.log('Successfully stored data in KV')
+      } catch (kvError) {
+        console.error('KV storage error:', kvError)
+        // Continue execution even if KV fails
+      }
+    } else {
+      console.log('No KV binding available - data not stored')
     }
 
     return new Response(
@@ -155,23 +169,36 @@ async function handleGraphPage(request, env, url, corsHeaders) {
 
   // Try to get the page from KV
   let pageData = null
+  console.log('Looking for slug:', slug)
+  console.log('KV binding available:', !!env.SEO_PAGES)
+  
   if (env.SEO_PAGES) {
-    const stored = await env.SEO_PAGES.get(`graph:${slug}`)
-    if (stored) {
-      pageData = JSON.parse(stored)
+    try {
+      const stored = await env.SEO_PAGES.get(`graph:${slug}`)
+      console.log('KV get result for graph:' + slug + ':', stored ? 'found' : 'not found')
+      if (stored) {
+        pageData = JSON.parse(stored)
+        console.log('Parsed page data:', { title: pageData.title, graphId: pageData.graphId })
+      }
+    } catch (kvError) {
+      console.error('KV retrieval error:', kvError)
     }
   }
 
   if (!pageData) {
+    console.log('No page data found for slug:', slug)
     return new Response('Page not found', { status: 404, headers: corsHeaders })
   }
 
   const userAgent = request.headers.get('User-Agent') || ''
+  console.log('User-Agent:', userAgent)
 
   // Detect if this is a crawler
   const isCrawler = detectCrawler(userAgent)
+  console.log('Is crawler:', isCrawler)
 
   if (isCrawler) {
+    console.log('Serving static HTML to crawler')
     // Serve the static HTML to crawlers
     return new Response(pageData.html, {
       status: 200,
@@ -182,8 +209,9 @@ async function handleGraphPage(request, env, url, corsHeaders) {
       },
     })
   } else {
+    console.log('Redirecting regular user to Vue app')
     // Redirect users to the Vue app with the graphId
-    const redirectUrl = `https://${url.host}/gnew-viewer?graphId=${pageData.graphId}`
+    const redirectUrl = `https://www.vegvisr.org/gnew-viewer?graphId=${pageData.graphId}`
     return Response.redirect(redirectUrl, 302)
   }
 }

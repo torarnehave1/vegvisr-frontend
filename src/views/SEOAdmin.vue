@@ -251,6 +251,11 @@
         </div>
         <div class="card-body">
           <div class="action-buttons">
+            <button @click="testWorkerConnection" class="btn btn-outline-info" :disabled="testingConnection">
+              <span v-if="testingConnection" class="spinner-border spinner-border-sm me-2"></span>
+              {{ testingConnection ? 'Testing...' : '🔍 Test Worker Connection' }}
+            </button>
+
             <button
               @click="generateStaticPage"
               class="btn btn-success btn-lg"
@@ -358,6 +363,7 @@ const seoConfig = ref({
 const slugError = ref('')
 const generatingDescription = ref(false)
 const generating = ref(false)
+const testingConnection = ref(false)
 const staticPageGenerated = ref(false)
 const generatedURL = ref('')
 const successMessage = ref('')
@@ -365,12 +371,21 @@ const errorMessage = ref('')
 
 // Computed
 const isConfigValid = computed(() => {
-  return (
+  const hasRequiredFields = (
     seoConfig.value.slug &&
     !slugError.value &&
-    seoConfig.value.description &&
-    seoConfig.value.ogImage
+    seoConfig.value.description
   )
+  
+  console.log('Config validation:', {
+    slug: seoConfig.value.slug,
+    slugError: slugError.value,
+    description: seoConfig.value.description,
+    ogImage: seoConfig.value.ogImage,
+    isValid: hasRequiredFields
+  })
+  
+  return hasRequiredFields
 })
 
 // Methods
@@ -540,6 +555,32 @@ const openCustomImageUpload = () => {
   alert('Custom upload coming soon - for now, paste image URL or use auto-select')
 }
 
+const testWorkerConnection = async () => {
+  testingConnection.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    console.log('Testing worker connection...')
+    const response = await fetch('https://seo.vegvisr.org/health')
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    
+    const result = await response.json()
+    console.log('Health check result:', result)
+    
+    successMessage.value = `✅ Worker connection successful! Status: ${result.status}`
+    
+  } catch (error) {
+    console.error('Worker connection failed:', error)
+    errorMessage.value = `❌ Worker connection failed: ${error.message}`
+  } finally {
+    testingConnection.value = false
+  }
+}
+
 const generateStaticPage = async () => {
   if (!isConfigValid.value) {
     errorMessage.value = 'Please complete all required fields'
@@ -552,10 +593,18 @@ const generateStaticPage = async () => {
 
   try {
     // Call the SEO Worker to generate static page
-    // Use seo.vegvisr.org in production or fallback to workers.dev
-    const workerUrl = import.meta.env.PROD
-      ? 'https://seo.vegvisr.org/generate'
-      : 'https://seo-worker.vegvisr.workers.dev/generate'
+    const workerUrl = 'https://seo.vegvisr.org/generate'
+
+    console.log('Sending request to:', workerUrl)
+    console.log('Request payload:', {
+      graphId: currentGraph.value,
+      slug: seoConfig.value.slug,
+      title: seoConfig.value.title || graphData.value.metadata?.title,
+      description: seoConfig.value.description,
+      ogImage: seoConfig.value.ogImage,
+      keywords: seoConfig.value.keywords,
+      graphData: graphData.value,
+    })
 
     const response = await fetch(workerUrl, {
       method: 'POST',
@@ -565,7 +614,7 @@ const generateStaticPage = async () => {
       body: JSON.stringify({
         graphId: currentGraph.value,
         slug: seoConfig.value.slug,
-        title: seoConfig.value.title,
+        title: seoConfig.value.title || graphData.value.metadata?.title || 'Untitled Graph',
         description: seoConfig.value.description,
         ogImage: seoConfig.value.ogImage,
         keywords: seoConfig.value.keywords,
@@ -573,20 +622,34 @@ const generateStaticPage = async () => {
       }),
     })
 
+    console.log('Response status:', response.status)
+    
     if (!response.ok) {
-      const error = await response.text()
-      throw new Error(error || 'Failed to generate static page')
+      let errorText
+      try {
+        const errorData = await response.json()
+        errorText = errorData.error || errorData.message || 'Unknown error'
+      } catch {
+        errorText = await response.text()
+      }
+      throw new Error(`HTTP ${response.status}: ${errorText}`)
     }
 
-    await response.json()
+    const result = await response.json()
+    console.log('Response data:', result)
 
-    generatedURL.value = `https://www.vegvisr.org/graph/${seoConfig.value.slug}`
+    generatedURL.value = result.url || `https://seo.vegvisr.org/graph/${seoConfig.value.slug}`
     staticPageGenerated.value = true
     successMessage.value = '✅ Static page generated successfully!'
 
   } catch (error) {
     console.error('Error generating static page:', error)
     errorMessage.value = 'Failed to generate static page: ' + error.message
+    
+    // Additional debugging info
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      errorMessage.value += ' (Network error - check if worker is deployed and accessible)'
+    }
   } finally {
     generating.value = false
   }
