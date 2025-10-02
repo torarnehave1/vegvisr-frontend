@@ -164,7 +164,7 @@
                     class="form-control"
                     placeholder="https://example.com/image.jpg"
                   />
-                  <button 
+                  <button
                     @click="seoConfig.ogImage = ''"
                     class="btn btn-outline-danger btn-sm"
                     :disabled="!seoConfig.ogImage"
@@ -186,8 +186,8 @@
                 <button @click="openImageSelector" class="btn btn-outline-secondary">
                   🖼️ Choose from Portfolio
                 </button>
-                <button 
-                  @click="openCustomImageUpload" 
+                <button
+                  @click="openCustomImageUpload"
                   class="btn btn-outline-info"
                   :disabled="uploadingImage"
                 >
