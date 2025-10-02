@@ -206,6 +206,34 @@
             <small class="form-text text-muted">
               Recommended: 1200x630px for best Facebook/Twitter display
             </small>
+
+            <!-- Debug Information Panel -->
+            <div v-if="selectedGraphId && graphData" class="debug-panel mt-3">
+              <details>
+                <summary class="text-muted" style="cursor: pointer;">
+                  🔍 Debug: Image Detection Info ({{ availableGraphImages.length || 0 }} found)
+                </summary>
+                <div class="debug-content mt-2 p-3" style="background: #f8f9fa; border-radius: 6px; font-size: 0.85em;">
+                  <div><strong>Graph ID:</strong> {{ selectedGraphId }}</div>
+                  <div><strong>Total Nodes:</strong> {{ graphData.nodes?.length || 0 }}</div>
+                  <div v-if="availableGraphImages.length > 0">
+                    <strong>Images Found:</strong>
+                    <ul class="mt-1 mb-0">
+                      <li v-for="(img, i) in availableGraphImages" :key="i" class="mb-1">
+                        <small>
+                          <strong>{{ img.title }}</strong><br>
+                          URL: <code>{{ img.url }}</code><br>
+                          Source: {{ img.source }}
+                        </small>
+                      </li>
+                    </ul>
+                  </div>
+                  <div v-else class="text-muted">
+                    No images detected in this graph. Check the browser console for detailed logs.
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
 
           <!-- Keywords/Tags -->
@@ -609,15 +637,23 @@ const generateAIDescription = async () => {
 }
 
 const autoSelectImageFromGraph = () => {
-  if (!graphData.value.nodes || graphData.value.nodes.length === 0) return
+  if (!graphData.value.nodes || graphData.value.nodes.length === 0) {
+    console.log('SEO Admin: No nodes found in graph data')
+    return
+  }
 
+  console.log('SEO Admin: Starting image detection for', graphData.value.nodes.length, 'nodes')
+  
   // Find all images in the graph
   const foundImages = []
 
   for (const node of graphData.value.nodes) {
+    console.log('SEO Admin: Checking node:', node.label || node.id, 'Type:', node.type)
+    
     // Direct image nodes
     if (node.type === 'image' || node.type === 'markdown-image') {
       const imageUrl = node.path || node.url || ''
+      console.log('SEO Admin: Found image node with URL:', imageUrl)
       if (imageUrl) {
         foundImages.push({
           url: imageUrl,
@@ -629,47 +665,108 @@ const autoSelectImageFromGraph = () => {
 
     // Images in markdown content
     if (node.info && typeof node.info === 'string') {
-      const imageMatches = node.info.matchAll(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g)
-      for (const match of imageMatches) {
-        foundImages.push({
-          url: match[2],
-          title: match[1] || node.label || 'Image from content',
-          source: `From node: ${node.label || 'Untitled'}`
-        })
+      // Enhanced markdown pattern to catch more variations
+      const markdownPatterns = [
+        /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,  // Standard markdown
+        /!\[(.*?)\]\(([^)\s]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi,  // Any image extension
+        /!\[\]\((https?:\/\/[^\s)]+\.(jpg|jpeg|png|gif|webp|svg)[^)]*)\)/gi  // Empty alt text
+      ]
+      
+      for (const pattern of markdownPatterns) {
+        const imageMatches = node.info.matchAll(pattern)
+        for (const match of imageMatches) {
+          console.log('SEO Admin: Found markdown image:', match[2] || match[1])
+          foundImages.push({
+            url: match[2] || match[1],
+            title: match[1] || node.label || 'Image from content',
+            source: `Markdown from: ${node.label || 'Untitled'}`
+          })
+        }
       }
     }
 
-    // Images in HTML content (img tags)
+    // Images in HTML content (img tags) - enhanced detection
     if (node.info && typeof node.info === 'string') {
-      // Look for HTML img tags with src attribute
-      const htmlImageMatches = node.info.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*(?:alt=["']([^"']*)["'])?[^>]*>/gi)
-      for (const match of htmlImageMatches) {
-        const imageUrl = match[1]
-        const altText = match[2] || ''
+      // Multiple patterns to catch different HTML img tag formats
+      const htmlPatterns = [
+        /<img[^>]+src=["']([^"']+)["'][^>]*(?:alt=["']([^"']*)["'])?[^>]*>/gi,  // Standard
+        /<img[^>]+src=([^\s>]+)[^>]*>/gi,  // No quotes around src
+        /<img[^>]*data-src=["']([^"']+)["'][^>]*/gi  // Lazy loading images
+      ]
+      
+      for (const pattern of htmlPatterns) {
+        const htmlImageMatches = node.info.matchAll(pattern)
+        for (const match of htmlImageMatches) {
+          const imageUrl = match[1]
+          const altText = match[2] || ''
 
-        // Decode HTML entities in the URL
-        const decodedUrl = imageUrl.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+          // Decode HTML entities in the URL
+          const decodedUrl = imageUrl.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+          console.log('SEO Admin: Found HTML image:', decodedUrl)
 
+          foundImages.push({
+            url: decodedUrl,
+            title: altText || node.label || 'HTML Image',
+            source: `HTML img from: ${node.label || 'Untitled'}`
+          })
+        }
+      }
+    }
+
+    // Check for URLs that look like images anywhere in the content
+    if (node.info && typeof node.info === 'string') {
+      const urlPattern = /(https?:\/\/[^\s<>"']+\.(jpg|jpeg|png|gif|webp|svg)(?:\?[^\s<>"']*)?)/gi
+      const urlMatches = node.info.matchAll(urlPattern)
+      for (const match of urlMatches) {
+        console.log('SEO Admin: Found URL image:', match[1])
         foundImages.push({
-          url: decodedUrl,
-          title: altText || node.label || 'HTML Image',
-          source: `HTML img from: ${node.label || 'Untitled'}`
+          url: match[1],
+          title: node.label || 'URL Image',
+          source: `URL from: ${node.label || 'Untitled'}`
         })
       }
     }
 
-    // Check for imgix or other image URLs in various node properties
-    const checkProperties = ['path', 'url', 'src', 'image', 'thumbnail']
+    // Check for imgix or other image URLs in various node properties (enhanced)
+    const checkProperties = ['path', 'url', 'src', 'image', 'thumbnail', 'imageUrl', 'img', 'photo']
     for (const prop of checkProperties) {
-      if (node[prop] && typeof node[prop] === 'string' && node[prop].match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i)) {
-        foundImages.push({
-          url: node[prop],
-          title: node.label || node.title || 'Image',
-          source: `Property: ${prop}`
-        })
+      if (node[prop] && typeof node[prop] === 'string') {
+        // More flexible image detection
+        if (node[prop].match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$|#)/i) || 
+            node[prop].includes('imgix.net') || 
+            node[prop].includes('cloudinary.com') ||
+            node[prop].includes('unsplash.com')) {
+          console.log(`SEO Admin: Found image in property ${prop}:`, node[prop])
+          foundImages.push({
+            url: node[prop],
+            title: node.label || node.title || 'Image',
+            source: `Property: ${prop}`
+          })
+        }
       }
     }
   }
+
+  console.log('SEO Admin: Total images found:', foundImages.length)
+  foundImages.forEach((img, i) => console.log(`Image ${i + 1}:`, img.url, 'from', img.source))
+
+  // Debug: Log all node data for analysis
+  console.log('SEO Admin: Detailed node analysis:')
+  graphData.value.nodes.forEach((node, i) => {
+    console.log(`Node ${i + 1}:`, {
+      id: node.id,
+      label: node.label,
+      type: node.type,
+      hasInfo: !!node.info,
+      infoLength: node.info?.length || 0,
+      infoPreview: node.info?.substring(0, 100) + (node.info?.length > 100 ? '...' : ''),
+      hasPath: !!node.path,
+      path: node.path,
+      hasUrl: !!node.url,
+      url: node.url,
+      allProperties: Object.keys(node)
+    })
+  })
 
   // If we found images, show selection modal
   if (foundImages.length > 0) {
