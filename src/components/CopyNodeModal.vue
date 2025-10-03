@@ -170,6 +170,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+
+// Store access
+const userStore = useUserStore()
 
 const props = defineProps({
   nodeData: {
@@ -433,7 +437,7 @@ const copyToNewGraph = async () => {
       metadata: {
         title: newGraphTitle.value.trim(),
         description: newGraphDescription.value.trim() || 'Created by copying a node',
-        createdBy: 'User', // You might want to get this from auth context
+        createdBy: userStore.email || userStore.user?.email || userStore.user || 'user',
         category: '',
         metaArea: '',
         version: 1,
