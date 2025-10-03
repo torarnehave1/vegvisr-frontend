@@ -418,7 +418,11 @@ const copyToNewGraph = async () => {
     console.log('New graph title:', newGraphTitle.value)
     console.log('New graph description:', newGraphDescription.value)
 
-    // Create a new graph with the copied node
+    // Generate unique ID for new graph (same as GnewAdmin)
+    const newGraphId = `graph_${Date.now()}`
+    console.log('Creating new graph with ID:', newGraphId)
+
+    // Create a new graph with the copied node (using same structure as GnewAdmin)
     const newNodeId = crypto.randomUUID()
     const copiedNode = {
       ...props.nodeData,
@@ -428,10 +432,13 @@ const copyToNewGraph = async () => {
     const newGraphData = {
       metadata: {
         title: newGraphTitle.value.trim(),
-        description: newGraphDescription.value.trim(),
+        description: newGraphDescription.value.trim() || 'Created by copying a node',
         createdBy: 'User', // You might want to get this from auth context
-        updatedAt: new Date().toISOString(),
         category: '',
+        metaArea: '',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
       nodes: [copiedNode],
       edges: [],
@@ -439,28 +446,40 @@ const copyToNewGraph = async () => {
 
     console.log('New graph data:', newGraphData)
 
-    // Create the new graph
-    const response = await fetch('https://knowledge.vegvisr.org/createknowgraph', {
+    // Use saveGraphWithHistory endpoint for proper versioning (same as GnewAdmin)
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        id: newGraphId,
         graphData: newGraphData,
+        override: true, // For new graphs, override any conflicts
       }),
     })
 
     if (!response.ok) {
-      throw new Error('Failed to create new graph')
+      const errorText = await response.text()
+      throw new Error(`Failed to create new graph: ${response.status} - ${errorText}`)
     }
 
     const result = await response.json()
     console.log('New graph created successfully:', result)
 
+    // Extract the new graph ID and version from the response
+    const responseGraphId = result.id
+    const version = result.newVersion
+    console.log(`New graph created with ID: ${responseGraphId}, Version: ${version}`)
+
     // Emit success event
     emit('node-copied', {
       sourceNode: props.nodeData,
-      targetGraph: { id: result.id, ...newGraphData },
+      targetGraph: {
+        id: responseGraphId,
+        ...newGraphData.metadata,
+        version: version
+      },
       newNodeId: newNodeId,
       newGraphCreated: true,
     })
@@ -482,9 +501,7 @@ const copyToNewGraph = async () => {
   } finally {
     creatingNewGraph.value = false
   }
-}
-
-// Expose methods for parent component
+}// Expose methods for parent component
 defineExpose({
   show: () => {
     fetchGraphs()
