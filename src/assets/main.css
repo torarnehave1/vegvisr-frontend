@@ -1784,6 +1784,16 @@ html body div[style*='display: grid'] .grid-item img {
   z-index: 99999 !important;
 }
 
+/* Image selector modal must appear above edit modals */
+.image-selector-modal {
+  z-index: 100000 !important;
+}
+
+/* AI Image modal must appear above image selector */
+.ai-image-modal {
+  z-index: 100001 !important;
+}
+
 /* Fix potential viewport issues on mobile */
 @media (max-width: 480px) {
   .modal-overlay {
