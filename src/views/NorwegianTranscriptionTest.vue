@@ -458,10 +458,14 @@ const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120) => {
         const numChunks = Math.ceil(totalSamples / chunkSamples)
 
         const chunks = []
+        
+        console.log(`🔧 Audio info: ${totalSamples} samples, ${sampleRate}Hz, ${numChunks} chunks needed`)
 
         for (let i = 0; i < numChunks; i++) {
           const startSample = i * chunkSamples
           const endSample = Math.min(startSample + chunkSamples, totalSamples)
+          
+          console.log(`🎵 Creating chunk ${i + 1}: samples ${startSample}-${endSample}`)
 
           // Create new audio buffer for this chunk
           const chunkBuffer = audioContext.createBuffer(
@@ -481,6 +485,9 @@ const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120) => {
 
           // Convert chunk buffer to blob
           const chunkBlob = await audioBufferToBlob(chunkBuffer)
+          
+          console.log(`✅ Chunk ${i + 1} created: ${chunkBlob.size} bytes, ${chunkBuffer.duration.toFixed(2)}s`)
+          
           chunks.push({
             blob: chunkBlob,
             index: i,
@@ -797,6 +804,13 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     try {
       const chunkStart = performance.now()
 
+      // Validate chunk before processing
+      if (!chunks[i].blob || chunks[i].blob.size === 0) {
+        throw new Error(`Chunk ${i + 1} is empty or invalid`)
+      }
+      
+      console.log(`🎯 Processing chunk ${i + 1}: ${chunks[i].blob.size} bytes, ${chunks[i].blob.type}`)
+
       // Process this chunk
       const formData = new FormData()
       formData.append('audio', chunks[i].blob, `${fileName}_chunk_${i + 1}.wav`)
@@ -811,8 +825,17 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
         body: formData,
       })
 
+      console.log(`📡 Chunk ${i + 1} request sent, response status: ${transcribeResponse.status}`)
+      
+      // Log response details for debugging 500 errors
       if (!transcribeResponse.ok) {
-        throw new Error(`Chunk ${i + 1} failed: ${transcribeResponse.status}`)
+        const errorText = await transcribeResponse.text()
+        console.error(`❌ Chunk ${i + 1} error response:`, errorText)
+      }
+
+      if (!transcribeResponse.ok) {
+        const errorText = await transcribeResponse.text()
+        throw new Error(`Chunk ${i + 1} failed: ${transcribeResponse.status} - ${errorText}`)
       }
 
       const result = await transcribeResponse.json()
