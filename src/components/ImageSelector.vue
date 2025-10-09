@@ -1,6 +1,7 @@
 <template>
-  <div v-if="isOpen" class="image-selector-modal">
-    <div class="image-selector-content">
+  <Teleport to="body">
+    <div v-if="isOpen" class="image-selector-modal">
+      <div class="image-selector-content">
       <div class="image-selector-header">
         <h3>🖼️ Change Image</h3>
         <button class="image-selector-close" @click="closeModal" title="Close">&times;</button>
@@ -499,7 +500,8 @@
       @close="closePortfolioModal"
       @image-selected="handlePortfolioImageSelected"
     />
-  </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
