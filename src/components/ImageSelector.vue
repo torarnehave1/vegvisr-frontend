@@ -1480,7 +1480,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 3000;
+  z-index: 100000 !important;
   backdrop-filter: blur(4px);
 }
 
