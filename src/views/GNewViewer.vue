@@ -3366,7 +3366,7 @@ const createNewTitleNode = async () => {
   try {
     // Use the existing node creation handler
     await handleNodeCreated(newTitleNode)
-    
+
     console.log('✅ New Title node created successfully:', newTitleNode)
   } catch (error) {
     console.error('❌ Error creating Title node:', error)
