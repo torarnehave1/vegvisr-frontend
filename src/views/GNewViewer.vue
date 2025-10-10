@@ -3293,7 +3293,7 @@ const createNewFullTextNode = async () => {
   try {
     // Use the existing node creation handler
     await handleNodeCreated(newFullTextNode)
-    
+
     console.log('✅ New FullText node created successfully:', newFullTextNode)
   } catch (error) {
     console.error('❌ Error creating FullText node:', error)
