@@ -107,13 +107,6 @@
         <!-- Action Buttons (Mobile) -->
         <div class="mobile-menu-section">
           <h6>Actions</h6>
-          <button @click="loadGraphAndClose" class="btn btn-primary w-100 mb-2" :disabled="loading">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-            {{ loading ? 'Loading...' : 'Load Graph' }}
-          </button>
-          <button @click="refreshDataAndClose" class="btn btn-outline-secondary w-100 mb-2">
-            🔄 Refresh
-          </button>
           <button
             v-if="userStore.loggedIn"
             @click="navigateToProfessionalFeedAndClose"
@@ -258,11 +251,6 @@
 
         <!-- Desktop Action Toolbar (hidden on mobile) -->
         <div class="action-toolbar d-none d-md-flex">
-          <button @click="loadGraph" class="btn btn-primary" :disabled="loading">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-            {{ loading ? 'Loading...' : 'Load Graph' }}
-          </button>
-          <button @click="refreshData" class="btn btn-outline-secondary">🔄 Refresh</button>
           <button
             v-if="userStore.loggedIn"
             @click="navigateToProfessionalFeed"
@@ -293,6 +281,13 @@
             minRole="User"
             @node-created="handleEnhancedAINodeCreated"
           />
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewFullTextNode"
+            class="btn btn-outline-primary"
+          >
+            📝 New FullText Node
+          </button>
           <button
             @click="openShareModal"
             class="btn btn-outline-success"
@@ -2608,10 +2603,6 @@ const loadGraph = async () => {
   }
 }
 
-const refreshData = () => {
-  loadGraph()
-}
-
 // Password verification functions
 const verifyPassword = async () => {
   if (!passwordInput.value.trim()) {
@@ -2928,16 +2919,6 @@ const printGraph = () => {
 }
 
 // Mobile menu action wrappers (perform action and close menu)
-const loadGraphAndClose = async () => {
-  closeMobileMenu()
-  await loadGraph()
-}
-
-const refreshDataAndClose = () => {
-  closeMobileMenu()
-  refreshData()
-}
-
 const duplicateGraphAndClose = async () => {
   closeMobileMenu()
   await duplicateKnowledgeGraph()
@@ -3279,6 +3260,47 @@ const duplicateKnowledgeGraph = async () => {
     }, 5000)
   } finally {
     duplicatingGraph.value = false
+  }
+}
+
+// FullText Node Creation
+const createNewFullTextNode = async () => {
+  console.log('🆕 Creating new FullText node...')
+
+  // Generate UUID using the existing pattern
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  // Create new fulltext node with default content
+  const newFullTextNode = {
+    id: newNodeId,
+    label: 'New FullText Node',
+    color: '#f8f9fa',
+    type: 'fulltext',
+    info: 'This is a new FullText node. Click to edit and add your content here.',
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: 0 }, // Will be positioned by the system
+  }
+
+  try {
+    // Use the existing node creation handler
+    await handleNodeCreated(newFullTextNode)
+    
+    console.log('✅ New FullText node created successfully:', newFullTextNode)
+  } catch (error) {
+    console.error('❌ Error creating FullText node:', error)
+    statusMessage.value = `❌ Failed to create FullText node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
   }
 }
 
