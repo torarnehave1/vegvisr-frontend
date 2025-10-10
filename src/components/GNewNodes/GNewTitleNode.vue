@@ -240,20 +240,17 @@ const deleteNode = () => {
 /* Special title styling variations */
 .title-level-1 {
   background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border: 2px solid #007bff;
+  border: 2px solid #e9ecef;
   padding: 40px 30px;
 }
 
 .title-level-1 .title-text {
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #2c3e50;
 }
 
 .title-level-2 {
   background: #f8f9fa;
-  border-left: 4px solid #007bff;
+  border-left: 4px solid #6c757d;
 }
 
 .title-level-3 {

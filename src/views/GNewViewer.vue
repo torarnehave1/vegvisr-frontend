@@ -131,6 +131,20 @@
             🎨 Create IMAGEQUOTE
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewFullTextNodeAndClose"
+            class="btn btn-outline-primary w-100 mb-2"
+          >
+            📝 New FullText Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewTitleNodeAndClose"
+            class="btn btn-outline-secondary w-100 mb-2"
+          >
+            📋 New Title Node
+          </button>
+          <button
             @click="openShareAndClose"
             class="btn btn-outline-success w-100 mb-2"
             :disabled="!graphData.nodes.length"
@@ -287,6 +301,13 @@
             class="btn btn-outline-primary"
           >
             📝 New FullText Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewTitleNode"
+            class="btn btn-outline-secondary"
+          >
+            📋 New Title Node
           </button>
           <button
             @click="openShareModal"
@@ -2944,6 +2965,17 @@ const navigateToProfessionalFeedAndClose = () => {
   navigateToProfessionalFeed()
 }
 
+// Node creation mobile wrappers
+const createNewFullTextNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewFullTextNode()
+}
+
+const createNewTitleNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewTitleNode()
+}
+
 // Mobile menu template system integration
 const toggleMobileCategory = (category) => {
   const index = mobileExpandedCategories.value.indexOf(category)
@@ -3298,6 +3330,47 @@ const createNewFullTextNode = async () => {
   } catch (error) {
     console.error('❌ Error creating FullText node:', error)
     statusMessage.value = `❌ Failed to create FullText node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+// Title Node Creation
+const createNewTitleNode = async () => {
+  console.log('🆕 Creating new Title node...')
+
+  // Generate UUID using the existing pattern
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  // Create new title node with default content
+  const newTitleNode = {
+    id: newNodeId,
+    label: 'New Title Node',
+    color: '#007bff',
+    type: 'title',
+    info: 'This is a new Title node. Click to edit and add your title text here.',
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: 0 }, // Will be positioned by the system
+  }
+
+  try {
+    // Use the existing node creation handler
+    await handleNodeCreated(newTitleNode)
+    
+    console.log('✅ New Title node created successfully:', newTitleNode)
+  } catch (error) {
+    console.error('❌ Error creating Title node:', error)
+    statusMessage.value = `❌ Failed to create Title node: ${error.message}`
     setTimeout(() => {
       statusMessage.value = ''
     }, 5000)
