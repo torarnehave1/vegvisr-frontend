@@ -145,6 +145,13 @@
             📋 New Title Node
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewYouTubeNodeAndClose"
+            class="btn btn-outline-danger w-100 mb-2"
+          >
+            📺 New YouTube Video
+          </button>
+          <button
             @click="openShareAndClose"
             class="btn btn-outline-success w-100 mb-2"
             :disabled="!graphData.nodes.length"
@@ -310,6 +317,13 @@
             📋 New Title Node
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewYouTubeNode"
+            class="btn btn-outline-danger"
+          >
+            📺 New YouTube Video
+          </button>
+          <button
             @click="openShareModal"
             class="btn btn-outline-success"
             :disabled="!graphData.nodes.length"
@@ -338,6 +352,21 @@
                   class="form-control"
                   placeholder="Enter node title..."
                 />
+              </div>
+
+              <!-- YouTube URL Path Field (for youtube-video nodes) -->
+              <div v-if="editingNode.type === 'youtube-video'" class="form-group">
+                <label class="form-label">📺 YouTube URL (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="url"
+                  class="form-control"
+                  placeholder="Enter YouTube URL (e.g., https://www.youtube.com/watch?v=...)..."
+                />
+                <small class="form-text text-muted">
+                  Enter the full YouTube URL. This will be stored as the node's path property and bibliography.
+                  <br><strong>Note:</strong> Leave empty for nodes that don't need a specific YouTube URL.
+                </small>
               </div>
 
               <div class="form-group">
@@ -1279,57 +1308,8 @@
           </p>
         </div>
 
-        <!-- IMAGEQUOTE Instructions (Admin Only) -->
-        <div
-          v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
-          class="imagequote-instructions"
-        >
-          <h3>🎨 IMAGEQUOTE Creation</h3>
-          <p>
-            IMAGEQUOTE elements are inserted directly into graph nodes and rendered within the
-            content. Use the "Create IMAGEQUOTE" button above to generate a new IMAGEQUOTE and
-            insert it into a selected node.
-          </p>
-          <p class="text-muted">
-            Once inserted, IMAGEQUOTE elements will appear in the node content and be rendered by
-            the GNew node renderer. The quotes are permanently saved in the graph database.
-          </p>
-        </div>
 
-        <!-- Development Info (Admin Only) -->
-        <div v-if="userStore.loggedIn && userStore.role === 'Superadmin'" class="dev-info">
-          <h5>🚧 Development Status</h5>
-          <ul>
-            <li>✅ Menu integration complete</li>
-            <li>✅ Superadmin access control</li>
-            <li>✅ Basic graph data loading</li>
-            <li>✅ IMAGEQUOTE component with comprehensive image handling</li>
-            <li>✅ Consolidated IMAGEQUOTE creation interface</li>
-            <li>✅ Upload, AI Generate, URL paste functionality</li>
-            <li>✅ Portfolio image selection with quality controls</li>
-            <li>✅ Export functionality with multiple formats</li>
-            <li>✅ Live preview in creator modal</li>
-            <li>✅ Font size control</li>
-            <li>✅ Edit functionality for created IMAGEQUOTES</li>
-            <li>🚧 Modern node rendering (Phase 3.1 - Basic Framework)</li>
-            <li>✅ GNewNodeRenderer dynamic component loader</li>
-            <li>✅ GNewDefaultNode with formatted element parsing</li>
-            <li>✅ [FANCY] element support with styling</li>
-            <li>✅ [SECTION] element support</li>
-            <li>✅ [IMAGEQUOTE] element support</li>
-            <li>✅ [QUOTE] element support with citations</li>
-            <li>
-              ✅ Enhanced image positioning - ![Leftside/Rightside] with
-              Small/Medium/Large/Circle/Shadow variants
-            </li>
-            <li>✅ GNewImageNode for images</li>
-            <li>✅ GNewVideoNode for YouTube videos</li>
-            <li>✅ GNewTitleNode for title content</li>
-            <li>✅ Chart node components (Phase 3.2) - All 6 chart types complete</li>
-            <li>✅ Template Sidebar Infrastructure (Phase 3.3) - Complete with all features</li>
-            <li>⏳ Mermaid Diagram Support (Phase 3.4) - Next phase</li>
-          </ul>
-        </div>
+
       </div>
     </div>
 
@@ -2976,6 +2956,11 @@ const createNewTitleNodeAndClose = async () => {
   await createNewTitleNode()
 }
 
+const createNewYouTubeNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewYouTubeNode()
+}
+
 // Mobile menu template system integration
 const toggleMobileCategory = (category) => {
   const index = mobileExpandedCategories.value.indexOf(category)
@@ -3371,6 +3356,49 @@ const createNewTitleNode = async () => {
   } catch (error) {
     console.error('❌ Error creating Title node:', error)
     statusMessage.value = `❌ Failed to create Title node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+const createNewYouTubeNode = async () => {
+  console.log('🆕 Creating new YouTube Video node...')
+
+  // Generate UUID using the existing pattern
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  // Create new YouTube video node with default content
+  const newYouTubeNode = {
+    id: newNodeId,
+    label: 'YouTube Video Node',
+    color: '#FF0000', // YouTube red
+    type: 'youtube-video',
+    info: 'This is a new YouTube Video node. Edit to add your YouTube video URL and description.',
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null, // Path can be added via edit modal
+    position: { x: 0, y: 0 }, // Will be positioned by the system
+  }
+
+  try {
+    // Use the existing node creation handler
+    await handleNodeCreated(newYouTubeNode)
+
+    console.log('✅ New YouTube Video node created successfully:', newYouTubeNode)
+  } catch (error) {
+    console.error('❌ Error creating YouTube Video node:', error)
+    statusMessage.value = `❌ Failed to create YouTube Video node: ${error.message}`
     setTimeout(() => {
       statusMessage.value = ''
     }, 5000)
@@ -4302,12 +4330,25 @@ const saveNodeChanges = async () => {
     // Update the node in the local graph data
     const nodeIndex = graphData.value.nodes.findIndex((n) => n.id === editingNode.value.id)
     if (nodeIndex !== -1) {
-      graphData.value.nodes[nodeIndex] = {
+      const updatedNode = {
         ...graphData.value.nodes[nodeIndex],
         label: editingNode.value.label,
         info: editingNode.value.info,
         updatedAt: new Date().toISOString(),
       }
+      
+      // For YouTube nodes, also update the path property
+      if (editingNode.value.type === 'youtube-video') {
+        updatedNode.path = editingNode.value.path
+        // Also update bibl array if path is provided (backward compatibility)
+        if (editingNode.value.path && editingNode.value.path.trim()) {
+          updatedNode.bibl = [editingNode.value.path.trim()]
+        } else {
+          updatedNode.bibl = []
+        }
+      }
+      
+      graphData.value.nodes[nodeIndex] = updatedNode
 
       // Save to backend using the same mechanism as GraphViewer
       const response = await fetch(

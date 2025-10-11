@@ -237,6 +237,36 @@ const parseFormattedElements = (text) => {
   return finalHtml
 }
 
+// YouTube URL helper function
+const extractVideoId = (url) => {
+  if (!url) return null
+  
+  const trimmedUrl = url.trim()
+  console.log('🎬 Extracting video ID from:', trimmedUrl)
+  
+  const patterns = [
+    // Regular YouTube URLs
+    /(?:youtube\.com\/watch\?v=)([^&\n?#]+)/,
+    // YouTube shorts and embed URLs  
+    /(?:youtube\.com\/embed\/)([^&\n?#]+)/,
+    // YouTube short URLs
+    /(?:youtu\.be\/)([^&\n?#]+)/,
+    // YouTube URLs with additional parameters
+    /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
+  ]
+
+  for (const pattern of patterns) {
+    const match = trimmedUrl.match(pattern)
+    if (match && match[1]) {
+      console.log('🎬 Video ID extracted:', match[1])
+      return match[1]
+    }
+  }
+  
+  console.log('🎬 No video ID found for URL:', trimmedUrl)
+  return null
+}
+
 // YouTube parsing functions (compatible with GraphViewer)
 const parseYoutubeVideo = (markdown) => {
   // Support GraphViewer markdown format: ![YOUTUBE src=URL]TITLE[END YOUTUBE]
@@ -305,36 +335,54 @@ const formattedContent = computed(() => {
 })
 
 const videoId = computed(() => {
-  if (!props.node.label) return null
+  console.log('🎬 GNewVideoNode computing videoId for node:', props.node.id)
+  console.log('🎬 Node path:', props.node.path)
+  console.log('🎬 Node label:', props.node.label)
+  
+  // First, check the path property for YouTube URL (new format)
+  if (props.node.path) {
+    const id = extractVideoId(props.node.path)
+    if (id) {
+      console.log('🎬 Using video ID from path:', id)
+      return id
+    }
+  }
 
-  // Check if it's GraphViewer format first
+  // Fallback to label for backward compatibility
+  if (!props.node.label) {
+    console.log('🎬 No label found')
+    return null
+  }
+
+  // Check if it's GraphViewer format
   if (isGraphViewerFormat.value) {
     const embedUrl = parseYoutubeVideo(props.node.label)
     if (embedUrl) {
       const match = embedUrl.match(/\/embed\/([^?]+)/)
-      return match ? match[1] : null
+      const id = match ? match[1] : null
+      console.log('🎬 Using video ID from GraphViewer format:', id)
+      return id
     }
     return null
   }
 
-  // Original logic for simple YouTube URLs
-  const url = props.node.label
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-    /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match && match[1]) {
-      return match[1]
-    }
-  }
-
-  return null
+  // Extract from label as fallback
+  const id = extractVideoId(props.node.label)
+  console.log('🎬 Using video ID from label:', id)
+  return id
 })
 
 const hasInvalidUrl = computed(() => {
+  // Check if path contains YouTube URL but couldn't extract video ID
+  if (props.node.path) {
+    const url = props.node.path.trim()
+    return (
+      (url.includes('youtube') || url.includes('youtu.be')) &&
+      !videoId.value
+    )
+  }
+
+  // Fallback to checking label (backward compatibility)
   return (
     props.node.label &&
     (props.node.label.includes('youtube') || props.node.label.includes('youtu.be')) &&
@@ -345,12 +393,17 @@ const hasInvalidUrl = computed(() => {
 const embedUrl = computed(() => {
   if (!videoId.value) return null
 
+  // If path is provided, create embed URL from path
+  if (props.node.path) {
+    return `https://www.youtube.com/embed/${videoId.value}?rel=0&modestbranding=1`
+  }
+
+  // Fallback to GraphViewer format handling
   if (isGraphViewerFormat.value) {
-    // Use GraphViewer parsing
     return parseYoutubeVideo(props.node.label)
   }
 
-  // Original logic
+  // Default embed URL
   return `https://www.youtube.com/embed/${videoId.value}?rel=0&modestbranding=1`
 })
 
