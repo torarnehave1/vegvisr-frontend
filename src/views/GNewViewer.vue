@@ -4336,7 +4336,7 @@ const saveNodeChanges = async () => {
         info: editingNode.value.info,
         updatedAt: new Date().toISOString(),
       }
-      
+
       // For YouTube nodes, also update the path property
       if (editingNode.value.type === 'youtube-video') {
         updatedNode.path = editingNode.value.path
@@ -4347,7 +4347,7 @@ const saveNodeChanges = async () => {
           updatedNode.bibl = []
         }
       }
-      
+
       graphData.value.nodes[nodeIndex] = updatedNode
 
       // Save to backend using the same mechanism as GraphViewer
