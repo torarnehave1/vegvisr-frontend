@@ -240,14 +240,14 @@ const parseFormattedElements = (text) => {
 // YouTube URL helper function
 const extractVideoId = (url) => {
   if (!url) return null
-  
+
   const trimmedUrl = url.trim()
   console.log('🎬 Extracting video ID from:', trimmedUrl)
-  
+
   const patterns = [
     // Regular YouTube URLs
     /(?:youtube\.com\/watch\?v=)([^&\n?#]+)/,
-    // YouTube shorts and embed URLs  
+    // YouTube shorts and embed URLs
     /(?:youtube\.com\/embed\/)([^&\n?#]+)/,
     // YouTube short URLs
     /(?:youtu\.be\/)([^&\n?#]+)/,
@@ -262,7 +262,7 @@ const extractVideoId = (url) => {
       return match[1]
     }
   }
-  
+
   console.log('🎬 No video ID found for URL:', trimmedUrl)
   return null
 }
@@ -338,7 +338,7 @@ const videoId = computed(() => {
   console.log('🎬 GNewVideoNode computing videoId for node:', props.node.id)
   console.log('🎬 Node path:', props.node.path)
   console.log('🎬 Node label:', props.node.label)
-  
+
   // First, check the path property for YouTube URL (new format)
   if (props.node.path) {
     const id = extractVideoId(props.node.path)
