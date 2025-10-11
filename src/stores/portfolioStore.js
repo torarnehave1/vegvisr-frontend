@@ -4,7 +4,7 @@ import { ref, computed } from 'vue'
 export const usePortfolioStore = defineStore('portfolio', () => {
   const viewMode = ref('detailed') // 'detailed' or 'simple'
   const searchQuery = ref('')
-  const sortBy = ref('title')
+  const sortBy = ref('date-desc') // Default to newest first
   const selectedMetaArea = ref(null)
   const allMetaAreas = ref([])
   const metaAreaFrequencies = ref({})
