@@ -1534,8 +1534,8 @@
           <button @click="closeAIRewriteModal" class="btn btn-secondary">
             Cancel
           </button>
-          <button 
-            @click="performAIRewrite" 
+          <button
+            @click="performAIRewrite"
             class="btn btn-primary"
             :disabled="isRewritingText || !rewriteInstructions.trim()"
           >
@@ -1543,9 +1543,9 @@
             <i class="bi bi-magic" v-else></i>
             {{ isRewritingText ? 'Rewriting...' : 'Rewrite Text' }}
           </button>
-          <button 
-            v-if="rewrittenText" 
-            @click="applyRewrittenText" 
+          <button
+            v-if="rewrittenText"
+            @click="applyRewrittenText"
             class="btn btn-success"
           >
             <i class="bi bi-check-circle"></i>
@@ -1586,7 +1586,7 @@
         <div v-if="alternativeText" class="mb-3">
           <label class="form-label"><strong>AI Alternative Suggestions:</strong></label>
           <div class="alternatives-container">
-            <div 
+            <div
               v-for="(alternative, index) in alternativeOptions"
               :key="index"
               class="alternative-option"
@@ -1611,8 +1611,8 @@
         <button @click="closeAIChallengeModal" class="btn btn-secondary">
           Cancel
         </button>
-        <button 
-          @click="challengeAIClaim" 
+        <button
+          @click="challengeAIClaim"
           class="btn btn-warning"
           :disabled="isChallenging || !challengeReason.trim()"
         >
@@ -1620,9 +1620,9 @@
           <i class="bi bi-question-circle" v-else></i>
           {{ isChallenging ? 'Challenging...' : 'Get Alternative' }}
         </button>
-        <button 
-          v-if="selectedAlternative" 
-          @click="applyAlternativeText" 
+        <button
+          v-if="selectedAlternative"
+          @click="applyAlternativeText"
           class="btn btn-success"
         >
           <i class="bi bi-check-circle"></i>
@@ -1646,7 +1646,7 @@
             {{ selectedText || 'No text selected' }}
           </div>
         </div>
-        
+
         <!-- Mode Selection -->
         <div class="mb-3">
           <label class="form-label"><strong>What would you like to do?</strong></label>
@@ -1711,8 +1711,8 @@
         <button @click="closeElaborateModal" class="btn btn-secondary">
           Cancel
         </button>
-        <button 
-          @click="performElaboration" 
+        <button
+          @click="performElaboration"
           class="btn btn-info"
           :disabled="isElaborating || (!elaborateInstructions.trim() && !elaborateQuestion.trim())"
         >
@@ -1720,9 +1720,9 @@
           <i class="bi bi-magic" v-else></i>
           {{ isElaborating ? 'Processing...' : (elaborateMode === 'expand' ? 'Enhance Text' : 'Get Answer') }}
         </button>
-        <button 
-          v-if="elaboratedText && elaborateMode === 'expand'" 
-          @click="applyElaboratedText" 
+        <button
+          v-if="elaboratedText && elaborateMode === 'expand'"
+          @click="applyElaboratedText"
           class="btn btn-success"
         >
           <i class="bi bi-check-circle"></i>
@@ -2771,7 +2771,7 @@ const hasMetadata = computed(() => {
 // AI Challenge computed properties
 const alternativeOptions = computed(() => {
   if (!alternativeText.value) return []
-  
+
   // Split by common separators and clean up
   const alternatives = alternativeText.value
     .split(/\n(?=\d+\.|\*|-|•)|(?:\d+\.\s*|\*\s*|-\s*|•\s*)/)
@@ -2779,7 +2779,7 @@ const alternativeOptions = computed(() => {
     .filter(alt => alt.length > 0 && !alt.match(/^\d+\.?\s*$/))
     .map(alt => alt.replace(/^\d+\.\s*|\*\s*|-\s*|•\s*/, '').trim())
     .filter(alt => alt.length > 10) // Filter out very short alternatives
-  
+
   return alternatives.slice(0, 3) // Limit to 3 options
 })
 
@@ -4572,7 +4572,7 @@ const openAIRewriteModal = () => {
   showAIRewriteModal.value = true
   rewriteInstructions.value = ''
   rewrittenText.value = ''
-  
+
   // If no text selected, try to get all text from textarea
   if (!selectedText.value && nodeContentTextarea.value) {
     const textarea = nodeContentTextarea.value
@@ -4596,7 +4596,7 @@ const performAIRewrite = async () => {
   console.log('🎯 performAIRewrite called')
   console.log('🎯 Selected text:', selectedText.value)
   console.log('🎯 Instructions:', rewriteInstructions.value)
-  
+
   if (!selectedText.value || !rewriteInstructions.value.trim()) {
     console.log('❌ Missing selected text or instructions')
     statusMessage.value = '❌ Please select text and provide rewrite instructions'
@@ -4607,7 +4607,7 @@ const performAIRewrite = async () => {
   }
 
   isRewritingText.value = true
-  
+
   try {
     // Use the existing GROK ask endpoint (grok-elaborate doesn't exist)
     const response = await fetch('https://api.vegvisr.org/grok-ask', {
@@ -4629,14 +4629,14 @@ const performAIRewrite = async () => {
     console.log('🎯 API response:', data)
     // The grok-ask endpoint returns the response in 'result' field
     let rawText = data.result || data.response || data.rewrittenText || data.text || 'No response received'
-    
+
     // Decode HTML entities (like &quot; to ")
     const decodeHTMLEntities = (text) => {
       const textarea = document.createElement('textarea')
       textarea.innerHTML = text
       return textarea.value
     }
-    
+
     rewrittenText.value = decodeHTMLEntities(rawText)
     console.log('🎯 Raw text:', rawText)
     console.log('🎯 Decoded text:', rewrittenText.value)
@@ -4656,36 +4656,36 @@ const applyRewrittenText = () => {
   console.log('🎯 Applying rewritten text:', rewrittenText.value)
   console.log('🎯 Current node info:', editingNode.value?.info)
   console.log('🎯 Selected range:', selectedTextStart.value, 'to', selectedTextEnd.value)
-  
+
   if (!rewrittenText.value) {
     console.error('❌ No rewritten text to apply')
     return
   }
-  
+
   if (!editingNode.value) {
     console.error('❌ No editing node')
     return
   }
-  
+
   // If we have a proper text selection, replace just that part
   if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
     const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
     const afterText = editingNode.value.info.substring(selectedTextEnd.value)
     editingNode.value.info = beforeText + rewrittenText.value + afterText
     console.log('🎯 Replaced selected text portion')
-  } 
+  }
   // If no proper selection, replace the entire content
   else {
     editingNode.value.info = rewrittenText.value
     console.log('🎯 Replaced entire content')
   }
-  
+
   // Clear selection and close modal
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
   closeAIRewriteModal()
-  
+
   statusMessage.value = '✅ Text rewritten successfully!'
   setTimeout(() => {
     statusMessage.value = ''
@@ -4717,7 +4717,7 @@ const challengeAIClaim = async () => {
   console.log('🎯 challengeAIClaim called')
   console.log('🎯 Selected claim:', selectedText.value)
   console.log('🎯 Challenge reason:', challengeReason.value)
-  
+
   if (!selectedText.value || !challengeReason.value.trim()) {
     console.log('❌ Missing selected text or challenge reason')
     statusMessage.value = '❌ Please select text and explain why you disagree'
@@ -4728,7 +4728,7 @@ const challengeAIClaim = async () => {
   }
 
   isChallenging.value = true
-  
+
   try {
     const response = await fetch('https://api.vegvisr.org/grok-ask', {
       method: 'POST',
@@ -4748,14 +4748,14 @@ const challengeAIClaim = async () => {
     const data = await response.json()
     console.log('🎯 API response:', data)
     let rawText = data.result || data.response || data.alternatives || data.text || 'No alternatives received'
-    
+
     // Decode HTML entities
     const decodeHTMLEntities = (text) => {
       const textarea = document.createElement('textarea')
       textarea.innerHTML = text
       return textarea.value
     }
-    
+
     alternativeText.value = decodeHTMLEntities(rawText)
     console.log('🎯 Alternative text set to:', alternativeText.value)
 
@@ -4772,7 +4772,7 @@ const challengeAIClaim = async () => {
 
 const applyAlternativeText = () => {
   console.log('🎯 Applying selected alternative:', selectedAlternative.value)
-  
+
   if (!selectedAlternative.value) {
     console.error('❌ No alternative selected to apply')
     statusMessage.value = '❌ Please select one of the alternative options first'
@@ -4781,31 +4781,31 @@ const applyAlternativeText = () => {
     }, 3000)
     return
   }
-  
+
   if (!editingNode.value) {
     console.error('❌ No editing node')
     return
   }
-  
+
   // If we have a proper text selection, replace just that part
   if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
     const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
     const afterText = editingNode.value.info.substring(selectedTextEnd.value)
     editingNode.value.info = beforeText + selectedAlternative.value + afterText
     console.log('🎯 Replaced selected claim with alternative')
-  } 
+  }
   // If no proper selection, replace the entire content
   else {
     editingNode.value.info = selectedAlternative.value
     console.log('🎯 Replaced entire content with alternative')
   }
-  
+
   // Clear selection and close modal
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
   closeAIChallengeModal()
-  
+
   statusMessage.value = '✅ Alternative text applied successfully!'
   setTimeout(() => {
     statusMessage.value = ''
@@ -4820,7 +4820,7 @@ const openElaborateModal = () => {
   elaborateQuestion.value = ''
   elaborateMode.value = 'expand'
   elaboratedText.value = ''
-  
+
   // If no text selected, try to get all text from textarea
   if (!selectedText.value && nodeContentTextarea.value) {
     const textarea = nodeContentTextarea.value
@@ -4848,11 +4848,11 @@ const performElaboration = async () => {
   console.log('🎯 Selected text:', selectedText.value)
   console.log('🎯 Instructions:', elaborateInstructions.value)
   console.log('🎯 Question:', elaborateQuestion.value)
-  
-  const hasContent = elaborateMode.value === 'expand' 
-    ? elaborateInstructions.value.trim() 
+
+  const hasContent = elaborateMode.value === 'expand'
+    ? elaborateInstructions.value.trim()
     : elaborateQuestion.value.trim()
-    
+
   if (!selectedText.value || !hasContent) {
     console.log('❌ Missing selected text or input')
     statusMessage.value = '❌ Please select text and provide instructions/question'
@@ -4863,10 +4863,10 @@ const performElaboration = async () => {
   }
 
   isElaborating.value = true
-  
+
   try {
     let context, question
-    
+
     if (elaborateMode.value === 'expand') {
       context = `Document context: ${editingNode.value?.info || ''}\n\nText to enhance: "${selectedText.value}"`
       question = `Please expand and enhance the selected text according to these instructions: "${elaborateInstructions.value}". Maintain the original meaning but add the requested improvements, examples, or perspective. IMPORTANT: Return ONLY the enhanced text without any explanations, introductions, or meta-commentary. Do not include phrases like "Her er en utvidet versjon" or similar explanatory text.`
@@ -4874,7 +4874,7 @@ const performElaboration = async () => {
       context = `Document context: ${editingNode.value?.info || ''}\n\nText in question: "${selectedText.value}"`
       question = `${elaborateQuestion.value} IMPORTANT: Provide a direct answer without explanations about what you're doing or how you're answering. Return only the requested content.`
     }
-    
+
     const response = await fetch('https://api.vegvisr.org/grok-ask', {
       method: 'POST',
       headers: {
@@ -4893,14 +4893,14 @@ const performElaboration = async () => {
     const data = await response.json()
     console.log('🎯 API response:', data)
     let rawText = data.result || data.response || data.enhancement || data.text || 'No response received'
-    
+
     // Decode HTML entities
     const decodeHTMLEntities = (text) => {
       const textarea = document.createElement('textarea')
       textarea.innerHTML = text
       return textarea.value
     }
-    
+
     elaboratedText.value = decodeHTMLEntities(rawText)
     console.log('🎯 Elaborated text set to:', elaboratedText.value)
 
@@ -4917,36 +4917,36 @@ const performElaboration = async () => {
 
 const applyElaboratedText = () => {
   console.log('🎯 Applying elaborated text:', elaboratedText.value)
-  
+
   if (!elaboratedText.value) {
     console.error('❌ No elaborated text to apply')
     return
   }
-  
+
   if (!editingNode.value) {
     console.error('❌ No editing node')
     return
   }
-  
+
   // If we have a proper text selection, replace just that part
   if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
     const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
     const afterText = editingNode.value.info.substring(selectedTextEnd.value)
     editingNode.value.info = beforeText + elaboratedText.value + afterText
     console.log('🎯 Replaced selected text with elaborated version')
-  } 
+  }
   // If no proper selection, replace the entire content
   else {
     editingNode.value.info = elaboratedText.value
     console.log('🎯 Replaced entire content with elaborated version')
   }
-  
+
   // Clear selection and close modal
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
   closeElaborateModal()
-  
+
   statusMessage.value = '✅ Text enhanced successfully!'
   setTimeout(() => {
     statusMessage.value = ''
