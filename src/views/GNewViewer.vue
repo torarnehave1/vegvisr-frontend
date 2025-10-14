@@ -371,6 +371,44 @@
 
               <div class="form-group">
                 <label class="form-label">Node Content:</label>
+                <div class="content-tools mb-2">
+                  <button
+                    v-if="hasSelectedText"
+                    @click="openAIRewriteModal"
+                    class="btn btn-sm btn-outline-primary me-2"
+                    type="button"
+                    :disabled="isRewritingText"
+                  >
+                    <i class="bi bi-magic" v-if="!isRewritingText"></i>
+                    <i class="bi bi-hourglass-split" v-else></i>
+                    {{ isRewritingText ? 'AI Rewriting...' : 'AI Rewrite Selected Text' }}
+                  </button>
+                  <button
+                    v-if="hasSelectedText"
+                    @click="openAIChallengeModal"
+                    class="btn btn-sm btn-outline-warning me-2"
+                    type="button"
+                    :disabled="isChallenging"
+                  >
+                    <i class="bi bi-question-circle" v-if="!isChallenging"></i>
+                    <i class="bi bi-hourglass-split" v-else></i>
+                    {{ isChallenging ? 'Challenging...' : 'Challenge AI Claim' }}
+                  </button>
+                  <button
+                    v-if="hasSelectedText"
+                    @click="openElaborateModal"
+                    class="btn btn-sm btn-outline-info"
+                    type="button"
+                    :disabled="isElaborating"
+                  >
+                    <i class="bi bi-pencil-square" v-if="!isElaborating"></i>
+                    <i class="bi bi-hourglass-split" v-else></i>
+                    {{ isElaborating ? 'Elaborating...' : 'Elaborate & Enhance' }}
+                  </button>
+                  <small class="text-muted ms-2" v-if="selectedText">
+                    Selected: "{{ truncateSelectedText }}"
+                  </small>
+                </div>
                 <div class="textarea-container">
                   <textarea
                     ref="nodeContentTextarea"
@@ -381,6 +419,8 @@
                     @input="handleTextareaInput"
                     @keydown="handleTextareaKeydown"
                     @blur="hideAutocomplete"
+                    @mouseup="handleTextSelection"
+                    @keyup="handleTextSelection"
                   ></textarea>
 
                   <!-- Autocomplete Dropdown -->
@@ -1456,6 +1496,240 @@
         </div>
       </div>
     </div>
+
+    <!-- AI Rewrite Modal -->
+    <div v-if="showAIRewriteModal" class="modal-overlay" @click="closeAIRewriteModal">
+      <div class="ai-rewrite-modal" @click.stop>
+        <div class="modal-header">
+          <h3>🤖 AI Text Rewriter</h3>
+          <button @click="closeAIRewriteModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label"><strong>Selected Text:</strong></label>
+            <div class="selected-text-preview">
+              {{ selectedText }}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label"><strong>Your Instructions:</strong></label>
+            <textarea
+              v-model="rewriteInstructions"
+              class="form-control"
+              rows="4"
+              placeholder="Enter your rewriting instructions (e.g., 'I am thinking more in the direction of Spinoza, and more in a yogic way like using Ahimsa as a guide - I would like to not put so much emphasis on personal responsibility.')"
+            ></textarea>
+            <small class="form-text text-muted">
+              Describe how you want the text to be rewritten. The AI will use your selected text as context and your instructions as guidance.
+            </small>
+          </div>
+          <div v-if="rewrittenText" class="mb-3">
+            <label class="form-label"><strong>AI Rewritten Text:</strong></label>
+            <div class="rewritten-text-preview">
+              {{ rewrittenText }}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeAIRewriteModal" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button 
+            @click="performAIRewrite" 
+            class="btn btn-primary"
+            :disabled="isRewritingText || !rewriteInstructions.trim()"
+          >
+            <i class="bi bi-hourglass-split" v-if="isRewritingText"></i>
+            <i class="bi bi-magic" v-else></i>
+            {{ isRewritingText ? 'Rewriting...' : 'Rewrite Text' }}
+          </button>
+          <button 
+            v-if="rewrittenText" 
+            @click="applyRewrittenText" 
+            class="btn btn-success"
+          >
+            <i class="bi bi-check-circle"></i>
+            Apply Rewritten Text
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Challenge Modal -->
+  <div v-if="showAIChallengeModal" class="modal-overlay" @click="closeAIChallengeModal">
+    <div class="ai-challenge-modal" @click.stop>
+      <div class="modal-header">
+        <h3>🤔 Challenge AI Claim</h3>
+        <button @click="closeAIChallengeModal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label"><strong>Questionable Claim:</strong></label>
+          <div class="selected-text-preview">
+            {{ selectedText || 'No text selected' }}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="challengeReason" class="form-label"><strong>Why do you disagree with this claim?</strong></label>
+          <textarea
+            id="challengeReason"
+            v-model="challengeReason"
+            class="form-control"
+            rows="3"
+            placeholder="Explain why you think this claim is wrong, misaligned, or could be expressed better..."
+          ></textarea>
+          <small class="form-text text-muted">
+            Be specific about what bothers you about this claim and what you think would be more accurate.
+          </small>
+        </div>
+        <div v-if="alternativeText" class="mb-3">
+          <label class="form-label"><strong>AI Alternative Suggestions:</strong></label>
+          <div class="alternatives-container">
+            <div 
+              v-for="(alternative, index) in alternativeOptions"
+              :key="index"
+              class="alternative-option"
+              @click="selectAlternative(alternative)"
+              :class="{ 'selected': selectedAlternative === alternative }"
+            >
+              <div class="alternative-number">{{ index + 1 }}</div>
+              <div class="alternative-text">{{ alternative }}</div>
+              <div class="alternative-action">
+                <i class="bi bi-hand-index"></i>
+                Click to select
+              </div>
+            </div>
+          </div>
+          <div v-if="selectedAlternative" class="selected-preview">
+            <strong>Selected alternative:</strong>
+            <div class="selected-text-highlight">{{ selectedAlternative }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeAIChallengeModal" class="btn btn-secondary">
+          Cancel
+        </button>
+        <button 
+          @click="challengeAIClaim" 
+          class="btn btn-warning"
+          :disabled="isChallenging || !challengeReason.trim()"
+        >
+          <i class="bi bi-hourglass-split" v-if="isChallenging"></i>
+          <i class="bi bi-question-circle" v-else></i>
+          {{ isChallenging ? 'Challenging...' : 'Get Alternative' }}
+        </button>
+        <button 
+          v-if="selectedAlternative" 
+          @click="applyAlternativeText" 
+          class="btn btn-success"
+        >
+          <i class="bi bi-check-circle"></i>
+          Apply Selected Alternative
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Elaborate Modal -->
+  <div v-if="showElaborateModal" class="modal-overlay" @click="closeElaborateModal">
+    <div class="ai-elaborate-modal" @click.stop>
+      <div class="modal-header">
+        <h3>✨ Elaborate & Enhance</h3>
+        <button @click="closeElaborateModal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label"><strong>Selected Text:</strong></label>
+          <div class="selected-text-preview">
+            {{ selectedText || 'No text selected' }}
+          </div>
+        </div>
+        
+        <!-- Mode Selection -->
+        <div class="mb-3">
+          <label class="form-label"><strong>What would you like to do?</strong></label>
+          <div class="mode-selection">
+            <label class="mode-option">
+              <input type="radio" v-model="elaborateMode" value="expand" />
+              <span class="mode-label">
+                <i class="bi bi-plus-circle"></i>
+                Expand & Add My Words
+              </span>
+              <small>Add more detail, examples, or your own perspective</small>
+            </label>
+            <label class="mode-option">
+              <input type="radio" v-model="elaborateMode" value="question" />
+              <span class="mode-label">
+                <i class="bi bi-question-circle"></i>
+                Ask Questions About Text
+              </span>
+              <small>Get insights, analysis, or factual information</small>
+            </label>
+          </div>
+        </div>
+
+        <!-- Expand Mode -->
+        <div v-if="elaborateMode === 'expand'" class="mb-3">
+          <label for="elaborateInstructions" class="form-label"><strong>How to enhance this text:</strong></label>
+          <textarea
+            id="elaborateInstructions"
+            v-model="elaborateInstructions"
+            class="form-control"
+            rows="3"
+            placeholder="e.g., 'Add my personal perspective as a nutritionist', 'Include more examples', 'Make it more conversational', 'Add scientific backing'..."
+          ></textarea>
+          <small class="form-text text-muted">
+            Describe how you want to expand or enhance this text with your own voice and style.
+          </small>
+        </div>
+
+        <!-- Question Mode -->
+        <div v-if="elaborateMode === 'question'" class="mb-3">
+          <label for="elaborateQuestion" class="form-label"><strong>Your question about this text:</strong></label>
+          <textarea
+            id="elaborateQuestion"
+            v-model="elaborateQuestion"
+            class="form-control"
+            rows="3"
+            placeholder="e.g., 'What evidence supports this?', 'Are there counterarguments?', 'Is this statement too broad?', 'What's missing from this explanation?'..."
+          ></textarea>
+          <small class="form-text text-muted">
+            Ask specific questions to get insights, analysis, or additional context about the selected text.
+          </small>
+        </div>
+
+        <div v-if="elaboratedText" class="mb-3">
+          <label class="form-label"><strong>AI Response:</strong></label>
+          <div class="elaborated-text-preview">
+            {{ elaboratedText }}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeElaborateModal" class="btn btn-secondary">
+          Cancel
+        </button>
+        <button 
+          @click="performElaboration" 
+          class="btn btn-info"
+          :disabled="isElaborating || (!elaborateInstructions.trim() && !elaborateQuestion.trim())"
+        >
+          <i class="bi bi-hourglass-split" v-if="isElaborating"></i>
+          <i class="bi bi-magic" v-else></i>
+          {{ isElaborating ? 'Processing...' : (elaborateMode === 'expand' ? 'Enhance Text' : 'Get Answer') }}
+        </button>
+        <button 
+          v-if="elaboratedText && elaborateMode === 'expand'" 
+          @click="applyElaboratedText" 
+          class="btn btn-success"
+        >
+          <i class="bi bi-check-circle"></i>
+          Apply Enhancement
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Copy Node Modal -->
@@ -1815,6 +2089,30 @@ const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
 
+// AI Rewrite functionality
+const showAIRewriteModal = ref(false)
+const selectedText = ref('')
+const selectedTextStart = ref(0)
+const selectedTextEnd = ref(0)
+const rewriteInstructions = ref('')
+const rewrittenText = ref('')
+const isRewritingText = ref(false)
+
+// AI Challenge functionality
+const showAIChallengeModal = ref(false)
+const challengeReason = ref('')
+const alternativeText = ref('')
+const isChallenging = ref(false)
+const selectedAlternative = ref('')
+
+// AI Elaborate functionality
+const showElaborateModal = ref(false)
+const elaborateInstructions = ref('')
+const elaborateQuestion = ref('')
+const elaborateMode = ref('expand') // 'expand' or 'question'
+const elaboratedText = ref('')
+const isElaborating = ref(false)
+
 // Reorder modal functionality
 const isReorderModalOpen = ref(false)
 const reorderableNodes = ref([])
@@ -1842,6 +2140,16 @@ const sortedNodes = computed(() => {
   })
 
   return visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
+})
+
+// AI Rewrite computed properties
+const hasSelectedText = computed(() => {
+  return selectedText.value.trim().length > 0
+})
+
+const truncateSelectedText = computed(() => {
+  if (selectedText.value.length <= 50) return selectedText.value
+  return selectedText.value.substring(0, 50) + '...'
 })
 
 // Organized color categories based on color wheel principles
@@ -2458,6 +2766,21 @@ const graphCreatedBy = computed(() => {
 
 const hasMetadata = computed(() => {
   return graphCategories.value.length > 0 || graphMetaAreas.value.length > 0 || graphCreatedBy.value
+})
+
+// AI Challenge computed properties
+const alternativeOptions = computed(() => {
+  if (!alternativeText.value) return []
+  
+  // Split by common separators and clean up
+  const alternatives = alternativeText.value
+    .split(/\n(?=\d+\.|\*|-|•)|(?:\d+\.\s*|\*\s*|-\s*|•\s*)/)
+    .map(alt => alt.trim())
+    .filter(alt => alt.length > 0 && !alt.match(/^\d+\.?\s*$/))
+    .map(alt => alt.replace(/^\d+\.\s*|\*\s*|-\s*|•\s*/, '').trim())
+    .filter(alt => alt.length > 10) // Filter out very short alternatives
+  
+  return alternatives.slice(0, 3) // Limit to 3 options
 })
 
 // Mobile menu computed properties
@@ -4223,6 +4546,411 @@ const closeNodeEditModal = () => {
   showNodeEditModal.value = false
   editingNode.value = {}
   savingNode.value = false
+}
+
+// AI Rewrite methods
+const handleTextSelection = () => {
+  const textarea = nodeContentTextarea.value
+  if (textarea) {
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    if (start !== end) {
+      selectedText.value = textarea.value.substring(start, end)
+      selectedTextStart.value = start
+      selectedTextEnd.value = end
+    } else {
+      selectedText.value = ''
+      selectedTextStart.value = 0
+      selectedTextEnd.value = 0
+    }
+  }
+}
+
+const openAIRewriteModal = () => {
+  console.log('🎯 Opening AI rewrite modal, selected text:', selectedText.value)
+  // Always open modal, but show different content based on selection
+  showAIRewriteModal.value = true
+  rewriteInstructions.value = ''
+  rewrittenText.value = ''
+  
+  // If no text selected, try to get all text from textarea
+  if (!selectedText.value && nodeContentTextarea.value) {
+    const textarea = nodeContentTextarea.value
+    const fullText = textarea.value || ''
+    if (fullText.trim()) {
+      selectedText.value = fullText
+      selectedTextStart.value = 0
+      selectedTextEnd.value = fullText.length
+      console.log('🎯 No selection, using full text:', fullText.substring(0, 50) + '...')
+    }
+  }
+}
+
+const closeAIRewriteModal = () => {
+  showAIRewriteModal.value = false
+  rewriteInstructions.value = ''
+  rewrittenText.value = ''
+}
+
+const performAIRewrite = async () => {
+  console.log('🎯 performAIRewrite called')
+  console.log('🎯 Selected text:', selectedText.value)
+  console.log('🎯 Instructions:', rewriteInstructions.value)
+  
+  if (!selectedText.value || !rewriteInstructions.value.trim()) {
+    console.log('❌ Missing selected text or instructions')
+    statusMessage.value = '❌ Please select text and provide rewrite instructions'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
+  isRewritingText.value = true
+  
+  try {
+    // Use the existing GROK ask endpoint (grok-elaborate doesn't exist)
+    const response = await fetch('https://api.vegvisr.org/grok-ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        context: `Original text: "${selectedText.value}"\n\nInstructions for rewriting: ${rewriteInstructions.value}`,
+        question: `Please rewrite the original text following the given instructions. Return only the rewritten text without any explanations or additional content.`
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('🎯 API response:', data)
+    // The grok-ask endpoint returns the response in 'result' field
+    let rawText = data.result || data.response || data.rewrittenText || data.text || 'No response received'
+    
+    // Decode HTML entities (like &quot; to ")
+    const decodeHTMLEntities = (text) => {
+      const textarea = document.createElement('textarea')
+      textarea.innerHTML = text
+      return textarea.value
+    }
+    
+    rewrittenText.value = decodeHTMLEntities(rawText)
+    console.log('🎯 Raw text:', rawText)
+    console.log('🎯 Decoded text:', rewrittenText.value)
+
+  } catch (error) {
+    console.error('AI rewrite error:', error)
+    statusMessage.value = `❌ AI rewrite failed: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  } finally {
+    isRewritingText.value = false
+  }
+}
+
+const applyRewrittenText = () => {
+  console.log('🎯 Applying rewritten text:', rewrittenText.value)
+  console.log('🎯 Current node info:', editingNode.value?.info)
+  console.log('🎯 Selected range:', selectedTextStart.value, 'to', selectedTextEnd.value)
+  
+  if (!rewrittenText.value) {
+    console.error('❌ No rewritten text to apply')
+    return
+  }
+  
+  if (!editingNode.value) {
+    console.error('❌ No editing node')
+    return
+  }
+  
+  // If we have a proper text selection, replace just that part
+  if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
+    const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
+    const afterText = editingNode.value.info.substring(selectedTextEnd.value)
+    editingNode.value.info = beforeText + rewrittenText.value + afterText
+    console.log('🎯 Replaced selected text portion')
+  } 
+  // If no proper selection, replace the entire content
+  else {
+    editingNode.value.info = rewrittenText.value
+    console.log('🎯 Replaced entire content')
+  }
+  
+  // Clear selection and close modal
+  selectedText.value = ''
+  selectedTextStart.value = 0
+  selectedTextEnd.value = 0
+  closeAIRewriteModal()
+  
+  statusMessage.value = '✅ Text rewritten successfully!'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3000)
+}
+
+// AI Challenge functionality
+const openAIChallengeModal = () => {
+  console.log('🎯 Opening AI challenge modal, selected text:', selectedText.value)
+  showAIChallengeModal.value = true
+  challengeReason.value = ''
+  alternativeText.value = ''
+  selectedAlternative.value = ''
+}
+
+const closeAIChallengeModal = () => {
+  showAIChallengeModal.value = false
+  challengeReason.value = ''
+  alternativeText.value = ''
+  selectedAlternative.value = ''
+}
+
+const selectAlternative = (alternative) => {
+  selectedAlternative.value = alternative
+  console.log('🎯 Selected alternative:', alternative)
+}
+
+const challengeAIClaim = async () => {
+  console.log('🎯 challengeAIClaim called')
+  console.log('🎯 Selected claim:', selectedText.value)
+  console.log('🎯 Challenge reason:', challengeReason.value)
+  
+  if (!selectedText.value || !challengeReason.value.trim()) {
+    console.log('❌ Missing selected text or challenge reason')
+    statusMessage.value = '❌ Please select text and explain why you disagree'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
+  isChallenging.value = true
+  
+  try {
+    const response = await fetch('https://api.vegvisr.org/grok-ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        context: `Document context: ${editingNode.value?.info || ''}\n\nQuestionable claim: "${selectedText.value}"\n\nUser's concern: ${challengeReason.value}`,
+        question: `The user disagrees with this claim. Please provide 2-3 alternative ways to express this idea that would be more accurate, nuanced, or better aligned with the document. Focus on addressing the user's specific concerns while maintaining the core message if it's valid. Return only the alternative phrasings, each on a new line.`
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('🎯 API response:', data)
+    let rawText = data.result || data.response || data.alternatives || data.text || 'No alternatives received'
+    
+    // Decode HTML entities
+    const decodeHTMLEntities = (text) => {
+      const textarea = document.createElement('textarea')
+      textarea.innerHTML = text
+      return textarea.value
+    }
+    
+    alternativeText.value = decodeHTMLEntities(rawText)
+    console.log('🎯 Alternative text set to:', alternativeText.value)
+
+  } catch (error) {
+    console.error('AI challenge error:', error)
+    statusMessage.value = `❌ Challenge failed: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  } finally {
+    isChallenging.value = false
+  }
+}
+
+const applyAlternativeText = () => {
+  console.log('🎯 Applying selected alternative:', selectedAlternative.value)
+  
+  if (!selectedAlternative.value) {
+    console.error('❌ No alternative selected to apply')
+    statusMessage.value = '❌ Please select one of the alternative options first'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+  
+  if (!editingNode.value) {
+    console.error('❌ No editing node')
+    return
+  }
+  
+  // If we have a proper text selection, replace just that part
+  if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
+    const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
+    const afterText = editingNode.value.info.substring(selectedTextEnd.value)
+    editingNode.value.info = beforeText + selectedAlternative.value + afterText
+    console.log('🎯 Replaced selected claim with alternative')
+  } 
+  // If no proper selection, replace the entire content
+  else {
+    editingNode.value.info = selectedAlternative.value
+    console.log('🎯 Replaced entire content with alternative')
+  }
+  
+  // Clear selection and close modal
+  selectedText.value = ''
+  selectedTextStart.value = 0
+  selectedTextEnd.value = 0
+  closeAIChallengeModal()
+  
+  statusMessage.value = '✅ Alternative text applied successfully!'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3000)
+}
+
+// AI Elaborate functionality
+const openElaborateModal = () => {
+  console.log('🎯 Opening AI elaborate modal, selected text:', selectedText.value)
+  showElaborateModal.value = true
+  elaborateInstructions.value = ''
+  elaborateQuestion.value = ''
+  elaborateMode.value = 'expand'
+  elaboratedText.value = ''
+  
+  // If no text selected, try to get all text from textarea
+  if (!selectedText.value && nodeContentTextarea.value) {
+    const textarea = nodeContentTextarea.value
+    const fullText = textarea.value || ''
+    if (fullText.trim()) {
+      selectedText.value = fullText
+      selectedTextStart.value = 0
+      selectedTextEnd.value = fullText.length
+      console.log('🎯 No selection, using full text for elaboration')
+    }
+  }
+}
+
+const closeElaborateModal = () => {
+  showElaborateModal.value = false
+  elaborateInstructions.value = ''
+  elaborateQuestion.value = ''
+  elaborateMode.value = 'expand'
+  elaboratedText.value = ''
+}
+
+const performElaboration = async () => {
+  console.log('🎯 performElaboration called')
+  console.log('🎯 Mode:', elaborateMode.value)
+  console.log('🎯 Selected text:', selectedText.value)
+  console.log('🎯 Instructions:', elaborateInstructions.value)
+  console.log('🎯 Question:', elaborateQuestion.value)
+  
+  const hasContent = elaborateMode.value === 'expand' 
+    ? elaborateInstructions.value.trim() 
+    : elaborateQuestion.value.trim()
+    
+  if (!selectedText.value || !hasContent) {
+    console.log('❌ Missing selected text or input')
+    statusMessage.value = '❌ Please select text and provide instructions/question'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
+  isElaborating.value = true
+  
+  try {
+    let context, question
+    
+    if (elaborateMode.value === 'expand') {
+      context = `Document context: ${editingNode.value?.info || ''}\n\nText to enhance: "${selectedText.value}"`
+      question = `Please expand and enhance the selected text according to these instructions: "${elaborateInstructions.value}". Maintain the original meaning but add the requested improvements, examples, or perspective. IMPORTANT: Return ONLY the enhanced text without any explanations, introductions, or meta-commentary. Do not include phrases like "Her er en utvidet versjon" or similar explanatory text.`
+    } else {
+      context = `Document context: ${editingNode.value?.info || ''}\n\nText in question: "${selectedText.value}"`
+      question = `${elaborateQuestion.value} IMPORTANT: Provide a direct answer without explanations about what you're doing or how you're answering. Return only the requested content.`
+    }
+    
+    const response = await fetch('https://api.vegvisr.org/grok-ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        context: context,
+        question: question
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('🎯 API response:', data)
+    let rawText = data.result || data.response || data.enhancement || data.text || 'No response received'
+    
+    // Decode HTML entities
+    const decodeHTMLEntities = (text) => {
+      const textarea = document.createElement('textarea')
+      textarea.innerHTML = text
+      return textarea.value
+    }
+    
+    elaboratedText.value = decodeHTMLEntities(rawText)
+    console.log('🎯 Elaborated text set to:', elaboratedText.value)
+
+  } catch (error) {
+    console.error('AI elaborate error:', error)
+    statusMessage.value = `❌ Elaboration failed: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  } finally {
+    isElaborating.value = false
+  }
+}
+
+const applyElaboratedText = () => {
+  console.log('🎯 Applying elaborated text:', elaboratedText.value)
+  
+  if (!elaboratedText.value) {
+    console.error('❌ No elaborated text to apply')
+    return
+  }
+  
+  if (!editingNode.value) {
+    console.error('❌ No editing node')
+    return
+  }
+  
+  // If we have a proper text selection, replace just that part
+  if (selectedTextStart.value !== selectedTextEnd.value && editingNode.value.info) {
+    const beforeText = editingNode.value.info.substring(0, selectedTextStart.value)
+    const afterText = editingNode.value.info.substring(selectedTextEnd.value)
+    editingNode.value.info = beforeText + elaboratedText.value + afterText
+    console.log('🎯 Replaced selected text with elaborated version')
+  } 
+  // If no proper selection, replace the entire content
+  else {
+    editingNode.value.info = elaboratedText.value
+    console.log('🎯 Replaced entire content with elaborated version')
+  }
+  
+  // Clear selection and close modal
+  selectedText.value = ''
+  selectedTextStart.value = 0
+  selectedTextEnd.value = 0
+  closeElaborateModal()
+  
+  statusMessage.value = '✅ Text enhanced successfully!'
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3000)
 }
 
 // Color picker methods
@@ -7926,5 +8654,492 @@ const saveAttribution = async () => {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* AI Rewrite Modal Styles */
+.ai-rewrite-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: slideIn 0.3s ease-out;
+  position: relative;
+}
+
+.ai-rewrite-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 0;
+  border-bottom: 1px solid #e9ecef;
+  margin-bottom: 0;
+}
+
+.ai-rewrite-modal .modal-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.ai-rewrite-modal .modal-body {
+  padding: 20px 24px;
+}
+
+.ai-rewrite-modal .modal-body .form-label {
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 8px;
+}
+
+.content-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.selected-text-preview,
+.rewritten-text-preview {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #495057;
+  white-space: pre-wrap;
+}
+
+.rewritten-text-preview {
+  background: #e8f5e8;
+  border-color: #28a745;
+  color: #155724;
+}
+
+.ai-rewrite-modal .modal-footer {
+  display: flex;
+  gap: 10px;
+  padding: 0 24px 20px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.ai-rewrite-modal .btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-rewrite-modal .btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.ai-rewrite-modal .btn-secondary:hover:not(:disabled) {
+  background: #545b62;
+}
+
+.ai-rewrite-modal .btn-primary {
+  background: #007bff;
+  color: white;
+}
+
+.ai-rewrite-modal .btn-primary:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.ai-rewrite-modal .btn-success {
+  background: #28a745;
+  color: white;
+}
+
+.ai-rewrite-modal .btn-success:hover:not(:disabled) {
+  background: #1e7e34;
+}
+
+.ai-rewrite-modal .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* AI Challenge Modal Styles */
+.ai-challenge-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  border: 2px solid #ffc107; /* Warning color border */
+}
+
+.ai-challenge-modal .modal-header {
+  background: linear-gradient(135deg, #ffc107 0%, #ffeb3b 100%);
+  color: #333;
+  padding: 20px;
+  border-radius: 10px 10px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-challenge-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.ai-challenge-modal .modal-body {
+  padding: 25px;
+}
+
+.ai-challenge-modal .modal-body .form-label {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.ai-challenge-modal .selected-text-preview,
+.ai-challenge-modal .alternative-text-preview {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px;
+  font-style: italic;
+  color: #495057;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.ai-challenge-modal .alternative-text-preview {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+}
+
+.ai-challenge-modal .alternatives-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-challenge-modal .alternative-option {
+  background: #f8f9fa;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  padding: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+}
+
+.ai-challenge-modal .alternative-option:hover {
+  background: #fff3cd;
+  border-color: #ffc107;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ai-challenge-modal .alternative-option.selected {
+  background: #d1ecf1;
+  border-color: #bee5eb;
+  box-shadow: 0 4px 15px rgba(23, 162, 184, 0.2);
+}
+
+.ai-challenge-modal .alternative-number {
+  background: #6c757d;
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ai-challenge-modal .alternative-option.selected .alternative-number {
+  background: #17a2b8;
+}
+
+.ai-challenge-modal .alternative-text {
+  flex-grow: 1;
+  color: #495057;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.ai-challenge-modal .alternative-action {
+  color: #6c757d;
+  font-size: 12px;
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.ai-challenge-modal .alternative-option:hover .alternative-action {
+  color: #856404;
+  opacity: 1;
+}
+
+.ai-challenge-modal .alternative-option.selected .alternative-action {
+  color: #0c5460;
+  opacity: 1;
+}
+
+.ai-challenge-modal .selected-preview {
+  margin-top: 15px;
+  padding: 12px;
+  background: #d1ecf1;
+  border: 1px solid #bee5eb;
+  border-radius: 6px;
+}
+
+.ai-challenge-modal .selected-text-highlight {
+  background: #b8daff;
+  padding: 8px;
+  border-radius: 4px;
+  margin-top: 6px;
+  font-style: italic;
+  color: #004085;
+}
+
+.ai-challenge-modal .modal-footer {
+  padding: 20px 25px;
+  border-top: 1px solid #dee2e6;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ai-challenge-modal .btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-challenge-modal .btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.ai-challenge-modal .btn-secondary:hover:not(:disabled) {
+  background: #545b62;
+}
+
+.ai-challenge-modal .btn-warning {
+  background: #ffc107;
+  color: #333;
+}
+
+.ai-challenge-modal .btn-warning:hover:not(:disabled) {
+  background: #e0a800;
+}
+
+.ai-challenge-modal .btn-success {
+  background: #198754;
+  color: white;
+}
+
+.ai-challenge-modal .btn-success:hover:not(:disabled) {
+  background: #157347;
+}
+
+.ai-challenge-modal .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* AI Elaborate Modal Styles */
+.ai-elaborate-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  max-width: 700px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  border: 2px solid #17a2b8; /* Info color border */
+}
+
+.ai-elaborate-modal .modal-header {
+  background: linear-gradient(135deg, #17a2b8 0%, #20c997 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 10px 10px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-elaborate-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.ai-elaborate-modal .modal-body {
+  padding: 25px;
+}
+
+.ai-elaborate-modal .modal-body .form-label {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.ai-elaborate-modal .selected-text-preview,
+.ai-elaborate-modal .elaborated-text-preview {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px;
+  font-style: italic;
+  color: #495057;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.ai-elaborate-modal .elaborated-text-preview {
+  background: #d1ecf1;
+  border-color: #17a2b8;
+  color: #0c5460;
+}
+
+.ai-elaborate-modal .mode-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-elaborate-modal .mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 15px;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ai-elaborate-modal .mode-option:hover {
+  background: #f8f9fa;
+  border-color: #17a2b8;
+}
+
+.ai-elaborate-modal .mode-option input[type="radio"] {
+  margin-top: 2px;
+}
+
+.ai-elaborate-modal .mode-option input[type="radio"]:checked + .mode-label {
+  color: #17a2b8;
+  font-weight: 600;
+}
+
+.ai-elaborate-modal .mode-option:has(input[type="radio"]:checked) {
+  background: #d1ecf1;
+  border-color: #17a2b8;
+}
+
+.ai-elaborate-modal .mode-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.ai-elaborate-modal .mode-option small {
+  color: #6c757d;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.ai-elaborate-modal .modal-footer {
+  padding: 20px 25px;
+  border-top: 1px solid #dee2e6;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ai-elaborate-modal .btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-elaborate-modal .btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.ai-elaborate-modal .btn-secondary:hover:not(:disabled) {
+  background: #545b62;
+}
+
+.ai-elaborate-modal .btn-info {
+  background: #17a2b8;
+  color: white;
+}
+
+.ai-elaborate-modal .btn-info:hover:not(:disabled) {
+  background: #138496;
+}
+
+.ai-elaborate-modal .btn-success {
+  background: #198754;
+  color: white;
+}
+
+.ai-elaborate-modal .btn-success:hover:not(:disabled) {
+  background: #157347;
+}
+
+.ai-elaborate-modal .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
