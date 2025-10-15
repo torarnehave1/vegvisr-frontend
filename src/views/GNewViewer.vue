@@ -414,7 +414,7 @@
                   <small class="text-muted ms-2" v-if="selectedText">
                     Selected: "{{ truncateSelectedText }}"
                   </small>
-                  
+
                   <!-- Mobile fallback button when no text is selected but content exists -->
                   <button
                     v-if="!hasSelectedText && editingNode?.info?.trim() && isMobileDevice"
@@ -4574,20 +4574,20 @@ const closeNodeEditModal = () => {
 // AI Rewrite methods
 const handleTextSelection = () => {
   console.log('🎯 handleTextSelection called')
-  
+
   const textarea = nodeContentTextarea.value
   if (textarea) {
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
-    
+
     console.log('🎯 Selection - start:', start, 'end:', end)
-    
+
     if (start !== end) {
       const selectedTextValue = textarea.value.substring(start, end)
       selectedText.value = selectedTextValue
       selectedTextStart.value = start
       selectedTextEnd.value = end
-      
+
       console.log('🎯 Text selected:', selectedTextValue)
       console.log('🎯 hasSelectedText will be:', selectedTextValue.trim().length > 0)
     } else {
@@ -4604,7 +4604,7 @@ const handleTextSelection = () => {
 // Add a separate function for mobile-specific selection detection
 const handleMobileTextSelection = () => {
   console.log('🎯 handleMobileTextSelection called')
-  
+
   // Use setTimeout to ensure the selection has been properly set
   setTimeout(() => {
     handleTextSelection()
@@ -4614,18 +4614,18 @@ const handleMobileTextSelection = () => {
 // Mobile AI Tools fallback - select all text and show AI buttons
 const showMobileAITools = () => {
   console.log('🎯 showMobileAITools called')
-  
+
   const textarea = nodeContentTextarea.value
   if (textarea && editingNode.value?.info?.trim()) {
     // Select all text in textarea
     textarea.focus()
     textarea.select()
-    
+
     // Manually set selection values
     selectedText.value = editingNode.value.info.trim()
     selectedTextStart.value = 0
     selectedTextEnd.value = editingNode.value.info.length
-    
+
     console.log('🎯 Mobile: Selected all text for AI tools')
   }
 }
