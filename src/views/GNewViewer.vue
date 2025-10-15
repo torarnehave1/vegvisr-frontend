@@ -414,6 +414,16 @@
                   <small class="text-muted ms-2" v-if="selectedText">
                     Selected: "{{ truncateSelectedText }}"
                   </small>
+                  
+                  <!-- Mobile fallback button when no text is selected but content exists -->
+                  <button
+                    v-if="!hasSelectedText && editingNode?.info?.trim() && isMobileDevice"
+                    @click="showMobileAITools"
+                    class="btn btn-sm btn-outline-secondary mobile-ai-tools-btn"
+                    type="button"
+                  >
+                    🤖 Show AI Tools
+                  </button>
                 </div>
                 <div class="textarea-container">
                   <textarea
@@ -427,6 +437,8 @@
                     @blur="hideAutocomplete"
                     @mouseup="handleTextSelection"
                     @keyup="handleTextSelection"
+                    @touchend="handleMobileTextSelection"
+                    @touchstart="handleMobileTextSelection"
                   ></textarea>
 
                   <!-- Autocomplete Dropdown -->
@@ -2156,6 +2168,11 @@ const hasSelectedText = computed(() => {
 const truncateSelectedText = computed(() => {
   if (selectedText.value.length <= 50) return selectedText.value
   return selectedText.value.substring(0, 50) + '...'
+})
+
+// Mobile device detection
+const isMobileDevice = computed(() => {
+  return window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 })
 
 // Organized color categories based on color wheel principles
@@ -4556,19 +4573,60 @@ const closeNodeEditModal = () => {
 
 // AI Rewrite methods
 const handleTextSelection = () => {
+  console.log('🎯 handleTextSelection called')
+  
   const textarea = nodeContentTextarea.value
   if (textarea) {
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
+    
+    console.log('🎯 Selection - start:', start, 'end:', end)
+    
     if (start !== end) {
-      selectedText.value = textarea.value.substring(start, end)
+      const selectedTextValue = textarea.value.substring(start, end)
+      selectedText.value = selectedTextValue
       selectedTextStart.value = start
       selectedTextEnd.value = end
+      
+      console.log('🎯 Text selected:', selectedTextValue)
+      console.log('🎯 hasSelectedText will be:', selectedTextValue.trim().length > 0)
     } else {
       selectedText.value = ''
       selectedTextStart.value = 0
       selectedTextEnd.value = 0
+      console.log('🎯 No text selected, cleared selection')
     }
+  } else {
+    console.log('❌ No textarea found')
+  }
+}
+
+// Add a separate function for mobile-specific selection detection
+const handleMobileTextSelection = () => {
+  console.log('🎯 handleMobileTextSelection called')
+  
+  // Use setTimeout to ensure the selection has been properly set
+  setTimeout(() => {
+    handleTextSelection()
+  }, 100)
+}
+
+// Mobile AI Tools fallback - select all text and show AI buttons
+const showMobileAITools = () => {
+  console.log('🎯 showMobileAITools called')
+  
+  const textarea = nodeContentTextarea.value
+  if (textarea && editingNode.value?.info?.trim()) {
+    // Select all text in textarea
+    textarea.focus()
+    textarea.select()
+    
+    // Manually set selection values
+    selectedText.value = editingNode.value.info.trim()
+    selectedTextStart.value = 0
+    selectedTextEnd.value = editingNode.value.info.length
+    
+    console.log('🎯 Mobile: Selected all text for AI tools')
   }
 }
 
@@ -8752,6 +8810,23 @@ const saveAttribution = async () => {
   .content-tools .me-2 {
     margin-right: 0 !important;
   }
+}
+
+/* Mobile AI Tools fallback button */
+.mobile-ai-tools-btn {
+  margin-top: 8px;
+  width: 100%;
+  background: #f8f9fa;
+  border-color: #6c757d;
+  color: #6c757d;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+}
+
+.mobile-ai-tools-btn:hover {
+  background: #e9ecef;
+  border-color: #5a6268;
+  color: #5a6268;
 }
 
 .selected-text-preview,
