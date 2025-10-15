@@ -8715,7 +8715,7 @@ const saveAttribution = async () => {
     gap: 4px;
     justify-content: flex-start;
   }
-  
+
   .content-tools .ai-action-btn {
     font-size: 0.7rem;
     padding: 6px 8px;
@@ -8724,12 +8724,12 @@ const saveAttribution = async () => {
     flex: 0 0 auto;
     border-width: 1px;
   }
-  
+
   .content-tools .ai-action-btn i {
     font-size: 0.8rem;
     margin-right: 3px;
   }
-  
+
   .content-tools .me-2 {
     margin-right: 0.25rem !important;
   }
@@ -8741,14 +8741,14 @@ const saveAttribution = async () => {
     align-items: stretch;
     gap: 6px;
   }
-  
+
   .content-tools .ai-action-btn {
     width: 100%;
     justify-content: center;
     padding: 8px 12px;
     font-size: 0.8rem;
   }
-  
+
   .content-tools .me-2 {
     margin-right: 0 !important;
   }
