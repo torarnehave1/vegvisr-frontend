@@ -375,35 +375,41 @@
                   <button
                     v-if="hasSelectedText"
                     @click="openAIRewriteModal"
-                    class="btn btn-sm btn-outline-primary me-2"
+                    class="btn btn-sm btn-outline-primary me-2 ai-action-btn"
                     type="button"
                     :disabled="isRewritingText"
+                    :title="isRewritingText ? 'AI Rewriting...' : 'AI Rewrite Selected Text'"
                   >
                     <i class="bi bi-magic" v-if="!isRewritingText"></i>
                     <i class="bi bi-hourglass-split" v-else></i>
-                    {{ isRewritingText ? 'AI Rewriting...' : 'AI Rewrite Selected Text' }}
+                    <span class="d-none d-md-inline">{{ isRewritingText ? 'AI Rewriting...' : 'AI Rewrite Selected Text' }}</span>
+                    <span class="d-md-none">{{ isRewritingText ? 'Rewriting...' : '🤖 Rewrite' }}</span>
                   </button>
                   <button
                     v-if="hasSelectedText"
                     @click="openAIChallengeModal"
-                    class="btn btn-sm btn-outline-warning me-2"
+                    class="btn btn-sm btn-outline-warning me-2 ai-action-btn"
                     type="button"
                     :disabled="isChallenging"
+                    :title="isChallenging ? 'Challenging...' : 'Challenge AI Claim'"
                   >
                     <i class="bi bi-question-circle" v-if="!isChallenging"></i>
                     <i class="bi bi-hourglass-split" v-else></i>
-                    {{ isChallenging ? 'Challenging...' : 'Challenge AI Claim' }}
+                    <span class="d-none d-md-inline">{{ isChallenging ? 'Challenging...' : 'Challenge AI Claim' }}</span>
+                    <span class="d-md-none">{{ isChallenging ? 'Challenging...' : '🤔 Challenge' }}</span>
                   </button>
                   <button
                     v-if="hasSelectedText"
                     @click="openElaborateModal"
-                    class="btn btn-sm btn-outline-info"
+                    class="btn btn-sm btn-outline-info ai-action-btn"
                     type="button"
                     :disabled="isElaborating"
+                    :title="isElaborating ? 'Elaborating...' : 'Elaborate & Enhance'"
                   >
                     <i class="bi bi-pencil-square" v-if="!isElaborating"></i>
                     <i class="bi bi-hourglass-split" v-else></i>
-                    {{ isElaborating ? 'Elaborating...' : 'Elaborate & Enhance' }}
+                    <span class="d-none d-md-inline">{{ isElaborating ? 'Elaborating...' : 'Elaborate & Enhance' }}</span>
+                    <span class="d-md-none">{{ isElaborating ? 'Elaborating...' : '✨ Elaborate' }}</span>
                   </button>
                   <small class="text-muted ms-2" v-if="selectedText">
                     Selected: "{{ truncateSelectedText }}"
@@ -8698,8 +8704,54 @@ const saveAttribution = async () => {
 .content-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
+}
+
+/* Mobile responsiveness for AI buttons */
+@media (max-width: 768px) {
+  .content-tools {
+    gap: 4px;
+    justify-content: flex-start;
+  }
+  
+  .content-tools .ai-action-btn {
+    font-size: 0.7rem;
+    padding: 6px 8px;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 0 0 auto;
+    border-width: 1px;
+  }
+  
+  .content-tools .ai-action-btn i {
+    font-size: 0.8rem;
+    margin-right: 3px;
+  }
+  
+  .content-tools .me-2 {
+    margin-right: 0.25rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .content-tools {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  
+  .content-tools .ai-action-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .content-tools .me-2 {
+    margin-right: 0 !important;
+  }
 }
 
 .selected-text-preview,
