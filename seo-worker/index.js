@@ -257,9 +257,23 @@ function generateStaticHTML(options) {
   } = options
 
   const url = `https://www.vegvisr.org/graph/${slug}`
-  const siteName = 'Vegvisr'
-  const defaultImage = 'https://vegvisr.imgix.net/default-og-image.jpg'
-  const imageUrl = ogImage || defaultImage
+  const siteName = 'Vegvisr Org'
+  const defaultImage = 'https://vegvisr.imgix.net/default-og-image.jpg?w=1200&h=630&fit=crop&auto=compress,format'
+
+  // Facebook requires minimum 200x200px, recommends 1200x630px for optimal display
+
+  // Ensure we always have a valid, accessible image URL with proper dimensions for Facebook
+  let imageUrl = defaultImage
+  if (ogImage && ogImage.startsWith('http')) {
+    if (ogImage.includes('vegvisr.imgix.net')) {
+      // For imgix URLs, extract the base URL and apply proper OG dimensions
+      const baseUrl = ogImage.split('?')[0] // Remove existing parameters
+      imageUrl = `${baseUrl}?w=1200&h=630&fit=crop&auto=compress,format&q=80`
+    } else {
+      // For non-imgix URLs, use as-is but warn that dimensions might not be optimal
+      imageUrl = ogImage
+    }
+  }
 
   // Extract some content from graph data for the page body
   const nodes = graphData?.nodes || []
@@ -328,9 +342,13 @@ function generateStaticHTML(options) {
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:secure_url" content="${imageUrl}">
+  <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="${escapeHtml(title)} - ${siteName}">
   <meta property="og:site_name" content="${siteName}">
+  <meta property="og:locale" content="en_US">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
@@ -338,9 +356,9 @@ function generateStaticHTML(options) {
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="twitter:image" content="${imageUrl}">
+  <meta name="twitter:image:alt" content="${escapeHtml(title)} - ${siteName}">
 
   <!-- LinkedIn -->
-  <meta property="og:image:alt" content="${escapeHtml(title)}">
 
   <!-- Canonical URL -->
   <link rel="canonical" href="${url}">
