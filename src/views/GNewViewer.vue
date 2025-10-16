@@ -3295,7 +3295,7 @@ const openSEOAdmin = () => {
       nodeCount: graphData.value?.nodes?.length || 0
     }
   }
-  
+
   console.log('🎯 Navigating to SEO admin with context:', route)
   router.push(route)
 }// Mobile menu action wrappers (perform action and close menu)

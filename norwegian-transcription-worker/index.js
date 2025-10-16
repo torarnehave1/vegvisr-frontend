@@ -426,14 +426,14 @@ export default {
         } catch (e) {
           errorText = 'Unable to read error response'
         }
-        
+
         console.error('Transcription service error:', {
           status: transcriptionResponse.status,
           statusText: transcriptionResponse.statusText,
           headers: Object.fromEntries(transcriptionResponse.headers.entries()),
           errorBody: errorText
         })
-        
+
         // Provide specific error messages for common status codes
         let errorMessage = `Transcription failed: ${transcriptionResponse.status}`
         if (transcriptionResponse.status === 526) {
@@ -445,7 +445,7 @@ export default {
         } else if (transcriptionResponse.status === 504) {
           errorMessage = 'Transcription service timeout'
         }
-        
+
         throw new Error(`${errorMessage}: ${errorText}`)
       }
 

@@ -1668,10 +1668,10 @@ const confirmDelete = async (graph) => {
 
 const openShareModal = (graph) => {
   currentGraph.value = graph
-  
+
   // Set default share type based on whether SEO slug exists
   shareType.value = graph.metadata?.seoSlug ? 'seo' : 'dynamic'
-  
+
   updateShareContent()
 
   if (!shareModal.value) {
@@ -1682,16 +1682,16 @@ const openShareModal = (graph) => {
 
 const updateShareContent = () => {
   if (!currentGraph.value) return
-  
+
   const graph = currentGraph.value
   const nodeCount = Array.isArray(graph.nodes) ? graph.nodes.length : 0
   const edgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0
   const categories = getCategories(graph.metadata?.category || '')
   const categoryText = categories.length > 0 ? `Categories: ${categories.join(', ')}` : ''
-  
+
   let shareUrl = ''
   let shareLabel = ''
-  
+
   if (shareType.value === 'seo' && graph.metadata?.seoSlug) {
     shareUrl = `https://seo.vegvisr.org/graph/${graph.metadata.seoSlug}`
     shareLabel = 'View this SEO-optimized knowledge graph: '
@@ -1720,7 +1720,7 @@ const shareToInstagram = () => {
 const shareToLinkedIn = () => {
   const title = encodeURIComponent(shareContent.value.split('\n')[0])
   const summary = encodeURIComponent(shareContent.value)
-  
+
   let url = ''
   if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
     url = encodeURIComponent(`https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`)
@@ -1734,7 +1734,7 @@ const shareToLinkedIn = () => {
 
 const shareToTwitter = () => {
   const title = shareContent.value.split('\n')[0]
-  
+
   let url = ''
   if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
     url = `https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`
