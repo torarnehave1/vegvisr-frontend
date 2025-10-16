@@ -35,24 +35,8 @@
             </button>
           </div>
 
-          <!-- Quick access to user's graphs -->
-          <div v-if="userGraphs.length > 0" class="quick-graphs">
-            <h5>Your Recent Graphs:</h5>
-            <div class="graph-list">
-              <div
-                v-for="graph in userGraphs"
-                :key="graph.id"
-                class="graph-item"
-                @click="selectGraph(graph.id)"
-              >
-                <span class="graph-title">{{ graph.title || 'Untitled' }}</span>
-                <span class="graph-id">{{ graph.id }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Info when no user graphs available -->
-          <div v-else-if="userStore.loggedIn" class="no-graphs-info">
+          <!-- Info -->
+          <div class="graph-info">
             <small class="text-muted">
               💡 <strong>Tip:</strong> Enter your graph ID above (e.g., graph_1234567890) to load and generate SEO pages
             </small>
@@ -451,17 +435,20 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
 // Store
 const userStore = useUserStore()
+
+// Route (for reading query parameters from GNewViewer)
+const route = useRoute()
 
 // State
 const graphIdInput = ref('')
 const currentGraph = ref(null)
 const graphData = ref({ nodes: [], edges: [], metadata: {} })
 const loading = ref(false)
-const userGraphs = ref([])
 
 // SEO Configuration
 const seoConfig = ref({
@@ -549,11 +536,6 @@ const loadGraph = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const selectGraph = (graphId) => {
-  graphIdInput.value = graphId
-  loadGraph()
 }
 
 const generateSlugFromTitle = () => {
@@ -906,6 +888,43 @@ const testWorkerConnection = async () => {
   }
 }
 
+const saveSlugToGraphMetadata = async (slug) => {
+  try {
+    // Update the graph's metadata with the SEO slug
+    const updatedMetadata = {
+      ...graphData.value.metadata,
+      seoSlug: slug,
+      updatedAt: new Date().toISOString()
+    }
+
+    const updatedGraphData = {
+      ...graphData.value,
+      metadata: updatedMetadata
+    }
+
+    const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentGraph.value,
+        graphData: updatedGraphData,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to update graph metadata: ${response.status}`)
+    }
+
+    // Update local data
+    graphData.value = updatedGraphData
+    
+    console.log('Successfully saved SEO slug to graph metadata:', slug)
+  } catch (error) {
+    console.error('Error saving slug to graph metadata:', error)
+    throw error
+  }
+}
+
 const generateStaticPage = async () => {
   if (!isConfigValid.value) {
     errorMessage.value = 'Please complete all required fields'
@@ -965,7 +984,15 @@ const generateStaticPage = async () => {
 
     generatedURL.value = result.url || `https://seo.vegvisr.org/graph/${seoConfig.value.slug}`
     staticPageGenerated.value = true
-    successMessage.value = '✅ Static page generated successfully!'
+    
+    // Save the slug to the graph's metadata
+    try {
+      await saveSlugToGraphMetadata(seoConfig.value.slug)
+      successMessage.value = '✅ Static page generated successfully and slug saved to graph metadata!'
+    } catch (slugError) {
+      console.warn('Failed to save slug to metadata:', slugError)
+      successMessage.value = '✅ Static page generated successfully! (Warning: slug not saved to metadata)'
+    }
 
   } catch (error) {
     console.error('Error generating static page:', error)
@@ -1012,32 +1039,25 @@ const copyToClipboard = async (text) => {
 
 // Load user's graphs on mount
 onMounted(async () => {
-  if (userStore.loggedIn && userStore.email) {
-    try {
-      // Fetch user's graphs with CORS handling
-      const response = await fetch(
-        `https://knowledge.vegvisr.org/getknowgraphs`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-          mode: 'cors'
-        }
-      )
-
-      if (response.ok) {
-        const data = await response.json()
-        userGraphs.value = data.results || []
-        console.log(`Loaded ${userGraphs.value.length} user graphs`)
-      } else {
-        console.warn('Failed to load user graphs:', response.status, response.statusText)
-      }
-    } catch (error) {
-      console.warn('User graphs not available (CORS or network issue):', error.message)
-      // This is not a critical error - user can still manually enter graph IDs
-      // Don't show error to user as it's an optional feature
+  // Check if we have query parameters from GNewViewer
+  if (route.query.graphId) {
+    console.log('🎯 SEO Admin: Received graph context from GNewViewer:', route.query)
+    
+    // Pre-fill the graph ID
+    graphIdInput.value = route.query.graphId
+    
+    // Pre-fill SEO config with available data
+    if (route.query.title) {
+      seoConfig.value.title = route.query.title
+      // Generate slug from title
+      seoConfig.value.slug = route.query.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
     }
+    
+    // Auto-load the graph data
+    await loadGraph()
   }
 })
 </script>
@@ -1126,53 +1146,13 @@ onMounted(async () => {
   flex: 1;
 }
 
-/* Quick Graphs */
-.quick-graphs {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e9ecef;
-}
-
-.quick-graphs h5 {
-  margin-bottom: 1rem;
-  color: #495057;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.graph-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
-}
-
-.graph-item {
-  padding: 1rem;
+/* Graph Info */
+.graph-info {
+  margin-top: 1rem;
+  padding: 0.75rem;
   background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.graph-item:hover {
-  background: #e9ecef;
-  border-color: #667eea;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.graph-title {
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-.graph-id {
-  font-size: 0.875rem;
-  color: #6c757d;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
   font-family: monospace;
 }
 

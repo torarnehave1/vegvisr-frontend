@@ -420,9 +420,33 @@ export default {
       })
 
       if (!transcriptionResponse.ok) {
-        const errorText = await transcriptionResponse.text()
-        console.log('Error response body:', errorText)
-        throw new Error(`Transcription failed: ${transcriptionResponse.status}`)
+        let errorText = ''
+        try {
+          errorText = await transcriptionResponse.text()
+        } catch (e) {
+          errorText = 'Unable to read error response'
+        }
+        
+        console.error('Transcription service error:', {
+          status: transcriptionResponse.status,
+          statusText: transcriptionResponse.statusText,
+          headers: Object.fromEntries(transcriptionResponse.headers.entries()),
+          errorBody: errorText
+        })
+        
+        // Provide specific error messages for common status codes
+        let errorMessage = `Transcription failed: ${transcriptionResponse.status}`
+        if (transcriptionResponse.status === 526) {
+          errorMessage = 'SSL certificate error connecting to transcription service'
+        } else if (transcriptionResponse.status === 502) {
+          errorMessage = 'Transcription service is temporarily unavailable'
+        } else if (transcriptionResponse.status === 503) {
+          errorMessage = 'Transcription service is overloaded'
+        } else if (transcriptionResponse.status === 504) {
+          errorMessage = 'Transcription service timeout'
+        }
+        
+        throw new Error(`${errorMessage}: ${errorText}`)
       }
 
       const transcriptionData = await transcriptionResponse.json()

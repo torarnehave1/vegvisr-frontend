@@ -488,6 +488,11 @@
                               {{ area }}
                             </span>
                           </template>
+                          <template v-if="graph.metadata?.seoSlug">
+                            <span class="badge bg-info ms-2" title="SEO page available">
+                              🔗 SEO
+                            </span>
+                          </template>
                         </div>
                         <div class="graph-info mt-3">
                           <small class="text-muted">
@@ -619,6 +624,37 @@
                     ></button>
                   </div>
                   <div class="modal-body">
+                    <div class="mb-3" v-if="currentGraph?.metadata?.seoSlug">
+                      <label class="form-label">Share Type</label>
+                      <div class="form-check">
+                        <input
+                          class="form-check-input"
+                          type="radio"
+                          name="shareType"
+                          id="shareTypeSEO"
+                          value="seo"
+                          v-model="shareType"
+                          @change="updateShareContent"
+                        />
+                        <label class="form-check-label" for="shareTypeSEO">
+                          <strong>📄 Static SEO Page</strong> - Optimized for social media with rich previews
+                        </label>
+                      </div>
+                      <div class="form-check">
+                        <input
+                          class="form-check-input"
+                          type="radio"
+                          name="shareType"
+                          id="shareTypeDynamic"
+                          value="dynamic"
+                          v-model="shareType"
+                          @change="updateShareContent"
+                        />
+                        <label class="form-check-label" for="shareTypeDynamic">
+                          <strong>🔗 Interactive Graph</strong> - Dynamic experience in the app
+                        </label>
+                      </div>
+                    </div>
                     <div class="mb-3">
                       <label for="shareContent" class="form-label">Share Content</label>
                       <textarea
@@ -905,6 +941,8 @@ const successMessage = ref(null)
 const editingGraphId = ref(null)
 const editingGraph = ref(null)
 const shareContent = ref('')
+const shareType = ref('dynamic') // Default to dynamic sharing
+const currentGraph = ref(null)
 const shareModal = ref(null)
 const isLoadingTitle = ref(false)
 const isLoadingCategories = ref(false)
@@ -1629,10 +1667,38 @@ const confirmDelete = async (graph) => {
 }
 
 const openShareModal = (graph) => {
+  currentGraph.value = graph
+  
+  // Set default share type based on whether SEO slug exists
+  shareType.value = graph.metadata?.seoSlug ? 'seo' : 'dynamic'
+  
+  updateShareContent()
+
+  if (!shareModal.value) {
+    shareModal.value = new Modal(document.getElementById('shareModal'))
+  }
+  shareModal.value.show()
+}
+
+const updateShareContent = () => {
+  if (!currentGraph.value) return
+  
+  const graph = currentGraph.value
   const nodeCount = Array.isArray(graph.nodes) ? graph.nodes.length : 0
   const edgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0
   const categories = getCategories(graph.metadata?.category || '')
   const categoryText = categories.length > 0 ? `Categories: ${categories.join(', ')}` : ''
+  
+  let shareUrl = ''
+  let shareLabel = ''
+  
+  if (shareType.value === 'seo' && graph.metadata?.seoSlug) {
+    shareUrl = `https://seo.vegvisr.org/graph/${graph.metadata.seoSlug}`
+    shareLabel = 'View this SEO-optimized knowledge graph: '
+  } else {
+    shareUrl = `${window.location.origin}/gnew-viewer?graphId=${graph.id}`
+    shareLabel = 'Explore this interactive knowledge graph: '
+  }
 
   shareContent.value =
     `${graph.metadata?.title || 'Untitled Graph'}\n\n` +
@@ -1640,12 +1706,7 @@ const openShareModal = (graph) => {
     `Nodes: ${nodeCount}\n` +
     `Edges: ${edgeCount}\n` +
     `${categoryText}\n\n` +
-    `View this knowledge graph: ${window.location.origin}/gnew-viewer?graphId=${graph.id}`
-
-  if (!shareModal.value) {
-    shareModal.value = new Modal(document.getElementById('shareModal'))
-  }
-  shareModal.value.show()
+    `${shareLabel}${shareUrl}`
 }
 
 const shareToInstagram = () => {
@@ -1659,8 +1720,13 @@ const shareToInstagram = () => {
 const shareToLinkedIn = () => {
   const title = encodeURIComponent(shareContent.value.split('\n')[0])
   const summary = encodeURIComponent(shareContent.value)
-  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = encodeURIComponent(window.location.origin + '/gnew-viewer?graphId=' + graphId)
+  
+  let url = ''
+  if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
+    url = encodeURIComponent(`https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`)
+  } else {
+    url = encodeURIComponent(`${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`)
+  }
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
   window.open(linkedInUrl, '_blank', 'width=600,height=400')
@@ -1668,8 +1734,13 @@ const shareToLinkedIn = () => {
 
 const shareToTwitter = () => {
   const title = shareContent.value.split('\n')[0]
-  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = window.location.origin + '/gnew-viewer?graphId=' + graphId
+  
+  let url = ''
+  if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
+    url = `https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`
+  } else {
+    url = `${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`
+  }
 
   // Twitter has a 280 character limit, so we'll create a shorter message
   const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
@@ -1678,8 +1749,12 @@ const shareToTwitter = () => {
 }
 
 const shareToFacebook = () => {
-  const graphId = shareContent.value.match(/graphId=([^&\s]+)/)?.[1] || ''
-  const url = encodeURIComponent(window.location.origin + '/gnew-viewer?graphId=' + graphId)
+  let url = ''
+  if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
+    url = encodeURIComponent(`https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`)
+  } else {
+    url = encodeURIComponent(`${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`)
+  }
 
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
   window.open(facebookUrl, '_blank', 'width=600,height=400')

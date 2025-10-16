@@ -827,14 +827,21 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
 
       console.log(`📡 Chunk ${i + 1} request sent, response status: ${transcribeResponse.status}`)
 
-      // Log response details for debugging 500 errors
+      // Handle response errors (read body only once)
       if (!transcribeResponse.ok) {
-        const errorText = await transcribeResponse.text()
-        console.error(`❌ Chunk ${i + 1} error response:`, errorText)
-      }
-
-      if (!transcribeResponse.ok) {
-        const errorText = await transcribeResponse.text()
+        let errorText = ''
+        try {
+          errorText = await transcribeResponse.text()
+        } catch (readError) {
+          errorText = `Failed to read error response: ${readError.message}`
+        }
+        
+        console.error(`❌ Chunk ${i + 1} error response:`, {
+          status: transcribeResponse.status,
+          statusText: transcribeResponse.statusText,
+          error: errorText
+        })
+        
         throw new Error(`Chunk ${i + 1} failed: ${transcribeResponse.status} - ${errorText}`)
       }
 
