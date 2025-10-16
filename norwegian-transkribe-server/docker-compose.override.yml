@@ -1,0 +1,25 @@
+# Development override for docker-compose.yml
+# This file is automatically loaded when running docker-compose
+# Use this for development-specific configurations
+
+version: '3.8'
+
+services:
+  api:
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./api:/app:delegated
+      - /app/node_modules
+    command: npm run dev
+    
+  whisper:
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    volumes:
+      - ./whisper:/app:delegated
+    
+  nginx:
+    ports:
+      - "8080:80"  # Alternative port for development 
