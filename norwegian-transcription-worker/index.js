@@ -265,7 +265,7 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     // Call the Norwegian transcription service with API token from environment
     console.log('📤 Sending FormData to Norwegian service...')
-    const norwegianResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
+    const norwegianResponse = await fetch('http://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
       headers: {
         'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
@@ -315,7 +315,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
           service: 'Norwegian Transcription Service',
-          endpoint: 'https://transcribe.vegvisr.org/transcribe',
+          endpoint: 'http://transcribe.vegvisr.org/transcribe',
           language: 'Norwegian',
         },
       }),
@@ -395,7 +395,7 @@ export default {
       transcriptionFormData.append('model', model)
 
       console.log('About to call transcription service:', {
-        url: 'https://transcribe.vegvisr.org/transcribe',
+        url: 'http://transcribe.vegvisr.org/transcribe',
         hasAudio: !!audioFile,
         model: model,
         hasContext: !!context,
