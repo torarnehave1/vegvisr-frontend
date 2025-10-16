@@ -7,6 +7,37 @@
       </div>
 
       <div class="modal-body">
+        <div class="mb-3" v-if="props.graphData?.metadata?.seoSlug">
+          <label class="form-label">Share Type</label>
+          <div class="form-check">
+            <input
+              class="form-check-input"
+              type="radio"
+              name="shareType"
+              id="shareTypeSEO"
+              value="seo"
+              v-model="shareType"
+              @change="updateShareType"
+            />
+            <label class="form-check-label" for="shareTypeSEO">
+              <strong>📄 Static SEO Page</strong> - Optimized for social media with rich previews
+            </label>
+          </div>
+          <div class="form-check">
+            <input
+              class="form-check-input"
+              type="radio"
+              name="shareType"
+              id="shareTypeDynamic"
+              value="dynamic"
+              v-model="shareType"
+              @change="updateShareType"
+            />
+            <label class="form-check-label" for="shareTypeDynamic">
+              <strong>🔗 Interactive Graph</strong> - Dynamic experience in the app
+            </label>
+          </div>
+        </div>
         <div class="mb-3">
           <label for="shareContent" class="form-label">
             Share Content
@@ -122,11 +153,25 @@ const showAIShareComputed = computed(() => {
 
 // Reactive data
 const shareContent = ref('')
+const shareType = ref('dynamic') // Default to dynamic sharing
 const aiShareSuccess = ref(false)
 
 // Methods
 const closeModal = () => {
   emit('close')
+}
+
+const updateShareType = () => {
+  // Regenerate share content when share type changes
+  generateShareContent()
+}
+
+const getShareUrl = () => {
+  if (shareType.value === 'seo' && props.graphData?.metadata?.seoSlug) {
+    return `https://seo.vegvisr.org/graph/${props.graphData.metadata.seoSlug}`
+  } else {
+    return `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`
+  }
 }
 
 const generateShareContent = async () => {
@@ -159,12 +204,12 @@ const generateShareContent = async () => {
 
     if (data.success && data.summary) {
       // Use AI-generated engaging summary with branded domain
-      const shareUrl = `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`
+      const shareUrl = getShareUrl()
       shareContent.value = `${data.summary}\n\n${shareUrl}`
 
       console.log('AI-generated share summary:', data.summary)
       console.log('Used model:', data.model)
-      console.log('Share URL with branded domain:', shareUrl)
+      console.log('Share URL:', shareUrl)
     } else {
       throw new Error('AI response was not successful')
     }
@@ -179,6 +224,11 @@ const generateShareContent = async () => {
     const graphDescription = graphMetadata.description || ''
     const categories = graphMetadata.category || ''
     const categoryText = categories ? `Categories: ${categories}` : ''
+    
+    const shareUrl = getShareUrl()
+    const shareLabel = shareType.value === 'seo' && props.graphData?.metadata?.seoSlug 
+      ? 'View this SEO-optimized knowledge graph: '
+      : 'View this knowledge graph: '
 
     shareContent.value =
       `${graphTitle}\n\n` +
@@ -186,7 +236,7 @@ const generateShareContent = async () => {
       `Nodes: ${nodeCount}\n` +
       `Edges: ${edgeCount}\n` +
       `${categoryText}\n\n` +
-      `View this knowledge graph: https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`
+      `${shareLabel}${shareUrl}`
   }
 }
 
@@ -201,9 +251,7 @@ const shareToInstagram = () => {
 const shareToLinkedIn = () => {
   const title = encodeURIComponent(shareContent.value.split('\n')[0])
   const summary = encodeURIComponent(shareContent.value)
-  const url = encodeURIComponent(
-    `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`,
-  )
+  const url = encodeURIComponent(getShareUrl())
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${title}&summary=${summary}`
   window.open(linkedInUrl, '_blank', 'width=600,height=400')
@@ -211,7 +259,7 @@ const shareToLinkedIn = () => {
 
 const shareToTwitter = () => {
   const title = shareContent.value.split('\n')[0]
-  const url = `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`
+  const url = getShareUrl()
 
   // Twitter has a 280 character limit, so we'll create a shorter message
   const tweetText = encodeURIComponent(`${title}\n\nView this knowledge graph: ${url}`)
@@ -220,9 +268,7 @@ const shareToTwitter = () => {
 }
 
 const shareToFacebook = () => {
-  const url = encodeURIComponent(
-    `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`,
-  )
+  const url = encodeURIComponent(getShareUrl())
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
   window.open(facebookUrl, '_blank', 'width=600,height=400')
 }
@@ -255,6 +301,8 @@ const shareToAI = async () => {
 
 // Generate content when component mounts
 onMounted(() => {
+  // Set default share type based on whether SEO slug exists
+  shareType.value = props.graphData?.metadata?.seoSlug ? 'seo' : 'dynamic'
   generateShareContent()
 })
 

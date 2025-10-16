@@ -233,14 +233,13 @@
           <!-- SEO Admin Button (Superadmin only) -->
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
-            @click="generateSEOPage"
+            @click="openSEOAdmin"
             class="btn btn-outline-success btn-sm seo-admin-button"
-            title="Generate SEO page for this graph"
-            :disabled="isGeneratingSEO || !currentGraphId"
+            title="Open SEO Admin for this graph"
+            :disabled="!currentGraphId"
           >
-            <i class="bi bi-search" v-if="!isGeneratingSEO"></i>
-            <i class="bi bi-hourglass-split" v-else></i>
-            {{ isGeneratingSEO ? 'Generating...' : 'SEO Admin' }}
+            <i class="bi bi-gear-fill"></i>
+            SEO Admin
           </button>
 
           <!-- Print Button -->
@@ -2145,9 +2144,6 @@ const elaborateMode = ref('expand') // 'expand' or 'question'
 const elaboratedText = ref('')
 const isElaborating = ref(false)
 
-// SEO Admin
-const isGeneratingSEO = ref(false)
-
 // Reorder modal functionality
 const isReorderModalOpen = ref(false)
 const reorderableNodes = ref([])
@@ -3282,117 +3278,27 @@ const printGraph = () => {
   }
 }
 
-// Generate SEO page for current graph
-const generateSEOPage = async () => {
+// Navigate to SEO Admin page with current graph context
+const openSEOAdmin = () => {
   if (!currentGraphId.value) {
-    alert('No graph loaded to generate SEO page for.')
+    alert('No graph loaded for SEO administration.')
     return
   }
 
-  isGeneratingSEO.value = true
-
-  try {
-    // Generate slug from graph title or use graph ID
-    const slug = (graphTitle.value || currentGraphId.value)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-
-    // Extract description from first few nodes
-    let description = ''
-    if (graphData.value?.nodes?.length > 0) {
-      const visibleNodes = graphData.value.nodes.filter(node => node.visible !== false)
-      if (visibleNodes.length > 0) {
-        const firstNode = visibleNodes[0]
-        description = firstNode.info || firstNode.label || 'Knowledge graph'
-        if (description.length > 160) {
-          description = description.substring(0, 157) + '...'
-        }
-      }
-    }
-
-    if (!description) {
-      description = `Explore the knowledge graph: ${graphTitle.value || 'Untitled Graph'}`
-    }
-
-    // Find a representative image from the nodes
-    let ogImage = null
-    if (graphData.value?.nodes?.length > 0) {
-      for (const node of graphData.value.nodes) {
-        if (node.imageUrl && node.visible !== false) {
-          ogImage = node.imageUrl
-          break
-        }
-      }
-    }
-
-    // Prepare SEO data
-    const seoData = {
+  // Navigate to SEO admin with graph context
+  const route = {
+    name: 'seo-admin',
+    query: {
       graphId: currentGraphId.value,
-      slug: slug,
-      title: graphTitle.value || 'Knowledge Graph',
-      description: description,
-      ogImage: ogImage,
-      keywords: graphData.value?.nodes?.map(node => node.label).filter(Boolean).slice(0, 10).join(', ') || '',
-      graphData: graphData.value
+      title: graphTitle.value || 'Untitled Graph',
+      // Pass other useful context
+      nodeCount: graphData.value?.nodes?.length || 0
     }
-
-    console.log('🎯 Generating SEO page with data:', seoData)
-
-    // Call SEO worker with better error handling
-    console.log('🎯 Calling SEO worker at:', 'https://seo-worker-production.torarnehave.workers.dev/generate')
-
-    const response = await fetch('https://seo-worker-production.torarnehave.workers.dev/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(seoData)
-    })
-
-    console.log('🎯 Response status:', response.status)
-    console.log('🎯 Response headers:', [...response.headers.entries()])
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('🎯 Response error:', errorText)
-      throw new Error(`SEO generation failed: ${response.status} - ${errorText}`)
-    }
-
-    const result = await response.json()
-    console.log('🎯 SEO page generated:', result)
-
-    if (result.success) {
-      alert(`✅ SEO page generated successfully!\n\nURL: ${result.url}\nSlug: ${result.slug}\n\nYou can now test it with Facebook's sharing debugger.`)
-
-      // Optionally open the generated page
-      if (confirm('Would you like to open the generated SEO page?')) {
-        window.open(result.url, '_blank')
-      }
-    } else {
-      throw new Error(result.error || 'Unknown error occurred')
-    }
-
-  } catch (error) {
-    console.error('🎯 Error generating SEO page:', error)
-
-    let errorMessage = error.message || 'Unknown error occurred'
-
-    // Provide specific help for common errors
-    if (error.message && error.message.includes('Failed to fetch')) {
-      errorMessage += '\n\n💡 This might be a network connectivity issue or CORS policy.\nTry checking your internet connection or contact support.'
-    } else if (error.message && error.message.includes('NetworkError')) {
-      errorMessage += '\n\n💡 Network error - please check your connection and try again.'
-    }
-
-    alert(`❌ Failed to generate SEO page:\n\n${errorMessage}`)
-  } finally {
-    isGeneratingSEO.value = false
   }
-}
-
-// Mobile menu action wrappers (perform action and close menu)
+  
+  console.log('🎯 Navigating to SEO admin with context:', route)
+  router.push(route)
+}// Mobile menu action wrappers (perform action and close menu)
 const duplicateGraphAndClose = async () => {
   closeMobileMenu()
   await duplicateKnowledgeGraph()

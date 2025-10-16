@@ -349,6 +349,7 @@ function generateStaticHTML(options) {
   <meta property="og:image:alt" content="${escapeHtml(title)} - ${siteName}">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="en_US">
+  <meta property="fb:app_id" content="1234567890123456">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
