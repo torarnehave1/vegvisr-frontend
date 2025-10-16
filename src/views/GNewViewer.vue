@@ -228,8 +228,22 @@
         />
         <h1 class="header-title">🧪 GNew Graph Viewer</h1>
 
-        <!-- Print Button -->
+        <!-- Admin Actions -->
         <div class="header-actions">
+          <!-- SEO Admin Button (Superadmin only) -->
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="generateSEOPage"
+            class="btn btn-outline-success btn-sm seo-admin-button"
+            title="Generate SEO page for this graph"
+            :disabled="isGeneratingSEO || !currentGraphId"
+          >
+            <i class="bi bi-search" v-if="!isGeneratingSEO"></i>
+            <i class="bi bi-hourglass-split" v-else></i>
+            {{ isGeneratingSEO ? 'Generating...' : 'SEO Admin' }}
+          </button>
+          
+          <!-- Print Button -->
           <button
             @click="printGraph"
             class="btn btn-outline-primary btn-sm print-button"
@@ -2131,6 +2145,9 @@ const elaborateMode = ref('expand') // 'expand' or 'question'
 const elaboratedText = ref('')
 const isElaborating = ref(false)
 
+// SEO Admin
+const isGeneratingSEO = ref(false)
+
 // Reorder modal functionality
 const isReorderModalOpen = ref(false)
 const reorderableNodes = ref([])
@@ -3262,6 +3279,116 @@ const printGraph = () => {
   } catch (error) {
     console.error('Error printing graph:', error)
     alert('Sorry, there was an error while trying to print the graph.')
+  }
+}
+
+// Generate SEO page for current graph
+const generateSEOPage = async () => {
+  if (!currentGraphId.value) {
+    alert('No graph loaded to generate SEO page for.')
+    return
+  }
+
+  isGeneratingSEO.value = true
+  
+  try {
+    // Generate slug from graph title or use graph ID
+    const slug = (graphTitle.value || currentGraphId.value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+
+    // Extract description from first few nodes
+    let description = ''
+    if (graphData.value?.nodes?.length > 0) {
+      const visibleNodes = graphData.value.nodes.filter(node => node.visible !== false)
+      if (visibleNodes.length > 0) {
+        const firstNode = visibleNodes[0]
+        description = firstNode.info || firstNode.label || 'Knowledge graph'
+        if (description.length > 160) {
+          description = description.substring(0, 157) + '...'
+        }
+      }
+    }
+    
+    if (!description) {
+      description = `Explore the knowledge graph: ${graphTitle.value || 'Untitled Graph'}`
+    }
+
+    // Find a representative image from the nodes
+    let ogImage = null
+    if (graphData.value?.nodes?.length > 0) {
+      for (const node of graphData.value.nodes) {
+        if (node.imageUrl && node.visible !== false) {
+          ogImage = node.imageUrl
+          break
+        }
+      }
+    }
+
+    // Prepare SEO data
+    const seoData = {
+      graphId: currentGraphId.value,
+      slug: slug,
+      title: graphTitle.value || 'Knowledge Graph',
+      description: description,
+      ogImage: ogImage,
+      keywords: graphData.value?.nodes?.map(node => node.label).filter(Boolean).slice(0, 10).join(', ') || '',
+      graphData: graphData.value
+    }
+
+    console.log('🎯 Generating SEO page with data:', seoData)
+
+    // Call SEO worker with better error handling
+    console.log('🎯 Calling SEO worker at:', 'https://seo-worker-production.torarnehave.workers.dev/generate')
+    
+    const response = await fetch('https://seo-worker-production.torarnehave.workers.dev/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(seoData)
+    })
+
+    console.log('🎯 Response status:', response.status)
+    console.log('🎯 Response headers:', [...response.headers.entries()])
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('🎯 Response error:', errorText)
+      throw new Error(`SEO generation failed: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('🎯 SEO page generated:', result)
+
+    if (result.success) {
+      alert(`✅ SEO page generated successfully!\n\nURL: ${result.url}\nSlug: ${result.slug}\n\nYou can now test it with Facebook's sharing debugger.`)
+      
+      // Optionally open the generated page
+      if (confirm('Would you like to open the generated SEO page?')) {
+        window.open(result.url, '_blank')
+      }
+    } else {
+      throw new Error(result.error || 'Unknown error occurred')
+    }
+
+  } catch (error) {
+    console.error('🎯 Error generating SEO page:', error)
+    
+    let errorMessage = error.message || 'Unknown error occurred'
+    
+    // Provide specific help for common errors
+    if (error.message && error.message.includes('Failed to fetch')) {
+      errorMessage += '\n\n💡 This might be a network connectivity issue or CORS policy.\nTry checking your internet connection or contact support.'
+    } else if (error.message && error.message.includes('NetworkError')) {
+      errorMessage += '\n\n💡 Network error - please check your connection and try again.'
+    }
+    
+    alert(`❌ Failed to generate SEO page:\n\n${errorMessage}`)
+  } finally {
+    isGeneratingSEO.value = false
   }
 }
 
@@ -8448,8 +8575,51 @@ const saveAttribution = async () => {
 }
 
 /* Print-specific styles for better output */
+/* Header Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* SEO Admin Button */
+.seo-admin-button {
+  margin-right: 8px;
+  background: #212529;
+  border: 2px solid #212529;
+  color: white;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.seo-admin-button:hover {
+  background: #343a40;
+  border-color: #343a40;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.seo-admin-button:active {
+  background: #1a1e21;
+  border-color: #1a1e21;
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.seo-admin-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.seo-admin-button i {
+  margin-right: 4px;
+}
+
 @media print {
-  .print-button {
+  .print-button, .seo-admin-button {
     display: none !important;
   }
 }
