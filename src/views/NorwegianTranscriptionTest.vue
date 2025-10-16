@@ -780,13 +780,13 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 }
 
 const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
-  loadingMessage.value = 'Splitting audio into 2-minute chunks...'
+  loadingMessage.value = 'Splitting audio into 30-second chunks...'
   isChunkedProcessing.value = true
 
   console.log('🧩 Processing in chunks - splitting audio...')
 
-  // Split audio into 2-minute chunks
-  const chunks = await splitAudioIntoChunks(audioBlob, 120) // 2 minutes
+  // Split audio into 30-second chunks
+  const chunks = await splitAudioIntoChunks(audioBlob, 30) // 30 seconds
   totalChunks.value = chunks.length
 
   console.log(`📊 Split into ${chunks.length} chunks of ~2 minutes each`)
