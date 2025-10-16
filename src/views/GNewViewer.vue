@@ -242,7 +242,7 @@
             <i class="bi bi-hourglass-split" v-else></i>
             {{ isGeneratingSEO ? 'Generating...' : 'SEO Admin' }}
           </button>
-          
+
           <!-- Print Button -->
           <button
             @click="printGraph"
@@ -3290,7 +3290,7 @@ const generateSEOPage = async () => {
   }
 
   isGeneratingSEO.value = true
-  
+
   try {
     // Generate slug from graph title or use graph ID
     const slug = (graphTitle.value || currentGraphId.value)
@@ -3310,7 +3310,7 @@ const generateSEOPage = async () => {
         }
       }
     }
-    
+
     if (!description) {
       description = `Explore the knowledge graph: ${graphTitle.value || 'Untitled Graph'}`
     }
@@ -3341,7 +3341,7 @@ const generateSEOPage = async () => {
 
     // Call SEO worker with better error handling
     console.log('🎯 Calling SEO worker at:', 'https://seo-worker-production.torarnehave.workers.dev/generate')
-    
+
     const response = await fetch('https://seo-worker-production.torarnehave.workers.dev/generate', {
       method: 'POST',
       headers: {
@@ -3365,7 +3365,7 @@ const generateSEOPage = async () => {
 
     if (result.success) {
       alert(`✅ SEO page generated successfully!\n\nURL: ${result.url}\nSlug: ${result.slug}\n\nYou can now test it with Facebook's sharing debugger.`)
-      
+
       // Optionally open the generated page
       if (confirm('Would you like to open the generated SEO page?')) {
         window.open(result.url, '_blank')
@@ -3376,16 +3376,16 @@ const generateSEOPage = async () => {
 
   } catch (error) {
     console.error('🎯 Error generating SEO page:', error)
-    
+
     let errorMessage = error.message || 'Unknown error occurred'
-    
+
     // Provide specific help for common errors
     if (error.message && error.message.includes('Failed to fetch')) {
       errorMessage += '\n\n💡 This might be a network connectivity issue or CORS policy.\nTry checking your internet connection or contact support.'
     } else if (error.message && error.message.includes('NetworkError')) {
       errorMessage += '\n\n💡 Network error - please check your connection and try again.'
     }
-    
+
     alert(`❌ Failed to generate SEO page:\n\n${errorMessage}`)
   } finally {
     isGeneratingSEO.value = false
