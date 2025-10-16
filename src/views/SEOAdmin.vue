@@ -917,7 +917,7 @@ const saveSlugToGraphMetadata = async (slug) => {
 
     // Update local data
     graphData.value = updatedGraphData
-    
+
     console.log('Successfully saved SEO slug to graph metadata:', slug)
   } catch (error) {
     console.error('Error saving slug to graph metadata:', error)
@@ -984,7 +984,7 @@ const generateStaticPage = async () => {
 
     generatedURL.value = result.url || `https://seo.vegvisr.org/graph/${seoConfig.value.slug}`
     staticPageGenerated.value = true
-    
+
     // Save the slug to the graph's metadata
     try {
       await saveSlugToGraphMetadata(seoConfig.value.slug)
@@ -1042,10 +1042,10 @@ onMounted(async () => {
   // Check if we have query parameters from GNewViewer
   if (route.query.graphId) {
     console.log('🎯 SEO Admin: Received graph context from GNewViewer:', route.query)
-    
+
     // Pre-fill the graph ID
     graphIdInput.value = route.query.graphId
-    
+
     // Pre-fill SEO config with available data
     if (route.query.title) {
       seoConfig.value.title = route.query.title
@@ -1055,7 +1055,7 @@ onMounted(async () => {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '')
     }
-    
+
     // Auto-load the graph data
     await loadGraph()
   }

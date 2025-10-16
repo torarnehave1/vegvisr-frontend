@@ -224,9 +224,9 @@ const generateShareContent = async () => {
     const graphDescription = graphMetadata.description || ''
     const categories = graphMetadata.category || ''
     const categoryText = categories ? `Categories: ${categories}` : ''
-    
+
     const shareUrl = getShareUrl()
-    const shareLabel = shareType.value === 'seo' && props.graphData?.metadata?.seoSlug 
+    const shareLabel = shareType.value === 'seo' && props.graphData?.metadata?.seoSlug
       ? 'View this SEO-optimized knowledge graph: '
       : 'View this knowledge graph: '
 

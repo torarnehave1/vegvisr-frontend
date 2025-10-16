@@ -835,13 +835,13 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
         } catch (readError) {
           errorText = `Failed to read error response: ${readError.message}`
         }
-        
+
         console.error(`❌ Chunk ${i + 1} error response:`, {
           status: transcribeResponse.status,
           statusText: transcribeResponse.statusText,
           error: errorText
         })
-        
+
         throw new Error(`Chunk ${i + 1} failed: ${transcribeResponse.status} - ${errorText}`)
       }
 
