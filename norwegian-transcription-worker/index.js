@@ -256,7 +256,7 @@ const handleNorwegianTranscribe = async (request, env) => {
     formData.append('language', 'no') // Norwegian language code
 
     console.log('🚀 Calling Norwegian transcription service:', {
-      endpoint: 'http://46.62.149.157/transcribe',
+      endpoint: 'https://transcribe.vegvisr.org/transcribe',
       fileName: correctedFileName,
       detectedFormat: detectedFormat.format,
       contentType: detectedFormat.contentType,
@@ -265,7 +265,7 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     // Call the Norwegian transcription service with API token from environment
     console.log('📤 Sending FormData to Norwegian service...')
-    const norwegianResponse = await fetch('http://transcribe.vegvisr.org/transcribe', {
+    const norwegianResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
       method: 'POST',
       headers: {
         'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
@@ -315,7 +315,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
           service: 'Norwegian Transcription Service',
-          endpoint: 'http://transcribe.vegvisr.org/transcribe',
+          endpoint: 'https://transcribe.vegvisr.org/transcribe',
           language: 'Norwegian',
         },
       }),
