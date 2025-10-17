@@ -207,19 +207,42 @@ const parseStyleString = (style) => {
 }
 
 const parseQuoteParams = (style) => {
-  // Parse both 'Cited=value' and 'param: value' formats
+  const result = { cited: 'Unknown', styles: '' }
+
+  // Parse 'Cited=value' format
   const citedMatch = style.match(/Cited\s*=\s*['"]?([^'";]+)['"]?/i)
   if (citedMatch) {
-    return citedMatch[1].trim()
+    result.cited = citedMatch[1].trim()
   }
 
-  // Try colon format
-  const colonMatch = style.match(/cited\s*:\s*['"]?([^'";]+)['"]?/i)
-  if (colonMatch) {
-    return colonMatch[1].trim()
+  // Try colon format for cited
+  if (result.cited === 'Unknown') {
+    const colonMatch = style.match(/cited\s*:\s*['"]?([^'";]+)['"]?/i)
+    if (colonMatch) {
+      result.cited = colonMatch[1].trim()
+    }
   }
 
-  return 'Unknown'
+  // Parse CSS properties (font-size, color, etc.)
+  const cssProps = []
+
+  // Look for CSS properties in the format: property: 'value' or property: value
+  const cssRegex = /([\w-]+)\s*:\s*['"]?([^'";]+)['"]?/g
+  let match
+
+  while ((match = cssRegex.exec(style)) !== null) {
+    const prop = match[1].toLowerCase()
+    const value = match[2].trim()
+
+    // Skip the 'cited' property as it's handled separately
+    if (prop !== 'cited') {
+      cssProps.push(`${prop}: ${value}`)
+    }
+  }
+
+  result.styles = cssProps.join('; ')
+
+  return result
 }
 
 const processFormattedElementsPass = (text) => {
@@ -266,9 +289,10 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
   processedText = processedText.replace(
     /\[QUOTE\s*\|([^\]]*)\]([\s\S]*?)\[END\s+QUOTE\]/gs,
     (match, style, content) => {
-      const cited = parseQuoteParams(style)
+      const quoteParams = parseQuoteParams(style)
       const processedContent = marked(content.trim(), { breaks: true })
-      return `<div class="fancy-quote">${processedContent}<cite>— ${cited}</cite></div>`
+      const styleAttr = quoteParams.styles ? ` style="${quoteParams.styles}"` : ''
+      return `<div class="fancy-quote"${styleAttr}>${processedContent}<cite>— ${quoteParams.cited}</cite></div>`
     },
   )
 
@@ -287,11 +311,12 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
   processedText = processedText.replace(
     /\[WNOTE\s*\|([^\]]*)\]([\s\S]*?)\[END\s+WNOTE\]/gs,
     (match, style, content) => {
-      const cited = parseQuoteParams(style)
+      const quoteParams = parseQuoteParams(style)
       const processedContent = marked(content.trim(), { breaks: true })
-      return `<div class="work-note">
+      const styleAttr = quoteParams.styles ? ` style="${quoteParams.styles}"` : ''
+      return `<div class="work-note"${styleAttr}>
         ${processedContent}
-        ${cited !== 'Unknown' ? `<cite>— ${cited}</cite>` : ''}
+        ${quoteParams.cited !== 'Unknown' ? `<cite>— ${quoteParams.cited}</cite>` : ''}
       </div>`
     },
   )
