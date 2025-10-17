@@ -1,6 +1,20 @@
 // Norwegian Audio Transcription Worker
 // Handles audio transcription using Norwegian transcription service
 
+// Helper function to safely convert ArrayBuffer to base64 (avoids call stack overflow)
+const arrayBufferToBase64 = (buffer) => {
+  const uint8Array = new Uint8Array(buffer)
+  const chunkSize = 0x8000 // 32KB chunks
+  let result = ''
+  
+  for (let i = 0; i < uint8Array.length; i += chunkSize) {
+    const chunk = uint8Array.subarray(i, i + chunkSize)
+    result += String.fromCharCode.apply(null, chunk)
+  }
+  
+  return btoa(result)
+}
+
 // CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -237,50 +251,48 @@ const handleNorwegianTranscribe = async (request, env) => {
     const originalFileName = audioObject.customMetadata?.originalFileName || 'audio.wav'
     const correctedFileName = originalFileName.replace(/\.[^.]+$/, detectedFormat.extension)
 
-    // Prepare FormData for Norwegian transcription service
-    const formData = new FormData()
-    const audioBlob = new Blob([audioBuffer], { type: detectedFormat.contentType })
+    // Convert audio buffer to base64 for Hugging Face API (chunk-based to avoid call stack overflow)
+    const base64Audio = arrayBufferToBase64(audioBuffer)
 
-    // Add debugging logs similar to whisper-worker
-    console.log('🎯 Audio blob details:', {
+    // Add debugging logs
+    console.log('🎯 Audio processing details:', {
       originalFileName,
       correctedFileName,
       r2Key,
       detectedFormat: detectedFormat.format,
       detectedContentType: detectedFormat.contentType,
-      blobSize: audioBuffer.byteLength,
-      blobType: audioBlob.type,
+      audioSize: audioBuffer.byteLength,
+      base64Length: base64Audio.length,
     })
 
-    formData.append('audio', audioBlob, correctedFileName)
-    formData.append('language', 'no') // Norwegian language code
+    // Prepare JSON payload for Hugging Face endpoint
+    const payload = {
+      inputs: base64Audio,
+      parameters: {}
+    }
 
-    console.log('🚀 Calling Norwegian transcription service:', {
-      endpoint: 'https://transcribe.vegvisr.org/transcribe',
+    console.log('🚀 Calling Hugging Face transcription service:', {
+      endpoint: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
       fileName: correctedFileName,
       detectedFormat: detectedFormat.format,
       contentType: detectedFormat.contentType,
       audioSize: audioBuffer.byteLength,
+      base64Size: base64Audio.length,
     })
 
-    // Call the Norwegian transcription service with API token from environment
-    console.log('📤 Sending FormData to Norwegian service...')
-    const norwegianResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
+    // Call the Hugging Face transcription service
+    console.log('📤 Sending JSON payload to Hugging Face service...')
+    const norwegianResponse = await fetch('https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud', {
       method: 'POST',
       headers: {
-        'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        Accept: '*/*',
-        'Accept-Language': 'en-US,en;q=0.9,no;q=0.8',
-        'Accept-Encoding': 'gzip, deflate',
-        Origin: 'https://vegvisr.org',
-        Referer: 'https://vegvisr.org/',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${env.whisperailab}`,
+        'Content-Type': 'application/json',
       },
-      body: formData,
+      body: JSON.stringify(payload),
     })
 
-    console.log('🇳🇴 Norwegian API response:', {
+    console.log('🇳🇴 Hugging Face API response:', {
       status: norwegianResponse.status,
       statusText: norwegianResponse.statusText,
       headers: Object.fromEntries(norwegianResponse.headers.entries()),
@@ -288,34 +300,48 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     if (!norwegianResponse.ok) {
       const errorText = await norwegianResponse.text()
-      console.error('Norwegian API error:', errorText)
+      console.error('Hugging Face API error:', errorText)
       return createErrorResponse(
-        `Norwegian transcription service error: ${norwegianResponse.status} - ${errorText}`,
+        `Hugging Face transcription service error: ${norwegianResponse.status} - ${errorText}`,
         502,
       )
     }
 
     const transcriptionResult = await norwegianResponse.json()
 
-    console.log('✅ Norwegian transcription completed:', {
+    console.log('✅ Hugging Face transcription completed:', {
       hasResult: !!transcriptionResult,
-      hasText: !!transcriptionResult.text,
-      textPreview: transcriptionResult.text?.substring(0, 100) + '...' || 'no-text',
+      resultType: typeof transcriptionResult,
+      resultPreview: JSON.stringify(transcriptionResult).substring(0, 200) + '...',
     })
+
+    // Extract text from Hugging Face response format
+    let transcriptionText = ''
+    if (typeof transcriptionResult === 'string') {
+      transcriptionText = transcriptionResult
+    } else if (transcriptionResult.text) {
+      transcriptionText = transcriptionResult.text
+    } else if (Array.isArray(transcriptionResult) && transcriptionResult[0]?.text) {
+      transcriptionText = transcriptionResult[0].text
+    } else if (transcriptionResult.generated_text) {
+      transcriptionText = transcriptionResult.generated_text
+    } else {
+      transcriptionText = JSON.stringify(transcriptionResult)
+    }
 
     return createResponse(
       JSON.stringify({
         success: true,
-        text: transcriptionResult.text || transcriptionResult,
+        text: transcriptionText,
         transcription: transcriptionResult,
         language: 'no',
-        service: 'Norwegian Transcription Service',
+        service: 'Hugging Face Norwegian Transcription',
         metadata: {
           fileSize: audioBuffer.byteLength,
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
-          service: 'Norwegian Transcription Service',
-          endpoint: 'https://transcribe.vegvisr.org/transcribe',
+          service: 'Hugging Face Norwegian Transcription',
+          endpoint: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
           language: 'Norwegian',
         },
       }),
@@ -389,28 +415,32 @@ export default {
 
       const startTime = Date.now()
 
-      // Step 1: Call Hetzner server for transcription (NO context - just audio)
-      const transcriptionFormData = new FormData()
-      transcriptionFormData.append('audio', audioFile)
-      transcriptionFormData.append('model', model)
+      // Step 1: Call Hugging Face for transcription
+      const audioBuffer = await audioFile.arrayBuffer()
+      const base64Audio = arrayBufferToBase64(audioBuffer)
 
-      console.log('About to call transcription service:', {
-        url: 'http://transcribe.vegvisr.org/transcribe',
+      const payload = {
+        inputs: base64Audio,
+        parameters: {}
+      }
+
+      console.log('About to call Hugging Face transcription service:', {
+        url: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
         hasAudio: !!audioFile,
-        model: model,
+        audioSize: audioBuffer.byteLength,
+        base64Size: base64Audio.length,
         hasContext: !!context,
         timestamp: new Date().toISOString(),
       })
 
-      const transcriptionResponse = await fetch('https://transcribe.vegvisr.org/transcribe', {
+      const transcriptionResponse = await fetch('https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud', {
         method: 'POST',
         headers: {
-          'X-API-Token': env.TRANSCRIPTION_API_TOKEN,
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          Accept: '*/*',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${env.whisperailab}`,
+          'Content-Type': 'application/json',
         },
-        body: transcriptionFormData,
+        body: JSON.stringify(payload),
       })
 
       console.log('Transcription response:', {
@@ -451,11 +481,23 @@ export default {
 
       const transcriptionData = await transcriptionResponse.json()
 
-      if (!transcriptionData.success || !transcriptionData.transcription?.text) {
-        throw new Error('Invalid transcription response')
+      // Extract text from Hugging Face response format
+      let rawText = ''
+      if (typeof transcriptionData === 'string') {
+        rawText = transcriptionData
+      } else if (transcriptionData.text) {
+        rawText = transcriptionData.text
+      } else if (Array.isArray(transcriptionData) && transcriptionData[0]?.text) {
+        rawText = transcriptionData[0].text
+      } else if (transcriptionData.generated_text) {
+        rawText = transcriptionData.generated_text
+      } else {
+        throw new Error('Invalid transcription response format')
       }
 
-      const rawText = transcriptionData.transcription.text
+      if (!rawText) {
+        throw new Error('No transcription text received')
+      }
 
       // Step 2: Call Norwegian text improvement worker using service binding
       let improvedText = null
@@ -499,17 +541,17 @@ export default {
           transcription: {
             raw_text: rawText,
             improved_text: improvedText,
-            language: transcriptionData.transcription.language || 'no',
-            chunks: transcriptionData.transcription.chunks || 1,
-            processing_time: transcriptionData.transcription.processing_time || 0,
+            language: 'no',
+            chunks: 1,
+            processing_time: 0,
             improvement_time: improvementTime,
             timestamp: new Date().toISOString(),
           },
           metadata: {
             filename: audioFile.name,
-            model: transcriptionData.metadata?.model || model,
+            model: model,
             total_processing_time: totalTime,
-            transcription_server: 'Hetzner',
+            transcription_server: 'Hugging Face',
             text_improvement: improvedText
               ? 'Cloudflare Workers AI - Llama 3.3 70B Fast'
               : 'Not available',
