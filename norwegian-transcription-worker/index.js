@@ -6,12 +6,12 @@ const arrayBufferToBase64 = (buffer) => {
   const uint8Array = new Uint8Array(buffer)
   const chunkSize = 0x8000 // 32KB chunks
   let result = ''
-  
+
   for (let i = 0; i < uint8Array.length; i += chunkSize) {
     const chunk = uint8Array.subarray(i, i + chunkSize)
     result += String.fromCharCode.apply(null, chunk)
   }
-  
+
   return btoa(result)
 }
 
