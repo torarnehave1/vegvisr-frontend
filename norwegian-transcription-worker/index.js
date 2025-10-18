@@ -1,6 +1,12 @@
 // Norwegian Audio Transcription Worker
 // Handles audio transcription using Norwegian transcription service
 
+// Model endpoints
+const MODEL_ENDPOINTS = {
+  medium: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
+  large: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud'
+}
+
 // Helper function to safely convert ArrayBuffer to base64 (avoids call stack overflow)
 const arrayBufferToBase64 = (buffer) => {
   const uint8Array = new Uint8Array(buffer)
@@ -189,16 +195,88 @@ const handleUpload = async (request, env) => {
   }
 }
 
+// Helper function to call transcription service with fallback
+const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) => {
+  const models = preferredModel === 'large' ? ['large', 'medium'] : ['medium', 'large']
+  
+  let lastError = null
+  let attemptedModels = []
+
+  for (const modelType of models) {
+    const endpoint = MODEL_ENDPOINTS[modelType]
+    attemptedModels.push(modelType)
+
+    try {
+      console.log(`🚀 Trying ${modelType} model at:`, endpoint)
+      
+      const payload = {
+        inputs: base64Audio,
+        parameters: {}
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${env.whisperailab}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      console.log(`📊 ${modelType} model response:`, {
+        status: response.status,
+        statusText: response.statusText,
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log(`✅ Success with ${modelType} model`)
+        return {
+          success: true,
+          result,
+          modelUsed: modelType,
+          attemptedModels,
+          endpoint
+        }
+      } else if (response.status === 503) {
+        console.log(`⚠️ ${modelType} model unavailable (503), trying fallback...`)
+        const errorText = await response.text()
+        lastError = `${modelType} model unavailable: ${errorText}`
+        continue // Try next model
+      } else {
+        console.log(`❌ ${modelType} model error:`, response.status)
+        const errorText = await response.text()
+        lastError = `${modelType} model error (${response.status}): ${errorText}`
+        continue // Try next model
+      }
+    } catch (error) {
+      console.error(`❌ ${modelType} model exception:`, error)
+      lastError = `${modelType} model exception: ${error.message}`
+      continue // Try next model
+    }
+  }
+
+  // All models failed
+  return {
+    success: false,
+    error: lastError || 'All models failed',
+    attemptedModels
+  }
+}
+
 // Norwegian transcription handler
 const handleNorwegianTranscribe = async (request, env) => {
   try {
-    // Get audio URL from query params or request body
+    // Get audio URL and model from query params or request body
     const url = new URL(request.url)
     let audioUrl = url.searchParams.get('url')
+    let selectedModel = url.searchParams.get('model') || 'medium' // Default to medium
 
     if (!audioUrl && request.body) {
       const body = await request.json()
       audioUrl = body.audioUrl
+      selectedModel = body.model || selectedModel
     }
 
     if (!audioUrl) {
@@ -265,14 +343,8 @@ const handleNorwegianTranscribe = async (request, env) => {
       base64Length: base64Audio.length,
     })
 
-    // Prepare JSON payload for Hugging Face endpoint
-    const payload = {
-      inputs: base64Audio,
-      parameters: {}
-    }
-
-    console.log('🚀 Calling Hugging Face transcription service:', {
-      endpoint: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
+    console.log('🚀 Calling transcription service with model selection:', {
+      selectedModel,
       fileName: correctedFileName,
       detectedFormat: detectedFormat.format,
       contentType: detectedFormat.contentType,
@@ -280,34 +352,24 @@ const handleNorwegianTranscribe = async (request, env) => {
       base64Size: base64Audio.length,
     })
 
-    // Call the Hugging Face transcription service
-    console.log('📤 Sending JSON payload to Hugging Face service...')
-    const norwegianResponse = await fetch('https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${env.whisperailab}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
+    // Call transcription service with automatic fallback
+    const transcriptionResponse = await callTranscriptionWithFallback(base64Audio, selectedModel, env)
 
-    console.log('🇳🇴 Hugging Face API response:', {
-      status: norwegianResponse.status,
-      statusText: norwegianResponse.statusText,
-      headers: Object.fromEntries(norwegianResponse.headers.entries()),
-    })
-
-    if (!norwegianResponse.ok) {
-      const errorText = await norwegianResponse.text()
-      console.error('Hugging Face API error:', errorText)
+    if (!transcriptionResponse.success) {
+      console.error('All transcription models failed:', transcriptionResponse.error)
       return createErrorResponse(
-        `Hugging Face transcription service error: ${norwegianResponse.status} - ${errorText}`,
+        `Transcription failed: ${transcriptionResponse.error}. Tried models: ${transcriptionResponse.attemptedModels.join(', ')}`,
         502,
       )
     }
 
-    const transcriptionResult = await norwegianResponse.json()
+    const transcriptionResult = transcriptionResponse.result
+    
+    console.log('✅ Transcription successful:', {
+      modelUsed: transcriptionResponse.modelUsed,
+      attemptedModels: transcriptionResponse.attemptedModels,
+      endpoint: transcriptionResponse.endpoint,
+    })
 
     console.log('✅ Hugging Face transcription completed:', {
       hasResult: !!transcriptionResult,
@@ -341,7 +403,10 @@ const handleNorwegianTranscribe = async (request, env) => {
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
           service: 'Hugging Face Norwegian Transcription',
-          endpoint: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
+          modelUsed: transcriptionResponse.modelUsed,
+          attemptedModels: transcriptionResponse.attemptedModels,
+          endpoint: transcriptionResponse.endpoint,
+          requestedModel: selectedModel,
           language: 'Norwegian',
         },
       }),
@@ -403,7 +468,7 @@ export default {
     try {
       const formData = await request.formData()
       const audioFile = formData.get('audio')
-      const model = formData.get('model') || 'nb-whisper-small'
+      const model = formData.get('model') || 'medium' // Use our new model system
       const context = formData.get('context') || ''
 
       if (!audioFile) {
@@ -415,17 +480,12 @@ export default {
 
       const startTime = Date.now()
 
-      // Step 1: Call Hugging Face for transcription
+      // Step 1: Call transcription service with fallback
       const audioBuffer = await audioFile.arrayBuffer()
       const base64Audio = arrayBufferToBase64(audioBuffer)
 
-      const payload = {
-        inputs: base64Audio,
-        parameters: {}
-      }
-
-      console.log('About to call Hugging Face transcription service:', {
-        url: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
+      console.log('🚀 Calling transcription service with model selection:', {
+        selectedModel: model,
         hasAudio: !!audioFile,
         audioSize: audioBuffer.byteLength,
         base64Size: base64Audio.length,
@@ -433,53 +493,21 @@ export default {
         timestamp: new Date().toISOString(),
       })
 
-      const transcriptionResponse = await fetch('https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${env.whisperailab}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      })
+      // Use our new fallback system
+      const transcriptionResponse = await callTranscriptionWithFallback(base64Audio, model, env)
 
-      console.log('Transcription response:', {
-        status: transcriptionResponse.status,
-        statusText: transcriptionResponse.statusText,
-        headers: Object.fromEntries(transcriptionResponse.headers.entries()),
-      })
-
-      if (!transcriptionResponse.ok) {
-        let errorText = ''
-        try {
-          errorText = await transcriptionResponse.text()
-        } catch (e) {
-          errorText = 'Unable to read error response'
-        }
-
-        console.error('Transcription service error:', {
-          status: transcriptionResponse.status,
-          statusText: transcriptionResponse.statusText,
-          headers: Object.fromEntries(transcriptionResponse.headers.entries()),
-          errorBody: errorText
-        })
-
-        // Provide specific error messages for common status codes
-        let errorMessage = `Transcription failed: ${transcriptionResponse.status}`
-        if (transcriptionResponse.status === 526) {
-          errorMessage = 'SSL certificate error connecting to transcription service'
-        } else if (transcriptionResponse.status === 502) {
-          errorMessage = 'Transcription service is temporarily unavailable'
-        } else if (transcriptionResponse.status === 503) {
-          errorMessage = 'Transcription service is overloaded'
-        } else if (transcriptionResponse.status === 504) {
-          errorMessage = 'Transcription service timeout'
-        }
-
-        throw new Error(`${errorMessage}: ${errorText}`)
+      if (!transcriptionResponse.success) {
+        console.error('All transcription models failed:', transcriptionResponse.error)
+        throw new Error(transcriptionResponse.error)
       }
 
-      const transcriptionData = await transcriptionResponse.json()
+      const transcriptionData = transcriptionResponse.result
+      
+      console.log('✅ Transcription successful:', {
+        modelUsed: transcriptionResponse.modelUsed,
+        attemptedModels: transcriptionResponse.attemptedModels,
+        endpoint: transcriptionResponse.endpoint,
+      })
 
       // Extract text from Hugging Face response format
       let rawText = ''
@@ -550,6 +578,10 @@ export default {
           metadata: {
             filename: audioFile.name,
             model: model,
+            modelUsed: transcriptionResponse.modelUsed,
+            attemptedModels: transcriptionResponse.attemptedModels,
+            endpoint: transcriptionResponse.endpoint,
+            requestedModel: model,
             total_processing_time: totalTime,
             transcription_server: 'Hugging Face',
             text_improvement: improvedText
