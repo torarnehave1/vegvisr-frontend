@@ -198,7 +198,7 @@ const handleUpload = async (request, env) => {
 // Helper function to call transcription service with fallback
 const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) => {
   const models = preferredModel === 'large' ? ['large', 'medium'] : ['medium', 'large']
-  
+
   let lastError = null
   let attemptedModels = []
 
@@ -208,7 +208,7 @@ const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) =
 
     try {
       console.log(`🚀 Trying ${modelType} model at:`, endpoint)
-      
+
       const payload = {
         inputs: base64Audio,
         parameters: {}
@@ -364,7 +364,7 @@ const handleNorwegianTranscribe = async (request, env) => {
     }
 
     const transcriptionResult = transcriptionResponse.result
-    
+
     console.log('✅ Transcription successful:', {
       modelUsed: transcriptionResponse.modelUsed,
       attemptedModels: transcriptionResponse.attemptedModels,
@@ -502,7 +502,7 @@ export default {
       }
 
       const transcriptionData = transcriptionResponse.result
-      
+
       console.log('✅ Transcription successful:', {
         modelUsed: transcriptionResponse.modelUsed,
         attemptedModels: transcriptionResponse.attemptedModels,
