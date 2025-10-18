@@ -401,9 +401,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
-// Store
+// Router and Store
+const router = useRouter()
 const userStore = useUserStore()
 
 // Reactive data
@@ -1320,7 +1322,11 @@ const createNewGraph = async () => {
     console.log('✅ Graph saved to localStorage:', graphTitle)
     graphCreated.value = true
 
-    // Reset the success message after a delay
+    // Navigate to the graph viewer
+    console.log('🚀 Redirecting to graph viewer:', `/gnew-viewer?graphId=${graphId}`)
+    router.push(`/gnew-viewer?graphId=${graphId}`)
+
+    // Reset the success message after a delay (in case navigation fails)
     setTimeout(() => {
       graphCreated.value = false
     }, 5000)
