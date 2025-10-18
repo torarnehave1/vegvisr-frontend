@@ -1302,53 +1302,57 @@ const createNewGraph = async () => {
       throw new Error('No transcription text available to create graph from')
     }
 
-    console.log('Creating new graph from transcription:', transcriptionText.substring(0, 100) + '...')
 
-    // Create nodes directly (simplified approach)
-    const words = transcriptionText.split(/\s+/)
-    const chunkSize = 500 // words per node
-    const chunks = []
 
-    // Split into chunks
-    for (let i = 0; i < words.length; i += chunkSize) {
-      chunks.push(words.slice(i, i + chunkSize).join(' '))
+    console.log('🔍 Processing transcription through API for knowledge graph creation...')
+
+    // Process the transcription through the same API as Process Transcript modal
+    const apiResponse = await fetch('https://api.vegvisr.org/process-transcript', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        transcript: transcriptionText,
+        sourceLanguage: 'norwegian',
+        targetLanguage: 'norwegian',
+      }),
+    })
+
+    if (!apiResponse.ok) {
+      throw new Error(`Transcript processing failed: ${apiResponse.status}`)
     }
 
-    // Create nodes from chunks
-    const nodes = chunks.map((chunk, index) => ({
-      id: `transcript_${Date.now()}_${index}`,
-      label: `DEL ${index + 1}`,
-      color: '#f9f9f9',
-      type: 'fulltext',
-      info: `## DEL ${index + 1}\n\n${chunk}`,
-      bibl: [],
-      imageWidth: '100%',
-      imageHeight: '100%',
-      visible: true,
-      path: null,
-      position: { x: 100 + (index % 3) * 300, y: 100 + Math.floor(index / 3) * 250 },
-    }))
+    const result = await apiResponse.json()
+    console.log('✅ API processing complete:', result)
 
-    // Create graph metadata
+    // Use the processed knowledge graph from the API
+    const graphData = result.knowledgeGraph
+
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+      throw new Error('API returned empty knowledge graph')
+    }
+
+    // Update metadata with transcription info
     const today = new Date()
     const dateStr = today.toLocaleDateString('no-NO')
     const timeStr = today.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })
-    const nodeCount = nodes.length
+    const nodeCount = graphData.nodes.length
     const filename = transcriptionResult.value.metadata?.filename || 'Audio'
 
-    const graphTitle = `🎙️ ${filename.replace(/\.[^/.]+$/, '')} (${nodeCount} deler)`
+    const graphTitle = `🎙️ ${filename.replace(/\.[^/.]+$/, '')} (${nodeCount} nodes)`
 
-    const graphData = {
-      metadata: {
-        title: graphTitle,
-        description: `Norsk kunnskapsgraf fra lydtranskripsjonen "${filename}". Prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
-        createdBy: userStore.email || 'Anonymous',
-        version: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      nodes: nodes,
-      edges: [],
+    graphData.metadata = {
+      ...graphData.metadata,
+      title: graphTitle,
+      description: `Norsk kunnskapsgraf fra lydtranskripsjonen "${filename}". Prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} kunnskapsnoder.`,
+      createdBy: userStore.email || 'Anonymous',
+      source: 'Norwegian Transcription Service',
+      language: 'Norwegian',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
 
     console.log('Graph data prepared:', { nodeCount, title: graphTitle })
