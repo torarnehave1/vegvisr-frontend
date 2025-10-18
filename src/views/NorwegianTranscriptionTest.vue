@@ -1234,7 +1234,7 @@ const saveChunkedToPortfolio = async () => {
   }
 }
 
-// Graph creation function
+// Graph creation function - works like Process Transcript modal's "Create New Graph"
 const createNewGraph = async () => {
   if (!transcriptionResult.value) {
     graphError.value = 'No transcription result available'
@@ -1247,9 +1247,9 @@ const createNewGraph = async () => {
 
   try {
     // Get the best available text (improved > raw > fallback)
-    const transcriptionText =
-      transcriptionResult.value.transcription?.improved_text ||
-      transcriptionResult.value.transcription?.raw_text ||
+    const transcriptionText = 
+      transcriptionResult.value.transcription?.improved_text || 
+      transcriptionResult.value.transcription?.raw_text || 
       transcriptionResult.value.text || ''
 
     if (!transcriptionText.trim()) {
@@ -1258,54 +1258,79 @@ const createNewGraph = async () => {
 
     console.log('Creating new graph from transcription:', transcriptionText.substring(0, 100) + '...')
 
-    // Create a basic graph structure from the transcription
-    const graphName = `Audio Transcription ${new Date().toLocaleString()}`
-    const graphData = {
-      name: graphName,
-      description: `Graph created from Norwegian audio transcription`,
-      nodes: [
-        {
-          id: '1',
-          type: 'concept',
-          label: 'Audio Transcription',
-          content: transcriptionText,
-          x: 400,
-          y: 300,
-          metadata: {
-            source: 'Norwegian Transcription',
-            created: new Date().toISOString(),
-            language: 'no',
-            filename: transcriptionResult.value.metadata?.filename || 'unknown'
-          }
-        }
-      ],
-      edges: [],
-      metadata: {
-        createdFrom: 'audio-transcription',
-        transcriptionSource: 'norwegian-worker',
-        audioFilename: transcriptionResult.value.metadata?.filename,
-        processingTime: transcriptionResult.value.metadata?.processing_time
-      }
+    // Create nodes from the transcription text (like Process Transcript modal does)
+    const knowledgeGraphData = await createKnowledgeGraphFromText(transcriptionText)
+    
+    if (!knowledgeGraphData || !knowledgeGraphData.nodes) {
+      throw new Error('Failed to create knowledge graph nodes from transcription')
     }
 
-    // Store the graph data in localStorage for the graph editor
-    const graphs = JSON.parse(localStorage.getItem('savedGraphs') || '[]')
-    graphs.push({
-      id: Date.now().toString(),
-      name: graphName,
-      data: graphData,
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
+    // Create graph metadata (like Process Transcript modal)
+    const today = new Date()
+    const dateStr = today.toLocaleDateString('no-NO')
+    const timeStr = today.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })
+    const nodeCount = knowledgeGraphData.nodes.length
+    const filename = transcriptionResult.value.metadata?.filename || 'Audio'
+
+    const graphTitle = `🎙️ ${filename.replace(/\.[^/.]+$/, '')} (${nodeCount} deler)`
+    
+    const graphMetadata = {
+      title: graphTitle,
+      description: `Norsk kunnskapsgraf fra lydtranskripsjonen "${filename}". Prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
+      createdBy: userStore.email || 'Anonymous',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    // Prepare graph data with proper structure (like Process Transcript modal)
+    const graphData = {
+      metadata: graphMetadata,
+      nodes: knowledgeGraphData.nodes.map((node, index) => ({
+        ...node,
+        position: { x: 100 + (index % 3) * 300, y: 100 + Math.floor(index / 3) * 250 },
+        visible: true,
+      })),
+      edges: knowledgeGraphData.edges || [],
+    }
+
+    console.log('Graph data prepared:', { nodeCount, title: graphTitle })
+
+    // Generate unique graph ID
+    const graphId = `graph_${Date.now()}`
+
+    // Save the new graph using the same API as Process Transcript modal
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        id: graphId,
+        graphData,
+        override: true
+      }),
     })
-    localStorage.setItem('savedGraphs', JSON.stringify(graphs))
 
-    console.log('✅ Graph created successfully:', graphName)
-    graphCreated.value = true
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Graph saved successfully:', result)
+      
+      graphCreated.value = true
+      
+      // Reset the success message after a delay
+      setTimeout(() => {
+        graphCreated.value = false
+      }, 5000)
+      
+      console.log(`✅ New graph created: "${graphTitle}" with ${nodeCount} nodes`)
 
-    // Reset the success message after a delay
-    setTimeout(() => {
-      graphCreated.value = false
-    }, 5000)
+    } else {
+      const errorText = await response.text()
+      console.error('Save failed:', errorText)
+      throw new Error(`Failed to save new graph: ${response.status} - ${errorText}`)
+    }
 
   } catch (err) {
     console.error('Failed to create graph:', err)
@@ -1315,7 +1340,43 @@ const createNewGraph = async () => {
   }
 }
 
-// Create graph from chunked results
+// Helper function to create knowledge graph nodes from text (like Process Transcript modal's fallback)
+const createKnowledgeGraphFromText = async (text) => {
+  try {
+    const words = text.split(/\s+/)
+    const chunkSize = 500 // words per node (same as Process Transcript modal fallback)
+    const chunks = []
+
+    // Split into chunks
+    for (let i = 0; i < words.length; i += chunkSize) {
+      chunks.push(words.slice(i, i + chunkSize).join(' '))
+    }
+
+    // Create nodes from chunks (same format as Process Transcript modal)
+    const nodes = chunks.map((chunk, index) => ({
+      id: `transcript_${Date.now()}_${index}`,
+      label: `DEL ${index + 1}`,
+      color: '#f9f9f9',
+      type: 'fulltext',
+      info: `## DEL ${index + 1}\n\n${chunk}`,
+      bibl: [],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: null,
+    }))
+
+    return {
+      nodes,
+      edges: [],
+    }
+  } catch (error) {
+    console.error('Failed to create knowledge graph from text:', error)
+    return null
+  }
+}
+
+// Create graph from chunked results - works like Process Transcript modal's "Create New Graph"
 const createChunkedGraph = async () => {
   if (!chunkResults.value.length) {
     graphError.value = 'No chunked transcription results available'
