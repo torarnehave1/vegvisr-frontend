@@ -380,6 +380,28 @@
             </button>
           </div>
         </div>
+
+        <!-- Create New Graph Button for Chunked Results -->
+        <div class="graph-actions">
+          <button
+            @click="createNewGraph"
+            :disabled="creatingGraph"
+            class="btn btn-primary graph-btn"
+          >
+            {{ creatingGraph ? 'Creating Graph...' : '🔗 Create New Graph from Complete Transcription' }}
+          </button>
+
+          <div v-if="graphCreated" class="graph-success">
+            ✅ New graph created successfully!
+            <router-link to="/gnew-editor" class="btn btn-outline-primary btn-sm">
+              Open Graph Editor
+            </router-link>
+          </div>
+
+          <div v-if="graphError" class="graph-error">
+            ❌ Failed to create graph: {{ graphError }}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -769,12 +791,12 @@ const transcribeAudio = async () => {
     // Check audio duration to determine if chunking is needed
     loadingMessage.value = 'Analyzing audio file...'
     const audioDuration = await getAudioDuration(audioBlob)
-    const CHUNK_THRESHOLD = 300 // 5 minutes
+    const CHUNK_THRESHOLD = 120 // 2 minutes
 
     console.log(`📊 Audio duration: ${Math.round(audioDuration)}s (${formatTime(audioDuration)})`)
 
     if (audioDuration > CHUNK_THRESHOLD) {
-      // Use chunked processing for files > 5 minutes
+      // Use chunked processing for files > 2 minutes
       await processAudioInChunks(audioBlob, fileName, audioDuration)
     } else {
       // Use single file processing for smaller files
@@ -945,6 +967,30 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
   if (!processingAborted.value) {
     loadingMessage.value = `Completed processing ${chunkResults.value.length} chunks!`
     console.log('🎉 All chunks processed successfully')
+
+    // Combine all chunk results into a single transcriptionResult for graph creation
+    const combinedRawText = chunkResults.value.map((chunk) => chunk.raw_text).join(' ')
+    const combinedImprovedText = chunkResults.value
+      .map((chunk) => chunk.improved_text || chunk.raw_text)
+      .join(' ')
+
+    // Set the combined result so "Create New Graph" can use it
+    transcriptionResult.value = {
+      success: true,
+      transcription: {
+        raw_text: combinedRawText,
+        improved_text: combinedImprovedText,
+        language: 'no',
+        chunks: chunkResults.value.length,
+        processing_time: chunkResults.value.reduce((total, chunk) => total + (chunk.processingTime || 0), 0),
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        total_chunks: chunkResults.value.length,
+        transcription_server: 'Hugging Face (Chunked)',
+        processing_method: 'chunked'
+      }
+    }
 
     setTimeout(() => {
       loadingMessage.value = ''
