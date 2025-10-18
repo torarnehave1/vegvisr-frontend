@@ -1353,19 +1353,27 @@ const createNewGraph = async () => {
 
     console.log('Graph data prepared:', { nodeCount, title: graphTitle })
 
-    // Store the graph data in localStorage as fallback (like old implementation)
-    const graphs = JSON.parse(localStorage.getItem('savedGraphs') || '[]')
     const graphId = `graph_${Date.now()}`
-    graphs.push({
-      id: graphId,
-      name: graphTitle,
-      data: graphData,
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
-    })
-    localStorage.setItem('savedGraphs', JSON.stringify(graphs))
 
-    console.log('✅ Graph saved to localStorage:', graphTitle)
+    // Save the graph using saveGraphWithHistory (same as Process Transcript modal)
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        id: graphId,
+        graphData,
+        override: true
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to save graph: ${response.status}`)
+    }
+
+    console.log('✅ Graph saved to server:', graphTitle)
     graphCreated.value = true
 
     // Navigate to the graph viewer
