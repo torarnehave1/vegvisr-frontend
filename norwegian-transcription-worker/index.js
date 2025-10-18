@@ -195,10 +195,10 @@ const handleUpload = async (request, env) => {
   }
 }
 
-// Helper function to call transcription service with fallback
+// Helper function to call transcription service with exponential backoff and fallback
 const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) => {
   const models = preferredModel === 'large' ? ['large', 'medium'] : ['medium', 'large']
-
+  
   let lastError = null
   let attemptedModels = []
 
@@ -206,66 +206,87 @@ const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) =
     const endpoint = MODEL_ENDPOINTS[modelType]
     attemptedModels.push(modelType)
 
-    try {
-      console.log(`🚀 Trying ${modelType} model at:`, endpoint)
-
-      const payload = {
-        inputs: base64Audio,
-        parameters: {}
-      }
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${env.whisperailab}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      })
-
-      console.log(`📊 ${modelType} model response:`, {
-        status: response.status,
-        statusText: response.statusText,
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        console.log(`✅ Success with ${modelType} model`)
-        return {
-          success: true,
-          result,
-          modelUsed: modelType,
-          attemptedModels,
-          endpoint
+    // Retry with exponential backoff for cold start handling
+    const maxRetries = 6
+    const initialDelay = 2000 // 2 seconds
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        console.log(`🚀 Trying ${modelType} model (attempt ${attempt + 1}/${maxRetries}) at:`, endpoint)
+        
+        const payload = {
+          inputs: base64Audio,
+          parameters: {}
         }
-      } else if (response.status === 503) {
-        console.log(`⚠️ ${modelType} model unavailable (503), trying fallback...`)
-        const errorText = await response.text()
-        lastError = `${modelType} model unavailable: ${errorText}`
-        continue // Try next model
-      } else {
-        console.log(`❌ ${modelType} model error:`, response.status)
-        const errorText = await response.text()
-        lastError = `${modelType} model error (${response.status}): ${errorText}`
-        continue // Try next model
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${env.whisperailab}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+
+        console.log(`📊 ${modelType} model response (attempt ${attempt + 1}):`, {
+          status: response.status,
+          statusText: response.statusText,
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          console.log(`✅ Success with ${modelType} model after ${attempt + 1} attempts`)
+          return {
+            success: true,
+            result,
+            modelUsed: modelType,
+            attemptedModels,
+            endpoint,
+            attemptsUsed: attempt + 1
+          }
+        } else if (response.status === 503 && attempt < maxRetries - 1) {
+          // Cold start detected - use exponential backoff with jitter
+          const baseDelay = initialDelay * Math.pow(2, attempt)
+          const jitter = Math.random() * 1000 // 0-1000ms random jitter
+          const totalDelay = baseDelay + jitter
+          
+          console.log(`⏳ ${modelType} model cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry...`)
+          const errorText = await response.text()
+          
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, totalDelay))
+          continue // Retry same model
+        } else {
+          // Non-503 error or max retries reached
+          console.log(`❌ ${modelType} model error:`, response.status)
+          const errorText = await response.text()
+          lastError = `${modelType} model error (${response.status}) after ${attempt + 1} attempts: ${errorText}`
+          break // Try next model
+        }
+      } catch (error) {
+        console.error(`❌ ${modelType} model exception (attempt ${attempt + 1}):`, error)
+        if (attempt === maxRetries - 1) {
+          lastError = `${modelType} model exception after ${attempt + 1} attempts: ${error.message}`
+          break // Try next model
+        }
+        // For network errors, also use backoff
+        const baseDelay = initialDelay * Math.pow(2, attempt)
+        const jitter = Math.random() * 1000
+        const totalDelay = baseDelay + jitter
+        console.log(`⏳ Network error, waiting ${Math.round(totalDelay/1000)}s before retry...`)
+        await new Promise(resolve => setTimeout(resolve, totalDelay))
       }
-    } catch (error) {
-      console.error(`❌ ${modelType} model exception:`, error)
-      lastError = `${modelType} model exception: ${error.message}`
-      continue // Try next model
     }
   }
 
-  // All models failed
+  // All models failed after all retries
   return {
     success: false,
-    error: lastError || 'All models failed',
+    error: lastError || 'All models failed after retries',
     attemptedModels
   }
-}
-
-// Norwegian transcription handler
+}// Norwegian transcription handler
 const handleNorwegianTranscribe = async (request, env) => {
   try {
     // Get audio URL and model from query params or request body

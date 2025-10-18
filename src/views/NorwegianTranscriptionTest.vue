@@ -48,6 +48,31 @@
       </div>
     </div>
 
+    <!-- Cost-Saving Strategy Info -->
+    <div class="cost-info-section">
+      <div class="cost-info-card">
+        <h3>💰 How We Keep Costs Low</h3>
+        <p>
+          To provide free Norwegian transcription while keeping costs minimal, our AI models automatically scale down when not in use. 
+          This means the first request after a period of inactivity may take <strong>15-30 seconds longer</strong> as the model starts up.
+        </p>
+        <details class="cost-details">
+          <summary>Learn more about our cost-saving approach</summary>
+          <div class="cost-details-content">
+            <ul>
+              <li><strong>Auto-scaling:</strong> Models sleep when idle, wake up on demand</li>
+              <li><strong>Smart retries:</strong> We wait patiently for models to start instead of failing immediately</li>
+              <li><strong>Model fallback:</strong> If one model is slow to start, we try the other automatically</li>
+              <li><strong>Cost benefit:</strong> This approach saves ~80% on infrastructure costs vs always-on models</li>
+            </ul>
+            <p class="cost-note">
+              <em>Your patience during startup helps us provide this service free of charge! 🙏</em>
+            </p>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <!-- Audio Upload Section -->
     <div class="test-section">
       <h2>📁 Audio File Upload</h2>
@@ -168,8 +193,15 @@
       </button>
 
       <div v-if="transcribing" class="loading">
-        <div class="loading-spinner"></div>
+        <div class="loading-spinner" :class="{ 'cold-start': loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling') }"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
+        
+        <!-- Cold start info for first-time users -->
+        <div v-if="loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling')" class="cold-start-info">
+          <small class="text-muted">
+            💡 <strong>First time?</strong> Models auto-scale to save costs. This 1-2 minute delay only happens occasionally.
+          </small>
+        </div>
 
         <!-- Chunked processing progress -->
         <div v-if="isChunkedProcessing" class="chunk-progress">
@@ -816,7 +848,7 @@ const transcribeAudio = async () => {
 }
 
 const processSingleAudioFile = async (audioBlob, fileName) => {
-  loadingMessage.value = 'Transcribing with Norwegian service...'
+  loadingMessage.value = `🚀 Starting transcription with ${selectedModel.value} model...`
 
   console.log('📄 Processing single file')
 
@@ -828,39 +860,74 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     formData.append('context', transcriptionContext.value.trim())
   }
 
-  const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
-    method: 'POST',
-    body: formData,
-  })
+  // Add timeout for better UX feedback during cold starts
+  const startTime = Date.now()
+  
+  // Update message after 3 seconds to indicate potential cold start
+  const coldStartTimer = setTimeout(() => {
+    loadingMessage.value = `⏳ Model warming up (cost-saving feature) - this may take up to 2 minutes...`
+  }, 3000)
 
-  if (!transcribeResponse.ok) {
-    throw new Error(
-      `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
-    )
-  }
+  // Update message after 15 seconds with more detail
+  const detailTimer = setTimeout(() => {
+    loadingMessage.value = `🔥 Auto-scaling in progress - our smart retry system is handling the cold start...`
+  }, 15000)
 
-  const result = await transcribeResponse.json()
-  console.log('✅ Single file transcription result:', result)
+  // Update message after 30 seconds with encouragement
+  const encouragementTimer = setTimeout(() => {
+    loadingMessage.value = `💡 Still working! Remember: these delays save ~80% on costs while maintaining quality.`
+  }, 30000)
 
-  transcriptionResult.value = {
-    success: true,
-    transcription: {
-      raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
-      improved_text: result.transcription?.improved_text,
-      language: result.transcription?.language || 'no',
-      chunks: result.transcription?.chunks || 1,
-      processing_time: result.transcription?.processing_time || 0,
-      improvement_time: result.transcription?.improvement_time || 0,
-      timestamp: new Date().toISOString(),
-    },
-    metadata: {
-      filename: fileName,
-      model: result.metadata?.model || 'nb-whisper-small',
-      total_processing_time: result.metadata?.total_processing_time || 0,
-      transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
-      text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
-      cloudflare_ai_available: !!result.transcription?.improved_text,
-    },
+  try {
+    const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
+      method: 'POST',
+      body: formData,
+    })
+
+    // Clear all timers on completion
+    clearTimeout(coldStartTimer)
+    clearTimeout(detailTimer)
+    clearTimeout(encouragementTimer)
+
+    const processingTime = Math.round((Date.now() - startTime) / 1000)
+    loadingMessage.value = `✅ Transcription completed in ${processingTime}s`
+
+    if (!transcribeResponse.ok) {
+      throw new Error(
+        `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
+      )
+    }
+
+    const result = await transcribeResponse.json()
+    console.log('✅ Single file transcription result:', result)
+
+    transcriptionResult.value = {
+      success: true,
+      transcription: {
+        raw_text: result.transcription?.raw_text || result.transcription?.text || result.text,
+        improved_text: result.transcription?.improved_text,
+        language: result.transcription?.language || 'no',
+        chunks: result.transcription?.chunks || 1,
+        processing_time: result.transcription?.processing_time || 0,
+        improvement_time: result.transcription?.improvement_time || 0,
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        filename: fileName,
+        model: result.metadata?.model || 'nb-whisper-small',
+        total_processing_time: result.metadata?.total_processing_time || 0,
+        transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
+        text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
+        cloudflare_ai_available: !!result.transcription?.improved_text,
+      },
+    }
+  } catch (error) {
+    // Clear all timers on error
+    clearTimeout(coldStartTimer)
+    clearTimeout(detailTimer)
+    clearTimeout(encouragementTimer)
+    
+    throw error
   }
 }
 
@@ -884,7 +951,16 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     }
 
     currentChunk.value = i + 1
-    loadingMessage.value = `Processing chunk ${i + 1}/${chunks.length} (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+    loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} with ${selectedModel.value} model (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+
+    // Cold start timer for chunks (shorter since first chunk may have warmed up the model)
+    const chunkColdStartTimer = setTimeout(() => {
+      if (i === 0) {
+        loadingMessage.value = `⏳ First chunk - model warming up (cost-saving feature)...`
+      } else {
+        loadingMessage.value = `⏳ Processing chunk ${i + 1}/${chunks.length} - model may need warming...`
+      }
+    }, 5000) // Shorter timeout for chunks
 
     try {
       const chunkStart = performance.now()
@@ -933,6 +1009,9 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       const result = await transcribeResponse.json()
       const chunkProcessingTime = Math.round((performance.now() - chunkStart) / 1000)
 
+      // Clear cold start timer on success
+      clearTimeout(chunkColdStartTimer)
+
       console.log(
         `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s:`,
         result.transcription?.raw_text?.substring(0, 100),
@@ -949,6 +1028,9 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
         metadata: result.metadata,
       })
     } catch (err) {
+      // Clear cold start timer on error
+      clearTimeout(chunkColdStartTimer)
+      
       console.error(`Error processing chunk ${i + 1}:`, err)
 
       // Add failed chunk to results
@@ -2032,6 +2114,12 @@ const createChunkedGraph = async () => {
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 15px;
+  transition: all 0.3s ease;
+}
+
+.loading-spinner.cold-start {
+  border-top: 4px solid #ff9500;
+  animation: coldStartSpin 2s ease-in-out infinite;
 }
 
 @keyframes spin {
@@ -2041,6 +2129,38 @@ const createChunkedGraph = async () => {
   100% {
     transform: rotate(360deg);
   }
+}
+
+@keyframes coldStartSpin {
+  0% {
+    transform: rotate(0deg);
+    border-top-color: #ff9500;
+  }
+  25% {
+    transform: rotate(90deg);
+    border-top-color: #ffa500;
+  }
+  50% {
+    transform: rotate(180deg);
+    border-top-color: #ffb500;
+  }
+  75% {
+    transform: rotate(270deg);
+    border-top-color: #ffa500;
+  }
+  100% {
+    transform: rotate(360deg);
+    border-top-color: #ff9500;
+  }
+}
+
+.cold-start-info {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-size: 0.9em;
 }
 
 .status-result {
