@@ -247,6 +247,35 @@
           </div>
         </div>
 
+        <!-- Create New Graph Button -->
+        <div class="graph-actions">
+          <button
+            @click="createNewGraph"
+            :disabled="creatingGraph"
+            class="btn btn-primary graph-btn"
+          >
+            {{ creatingGraph ? 'Creating Graph...' : '🔗 Create New Graph from Transcription' }}
+          </button>
+
+          <div v-if="graphCreated" class="graph-success">
+            ✅ New graph created successfully!
+            <router-link to="/gnew-editor" class="btn btn-outline-primary btn-sm">
+              Open Graph Editor
+            </router-link>
+          </div>
+
+          <div v-if="graphError" class="graph-error">
+            ❌ Failed to create graph: {{ graphError }}
+            <button @click="createNewGraph" class="btn btn-outline-danger btn-sm">
+              Try Again
+            </button>
+          </div>
+
+          <div v-if="!transcriptionResult?.transcription?.improved_text && !transcriptionResult?.transcription?.raw_text && !transcriptionResult?.text" class="graph-info">
+            ℹ️ Complete a transcription first to create a graph
+          </div>
+        </div>
+
         <div class="result-details">
           <h4>Processing Details:</h4>
           <pre>{{ JSON.stringify(transcriptionResult.metadata, null, 2) }}</pre>
@@ -327,6 +356,35 @@
             </button>
           </div>
         </div>
+
+        <!-- Create New Graph from Chunked Results -->
+        <div class="graph-actions">
+          <button
+            @click="createChunkedGraph"
+            :disabled="creatingGraph"
+            class="btn btn-primary graph-btn"
+          >
+            {{ creatingGraph ? 'Creating Graph...' : '🔗 Create New Graph from Complete Transcription' }}
+          </button>
+
+          <div v-if="graphCreated" class="graph-success">
+            ✅ New graph created successfully!
+            <router-link to="/gnew-editor" class="btn btn-outline-primary btn-sm">
+              Open Graph Editor
+            </router-link>
+          </div>
+
+          <div v-if="graphError" class="graph-error">
+            ❌ Failed to create graph: {{ graphError }}
+            <button @click="createChunkedGraph" class="btn btn-outline-danger btn-sm">
+              Try Again
+            </button>
+          </div>
+
+          <div v-if="chunkResults.length === 0" class="graph-info">
+            ℹ️ Complete chunked processing first to create a graph
+          </div>
+        </div>
       </div>
     </div>
 
@@ -381,6 +439,11 @@ const processingAborted = ref(false)
 const savingToPortfolio = ref(false)
 const portfolioSaved = ref(false)
 const portfolioError = ref(null)
+
+// Graph creation state
+const creatingGraph = ref(false)
+const graphCreated = ref(false)
+const graphError = ref(null)
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1170,6 +1233,203 @@ const saveChunkedToPortfolio = async () => {
     savingToPortfolio.value = false
   }
 }
+
+// Graph creation function
+const createNewGraph = async () => {
+  if (!transcriptionResult.value) {
+    graphError.value = 'No transcription result available'
+    return
+  }
+
+  creatingGraph.value = true
+  graphError.value = null
+  graphCreated.value = false
+
+  try {
+    // Get the best available text (improved > raw > fallback)
+    const transcriptionText = 
+      transcriptionResult.value.transcription?.improved_text || 
+      transcriptionResult.value.transcription?.raw_text || 
+      transcriptionResult.value.text || ''
+
+    if (!transcriptionText.trim()) {
+      throw new Error('No transcription text available to create graph from')
+    }
+
+    console.log('Creating new graph from transcription:', transcriptionText.substring(0, 100) + '...')
+
+    // Create a basic graph structure from the transcription
+    const graphName = `Audio Transcription ${new Date().toLocaleString()}`
+    const graphData = {
+      name: graphName,
+      description: `Graph created from Norwegian audio transcription`,
+      nodes: [
+        {
+          id: '1',
+          type: 'concept',
+          label: 'Audio Transcription',
+          content: transcriptionText,
+          x: 400,
+          y: 300,
+          metadata: {
+            source: 'Norwegian Transcription',
+            created: new Date().toISOString(),
+            language: 'no',
+            filename: transcriptionResult.value.metadata?.filename || 'unknown'
+          }
+        }
+      ],
+      edges: [],
+      metadata: {
+        createdFrom: 'audio-transcription',
+        transcriptionSource: 'norwegian-worker',
+        audioFilename: transcriptionResult.value.metadata?.filename,
+        processingTime: transcriptionResult.value.metadata?.processing_time
+      }
+    }
+
+    // Store the graph data in localStorage for the graph editor
+    const graphs = JSON.parse(localStorage.getItem('savedGraphs') || '[]')
+    graphs.push({
+      id: Date.now().toString(),
+      name: graphName,
+      data: graphData,
+      created: new Date().toISOString(),
+      modified: new Date().toISOString()
+    })
+    localStorage.setItem('savedGraphs', JSON.stringify(graphs))
+
+    console.log('✅ Graph created successfully:', graphName)
+    graphCreated.value = true
+
+    // Reset the success message after a delay
+    setTimeout(() => {
+      graphCreated.value = false
+    }, 5000)
+
+  } catch (err) {
+    console.error('Failed to create graph:', err)
+    graphError.value = err.message
+  } finally {
+    creatingGraph.value = false
+  }
+}
+
+// Create graph from chunked results
+const createChunkedGraph = async () => {
+  if (!chunkResults.value.length) {
+    graphError.value = 'No chunked transcription results available'
+    return
+  }
+
+  creatingGraph.value = true
+  graphError.value = null
+  graphCreated.value = false
+
+  try {
+    // Combine all chunk results
+    const combinedRawText = chunkResults.value.map(chunk => chunk.raw_text).join(' ')
+    const combinedImprovedText = chunkResults.value
+      .map(chunk => chunk.improved_text || chunk.raw_text)
+      .join(' ')
+
+    const transcriptionText = combinedImprovedText || combinedRawText
+
+    if (!transcriptionText.trim()) {
+      throw new Error('No transcription text available to create graph from')
+    }
+
+    console.log('Creating new graph from chunked transcription:', transcriptionText.substring(0, 100) + '...')
+
+    // Create a more detailed graph structure for chunked results
+    const graphName = `Chunked Audio Transcription ${new Date().toLocaleString()}`
+    const totalProcessingTime = chunkResults.value.reduce((total, chunk) => total + (chunk.processingTime || 0), 0)
+    
+    // Create nodes for each chunk plus a main node
+    const nodes = [
+      {
+        id: '1',
+        type: 'concept',
+        label: 'Complete Transcription',
+        content: transcriptionText,
+        x: 400,
+        y: 200,
+        metadata: {
+          source: 'Norwegian Transcription (Chunked)',
+          created: new Date().toISOString(),
+          language: 'no',
+          totalChunks: chunkResults.value.length,
+          totalProcessingTime: totalProcessingTime
+        }
+      }
+    ]
+
+    // Add individual chunk nodes
+    chunkResults.value.forEach((chunk, index) => {
+      if (chunk.raw_text && chunk.raw_text.trim() && !chunk.error) {
+        nodes.push({
+          id: `chunk-${index + 1}`,
+          type: 'chunk',
+          label: `Chunk ${index + 1}`,
+          content: chunk.improved_text || chunk.raw_text,
+          x: 200 + (index * 150),
+          y: 400,
+          metadata: {
+            chunkIndex: index + 1,
+            startTime: chunk.startTime,
+            endTime: chunk.endTime,
+            processingTime: chunk.processingTime,
+            enhanced: !!chunk.improved_text
+          }
+        })
+      }
+    })
+
+    const graphData = {
+      name: graphName,
+      description: `Graph created from chunked Norwegian audio transcription (${chunkResults.value.length} chunks)`,
+      nodes: nodes,
+      edges: [],
+      metadata: {
+        createdFrom: 'chunked-audio-transcription',
+        transcriptionSource: 'norwegian-worker',
+        totalChunks: chunkResults.value.length,
+        totalProcessingTime: totalProcessingTime,
+        chunkDetails: chunkResults.value.map(chunk => ({
+          index: chunk.index,
+          startTime: chunk.startTime,
+          endTime: chunk.endTime,
+          hasImprovedText: !!chunk.improved_text
+        }))
+      }
+    }
+
+    // Store the graph data in localStorage
+    const graphs = JSON.parse(localStorage.getItem('savedGraphs') || '[]')
+    graphs.push({
+      id: Date.now().toString(),
+      name: graphName,
+      data: graphData,
+      created: new Date().toISOString(),
+      modified: new Date().toISOString()
+    })
+    localStorage.setItem('savedGraphs', JSON.stringify(graphs))
+
+    console.log('✅ Chunked graph created successfully:', graphName)
+    graphCreated.value = true
+
+    // Reset the success message after a delay
+    setTimeout(() => {
+      graphCreated.value = false
+    }, 5000)
+
+  } catch (err) {
+    console.error('Failed to create chunked graph:', err)
+    graphError.value = err.message
+  } finally {
+    creatingGraph.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -1879,5 +2139,70 @@ const saveChunkedToPortfolio = async () => {
 .btn-outline-danger:hover {
   background: #dc3545;
   color: white;
+}
+
+/* Graph Action Styles */
+.graph-actions {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f0f9ff;
+  border-radius: 8px;
+  border: 1px solid #bae6fd;
+}
+
+.graph-btn {
+  font-size: 1.1rem;
+  padding: 12px 24px;
+  margin-bottom: 10px;
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+}
+
+.graph-btn:hover {
+  background: #0284c7;
+  border-color: #0284c7;
+}
+
+.graph-success {
+  background: #d1fae5;
+  color: #065f46;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #a7f3d0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+
+.graph-success .btn {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+}
+
+.graph-error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+
+.graph-error .btn {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+}
+
+.graph-info {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #fde68a;
+  font-style: italic;
 }
 </style>

@@ -27,6 +27,13 @@
         >
           🎬 YouTube Video
         </button>
+        <button
+          @click="inputMethod = 'audio'"
+          :class="{ active: inputMethod === 'audio' }"
+          class="tab-button"
+        >
+          🎙️ Upload Audio
+        </button>
       </div>
 
       <!-- Upload Section -->
@@ -262,6 +269,25 @@
               <div class="compact-title">🎬 {{ videoMetadata.title.length > 60 ? videoMetadata.title.substring(0, 60) + '...' : videoMetadata.title }}</div>
               <div class="compact-meta">{{ videoMetadata.channelTitle }} • {{ formatDuration(videoMetadata.duration) }} • {{ transcriptText.split(' ').length }} words</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Upload Section -->
+      <div v-if="inputMethod === 'audio' && !transcriptText" class="audio-section">
+        <div class="form-group">
+          <label>🎙️ Upload Audio File for Norwegian Transcription:</label>
+          <div class="audio-redirect-info">
+            <div class="info-box">
+              <i class="bi bi-info-circle-fill"></i>
+              <div>
+                <h5>Audio Transcription Available</h5>
+                <p>Click the button below to use our Norwegian audio transcription service. You can upload audio files and get transcribed text that can then be converted into knowledge graphs.</p>
+              </div>
+            </div>
+            <button @click="redirectToNorwegianTranscription" class="btn btn-primary btn-lg">
+              🇳🇴 Go to Norwegian Audio Transcription
+            </button>
           </div>
         </div>
       </div>
@@ -1874,6 +1900,15 @@ const resetProcessor = () => {
   }
 }
 
+// Audio transcription redirect function
+const redirectToNorwegianTranscription = () => {
+  // Close the modal
+  close()
+  
+  // Navigate to the Norwegian transcription page
+  window.location.href = '/norwegian-transcription-test'
+}
+
 const close = () => {
   resetProcessor()
   emit('close')
@@ -2606,5 +2641,49 @@ const close = () => {
     gap: 10px;
     align-items: flex-start;
   }
+}
+
+/* Audio Section Styles */
+.audio-section {
+  margin-bottom: 30px;
+}
+
+.audio-redirect-info {
+  text-align: center;
+  padding: 30px 20px;
+}
+
+.info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.info-box i {
+  color: #007bff;
+  font-size: 24px;
+  margin-top: 2px;
+}
+
+.info-box h5 {
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+}
+
+.info-box p {
+  margin: 0;
+  color: #6c757d;
+  line-height: 1.5;
+}
+
+.btn-lg {
+  padding: 12px 30px;
+  font-size: 1.1rem;
 }
 </style>
