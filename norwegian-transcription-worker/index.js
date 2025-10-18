@@ -272,7 +272,7 @@ const handleNorwegianTranscribe = async (request, env) => {
     }
 
     console.log('🚀 Calling Hugging Face transcription service:', {
-      endpoint: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
+      endpoint: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
       fileName: correctedFileName,
       detectedFormat: detectedFormat.format,
       contentType: detectedFormat.contentType,
@@ -282,7 +282,7 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     // Call the Hugging Face transcription service
     console.log('📤 Sending JSON payload to Hugging Face service...')
-    const norwegianResponse = await fetch('https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud', {
+    const norwegianResponse = await fetch('https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -341,7 +341,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           fileName: originalFileName,
           processedAt: new Date().toISOString(),
           service: 'Hugging Face Norwegian Transcription',
-          endpoint: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
+          endpoint: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
           language: 'Norwegian',
         },
       }),
@@ -425,7 +425,7 @@ export default {
       }
 
       console.log('About to call Hugging Face transcription service:', {
-        url: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
+        url: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud',
         hasAudio: !!audioFile,
         audioSize: audioBuffer.byteLength,
         base64Size: base64Audio.length,
@@ -433,7 +433,7 @@ export default {
         timestamp: new Date().toISOString(),
       })
 
-      const transcriptionResponse = await fetch('https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud', {
+      const transcriptionResponse = await fetch('https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
