@@ -198,7 +198,7 @@ const handleUpload = async (request, env) => {
 // Helper function to call transcription service with exponential backoff and fallback
 const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) => {
   const models = preferredModel === 'large' ? ['large', 'medium'] : ['medium', 'large']
-  
+
   let lastError = null
   let attemptedModels = []
 
@@ -209,11 +209,11 @@ const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) =
     // Retry with exponential backoff for cold start handling
     const maxRetries = 6
     const initialDelay = 2000 // 2 seconds
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         console.log(`🚀 Trying ${modelType} model (attempt ${attempt + 1}/${maxRetries}) at:`, endpoint)
-        
+
         const payload = {
           inputs: base64Audio,
           parameters: {}
@@ -250,10 +250,10 @@ const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) =
           const baseDelay = initialDelay * Math.pow(2, attempt)
           const jitter = Math.random() * 1000 // 0-1000ms random jitter
           const totalDelay = baseDelay + jitter
-          
+
           console.log(`⏳ ${modelType} model cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry...`)
           const errorText = await response.text()
-          
+
           // Wait before retrying
           await new Promise(resolve => setTimeout(resolve, totalDelay))
           continue // Retry same model

@@ -53,7 +53,7 @@
       <div class="cost-info-card">
         <h3>💰 How We Keep Costs Low</h3>
         <p>
-          To provide free Norwegian transcription while keeping costs minimal, our AI models automatically scale down when not in use. 
+          To provide free Norwegian transcription while keeping costs minimal, our AI models automatically scale down when not in use.
           This means the first request after a period of inactivity may take <strong>15-30 seconds longer</strong> as the model starts up.
         </p>
         <details class="cost-details">
@@ -195,7 +195,7 @@
       <div v-if="transcribing" class="loading">
         <div class="loading-spinner" :class="{ 'cold-start': loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling') }"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
-        
+
         <!-- Cold start info for first-time users -->
         <div v-if="loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling')" class="cold-start-info">
           <small class="text-muted">
@@ -862,7 +862,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 
   // Add timeout for better UX feedback during cold starts
   const startTime = Date.now()
-  
+
   // Update message after 3 seconds to indicate potential cold start
   const coldStartTimer = setTimeout(() => {
     loadingMessage.value = `⏳ Model warming up (cost-saving feature) - this may take up to 2 minutes...`
@@ -926,7 +926,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     clearTimeout(coldStartTimer)
     clearTimeout(detailTimer)
     clearTimeout(encouragementTimer)
-    
+
     throw error
   }
 }
@@ -1030,7 +1030,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     } catch (err) {
       // Clear cold start timer on error
       clearTimeout(chunkColdStartTimer)
-      
+
       console.error(`Error processing chunk ${i + 1}:`, err)
 
       // Add failed chunk to results
