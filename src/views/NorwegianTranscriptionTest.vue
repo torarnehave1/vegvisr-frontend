@@ -1247,9 +1247,9 @@ const createNewGraph = async () => {
 
   try {
     // Get the best available text (improved > raw > fallback)
-    const transcriptionText = 
-      transcriptionResult.value.transcription?.improved_text || 
-      transcriptionResult.value.transcription?.raw_text || 
+    const transcriptionText =
+      transcriptionResult.value.transcription?.improved_text ||
+      transcriptionResult.value.transcription?.raw_text ||
       transcriptionResult.value.text || ''
 
     if (!transcriptionText.trim()) {
@@ -1260,7 +1260,7 @@ const createNewGraph = async () => {
 
     // Create nodes from the transcription text (like Process Transcript modal does)
     const knowledgeGraphData = await createKnowledgeGraphFromText(transcriptionText)
-    
+
     if (!knowledgeGraphData || !knowledgeGraphData.nodes) {
       throw new Error('Failed to create knowledge graph nodes from transcription')
     }
@@ -1273,7 +1273,7 @@ const createNewGraph = async () => {
     const filename = transcriptionResult.value.metadata?.filename || 'Audio'
 
     const graphTitle = `🎙️ ${filename.replace(/\.[^/.]+$/, '')} (${nodeCount} deler)`
-    
+
     const graphMetadata = {
       title: graphTitle,
       description: `Norsk kunnskapsgraf fra lydtranskripsjonen "${filename}". Prosessert ${dateStr} kl. ${timeStr}. Inneholder ${nodeCount} tekstdeler.`,
@@ -1316,14 +1316,14 @@ const createNewGraph = async () => {
     if (response.ok) {
       const result = await response.json()
       console.log('✅ Graph saved successfully:', result)
-      
+
       graphCreated.value = true
-      
+
       // Reset the success message after a delay
       setTimeout(() => {
         graphCreated.value = false
       }, 5000)
-      
+
       console.log(`✅ New graph created: "${graphTitle}" with ${nodeCount} nodes`)
 
     } else {
