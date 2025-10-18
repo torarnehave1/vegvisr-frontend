@@ -435,7 +435,7 @@ const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
 
 // State
-const inputMethod = ref('upload') // 'upload', 'paste', 'youtube'
+const inputMethod = ref('upload') // 'upload', 'paste', 'youtube', 'audio'
 const transcriptText = ref('')
 const sourceLanguage = ref('auto')
 const isProcessing = ref(false)
