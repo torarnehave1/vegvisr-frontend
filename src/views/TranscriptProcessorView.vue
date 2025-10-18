@@ -103,6 +103,20 @@
                         </div>
                       </div>
                     </div>
+
+                    <div class="col-12">
+                      <div class="input-method"
+                           :class="{ active: inputMethod === 'audio' }"
+                           @click="redirectToNorwegianTranscription">
+                        <div class="input-method-icon">
+                          <i class="fas fa-microphone"></i>
+                        </div>
+                        <div class="input-method-content">
+                          <h5>Upload Audio</h5>
+                          <p class="text-muted">Upload audio files for Norwegian transcription</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- File upload interface -->
@@ -296,6 +310,16 @@
                     </div>
                   </div>
 
+                  <!-- Audio Upload Section -->
+                  <div v-if="inputMethod === 'audio'" class="mt-4">
+                    <div class="audio-upload-info">
+                      <div class="alert alert-success">
+                        <h5><i class="fas fa-microphone me-2"></i>Redirecting to Norwegian Audio Transcription</h5>
+                        <p class="mb-3">You will be redirected to our Norwegian transcription service where you can upload audio files and get them transcribed.</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <!-- Continue Processing Button -->
                   <div class="text-center mt-4">
                     <button @click="startProcessing" class="btn btn-primary btn-lg px-5">
@@ -429,7 +453,7 @@ const {
 
 // Local state for the page
 const currentStep = ref(1)
-const inputMethod = ref('upload')
+const inputMethod = ref('file')
 const selectedFile = ref(null)
 const pastedText = ref('')
 const showTestModal = ref(false)
@@ -539,6 +563,12 @@ const searchVideos = () => {
   if (searchQuery.value.trim()) {
     searchYouTubeVideos()
   }
+}
+
+// Redirect to Norwegian transcription service
+const redirectToNorwegianTranscription = () => {
+  // Navigate to the Norwegian transcription page
+  router.push('/norwegian-transcription-test')
 }
 
 onMounted(() => {
