@@ -1218,9 +1218,9 @@ const createNewGraph = async () => {
 
   try {
     // Get the best available text (improved > raw > fallback)
-    const transcriptionText = 
-      transcriptionResult.value.transcription?.improved_text || 
-      transcriptionResult.value.transcription?.raw_text || 
+    const transcriptionText =
+      transcriptionResult.value.transcription?.improved_text ||
+      transcriptionResult.value.transcription?.raw_text ||
       transcriptionResult.value.text || ''
 
     if (!transcriptionText.trim()) {
@@ -1262,7 +1262,7 @@ const createNewGraph = async () => {
     const filename = transcriptionResult.value.metadata?.filename || 'Audio'
 
     const graphTitle = `🎙️ ${filename.replace(/\.[^/.]+$/, '')} (${nodeCount} deler)`
-    
+
     const graphData = {
       metadata: {
         title: graphTitle,
