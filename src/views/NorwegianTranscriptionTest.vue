@@ -24,6 +24,30 @@
       </div>
     </div>
 
+    <!-- Model Selection Section -->
+    <div class="test-section">
+      <h2>🤖 Model Selection</h2>
+      <div class="model-selection">
+        <label class="model-option">
+          <input type="radio" v-model="selectedModel" value="medium" />
+          <span class="model-info">
+            <strong>Medium Model</strong>
+            <small>Faster processing, good quality</small>
+          </span>
+        </label>
+        <label class="model-option">
+          <input type="radio" v-model="selectedModel" value="large" />
+          <span class="model-info">
+            <strong>Large Model</strong>
+            <small>Higher quality, slower processing</small>
+          </span>
+        </label>
+      </div>
+      <div class="fallback-info">
+        <small>💡 If selected model is unavailable, will automatically try the other model</small>
+      </div>
+    </div>
+
     <!-- Audio Upload Section -->
     <div class="test-section">
       <h2>📁 Audio File Upload</h2>
@@ -416,6 +440,9 @@ const creatingGraph = ref(false)
 const graphCreated = ref(false)
 const graphError = ref(null)
 
+// Model selection state
+const selectedModel = ref('medium') // Default to medium model
+
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
@@ -771,7 +798,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 
   const formData = new FormData()
   formData.append('audio', audioBlob, fileName)
-  formData.append('model', 'nb-whisper-small')
+  formData.append('model', selectedModel.value)
 
   if (transcriptionContext.value.trim()) {
     formData.append('context', transcriptionContext.value.trim())
@@ -848,7 +875,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       // Process this chunk
       const formData = new FormData()
       formData.append('audio', chunks[i].blob, `${fileName}_chunk_${i + 1}.wav`)
-      formData.append('model', 'nb-whisper-small')
+      formData.append('model', selectedModel.value)
 
       if (transcriptionContext.value.trim()) {
         formData.append('context', transcriptionContext.value.trim())
