@@ -1247,9 +1247,9 @@ const createNewGraph = async () => {
 
   try {
     // Get the best available text (improved > raw > fallback)
-    const transcriptionText = 
-      transcriptionResult.value.transcription?.improved_text || 
-      transcriptionResult.value.transcription?.raw_text || 
+    const transcriptionText =
+      transcriptionResult.value.transcription?.improved_text ||
+      transcriptionResult.value.transcription?.raw_text ||
       transcriptionResult.value.text || ''
 
     if (!transcriptionText.trim()) {
@@ -1344,7 +1344,7 @@ const createChunkedGraph = async () => {
     // Create a more detailed graph structure for chunked results
     const graphName = `Chunked Audio Transcription ${new Date().toLocaleString()}`
     const totalProcessingTime = chunkResults.value.reduce((total, chunk) => total + (chunk.processingTime || 0), 0)
-    
+
     // Create nodes for each chunk plus a main node
     const nodes = [
       {

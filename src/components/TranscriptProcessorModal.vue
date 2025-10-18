@@ -1904,7 +1904,7 @@ const resetProcessor = () => {
 const redirectToNorwegianTranscription = () => {
   // Close the modal
   close()
-  
+
   // Navigate to the Norwegian transcription page
   window.location.href = '/norwegian-transcription-test'
 }
