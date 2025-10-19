@@ -196,6 +196,7 @@ const handleUpload = async (request, env) => {
 const callNorwegianTranscription = async (base64Audio, env) => {
   const maxRetries = 8 // Increased retries for longer warm-up time
   const initialDelay = 3000 // 3 seconds initial delay
+  let coldStartDetected = false
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -229,10 +230,12 @@ const callNorwegianTranscription = async (base64Audio, env) => {
           result,
           modelUsed: 'norwegian',
           endpoint: NORWEGIAN_ENDPOINT,
-          attemptsUsed: attempt + 1
+          attemptsUsed: attempt + 1,
+          coldStartDetected
         }
       } else if (response.status === 503 && attempt < maxRetries - 1) {
         // Cold start detected - use exponential backoff with jitter
+        coldStartDetected = true
         const baseDelay = initialDelay * Math.pow(2, Math.min(attempt, 4)) // Cap at 2^4 = 16x
         const jitter = Math.random() * 2000 // 0-2000ms random jitter
         const totalDelay = Math.min(baseDelay + jitter, 60000) // Cap at 60 seconds
@@ -420,6 +423,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           endpoint: transcriptionResponse.endpoint,
           requestedModel: selectedModel,
           language: 'Norwegian',
+          coldStartDetected: transcriptionResponse.coldStartDetected,
         },
       }),
     )
@@ -596,6 +600,7 @@ export default {
             requestedModel: model,
             total_processing_time: totalTime,
             transcription_server: 'Hugging Face',
+            coldStartDetected: transcriptionResponse.coldStartDetected,
             text_improvement: improvedText
               ? 'Cloudflare Workers AI - Llama 3.3 70B Fast'
               : 'Not available',
