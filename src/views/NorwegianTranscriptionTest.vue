@@ -183,10 +183,10 @@
         <div class="loading-spinner" :class="{ 'cold-start': loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling') }"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
 
-        <!-- Cold start info for first-time users -->
-        <div v-if="loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling')" class="cold-start-info">
+        <!-- Simple processing info -->
+        <div v-if="transcribing" class="processing-info">
           <small class="text-muted">
-            💡 <strong>First time?</strong> Norwegian model auto-scales to save costs. This 3-4 minute delay only happens occasionally.
+            ⚡ Processing with Norwegian transcription service...
           </small>
         </div>
 
@@ -846,28 +846,13 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     formData.append('context', transcriptionContext.value.trim())
   }
 
-  // Add timeout for better UX feedback during cold starts
+  // Track processing time
   const startTime = Date.now()
 
-  // Update message after 5 seconds to indicate potential cold start
-  const coldStartTimer = setTimeout(() => {
-    loadingMessage.value = `⏳ Norwegian model warming up (cost-saving feature) - this can take 3-4 minutes...`
-  }, 5000)
-
-  // Update message after 30 seconds with more detail
-  const detailTimer = setTimeout(() => {
-    loadingMessage.value = `🔥 Auto-scaling in progress - Norwegian model needs time to fully warm up...`
-  }, 30000)
-
-  // Update message after 90 seconds with encouragement
-  const encouragementTimer = setTimeout(() => {
-    loadingMessage.value = `💡 Still working! Norwegian model can take 3-4 minutes - this saves ~80% on costs.`
-  }, 90000)
-
-  // Update message after 3 minutes
-  const finalTimer = setTimeout(() => {
-    loadingMessage.value = `⌛ Almost ready! Norwegian model is nearly warmed up...`
-  }, 180000)
+  // Simple processing indicator - no assumptions about cold start
+  const processingTimer = setTimeout(() => {
+    loadingMessage.value = "Processing audio with Norwegian model..."
+  }, 10000)
 
   try {
     const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
@@ -875,11 +860,8 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
       body: formData,
     })
 
-    // Clear all timers on completion
-    clearTimeout(coldStartTimer)
-    clearTimeout(detailTimer)
-    clearTimeout(encouragementTimer)
-    clearTimeout(finalTimer)
+    // Clear processing timer on completion
+    clearTimeout(processingTimer)
 
     const processingTime = Math.round((Date.now() - startTime) / 1000)
     loadingMessage.value = `✅ Transcription completed in ${processingTime}s`
@@ -914,11 +896,8 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
       },
     }
   } catch (error) {
-    // Clear all timers on error
-    clearTimeout(coldStartTimer)
-    clearTimeout(detailTimer)
-    clearTimeout(encouragementTimer)
-    clearTimeout(finalTimer)
+    // Clear processing timer on error
+    clearTimeout(processingTimer)
 
     throw error
   }
@@ -2149,6 +2128,15 @@ const createChunkedGraph = async () => {
 .cold-start-info {
   background: #fff3cd;
   border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-size: 0.9em;
+}
+
+.processing-info {
+  background: #d1ecf1;
+  border: 1px solid #bee5eb;
   border-radius: 6px;
   padding: 8px 12px;
   margin-top: 10px;
