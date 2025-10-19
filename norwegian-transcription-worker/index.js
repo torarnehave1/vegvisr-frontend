@@ -1,11 +1,8 @@
 // Norwegian Audio Transcription Worker
 // Handles audio transcription using Norwegian transcription service
 
-// Model endpoints
-const MODEL_ENDPOINTS = {
-  medium: 'https://b8obxtb4s6rrvyj6.eu-west-1.aws.endpoints.huggingface.cloud',
-  large: 'https://ih8pcyxyzp74xc4v.us-east4.gcp.endpoints.huggingface.cloud'
-}
+// Single Norwegian model endpoint
+const NORWEGIAN_ENDPOINT = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
 
 // Helper function to safely convert ArrayBuffer to base64 (avoids call stack overflow)
 const arrayBufferToBase64 = (buffer) => {
@@ -195,96 +192,90 @@ const handleUpload = async (request, env) => {
   }
 }
 
-// Helper function to call transcription service with exponential backoff and fallback
-const callTranscriptionWithFallback = async (base64Audio, preferredModel, env) => {
-  const models = preferredModel === 'large' ? ['large', 'medium'] : ['medium', 'large']
+// Helper function to call Norwegian transcription service with exponential backoff
+const callNorwegianTranscription = async (base64Audio, env) => {
+  const maxRetries = 8 // Increased retries for longer warm-up time
+  const initialDelay = 3000 // 3 seconds initial delay
 
-  let lastError = null
-  let attemptedModels = []
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      console.log(`🚀 Calling Norwegian transcription (attempt ${attempt + 1}/${maxRetries})`)
 
-  for (const modelType of models) {
-    const endpoint = MODEL_ENDPOINTS[modelType]
-    attemptedModels.push(modelType)
-
-    // Retry with exponential backoff for cold start handling
-    const maxRetries = 6
-    const initialDelay = 2000 // 2 seconds
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        console.log(`🚀 Trying ${modelType} model (attempt ${attempt + 1}/${maxRetries}) at:`, endpoint)
-
-        const payload = {
-          inputs: base64Audio,
-          parameters: {}
-        }
-
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${env.whisperailab}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        })
-
-        console.log(`📊 ${modelType} model response (attempt ${attempt + 1}):`, {
-          status: response.status,
-          statusText: response.statusText,
-        })
-
-        if (response.ok) {
-          const result = await response.json()
-          console.log(`✅ Success with ${modelType} model after ${attempt + 1} attempts`)
-          return {
-            success: true,
-            result,
-            modelUsed: modelType,
-            attemptedModels,
-            endpoint,
-            attemptsUsed: attempt + 1
-          }
-        } else if (response.status === 503 && attempt < maxRetries - 1) {
-          // Cold start detected - use exponential backoff with jitter
-          const baseDelay = initialDelay * Math.pow(2, attempt)
-          const jitter = Math.random() * 1000 // 0-1000ms random jitter
-          const totalDelay = baseDelay + jitter
-
-          console.log(`⏳ ${modelType} model cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry...`)
-          const errorText = await response.text()
-
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, totalDelay))
-          continue // Retry same model
-        } else {
-          // Non-503 error or max retries reached
-          console.log(`❌ ${modelType} model error:`, response.status)
-          const errorText = await response.text()
-          lastError = `${modelType} model error (${response.status}) after ${attempt + 1} attempts: ${errorText}`
-          break // Try next model
-        }
-      } catch (error) {
-        console.error(`❌ ${modelType} model exception (attempt ${attempt + 1}):`, error)
-        if (attempt === maxRetries - 1) {
-          lastError = `${modelType} model exception after ${attempt + 1} attempts: ${error.message}`
-          break // Try next model
-        }
-        // For network errors, also use backoff
-        const baseDelay = initialDelay * Math.pow(2, attempt)
-        const jitter = Math.random() * 1000
-        const totalDelay = baseDelay + jitter
-        console.log(`⏳ Network error, waiting ${Math.round(totalDelay/1000)}s before retry...`)
-        await new Promise(resolve => setTimeout(resolve, totalDelay))
+      const payload = {
+        inputs: base64Audio,
+        parameters: {}
       }
+
+      const response = await fetch(NORWEGIAN_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${env.whisperailab}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      console.log(`📊 Norwegian model response (attempt ${attempt + 1}):`, {
+        status: response.status,
+        statusText: response.statusText,
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log(`✅ Success with Norwegian model after ${attempt + 1} attempts`)
+        return {
+          success: true,
+          result,
+          modelUsed: 'norwegian',
+          endpoint: NORWEGIAN_ENDPOINT,
+          attemptsUsed: attempt + 1
+        }
+      } else if (response.status === 503 && attempt < maxRetries - 1) {
+        // Cold start detected - use exponential backoff with jitter
+        const baseDelay = initialDelay * Math.pow(2, Math.min(attempt, 4)) // Cap at 2^4 = 16x
+        const jitter = Math.random() * 2000 // 0-2000ms random jitter
+        const totalDelay = Math.min(baseDelay + jitter, 60000) // Cap at 60 seconds
+
+        console.log(`⏳ Norwegian model cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry... (can take 3-4 minutes total)`)
+
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, totalDelay))
+        continue // Retry
+      } else {
+        // Non-503 error or max retries reached
+        console.log(`❌ Norwegian model error:`, response.status)
+        const errorText = await response.text()
+        if (attempt === maxRetries - 1) {
+          return {
+            success: false,
+            error: `Norwegian model error (${response.status}) after ${attempt + 1} attempts: ${errorText}`
+          }
+        }
+        // For non-503 errors, wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 5000))
+      }
+    } catch (error) {
+      console.error(`❌ Norwegian model exception (attempt ${attempt + 1}):`, error)
+      if (attempt === maxRetries - 1) {
+        return {
+          success: false,
+          error: `Norwegian model exception after ${attempt + 1} attempts: ${error.message}`
+        }
+      }
+      // For network errors, also use backoff
+      const baseDelay = initialDelay * Math.pow(2, Math.min(attempt, 4))
+      const jitter = Math.random() * 2000
+      const totalDelay = Math.min(baseDelay + jitter, 60000)
+      console.log(`⏳ Network error, waiting ${Math.round(totalDelay/1000)}s before retry...`)
+      await new Promise(resolve => setTimeout(resolve, totalDelay))
     }
   }
 
-  // All models failed after all retries
+  // All retries failed
   return {
     success: false,
-    error: lastError || 'All models failed after retries',
-    attemptedModels
+    error: 'Norwegian model failed after all retries - may need 3-4 minutes to warm up'
   }
 }// Norwegian transcription handler
 const handleNorwegianTranscribe = async (request, env) => {
@@ -373,13 +364,13 @@ const handleNorwegianTranscribe = async (request, env) => {
       base64Size: base64Audio.length,
     })
 
-    // Call transcription service with automatic fallback
-    const transcriptionResponse = await callTranscriptionWithFallback(base64Audio, selectedModel, env)
+    // Call Norwegian transcription service with retry logic
+    const transcriptionResponse = await callNorwegianTranscription(base64Audio, env)
 
     if (!transcriptionResponse.success) {
-      console.error('All transcription models failed:', transcriptionResponse.error)
+      console.error('Norwegian transcription failed:', transcriptionResponse.error)
       return createErrorResponse(
-        `Transcription failed: ${transcriptionResponse.error}. Tried models: ${transcriptionResponse.attemptedModels.join(', ')}`,
+        `Transcription failed: ${transcriptionResponse.error}. Model may need 3-4 minutes to warm up.`,
         502,
       )
     }
@@ -514,11 +505,11 @@ export default {
         timestamp: new Date().toISOString(),
       })
 
-      // Use our new fallback system
-      const transcriptionResponse = await callTranscriptionWithFallback(base64Audio, model, env)
+      // Use Norwegian transcription service
+      const transcriptionResponse = await callNorwegianTranscription(base64Audio, env)
 
       if (!transcriptionResponse.success) {
-        console.error('All transcription models failed:', transcriptionResponse.error)
+        console.error('Norwegian transcription failed:', transcriptionResponse.error)
         throw new Error(transcriptionResponse.error)
       }
 
@@ -526,8 +517,8 @@ export default {
 
       console.log('✅ Transcription successful:', {
         modelUsed: transcriptionResponse.modelUsed,
-        attemptedModels: transcriptionResponse.attemptedModels,
         endpoint: transcriptionResponse.endpoint,
+        attempts: transcriptionResponse.attemptsUsed,
       })
 
       // Extract text from Hugging Face response format

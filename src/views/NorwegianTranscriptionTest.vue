@@ -24,27 +24,14 @@
       </div>
     </div>
 
-    <!-- Model Selection Section -->
+    <!-- Norwegian Model Info -->
     <div class="test-section">
-      <h2>🤖 Model Selection</h2>
-      <div class="model-selection">
-        <label class="model-option">
-          <input type="radio" v-model="selectedModel" value="medium" />
-          <span class="model-info">
-            <strong>Medium Model</strong>
-            <small>Faster processing, good quality</small>
-          </span>
-        </label>
-        <label class="model-option">
-          <input type="radio" v-model="selectedModel" value="large" />
-          <span class="model-info">
-            <strong>Large Model</strong>
-            <small>Higher quality, slower processing</small>
-          </span>
-        </label>
-      </div>
-      <div class="fallback-info">
-        <small>💡 If selected model is unavailable, will automatically try the other model</small>
+      <h2>🇳🇴 Norwegian Transcription Model</h2>
+      <div class="model-info-card">
+        <div class="model-details">
+          <strong>Specialized Norwegian Model</strong>
+          <small>Optimized for Norwegian language transcription with high accuracy</small>
+        </div>
       </div>
     </div>
 
@@ -53,20 +40,20 @@
       <div class="cost-info-card">
         <h3>💰 How We Keep Costs Low</h3>
         <p>
-          To provide free Norwegian transcription while keeping costs minimal, our AI models automatically scale down when not in use.
-          This means the first request after a period of inactivity may take <strong>15-30 seconds longer</strong> as the model starts up.
+          To provide free Norwegian transcription while keeping costs minimal, our specialized Norwegian AI model automatically scales down when not in use.
+          This means the first request after a period of inactivity may take <strong>3-4 minutes longer</strong> as the model fully warms up.
         </p>
         <details class="cost-details">
           <summary>Learn more about our cost-saving approach</summary>
           <div class="cost-details-content">
             <ul>
-              <li><strong>Auto-scaling:</strong> Models sleep when idle, wake up on demand</li>
-              <li><strong>Smart retries:</strong> We wait patiently for models to start instead of failing immediately</li>
-              <li><strong>Model fallback:</strong> If one model is slow to start, we try the other automatically</li>
+              <li><strong>Auto-scaling:</strong> Norwegian model sleeps when idle, wakes up on demand</li>
+              <li><strong>Smart retries:</strong> We wait patiently for the model to warm up instead of failing immediately</li>
+              <li><strong>Single endpoint:</strong> One specialized Norwegian model optimized for quality</li>
               <li><strong>Cost benefit:</strong> This approach saves ~80% on infrastructure costs vs always-on models</li>
             </ul>
             <p class="cost-note">
-              <em>Your patience during startup helps us provide this service free of charge! 🙏</em>
+              <em>Your patience during the 3-4 minute warm-up helps us provide high-quality Norwegian transcription free of charge! 🙏</em>
             </p>
           </div>
         </details>
@@ -199,7 +186,7 @@
         <!-- Cold start info for first-time users -->
         <div v-if="loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling')" class="cold-start-info">
           <small class="text-muted">
-            💡 <strong>First time?</strong> Models auto-scale to save costs. This 1-2 minute delay only happens occasionally.
+            💡 <strong>First time?</strong> Norwegian model auto-scales to save costs. This 3-4 minute delay only happens occasionally.
           </small>
         </div>
 
@@ -497,7 +484,7 @@ const graphCreated = ref(false)
 const graphError = ref(null)
 
 // Model selection state
-const selectedModel = ref('medium') // Default to medium model
+// Using single Norwegian model endpoint - no selection needed
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -848,13 +835,12 @@ const transcribeAudio = async () => {
 }
 
 const processSingleAudioFile = async (audioBlob, fileName) => {
-  loadingMessage.value = `🚀 Starting transcription with ${selectedModel.value} model...`
+  loadingMessage.value = `🚀 Starting Norwegian transcription...`
 
-  console.log('📄 Processing single file')
+  console.log('📄 Processing single file with Norwegian model')
 
   const formData = new FormData()
   formData.append('audio', audioBlob, fileName)
-  formData.append('model', selectedModel.value)
 
   if (transcriptionContext.value.trim()) {
     formData.append('context', transcriptionContext.value.trim())
@@ -863,20 +849,25 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
   // Add timeout for better UX feedback during cold starts
   const startTime = Date.now()
 
-  // Update message after 3 seconds to indicate potential cold start
+  // Update message after 5 seconds to indicate potential cold start
   const coldStartTimer = setTimeout(() => {
-    loadingMessage.value = `⏳ Model warming up (cost-saving feature) - this may take up to 2 minutes...`
-  }, 3000)
+    loadingMessage.value = `⏳ Norwegian model warming up (cost-saving feature) - this can take 3-4 minutes...`
+  }, 5000)
 
-  // Update message after 15 seconds with more detail
+  // Update message after 30 seconds with more detail
   const detailTimer = setTimeout(() => {
-    loadingMessage.value = `🔥 Auto-scaling in progress - our smart retry system is handling the cold start...`
-  }, 15000)
-
-  // Update message after 30 seconds with encouragement
-  const encouragementTimer = setTimeout(() => {
-    loadingMessage.value = `💡 Still working! Remember: these delays save ~80% on costs while maintaining quality.`
+    loadingMessage.value = `🔥 Auto-scaling in progress - Norwegian model needs time to fully warm up...`
   }, 30000)
+
+  // Update message after 90 seconds with encouragement
+  const encouragementTimer = setTimeout(() => {
+    loadingMessage.value = `💡 Still working! Norwegian model can take 3-4 minutes - this saves ~80% on costs.`
+  }, 90000)
+
+  // Update message after 3 minutes
+  const finalTimer = setTimeout(() => {
+    loadingMessage.value = `⌛ Almost ready! Norwegian model is nearly warmed up...`
+  }, 180000)
 
   try {
     const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
@@ -888,6 +879,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     clearTimeout(coldStartTimer)
     clearTimeout(detailTimer)
     clearTimeout(encouragementTimer)
+    clearTimeout(finalTimer)
 
     const processingTime = Math.round((Date.now() - startTime) / 1000)
     loadingMessage.value = `✅ Transcription completed in ${processingTime}s`
@@ -926,6 +918,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     clearTimeout(coldStartTimer)
     clearTimeout(detailTimer)
     clearTimeout(encouragementTimer)
+    clearTimeout(finalTimer)
 
     throw error
   }
@@ -951,7 +944,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     }
 
     currentChunk.value = i + 1
-    loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} with ${selectedModel.value} model (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+    loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} with Norwegian model (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
 
     // Cold start timer for chunks (shorter since first chunk may have warmed up the model)
     const chunkColdStartTimer = setTimeout(() => {
@@ -975,7 +968,6 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       // Process this chunk
       const formData = new FormData()
       formData.append('audio', chunks[i].blob, `${fileName}_chunk_${i + 1}.wav`)
-      formData.append('model', selectedModel.value)
 
       if (transcriptionContext.value.trim()) {
         formData.append('context', transcriptionContext.value.trim())
