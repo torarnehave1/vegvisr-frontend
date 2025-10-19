@@ -180,7 +180,7 @@
       </button>
 
       <div v-if="transcribing" class="loading">
-        <div class="loading-spinner" :class="{ 'cold-start': loadingMessage.includes('warming up') || loadingMessage.includes('Auto-scaling') }"></div>
+        <div class="loading-spinner"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
 
         <!-- Simple processing info -->
@@ -849,10 +849,20 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
   // Track processing time
   const startTime = Date.now()
 
-  // Simple processing indicator - no assumptions about cold start
+  // Progressive messaging based on processing time
   const processingTimer = setTimeout(() => {
     loadingMessage.value = "Processing audio with Norwegian model..."
   }, 10000)
+
+  // If taking longer than normal, suggest possible cold start
+  const coldStartTimer = setTimeout(() => {
+    loadingMessage.value = "⏳ Taking longer than usual - model may be warming up (3-4 minutes)..."
+  }, 60000) // Only after 1 minute
+
+  // Extended processing message
+  const extendedTimer = setTimeout(() => {
+    loadingMessage.value = "🔥 Model warming up detected - this saves ~80% on infrastructure costs..."
+  }, 120000) // After 2 minutes
 
   try {
     const transcribeResponse = await fetch(NORWEGIAN_WORKER_URL, {
@@ -860,8 +870,10 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
       body: formData,
     })
 
-    // Clear processing timer on completion
+    // Clear all timers on completion
     clearTimeout(processingTimer)
+    clearTimeout(coldStartTimer)
+    clearTimeout(extendedTimer)
 
     const processingTime = Math.round((Date.now() - startTime) / 1000)
     loadingMessage.value = `✅ Transcription completed in ${processingTime}s`
@@ -874,6 +886,12 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 
     const result = await transcribeResponse.json()
     console.log('✅ Single file transcription result:', result)
+
+    // Check if cold start was detected by the backend
+    if (result.metadata?.coldStartDetected) {
+      console.log('🔥 Cold start was detected during transcription (503 received)')
+      loadingMessage.value = `✅ Completed after model warm-up in ${processingTime}s`
+    }
 
     transcriptionResult.value = {
       success: true,
@@ -893,11 +911,14 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
         transcription_server: 'Worker Orchestration (Hetzner + Cloudflare AI)',
         text_improvement: result.metadata?.text_improvement || 'Cloudflare Workers AI',
         cloudflare_ai_available: !!result.transcription?.improved_text,
+        coldStartDetected: result.metadata?.coldStartDetected || false,
       },
     }
   } catch (error) {
-    // Clear processing timer on error
+    // Clear all timers on error
     clearTimeout(processingTimer)
+    clearTimeout(coldStartTimer)
+    clearTimeout(extendedTimer)
 
     throw error
   }
@@ -925,14 +946,10 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     currentChunk.value = i + 1
     loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} with Norwegian model (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
 
-    // Cold start timer for chunks (shorter since first chunk may have warmed up the model)
-    const chunkColdStartTimer = setTimeout(() => {
-      if (i === 0) {
-        loadingMessage.value = `⏳ First chunk - model warming up (cost-saving feature)...`
-      } else {
-        loadingMessage.value = `⏳ Processing chunk ${i + 1}/${chunks.length} - model may need warming...`
-      }
-    }, 5000) // Shorter timeout for chunks
+    // Simple processing timer for chunks - no cold start assumptions
+    const chunkProcessingTimer = setTimeout(() => {
+      loadingMessage.value = `Processing chunk ${i + 1}/${chunks.length}...`
+    }, 10000)
 
     try {
       const chunkStart = performance.now()
@@ -980,8 +997,8 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       const result = await transcribeResponse.json()
       const chunkProcessingTime = Math.round((performance.now() - chunkStart) / 1000)
 
-      // Clear cold start timer on success
-      clearTimeout(chunkColdStartTimer)
+      // Clear processing timer on success
+      clearTimeout(chunkProcessingTimer)
 
       console.log(
         `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s:`,
@@ -999,8 +1016,8 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
         metadata: result.metadata,
       })
     } catch (err) {
-      // Clear cold start timer on error
-      clearTimeout(chunkColdStartTimer)
+      // Clear processing timer on error
+      clearTimeout(chunkProcessingTimer)
 
       console.error(`Error processing chunk ${i + 1}:`, err)
 
