@@ -1,8 +1,9 @@
 // Norwegian Audio Transcription Worker
 // Handles audio transcription using Norwegian transcription service
 
-// Single Norwegian model endpoint
-const NORWEGIAN_ENDPOINT = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
+// Norwegian model endpoints - CPU and GPU
+const NORWEGIAN_CPU_ENDPOINT = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
+const NORWEGIAN_GPU_ENDPOINT = 'https://vfclin5tvetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
 
 // Helper function to safely convert ArrayBuffer to base64 (avoids call stack overflow)
 const arrayBufferToBase64 = (buffer) => {
@@ -193,21 +194,25 @@ const handleUpload = async (request, env) => {
 }
 
 // Helper function to call Norwegian transcription service with exponential backoff
-const callNorwegianTranscription = async (base64Audio, env) => {
+const callNorwegianTranscription = async (base64Audio, env, useGpu = false) => {
   const maxRetries = 8 // Increased retries for longer warm-up time
   const initialDelay = 3000 // 3 seconds initial delay
   let coldStartDetected = false
 
+  // Select endpoint based on preference
+  const endpoint = useGpu ? NORWEGIAN_GPU_ENDPOINT : NORWEGIAN_CPU_ENDPOINT
+  const endpointType = useGpu ? 'GPU' : 'CPU'
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      console.log(`🚀 Calling Norwegian transcription (attempt ${attempt + 1}/${maxRetries})`)
+      console.log(`🚀 Calling Norwegian transcription ${endpointType} (attempt ${attempt + 1}/${maxRetries})`)
 
       const payload = {
         inputs: base64Audio,
         parameters: {}
       }
 
-      const response = await fetch(NORWEGIAN_ENDPOINT, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -217,19 +222,20 @@ const callNorwegianTranscription = async (base64Audio, env) => {
         body: JSON.stringify(payload),
       })
 
-      console.log(`📊 Norwegian model response (attempt ${attempt + 1}):`, {
+      console.log(`📊 Norwegian ${endpointType} response (attempt ${attempt + 1}):`, {
         status: response.status,
         statusText: response.statusText,
       })
 
       if (response.ok) {
         const result = await response.json()
-        console.log(`✅ Success with Norwegian model after ${attempt + 1} attempts`)
+        console.log(`✅ Success with Norwegian ${endpointType} after ${attempt + 1} attempts`)
         return {
           success: true,
           result,
-          modelUsed: 'norwegian',
-          endpoint: NORWEGIAN_ENDPOINT,
+          modelUsed: `norwegian-${endpointType.toLowerCase()}`,
+          endpoint: endpoint,
+          endpointType: endpointType,
           attemptsUsed: attempt + 1,
           coldStartDetected
         }
@@ -240,30 +246,30 @@ const callNorwegianTranscription = async (base64Audio, env) => {
         const jitter = Math.random() * 2000 // 0-2000ms random jitter
         const totalDelay = Math.min(baseDelay + jitter, 60000) // Cap at 60 seconds
 
-        console.log(`⏳ Norwegian model cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry... (can take 3-4 minutes total)`)
+        console.log(`⏳ Norwegian ${endpointType} cold start (503), waiting ${Math.round(totalDelay/1000)}s before retry... (can take 3-4 minutes total)`)
 
         // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, totalDelay))
         continue // Retry
       } else {
         // Non-503 error or max retries reached
-        console.log(`❌ Norwegian model error:`, response.status)
+        console.log(`❌ Norwegian ${endpointType} error:`, response.status)
         const errorText = await response.text()
         if (attempt === maxRetries - 1) {
           return {
             success: false,
-            error: `Norwegian model error (${response.status}) after ${attempt + 1} attempts: ${errorText}`
+            error: `Norwegian ${endpointType} error (${response.status}) after ${attempt + 1} attempts: ${errorText}`
           }
         }
         // For non-503 errors, wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 5000))
       }
     } catch (error) {
-      console.error(`❌ Norwegian model exception (attempt ${attempt + 1}):`, error)
+      console.error(`❌ Norwegian ${endpointType} exception (attempt ${attempt + 1}):`, error)
       if (attempt === maxRetries - 1) {
         return {
           success: false,
-          error: `Norwegian model exception after ${attempt + 1} attempts: ${error.message}`
+          error: `Norwegian ${endpointType} exception after ${attempt + 1} attempts: ${error.message}`
         }
       }
       // For network errors, also use backoff
@@ -278,20 +284,22 @@ const callNorwegianTranscription = async (base64Audio, env) => {
   // All retries failed
   return {
     success: false,
-    error: 'Norwegian model failed after all retries - may need 3-4 minutes to warm up'
+    error: `Norwegian ${endpointType} failed after all retries - may need 3-4 minutes to warm up`
   }
 }// Norwegian transcription handler
 const handleNorwegianTranscribe = async (request, env) => {
   try {
-    // Get audio URL and model from query params or request body
+    // Get audio URL, model, and endpoint type from query params or request body
     const url = new URL(request.url)
     let audioUrl = url.searchParams.get('url')
     let selectedModel = url.searchParams.get('model') || 'medium' // Default to medium
+    let endpointType = url.searchParams.get('endpoint') || 'cpu' // Default to CPU
 
     if (!audioUrl && request.body) {
       const body = await request.json()
       audioUrl = body.audioUrl
       selectedModel = body.model || selectedModel
+      endpointType = body.endpoint || endpointType
     }
 
     if (!audioUrl) {
@@ -360,6 +368,7 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     console.log('🚀 Calling transcription service with model selection:', {
       selectedModel,
+      endpointType,
       fileName: correctedFileName,
       detectedFormat: detectedFormat.format,
       contentType: detectedFormat.contentType,
@@ -368,7 +377,8 @@ const handleNorwegianTranscribe = async (request, env) => {
     })
 
     // Call Norwegian transcription service with retry logic
-    const transcriptionResponse = await callNorwegianTranscription(base64Audio, env)
+    const useGpu = endpointType.toLowerCase() === 'gpu'
+    const transcriptionResponse = await callNorwegianTranscription(base64Audio, env, useGpu)
 
     if (!transcriptionResponse.success) {
       console.error('Norwegian transcription failed:', transcriptionResponse.error)
@@ -419,9 +429,10 @@ const handleNorwegianTranscribe = async (request, env) => {
           processedAt: new Date().toISOString(),
           service: 'Hugging Face Norwegian Transcription',
           modelUsed: transcriptionResponse.modelUsed,
-          attemptedModels: transcriptionResponse.attemptedModels,
           endpoint: transcriptionResponse.endpoint,
+          endpointType: transcriptionResponse.endpointType,
           requestedModel: selectedModel,
+          requestedEndpoint: endpointType,
           language: 'Norwegian',
           coldStartDetected: transcriptionResponse.coldStartDetected,
         },
@@ -434,7 +445,7 @@ const handleNorwegianTranscribe = async (request, env) => {
 }
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url)
 
     // Handle CORS
@@ -485,6 +496,7 @@ export default {
       const formData = await request.formData()
       const audioFile = formData.get('audio')
       const model = formData.get('model') || 'medium' // Use our new model system
+      const endpoint = formData.get('endpoint') || 'cpu' // Default to CPU endpoint
       const context = formData.get('context') || ''
 
       if (!audioFile) {
@@ -502,6 +514,7 @@ export default {
 
       console.log('🚀 Calling transcription service with model selection:', {
         selectedModel: model,
+        endpointType: endpoint,
         hasAudio: !!audioFile,
         audioSize: audioBuffer.byteLength,
         base64Size: base64Audio.length,
@@ -510,7 +523,8 @@ export default {
       })
 
       // Use Norwegian transcription service
-      const transcriptionResponse = await callNorwegianTranscription(base64Audio, env)
+      const useGpu = endpoint.toLowerCase() === 'gpu'
+      const transcriptionResponse = await callNorwegianTranscription(base64Audio, env, useGpu)
 
       if (!transcriptionResponse.success) {
         console.error('Norwegian transcription failed:', transcriptionResponse.error)
@@ -595,9 +609,10 @@ export default {
             filename: audioFile.name,
             model: model,
             modelUsed: transcriptionResponse.modelUsed,
-            attemptedModels: transcriptionResponse.attemptedModels,
             endpoint: transcriptionResponse.endpoint,
+            endpointType: transcriptionResponse.endpointType,
             requestedModel: model,
+            requestedEndpoint: endpoint,
             total_processing_time: totalTime,
             transcription_server: 'Hugging Face',
             coldStartDetected: transcriptionResponse.coldStartDetected,

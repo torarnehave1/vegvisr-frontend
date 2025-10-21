@@ -32,6 +32,35 @@
           <strong>Specialized Norwegian Model</strong>
           <small>Optimized for Norwegian language transcription with high accuracy</small>
         </div>
+
+        <!-- Endpoint Selection -->
+        <div class="endpoint-selection">
+          <h4>⚡ Processing Endpoint</h4>
+          <div class="endpoint-options">
+            <label class="endpoint-option">
+              <input type="radio" v-model="selectedEndpoint" value="cpu" />
+              <span class="endpoint-label">
+                <strong>🖥️ CPU Endpoint</strong>
+                <small>Stable, cost-effective processing (default)</small>
+              </span>
+            </label>
+            <label class="endpoint-option">
+              <input type="radio" v-model="selectedEndpoint" value="gpu" />
+              <span class="endpoint-label">
+                <strong>🚀 GPU Endpoint</strong>
+                <small>Faster processing, higher performance</small>
+              </span>
+            </label>
+          </div>
+          <div class="endpoint-info">
+            <small class="text-muted">
+              {{ selectedEndpoint === 'gpu' ?
+                '🚀 GPU endpoint provides faster transcription but may have longer cold start times' :
+                '🖥️ CPU endpoint provides reliable processing with predictable performance'
+              }}
+            </small>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -485,6 +514,7 @@ const graphError = ref(null)
 
 // Model selection state
 // Using single Norwegian model endpoint - no selection needed
+const selectedEndpoint = ref('cpu') // Default to CPU endpoint
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -841,6 +871,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 
   const formData = new FormData()
   formData.append('audio', audioBlob, fileName)
+  formData.append('endpoint', selectedEndpoint.value) // Add endpoint selection
 
   if (transcriptionContext.value.trim()) {
     formData.append('context', transcriptionContext.value.trim())
@@ -964,6 +995,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       // Process this chunk
       const formData = new FormData()
       formData.append('audio', chunks[i].blob, `${fileName}_chunk_${i + 1}.wav`)
+      formData.append('endpoint', selectedEndpoint.value) // Add endpoint selection
 
       if (transcriptionContext.value.trim()) {
         formData.append('context', transcriptionContext.value.trim())
@@ -2437,5 +2469,86 @@ const createChunkedGraph = async () => {
   border-radius: 6px;
   border: 1px solid #fde68a;
   font-style: italic;
+}
+
+/* Endpoint Selection Styles */
+.endpoint-selection {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #dc143c;
+}
+
+.endpoint-selection h4 {
+  margin: 0 0 15px 0;
+  color: #dc143c;
+}
+
+.endpoint-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.endpoint-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.endpoint-option:hover {
+  border-color: #dc143c;
+  background: #fff5f5;
+}
+
+.endpoint-option input[type="radio"] {
+  margin: 0;
+  transform: scale(1.2);
+}
+
+.endpoint-option input[type="radio"]:checked + .endpoint-label {
+  color: #dc143c;
+}
+
+.endpoint-option:has(input:checked) {
+  border-color: #dc143c;
+  background: #fff5f5;
+}
+
+.endpoint-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.endpoint-label strong {
+  font-size: 1rem;
+  color: #333;
+}
+
+.endpoint-label small {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.endpoint-info {
+  padding: 8px 12px;
+  background: #e3f2fd;
+  border-radius: 4px;
+  border-left: 3px solid #2196f3;
+}
+
+.endpoint-info .text-muted {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0;
 }
 </style>
