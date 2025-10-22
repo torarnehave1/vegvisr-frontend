@@ -176,6 +176,28 @@ import FlexboxGrid from '@/components/FlexboxGrid.vue'
 import FlexboxCards from '@/components/FlexboxCards.vue'
 import FlexboxGallery from '@/components/FlexboxGallery.vue'
 
+// Configure marked to support GitHub Flavored Markdown (GFM) including tables
+// For marked v15+, tables are included by default with gfm: true
+marked.setOptions({
+  breaks: false, // Set to false for proper table parsing
+  gfm: true,
+  pedantic: false,
+  sanitize: false
+})
+
+// Test marked table parsing capability
+const testTable = `| Header 1 | Header 2 |
+|----------|----------|
+| Cell 1   | Cell 2   |`
+
+const testResult = marked(testTable)
+console.log('🧪 Table test result:', testResult)
+if (testResult.includes('<table>')) {
+  console.log('✅ Marked table parsing is working')
+} else {
+  console.log('❌ Marked table parsing failed, output:', testResult)
+}
+
 // Store access
 const userStore = useUserStore()
 
@@ -203,13 +225,129 @@ const parseFormattedElements = (text) => {
   // Follow the exact same order as GraphViewer preprocessMarkdown
   let processedText = text
 
-  // Process all formatted elements in the correct order
+  // DEBUG: Log the raw input to understand what we're working with
+  console.log('🔍 RAW INPUT to parseFormattedElements:', text.substring(0, 500))
+
+  // Fix line break issues that break markdown parsing
+  // Ensure proper line breaks before headers and around content
+  processedText = processedText
+    .replace(/\.#/g, '.\n\n#')  // Fix "content.#" -> "content.\n\n#"
+    .replace(/([.!?])\s*([#*|-])/g, '$1\n\n$2')  // Ensure line breaks before markdown elements
+    .replace(/\n{3,}/g, '\n\n')  // Clean up excessive line breaks
+
+  console.log('🔄 AFTER line break fixes:', processedText.substring(0, 500))
+
+  // Process all formatted elements in the correct order FIRST
   processedText = processFormattedElementsPass(processedText)
 
-  // Finally process any remaining markdown
-  const finalHtml = marked(processedText, { breaks: true })
+  console.log('🎨 AFTER formatted elements pass:', processedText.substring(0, 500))
+
+  // CRITICAL: Pre-process tables AFTER formatted elements to repair any damage they caused
+  processedText = preprocessTables(processedText)
+
+  console.log('📊 AFTER table preprocessing:', processedText.substring(0, 500))
+
+  // Test if we have table content
+  if (processedText.includes('|') && processedText.includes('---')) {
+    console.log('🔍 Table detected in content:', processedText.substring(0, 200) + '...')
+
+    // Show the exact table structure we're trying to parse
+    const lines = processedText.split('\n')
+    const tableLines = lines.filter(line => line.includes('|')).slice(0, 5)
+    console.log('📊 Table lines being parsed:', tableLines)
+  }
+
+  // Finally process any remaining markdown with GFM support
+  const finalHtml = marked(processedText)
+
+  // Log the final HTML to see if tables are rendered
+  if (finalHtml.includes('<table>') || finalHtml.includes('<th>') || finalHtml.includes('<td>')) {
+    console.log('✅ Table HTML generated successfully')
+  } else if (processedText.includes('|')) {
+    console.log('❌ Table content found but no table HTML generated')
+    console.log('Input text sample:', processedText.substring(0, 300))
+    console.log('Output HTML sample:', finalHtml.substring(0, 300))
+
+    // Test just the table portion in isolation
+    const lines = processedText.split('\n')
+    const tableStart = lines.findIndex(line => line.includes('|') && (line.includes('Plan') || line.includes('Feature Category')))
+    if (tableStart !== -1) {
+      const tableSection = lines.slice(tableStart, tableStart + 5).join('\n')
+      console.log('🧪 Testing isolated table section:', tableSection)
+      const isolatedResult = marked(tableSection)
+      console.log('🧪 Isolated table result:', isolatedResult)
+    }
+  }
+
+  console.log('🏁 FINAL HTML output:', finalHtml.substring(0, 500))
 
   return finalHtml
+}
+
+// Preprocess tables to ensure proper markdown table format
+const preprocessTables = (text) => {
+  // Split text into lines
+  const lines = text.split('\n')
+  const processedLines = []
+
+  let inTable = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    const nextLine = lines[i + 1] ? lines[i + 1].trim() : ''
+
+    // Detect start of table
+    if (line.includes('|') && nextLine.includes('|') && nextLine.includes('-')) {
+      inTable = true
+
+      // Add clean header
+      const cleanHeader = line.replace(/\s*\|\s*/g, ' | ').trim()
+      processedLines.push(cleanHeader)
+
+      // Add clean separator
+      const cleanSeparator = nextLine.replace(/\s*\|\s*/g, ' | ').replace(/-+/g, '---').trim()
+      processedLines.push(cleanSeparator)
+      i++ // Skip the separator line since we just processed it
+      continue
+    }
+
+    // If we're in a table
+    if (inTable) {
+      // Check if this line continues the table
+      if (line.includes('|') && line.length > 0) {
+        // Clean table row
+        const cleanRow = line.replace(/\s*\|\s*/g, ' | ').trim()
+        processedLines.push(cleanRow)
+      } else if (line.length === 0) {
+        // CRITICAL: Skip ALL empty lines within tables - they break markdown parsing
+        continue
+      } else {
+        // End of table - add the non-table line and exit table mode
+        inTable = false
+        processedLines.push(line)
+      }
+    } else {
+      // Not in table, add line as-is
+      processedLines.push(line)
+    }
+  }
+
+  // FINAL PASS: Remove any remaining blank lines between consecutive table rows
+  const finalLines = []
+  for (let i = 0; i < processedLines.length; i++) {
+    const currentLine = processedLines[i]
+    const nextLine = processedLines[i + 1] || ''
+
+    finalLines.push(currentLine)
+
+    // If current line is a table row and next line is empty and line after that is also a table row,
+    // skip the empty line
+    if (currentLine.includes('|') && nextLine.trim() === '' && processedLines[i + 2]?.includes('|')) {
+      i++ // Skip the empty line
+    }
+  }
+
+  return finalLines.join('\n')
 }
 
 // Process leftside/rightside images - matches GraphViewer processLeftRightImages
@@ -258,7 +396,7 @@ const processLeftRightImages = (text) => {
       if (/^\d+$/.test(height)) height = height + 'px'
       const objectFit = getStyleValue(styles, 'object-fit', 'cover')
       const objectPosition = getStyleValue(styles, 'object-position', 'center')
-      const sideParagraphs = marked(consumedParagraphs.join('\n\n'), { breaks: true })
+      const sideParagraphs = marked(consumedParagraphs.join('\n\n'))
       const containerClass = type === 'Rightside' ? 'rightside-container' : 'leftside-container'
       const contentClass = type === 'Rightside' ? 'rightside-content' : 'leftside-content'
       const imageClass = type === 'Rightside' ? 'rightside-image' : 'leftside-image'
@@ -339,7 +477,7 @@ const processFormattedElementsPass = (text) => {
 
       return `<div class="comment-block" style="${css}">
 ${author ? `<div class="comment-author">${author}</div>` : ''}
-<div>${marked(content.trim(), { breaks: true })}</div>
+<div>${marked(content.trim())}</div>
 </div>\n\n`
     },
   )
@@ -362,7 +500,7 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
     /\[QUOTE\s*\|([^\]]*)\]([\s\S]*?)\[END\s+QUOTE\]/gs,
     (match, style, content) => {
       const quoteParams = parseQuoteParams(style)
-      const processedContent = marked(content.trim(), { breaks: true })
+      const processedContent = marked(content.trim())
       const styleAttr = quoteParams.styles ? ` style="${quoteParams.styles}"` : ''
       return `<div class="fancy-quote"${styleAttr}>${processedContent}<cite>— ${quoteParams.cited}</cite></div>`
     },
@@ -374,7 +512,7 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
     (match, style, content) => {
       const css = parseStyleString(style)
       // Process the content through marked to handle markdown inside the section
-      const processedContent = marked(content.trim(), { breaks: true })
+      const processedContent = marked(content.trim())
       return `<div class="section" style="${css}; padding: 15px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${processedContent}</div>`
     },
   )
@@ -384,7 +522,7 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
     /\[WNOTE\s*\|([^\]]*)\]([\s\S]*?)\[END\s+WNOTE\]/gs,
     (match, style, content) => {
       const quoteParams = parseQuoteParams(style)
-      const processedContent = marked(content.trim(), { breaks: true })
+      const processedContent = marked(content.trim())
       const styleAttr = quoteParams.styles ? ` style="${quoteParams.styles}"` : ''
       return `<div class="work-note"${styleAttr}>
         ${processedContent}
@@ -855,7 +993,7 @@ const parsedContent = computed(() => {
           const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
           if (beforeText) {
             const processedBefore = parseFormattedElements(beforeText)
-            let finalContent = marked(processedBefore, { breaks: true })
+            let finalContent = marked(processedBefore)
 
             if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
               finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
@@ -908,7 +1046,7 @@ const parsedContent = computed(() => {
         const afterText = nodeContent.value.slice(lastIndex).trim()
         if (afterText) {
           const processedAfter = parseFormattedElements(afterText)
-          let finalContent = marked(processedAfter, { breaks: true })
+          let finalContent = marked(processedAfter)
 
           if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
             finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
@@ -937,7 +1075,7 @@ const parsedContent = computed(() => {
         const beforeText = nodeContent.value.slice(lastIndex, match.index).trim()
         if (beforeText) {
           const processedBefore = parseFormattedElements(beforeText)
-          let finalContent = marked(processedBefore, { breaks: true })
+          let finalContent = marked(processedBefore)
 
           // Add image edit buttons for Superadmin users
           if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
@@ -1010,7 +1148,7 @@ const parsedContent = computed(() => {
       const afterText = nodeContent.value.slice(lastIndex).trim()
       if (afterText) {
         const processedAfter = parseFormattedElements(afterText)
-        let finalContent = marked(processedAfter, { breaks: true })
+        let finalContent = marked(processedAfter)
 
         // Add image edit buttons for Superadmin users
         if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
@@ -1031,7 +1169,7 @@ const parsedContent = computed(() => {
 
       let finalContent = hasProcessedElements
         ? processedHtml
-        : marked(processedHtml, { breaks: true })
+        : marked(processedHtml)
 
       // Add image edit buttons for Superadmin users
       if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
@@ -1753,5 +1891,87 @@ const convertStylesToString = (styleObj) => {
 .node-content :deep(.photographer-name) {
   font-weight: 500;
   color: inherit;
+}
+
+/* Markdown table styles */
+.node-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  font-size: 0.9rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.node-content :deep(table thead) {
+  background-color: #f8f9fa;
+}
+
+.node-content :deep(table thead tr) {
+  border-bottom: 2px solid #dee2e6;
+}
+
+.node-content :deep(table th) {
+  padding: 12px 15px;
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
+  background-color: #f8f9fa;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.node-content :deep(table td) {
+  padding: 12px 15px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: top;
+}
+
+.node-content :deep(table tbody tr) {
+  transition: background-color 0.2s ease;
+}
+
+.node-content :deep(table tbody tr:hover) {
+  background-color: #f8f9fa;
+}
+
+.node-content :deep(table tbody tr:nth-child(even)) {
+  background-color: #fdfdfd;
+}
+
+.node-content :deep(table tbody tr:nth-child(even):hover) {
+  background-color: #f8f9fa;
+}
+
+/* Responsive table styling */
+@media (max-width: 768px) {
+  .node-content :deep(table) {
+    font-size: 0.8rem;
+  }
+
+  .node-content :deep(table th),
+  .node-content :deep(table td) {
+    padding: 8px 10px;
+  }
+}
+
+/* Table cell content styling */
+.node-content :deep(table td strong),
+.node-content :deep(table th strong) {
+  font-weight: 600;
+}
+
+.node-content :deep(table td code),
+.node-content :deep(table th code) {
+  background-color: #f1f3f4;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+/* Emoji and special characters in tables */
+.node-content :deep(table td) {
+  line-height: 1.4;
 }
 </style>

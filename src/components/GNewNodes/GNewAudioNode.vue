@@ -139,6 +139,17 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import AudioPortfolioModal from '@/components/AudioPortfolioModal.vue'
 
+// Configure marked to support GitHub Flavored Markdown (GFM) including tables
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  tables: true,
+  pedantic: false,
+  sanitize: false,
+  smartLists: true,
+  smartypants: false
+})
+
 // Props
 const props = defineProps({
   node: {
@@ -270,7 +281,7 @@ const processFormattedElementsPass = (text) => {
 
       return `<div class="comment-block" style="${css}">
 ${author ? `<div class="comment-author">${author}</div>` : ''}
-<div>${marked(content.trim(), { breaks: true })}</div>
+<div>${marked(content.trim())}</div>
 </div>\n\n`
     },
   )
