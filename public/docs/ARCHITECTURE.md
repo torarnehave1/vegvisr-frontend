@@ -552,6 +552,135 @@ The Document Update System was developed through an iterative process with struc
 
 This Document Update System represents a significant advancement in knowledge graph management, providing users with powerful tools to iterate on their content while maintaining the integrity and quality of their existing work.
 
+## SEO Optimization System
+
+Vegvisr.org features a comprehensive **SEO Optimization System** that transforms knowledge graphs into search engine-friendly static pages, enabling Google indexing and social media sharing while maintaining the interactive user experience.
+
+### Core SEO Features
+
+#### 🤖 **Intelligent Crawler Detection**
+
+- **User Agent Analysis**: Automatically detects search engine crawlers (Google, Bing) and social media bots (Facebook, Twitter, LinkedIn)
+- **Dual Response System**: Serves optimized static HTML to crawlers while redirecting human users to the interactive Vue application
+- **Performance Optimization**: Lightning-fast static page delivery for optimal crawler experience
+- **Seamless Integration**: Transparent to end users who continue to experience the full interactive platform
+
+#### 📊 **Advanced SEO Optimization**
+
+- **Open Graph Protocol**: Complete Facebook, Twitter, and LinkedIn sharing optimization with rich previews
+- **JSON-LD Structured Data**: Enhanced Google search results with structured data markup for knowledge graphs
+- **Meta Tag Optimization**: Comprehensive title, description, keywords, and canonical URL management
+- **Image Optimization**: Automatic Open Graph image sizing and optimization for social sharing
+- **Responsive Meta Data**: Adaptive content based on sharing platform requirements
+
+#### ⚡ **High-Performance Architecture**
+
+- **Cloudflare KV Storage**: Ultra-fast static page storage and retrieval with global edge distribution
+- **Edge Computing**: Pages served from Cloudflare's global edge network for minimal latency
+- **Automatic Cache Management**: Intelligent cache invalidation and updates when knowledge graphs change
+- **Scalable Infrastructure**: Handles unlimited knowledge graphs with consistent performance
+
+### Technical Implementation
+
+#### **SEO Worker Endpoints**
+
+- **POST /generate**: Generate and store SEO-optimized static pages for knowledge graphs
+- **GET /graph/{slug}**: Intelligent routing - serves static HTML to crawlers or redirects users to interactive app
+- **GET /health**: Service health monitoring and diagnostics
+- **KV Management**: Automated storage and retrieval of generated pages with mapping systems
+
+#### **Page Generation Pipeline**
+
+```javascript
+// SEO page generation workflow
+{
+  graphId: "graph_1759133206105",
+  slug: "my-knowledge-graph", 
+  title: "AI-Generated Knowledge Graph",
+  description: "Comprehensive analysis of...",
+  ogImage: "https://vegvisr.imgix.net/optimized-image.jpg",
+  keywords: "AI, knowledge management, graphs",
+  html: "<html>...optimized content...</html>"
+}
+```
+
+#### **Smart Content Extraction**
+
+- **Graph Summarization**: Automatic extraction of key insights and themes from knowledge graph nodes
+- **Content Optimization**: AI-powered content condensation for optimal SEO while preserving meaning
+- **Image Selection**: Intelligent selection of representative images for social sharing
+- **Keyword Generation**: Automatic keyword extraction and optimization for search engines
+
+### SEO Admin Interface
+
+#### **User-Friendly Management**
+
+- **Visual SEO Dashboard**: Intuitive interface for managing SEO settings across all knowledge graphs
+- **Live Preview**: Real-time preview of how pages appear on Facebook, Twitter, and Google
+- **Bulk Operations**: Generate SEO pages for multiple knowledge graphs simultaneously
+- **Performance Analytics**: Track SEO performance and social sharing metrics
+
+#### **Testing & Validation**
+
+- **Facebook Debugger Integration**: Direct integration with Facebook's sharing debugger
+- **Google Rich Results Testing**: Validate structured data and rich snippets
+- **Social Media Preview**: Live preview of how content appears across all major social platforms
+- **SEO Score Analysis**: Comprehensive SEO scoring and optimization recommendations
+
+### Integration Benefits
+
+#### **For Content Creators**
+
+- **Increased Discoverability**: Knowledge graphs become discoverable through Google search
+- **Professional Sharing**: Rich, branded previews when sharing on social media
+- **SEO Automation**: No manual SEO work required - everything handled automatically
+- **Analytics Integration**: Track how content performs across search and social platforms
+
+#### **For Platform Growth**
+
+- **Organic Traffic**: Knowledge graphs drive organic search traffic to the platform
+- **Social Amplification**: Rich social previews increase sharing and engagement
+- **Brand Awareness**: Professional SEO pages enhance platform credibility
+- **User Acquisition**: SEO-optimized content attracts new users through search discovery
+
+#### **Technical Advantages**
+
+- **Zero Configuration**: SEO optimization works automatically for all published knowledge graphs
+- **Maintenance-Free**: Updates automatically when knowledge graphs are modified
+- **Performance Optimized**: Static pages load instantly for crawlers and social platforms
+- **Scalable Architecture**: Handles unlimited growth without performance degradation
+
+### Development Architecture
+
+#### **Storage Schema**
+
+```javascript
+// KV Storage Structure
+Key: "graph:{slug}" 
+Value: {
+  graphId: "graph_1759133206105",
+  slug: "sustainable-energy-analysis",
+  title: "Sustainable Energy Analysis 2025",
+  description: "Comprehensive analysis of renewable energy trends...",
+  ogImage: "https://vegvisr.imgix.net/energy-graph-og.jpg",
+  keywords: "sustainable energy, renewable, analysis, 2025",
+  html: "<html>...complete optimized page...</html>",
+  createdAt: "2025-10-21T14:30:00Z"
+}
+
+Key: "mapping:{graphId}"
+Value: "sustainable-energy-analysis"
+```
+
+#### **Route Management**
+
+- **Custom Domain Support**: SEO pages work seamlessly across all custom domains
+- **URL Structure**: Clean, SEO-friendly URLs like `/graph/sustainable-energy-analysis`
+- **Canonical URLs**: Proper canonical URL management to prevent duplicate content issues
+- **Redirect Management**: Intelligent redirects for changed or moved content
+
+This SEO Optimization System transforms Vegvisr.org into a fully search engine-optimized platform, ensuring that valuable knowledge graphs reach their intended audience through organic discovery while maintaining the superior interactive user experience.
+
 ## Brand Worker Proxy System
 
 Vegvisr.org includes a sophisticated **Brand Worker Proxy System** that enables seamless white-label deployments and intelligent request routing for custom domains. This system provides the infrastructure layer that powers the custom domain management capabilities.
@@ -839,6 +968,76 @@ The Dev Worker is a specialized Cloudflare Worker focused on advanced knowledge 
 ### Main Worker (main-worker)
 
 The Main Worker is a Cloudflare Worker responsible for handling core application logic, user data, and profile image uploads. It connects to Cloudflare KV, D1 database, and R2 storage for persistent data and files, ensuring that user profiles, settings, and related assets are managed efficiently and securely. The Main Worker plays a crucial role in maintaining the integrity and performance of the Vegvisr.org application.
+
+### Email Worker (email-worker)
+
+The Email Worker is a specialized Cloudflare Worker that provides enterprise-grade email delivery and template management services. It powers the platform's comprehensive email communication system with multi-language support, AI-powered template generation, and professional branded email templates.
+
+#### Core Features
+
+- **Multi-Language Email Templates**: Professional templates in Norwegian (nb), English (en), Turkish (tr), German (de), and Spanish (es)
+- **Variable Substitution Engine**: Dynamic content insertion using both Handlebars {{variable}} and simple {variable} syntax
+- **AI-Powered Template Generation**: GPT-4 integration for intelligent email template creation with customizable tone and style
+- **Professional Email Types**: Affiliate invitations, chat room invitations, system notifications, and custom domain branding
+- **Template Versioning**: Active/inactive template management with comprehensive version control
+
+#### Technical Implementation
+
+- **Template Rendering**: Advanced template processing with variable validation and substitution
+- **Email Delivery Pipeline**: Complete email rendering and delivery workflow integration
+- **Multi-Format Support**: HTML templates with plain text fallbacks for maximum compatibility
+- **Custom Domain Integration**: Template customization based on domain-specific branding requirements
+
+#### API Endpoints
+
+- **POST /render-template**: Render templates with variable substitution and validation
+- **GET /templates**: List available templates with filtering by language and type
+- **POST /render-and-send-template**: Complete email rendering and delivery pipeline
+- **GET /templates/{id}**: Retrieve specific template details and metadata
+
+The Email Worker integrates seamlessly with the affiliate system, chat system, and user management workflows, providing consistent and professional email communications across all platform features.
+
+### RAG Manager Worker (rag-manager-worker)
+
+The RAG Manager Worker is a revolutionary Cloudflare Worker that enables **Knowledge Graph → RAG → Sandbox** functionality, transforming knowledge graphs into deployable RAG-enabled applications. This system represents the cutting-edge of knowledge graph automation and AI-powered development workflows.
+
+#### Core RAG Functionality
+
+- **Knowledge Graph Analysis**: Automatically analyzes knowledge graphs for executable content and RAG-worthy data extraction
+- **Vector Embedding Generation**: Creates sophisticated vector embeddings using Cloudflare Workers AI (`@cf/baai/bge-base-en-v1.5`)
+- **Code Extraction Engine**: Intelligently extracts TypeScript/JavaScript code blocks and configuration files from graph nodes
+- **RAG Sandbox Deployment**: Generates and deploys fully functional RAG-enabled worker applications with custom URLs
+
+#### Advanced RAG Capabilities
+
+- **Semantic Search**: Vector-based semantic search through comprehensive knowledge graph content
+- **Context-Aware AI Responses**: AI-powered responses using relevant knowledge graph context and metadata
+- **Multi-Node Indexing**: Indexes all nodes from knowledge graphs for comprehensive RAG coverage and retrieval
+- **Metadata Preservation**: Maintains rich metadata for accurate source attribution and relevance scoring
+
+#### Generated Sandbox Features
+
+Each deployed RAG sandbox includes:
+- **RAG Query Endpoint** (`/rag/query`): Main interface for asking questions about the knowledge graph
+- **Vector Search** (`/search`): Direct vector-based search capabilities
+- **Metadata Access** (`/sources`): Access to indexed content sources and attribution
+- **Health Monitoring**: Sandbox status and performance metrics
+
+#### API Endpoints
+
+- **POST /analyze-graph**: Analyzes knowledge graphs for RAG potential and executable content
+- **POST /generate-sandbox**: Creates and deploys RAG-enabled worker sandboxes
+- **GET /list-sandboxes**: Lists active sandbox deployments with metadata
+- **POST /rag/query**: Main RAG query interface for generated sandboxes
+
+#### Technical Architecture
+
+- **Cloudflare Workers AI Integration**: Leverages Cloudflare's AI models for embedding generation and semantic processing
+- **Dynamic Code Generation**: Automatically generates worker code based on knowledge graph structure and content
+- **Temporary Deployment System**: Creates time-limited sandbox environments (4-hour expiration) for testing and development
+- **Vector Database Integration**: Stores and queries vector embeddings for optimal RAG performance
+
+The RAG Manager Worker represents the future of knowledge graph automation, enabling users to transform static knowledge graphs into interactive, AI-powered applications with zero manual coding required.
 
 ### GitHub Issues View
 
