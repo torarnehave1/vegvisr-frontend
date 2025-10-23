@@ -338,6 +338,16 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/youtube-worker-test',
+      name: 'youtube-worker-test',
+      component: () => import('../views/YouTubeWorkerTest.vue'),
+      meta: {
+        requiresAuth: true,
+        requiresSuperadmin: true, // Only superadmins can access worker testing
+        layout: null,
+      },
+    },
   ],
 })
 
