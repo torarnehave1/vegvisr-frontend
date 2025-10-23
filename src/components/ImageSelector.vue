@@ -1484,6 +1484,8 @@ watch(
   justify-content: center;
   z-index: 100000 !important;
   backdrop-filter: blur(4px);
+  overflow-y: auto; /* Allow scrolling if modal is too tall */
+  padding: 10px; /* Add some padding for mobile */
 }
 
 .image-selector-content {
@@ -1496,6 +1498,7 @@ watch(
   flex-direction: column;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+  position: relative; /* Ensure proper positioning */
 }
 
 .image-selector-header {
@@ -2656,7 +2659,8 @@ watch(
 @media (max-width: 768px) {
   .image-selector-content {
     width: 98%;
-    max-height: 95vh;
+    max-height: 90vh; /* Reduced from 95vh to ensure buttons are visible */
+    margin: 5vh auto; /* Add margin to center better */
   }
 
   .search-section,
@@ -2666,6 +2670,8 @@ watch(
 
   .results-section {
     padding: 12px 16px;
+    max-height: 50vh; /* Limit results section height */
+    overflow-y: auto; /* Allow scrolling within results */
   }
 
   .image-grid {
@@ -2682,6 +2688,9 @@ watch(
     align-items: stretch;
     gap: 15px;
     padding: 15px 16px;
+    flex-shrink: 0; /* Prevent footer from shrinking */
+    background: #fff; /* Ensure footer is visible */
+    border-top: 1px solid #e9ecef; /* Add visual separation */
   }
 
   .action-buttons {
@@ -2833,6 +2842,45 @@ watch(
 
   .attribution-actions .btn {
     width: 100%;
+  }
+
+  /* Additional mobile fixes for very small screens */
+  .image-selector-content {
+    width: 100%;
+    max-height: 85vh; /* Even more conservative height */
+    margin: 7.5vh auto;
+    border-radius: 8px; /* Smaller border radius */
+  }
+
+  .image-selector-header {
+    padding: 15px 16px; /* Reduce header padding */
+  }
+
+  .image-selector-header h3 {
+    font-size: 1.2rem; /* Smaller header font */
+  }
+
+  .current-image-section {
+    padding: 12px 16px; /* Reduce padding */
+  }
+
+  .results-section {
+    max-height: 40vh; /* Further limit results height on small screens */
+    padding: 8px 16px;
+  }
+
+  .image-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* Smaller grid items */
+    gap: 10px;
+  }
+
+  .image-option img {
+    height: 120px; /* Smaller image height */
+  }
+
+  .image-selector-footer {
+    padding: 12px 16px; /* Reduce footer padding */
+    gap: 10px;
   }
 }
 </style>
