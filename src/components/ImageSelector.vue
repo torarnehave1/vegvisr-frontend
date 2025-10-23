@@ -7,6 +7,7 @@
         <button class="image-selector-close" @click="closeModal" title="Close">&times;</button>
       </div>
 
+      <div class="image-selector-body">
       <div v-if="searchResults.length === 0" class="current-image-section">
         <h4>Current Image</h4>
         <div class="current-image-layout">
@@ -484,6 +485,7 @@
           </button>
         </div>
       </div>
+      </div> <!-- Close image-selector-body -->
     </div>
 
     <!-- AI Image Modal -->
@@ -1497,7 +1499,8 @@ watch(
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
+  overflow-y: auto; /* Enable vertical scrolling */
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
   position: relative; /* Ensure proper positioning */
 }
 
@@ -1535,6 +1538,13 @@ watch(
 .image-selector-close:hover {
   background: #e9ecef;
   color: #333;
+}
+
+.image-selector-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
 }
 
 .current-image-section {
@@ -2844,43 +2854,124 @@ watch(
     width: 100%;
   }
 
-  /* Additional mobile fixes for very small screens */
+  /* Aggressive mobile fixes for very small screens */
   .image-selector-content {
     width: 100%;
-    max-height: 85vh; /* Even more conservative height */
-    margin: 7.5vh auto;
-    border-radius: 8px; /* Smaller border radius */
+    max-height: 70vh; /* Much more conservative height */
+    margin: 2vh auto; /* Minimal top margin */
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
   }
 
   .image-selector-header {
-    padding: 15px 16px; /* Reduce header padding */
+    padding: 8px 12px; /* Minimal header padding */
+    flex-shrink: 0; /* Prevent header from shrinking */
   }
 
   .image-selector-header h3 {
-    font-size: 1.2rem; /* Smaller header font */
+    font-size: 1.1rem; /* Smaller header font */
+  }
+
+  .image-selector-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    min-height: 0; /* Allow flex child to shrink */
   }
 
   .current-image-section {
-    padding: 12px 16px; /* Reduce padding */
+    padding: 8px 12px; /* Minimal padding */
+  }
+
+  .current-image-info {
+    font-size: 0.8rem; /* Smaller text */
+  }
+
+  .current-image-info p {
+    margin-bottom: 4px; /* Tighter spacing */
+  }
+
+  .resize-section {
+    padding: 8px 12px; /* Reduce resize section padding */
+  }
+
+  .resize-section h4 {
+    font-size: 0.9rem; /* Smaller heading */
+    margin-bottom: 8px;
+  }
+
+  .resize-controls {
+    gap: 8px; /* Tighter controls */
+  }
+
+  .resize-controls .form-group {
+    margin-bottom: 8px;
+  }
+
+  .resize-controls input {
+    padding: 6px 8px; /* Smaller inputs */
+    font-size: 0.9rem;
+  }
+
+  .change-url-section {
+    padding: 8px 12px; /* Reduce URL section padding */
+  }
+
+  .change-url-section h4 {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+  }
+
+  .url-input {
+    padding: 6px 8px; /* Smaller URL input */
+    font-size: 0.9rem;
   }
 
   .results-section {
-    max-height: 40vh; /* Further limit results height on small screens */
-    padding: 8px 16px;
+    max-height: none; /* Remove height limit to allow natural scrolling */
+    padding: 6px 12px; /* Minimal padding */
+    flex: 1;
+    min-height: 200px; /* Ensure minimum height for search results */
+  }
+
+  .results-header h4 {
+    font-size: 0.9rem; /* Smaller results header */
+  }
+
+  .search-controls {
+    gap: 6px; /* Tighter search controls */
+    margin-bottom: 10px;
+  }
+
+  .search-controls input, .search-controls select {
+    padding: 6px 8px; /* Smaller search inputs */
+    font-size: 0.9rem;
   }
 
   .image-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* Smaller grid items */
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); /* Much smaller grid items */
+    gap: 6px;
+    margin-bottom: 60px; /* Add bottom margin to ensure footer clearance */
   }
 
   .image-option img {
-    height: 120px; /* Smaller image height */
+    height: 80px; /* Much smaller image height */
   }
 
   .image-selector-footer {
-    padding: 12px 16px; /* Reduce footer padding */
-    gap: 10px;
+    padding: 8px 12px; /* Minimal footer padding */
+    gap: 8px;
+    flex-shrink: 0; /* Prevent footer from shrinking */
+    background: white; /* Ensure footer background */
+    border-top: 1px solid #dee2e6; /* Add separator */
+    margin-top: auto; /* Push footer to bottom */
+  }
+
+  .image-selector-footer .btn {
+    padding: 8px 12px; /* Smaller buttons */
+    font-size: 0.9rem;
+    min-height: 36px; /* Ensure touch-friendly button size */
   }
 }
 </style>
