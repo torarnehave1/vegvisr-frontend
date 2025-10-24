@@ -955,15 +955,26 @@ const testRawAPI = async () => {
 const logout = () => {
   userEmail.value = ''
   results.credentials = null
+  // Clear persisted authentication
+  localStorage.removeItem('youtube_worker_user_email')
 }
 
 // Check for auth success on mount
 onMounted(() => {
+  // First, try to restore email from localStorage
+  const savedEmail = localStorage.getItem('youtube_worker_user_email')
+  if (savedEmail) {
+    userEmail.value = savedEmail
+  }
+
+  // Then check for new auth from URL params
   const urlParams = new URLSearchParams(window.location.search)
   if (urlParams.get('youtube_auth_success')) {
     const email = urlParams.get('user_email')
     if (email) {
       userEmail.value = email
+      // Persist the email to localStorage
+      localStorage.setItem('youtube_worker_user_email', email)
       alert('YouTube authentication successful!')
     }
     // Clean up URL
