@@ -827,7 +827,7 @@ const loadVideoForEdit = (video) => {
   updateForm.privacy = video.privacy_status || ''
   updateForm.tags = Array.isArray(video.tags) ? video.tags.join(', ') : (video.tags || '')
   updateForm.categoryId = video.category_id || ''
-  
+
   // Scroll to the update section
   const updateSection = document.querySelector('.section:has(h2:contains("Update Video Metadata"))')
   if (updateSection) {
@@ -842,7 +842,7 @@ const loadVideoForEdit = (video) => {
       }
     }
   }
-  
+
   // Add visual feedback
   setTimeout(() => {
     const updateForm = document.querySelector('#update-video-id')
