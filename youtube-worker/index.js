@@ -567,9 +567,9 @@ export default {
 
         const credentials = JSON.parse(storedCredentials)
 
-        // Get user's channel ID first
+        // Get user's channel information including uploads playlist ID
         const channelResponse = await fetch(
-          `https://www.googleapis.com/youtube/v3/channels?part=id&mine=true&key=${credentials.api_key}`,
+          `https://www.googleapis.com/youtube/v3/channels?part=id,contentDetails&mine=true&key=${credentials.api_key}`,
           {
             headers: {
               'Authorization': `Bearer ${credentials.access_token}`,
@@ -590,9 +590,10 @@ export default {
         }
 
         const channelId = channelData.items[0].id
+        const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads
 
-        // Get videos from user's channel
-        let videosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&order=date&maxResults=${max_results}&key=${credentials.api_key}`
+        // Get videos from uploads playlist (includes private videos)
+        let videosUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${max_results}&key=${credentials.api_key}`
 
         if (page_token) {
           videosUrl += `&pageToken=${page_token}`
@@ -617,28 +618,202 @@ export default {
           )
         }
 
+        // Get additional video details (privacy status, statistics) for each video
+        const videoIds = videosData.items.map(item => item.contentDetails.videoId).join(',')
+        
+        let videosDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics,contentDetails&id=${videoIds}&key=${credentials.api_key}`
+        
+        const detailsResponse = await fetch(videosDetailsUrl, {
+          headers: {
+            'Authorization': `Bearer ${credentials.access_token}`,
+          },
+        })
+
+        const detailsData = await detailsResponse.json()
+        
+        // Merge playlist data with video details
+        const enrichedVideos = videosData.items.map(playlistItem => {
+          const videoId = playlistItem.contentDetails.videoId
+          const videoDetails = detailsData.items?.find(item => item.id === videoId)
+          
+          return {
+            video_id: videoId,
+            title: playlistItem.snippet.title,
+            description: playlistItem.snippet.description,
+            published_at: playlistItem.snippet.publishedAt,
+            thumbnails: playlistItem.snippet.thumbnails,
+            channel_title: playlistItem.snippet.channelTitle,
+            video_url: `https://www.youtube.com/watch?v=${videoId}`,
+            embed_url: `https://www.youtube.com/embed/${videoId}`,
+            // Add privacy status and statistics from video details
+            privacy_status: videoDetails?.status?.privacyStatus || 'unknown',
+            upload_status: videoDetails?.status?.uploadStatus || 'unknown',
+            view_count: videoDetails?.statistics?.viewCount || '0',
+            like_count: videoDetails?.statistics?.likeCount || '0',
+            comment_count: videoDetails?.statistics?.commentCount || '0',
+            duration: videoDetails?.contentDetails?.duration || 'PT0S',
+            // Add playlist-specific data
+            playlist_position: playlistItem.snippet.position,
+            added_to_playlist: playlistItem.snippet.publishedAt,
+          }
+        })
+
         return createResponse(
           JSON.stringify({
             success: true,
             channel_id: channelId,
+            uploads_playlist_id: uploadsPlaylistId,
             total_results: videosData.pageInfo.totalResults,
             results_per_page: videosData.pageInfo.resultsPerPage,
             next_page_token: videosData.nextPageToken,
             prev_page_token: videosData.prevPageToken,
-            videos: videosData.items.map(item => ({
-              video_id: item.id.videoId,
-              title: item.snippet.title,
-              description: item.snippet.description,
-              published_at: item.snippet.publishedAt,
-              thumbnails: item.snippet.thumbnails,
-              channel_title: item.snippet.channelTitle,
-              video_url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-              embed_url: `https://www.youtube.com/embed/${item.id.videoId}`,
-            })),
+            videos: enrichedVideos,
+            note: 'This includes all videos (public, unlisted, and private) from your uploads playlist',
           }),
         )
       } catch (error) {
         console.error('Error fetching user videos:', error)
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // 10. Update video metadata (title, description, privacy, tags)
+    if (url.pathname === '/update-video' && request.method === 'POST') {
+      try {
+        const { 
+          user_email, 
+          video_id, 
+          title, 
+          description, 
+          privacy_status, 
+          tags, 
+          category_id 
+        } = await request.json()
+
+        if (!user_email || !video_id) {
+          return createResponse(JSON.stringify({ error: 'User email and video ID required' }), 400)
+        }
+
+        // Get user's YouTube credentials
+        const storedCredentials = await env.YOUTUBE_CREDENTIALS.get(user_email)
+        if (!storedCredentials) {
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'No YouTube credentials found. Please authenticate first.',
+              needs_auth: true,
+              auth_url: 'https://youtube.vegvisr.org/auth',
+            }),
+            401,
+          )
+        }
+
+        const credentials = JSON.parse(storedCredentials)
+
+        // Check if credentials are valid
+        if (credentials.expires_at <= Date.now()) {
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'YouTube credentials expired. Please re-authenticate.',
+              needs_auth: true,
+              auth_url: 'https://youtube.vegvisr.org/auth',
+            }),
+            401,
+          )
+        }
+
+        // First, get current video data to preserve existing values
+        const currentVideoResponse = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${video_id}&key=${credentials.api_key}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+            },
+          }
+        )
+
+        const currentVideoData = await currentVideoResponse.json()
+
+        if (!currentVideoResponse.ok || !currentVideoData.items || currentVideoData.items.length === 0) {
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'Video not found or not accessible',
+              details: currentVideoData.error || 'Video may not exist or you may not have permission to edit it',
+            }),
+            404,
+          )
+        }
+
+        const currentVideo = currentVideoData.items[0]
+
+        // Prepare updated video metadata (only update provided fields)
+        const updatedSnippet = {
+          ...currentVideo.snippet,
+          ...(title !== undefined && { title }),
+          ...(description !== undefined && { description }),
+          ...(tags !== undefined && { tags: Array.isArray(tags) ? tags : tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) }),
+          ...(category_id !== undefined && { categoryId: category_id.toString() }),
+        }
+
+        const updatedStatus = {
+          ...currentVideo.status,
+          ...(privacy_status !== undefined && { privacyStatus: privacy_status }),
+        }
+
+        const updateData = {
+          id: video_id,
+          snippet: updatedSnippet,
+          status: updatedStatus,
+        }
+
+        // Update video via YouTube API
+        const updateResponse = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&key=${credentials.api_key}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updateData),
+          }
+        )
+
+        const updateResult = await updateResponse.json()
+
+        if (!updateResponse.ok) {
+          console.error('YouTube video update failed:', updateResult)
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: updateResult.error?.message || 'Video update failed',
+              details: updateResult,
+            }),
+            updateResponse.status,
+          )
+        }
+
+        console.log('✅ Video updated successfully:', video_id)
+
+        return createResponse(
+          JSON.stringify({
+            success: true,
+            video_id: updateResult.id,
+            updated_fields: {
+              title: updateResult.snippet.title,
+              description: updateResult.snippet.description,
+              privacy_status: updateResult.status.privacyStatus,
+              tags: updateResult.snippet.tags || [],
+              category_id: updateResult.snippet.categoryId,
+            },
+            video_url: `https://www.youtube.com/watch?v=${updateResult.id}`,
+            message: 'Video metadata updated successfully',
+          }),
+        )
+      } catch (error) {
+        console.error('Error updating video:', error)
         return createResponse(JSON.stringify({ error: error.message }), 500)
       }
     }

@@ -250,6 +250,7 @@
             <div class="videos-header">
               <h4>{{ results.videos.total_results }} videos found</h4>
               <p><strong>Channel ID:</strong> {{ results.videos.channel_id }}</p>
+              <p v-if="results.videos.note" class="privacy-note">{{ results.videos.note }}</p>
             </div>
 
             <div class="videos-grid">
@@ -257,6 +258,7 @@
                 v-for="video in results.videos.videos"
                 :key="video.video_id"
                 class="video-card"
+                :class="'privacy-' + (video.privacy_status || 'unknown')"
               >
                 <img
                   v-if="video.thumbnails?.medium?.url"
@@ -267,6 +269,25 @@
                 <div class="video-card-content">
                   <h5>{{ video.title }}</h5>
                   <p class="video-published">{{ formatDate(video.published_at) }}</p>
+                  
+                  <!-- Privacy Status Badge -->
+                  <div class="video-meta">
+                    <span 
+                      class="privacy-badge" 
+                      :class="'privacy-' + (video.privacy_status || 'unknown')"
+                      :title="'Privacy: ' + (video.privacy_status || 'unknown')"
+                    >
+                      {{ getPrivacyIcon(video.privacy_status) }} {{ formatPrivacyStatus(video.privacy_status) }}
+                    </span>
+                    
+                    <!-- Video Stats -->
+                    <div class="video-stats">
+                      <span v-if="video.view_count" title="Views">👁️ {{ formatNumber(video.view_count) }}</span>
+                      <span v-if="video.like_count" title="Likes">👍 {{ formatNumber(video.like_count) }}</span>
+                      <span v-if="video.duration" title="Duration">⏱️ {{ formatDuration(video.duration) }}</span>
+                    </div>
+                  </div>
+                  
                   <div class="video-actions">
                     <a :href="video.video_url" target="_blank" class="btn btn-primary btn-small">
                       🔗 Watch
@@ -289,6 +310,127 @@
         </div>
       </div>
 
+      <!-- Video Update Section -->
+      <div class="section">
+        <h2>✏️ Update Video Metadata</h2>
+        <div class="update-form">
+          <div class="form-group">
+            <label for="update-video-id">Video ID or YouTube URL:</label>
+            <input 
+              id="update-video-id"
+              v-model="updateForm.videoId" 
+              type="text" 
+              placeholder="dQw4w9WgXcQ or https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+              class="form-control"
+            />
+            <small class="helper-text">You can get the video ID from the channel videos list above</small>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="update-title">New Title (optional):</label>
+              <input 
+                id="update-title"
+                v-model="updateForm.title" 
+                type="text" 
+                placeholder="Leave empty to keep current title"
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="update-privacy">Privacy Status (optional):</label>
+              <select id="update-privacy" v-model="updateForm.privacy" class="form-control">
+                <option value="">Keep current</option>
+                <option value="private">Private</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="public">Public</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="update-description">New Description (optional):</label>
+            <textarea 
+              id="update-description"
+              v-model="updateForm.description" 
+              placeholder="Leave empty to keep current description"
+              rows="4"
+              class="form-control"
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="update-tags">Tags (optional, comma-separated):</label>
+            <input 
+              id="update-tags"
+              v-model="updateForm.tags" 
+              type="text" 
+              placeholder="tag1, tag2, tag3 (leave empty to keep current tags)"
+              class="form-control"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="update-category">Category ID (optional):</label>
+            <select id="update-category" v-model="updateForm.categoryId" class="form-control">
+              <option value="">Keep current</option>
+              <option value="1">Film & Animation</option>
+              <option value="2">Autos & Vehicles</option>
+              <option value="10">Music</option>
+              <option value="15">Pets & Animals</option>
+              <option value="17">Sports</option>
+              <option value="19">Travel & Events</option>
+              <option value="20">Gaming</option>
+              <option value="22">People & Blogs</option>
+              <option value="23">Comedy</option>
+              <option value="24">Entertainment</option>
+              <option value="25">News & Politics</option>
+              <option value="26">Howto & Style</option>
+              <option value="27">Education</option>
+              <option value="28">Science & Technology</option>
+            </select>
+          </div>
+
+          <button 
+            @click="updateVideo" 
+            :disabled="!updateForm.videoId || !userEmail || loading.update" 
+            class="btn btn-primary btn-large"
+          >
+            <span v-if="loading.update" class="spinner"></span>
+            ✏️ Update Video
+          </button>
+
+          <div class="update-help">
+            <h5>💡 Update Tips:</h5>
+            <ul>
+              <li><strong>Selective Updates:</strong> Only fill in the fields you want to change</li>
+              <li><strong>Private Videos:</strong> You can update private videos just like public ones</li>
+              <li><strong>Privacy Changes:</strong> Be careful when changing from private to public</li>
+              <li><strong>Tags:</strong> Separate multiple tags with commas</li>
+            </ul>
+          </div>
+        </div>
+
+        <div v-if="results.update" class="result" :class="results.update.success ? 'success' : 'error'">
+          <h4>Update Result:</h4>
+          <div v-if="results.update.success" class="update-success">
+            <p><strong>✅ {{ results.update.message }}</strong></p>
+            <div class="updated-fields">
+              <h5>Updated Fields:</h5>
+              <p><strong>Title:</strong> {{ results.update.updated_fields.title }}</p>
+              <p><strong>Privacy:</strong> {{ results.update.updated_fields.privacy_status }}</p>
+              <p v-if="results.update.updated_fields.description"><strong>Description:</strong> {{ results.update.updated_fields.description.substring(0, 100) }}{{ results.update.updated_fields.description.length > 100 ? '...' : '' }}</p>
+              <p v-if="results.update.updated_fields.tags?.length"><strong>Tags:</strong> {{ results.update.updated_fields.tags.join(', ') }}</p>
+            </div>
+            <a :href="results.update.video_url" target="_blank" class="btn btn-primary btn-small">
+              🔗 View Updated Video
+            </a>
+          </div>
+          <pre v-else>{{ JSON.stringify(results.update, null, 2) }}</pre>
+        </div>
+      </div>
+
       <!-- Raw API Testing Section -->
       <div class="section">
         <h2>🔧 Raw API Testing</h2>
@@ -301,6 +443,7 @@
               <option value="/upload">POST /upload</option>
               <option value="/download">POST /download</option>
               <option value="/videos">POST /videos</option>
+              <option value="/update-video">POST /update-video</option>
             </select>
           </div>
 
@@ -345,6 +488,7 @@ const loading = reactive({
   upload: false,
   download: false,
   videos: false,
+  update: false,
   api: false
 })
 
@@ -354,6 +498,7 @@ const results = reactive({
   upload: null,
   download: null,
   videos: null,
+  update: null,
   api: null
 })
 
@@ -371,6 +516,15 @@ const downloadForm = reactive({
 const videosForm = reactive({
   maxResults: 25,
   pageToken: null
+})
+
+const updateForm = reactive({
+  videoId: '',
+  title: '',
+  description: '',
+  privacy: '',
+  tags: '',
+  categoryId: ''
 })
 
 const apiTest = reactive({
@@ -397,6 +551,43 @@ const formatNumber = (num) => {
 
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString()
+}
+
+const formatPrivacyStatus = (status) => {
+  const statusMap = {
+    'public': 'Public',
+    'private': 'Private',
+    'unlisted': 'Unlisted',
+    'unknown': 'Unknown'
+  }
+  return statusMap[status] || status || 'Unknown'
+}
+
+const getPrivacyIcon = (status) => {
+  const iconMap = {
+    'public': '🌍',
+    'private': '🔒',
+    'unlisted': '🔗',
+    'unknown': '❓'
+  }
+  return iconMap[status] || '❓'
+}
+
+const formatDuration = (duration) => {
+  if (!duration) return '0:00'
+  
+  // Parse ISO 8601 duration (PT4M13S format)
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!match) return duration
+  
+  const hours = parseInt(match[1]) || 0
+  const minutes = parseInt(match[2]) || 0
+  const seconds = parseInt(match[3]) || 0
+  
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 // API functions
@@ -623,6 +814,67 @@ const getNextPage = async () => {
 const loadVideoInfo = (videoId) => {
   downloadForm.videoUrl = videoId
   getVideoInfo()
+}
+
+const updateVideo = async () => {
+  if (!updateForm.videoId || !userEmail.value) {
+    alert('Please enter a video ID and your email')
+    return
+  }
+
+  // Extract video ID from URL if provided
+  let videoId = updateForm.videoId
+  const urlMatch = updateForm.videoId.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/)
+  if (urlMatch) {
+    videoId = urlMatch[1]
+  }
+
+  loading.update = true
+  try {
+    const updateData = {
+      user_email: userEmail.value,
+      video_id: videoId
+    }
+
+    // Only include fields that have values
+    if (updateForm.title.trim()) updateData.title = updateForm.title.trim()
+    if (updateForm.description.trim()) updateData.description = updateForm.description.trim()
+    if (updateForm.privacy) updateData.privacy_status = updateForm.privacy
+    if (updateForm.tags.trim()) updateData.tags = updateForm.tags.trim()
+    if (updateForm.categoryId) updateData.category_id = updateForm.categoryId
+
+    const response = await fetch(`${WORKER_BASE_URL}/update-video`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updateData)
+    })
+    
+    results.update = await response.json()
+    
+    if (results.update.success) {
+      // Reset form on success
+      updateForm.videoId = ''
+      updateForm.title = ''
+      updateForm.description = ''
+      updateForm.privacy = ''
+      updateForm.tags = ''
+      updateForm.categoryId = ''
+      
+      // Refresh video list if it's currently displayed
+      if (results.videos && results.videos.success) {
+        await getChannelVideos()
+      }
+    }
+  } catch (error) {
+    results.update = {
+      success: false,
+      error: error.message
+    }
+  } finally {
+    loading.update = false
+  }
 }
 
 const testRawAPI = async () => {
@@ -1064,6 +1316,144 @@ h2 {
   border-radius: 8px;
   padding: 20px;
   background: #f8f9fa;
+}
+
+/* Privacy and Video Metadata Styles */
+.privacy-note {
+  color: #6c757d;
+  font-style: italic;
+  margin: 5px 0;
+}
+
+.video-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.privacy-badge.privacy-public {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.privacy-badge.privacy-private {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.privacy-badge.privacy-unlisted {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.privacy-badge.privacy-unknown {
+  background: #e2e3e5;
+  color: #6c757d;
+  border: 1px solid #d6d8db;
+}
+
+.video-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.video-stats span {
+  font-size: 12px;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Video card privacy styling */
+.video-card.privacy-private {
+  border-left: 4px solid #dc3545;
+}
+
+.video-card.privacy-unlisted {
+  border-left: 4px solid #ffc107;
+}
+
+.video-card.privacy-public {
+  border-left: 4px solid #28a745;
+}
+
+/* Update Form Styles */
+.update-form {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.helper-text {
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-top: 5px;
+  display: block;
+}
+
+.update-help {
+  background: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.update-help h5 {
+  margin: 0 0 10px 0;
+  color: #0056b3;
+}
+
+.update-help ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.update-help li {
+  margin-bottom: 5px;
+  color: #495057;
+}
+
+.update-success {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.updated-fields {
+  background: rgba(40, 167, 69, 0.1);
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.updated-fields h5 {
+  margin: 0 0 10px 0;
+  color: #155724;
+}
+
+.updated-fields p {
+  margin: 5px 0;
+  color: #155724;
 }
 
 @media (max-width: 768px) {
