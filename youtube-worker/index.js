@@ -620,9 +620,9 @@ export default {
 
         // Get additional video details (privacy status, statistics) for each video
         const videoIds = videosData.items.map(item => item.contentDetails.videoId).join(',')
-        
+
         let videosDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics,contentDetails&id=${videoIds}&key=${credentials.api_key}`
-        
+
         const detailsResponse = await fetch(videosDetailsUrl, {
           headers: {
             'Authorization': `Bearer ${credentials.access_token}`,
@@ -630,12 +630,12 @@ export default {
         })
 
         const detailsData = await detailsResponse.json()
-        
+
         // Merge playlist data with video details
         const enrichedVideos = videosData.items.map(playlistItem => {
           const videoId = playlistItem.contentDetails.videoId
           const videoDetails = detailsData.items?.find(item => item.id === videoId)
-          
+
           return {
             video_id: videoId,
             title: playlistItem.snippet.title,
@@ -680,14 +680,14 @@ export default {
     // 10. Update video metadata (title, description, privacy, tags)
     if (url.pathname === '/update-video' && request.method === 'POST') {
       try {
-        const { 
-          user_email, 
-          video_id, 
-          title, 
-          description, 
-          privacy_status, 
-          tags, 
-          category_id 
+        const {
+          user_email,
+          video_id,
+          title,
+          description,
+          privacy_status,
+          tags,
+          category_id
         } = await request.json()
 
         if (!user_email || !video_id) {

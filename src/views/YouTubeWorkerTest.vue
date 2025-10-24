@@ -269,17 +269,17 @@
                 <div class="video-card-content">
                   <h5>{{ video.title }}</h5>
                   <p class="video-published">{{ formatDate(video.published_at) }}</p>
-                  
+
                   <!-- Privacy Status Badge -->
                   <div class="video-meta">
-                    <span 
-                      class="privacy-badge" 
+                    <span
+                      class="privacy-badge"
                       :class="'privacy-' + (video.privacy_status || 'unknown')"
                       :title="'Privacy: ' + (video.privacy_status || 'unknown')"
                     >
                       {{ getPrivacyIcon(video.privacy_status) }} {{ formatPrivacyStatus(video.privacy_status) }}
                     </span>
-                    
+
                     <!-- Video Stats -->
                     <div class="video-stats">
                       <span v-if="video.view_count" title="Views">👁️ {{ formatNumber(video.view_count) }}</span>
@@ -287,7 +287,7 @@
                       <span v-if="video.duration" title="Duration">⏱️ {{ formatDuration(video.duration) }}</span>
                     </div>
                   </div>
-                  
+
                   <div class="video-actions">
                     <a :href="video.video_url" target="_blank" class="btn btn-primary btn-small">
                       🔗 Watch
@@ -316,10 +316,10 @@
         <div class="update-form">
           <div class="form-group">
             <label for="update-video-id">Video ID or YouTube URL:</label>
-            <input 
+            <input
               id="update-video-id"
-              v-model="updateForm.videoId" 
-              type="text" 
+              v-model="updateForm.videoId"
+              type="text"
               placeholder="dQw4w9WgXcQ or https://www.youtube.com/watch?v=dQw4w9WgXcQ"
               class="form-control"
             />
@@ -329,15 +329,15 @@
           <div class="form-row">
             <div class="form-group">
               <label for="update-title">New Title (optional):</label>
-              <input 
+              <input
                 id="update-title"
-                v-model="updateForm.title" 
-                type="text" 
+                v-model="updateForm.title"
+                type="text"
                 placeholder="Leave empty to keep current title"
                 class="form-control"
               />
             </div>
-            
+
             <div class="form-group">
               <label for="update-privacy">Privacy Status (optional):</label>
               <select id="update-privacy" v-model="updateForm.privacy" class="form-control">
@@ -351,9 +351,9 @@
 
           <div class="form-group">
             <label for="update-description">New Description (optional):</label>
-            <textarea 
+            <textarea
               id="update-description"
-              v-model="updateForm.description" 
+              v-model="updateForm.description"
               placeholder="Leave empty to keep current description"
               rows="4"
               class="form-control"
@@ -362,10 +362,10 @@
 
           <div class="form-group">
             <label for="update-tags">Tags (optional, comma-separated):</label>
-            <input 
+            <input
               id="update-tags"
-              v-model="updateForm.tags" 
-              type="text" 
+              v-model="updateForm.tags"
+              type="text"
               placeholder="tag1, tag2, tag3 (leave empty to keep current tags)"
               class="form-control"
             />
@@ -392,9 +392,9 @@
             </select>
           </div>
 
-          <button 
-            @click="updateVideo" 
-            :disabled="!updateForm.videoId || !userEmail || loading.update" 
+          <button
+            @click="updateVideo"
+            :disabled="!updateForm.videoId || !userEmail || loading.update"
             class="btn btn-primary btn-large"
           >
             <span v-if="loading.update" class="spinner"></span>
@@ -575,15 +575,15 @@ const getPrivacyIcon = (status) => {
 
 const formatDuration = (duration) => {
   if (!duration) return '0:00'
-  
+
   // Parse ISO 8601 duration (PT4M13S format)
   const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
   if (!match) return duration
-  
+
   const hours = parseInt(match[1]) || 0
   const minutes = parseInt(match[2]) || 0
   const seconds = parseInt(match[3]) || 0
-  
+
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
@@ -850,9 +850,9 @@ const updateVideo = async () => {
       },
       body: JSON.stringify(updateData)
     })
-    
+
     results.update = await response.json()
-    
+
     if (results.update.success) {
       // Reset form on success
       updateForm.videoId = ''
@@ -861,7 +861,7 @@ const updateVideo = async () => {
       updateForm.privacy = ''
       updateForm.tags = ''
       updateForm.categoryId = ''
-      
+
       // Refresh video list if it's currently displayed
       if (results.videos && results.videos.success) {
         await getChannelVideos()
