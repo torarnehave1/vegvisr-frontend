@@ -295,6 +295,9 @@
                     <button @click="loadVideoInfo(video.video_id)" class="btn btn-secondary btn-small">
                       📊 Info
                     </button>
+                    <button @click="loadVideoForEdit(video)" class="btn btn-warning btn-small">
+                      ✏️ Edit
+                    </button>
                   </div>
                 </div>
               </div>
@@ -814,6 +817,43 @@ const getNextPage = async () => {
 const loadVideoInfo = (videoId) => {
   downloadForm.videoUrl = videoId
   getVideoInfo()
+}
+
+const loadVideoForEdit = (video) => {
+  // Populate the update form with current video data
+  updateForm.videoId = video.video_id
+  updateForm.title = video.title || ''
+  updateForm.description = video.description || ''
+  updateForm.privacy = video.privacy_status || ''
+  updateForm.tags = Array.isArray(video.tags) ? video.tags.join(', ') : (video.tags || '')
+  updateForm.categoryId = video.category_id || ''
+  
+  // Scroll to the update section
+  const updateSection = document.querySelector('.section:has(h2:contains("Update Video Metadata"))')
+  if (updateSection) {
+    updateSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } else {
+    // Alternative selector if the above doesn't work
+    const sections = document.querySelectorAll('.section h2')
+    for (const section of sections) {
+      if (section.textContent.includes('Update Video Metadata')) {
+        section.closest('.section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+        break
+      }
+    }
+  }
+  
+  // Add visual feedback
+  setTimeout(() => {
+    const updateForm = document.querySelector('#update-video-id')
+    if (updateForm) {
+      updateForm.focus()
+      updateForm.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.3)'
+      setTimeout(() => {
+        updateForm.style.boxShadow = ''
+      }, 2000)
+    }
+  }, 500)
 }
 
 const updateVideo = async () => {
