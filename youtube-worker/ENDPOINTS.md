@@ -91,7 +91,7 @@ OR
 }
 ```
 
-### 6. Get User's Channel Videos
+### 6. Get User's Channel Videos (Including Private)
 ```bash
 POST https://youtube.vegvisr.org/videos
 Content-Type: application/json
@@ -108,9 +108,11 @@ Content-Type: application/json
 {
   "success": true,
   "channel_id": "UCxxxxxxxxxxxxx",
+  "uploads_playlist_id": "UUxxxxxxxxxxxxx",
   "total_results": 100,
   "results_per_page": 25,
   "next_page_token": "token_for_next_page",
+  "note": "This includes all videos (public, unlisted, and private) from your uploads playlist",
   "videos": [
     {
       "video_id": "dQw4w9WgXcQ",
@@ -119,9 +121,52 @@ Content-Type: application/json
       "published_at": "2023-01-01T00:00:00Z",
       "thumbnails": {...},
       "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      "embed_url": "https://www.youtube.com/embed/dQw4w9WgXcQ"
+      "embed_url": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "privacy_status": "private",
+      "upload_status": "processed",
+      "view_count": "1000",
+      "like_count": "50",
+      "comment_count": "10",
+      "duration": "PT3M33S",
+      "playlist_position": 0,
+      "added_to_playlist": "2023-01-01T00:00:00Z"
     }
   ]
+}
+```
+
+### 7. Update Video Metadata
+```bash
+POST https://youtube.vegvisr.org/update-video
+Content-Type: application/json
+
+{
+  "user_email": "user@example.com",
+  "video_id": "dQw4w9WgXcQ",
+  "title": "New Video Title",
+  "description": "Updated description",
+  "privacy_status": "unlisted",
+  "tags": "updated, tags, here",
+  "category_id": "22"
+}
+```
+
+**Note:** All fields except `user_email` and `video_id` are optional. Only include the fields you want to update.
+
+**Response:**
+```json
+{
+  "success": true,
+  "video_id": "dQw4w9WgXcQ",
+  "updated_fields": {
+    "title": "New Video Title",
+    "description": "Updated description",
+    "privacy_status": "unlisted",
+    "tags": ["updated", "tags", "here"],
+    "category_id": "22"
+  },
+  "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "message": "Video metadata updated successfully"
 }
 ```
 
@@ -161,6 +206,26 @@ const response = await fetch('https://youtube.vegvisr.org/download', {
 
 const videoInfo = await response.json();
 console.log('Video info:', videoInfo);
+```
+
+### JavaScript Update Example
+```javascript
+const response = await fetch('https://youtube.vegvisr.org/update-video', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    user_email: 'user@example.com',
+    video_id: 'dQw4w9WgXcQ',
+    title: 'Updated Video Title',
+    privacy_status: 'unlisted',
+    tags: 'updated, tags'
+  })
+});
+
+const updateResult = await response.json();
+console.log('Update result:', updateResult);
 ```
 
 ## Notes
