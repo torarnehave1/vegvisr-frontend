@@ -895,26 +895,26 @@ const uploadVideo = async () => {
     // Step 2: If audio extraction is requested and upload was successful
     if (results.upload.success && uploadForm.extractAudio) {
       uploadProgress.value = 85
-      
+
       try {
         // Use direct file upload to vegvisr-container (no R2 temp storage needed!)
         const instanceId = `youtube-upload-${Date.now()}`
-        
+
         // Create FormData for direct file upload
         const audioFormData = new FormData()
         audioFormData.append('video', selectedFile.value) // Use same file from browser memory
         audioFormData.append('output_format', uploadForm.audioFormat)
-        
+
         uploadProgress.value = 90
-        
+
         // Direct upload to vegvisr-container
         const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
           method: 'POST',
           body: audioFormData
         })
-        
+
         const audioResult = await audioResponse.json()
-        
+
         if (audioResult.success) {
           audioExtractionResult = {
             success: true,
@@ -930,14 +930,14 @@ const uploadVideo = async () => {
             error: audioResult.error || 'Audio extraction failed'
           }
         }
-        
+
       } catch (audioError) {
         audioExtractionResult = {
           success: false,
           error: `Audio extraction failed: ${audioError.message}`
         }
       }
-      
+
       uploadProgress.value = 100
     } else {
       uploadProgress.value = 100
