@@ -124,8 +124,8 @@
         </div>
 
         <!-- Extract Audio Button -->
-        <button 
-          @click="extractAudioFromVideo" 
+        <button
+          @click="extractAudioFromVideo"
           :disabled="extractingAudio"
           class="btn btn-success"
         >
@@ -870,7 +870,7 @@ const extractAudioFromVideo = async () => {
       })
 
       clearTimeout(timeoutId)
-      
+
       console.log('📡 Upload response received!')
       console.log('📡 Status:', uploadResponse.status, uploadResponse.statusText)
       console.log('📋 Response headers:', {
@@ -898,12 +898,12 @@ const extractAudioFromVideo = async () => {
       if (fetchError.name === 'AbortError') {
         throw new Error('Request timed out after 2 minutes - video file may be too large or network too slow. Try a smaller file (< 10MB) or use YouTube upload for larger videos.')
       }
-      
+
       // Handle 503 and other fetch errors
       if (fetchError.message && fetchError.message.includes('503')) {
         throw new Error('Service temporarily unavailable (503). The video file may be too large for direct processing. Please try: 1) A smaller video file (< 10MB), or 2) Upload to YouTube first (YouTube worker handles large files better)')
       }
-      
+
       throw new Error(`Failed to extract audio: ${fetchError.message}. Large files work better via YouTube upload.`)
     }
 
