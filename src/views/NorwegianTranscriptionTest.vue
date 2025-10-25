@@ -117,17 +117,21 @@
         <p><strong>Type:</strong> {{ selectedVideoFile.type }}</p>
         <p><strong>Size:</strong> {{ formatFileSize(selectedVideoFile.size) }}</p>
 
+        <!-- File size warning -->
+        <div v-if="selectedVideoFile.size > 10 * 1024 * 1024" class="file-size-warning">
+          ⚠️ <strong>Large file detected ({{ formatFileSize(selectedVideoFile.size) }})</strong><br>
+          For videos over 10MB, we recommend using the <router-link to="/youtube-worker-test">YouTube Upload workflow</router-link> which handles large files more reliably.
+        </div>
+
         <!-- Extract Audio Button -->
-        <button
-          @click="extractAudioFromVideo"
+        <button 
+          @click="extractAudioFromVideo" 
           :disabled="extractingAudio"
           class="btn btn-success"
         >
           {{ extractingAudio ? '🎵 Extracting Audio...' : '🎵 Extract Audio' }}
         </button>
-      </div>
-
-      <!-- Extraction Progress -->
+      </div>      <!-- Extraction Progress -->
       <div v-if="extractingAudio" class="loading">
         <div class="loading-spinner"></div>
         <p>{{ audioExtractionMessage || 'Extracting audio from video...' }}</p>
@@ -839,25 +843,72 @@ const extractAudioFromVideo = async () => {
       fileName: selectedVideoFile.value.name,
       size: selectedVideoFile.value.size,
       type: selectedVideoFile.value.type,
-      instanceId
+      instanceId,
+      url: `${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`
     })
 
-    // Upload video to vegvisr-container for audio extraction
-    const uploadResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
-      method: 'POST',
-      body: formData
-    })
-
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text()
-      throw new Error(`Audio extraction failed: ${uploadResponse.status} - ${errorText}`)
+    // For large files, show additional helpful message
+    if (selectedVideoFile.value.size > 10 * 1024 * 1024) {
+      // > 10MB
+      audioExtractionMessage.value = `Uploading ${formatFileSize(selectedVideoFile.value.size)} video file... this may take a moment`
     }
 
-    const result = await uploadResponse.json()
-    console.log('✅ Audio extraction result:', result)
+    // Upload video to vegvisr-container for audio extraction with timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      console.log('⏰ Request timeout after 120 seconds')
+      controller.abort()
+    }, 120000) // 120 second timeout for large files
 
-    if (!result.success || !result.download_url) {
-      throw new Error('Audio extraction failed: No download URL returned')
+    let result
+    try {
+      console.log('📤 Sending POST request...')
+      const uploadResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+      
+      console.log('📡 Upload response received!')
+      console.log('📡 Status:', uploadResponse.status, uploadResponse.statusText)
+      console.log('📋 Response headers:', {
+        contentType: uploadResponse.headers.get('content-type'),
+        contentLength: uploadResponse.headers.get('content-length'),
+        cors: uploadResponse.headers.get('access-control-allow-origin')
+      })
+
+      // Try to get response text regardless of status for debugging
+      const responseText = await uploadResponse.text()
+      console.log('📄 Response body:', responseText)
+
+      if (!uploadResponse.ok) {
+        console.error('❌ Upload failed with status:', uploadResponse.status)
+        throw new Error(`Audio extraction failed: ${uploadResponse.status} - ${responseText}`)
+      }
+
+      // Parse the response as JSON
+      console.log('📖 Parsing response as JSON...')
+      result = JSON.parse(responseText)
+      console.log('✅ Audio extraction result:', JSON.stringify(result, null, 2))
+      console.log('📥 Download URL:', result.download_url)
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Request timed out after 2 minutes - video file may be too large or network too slow. Try a smaller file (< 10MB) or use YouTube upload for larger videos.')
+      }
+      
+      // Handle 503 and other fetch errors
+      if (fetchError.message && fetchError.message.includes('503')) {
+        throw new Error('Service temporarily unavailable (503). The video file may be too large for direct processing. Please try: 1) A smaller video file (< 10MB), or 2) Upload to YouTube first (YouTube worker handles large files better)')
+      }
+      
+      throw new Error(`Failed to extract audio: ${fetchError.message}. Large files work better via YouTube upload.`)
+    }
+
+    if (!result || !result.success || !result.download_url) {
+      throw new Error('Audio extraction failed: No download URL returned. Try a smaller video file.')
     }
 
     // Download the extracted audio
@@ -1997,6 +2048,27 @@ const createChunkedGraph = async () => {
   text-align: center;
   color: #059669;
   font-weight: 500;
+}
+
+.file-size-warning {
+  margin: 15px 0;
+  padding: 12px 15px;
+  background: linear-gradient(135deg, #fff3cd, #ffe8a1);
+  border-left: 4px solid #ffc107;
+  border-radius: 6px;
+  color: #856404;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.file-size-warning a {
+  color: #0056b3;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.file-size-warning a:hover {
+  color: #003d82;
 }
 
 .context-section {
