@@ -166,6 +166,16 @@
             🎬 Upload Video
           </button>
 
+          <button
+            @click="testAudioExtractionOnly"
+            :disabled="!selectedFile || loading.audioTest"
+            class="btn btn-secondary btn-large"
+            style="margin-left: 10px;"
+          >
+            <span v-if="loading.audioTest" class="spinner"></span>
+            🎵 Extract Audio Only (Test)
+          </button>
+
           <div v-if="uploadProgress" class="upload-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
@@ -641,7 +651,8 @@ const loading = reactive({
   videos: false,
   update: false,
   api: false,
-  audio: false
+  audio: false,
+  audioTest: false
 })
 
 const results = reactive({
@@ -902,7 +913,7 @@ const uploadVideo = async () => {
 
         // Create FormData for direct file upload
         const audioFormData = new FormData()
-        audioFormData.append('video', selectedFile.value) // Use same file from browser memory
+        audioFormData.append('file', selectedFile.value) // Parameter name is 'file' not 'video'
         audioFormData.append('output_format', uploadForm.audioFormat)
 
         uploadProgress.value = 90
@@ -1298,6 +1309,64 @@ const extractVideoId = (input) => {
   }
 
   return input // Return original if no pattern matches
+}
+
+const testAudioExtractionOnly = async () => {
+  if (!selectedFile.value) {
+    alert('Please select a video file first')
+    return
+  }
+
+  loading.audioTest = true
+  results.upload = null
+
+  try {
+    const instanceId = `test-audio-${Date.now()}`
+    
+    // Create FormData for direct file upload
+    const audioFormData = new FormData()
+    audioFormData.append('file', selectedFile.value)
+    audioFormData.append('output_format', uploadForm.audioFormat || 'mp3')
+    
+    // Direct upload to vegvisr-container
+    const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
+      method: 'POST',
+      body: audioFormData
+    })
+    
+    const audioResult = await audioResponse.json()
+    
+    if (audioResult.success) {
+      results.upload = {
+        success: true,
+        video_id: 'TEST-ONLY',
+        title: 'Audio Extraction Test',
+        privacy_status: 'N/A',
+        video_url: '#',
+        audio_info: {
+          success: true,
+          message: audioResult.message,
+          file_name: audioResult.file_name,
+          download_url: `${AUDIO_WORKER_BASE_URL}${audioResult.download_url}`,
+          format: uploadForm.audioFormat || 'mp3',
+          processing_time: 'N/A'
+        }
+      }
+    } else {
+      results.upload = {
+        success: false,
+        error: audioResult.error || 'Audio extraction failed'
+      }
+    }
+    
+  } catch (error) {
+    results.upload = {
+      success: false,
+      error: error.message
+    }
+  } finally {
+    loading.audioTest = false
+  }
 }
 
 const logout = () => {
