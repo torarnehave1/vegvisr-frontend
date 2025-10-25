@@ -1322,20 +1322,20 @@ const testAudioExtractionOnly = async () => {
 
   try {
     const instanceId = `test-audio-${Date.now()}`
-    
+
     // Create FormData for direct file upload
     const audioFormData = new FormData()
     audioFormData.append('file', selectedFile.value)
     audioFormData.append('output_format', uploadForm.audioFormat || 'mp3')
-    
+
     // Direct upload to vegvisr-container
     const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
       method: 'POST',
       body: audioFormData
     })
-    
+
     const audioResult = await audioResponse.json()
-    
+
     if (audioResult.success) {
       results.upload = {
         success: true,
@@ -1358,7 +1358,7 @@ const testAudioExtractionOnly = async () => {
         error: audioResult.error || 'Audio extraction failed'
       }
     }
-    
+
   } catch (error) {
     results.upload = {
       success: false,
