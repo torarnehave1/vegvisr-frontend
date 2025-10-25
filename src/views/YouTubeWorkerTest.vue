@@ -183,7 +183,7 @@
             <a :href="results.upload.video_url" target="_blank" class="btn btn-primary btn-small">
               🔗 View on YouTube
             </a>
-            
+
             <!-- Audio Extraction Results -->
             <div v-if="results.upload.audio_info" class="audio-extraction-results">
               <h5>🎵 Audio Extraction Results:</h5>
@@ -895,34 +895,34 @@ const uploadVideo = async () => {
     // Step 2: If audio extraction is requested and upload was successful
     if (results.upload.success && uploadForm.extractAudio) {
       uploadProgress.value = 85
-      
+
       try {
         // We need to store the video file temporarily in R2 and get a public URL
         // This requires modifying the YouTube worker to return a temporary R2 URL
         // For now, let's show this is where the audio extraction would happen
-        
+
         const instanceId = `youtube-upload-${Date.now()}`
-        
+
         // TODO: This needs the YouTube worker to provide a temporary R2 URL of the uploaded video
         // The workflow should be:
         // 1. YouTube worker uploads to YouTube AND stores copy in R2
         // 2. Returns both YouTube URL and temporary R2 URL
         // 3. We use R2 URL for audio extraction
         // 4. Clean up R2 temp file after extraction
-        
+
         audioExtractionResult = {
           success: false,
           error: 'Audio extraction requires YouTube worker to provide temporary R2 video URL',
           note: 'YouTube worker needs modification to store video temporarily in R2 during upload'
         }
-        
+
       } catch (audioError) {
         audioExtractionResult = {
           success: false,
           error: `Audio extraction failed: ${audioError.message}`
         }
       }
-      
+
       uploadProgress.value = 100
     } else {
       uploadProgress.value = 100
@@ -1196,7 +1196,7 @@ const extractAudio = async () => {
     })
 
     const downloadResult = await downloadResponse.json()
-    
+
     if (!downloadResult.success) {
       throw new Error(`YouTube download failed: ${downloadResult.error}`)
     }
@@ -1218,7 +1218,7 @@ const extractAudio = async () => {
     })
 
     const audioResult = await audioResponse.json()
-    
+
     if (!audioResult.success) {
       throw new Error(`Audio extraction failed: ${audioResult.error}`)
     }
@@ -1226,7 +1226,7 @@ const extractAudio = async () => {
     // Success!
     audioProgress.step = 3
     const processingTime = Math.round((Date.now() - startTime) / 1000)
-    
+
     results.audio = {
       success: true,
       message: 'Audio extracted successfully!',
@@ -1236,7 +1236,7 @@ const extractAudio = async () => {
       video_id: videoId,
       format: audioForm.format
     }
-    
+
     audioProgress.message = `✅ Complete! Audio ready for download (${processingTime}s)`
 
   } catch (error) {
@@ -1267,23 +1267,23 @@ const playUploadAudioPreview = () => {
 // Helper function to extract video ID from URL or return as-is if already an ID
 const extractVideoId = (input) => {
   if (!input) return ''
-  
+
   // If it's already a video ID (11 characters), return as-is
   if (input.length === 11 && !input.includes('/')) {
     return input
   }
-  
+
   // Extract from various YouTube URL formats
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
     /^([a-zA-Z0-9_-]{11})$/
   ]
-  
+
   for (const pattern of patterns) {
     const match = input.match(pattern)
     if (match) return match[1]
   }
-  
+
   return input // Return original if no pattern matches
 }
 
