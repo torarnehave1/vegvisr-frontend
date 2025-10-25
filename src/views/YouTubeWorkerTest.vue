@@ -895,40 +895,53 @@ const uploadVideo = async () => {
     // Step 2: If audio extraction is requested and upload was successful
     if (results.upload.success && uploadForm.extractAudio) {
       uploadProgress.value = 85
-
+      
       try {
-        // We need to store the video file temporarily in R2 and get a public URL
-        // This requires modifying the YouTube worker to return a temporary R2 URL
-        // For now, let's show this is where the audio extraction would happen
-
+        // Use direct file upload to vegvisr-container (no R2 temp storage needed!)
         const instanceId = `youtube-upload-${Date.now()}`
-
-        // TODO: This needs the YouTube worker to provide a temporary R2 URL of the uploaded video
-        // The workflow should be:
-        // 1. YouTube worker uploads to YouTube AND stores copy in R2
-        // 2. Returns both YouTube URL and temporary R2 URL
-        // 3. We use R2 URL for audio extraction
-        // 4. Clean up R2 temp file after extraction
-
-        audioExtractionResult = {
-          success: false,
-          error: 'Audio extraction requires YouTube worker to provide temporary R2 video URL',
-          note: 'YouTube worker needs modification to store video temporarily in R2 during upload'
+        
+        // Create FormData for direct file upload
+        const audioFormData = new FormData()
+        audioFormData.append('video', selectedFile.value) // Use same file from browser memory
+        audioFormData.append('output_format', uploadForm.audioFormat)
+        
+        uploadProgress.value = 90
+        
+        // Direct upload to vegvisr-container
+        const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
+          method: 'POST',
+          body: audioFormData
+        })
+        
+        const audioResult = await audioResponse.json()
+        
+        if (audioResult.success) {
+          audioExtractionResult = {
+            success: true,
+            message: audioResult.message,
+            file_name: audioResult.file_name,
+            download_url: `${AUDIO_WORKER_BASE_URL}${audioResult.download_url}`,
+            format: uploadForm.audioFormat,
+            processing_time: 'N/A' // vegvisr-container doesn't return timing info
+          }
+        } else {
+          audioExtractionResult = {
+            success: false,
+            error: audioResult.error || 'Audio extraction failed'
+          }
         }
-
+        
       } catch (audioError) {
         audioExtractionResult = {
           success: false,
           error: `Audio extraction failed: ${audioError.message}`
         }
       }
-
+      
       uploadProgress.value = 100
     } else {
       uploadProgress.value = 100
-    }
-
-    // Add audio extraction results if attempted
+    }    // Add audio extraction results if attempted
     if (audioExtractionResult) {
       results.upload.audio_info = audioExtractionResult
     }
