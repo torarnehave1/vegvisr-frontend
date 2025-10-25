@@ -343,19 +343,79 @@ export default {
           )
         }
 
-        const credentials = JSON.parse(storedCredentials)
+        let credentials = JSON.parse(storedCredentials)
 
-        // Check if credentials are valid
+        // Check if credentials are expired and try to refresh if needed
         if (credentials.expires_at <= Date.now()) {
-          return createResponse(
-            JSON.stringify({
-              success: false,
-              error: 'YouTube credentials expired. Please re-authenticate.',
-              needs_auth: true,
-              auth_url: 'https://youtube.vegvisr.org/auth',
-            }),
-            401,
-          )
+          // Try to refresh the token if we have a refresh token
+          if (credentials.refresh_token) {
+            console.log('🔄 Refreshing expired YouTube token for upload, user:', user_email)
+
+            try {
+              const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: credentials.refresh_token,
+                  grant_type: 'refresh_token',
+                }),
+              })
+
+              const refreshData = await refreshRes.json()
+
+              if (refreshData.access_token) {
+                // Update stored credentials
+                credentials = {
+                  ...credentials,
+                  access_token: refreshData.access_token,
+                  expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+                  stored_at: Date.now(),
+                }
+
+                await env.YOUTUBE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+                console.log('✅ Refreshed YouTube token for upload, user:', user_email)
+              } else {
+                // Refresh failed, remove expired credentials
+                await env.YOUTUBE_CREDENTIALS.delete(user_email)
+                return createResponse(
+                  JSON.stringify({
+                    success: false,
+                    error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                    needs_auth: true,
+                    auth_url: 'https://youtube.vegvisr.org/auth',
+                  }),
+                  401,
+                )
+              }
+            } catch (refreshError) {
+              console.error('Failed to refresh token for upload:', refreshError)
+              // Remove expired credentials
+              await env.YOUTUBE_CREDENTIALS.delete(user_email)
+              return createResponse(
+                JSON.stringify({
+                  success: false,
+                  error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                  needs_auth: true,
+                  auth_url: 'https://youtube.vegvisr.org/auth',
+                }),
+                401,
+              )
+            }
+          } else {
+            // No refresh token, remove expired credentials
+            await env.YOUTUBE_CREDENTIALS.delete(user_email)
+            return createResponse(
+              JSON.stringify({
+                success: false,
+                error: 'YouTube credentials expired. Please re-authenticate.',
+                needs_auth: true,
+                auth_url: 'https://youtube.vegvisr.org/auth',
+              }),
+              401,
+            )
+          }
         }
 
         // Prepare video metadata
@@ -487,7 +547,80 @@ export default {
           )
         }
 
-        const credentials = JSON.parse(storedCredentials)
+        let credentials = JSON.parse(storedCredentials)
+
+        // Check if credentials are expired and try to refresh if needed
+        if (credentials.expires_at <= Date.now()) {
+          // Try to refresh the token if we have a refresh token
+          if (credentials.refresh_token) {
+            console.log('🔄 Refreshing expired YouTube token for download, user:', user_email)
+
+            try {
+              const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: credentials.refresh_token,
+                  grant_type: 'refresh_token',
+                }),
+              })
+
+              const refreshData = await refreshRes.json()
+
+              if (refreshData.access_token) {
+                // Update stored credentials
+                credentials = {
+                  ...credentials,
+                  access_token: refreshData.access_token,
+                  expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+                  stored_at: Date.now(),
+                }
+
+                await env.YOUTUBE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+                console.log('✅ Refreshed YouTube token for download, user:', user_email)
+              } else {
+                // Refresh failed, remove expired credentials
+                await env.YOUTUBE_CREDENTIALS.delete(user_email)
+                return createResponse(
+                  JSON.stringify({
+                    success: false,
+                    error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                    needs_auth: true,
+                    auth_url: 'https://youtube.vegvisr.org/auth',
+                  }),
+                  401,
+                )
+              }
+            } catch (refreshError) {
+              console.error('Failed to refresh token for download:', refreshError)
+              // Remove expired credentials
+              await env.YOUTUBE_CREDENTIALS.delete(user_email)
+              return createResponse(
+                JSON.stringify({
+                  success: false,
+                  error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                  needs_auth: true,
+                  auth_url: 'https://youtube.vegvisr.org/auth',
+                }),
+                401,
+              )
+            }
+          } else {
+            // No refresh token, remove expired credentials
+            await env.YOUTUBE_CREDENTIALS.delete(user_email)
+            return createResponse(
+              JSON.stringify({
+                success: false,
+                error: 'YouTube credentials expired. Please re-authenticate.',
+                needs_auth: true,
+                auth_url: 'https://youtube.vegvisr.org/auth',
+              }),
+              401,
+            )
+          }
+        }
 
         // Get video details from YouTube API
         const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics,contentDetails&id=${videoId}&key=${credentials.api_key}`
@@ -565,7 +698,80 @@ export default {
           )
         }
 
-        const credentials = JSON.parse(storedCredentials)
+        let credentials = JSON.parse(storedCredentials)
+
+        // Check if credentials are expired and try to refresh if needed
+        if (credentials.expires_at <= Date.now()) {
+          // Try to refresh the token if we have a refresh token
+          if (credentials.refresh_token) {
+            console.log('🔄 Refreshing expired YouTube token for videos, user:', user_email)
+
+            try {
+              const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: credentials.refresh_token,
+                  grant_type: 'refresh_token',
+                }),
+              })
+
+              const refreshData = await refreshRes.json()
+
+              if (refreshData.access_token) {
+                // Update stored credentials
+                credentials = {
+                  ...credentials,
+                  access_token: refreshData.access_token,
+                  expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+                  stored_at: Date.now(),
+                }
+
+                await env.YOUTUBE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+                console.log('✅ Refreshed YouTube token for videos, user:', user_email)
+              } else {
+                // Refresh failed, remove expired credentials
+                await env.YOUTUBE_CREDENTIALS.delete(user_email)
+                return createResponse(
+                  JSON.stringify({
+                    success: false,
+                    error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                    needs_auth: true,
+                    auth_url: 'https://youtube.vegvisr.org/auth',
+                  }),
+                  401,
+                )
+              }
+            } catch (refreshError) {
+              console.error('Failed to refresh token for videos:', refreshError)
+              // Remove expired credentials
+              await env.YOUTUBE_CREDENTIALS.delete(user_email)
+              return createResponse(
+                JSON.stringify({
+                  success: false,
+                  error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                  needs_auth: true,
+                  auth_url: 'https://youtube.vegvisr.org/auth',
+                }),
+                401,
+              )
+            }
+          } else {
+            // No refresh token, remove expired credentials
+            await env.YOUTUBE_CREDENTIALS.delete(user_email)
+            return createResponse(
+              JSON.stringify({
+                success: false,
+                error: 'YouTube credentials expired. Please re-authenticate.',
+                needs_auth: true,
+                auth_url: 'https://youtube.vegvisr.org/auth',
+              }),
+              401,
+            )
+          }
+        }
 
         // Get user's channel information including uploads playlist ID
         const channelResponse = await fetch(
@@ -708,19 +914,79 @@ export default {
           )
         }
 
-        const credentials = JSON.parse(storedCredentials)
+        let credentials = JSON.parse(storedCredentials)
 
-        // Check if credentials are valid
+        // Check if credentials are expired and try to refresh if needed
         if (credentials.expires_at <= Date.now()) {
-          return createResponse(
-            JSON.stringify({
-              success: false,
-              error: 'YouTube credentials expired. Please re-authenticate.',
-              needs_auth: true,
-              auth_url: 'https://youtube.vegvisr.org/auth',
-            }),
-            401,
-          )
+          // Try to refresh the token if we have a refresh token
+          if (credentials.refresh_token) {
+            console.log('🔄 Refreshing expired YouTube token for update-video, user:', user_email)
+
+            try {
+              const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: credentials.refresh_token,
+                  grant_type: 'refresh_token',
+                }),
+              })
+
+              const refreshData = await refreshRes.json()
+
+              if (refreshData.access_token) {
+                // Update stored credentials
+                credentials = {
+                  ...credentials,
+                  access_token: refreshData.access_token,
+                  expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+                  stored_at: Date.now(),
+                }
+
+                await env.YOUTUBE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+                console.log('✅ Refreshed YouTube token for update-video, user:', user_email)
+              } else {
+                // Refresh failed, remove expired credentials
+                await env.YOUTUBE_CREDENTIALS.delete(user_email)
+                return createResponse(
+                  JSON.stringify({
+                    success: false,
+                    error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                    needs_auth: true,
+                    auth_url: 'https://youtube.vegvisr.org/auth',
+                  }),
+                  401,
+                )
+              }
+            } catch (refreshError) {
+              console.error('Failed to refresh token for update-video:', refreshError)
+              // Remove expired credentials
+              await env.YOUTUBE_CREDENTIALS.delete(user_email)
+              return createResponse(
+                JSON.stringify({
+                  success: false,
+                  error: 'YouTube credentials expired and could not be refreshed. Please re-authenticate.',
+                  needs_auth: true,
+                  auth_url: 'https://youtube.vegvisr.org/auth',
+                }),
+                401,
+              )
+            }
+          } else {
+            // No refresh token, remove expired credentials
+            await env.YOUTUBE_CREDENTIALS.delete(user_email)
+            return createResponse(
+              JSON.stringify({
+                success: false,
+                error: 'YouTube credentials expired. Please re-authenticate.',
+                needs_auth: true,
+                auth_url: 'https://youtube.vegvisr.org/auth',
+              }),
+              401,
+            )
+          }
         }
 
         // First, get current video data to preserve existing values

@@ -130,6 +130,33 @@
             />
           </div>
 
+          <!-- Audio Extraction Option -->
+          <div class="form-group audio-extract-option">
+            <div class="checkbox-group">
+              <input
+                id="extract-audio"
+                v-model="uploadForm.extractAudio"
+                type="checkbox"
+                class="checkbox"
+              />
+              <label for="extract-audio" class="checkbox-label">
+                🎵 Also extract audio during upload
+              </label>
+            </div>
+            <div v-if="uploadForm.extractAudio" class="audio-format-selection">
+              <label for="upload-audio-format">Audio Format:</label>
+              <select id="upload-audio-format" v-model="uploadForm.audioFormat" class="form-control form-control-small">
+                <option value="mp3">MP3 (192 kbps)</option>
+                <option value="wav">WAV (Lossless)</option>
+                <option value="aac">AAC (Advanced)</option>
+                <option value="flac">FLAC (Lossless)</option>
+              </select>
+            </div>
+            <small v-if="uploadForm.extractAudio" class="help-text">
+              💡 Audio will be extracted using FFmpeg and stored separately in R2 storage
+            </small>
+          </div>
+
           <button
             @click="uploadVideo"
             :disabled="!selectedFile || !userEmail || loading.upload"
@@ -156,6 +183,32 @@
             <a :href="results.upload.video_url" target="_blank" class="btn btn-primary btn-small">
               🔗 View on YouTube
             </a>
+            
+            <!-- Audio Extraction Results -->
+            <div v-if="results.upload.audio_info" class="audio-extraction-results">
+              <h5>🎵 Audio Extraction Results:</h5>
+              <div v-if="results.upload.audio_info.success" class="audio-success-info">
+                <p><strong>✅ Audio extracted successfully!</strong></p>
+                <p><strong>📁 File:</strong> {{ results.upload.audio_info.file_name }}</p>
+                <p><strong>🎵 Format:</strong> {{ results.upload.audio_info.format?.toUpperCase() }}</p>
+                <p><strong>⏱️ Processing Time:</strong> {{ results.upload.audio_info.processing_time }}s</p>
+                <div class="audio-actions">
+                  <a :href="results.upload.audio_info.download_url" target="_blank" class="btn btn-secondary btn-small">
+                    ⬇️ Download Audio
+                  </a>
+                  <button @click="playUploadAudioPreview" class="btn btn-secondary btn-small">
+                    ▶️ Preview Audio
+                  </button>
+                </div>
+                <!-- Audio Preview -->
+                <audio v-if="uploadAudioPreviewUrl" :src="uploadAudioPreviewUrl" controls class="audio-preview">
+                  Your browser doesn't support the audio element.
+                </audio>
+              </div>
+              <div v-else class="audio-error-info">
+                <p><strong>❌ Audio extraction failed:</strong> {{ results.upload.audio_info.error }}</p>
+              </div>
+            </div>
           </div>
           <pre v-else>{{ JSON.stringify(results.upload, null, 2) }}</pre>
         </div>
@@ -434,6 +487,101 @@
         </div>
       </div>
 
+      <!-- Audio Extraction Section -->
+      <div class="section">
+        <h2>🎵 Audio Extraction (YouTube → FFmpeg)</h2>
+        <div class="audio-extraction">
+          <div class="workflow-info">
+            <h4>📋 Workflow:</h4>
+            <ol>
+              <li><strong>Step 1:</strong> Download video from YouTube using your worker</li>
+              <li><strong>Step 2:</strong> Extract audio using vegvisr-container FFmpeg service → Get direct download link</li>
+            </ol>
+            <p class="workflow-note">💡 The vegvisr-container returns a direct download URL for the extracted audio stored in Cloudflare R2</p>
+          </div>
+
+          <div class="form-group">
+            <label for="audio-video-id">Video ID or URL:</label>
+            <input
+              id="audio-video-id"
+              v-model="audioForm.videoId"
+              type="text"
+              placeholder="dQw4w9WgXcQ or full YouTube URL"
+              class="form-control"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="audio-format">Audio Format:</label>
+            <select id="audio-format" v-model="audioForm.format" class="form-control">
+              <option value="mp3">MP3 (192 kbps)</option>
+              <option value="wav">WAV (Lossless)</option>
+              <option value="aac">AAC (Advanced)</option>
+              <option value="flac">FLAC (Lossless)</option>
+            </select>
+          </div>
+
+          <div class="button-group">
+            <button
+              @click="extractAudio"
+              :disabled="!audioForm.videoId || !userEmail || loading.audio"
+              class="btn btn-primary btn-large"
+            >
+              <span v-if="loading.audio" class="spinner"></span>
+              🎵 Extract Audio
+            </button>
+          </div>
+
+          <!-- Progress Display -->
+          <div v-if="audioProgress.step" class="audio-progress">
+            <h4>🔄 Processing Progress:</h4>
+            <div class="progress-steps">
+              <div class="progress-step" :class="{ active: audioProgress.step >= 1, complete: audioProgress.step > 1 }">
+                <span class="step-number">1</span>
+                <span class="step-text">Download from YouTube</span>
+                <span v-if="audioProgress.step === 1" class="spinner-small"></span>
+                <span v-if="audioProgress.step > 1">✅</span>
+              </div>
+              <div class="progress-step" :class="{ active: audioProgress.step >= 2, complete: audioProgress.step > 2 }">
+                <span class="step-number">2</span>
+                <span class="step-text">Extract Audio (FFmpeg) → Get Download Link</span>
+                <span v-if="audioProgress.step === 2" class="spinner-small"></span>
+                <span v-if="audioProgress.step > 2">✅</span>
+              </div>
+            </div>
+            <div v-if="audioProgress.message" class="progress-message">
+              {{ audioProgress.message }}
+            </div>
+          </div>
+
+          <!-- Results Display -->
+          <div v-if="results.audio" class="result" :class="results.audio.success ? 'success' : 'error'">
+            <h4>Audio Extraction Result:</h4>
+            <div v-if="results.audio.success" class="audio-success">
+              <p><strong>✅ {{ results.audio.message }}</strong></p>
+              <div class="audio-info">
+                <p><strong>📁 File:</strong> {{ results.audio.file_name }}</p>
+                <p><strong>🌐 Format:</strong> {{ audioForm.format.toUpperCase() }}</p>
+                <p><strong>⏱️ Processing Time:</strong> {{ results.audio.processing_time }}s</p>
+                <div class="audio-actions">
+                  <a :href="results.audio.download_url" target="_blank" class="btn btn-primary">
+                    ⬇️ Download Audio
+                  </a>
+                  <button @click="playAudioPreview" class="btn btn-secondary">
+                    ▶️ Preview Audio
+                  </button>
+                </div>
+              </div>
+              <!-- Audio Preview -->
+              <audio v-if="audioPreviewUrl" :src="audioPreviewUrl" controls class="audio-preview">
+                Your browser doesn't support the audio element.
+              </audio>
+            </div>
+            <pre v-else>{{ JSON.stringify(results.audio, null, 2) }}</pre>
+          </div>
+        </div>
+      </div>
+
       <!-- Raw API Testing Section -->
       <div class="section">
         <h2>🔧 Raw API Testing</h2>
@@ -492,7 +640,8 @@ const loading = reactive({
   download: false,
   videos: false,
   update: false,
-  api: false
+  api: false,
+  audio: false
 })
 
 const results = reactive({
@@ -502,14 +651,17 @@ const results = reactive({
   download: null,
   videos: null,
   update: null,
-  api: null
+  api: null,
+  audio: null
 })
 
 const uploadForm = reactive({
   title: '',
   description: '',
   privacy: 'private',
-  tags: ''
+  tags: '',
+  extractAudio: false,
+  audioFormat: 'mp3'
 })
 
 const downloadForm = reactive({
@@ -535,8 +687,22 @@ const apiTest = reactive({
   payload: '{"user_email": "test@example.com"}'
 })
 
+const audioForm = reactive({
+  videoId: '',
+  format: 'mp3'
+})
+
+const audioProgress = reactive({
+  step: 0,
+  message: ''
+})
+
+const audioPreviewUrl = ref('')
+const uploadAudioPreviewUrl = ref('')
+
 // Constants
 const WORKER_BASE_URL = 'https://youtube.vegvisr.org'
+const AUDIO_WORKER_BASE_URL = 'https://vegvisr-container.torarnehave.workers.dev'
 
 // Utility functions
 const formatFileSize = (bytes) => {
@@ -697,6 +863,7 @@ const uploadVideo = async () => {
 
   loading.upload = true
   uploadProgress.value = 0
+  let audioExtractionResult = null
 
   try {
     const formData = new FormData()
@@ -709,27 +876,70 @@ const uploadVideo = async () => {
 
     // Simulate upload progress (real progress would need server-sent events or websockets)
     const progressInterval = setInterval(() => {
-      if (uploadProgress.value < 90) {
+      if (uploadProgress.value < 70) {
         uploadProgress.value += Math.random() * 10
       }
     }, 500)
 
+    // Step 1: Upload to YouTube
     const response = await fetch(`${WORKER_BASE_URL}/upload`, {
       method: 'POST',
       body: formData
     })
 
     clearInterval(progressInterval)
-    uploadProgress.value = 100
+    uploadProgress.value = 80
 
     results.upload = await response.json()
 
+    // Step 2: If audio extraction is requested and upload was successful
+    if (results.upload.success && uploadForm.extractAudio) {
+      uploadProgress.value = 85
+      
+      try {
+        // We need to store the video file temporarily in R2 and get a public URL
+        // This requires modifying the YouTube worker to return a temporary R2 URL
+        // For now, let's show this is where the audio extraction would happen
+        
+        const instanceId = `youtube-upload-${Date.now()}`
+        
+        // TODO: This needs the YouTube worker to provide a temporary R2 URL of the uploaded video
+        // The workflow should be:
+        // 1. YouTube worker uploads to YouTube AND stores copy in R2
+        // 2. Returns both YouTube URL and temporary R2 URL
+        // 3. We use R2 URL for audio extraction
+        // 4. Clean up R2 temp file after extraction
+        
+        audioExtractionResult = {
+          success: false,
+          error: 'Audio extraction requires YouTube worker to provide temporary R2 video URL',
+          note: 'YouTube worker needs modification to store video temporarily in R2 during upload'
+        }
+        
+      } catch (audioError) {
+        audioExtractionResult = {
+          success: false,
+          error: `Audio extraction failed: ${audioError.message}`
+        }
+      }
+      
+      uploadProgress.value = 100
+    } else {
+      uploadProgress.value = 100
+    }
+
+    // Add audio extraction results if attempted
+    if (audioExtractionResult) {
+      results.upload.audio_info = audioExtractionResult
+    }
+
     if (results.upload.success) {
-      // Reset form
+      // Reset form but keep audio extraction preference
       selectedFile.value = null
       uploadForm.title = ''
       uploadForm.description = ''
       uploadForm.tags = ''
+      // Don't reset extractAudio and audioFormat so user doesn't have to re-select
       const fileInput = document.getElementById('video-file')
       if (fileInput) fileInput.value = ''
     }
@@ -950,6 +1160,131 @@ const testRawAPI = async () => {
   } finally {
     loading.api = false
   }
+}
+
+// Audio extraction functions
+const extractAudio = async () => {
+  if (!audioForm.videoId || !userEmail.value) {
+    alert('Please provide a video ID and ensure you are authenticated')
+    return
+  }
+
+  loading.audio = true
+  results.audio = null
+  audioProgress.step = 0
+  audioProgress.message = ''
+  audioPreviewUrl.value = ''
+
+  const startTime = Date.now()
+
+  try {
+    // Step 1: Download video from YouTube
+    audioProgress.step = 1
+    audioProgress.message = 'Downloading video from YouTube...'
+
+    const videoId = extractVideoId(audioForm.videoId)
+    const downloadResponse = await fetch(`${WORKER_BASE_URL}/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_email: userEmail.value,
+        video_url: videoId,
+        format: 'mp4'
+      })
+    })
+
+    const downloadResult = await downloadResponse.json()
+    
+    if (!downloadResult.success) {
+      throw new Error(`YouTube download failed: ${downloadResult.error}`)
+    }
+
+    // Step 2: Extract audio using vegvisr-container
+    audioProgress.step = 2
+    audioProgress.message = 'Extracting audio using FFmpeg...'
+
+    const instanceId = `youtube-audio-${Date.now()}`
+    const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/ffmpeg/${instanceId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        video_url: downloadResult.download_url,
+        output_format: audioForm.format
+      })
+    })
+
+    const audioResult = await audioResponse.json()
+    
+    if (!audioResult.success) {
+      throw new Error(`Audio extraction failed: ${audioResult.error}`)
+    }
+
+    // Success!
+    audioProgress.step = 3
+    const processingTime = Math.round((Date.now() - startTime) / 1000)
+    
+    results.audio = {
+      success: true,
+      message: 'Audio extracted successfully!',
+      file_name: audioResult.file_name,
+      download_url: `${AUDIO_WORKER_BASE_URL}${audioResult.download_url}`,
+      processing_time: processingTime,
+      video_id: videoId,
+      format: audioForm.format
+    }
+    
+    audioProgress.message = `✅ Complete! Audio ready for download (${processingTime}s)`
+
+  } catch (error) {
+    results.audio = {
+      success: false,
+      error: error.message,
+      processing_time: Math.round((Date.now() - startTime) / 1000)
+    }
+    audioProgress.step = 0
+    audioProgress.message = `❌ Failed: ${error.message}`
+  } finally {
+    loading.audio = false
+  }
+}
+
+const playAudioPreview = () => {
+  if (results.audio?.download_url) {
+    audioPreviewUrl.value = results.audio.download_url
+  }
+}
+
+const playUploadAudioPreview = () => {
+  if (results.upload?.audio_info?.download_url) {
+    uploadAudioPreviewUrl.value = results.upload.audio_info.download_url
+  }
+}
+
+// Helper function to extract video ID from URL or return as-is if already an ID
+const extractVideoId = (input) => {
+  if (!input) return ''
+  
+  // If it's already a video ID (11 characters), return as-is
+  if (input.length === 11 && !input.includes('/')) {
+    return input
+  }
+  
+  // Extract from various YouTube URL formats
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /^([a-zA-Z0-9_-]{11})$/
+  ]
+  
+  for (const pattern of patterns) {
+    const match = input.match(pattern)
+    if (match) return match[1]
+  }
+  
+  return input // Return original if no pattern matches
 }
 
 const logout = () => {
@@ -1505,6 +1840,243 @@ h2 {
 .updated-fields p {
   margin: 5px 0;
   color: #155724;
+}
+
+/* Audio extraction styles */
+/* Audio extraction styles */
+.audio-extract-option {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 15px;
+  margin: 15px 0;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.checkbox {
+  margin-right: 10px;
+  transform: scale(1.2);
+}
+
+.checkbox-label {
+  font-weight: 500;
+  color: #495057;
+  cursor: pointer;
+  margin: 0;
+}
+
+.audio-format-selection {
+  margin: 10px 0;
+  padding-left: 25px;
+}
+
+.audio-format-selection label {
+  font-size: 14px;
+  margin-bottom: 5px;
+  display: block;
+}
+
+.form-control-small {
+  max-width: 200px;
+}
+
+.help-text {
+  color: #6c757d;
+  font-style: italic;
+  display: block;
+  margin-top: 8px;
+}
+
+.audio-extraction-results {
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.audio-extraction-results h5 {
+  margin: 0 0 15px 0;
+  color: #1565c0;
+}
+
+.audio-success-info {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.audio-success-info p {
+  margin: 8px 0;
+  color: #155724;
+}
+
+.audio-error-info {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.audio-error-info p {
+  margin: 8px 0;
+  color: #721c24;
+}
+
+.audio-actions {
+  margin: 15px 0;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.audio-actions .btn-small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.audio-extraction {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  border-left: 4px solid #6c5ce7;
+}
+
+.workflow-info {
+  background: #e3f2fd;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.workflow-info ol {
+  margin: 10px 0 0 0;
+  padding-left: 20px;
+}
+
+.workflow-note {
+  margin: 10px 0 0 0;
+  font-style: italic;
+  color: #666;
+}
+
+.audio-progress {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  padding: 10px;
+  margin: 0 5px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.progress-step.active {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+}
+
+.progress-step.complete {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+}
+
+.step-number {
+  background: #6c757d;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.progress-step.active .step-number {
+  background: #ffc107;
+  color: #000;
+}
+
+.progress-step.complete .step-number {
+  background: #28a745;
+}
+
+.step-text {
+  font-size: 14px;
+  flex: 1;
+}
+
+.spinner-small {
+  margin-left: 8px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #6c5ce7;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.progress-message {
+  text-align: center;
+  font-weight: 500;
+  color: #495057;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.audio-success {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 6px;
+  padding: 20px;
+}
+
+.audio-info {
+  margin: 15px 0;
+}
+
+.audio-info p {
+  margin: 8px 0;
+  color: #155724;
+}
+
+.audio-actions {
+  margin: 15px 0;
+  display: flex;
+  gap: 10px;
+}
+
+.audio-preview {
+  width: 100%;
+  margin-top: 15px;
+  border-radius: 4px;
 }
 
 @media (max-width: 768px) {
