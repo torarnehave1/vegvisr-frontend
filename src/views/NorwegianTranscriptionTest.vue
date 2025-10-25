@@ -118,8 +118,8 @@
         <p><strong>Size:</strong> {{ formatFileSize(selectedVideoFile.size) }}</p>
 
         <!-- Extract Audio Button -->
-        <button 
-          @click="extractAudioFromVideo" 
+        <button
+          @click="extractAudioFromVideo"
           :disabled="extractingAudio"
           class="btn btn-success"
         >
