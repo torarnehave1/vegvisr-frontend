@@ -89,6 +89,64 @@
       </div>
     </div>
 
+    <!-- Video to Audio Extraction Section -->
+    <div class="test-section">
+      <h2>🎬 Extract Audio from Video</h2>
+      <p class="section-description">Upload a video file to automatically extract the audio for transcription</p>
+
+      <!-- Video Upload -->
+      <div class="upload-area" @dragover.prevent @drop.prevent="handleVideoFileDrop">
+        <input
+          ref="videoFileInput"
+          type="file"
+          accept="video/*,.mp4,.mov,.avi,.mkv,.webm"
+          @change="handleVideoFileSelect"
+          class="file-input"
+          style="display: none"
+        />
+        <button @click="$refs.videoFileInput.click()" class="btn btn-secondary" :disabled="extractingAudio">
+          🎬 Choose Video File
+        </button>
+        <div class="upload-hint">or drag & drop video file here</div>
+      </div>
+
+      <!-- Video File Info -->
+      <div v-if="selectedVideoFile" class="file-info">
+        <h3>Selected Video</h3>
+        <p><strong>Name:</strong> {{ selectedVideoFile.name }}</p>
+        <p><strong>Type:</strong> {{ selectedVideoFile.type }}</p>
+        <p><strong>Size:</strong> {{ formatFileSize(selectedVideoFile.size) }}</p>
+
+        <!-- Extract Audio Button -->
+        <button 
+          @click="extractAudioFromVideo" 
+          :disabled="extractingAudio"
+          class="btn btn-success"
+        >
+          {{ extractingAudio ? '🎵 Extracting Audio...' : '🎵 Extract Audio' }}
+        </button>
+      </div>
+
+      <!-- Extraction Progress -->
+      <div v-if="extractingAudio" class="loading">
+        <div class="loading-spinner"></div>
+        <p>{{ audioExtractionMessage || 'Extracting audio from video...' }}</p>
+      </div>
+
+      <!-- Extracted Audio Result -->
+      <div v-if="extractedAudioBlob" class="extracted-audio-result">
+        <h3>✅ Audio Extracted Successfully!</h3>
+        <div class="audio-preview">
+          <audio :src="extractedAudioUrl" controls class="audio-player"></audio>
+        </div>
+        <div class="extracted-info">
+          <span>Format: MP3</span>
+          <span>Size: {{ formatFileSize(extractedAudioBlob.size) }}</span>
+        </div>
+        <p class="hint-text">👆 Audio is ready for transcription below</p>
+      </div>
+    </div>
+
     <!-- Audio Upload Section -->
     <div class="test-section">
       <h2>📁 Audio File Upload</h2>
@@ -487,6 +545,12 @@ const mediaRecorder = ref(null)
 const recordingTimer = ref(null)
 const microphoneSupported = ref(false)
 
+// Video to audio extraction state
+const selectedVideoFile = ref(null)
+const extractingAudio = ref(false)
+const audioExtractionMessage = ref('')
+const extractedAudioBlob = ref(null)
+
 const healthLoading = ref(false)
 const healthStatus = ref(null)
 const transcribing = ref(false)
@@ -519,6 +583,9 @@ const selectedEndpoint = ref('cpu') // Default to CPU endpoint
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
+// Base URL for audio extraction worker (FFmpeg container)
+const AUDIO_WORKER_BASE_URL = 'https://vegvisr-container.torarnehave.workers.dev'
+
 // Computed properties
 const audioPreviewUrl = computed(() => {
   return selectedFile.value ? URL.createObjectURL(selectedFile.value) : null
@@ -526,6 +593,10 @@ const audioPreviewUrl = computed(() => {
 
 const recordedUrl = computed(() => {
   return recordedBlob.value ? URL.createObjectURL(recordedBlob.value) : null
+})
+
+const extractedAudioUrl = computed(() => {
+  return extractedAudioBlob.value ? URL.createObjectURL(extractedAudioBlob.value) : null
 })
 
 // Lifecycle
@@ -720,6 +791,109 @@ const handleFileDrop = (event) => {
     } else {
       error.value = { message: 'Please drop an audio file' }
     }
+  }
+}
+
+// Video extraction methods
+const handleVideoFileSelect = (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    selectedVideoFile.value = file
+    extractedAudioBlob.value = null // Clear any previously extracted audio
+    error.value = null
+    console.log('Video file selected:', file.name, file.size, file.type)
+  }
+}
+
+const handleVideoFileDrop = (event) => {
+  const files = event.dataTransfer.files
+  if (files.length > 0) {
+    const file = files[0]
+    if (file.type.startsWith('video/')) {
+      selectedVideoFile.value = file
+      extractedAudioBlob.value = null
+      error.value = null
+      console.log('Video file dropped:', file.name, file.size, file.type)
+    } else {
+      error.value = { message: 'Please drop a video file' }
+    }
+  }
+}
+
+const extractAudioFromVideo = async () => {
+  if (!selectedVideoFile.value) {
+    error.value = { message: 'Please select a video file first' }
+    return
+  }
+
+  extractingAudio.value = true
+  audioExtractionMessage.value = 'Uploading video and extracting audio...'
+  error.value = null
+
+  try {
+    const instanceId = `norwegian-transcription-${Date.now()}`
+    const formData = new FormData()
+    formData.append('file', selectedVideoFile.value)
+
+    console.log('🎬 Extracting audio from video:', {
+      fileName: selectedVideoFile.value.name,
+      size: selectedVideoFile.value.size,
+      type: selectedVideoFile.value.type,
+      instanceId
+    })
+
+    // Upload video to vegvisr-container for audio extraction
+    const uploadResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/upload/${instanceId}`, {
+      method: 'POST',
+      body: formData
+    })
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text()
+      throw new Error(`Audio extraction failed: ${uploadResponse.status} - ${errorText}`)
+    }
+
+    const result = await uploadResponse.json()
+    console.log('✅ Audio extraction result:', result)
+
+    if (!result.success || !result.download_url) {
+      throw new Error('Audio extraction failed: No download URL returned')
+    }
+
+    // Download the extracted audio
+    audioExtractionMessage.value = 'Downloading extracted audio...'
+    const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}${result.download_url}`)
+
+    if (!audioResponse.ok) {
+      throw new Error(`Failed to download audio: ${audioResponse.status}`)
+    }
+
+    extractedAudioBlob.value = await audioResponse.blob()
+    console.log('✅ Audio downloaded:', extractedAudioBlob.value.size, 'bytes')
+
+    // Automatically set the extracted audio as the selected file for transcription
+    selectedFile.value = new File(
+      [extractedAudioBlob.value],
+      selectedVideoFile.value.name.replace(/\.[^/.]+$/, '.mp3'),
+      { type: 'audio/mpeg' }
+    )
+
+    // Clear recorded audio if any
+    recordedBlob.value = null
+
+    audioExtractionMessage.value = '✅ Audio extracted successfully!'
+    setTimeout(() => {
+      audioExtractionMessage.value = ''
+    }, 3000)
+
+  } catch (err) {
+    console.error('Audio extraction error:', err)
+    error.value = {
+      message: 'Failed to extract audio from video',
+      details: err.message
+    }
+  } finally {
+    extractingAudio.value = false
   }
 }
 
@@ -1779,6 +1953,50 @@ const createChunkedGraph = async () => {
   margin-top: 10px;
   color: #666;
   font-style: italic;
+}
+
+.section-description {
+  color: #666;
+  margin-bottom: 15px;
+  font-size: 0.95rem;
+}
+
+.extracted-audio-result {
+  margin-top: 20px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border-radius: 8px;
+  border: 2px solid #10b981;
+}
+
+.extracted-audio-result h3 {
+  margin: 0 0 15px 0;
+  color: #059669;
+}
+
+.extracted-info {
+  display: flex;
+  gap: 15px;
+  margin-top: 10px;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.extracted-info span {
+  padding: 4px 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #d1fae5;
+}
+
+.hint-text {
+  margin-top: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  text-align: center;
+  color: #059669;
+  font-weight: 500;
 }
 
 .context-section {
