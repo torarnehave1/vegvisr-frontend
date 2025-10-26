@@ -117,12 +117,6 @@
         <p><strong>Type:</strong> {{ selectedVideoFile.type }}</p>
         <p><strong>Size:</strong> {{ formatFileSize(selectedVideoFile.size) }}</p>
 
-        <!-- File size warning -->
-        <div v-if="selectedVideoFile.size > 10 * 1024 * 1024" class="file-size-warning">
-          ⚠️ <strong>Large file detected ({{ formatFileSize(selectedVideoFile.size) }})</strong><br>
-          For videos over 10MB, we recommend using the <router-link to="/youtube-worker-test">YouTube Upload workflow</router-link> which handles large files more reliably.
-        </div>
-
         <!-- Extract Audio Button -->
         <button
           @click="extractAudioFromVideo"
