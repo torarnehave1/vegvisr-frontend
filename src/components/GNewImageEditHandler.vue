@@ -352,7 +352,18 @@ const handleImageReplaced = async (replacementData) => {
     const newUrl = replacementData.newUrl
 
     // Replace the image URL in the node's info content
-    updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+    // IMPORTANT: Only replace the FIRST occurrence to avoid changing multiple images with the same URL
+    const firstOccurrenceIndex = updatedContent.indexOf(oldUrl)
+
+    if (firstOccurrenceIndex === -1) {
+      throw new Error(`Old URL not found in content: ${oldUrl}`)
+    }
+
+    // Replace only the first occurrence
+    updatedContent =
+      updatedContent.substring(0, firstOccurrenceIndex) +
+      newUrl +
+      updatedContent.substring(firstOccurrenceIndex + oldUrl.length)
 
     // Update the node
     nodeToUpdate.info = updatedContent
@@ -396,8 +407,14 @@ const handleImageReplaced = async (replacementData) => {
     emit('graph-updated', updatedGraphData)
 
     // Reattach listeners after content update
+    // Use multiple nextTick calls to ensure child components have fully rendered
     nextTick(() => {
-      attachImageChangeListeners()
+      nextTick(() => {
+        // Small timeout to ensure all child components have rendered
+        setTimeout(() => {
+          attachImageChangeListeners()
+        }, 100)
+      })
     })
 
     console.log('GNew Image Edit: Image update saved successfully')
@@ -498,8 +515,14 @@ const handleGooglePhotoSelected = async (selectionData) => {
     emit('graph-updated', updatedGraphData)
 
     // Reattach listeners after content update
+    // Use multiple nextTick calls to ensure child components have fully rendered
     nextTick(() => {
-      attachImageChangeListeners()
+      nextTick(() => {
+        // Small timeout to ensure all child components have rendered
+        setTimeout(() => {
+          attachImageChangeListeners()
+        }, 100)
+      })
     })
 
     closeGooglePhotosSelector()
@@ -591,7 +614,11 @@ const attachImageChangeListeners = () => {
   const changeImageButtons = document.querySelectorAll('.change-image-btn')
   console.log('Found change image buttons:', changeImageButtons.length)
   changeImageButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const imageData = {
         url: btn.getAttribute('data-image-url'),
@@ -609,7 +636,11 @@ const attachImageChangeListeners = () => {
   const googlePhotosButtons = document.querySelectorAll('.google-photos-btn')
   console.log('Found Google Photos buttons:', googlePhotosButtons.length)
   googlePhotosButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const googlePhotosData = {
         url: btn.getAttribute('data-image-url'),
@@ -627,7 +658,11 @@ const attachImageChangeListeners = () => {
   const updateAttributionButtons = document.querySelectorAll('.update-attribution-btn')
   console.log('Found Update Attribution buttons:', updateAttributionButtons.length)
   updateAttributionButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const nodeId = btn.getAttribute('data-node-id')
       const imageUrl = btn.getAttribute('data-image-url')

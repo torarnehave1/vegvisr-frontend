@@ -1338,6 +1338,7 @@
               @format-node="handleFormatNode"
               @quick-format="handleQuickFormat"
               @copy-node="handleCopyNode"
+              @duplicate-node="handleDuplicateNode"
             />
           </div>
 
@@ -5687,14 +5688,27 @@ const handleImageReplaced = async (replacementData) => {
     }
 
     // Replace the image URL in the node's content
+    // IMPORTANT: Only replace the FIRST occurrence to avoid changing multiple images with the same URL
     const originalContent = updatedContent
-    updatedContent = updatedContent.replace(new RegExp(escapeRegExp(oldUrl), 'g'), newUrl)
+    const firstOccurrenceIndex = updatedContent.indexOf(oldUrl)
+
+    if (firstOccurrenceIndex === -1) {
+      throw new Error(`Old URL not found in content: ${oldUrl}`)
+    }
+
+    // Replace only the first occurrence
+    updatedContent =
+      updatedContent.substring(0, firstOccurrenceIndex) +
+      newUrl +
+      updatedContent.substring(firstOccurrenceIndex + oldUrl.length)
 
     imageDebug('logReplacement', 'URL replacement completed successfully', {
-      replacementCount: originalContent.split(oldUrl).length - 1,
+      replacementCount: 1,
+      totalOccurrencesInContent: originalContent.split(oldUrl).length - 1,
       newContentLength: updatedContent.length,
       contentField: contentField,
       oldUrlFound: originalContent.includes(oldUrl),
+      replacementIndex: firstOccurrenceIndex,
     })
 
     // Store attribution data in the node if available
@@ -5803,8 +5817,14 @@ const handleImageReplaced = async (replacementData) => {
     console.log('GNew: Image update saved successfully')
 
     // Reattach image change listeners after DOM updates
+    // Use multiple nextTick calls to ensure child components have fully rendered
     nextTick(() => {
-      attachImageChangeListeners()
+      nextTick(() => {
+        // Small timeout to ensure all child components have rendered
+        setTimeout(() => {
+          attachImageChangeListeners()
+        }, 100)
+      })
     })
   } catch (error) {
     imageDebug('logReplacement', 'Error during image replacement', {
@@ -5913,8 +5933,14 @@ const handleGooglePhotoSelected = async (selectionData) => {
     console.log('GNew: Google photo saved successfully')
 
     // Reattach image change listeners after DOM updates
+    // Use multiple nextTick calls to ensure child components have fully rendered
     nextTick(() => {
-      attachImageChangeListeners()
+      nextTick(() => {
+        // Small timeout to ensure all child components have rendered
+        setTimeout(() => {
+          attachImageChangeListeners()
+        }, 100)
+      })
     })
   } catch (error) {
     console.error('GNew: Error adding Google photo:', error)
@@ -5935,7 +5961,11 @@ const attachImageChangeListeners = () => {
   const changeImageButtons = document.querySelectorAll('.change-image-btn')
   console.log('Found change image buttons:', changeImageButtons.length)
   changeImageButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const nodeId = btn.getAttribute('data-node-id')
       const imageUrl = btn.getAttribute('data-image-url')
@@ -5961,7 +5991,11 @@ const attachImageChangeListeners = () => {
   const googlePhotosButtons = document.querySelectorAll('.google-photos-btn')
   console.log('Found Google Photos buttons:', googlePhotosButtons.length)
   googlePhotosButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const googlePhotosData = {
         url: btn.getAttribute('data-image-url'),
@@ -5979,7 +6013,11 @@ const attachImageChangeListeners = () => {
   const imagequoteImageButtons = document.querySelectorAll('.imagequote-image-btn')
   console.log('Found IMAGEQUOTE image buttons:', imagequoteImageButtons.length)
   imagequoteImageButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       // For now, just log - IMAGEQUOTE editing can be implemented later
       console.log('IMAGEQUOTE image button clicked - implement IMAGEQUOTE image editing modal')
@@ -5992,7 +6030,11 @@ const attachImageChangeListeners = () => {
   const updateAttributionButtons = document.querySelectorAll('.update-attribution-btn')
   console.log('Found Update Attribution buttons:', updateAttributionButtons.length)
   updateAttributionButtons.forEach((button) => {
-    button.addEventListener('click', (event) => {
+    // Remove any existing listeners by cloning and replacing the button
+    const newButton = button.cloneNode(true)
+    button.parentNode.replaceChild(newButton, button)
+
+    newButton.addEventListener('click', (event) => {
       const btn = event.target
       const nodeId = btn.getAttribute('data-node-id')
       const imageUrl = btn.getAttribute('data-image-url')
@@ -6574,6 +6616,55 @@ const handleNodeCopied = (copyInfo) => {
 
   // Reset the selected node
   selectedNodeToCopy.value = null
+}
+
+// Duplicate node functionality
+const handleDuplicateNode = (node) => {
+  console.log('📑 Duplicate node requested for:', node.id)
+
+  try {
+    // Find the index of the current node
+    const currentIndex = graphData.value.nodes.findIndex(n => n.id === node.id)
+    if (currentIndex === -1) {
+      console.error('Node not found:', node.id)
+      statusMessage.value = '❌ Failed to duplicate node: Node not found'
+      setTimeout(() => {
+        statusMessage.value = ''
+      }, 3000)
+      return
+    }
+
+    // Create a deep copy of the node
+    const duplicatedNode = JSON.parse(JSON.stringify(node))
+
+    // Generate a new unique ID
+    const timestamp = Date.now()
+    const randomSuffix = Math.random().toString(36).substring(2, 9)
+    duplicatedNode.id = `${node.type || 'node'}_${timestamp}_${randomSuffix}`
+
+    // Update label to indicate it's a duplicate
+    if (duplicatedNode.label) {
+      duplicatedNode.label = `${duplicatedNode.label} (Copy)`
+    }
+
+    // Insert the duplicated node right after the original
+    graphData.value.nodes.splice(currentIndex + 1, 0, duplicatedNode)
+
+    console.log('✅ Node duplicated successfully:', duplicatedNode.id)
+
+    // Show success message
+    statusMessage.value = `✅ Node duplicated successfully below original`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+
+  } catch (error) {
+    console.error('Error duplicating node:', error)
+    statusMessage.value = `❌ Failed to duplicate node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
 }
 
 // Handler for status messages from GNewImageEditHandler

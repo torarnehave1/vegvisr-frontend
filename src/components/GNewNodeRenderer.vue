@@ -19,6 +19,7 @@ import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'(Admin Only) -->
       @format-node="$emit('format-node', node)"
       @quick-format="$emit('quick-format', node, $event)"
       @copy-node="$emit('copy-node', node)"
+      @duplicate-node="$emit('duplicate-node', node)"
       @move-up="$emit('move-up', node)"
       @move-down="$emit('move-down', node)"
       @open-reorder="$emit('open-reorder')"
