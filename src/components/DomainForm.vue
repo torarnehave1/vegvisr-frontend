@@ -344,13 +344,94 @@
           </div>
 
           <div v-if="formData.menuConfig.enabled" class="menu-items-config">
-            <div class="alert alert-warning">
-              <i class="fas fa-exclamation-triangle"></i>
-              <strong>Advanced Feature:</strong> Menu configuration allows you to customize the navigation
-              menu for this specific domain. This feature is only available to superadministrators.
+            <!-- Menu Template Selection -->
+            <div class="menu-template-selection mb-4">
+              <label class="form-label">
+                <strong>Menu Template:</strong>
+              </label>
+              <select
+                v-model="formData.menuConfig.selectedTemplate"
+                class="form-control mb-3"
+                @change="applyMenuTemplate"
+              >
+                <option value="">Select a menu template...</option>
+                <option
+                  v-for="template in availableMenuTemplates"
+                  :key="template.id"
+                  :value="template.id"
+                >
+                  {{ template.name }} ({{ template.menu_level }})
+                </option>
+              </select>
+
+              <div class="template-actions">
+                <button
+                  type="button"
+                  class="btn btn-outline-primary btn-sm me-2"
+                  @click="openMenuTemplateCreator"
+                >
+                  {{ formData.menuConfig.selectedTemplate ? 'Edit Template' : 'Create Template' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary btn-sm"
+                  @click="refreshMenuTemplates"
+                >
+                  <i class="fas fa-sync"></i> Refresh
+                </button>
+              </div>
+
+              <!-- Template Preview -->
+              <div
+                v-if="formData.menuConfig.templateData"
+                class="template-preview mt-3 p-3 border rounded bg-light"
+              >
+                <h6 class="mb-2">
+                  <i class="fas fa-eye"></i> Template Preview: {{ formData.menuConfig.templateData.name }}
+                </h6>
+                <div class="template-items">
+                  <span
+                    v-for="item in formData.menuConfig.templateData.items"
+                    :key="item.id"
+                    class="badge bg-secondary me-2 mb-2"
+                  >
+                    {{ item.icon }} {{ item.label }}
+                  </span>
+                </div>
+                <div class="template-style-info mt-2">
+                  <small class="text-muted">
+                    Style: {{ formData.menuConfig.templateData.style?.buttonStyle || 'hamburger' }} |
+                    Layout: {{ formData.menuConfig.templateData.style?.layout || 'horizontal' }} |
+                    Theme: {{ formData.menuConfig.templateData.style?.theme || 'default' }}
+                  </small>
+                </div>
+              </div>
             </div>
-            <!-- Placeholder for menu configuration - can be expanded later -->
-            <p class="text-muted">Menu configuration interface will be implemented here.</p>
+
+            <!-- Legacy Menu Items (Backward Compatibility) -->
+            <div class="legacy-menu-items mt-4">
+              <label class="form-label">
+                <strong>Legacy Menu Items:</strong>
+                <small class="text-muted">(For backward compatibility - customize using templates above)</small>
+              </label>
+              <div class="row">
+                <div v-for="menuItem in availableMenuItems" :key="menuItem.id" class="col-md-6 col-lg-4 mb-3">
+                  <div class="form-check menu-item-config">
+                    <input
+                      :id="`menu-${menuItem.id}`"
+                      v-model="formData.menuConfig.visibleItems"
+                      type="checkbox"
+                      :value="menuItem.id"
+                      class="form-check-input"
+                    />
+                    <label :for="`menu-${menuItem.id}`" class="form-check-label">
+                      {{ menuItem.label }}
+                    </label>
+                    <small class="d-block text-muted menu-item-path">{{ menuItem.path }}</small>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -394,20 +475,31 @@
       @close="closeAILogoModal"
       @image-inserted="handleAILogoGenerated"
     />
+
+    <!-- Menu Template Creator Modal -->
+    <MenuTemplateCreator
+      :isOpen="isMenuTemplateCreatorOpen"
+      :menuTemplate="selectedMenuTemplate"
+      @close="closeMenuTemplateCreator"
+      @template-saved="handleMenuTemplateSaved"
+    />
   </div>
 </template>
 
 <script>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useDomainStore } from '@/stores/domainStore'
+import { useMenuTemplateStore } from '@/stores/menuTemplateStore'
 import AIImageModal from './AIImageModal.vue'
+import MenuTemplateCreator from './MenuTemplateCreator.vue'
 
 export default {
   name: 'DomainForm',
   components: {
-    AIImageModal
+    AIImageModal,
+    MenuTemplateCreator
   },
   props: {
     domainConfig: {
@@ -424,6 +516,7 @@ export default {
     const userStore = useUserStore()
     const portfolioStore = usePortfolioStore()
     const domainStore = useDomainStore()
+    const menuTemplateStore = useMenuTemplateStore()
 
     // Form state
     const formData = ref({
@@ -474,6 +567,11 @@ export default {
     // User graphs for front page selection
     const userGraphs = ref([])
 
+    // Menu configuration state
+    const availableMenuTemplates = ref([])
+    const selectedMenuTemplate = ref(null)
+    const isMenuTemplateCreatorOpen = ref(false)
+
     // Computed properties
     const isEditing = computed(() => !!props.domainConfig)
 
@@ -482,6 +580,65 @@ export default {
              !domainError.value &&
              !logoError.value &&
              !frontPageError.value
+    })
+
+    const availableMenuItems = computed(() => {
+      return [
+        {
+          id: 'graph-editor',
+          label: 'Editor',
+          path: '/graph-editor',
+          roles: ['User', 'Admin', 'Superadmin'],
+        },
+        {
+          id: 'graph-canvas',
+          label: '🎨 Canvas',
+          path: '/graph-canvas',
+          roles: ['User', 'Admin', 'Superadmin'],
+        },
+        {
+          id: 'graph-portfolio',
+          label: 'Portfolio',
+          path: '/graph-portfolio',
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+        },
+        {
+          id: 'graph-viewer',
+          label: 'Viewer',
+          path: '/graph-viewer',
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+        },
+        {
+          id: 'search',
+          label: 'Search',
+          path: '/search',
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+        },
+        {
+          id: 'user-dashboard',
+          label: 'Dashboard',
+          path: '/user',
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+        },
+        {
+          id: 'github-issues',
+          label: '🗺️ Roadmap',
+          path: '/github-issues',
+          roles: ['User', 'Admin', 'Superadmin'],
+        },
+        {
+          id: 'sandbox',
+          label: '🔧 Sandbox',
+          path: '/sandbox',
+          roles: ['Superadmin'],
+        },
+        {
+          id: 'gnew',
+          label: '🧪 GNew Viewer',
+          path: '/gnew-viewer',
+          roles: ['User', 'Admin', 'Superadmin', 'Subscriber'],
+        },
+      ]
     })
 
     // Initialize form data
@@ -738,6 +895,82 @@ export default {
       validateFrontPageGraph()
     }
 
+    // Menu template methods
+    const fetchMenuTemplates = async () => {
+      try {
+        await menuTemplateStore.fetchMenuTemplates('top')
+        availableMenuTemplates.value = menuTemplateStore.menuTemplates
+        console.log('Fetched menu templates:', availableMenuTemplates.value.length)
+      } catch (error) {
+        console.error('Error fetching menu templates:', error)
+      }
+    }
+
+    const applyMenuTemplate = () => {
+      if (!formData.value.menuConfig.selectedTemplate) {
+        formData.value.menuConfig.templateData = null
+        return
+      }
+
+      const template = availableMenuTemplates.value.find(
+        t => t.id === formData.value.menuConfig.selectedTemplate
+      )
+
+      if (template) {
+        console.log('Applying menu template:', template.name)
+        formData.value.menuConfig.templateData = template.menu_data
+
+        // Update visible items for backward compatibility
+        if (template.menu_data?.items) {
+          formData.value.menuConfig.visibleItems = template.menu_data.items.map(item => item.id)
+        }
+      }
+    }
+
+    const refreshMenuTemplates = async () => {
+      console.log('Refreshing menu templates...')
+      await fetchMenuTemplates()
+
+      // Re-apply current template if one is selected
+      if (formData.value.menuConfig.selectedTemplate) {
+        applyMenuTemplate()
+      }
+    }
+
+    const openMenuTemplateCreator = () => {
+      // Find selected template for editing
+      if (formData.value.menuConfig.selectedTemplate) {
+        selectedMenuTemplate.value = availableMenuTemplates.value.find(
+          t => t.id === formData.value.menuConfig.selectedTemplate
+        )
+      } else {
+        selectedMenuTemplate.value = null // Create new
+      }
+      isMenuTemplateCreatorOpen.value = true
+    }
+
+    const closeMenuTemplateCreator = () => {
+      isMenuTemplateCreatorOpen.value = false
+      selectedMenuTemplate.value = null
+    }
+
+    const handleMenuTemplateSaved = async (template) => {
+      console.log('Menu template saved:', template)
+      const wasEditing = selectedMenuTemplate.value !== null
+      const savedTemplateId = template.id
+
+      // Refresh templates list
+      await refreshMenuTemplates()
+
+      // Maintain selection after save
+      if (wasEditing && savedTemplateId) {
+        formData.value.menuConfig.selectedTemplate = savedTemplateId
+        applyMenuTemplate()
+      }
+
+      closeMenuTemplateCreator()
+    }
+
     // Form submission
     const handleSubmit = async () => {
       if (!canSaveDomain.value) return
@@ -781,8 +1014,14 @@ export default {
       }
     }
 
+    // Initialize on mount
+    onMounted(() => {
+      initializeForm()
+      fetchMenuTemplates()
+    })
+
     // Watch for prop changes
-    watch(() => props.domainConfig, initializeForm, { immediate: true })
+    watch(() => props.domainConfig, initializeForm)
 
     return {
       // Stores
@@ -808,10 +1047,14 @@ export default {
       filteredSuggestions,
       suggestionIndex,
       userGraphs,
+      availableMenuTemplates,
+      selectedMenuTemplate,
+      isMenuTemplateCreatorOpen,
 
       // Computed
       isEditing,
       canSaveDomain,
+      availableMenuItems,
 
       // Methods
       validateDomain,
@@ -831,7 +1074,12 @@ export default {
       removeMetaArea,
       validateFrontPageGraph,
       selectFrontPage,
-      handleSubmit
+      handleSubmit,
+      applyMenuTemplate,
+      refreshMenuTemplates,
+      openMenuTemplateCreator,
+      closeMenuTemplateCreator,
+      handleMenuTemplateSaved
     }
   }
 }
@@ -975,6 +1223,69 @@ export default {
 
 .invalid-feedback {
   display: block;
+}
+
+/* Menu Configuration Styles */
+.menu-template-selection {
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+}
+
+.template-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.template-preview {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.template-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.legacy-menu-items {
+  padding-top: 1rem;
+  border-top: 2px dashed #dee2e6;
+}
+
+.menu-item-config {
+  padding: 0.75rem;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background-color: white;
+  transition: all 0.2s ease;
+}
+
+.menu-item-config:hover {
+  border-color: #0d6efd;
+  box-shadow: 0 2px 4px rgba(13, 110, 253, 0.1);
+}
+
+.menu-item-config .form-check-input:checked ~ .form-check-label {
+  color: #0d6efd;
+  font-weight: 500;
+}
+
+.menu-item-path {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin-top: 0.25rem;
 }
 
 @media (max-width: 768px) {
