@@ -1,5 +1,5 @@
 <template>
-  <section class="frontpage">
+  <section class="frontpage" v-if="showContent">
     <div class="hero">
       <h1>Turn Your Knowledge Into Beautiful, Shareable Graphs Instantly</h1>
       <p class="subheadline">
@@ -91,7 +91,7 @@
 </template>
 
 <script>
-import { onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBranding } from '@/composables/useBranding'
 
@@ -99,38 +99,59 @@ export default {
   name: 'FrontPage',
   setup() {
     const router = useRouter()
-    const { currentFrontPage, isCustomDomain } = useBranding()
+    const { currentFrontPage, isCustomDomain, loading, initialize } = useBranding()
+    const showContent = ref(false)
+
+    // Function to check and redirect to custom front page
+    const checkAndRedirect = () => {
+      const frontPagePath = currentFrontPage.value
+      console.log('FrontPage: Checking for custom front page:', frontPagePath)
+      console.log('FrontPage: Is custom domain:', isCustomDomain.value)
+      console.log('FrontPage: Loading:', loading.value)
+
+      if (isCustomDomain.value && frontPagePath && frontPagePath !== '/') {
+        console.log('FrontPage: Redirecting to custom front page:', frontPagePath)
+
+        // Handle different front page formats
+        if (frontPagePath.includes('graphId')) {
+          // It's already a full path like /graph-viewer?graphId=...
+          router.push(frontPagePath)
+        } else if (!frontPagePath.startsWith('/') && !frontPagePath.includes('?')) {
+          // It's just a graph ID, convert to full path using modern viewer
+          const fullPath = `/gnew-viewer?graphId=${frontPagePath}&template=Frontpage`
+          console.log('FrontPage: Normalized path:', fullPath)
+          router.push(fullPath)
+        } else {
+          // Use as-is
+          router.push(frontPagePath)
+        }
+      } else {
+        console.log('FrontPage: Using default front page (no custom domain or front page)')
+        // Show the default homepage content
+        showContent.value = true
+      }
+    }
 
     onMounted(async () => {
-      // Wait a bit for branding initialization
-      setTimeout(() => {
-        const frontPagePath = currentFrontPage.value
-        console.log('FrontPage: Checking for custom front page:', frontPagePath)
-        console.log('FrontPage: Is custom domain:', isCustomDomain.value)
+      // Ensure branding is initialized
+      await initialize()
 
-        if (isCustomDomain.value && frontPagePath && frontPagePath !== '/') {
-          console.log('FrontPage: Redirecting to custom front page:', frontPagePath)
-
-          // Handle different front page formats
-          if (frontPagePath.includes('graphId')) {
-            // It's already a full path like /graph-viewer?graphId=...
-            router.push(frontPagePath)
-          } else if (!frontPagePath.startsWith('/') && !frontPagePath.includes('?')) {
-            // It's just a graph ID, convert to full path using modern viewer
-            const fullPath = `/gnew-viewer?graphId=${frontPagePath}&template=Frontpage`
-            console.log('FrontPage: Normalized path:', fullPath)
-            router.push(fullPath)
-          } else {
-            // Use as-is
-            router.push(frontPagePath)
-          }
-        } else {
-          console.log('FrontPage: Using default front page (no custom domain or front page)')
-        }
-      }, 1000) // Give time for branding initialization
+      // Check and redirect after initialization is complete
+      checkAndRedirect()
     })
 
-    return {}
+    // Also watch for changes in loading state and currentFrontPage
+    // in case the initialization completes after mount
+    watch([loading, currentFrontPage], ([loadingState]) => {
+      if (!loadingState) {
+        // Loading is complete, check if we need to redirect
+        checkAndRedirect()
+      }
+    })
+
+    return {
+      showContent,
+    }
   },
 }
 </script>

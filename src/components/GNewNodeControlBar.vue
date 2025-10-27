@@ -90,6 +90,16 @@
           <span class="icon">📋</span>
           <span class="btn-text">Copy</span>
         </button>
+
+        <button
+          @click="$emit('duplicate-node')"
+          class="control-btn duplicate-btn"
+          title="Duplicate Node Below"
+          :aria-label="`Duplicate ${nodeType} node below`"
+        >
+          <span class="icon">📑</span>
+          <span class="btn-text">Duplicate</span>
+        </button>
       </div>
     </div>
   </div>
@@ -128,7 +138,7 @@ defineProps({
 })
 
 // Events this component emits
-defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-format', 'copy-node', 'toggle-content'])
+defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-format', 'copy-node', 'duplicate-node', 'toggle-content'])
 </script>
 
 <style scoped>
@@ -280,6 +290,15 @@ defineEmits(['move-up', 'move-down', 'open-reorder', 'format-node', 'quick-forma
 
 .copy-btn:hover:not(:disabled) {
   background: linear-gradient(135deg, #388e3c 0%, #2e7d32 100%);
+}
+
+.duplicate-btn {
+  background: linear-gradient(135deg, #00bcd4 0%, #0097a7 100%);
+  color: white;
+}
+
+.duplicate-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0097a7 0%, #00838f 100%);
 }
 
 .quick-btn {
