@@ -35,11 +35,11 @@
             type="text"
             v-model="portfolioStore.searchQuery"
             class="form-control mb-2"
-            placeholder="🔍 Filter your portfolio graphs..."
+            placeholder="🔍 Search by title, slug, or #tag..."
             @input="filterGraphs"
           />
           <small class="text-muted">
-            Portfolio Filter • For global search, use the search bar above
+            Portfolio Filter • Type SEO slug or #MetaArea • For global search, use the search bar above
           </small>
         </div>
 
@@ -168,11 +168,11 @@
                       type="text"
                       v-model="portfolioStore.searchQuery"
                       class="form-control"
-                      placeholder="🔍 Filter your portfolio graphs..."
+                      placeholder="🔍 Search by title, slug, or #tag..."
                       @input="filterGraphs"
                     />
                     <small class="text-muted">
-                      Portfolio Filter • For global search, use the search bar above
+                      Portfolio Filter • Type SEO slug or #MetaArea • For global search, use the search bar above
                     </small>
                   </div>
                   <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
@@ -483,13 +483,19 @@
                             <span
                               v-for="(area, idx) in getMetaAreas(graph.metadata.metaArea)"
                               :key="idx"
-                              class="badge bg-warning ms-2"
+                              class="badge bg-warning ms-2 cursor-pointer"
+                              :title="`Click to filter by ${area}`"
+                              @click="filterByMetaArea(area)"
                             >
                               {{ area }}
                             </span>
                           </template>
                           <template v-if="graph.metadata?.seoSlug">
-                            <span class="badge bg-info ms-2" title="SEO page available">
+                            <span 
+                              class="badge bg-info ms-2 cursor-pointer" 
+                              title="Click to show all graphs with SEO slugs"
+                              @click="filterBySEO"
+                            >
                               🔗 SEO
                             </span>
                           </template>
@@ -1292,52 +1298,75 @@ const filteredGraphs = computed(() => {
   }
   // Apply search filter
   if (portfolioStore.searchQuery) {
-    const query = portfolioStore.searchQuery.toLowerCase()
-    filtered = filtered.filter((graph) => {
-      const categories = getCategories(graph.metadata?.category || '')
-      // Collect all node types as a string
-      const nodeTypes = Array.isArray(graph.nodes)
-        ? graph.nodes
-            .map((node) => node.type || '')
-            .join(' ')
-            .toLowerCase()
-        : ''
+    const query = portfolioStore.searchQuery.toLowerCase().trim()
+    
+    // Check for special :has-seo filter
+    if (query === ':has-seo') {
+      filtered = filtered.filter((graph) => {
+        return graph.metadata?.seoSlug && graph.metadata.seoSlug.trim() !== ''
+      })
+    }
+    // Check if searching by meta area (starts with #)
+    else if (query.startsWith('#')) {
+      const metaAreaSearch = query.substring(1) // Remove the #
+      filtered = filtered.filter((graph) => {
+        const graphMetaArea = graph.metadata?.metaArea || ''
+        // Normalize: remove # if it exists in the stored value
+        const normalizedMetaArea = graphMetaArea.startsWith('#') 
+          ? graphMetaArea.substring(1).toLowerCase() 
+          : graphMetaArea.toLowerCase()
+        
+        return normalizedMetaArea.includes(metaAreaSearch)
+      })
+    } else {
+      // Regular search (existing functionality)
+      filtered = filtered.filter((graph) => {
+        const categories = getCategories(graph.metadata?.category || '')
+        // Collect all node types as a string
+        const nodeTypes = Array.isArray(graph.nodes)
+          ? graph.nodes
+              .map((node) => node.type || '')
+              .join(' ')
+              .toLowerCase()
+          : ''
 
-      // Collect all node labels (titles) as a string
-      const nodeLabels = Array.isArray(graph.nodes)
-        ? graph.nodes
-            .map((node) => node.label || '')
-            .join(' ')
-            .toLowerCase()
-        : ''
+        // Collect all node labels (titles) as a string
+        const nodeLabels = Array.isArray(graph.nodes)
+          ? graph.nodes
+              .map((node) => node.label || '')
+              .join(' ')
+              .toLowerCase()
+          : ''
 
-      // Collect all node info content as a string
-      const nodeInfoContent = Array.isArray(graph.nodes)
-        ? graph.nodes
-            .map((node) => {
-              // Handle different types of node.info content
-              if (typeof node.info === 'string') {
-                return node.info
-              } else if (typeof node.info === 'object' && node.info !== null) {
-                // For structured data (charts, etc.), convert to searchable string
-                return JSON.stringify(node.info)
-              }
-              return ''
-            })
-            .join(' ')
-            .toLowerCase()
-        : ''
+        // Collect all node info content as a string
+        const nodeInfoContent = Array.isArray(graph.nodes)
+          ? graph.nodes
+              .map((node) => {
+                // Handle different types of node.info content
+                if (typeof node.info === 'string') {
+                  return node.info
+                } else if (typeof node.info === 'object' && node.info !== null) {
+                  // For structured data (charts, etc.), convert to searchable string
+                  return JSON.stringify(node.info)
+                }
+                return ''
+              })
+              .join(' ')
+              .toLowerCase()
+          : ''
 
-      return (
-        graph.metadata?.title?.toLowerCase().includes(query) ||
-        graph.metadata?.description?.toLowerCase().includes(query) ||
-        categories.some((cat) => cat.toLowerCase().includes(query)) ||
-        graph.id?.toLowerCase().includes(query) ||
-        nodeTypes.includes(query) || // Enable node type search
-        nodeLabels.includes(query) || // Enable node label search
-        nodeInfoContent.includes(query) // Enable node content search
-      )
-    })
+        return (
+          graph.metadata?.title?.toLowerCase().includes(query) ||
+          graph.metadata?.description?.toLowerCase().includes(query) ||
+          graph.metadata?.seoSlug?.toLowerCase().includes(query) || // Search by SEO slug
+          categories.some((cat) => cat.toLowerCase().includes(query)) ||
+          graph.id?.toLowerCase().includes(query) ||
+          nodeTypes.includes(query) || // Enable node type search
+          nodeLabels.includes(query) || // Enable node label search
+          nodeInfoContent.includes(query) // Enable node content search
+        )
+      })
+    }
   }
 
   // Apply sorting
@@ -2210,6 +2239,22 @@ const selectMetaArea = (area) => {
   portfolioStore.selectedMetaArea = area
   closeMobileMenu()
 }
+
+const filterBySEO = () => {
+  // Set a special search query to filter graphs with SEO slugs
+  portfolioStore.searchQuery = ':has-seo'
+  closeMobileMenu()
+  // Scroll to top to show filtered results
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const filterByMetaArea = (area) => {
+  // Filter by meta area without modifying search box (same as clicking sidebar)
+  portfolioStore.selectedMetaArea = area
+  closeMobileMenu()
+  // Scroll to top to show filtered results
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
 </script>
 
 <style scoped>
@@ -2243,6 +2288,16 @@ const selectMetaArea = (area) => {
   display: inline-block;
   vertical-align: middle;
   margin-bottom: 2px;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.cursor-pointer:hover {
+  opacity: 0.85;
+  transform: scale(1.05);
 }
 
 .graph-meta .badge.bg-primary {

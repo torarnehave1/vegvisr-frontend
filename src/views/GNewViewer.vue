@@ -264,8 +264,9 @@
           :currentGraph="{
             id: currentGraphId,
             title: graphTitle,
-            category: graphCategories.join(','),
-            metaArea: graphMetaAreas.join(','),
+            category: graphCategories.length > 0 ? '#' + graphCategories.join(' #') : '',
+            metaArea: graphMetaAreas.length > 0 ? '#' + graphMetaAreas.join(' #') : '',
+            description: graphData.metadata?.description || '',
             createdBy: graphCreatedBy,
           }"
         />
@@ -1699,6 +1700,14 @@
               </span>
               <small>Get insights, analysis, or factual information</small>
             </label>
+            <label class="mode-option">
+              <input type="radio" v-model="elaborateMode" value="template" />
+              <span class="mode-label">
+                <i class="bi bi-file-earmark-text"></i>
+                Use Structure as Template
+              </span>
+              <small>Apply this text's structure/pattern to new content</small>
+            </label>
           </div>
         </div>
 
@@ -1732,6 +1741,21 @@
           </small>
         </div>
 
+        <!-- Template Mode -->
+        <div v-if="elaborateMode === 'template'" class="mb-3">
+          <label for="templateContent" class="form-label"><strong>New content/topic to apply structure to:</strong></label>
+          <textarea
+            id="templateContent"
+            v-model="templateContent"
+            class="form-control"
+            rows="4"
+            placeholder="e.g., 'Week 5 - Building Resilience', 'Quarter 2 Results', or paste the subject/content you want to structure using the selected text as a template..."
+          ></textarea>
+          <small class="form-text text-muted">
+            The AI will analyze the structure and pattern of the selected text and apply it to your new content.
+          </small>
+        </div>
+
         <div v-if="elaboratedText" class="mb-3">
           <label class="form-label"><strong>AI Response:</strong></label>
           <div class="elaborated-text-preview">
@@ -1746,14 +1770,17 @@
         <button
           @click="performElaboration"
           class="btn btn-info"
-          :disabled="isElaborating || (!elaborateInstructions.trim() && !elaborateQuestion.trim())"
+          :disabled="isElaborating || 
+            (elaborateMode === 'expand' && !elaborateInstructions.trim()) ||
+            (elaborateMode === 'question' && !elaborateQuestion.trim()) ||
+            (elaborateMode === 'template' && !templateContent.trim())"
         >
           <i class="bi bi-hourglass-split" v-if="isElaborating"></i>
           <i class="bi bi-magic" v-else></i>
-          {{ isElaborating ? 'Processing...' : (elaborateMode === 'expand' ? 'Enhance Text' : 'Get Answer') }}
+          {{ isElaborating ? 'Processing...' : getButtonText() }}
         </button>
         <button
-          v-if="elaboratedText && elaborateMode === 'expand'"
+          v-if="elaboratedText && (elaborateMode === 'expand' || elaborateMode === 'template')"
           @click="applyElaboratedText"
           class="btn btn-success"
         >
@@ -2141,7 +2168,8 @@ const selectedAlternative = ref('')
 const showElaborateModal = ref(false)
 const elaborateInstructions = ref('')
 const elaborateQuestion = ref('')
-const elaborateMode = ref('expand') // 'expand' or 'question'
+const templateContent = ref('')
+const elaborateMode = ref('expand') // 'expand', 'question', or 'template'
 const elaboratedText = ref('')
 const isElaborating = ref(false)
 
@@ -4946,14 +4974,16 @@ const performElaboration = async () => {
   console.log('🎯 Selected text:', selectedText.value)
   console.log('🎯 Instructions:', elaborateInstructions.value)
   console.log('🎯 Question:', elaborateQuestion.value)
+  console.log('🎯 Template content:', templateContent.value)
 
-  const hasContent = elaborateMode.value === 'expand'
-    ? elaborateInstructions.value.trim()
-    : elaborateQuestion.value.trim()
+  const hasContent = 
+    (elaborateMode.value === 'expand' && elaborateInstructions.value.trim()) ||
+    (elaborateMode.value === 'question' && elaborateQuestion.value.trim()) ||
+    (elaborateMode.value === 'template' && templateContent.value.trim())
 
   if (!selectedText.value || !hasContent) {
     console.log('❌ Missing selected text or input')
-    statusMessage.value = '❌ Please select text and provide instructions/question'
+    statusMessage.value = '❌ Please select text and provide required input'
     setTimeout(() => {
       statusMessage.value = ''
     }, 3000)
@@ -4968,9 +4998,12 @@ const performElaboration = async () => {
     if (elaborateMode.value === 'expand') {
       context = `Document context: ${editingNode.value?.info || ''}\n\nText to enhance: "${selectedText.value}"`
       question = `Please expand and enhance the selected text according to these instructions: "${elaborateInstructions.value}". Maintain the original meaning but add the requested improvements, examples, or perspective. IMPORTANT: Return ONLY the enhanced text without any explanations, introductions, or meta-commentary. Do not include phrases like "Her er en utvidet versjon" or similar explanatory text.`
-    } else {
+    } else if (elaborateMode.value === 'question') {
       context = `Document context: ${editingNode.value?.info || ''}\n\nText in question: "${selectedText.value}"`
       question = `${elaborateQuestion.value} IMPORTANT: Provide a direct answer without explanations about what you're doing or how you're answering. Return only the requested content.`
+    } else if (elaborateMode.value === 'template') {
+      context = `Template structure to analyze: "${selectedText.value}"\n\nNew content to format: "${templateContent.value}"`
+      question = `Analyze the structure, pattern, format, and style of the template text. Then apply this exact structure to the new content provided. Maintain the same: 1) Section organization, 2) Paragraph structure, 3) Sentence patterns, 4) Formatting style, 5) Tone and voice. IMPORTANT: Return ONLY the newly formatted content without any explanations or meta-commentary about what you did.`
     }
 
     const response = await fetch('https://api.vegvisr.org/grok-ask', {
@@ -5011,6 +5044,13 @@ const performElaboration = async () => {
   } finally {
     isElaborating.value = false
   }
+}
+
+const getButtonText = () => {
+  if (elaborateMode.value === 'expand') return 'Enhance Text'
+  if (elaborateMode.value === 'question') return 'Get Answer'
+  if (elaborateMode.value === 'template') return 'Apply Structure'
+  return 'Process'
 }
 
 const applyElaboratedText = () => {
