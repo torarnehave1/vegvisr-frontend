@@ -766,47 +766,47 @@ export default {
     const loadAvailableMetaAreas = async () => {
       try {
         console.log('🔍 Loading available meta areas directly from API...')
-        
+
         // Fetch directly from API to bypass content filtering
         const response = await fetch(apiUrls.getKnowledgeGraphs())
         if (!response.ok) {
           console.error('❌ Failed to fetch graphs')
           return
         }
-        
+
         const data = await response.json()
         console.log('📊 API response:', data)
-        
+
         if (!data.results || data.results.length === 0) {
           console.warn('⚠️ No graphs in results')
           return
         }
-        
+
         const categories = new Set()
-        
+
         // Fetch full data for each graph to get metaArea
         const graphPromises = data.results.map(async (graph) => {
           try {
             const fullResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
             if (!fullResponse.ok) return null
-            
+
             const graphData = await fullResponse.json()
-            
+
             // Extract metaArea from metadata
             if (graphData.metadata?.metaArea) {
               console.log('✅ Found metaArea:', graphData.metadata.metaArea, 'in graph:', graphData.metadata?.title)
               categories.add(graphData.metadata.metaArea)
             }
-            
+
             return graphData
           } catch (error) {
             console.error('❌ Error fetching graph:', graph.id, error)
             return null
           }
         })
-        
+
         await Promise.all(graphPromises)
-        
+
         availableCategories.value = Array.from(categories)
         console.log('✅ Total unique meta areas found:', availableCategories.value.length, availableCategories.value)
       } catch (error) {
