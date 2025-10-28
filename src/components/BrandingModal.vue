@@ -728,8 +728,8 @@
 
   <!-- Menu Template Creator Modal -->
   <MenuTemplateCreator
-    v-if="isMenuTemplateCreatorOpen"
-    :template="selectedMenuTemplate"
+    :is-open="isMenuTemplateCreatorOpen"
+    :menu-template="selectedMenuTemplate"
     @close="closeMenuTemplateCreator"
     @saved="handleMenuTemplateSaved"
   />

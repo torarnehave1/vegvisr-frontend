@@ -160,8 +160,8 @@
 
         <!-- Menu Template Creator Modal -->
         <MenuTemplateCreator
-          v-if="isMenuTemplateCreatorOpen"
-          :template="currentTemplate"
+          :is-open="isMenuTemplateCreatorOpen"
+          :menu-template="currentTemplate"
           @close="closeMenuTemplateCreator"
           @saved="handleMenuTemplateSaved"
         />
