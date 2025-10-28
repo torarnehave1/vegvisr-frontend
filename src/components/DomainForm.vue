@@ -792,10 +792,15 @@ export default {
 
             const graphData = await fullResponse.json()
 
-            // Extract metaArea from metadata
+            // Extract metaArea from metadata and normalize it
             if (graphData.metadata?.metaArea) {
-              console.log('✅ Found metaArea:', graphData.metadata.metaArea, 'in graph:', graphData.metadata?.title)
-              categories.add(graphData.metadata.metaArea)
+              // Remove # if it exists at the start, store without #
+              let metaArea = graphData.metadata.metaArea.trim()
+              if (metaArea.startsWith('#')) {
+                metaArea = metaArea.substring(1)
+              }
+              console.log('✅ Found metaArea:', metaArea, 'in graph:', graphData.metadata?.title)
+              categories.add(metaArea)
             }
 
             return graphData
