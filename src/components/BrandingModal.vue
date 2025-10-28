@@ -286,14 +286,13 @@
                   type="text"
                   class="form-control"
                   v-model="metaAreaInput"
-                  placeholder="e.g., #Technology #Management #WebDesign"
+                  placeholder="e.g., #Technology #Management #WebDesign (press Enter to add)"
                   @input="onMetaAreaInput"
                   @keydown.tab.prevent="selectSuggestion"
-                  @keydown.enter.prevent="selectSuggestion"
+                  @keydown.enter.prevent="addMetaAreaFromInput"
                   @keydown.down.prevent="moveSuggestion(1)"
                   @keydown.up.prevent="moveSuggestion(-1)"
                   @blur="handleBlur"
-                  @change="parseMetaAreaInput"
                   autocomplete="off"
                 />
                 <ul v-if="showSuggestions" class="autocomplete-list">
