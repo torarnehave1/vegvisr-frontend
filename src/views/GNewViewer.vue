@@ -1770,7 +1770,7 @@
         <button
           @click="performElaboration"
           class="btn btn-info"
-          :disabled="isElaborating || 
+          :disabled="isElaborating ||
             (elaborateMode === 'expand' && !elaborateInstructions.trim()) ||
             (elaborateMode === 'question' && !elaborateQuestion.trim()) ||
             (elaborateMode === 'template' && !templateContent.trim())"
@@ -4976,7 +4976,7 @@ const performElaboration = async () => {
   console.log('🎯 Question:', elaborateQuestion.value)
   console.log('🎯 Template content:', templateContent.value)
 
-  const hasContent = 
+  const hasContent =
     (elaborateMode.value === 'expand' && elaborateInstructions.value.trim()) ||
     (elaborateMode.value === 'question' && elaborateQuestion.value.trim()) ||
     (elaborateMode.value === 'template' && templateContent.value.trim())

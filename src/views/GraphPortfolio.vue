@@ -491,8 +491,8 @@
                             </span>
                           </template>
                           <template v-if="graph.metadata?.seoSlug">
-                            <span 
-                              class="badge bg-info ms-2 cursor-pointer" 
+                            <span
+                              class="badge bg-info ms-2 cursor-pointer"
                               title="Click to show all graphs with SEO slugs"
                               @click="filterBySEO"
                             >
@@ -1299,7 +1299,7 @@ const filteredGraphs = computed(() => {
   // Apply search filter
   if (portfolioStore.searchQuery) {
     const query = portfolioStore.searchQuery.toLowerCase().trim()
-    
+
     // Check for special :has-seo filter
     if (query === ':has-seo') {
       filtered = filtered.filter((graph) => {
@@ -1312,10 +1312,10 @@ const filteredGraphs = computed(() => {
       filtered = filtered.filter((graph) => {
         const graphMetaArea = graph.metadata?.metaArea || ''
         // Normalize: remove # if it exists in the stored value
-        const normalizedMetaArea = graphMetaArea.startsWith('#') 
-          ? graphMetaArea.substring(1).toLowerCase() 
+        const normalizedMetaArea = graphMetaArea.startsWith('#')
+          ? graphMetaArea.substring(1).toLowerCase()
           : graphMetaArea.toLowerCase()
-        
+
         return normalizedMetaArea.includes(metaAreaSearch)
       })
     } else {
