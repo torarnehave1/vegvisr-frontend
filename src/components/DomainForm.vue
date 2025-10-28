@@ -181,14 +181,13 @@
                 type="text"
                 class="form-control"
                 v-model="metaAreaInput"
-                placeholder="e.g., #Technology #Management #WebDesign"
+                placeholder="e.g., #Technology #Management #WebDesign (press Enter to add)"
                 @input="onMetaAreaInput"
                 @keydown.tab.prevent="selectSuggestion"
-                @keydown.enter.prevent="selectSuggestion"
+                @keydown.enter.prevent="addMetaAreaFromInput"
                 @keydown.down.prevent="moveSuggestion(1)"
                 @keydown.up.prevent="moveSuggestion(-1)"
                 @blur="handleBlur"
-                @change="parseMetaAreaInput"
                 autocomplete="off"
               />
               <ul v-if="showSuggestions" class="autocomplete-list">
@@ -492,6 +491,7 @@ import { useUserStore } from '@/stores/userStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useDomainStore } from '@/stores/domainStore'
 import { useMenuTemplateStore } from '@/stores/menuTemplateStore'
+import { apiUrls } from '@/config/api'
 import AIImageModal from './AIImageModal.vue'
 import MenuTemplateCreator from './MenuTemplateCreator.vue'
 
@@ -765,23 +765,52 @@ export default {
     // Meta area handling
     const loadAvailableMetaAreas = async () => {
       try {
-        // Load from portfolio store
-        await portfolioStore.loadUserGraphs(userStore.email)
+        console.log('🔍 Loading available meta areas directly from API...')
+        
+        // Fetch directly from API to bypass content filtering
+        const response = await fetch(apiUrls.getKnowledgeGraphs())
+        if (!response.ok) {
+          console.error('❌ Failed to fetch graphs')
+          return
+        }
+        
+        const data = await response.json()
+        console.log('📊 API response:', data)
+        
+        if (!data.results || data.results.length === 0) {
+          console.warn('⚠️ No graphs in results')
+          return
+        }
+        
         const categories = new Set()
-
-        portfolioStore.userGraphs.forEach(graph => {
-          if (graph.nodes) {
-            graph.nodes.forEach(node => {
-              if (node.metaAreas && Array.isArray(node.metaAreas)) {
-                node.metaAreas.forEach(area => categories.add(area))
-              }
-            })
+        
+        // Fetch full data for each graph to get metaArea
+        const graphPromises = data.results.map(async (graph) => {
+          try {
+            const fullResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+            if (!fullResponse.ok) return null
+            
+            const graphData = await fullResponse.json()
+            
+            // Extract metaArea from metadata
+            if (graphData.metadata?.metaArea) {
+              console.log('✅ Found metaArea:', graphData.metadata.metaArea, 'in graph:', graphData.metadata?.title)
+              categories.add(graphData.metadata.metaArea)
+            }
+            
+            return graphData
+          } catch (error) {
+            console.error('❌ Error fetching graph:', graph.id, error)
+            return null
           }
         })
-
+        
+        await Promise.all(graphPromises)
+        
         availableCategories.value = Array.from(categories)
-      } catch {
-        console.error('Error loading meta areas')
+        console.log('✅ Total unique meta areas found:', availableCategories.value.length, availableCategories.value)
+      } catch (error) {
+        console.error('❌ Error loading meta areas:', error)
       }
     }
 
@@ -833,6 +862,33 @@ export default {
       setTimeout(() => {
         showSuggestions.value = false
       }, 200)
+    }
+
+    const addMetaAreaFromInput = () => {
+      // If suggestions are shown, select the highlighted one
+      if (showSuggestions.value && filteredSuggestions.value.length > 0) {
+        selectSuggestion()
+        return
+      }
+
+      // Otherwise parse the entire input for meta areas
+      const areas = metaAreaInput.value
+        .split(/\s+/)
+        .map((area) => area.trim())
+        .filter((area) => area.startsWith('#'))
+        .map((area) => area.substring(1))
+        .filter((area) => area.length > 0)
+
+      // Add each unique area to selected categories
+      areas.forEach(area => {
+        if (!formData.value.selectedCategories.includes(area)) {
+          formData.value.selectedCategories.push(area)
+        }
+      })
+
+      // Clear the input after adding
+      metaAreaInput.value = ''
+      showSuggestions.value = false
     }
 
     const parseMetaAreaInput = () => {
@@ -1070,6 +1126,7 @@ export default {
       selectSuggestion,
       moveSuggestion,
       handleBlur,
+      addMetaAreaFromInput,
       parseMetaAreaInput,
       removeMetaArea,
       validateFrontPageGraph,
