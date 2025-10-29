@@ -75,6 +75,13 @@
       <div v-if="currentGraph" class="card mt-4">
         <div class="card-header">
           <h3>🔧 SEO Configuration</h3>
+          <!-- Node-specific indicator - check store first, then query params -->
+          <div v-if="knowledgeGraphStore.seoContext.isNodeSpecific" class="badge bg-info text-white ms-2">
+            📝 Node-Specific SEO: {{ knowledgeGraphStore.seoContext.nodeLabel }}
+          </div>
+          <div v-else-if="route.query.nodeId" class="badge bg-info text-white ms-2">
+            📝 Node-Specific SEO: {{ route.query.nodeLabel }}
+          </div>
         </div>
         <div class="card-body">
           <!-- SEO Slug -->
@@ -434,12 +441,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 
 // Store
 const userStore = useUserStore()
+const knowledgeGraphStore = useKnowledgeGraphStore()
 
 // Route (for reading query parameters from GNewViewer)
 const route = useRoute()
@@ -494,6 +503,49 @@ const isConfigValid = computed(() => {
   return hasRequiredFields
 })
 
+// Helper function to clean markdown content and create description
+const cleanMarkdownForDescription = (content, maxLength = 300) => {
+  if (!content) return ''
+
+  let cleaned = content
+    // Remove markdown images: ![alt](url)
+    .replace(/!\[.*?\]\(.*?\)/g, '')
+    // Remove markdown links but keep text: [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Remove reference-style links: ][url] or [text][ref]
+    .replace(/\]\[[^\]]*\]/g, '')
+    // Remove remaining brackets that might be left over
+    .replace(/\[|\]/g, '')
+    // Remove markdown headings
+    .replace(/^#+\s+/gm, '')
+    // Remove markdown bold/italic
+    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+    // Remove markdown code blocks
+    .replace(/`{1,3}[^`]+`{1,3}/g, '')
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // If content is longer than maxLength, find a good breaking point
+  if (cleaned.length > maxLength) {
+    // Try to break at sentence end
+    const sentenceEnd = cleaned.substring(0, maxLength).lastIndexOf('. ')
+    if (sentenceEnd > maxLength * 0.7) {
+      return cleaned.substring(0, sentenceEnd + 1).trim()
+    }
+    // Otherwise break at word boundary
+    const lastSpace = cleaned.substring(0, maxLength).lastIndexOf(' ')
+    if (lastSpace > 0) {
+      return cleaned.substring(0, lastSpace).trim() + '...'
+    }
+    return cleaned.substring(0, maxLength).trim() + '...'
+  }
+
+  return cleaned
+}
+
 // Methods
 const loadGraph = async () => {
   if (!graphIdInput.value.trim()) return
@@ -514,12 +566,31 @@ const loadGraph = async () => {
     graphData.value = data
     currentGraph.value = graphIdInput.value.trim()
 
-    // Auto-fill SEO config from graph metadata
-    seoConfig.value.title = data.metadata?.title || ''
-    seoConfig.value.description = data.metadata?.description || ''
+    // Auto-fill SEO config from graph metadata OR node data
+    // First check Pinia store for node-specific context (preferred)
+    const storeContext = knowledgeGraphStore.seoContext
+    if (storeContext && storeContext.isNodeSpecific) {
+      // Use node-specific data from store
+      console.log('📝 Using Pinia store node-specific content for SEO description')
+      seoConfig.value.title = storeContext.nodeLabel || data.metadata?.title || ''
+
+      // Use helper function to clean markdown and create description (300 chars for Facebook)
+      seoConfig.value.description = cleanMarkdownForDescription(storeContext.nodeContent, 300)
+    } else if (route.query.nodeId && route.query.nodeContent) {
+      // Fallback: Check query params for node-specific mode (legacy)
+      console.log('📝 Using route.query node-specific content for SEO description (legacy)')
+      seoConfig.value.title = route.query.nodeLabel || data.metadata?.title || ''
+
+      // Use helper function to clean markdown and create description
+      seoConfig.value.description = cleanMarkdownForDescription(route.query.nodeContent, 300)
+    } else {
+      // Use graph-level metadata
+      seoConfig.value.title = data.metadata?.title || ''
+      seoConfig.value.description = data.metadata?.description || ''
+    }
 
     // Auto-generate slug from title
-    if (data.metadata?.title) {
+    if (seoConfig.value.title) {
       generateSlugFromTitle()
     }
 
@@ -539,7 +610,8 @@ const loadGraph = async () => {
 }
 
 const generateSlugFromTitle = () => {
-  const title = graphData.value.metadata?.title || ''
+  // Use the current SEO title (which might be node label or graph title)
+  const title = seoConfig.value.title || graphData.value.metadata?.title || ''
   if (!title) return
 
   // Convert to lowercase, replace spaces with hyphens, remove special chars
@@ -548,6 +620,7 @@ const generateSlugFromTitle = () => {
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
     .substring(0, 60) // Limit length
 
   seoConfig.value.slug = slug
@@ -584,17 +657,65 @@ const generateAIDescription = async () => {
   errorMessage.value = ''
 
   try {
-    // Call your existing AI summary service
+    // Prepare content for AI - use node content if in node-specific mode
+    let graphDataForAI
+    let graphMetadataForAI
+
+    // First check Pinia store for node-specific context (preferred)
+    const storeContext = knowledgeGraphStore.seoContext
+    if (storeContext && storeContext.isNodeSpecific) {
+      // Node-specific mode from store - create synthetic graph with single node
+      console.log('📝 Generating AI description from Pinia store node content')
+      graphDataForAI = {
+        nodes: [{
+          id: storeContext.nodeId,
+          label: storeContext.nodeLabel || '',
+          info: storeContext.nodeContent, // Full content, no truncation!
+          type: storeContext.nodeType || 'fulltext',
+          visible: true
+        }],
+        edges: []
+      }
+      graphMetadataForAI = {
+        title: storeContext.nodeLabel || '',
+        description: '',
+        category: ''
+      }
+    } else if (route.query.nodeId && route.query.nodeContent) {
+      // Fallback: Node-specific mode from query params (legacy)
+      console.log('📝 Generating AI description from route.query node content (legacy)')
+      graphDataForAI = {
+        nodes: [{
+          id: route.query.nodeId,
+          label: route.query.nodeLabel || '',
+          info: route.query.nodeContent,
+          type: 'fulltext',
+          visible: true
+        }],
+        edges: []
+      }
+      graphMetadataForAI = {
+        title: route.query.nodeLabel || '',
+        description: '',
+        category: ''
+      }
+    } else {
+      // Graph-level mode - use full graph data
+      graphDataForAI = graphData.value
+      graphMetadataForAI = graphData.value.metadata || {}
+    }
+
+    // Use the same endpoint as graph sharing for consistency and language detection
     const response = await fetch(
-      'https://knowledge-graph-worker.torarnehave.workers.dev/ai-summary',
+      'https://knowledge-graph-worker.torarnehave.workers.dev/generate-share-summary',
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          graphData: graphData.value,
-          maxLength: 160, // SEO-optimized length
+          graphData: graphDataForAI,
+          graphMetadata: graphMetadataForAI,
         }),
       }
     )
@@ -604,7 +725,10 @@ const generateAIDescription = async () => {
     }
 
     const result = await response.json()
-    seoConfig.value.description = result.summary || result.description || ''
+    const aiSummary = result.summary || ''
+
+    // Clean the AI-generated summary and trim to 300 chars for SEO
+    seoConfig.value.description = cleanMarkdownForDescription(aiSummary, 300)
 
     successMessage.value = 'AI description generated!'
     setTimeout(() => {
@@ -1039,26 +1163,87 @@ const copyToClipboard = async (text) => {
 
 // Load user's graphs on mount
 onMounted(async () => {
-  // Check if we have query parameters from GNewViewer
-  if (route.query.graphId) {
-    console.log('🎯 SEO Admin: Received graph context from GNewViewer:', route.query)
+  // Check if we have SEO context from Pinia store (preferred method)
+  const storeContext = knowledgeGraphStore.seoContext
 
-    // Pre-fill the graph ID
-    graphIdInput.value = route.query.graphId
+  if (storeContext && storeContext.isNodeSpecific) {
+    console.log('🎯 SEO Admin: Using Pinia store context for node:', storeContext.nodeId)
 
-    // Pre-fill SEO config with available data
-    if (route.query.title) {
-      seoConfig.value.title = route.query.title
-      // Generate slug from title
-      seoConfig.value.slug = route.query.title
+    // Pre-fill the graph ID from route
+    if (route.query.graphId) {
+      graphIdInput.value = route.query.graphId
+    }
+
+    // Pre-fill SEO config with node data from store
+    if (storeContext.nodeLabel) {
+      seoConfig.value.title = storeContext.nodeLabel
+      // Generate slug from node label
+      seoConfig.value.slug = storeContext.nodeLabel
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '')
     }
 
+    // Use full node content for description (no truncation!)
+    if (storeContext.nodeContent) {
+      // Use helper function to clean markdown and create description (300 chars for Facebook)
+      seoConfig.value.description = cleanMarkdownForDescription(storeContext.nodeContent, 300)
+    }
+
+    // Auto-load the graph
+    if (graphIdInput.value) {
+      await loadGraph()
+    }
+  } else if (route.query.graphId) {
+    // Fallback: Check if we have query parameters from GNewViewer (legacy method)
+    console.log('🎯 SEO Admin: Using route.query fallback:', route.query)
+
+    // Pre-fill the graph ID
+    graphIdInput.value = route.query.graphId
+
+    // Check if we're working with a specific node
+    if (route.query.nodeId) {
+      console.log('📝 SEO Admin: Node-specific context detected (legacy)')
+      console.log('Node ID:', route.query.nodeId)
+      console.log('Node Label:', route.query.nodeLabel)
+      console.log('Node Content:', route.query.nodeContent?.substring(0, 100) + '...')
+
+      // Pre-fill SEO config with node data
+      if (route.query.nodeLabel) {
+        seoConfig.value.title = route.query.nodeLabel
+        // Generate slug from node label
+        seoConfig.value.slug = route.query.nodeLabel
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+      }
+
+      // Use node content for description if available
+      if (route.query.nodeContent) {
+        // Use helper function to clean markdown and create description
+        seoConfig.value.description = cleanMarkdownForDescription(route.query.nodeContent, 300)
+      }
+    } else {
+      // Pre-fill SEO config with graph-level data
+      if (route.query.title) {
+        seoConfig.value.title = route.query.title
+        // Generate slug from title
+        seoConfig.value.slug = route.query.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+      }
+    }
+
     // Auto-load the graph data
     await loadGraph()
   }
+})
+
+// Clear SEO context when leaving the page
+onUnmounted(() => {
+  knowledgeGraphStore.clearSEOContext()
+  console.log('🧹 SEO Admin: Cleared SEO context on unmount')
 })
 </script>
 

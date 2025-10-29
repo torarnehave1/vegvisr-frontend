@@ -1,5 +1,24 @@
 <template>
   <div class="gnew-default-node" :class="nodeTypeClass">
+    <!-- Hover Toolbar for Fulltext Nodes -->
+    <div v-if="node.type === 'fulltext'" class="node-hover-toolbar">
+      <button
+        v-if="showControls"
+        @click="openNodeSEO"
+        class="toolbar-btn seo-btn"
+        title="SEO Settings for this node"
+      >
+        🔍
+      </button>
+      <button
+        @click="openNodeShare"
+        class="toolbar-btn share-btn"
+        title="Share this node"
+      >
+        🔗
+      </button>
+    </div>
+
     <!-- Node Header (Logged-in Users Only) -->
     <div v-if="showControls && node.label" class="node-header">
       <div class="node-title-section">
@@ -218,7 +237,7 @@ const props = defineProps({
 })
 
 // Emits
-const emit = defineEmits(['node-updated', 'node-deleted'])
+const emit = defineEmits(['node-updated', 'node-deleted', 'open-node-seo', 'open-node-share'])
 
 // Content parsing function - matches GraphViewer preprocessMarkdown
 const parseFormattedElements = (text) => {
@@ -1223,6 +1242,20 @@ const deleteNode = () => {
   }
 }
 
+// SEO modal for individual node
+const openNodeSEO = () => {
+  console.log('🔍 Opening SEO modal for node:', props.node.id)
+  // Emit event to GNewViewer to handle SEO modal
+  emit('open-node-seo', props.node)
+}
+
+// Share functionality for individual node
+const openNodeShare = () => {
+  console.log('🔗 Opening Share options for node:', props.node.id)
+  // Emit event to GNewViewer to handle Share modal
+  emit('open-node-share', props.node)
+}
+
 const convertStylesToString = (styleObj) => {
   if (!styleObj || typeof styleObj !== 'object') return ''
 
@@ -1247,6 +1280,60 @@ const convertStylesToString = (styleObj) => {
 .gnew-default-node:hover {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   transform: translateY(-1px);
+}
+
+/* Hover Toolbar for Fulltext Nodes */
+.node-hover-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 120px; /* Position to the left of edit/delete buttons */
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+/* When node has no header, position at far right */
+.gnew-default-node:not(:has(.node-header)) .node-hover-toolbar {
+  right: 12px;
+}
+
+.gnew-default-node:hover .node-hover-toolbar {
+  opacity: 1;
+}
+
+.toolbar-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.toolbar-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.seo-btn:hover {
+  background: #f0f8ff;
+}
+
+.share-btn:hover {
+  background: #f0fff4;
 }
 
 .node-header {
