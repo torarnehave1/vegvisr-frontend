@@ -48,6 +48,8 @@
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
             @node-created="handleNodeCreated"
+            @open-node-seo="handleOpenNodeSEO"
+            @open-node-share="handleOpenNodeShare"
           />
         </div>
 
@@ -226,7 +228,6 @@
           @toggle="toggleMobileMenu"
           @menu-item-clicked="handleMenuItemClick"
         />
-        <h1 class="header-title">🧪 GNew Graph Viewer</h1>
 
         <!-- Admin Actions -->
         <div class="header-actions">
@@ -250,6 +251,18 @@
           >
             <i class="bi bi-printer"></i>
             Print
+          </button>
+
+          <!-- Graph Operations Button (Superadmin only) -->
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="openGraphOperationsModal"
+            class="btn btn-outline-info btn-sm"
+            title="Batch operations on all nodes"
+            :disabled="!currentGraphId"
+          >
+            <i class="bi bi-lightning-fill"></i>
+            Graph Operations
           </button>
         </div>
       </div>
@@ -1338,6 +1351,8 @@
               @open-reorder="openReorderModal"
               @format-node="handleFormatNode"
               @quick-format="handleQuickFormat"
+              @open-node-seo="handleOpenNodeSEO"
+              @open-node-share="handleOpenNodeShare"
               @copy-node="handleCopyNode"
               @duplicate-node="handleDuplicateNode"
             />
@@ -1791,6 +1806,202 @@
     </div>
   </div>
 
+  <!-- Graph Operations Modal (Superadmin only) -->
+  <div
+    v-if="showGraphOperationsModal && userStore.role === 'Superadmin'"
+    class="modal-overlay"
+    @click.self="closeGraphOperationsModal"
+  >
+    <div class="graph-operations-modal" @click.stop>
+      <div class="modal-header">
+        <h3>⚡ Graph Operations</h3>
+        <button @click="closeGraphOperationsModal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3">
+          <i class="bi bi-info-circle"></i> Apply AI operations to all fulltext and title nodes in this graph
+        </p>
+
+        <!-- Operation Selection -->
+        <div class="mb-4">
+          <label class="form-label"><strong>Choose Operation:</strong></label>
+          <div class="operation-selection">
+            <label class="operation-option">
+              <input type="radio" v-model="graphOperation" value="add-quote" />
+              <span class="operation-label">
+                <i class="bi bi-quote"></i>
+                Add Quote to Each Node
+              </span>
+              <small>AI will add a relevant quote at the bottom of each fulltext node</small>
+            </label>
+            <label class="operation-option">
+              <input type="radio" v-model="graphOperation" value="find-replace" />
+              <span class="operation-label">
+                <i class="bi bi-arrow-left-right"></i>
+                Find & Replace (Instant)
+              </span>
+              <small>Direct string replacement - fast and reliable, no AI needed</small>
+            </label>
+            <label class="operation-option">
+              <input type="radio" v-model="graphOperation" value="standardize-format" />
+              <span class="operation-label">
+                <i class="bi bi-align-center"></i>
+                Standardize Formatting
+              </span>
+              <small>Ensure consistent formatting, headings, and structure across all nodes</small>
+            </label>
+            <label class="operation-option">
+              <input type="radio" v-model="graphOperation" value="add-header-images" />
+              <span class="operation-label">
+                <i class="bi bi-image"></i>
+                Add Header Images (AI + Unsplash)
+              </span>
+              <small>AI analyzes content and adds relevant Unsplash image at the top of each node - instant and automatic</small>
+            </label>
+          </div>
+        </div>
+
+        <!-- Operation-specific inputs -->
+        <div v-if="graphOperation === 'add-quote'" class="mb-3">
+          <label class="form-label"><strong>Quote Placement:</strong></label>
+          <select v-model="quotePosition" class="form-select mb-2">
+            <option value="bottom">At the bottom of each node</option>
+            <option value="top">At the top of each node</option>
+          </select>
+          <label class="form-label"><strong>Quote Style Instructions (optional):</strong></label>
+          <textarea
+            v-model="quoteInstructions"
+            class="form-control"
+            rows="2"
+            placeholder="e.g., 'Use inspirational quotes', 'Include author name', 'Keep it short and relevant'..."
+          ></textarea>
+        </div>
+
+        <div v-if="graphOperation === 'find-replace'" class="mb-3">
+          <label class="form-label"><strong>Find Text:</strong></label>
+          <input
+            v-model="findText"
+            type="text"
+            class="form-control mb-2"
+            placeholder="e.g., 'SlowYou'"
+          />
+          <label class="form-label"><strong>Replace With:</strong></label>
+          <input
+            v-model="replaceText"
+            type="text"
+            class="form-control"
+            placeholder="e.g., 'SlowYou™'"
+          />
+          <small class="text-muted d-block mt-2">
+            <i class="bi bi-lightning-charge"></i> Searches in both node content and labels. Uses fast direct string replacement (no AI)
+          </small>
+        </div>
+
+        <div v-if="graphOperation === 'standardize-format'" class="mb-3">
+          <label class="form-label"><strong>Formatting Rules:</strong></label>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="formatOptions.headings" id="formatHeadings">
+            <label class="form-check-label" for="formatHeadings">
+              Standardize heading levels (H1, H2, H3...)
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="formatOptions.lists" id="formatLists">
+            <label class="form-check-label" for="formatLists">
+              Standardize bullet points and numbered lists
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="formatOptions.emphasis" id="formatEmphasis">
+            <label class="form-check-label" for="formatEmphasis">
+              Standardize bold/italic emphasis
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="formatOptions.paragraphs" id="formatParagraphs">
+            <label class="form-check-label" for="formatParagraphs">
+              Add consistent paragraph spacing
+            </label>
+          </div>
+          <label class="form-label mt-3"><strong>Additional Instructions:</strong></label>
+          <textarea
+            v-model="formatInstructions"
+            class="form-control"
+            rows="2"
+            placeholder="e.g., 'Use sentence case for headings', 'Add line breaks between sections'..."
+          ></textarea>
+        </div>
+
+        <div v-if="graphOperation === 'add-header-images'" class="mb-3">
+          <label class="form-label"><strong>Image Settings:</strong></label>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="replaceExistingImages" id="replaceExisting">
+            <label class="form-check-label" for="replaceExisting">
+              Replace existing header images
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" v-model="useImgix" id="useImgix" checked>
+            <label class="form-check-label" for="useImgix">
+              Use Imgix for image optimization (recommended)
+            </label>
+          </div>
+          <label class="form-label mt-2"><strong>Image Size:</strong></label>
+          <select v-model="headerImageSize" class="form-select">
+            <option value="1080">Standard (1080px)</option>
+            <option value="1920">Large (1920px)</option>
+            <option value="800">Small (800px)</option>
+          </select>
+          <small class="text-muted d-block mt-2">
+            <i class="bi bi-magic"></i> AI will analyze each node's content and select the most relevant Unsplash image. Images are added at the top of each node automatically.
+          </small>
+        </div>
+
+        <!-- Preview section -->
+        <div v-if="operationPreview" class="mb-3">
+          <label class="form-label"><strong>Preview (First Node):</strong></label>
+          <div class="preview-box">
+            <div class="preview-before">
+              <strong>Before:</strong>
+              <pre>{{ operationPreview.before }}</pre>
+            </div>
+            <div class="preview-after">
+              <strong>After:</strong>
+              <pre>{{ operationPreview.after }}</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status message -->
+        <div v-if="operationStatus" class="alert" :class="operationStatus.type === 'success' ? 'alert-success' : 'alert-info'">
+          {{ operationStatus.message }}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeGraphOperationsModal" class="btn btn-secondary">
+          Cancel
+        </button>
+        <button
+          v-if="graphOperation !== 'find-replace' && graphOperation !== 'add-header-images'"
+          @click="previewGraphOperation"
+          class="btn btn-info"
+          :disabled="isProcessingGraphOperation || !isOperationValid"
+        >
+          <i class="bi bi-eye"></i>
+          Preview Changes
+        </button>
+        <button
+          @click="applyGraphOperation"
+          class="btn btn-success"
+          :disabled="isProcessingGraphOperation || (graphOperation !== 'find-replace' && graphOperation !== 'add-header-images' && !operationPreview) || !isOperationValid"
+        >
+          <i class="bi bi-check-circle"></i>
+          {{ isProcessingGraphOperation ? 'Processing...' : (graphOperation === 'find-replace' ? 'Replace All' : graphOperation === 'add-header-images' ? 'Add Images to All' : 'Apply to All Nodes') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Copy Node Modal -->
   <CopyNodeModal
     ref="copyNodeModal"
@@ -1798,6 +2009,62 @@
     :current-graph-id="route.query.graphId"
     @node-copied="handleNodeCopied"
   />
+
+  <!-- Node Share Modal -->
+  <Teleport to="body">
+    <div v-if="isNodeShareModalOpen" class="modal-overlay node-share-overlay" @click.self="closeNodeShareModal">
+      <div class="modal-content node-share-modal">
+        <div class="modal-header">
+          <h3>🔗 Share This Node</h3>
+          <button @click="closeNodeShareModal" class="btn-close">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="share-section mb-4">
+            <label class="form-label"><strong>Direct Link:</strong></label>
+            <div class="input-group">
+              <input
+                :value="shareUrl"
+                type="text"
+                class="form-control"
+                readonly
+              />
+              <button @click="copyShareUrl" class="btn btn-outline-primary">
+                <i class="bi bi-clipboard"></i> Copy
+              </button>
+            </div>
+            <small v-if="copySuccess" class="text-success">✅ Copied to clipboard!</small>
+          </div>
+
+          <div class="share-section mb-4">
+            <label class="form-label"><strong>Copy Content:</strong></label>
+            <button @click="copyNodeContent" class="btn btn-outline-secondary w-100">
+              <i class="bi bi-file-text"></i> Copy Node Content as Text
+            </button>
+          </div>
+
+          <div class="share-section">
+            <label class="form-label"><strong>Share on Social Media:</strong></label>
+            <div class="social-buttons">
+              <button @click="shareToSocial('twitter')" class="btn btn-social btn-twitter">
+                <i class="bi bi-twitter"></i> Twitter
+              </button>
+              <button @click="shareToSocial('facebook')" class="btn btn-social btn-facebook">
+                <i class="bi bi-facebook"></i> Facebook
+              </button>
+              <button @click="shareToSocial('linkedin')" class="btn btn-social btn-linkedin">
+                <i class="bi bi-linkedin"></i> LinkedIn
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="closeNodeShareModal" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -2173,6 +2440,35 @@ const elaborateMode = ref('expand') // 'expand', 'question', or 'template'
 const elaboratedText = ref('')
 const isElaborating = ref(false)
 
+// Graph Operations functionality (Superadmin only)
+const showGraphOperationsModal = ref(false)
+const graphOperation = ref('add-quote') // 'add-quote', 'find-replace', 'standardize-format'
+const isProcessingGraphOperation = ref(false)
+const operationStatus = ref(null)
+const operationPreview = ref(null)
+
+// Add Quote operation
+const quotePosition = ref('bottom')
+const quoteInstructions = ref('')
+
+// Find & Replace operation
+const findText = ref('')
+const replaceText = ref('')
+
+// Standardize Format operation
+const formatOptions = ref({
+  headings: true,
+  lists: true,
+  emphasis: true,
+  paragraphs: true
+})
+const formatInstructions = ref('')
+
+// Add Header Images operation
+const replaceExistingImages = ref(false)
+const useImgix = ref(true)
+const headerImageSize = ref('1080')
+
 // Reorder modal functionality
 const isReorderModalOpen = ref(false)
 const reorderableNodes = ref([])
@@ -2202,7 +2498,7 @@ const sortedNodes = computed(() => {
   return visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 })
 
-// AI Rewrite computed properties
+// AI Elaborate computed properties
 const hasSelectedText = computed(() => {
   return selectedText.value.trim().length > 0
 })
@@ -2210,6 +2506,23 @@ const hasSelectedText = computed(() => {
 const truncateSelectedText = computed(() => {
   if (selectedText.value.length <= 50) return selectedText.value
   return selectedText.value.substring(0, 50) + '...'
+})
+
+// Graph Operations computed property
+const isOperationValid = computed(() => {
+  if (graphOperation.value === 'add-quote') {
+    return true // No required inputs for add quote
+  }
+  if (graphOperation.value === 'find-replace') {
+    return findText.value.trim() !== '' && replaceText.value.trim() !== ''
+  }
+  if (graphOperation.value === 'standardize-format') {
+    return Object.values(formatOptions.value).some(v => v) // At least one option selected
+  }
+  if (graphOperation.value === 'add-header-images') {
+    return true // No required inputs
+  }
+  return false
 })
 
 // Mobile device detection
@@ -5091,6 +5404,457 @@ const applyElaboratedText = () => {
   }, 3000)
 }
 
+// ============================================
+// Graph Operations Functions (Superadmin only)
+// ============================================
+
+const openGraphOperationsModal = () => {
+  if (userStore.role !== 'Superadmin') {
+    console.error('❌ Graph operations require Superadmin role')
+    return
+  }
+
+  if (!currentGraphId.value) {
+    statusMessage.value = '❌ No graph loaded'
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+    return
+  }
+
+  showGraphOperationsModal.value = true
+  operationPreview.value = null
+  operationStatus.value = null
+
+  // Reset operation-specific fields
+  quotePosition.value = 'bottom'
+  quoteInstructions.value = ''
+  findText.value = ''
+  replaceText.value = ''
+  formatOptions.value = {
+    headings: true,
+    lists: true,
+    emphasis: true,
+    paragraphs: true
+  }
+  formatInstructions.value = ''
+  replaceExistingImages.value = false
+  useImgix.value = true
+  headerImageSize.value = '1080'
+
+  console.log('✅ Graph Operations modal opened')
+}
+
+const closeGraphOperationsModal = () => {
+  showGraphOperationsModal.value = false
+  operationPreview.value = null
+  operationStatus.value = null
+}
+
+const getFulltextNodes = () => {
+  // Use graphData (local reactive state) which has flatter structure
+  if (!graphData.value.nodes || graphData.value.nodes.length === 0) {
+    return []
+  }
+
+  // Include both fulltext and title nodes
+  const fulltextNodes = graphData.value.nodes
+    .filter(node => {
+      const isTextNode = node.type === 'fulltext' || node.type === 'title'
+      const isVisible = node.visible !== false
+      return isTextNode && isVisible
+    })
+
+  return fulltextNodes
+}
+
+const previewGraphOperation = async () => {
+  const fulltextNodes = getFulltextNodes()
+
+  if (fulltextNodes.length === 0) {
+    operationStatus.value = {
+      type: 'info',
+      message: '❌ No fulltext or title nodes found in this graph'
+    }
+    return
+  }
+
+  isProcessingGraphOperation.value = true
+  operationStatus.value = {
+    type: 'info',
+    message: `⏳ Generating preview for first node...`
+  }
+
+  try {
+    const firstNode = fulltextNodes[0]
+    const processedText = await processNodeWithOperation(firstNode.info, graphOperation.value)
+
+    operationPreview.value = {
+      before: firstNode.info.substring(0, 300) + (firstNode.info.length > 300 ? '...' : ''),
+      after: processedText.substring(0, 300) + (processedText.length > 300 ? '...' : '')
+    }
+
+    operationStatus.value = {
+      type: 'success',
+      message: `✅ Preview ready. Operation will affect ${fulltextNodes.length} node(s)`
+    }
+  } catch (error) {
+    console.error('Preview error:', error)
+    operationStatus.value = {
+      type: 'info',
+      message: `❌ Preview failed: ${error.message}`
+    }
+  } finally {
+    isProcessingGraphOperation.value = false
+  }
+}
+
+const processNodeWithOperation = async (nodeText, operation) => {
+  // Find & Replace: Use direct string replacement (fast, no AI needed)
+  if (operation === 'find-replace') {
+    // Simple direct replacement - instant, no API calls needed
+    const searchText = findText.value
+    const replacement = replaceText.value
+
+    // Case-sensitive replacement of all occurrences
+    const regex = new RegExp(searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+    return nodeText.replace(regex, replacement)
+  }
+
+  // AI-powered operations: add-quote and standardize-format
+  let context, question
+
+  if (operation === 'add-quote') {
+    context = `Node content: "${nodeText}"`
+    const positionText = quotePosition.value === 'top' ? 'at the beginning' : 'at the end'
+    const instructions = quoteInstructions.value ? ` Instructions: ${quoteInstructions.value}` : ''
+    question = `Add a relevant, inspirational quote ${positionText} of this text.${instructions} Format the quote nicely with proper attribution (author name). Return the complete text with the quote added.`
+  }
+  else if (operation === 'standardize-format') {
+    const options = []
+    if (formatOptions.value.headings) options.push('headings (H1, H2, H3)')
+    if (formatOptions.value.lists) options.push('bullet points and numbered lists')
+    if (formatOptions.value.emphasis) options.push('bold/italic emphasis')
+    if (formatOptions.value.paragraphs) options.push('paragraph spacing')
+
+    context = `Text to format: "${nodeText}"`
+    const instructions = formatInstructions.value ? ` Additional instructions: ${formatInstructions.value}` : ''
+    question = `Standardize the formatting of this text. Focus on: ${options.join(', ')}.${instructions} Ensure consistent style throughout. Return the complete formatted text.`
+  }
+
+  const response = await fetch('https://api.vegvisr.org/grok-ask', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      context: context,
+      question: question
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const rawText = data.result || data.response || data.text || nodeText
+
+  // Decode HTML entities
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = rawText
+  return textarea.value
+}
+
+// Helper function to generate Unsplash search query using AI
+const generateUnsplashQuery = async (nodeContent) => {
+  try {
+    // Extract first 500 characters for context
+    const content = nodeContent.substring(0, 500)
+
+    const response = await fetch('https://api.vegvisr.org/grok-ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        context: `Content: "${content}"`,
+        question: 'Generate a short, concise Unsplash search query (1-3 words) that best represents this content. Return ONLY the search query, nothing else. Examples: "earthing", "meditation nature", "yoga sunset"'
+      }),
+    })
+
+    if (!response.ok) return null
+
+    const data = await response.json()
+    let query = data.result || data.response || data.text || ''
+
+    // Clean up the query
+    query = query.replace(/['"]/g, '').trim().toLowerCase()
+    console.log('🔍 Generated Unsplash query:', query)
+    return query
+  } catch (error) {
+    console.error('Error generating Unsplash query:', error)
+    return null
+  }
+}
+
+// Helper function to fetch image from Unsplash using the same API as ImageSelector
+const fetchUnsplashImage = async (query) => {
+  try {
+    console.log('🔍 Searching Unsplash for:', query)
+
+    // Use the same endpoint as ImageSelector component
+    const response = await fetch('https://api.vegvisr.org/unsplash-search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query,
+        count: 1, // We only need the first result
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Unsplash search failed: ${response.status} ${response.statusText}`)
+    }
+
+    const data = await response.json()
+
+    if (!data.images || data.images.length === 0) {
+      console.warn('⚠️ No images found for query:', query)
+      return null
+    }
+
+    // Get the first image result
+    const image = data.images[0]
+    const imageUrl = image.url // This is already the proper Unsplash URL format
+
+    console.log('✅ Found Unsplash image:', imageUrl)
+
+    // Track download for Unsplash compliance (same as ImageSelector does)
+    if (image.download_location) {
+      try {
+        await fetch('https://api.vegvisr.org/unsplash-download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            download_location: image.download_location,
+          }),
+        })
+        console.log('📊 Unsplash download tracked')
+      } catch (err) {
+        console.warn('⚠️ Failed to track download:', err)
+      }
+    }
+
+    return imageUrl
+  } catch (error) {
+    console.error('❌ Error fetching Unsplash image:', error)
+    return null
+  }
+}
+
+// Helper function to save graph after batch operations
+const saveGraphAfterOperation = async (nodeCount) => {
+  try {
+    console.log(`💾 Saving graph with ${nodeCount} updated nodes...`)
+
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: graphData.value,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save the graph after operation.')
+    }
+
+    await response.json()
+
+    // Update the knowledge graph store
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    console.log('✅ Graph saved successfully')
+
+    // Update status message to confirm save
+    setTimeout(() => {
+      statusMessage.value = statusMessage.value + ' (Saved)'
+      setTimeout(() => { statusMessage.value = '' }, 3000)
+    }, 500)
+
+  } catch (error) {
+    console.error('❌ Error saving graph after operation:', error)
+    statusMessage.value = `⚠️ Operation completed but failed to save: ${error.message}`
+    setTimeout(() => { statusMessage.value = '' }, 5000)
+  }
+}
+
+const applyGraphOperation = async () => {
+  const fulltextNodes = getFulltextNodes()
+
+  if (fulltextNodes.length === 0) {
+    operationStatus.value = {
+      type: 'info',
+      message: '❌ No fulltext nodes to process'
+    }
+    return
+  }
+
+  isProcessingGraphOperation.value = true
+  let processedCount = 0
+
+  try {
+    // For find-replace, process all nodes instantly (no API calls)
+    if (graphOperation.value === 'find-replace') {
+      // Prepare regex for replacement
+      const searchText = findText.value
+      const replacement = replaceText.value
+      const regex = new RegExp(searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+
+      let replacementCount = 0
+
+      // Direct string replacement - updates nodes in place
+      for (const nodeData of fulltextNodes) {
+        let nodeChanged = false
+
+        // Replace in info field (main content)
+        if (nodeData.info && nodeData.info.includes(searchText)) {
+          const before = nodeData.info
+          nodeData.info = nodeData.info.replace(regex, replacement)
+          if (before !== nodeData.info) {
+            nodeChanged = true
+            replacementCount++
+          }
+        }
+
+        // Always replace in label field too
+        if (nodeData.label && nodeData.label.includes(searchText)) {
+          const before = nodeData.label
+          nodeData.label = nodeData.label.replace(regex, replacement)
+          if (before !== nodeData.label) {
+            nodeChanged = true
+            if (!nodeChanged) replacementCount++ // Only count once per node
+          }
+        }
+
+        if (nodeChanged) processedCount++
+      }
+
+      // Close modal immediately and show success message
+      closeGraphOperationsModal()
+      statusMessage.value = `✅ Replaced in ${processedCount} node(s) (${replacementCount} occurrence(s))`
+
+      // Save the graph to backend
+      await saveGraphAfterOperation(processedCount)
+      return
+    }
+    // For add-header-images, process all nodes with AI + Unsplash (instant)
+    else if (graphOperation.value === 'add-header-images') {
+      for (let i = 0; i < fulltextNodes.length; i++) {
+        const nodeData = fulltextNodes[i]
+        operationStatus.value = {
+          type: 'info',
+          message: `⏳ Adding image to node ${i + 1} of ${fulltextNodes.length}...`
+        }
+
+        // Check if node already has a header image
+        const hasHeaderImage = nodeData.info && nodeData.info.trim().startsWith('![Image](')
+
+        if (hasHeaderImage && !replaceExistingImages.value) {
+          console.log(`Skipping node ${nodeData.id} - already has header image`)
+          continue
+        }
+
+        // Use AI to generate search query based on node content
+        const searchQuery = await generateUnsplashQuery(nodeData.info)
+
+        if (searchQuery) {
+          // Fetch image from Unsplash API (same as ImageSelector component)
+          const imageUrl = await fetchUnsplashImage(searchQuery)
+
+          if (imageUrl) {
+            // Add or replace header image
+            if (hasHeaderImage && replaceExistingImages.value) {
+              // Replace existing image (first line)
+              const lines = nodeData.info.split('\n')
+              lines[0] = `![Image](${imageUrl})`
+              nodeData.info = lines.join('\n')
+            } else {
+              // Add image at the top
+              nodeData.info = `![Image](${imageUrl})\n\n${nodeData.info}`
+            }
+            processedCount++
+          }
+        }
+
+        // Small delay to respect API rate limits
+        await new Promise(resolve => setTimeout(resolve, 300))
+      }
+
+      // Close modal and show success
+      closeGraphOperationsModal()
+      statusMessage.value = `✅ Added header images to ${processedCount} node(s)`
+
+      // Save the graph to backend
+      await saveGraphAfterOperation(processedCount)
+      return
+    }
+    // For AI operations (add-quote, standardize-format), process with delays
+    else {
+      for (let i = 0; i < fulltextNodes.length; i++) {
+        const nodeData = fulltextNodes[i]
+        operationStatus.value = {
+          type: 'info',
+          message: `⏳ Processing node ${i + 1} of ${fulltextNodes.length}...`
+        }
+
+        const processedText = await processNodeWithOperation(nodeData.info, graphOperation.value)
+        nodeData.info = processedText // Updates graphData directly
+        processedCount++
+
+        // Delay to avoid rate limiting (only for AI operations)
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    operationStatus.value = {
+      type: 'success',
+      message: `✅ Successfully processed ${processedCount} node(s)!`
+    }
+
+    // Close modal after a brief delay
+    setTimeout(() => {
+      closeGraphOperationsModal()
+      statusMessage.value = `✅ Graph operation complete: ${processedCount} nodes updated`
+    }, 2000)
+
+    // Save the graph to backend
+    await saveGraphAfterOperation(processedCount)
+
+  } catch (error) {
+    console.error('Graph operation error:', error)
+    operationStatus.value = {
+      type: 'info',
+      message: `❌ Operation failed after ${processedCount} nodes: ${error.message}`
+    }
+  } finally {
+    isProcessingGraphOperation.value = false
+  }
+}
+
+// ============================================
+// End Graph Operations
+// ============================================
+
+
 // Color picker methods
 const updateSelectedColor = (event) => {
   selectedColor.value = event.target.value
@@ -5475,6 +6239,128 @@ const handleNodeCreated = async (newNode) => {
     }, 5000)
   }
 }
+
+// ============================================
+// Node-Level SEO and Share Functionality
+// ============================================
+
+// Reactive state for node Share modal
+const isNodeShareModalOpen = ref(false)
+const currentNodeForShare = ref(null)
+const shareUrl = ref('')
+const copySuccess = ref(false)
+
+// Handle opening node SEO - navigates to SEO Admin page
+const handleOpenNodeSEO = (node) => {
+  console.log('🔍 Opening SEO admin for node:', node.id)
+
+  // Navigate to SEO admin with both graph and node context
+  if (!currentGraphId.value) {
+    alert('No graph loaded for SEO administration.')
+    return
+  }
+
+  // Extract node content for SEO generation
+  const nodeContent = node.info || ''
+  const nodeLabel = node.label || 'Untitled Node'
+
+  // Store node SEO context in Pinia (no truncation needed)
+  knowledgeGraphStore.setSEOContext({
+    nodeId: node.id,
+    nodeLabel: nodeLabel,
+    nodeContent: nodeContent,
+    nodeType: node.type || 'fulltext'
+  })
+
+  // Navigate to SEO admin with minimal query params
+  const route = {
+    name: 'seo-admin',
+    query: {
+      graphId: currentGraphId.value,
+      nodeId: node.id // Keep for backward compatibility
+    }
+  }
+
+  console.log('🎯 Navigating to SEO admin with node context stored in Pinia')
+  router.push(route)
+}
+
+// Handle opening node Share modal
+const handleOpenNodeShare = (node) => {
+  console.log('🔗 Opening Share modal for node:', node.id)
+  currentNodeForShare.value = node
+
+  // Generate share URL with node anchor
+  const baseUrl = window.location.origin + window.location.pathname
+  shareUrl.value = `${baseUrl}#node-${node.id}`
+
+  isNodeShareModalOpen.value = true
+  copySuccess.value = false
+}
+
+// Close node Share modal
+const closeNodeShareModal = () => {
+  isNodeShareModalOpen.value = false
+  currentNodeForShare.value = null
+  copySuccess.value = false
+}
+
+// Copy share URL to clipboard
+const copyShareUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(shareUrl.value)
+    copySuccess.value = true
+    setTimeout(() => { copySuccess.value = false }, 2000)
+  } catch (error) {
+    console.error('Failed to copy URL:', error)
+  }
+}
+
+// Copy node content as text
+const copyNodeContent = async () => {
+  if (!currentNodeForShare.value) return
+
+  try {
+    let content = ''
+    if (currentNodeForShare.value.label) {
+      content += `# ${currentNodeForShare.value.label}\n\n`
+    }
+    content += currentNodeForShare.value.info || ''
+
+    await navigator.clipboard.writeText(content)
+    copySuccess.value = true
+    setTimeout(() => { copySuccess.value = false }, 2000)
+  } catch (error) {
+    console.error('Failed to copy content:', error)
+  }
+}
+
+// Share to social media
+const shareToSocial = (platform) => {
+  const url = encodeURIComponent(shareUrl.value)
+  const title = encodeURIComponent(currentNodeForShare.value?.label || 'Check this out')
+
+  let shareLink = ''
+  switch (platform) {
+    case 'twitter':
+      shareLink = `https://twitter.com/intent/tweet?url=${url}&text=${title}`
+      break
+    case 'facebook':
+      shareLink = `https://www.facebook.com/sharer/sharer.php?u=${url}`
+      break
+    case 'linkedin':
+      shareLink = `https://www.linkedin.com/sharing/share-offsite/?url=${url}`
+      break
+  }
+
+  if (shareLink) {
+    window.open(shareLink, '_blank', 'width=600,height=400')
+  }
+}
+
+// ============================================
+// End Node-Level SEO and Share
+// ============================================
 
 // Watchers
 watch(() => creatorImageUrl.value, validateCreatorImageUrl)
@@ -6946,7 +7832,9 @@ const saveAttribution = async () => {
 }
 
 .gnew-header {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 30px;
   padding: 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -6956,9 +7844,11 @@ const saveAttribution = async () => {
 }
 
 .gnew-header h1 {
-  margin: 0 0 10px 0;
+  margin: 0;
   font-size: 2.5rem;
   font-weight: 700;
+  flex-grow: 1;
+  text-align: center;
 }
 
 .gnew-subtitle {
@@ -8553,6 +9443,373 @@ const saveAttribution = async () => {
   color: white;
 }
 
+/* ============================================
+   Graph Operations Modal Styles
+   ============================================ */
+
+.graph-operations-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 700px;
+  width: 90%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-operations-modal .modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px 12px 0 0;
+}
+
+.graph-operations-modal .modal-header h3 {
+  margin: 0;
+  color: white;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.graph-operations-modal .btn-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 28px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.graph-operations-modal .btn-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(90deg);
+}
+
+.graph-operations-modal .modal-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.text-muted {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.operation-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.operation-option {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #f8f9fa;
+}
+
+.operation-option:hover {
+  border-color: #007bff;
+  background: #e7f3ff;
+  transform: translateX(4px);
+}
+
+.operation-option input[type='radio'] {
+  margin-right: 12px;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.operation-option input[type='radio']:checked ~ .operation-label {
+  color: #007bff;
+  font-weight: 600;
+}
+
+.operation-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #2c3e50;
+  margin-bottom: 4px;
+}
+
+.operation-label i {
+  font-size: 20px;
+}
+
+.operation-option small {
+  color: #6c757d;
+  font-size: 13px;
+  margin-left: 30px;
+  line-height: 1.4;
+}
+
+.preview-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+}
+
+.preview-before,
+.preview-after {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-before strong,
+.preview-after strong {
+  color: #495057;
+  font-size: 14px;
+}
+
+.preview-box pre {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.graph-operations-modal .modal-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.graph-operations-modal .btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-operations-modal .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.graph-operations-modal .btn-secondary {
+  background: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+
+.graph-operations-modal .btn-secondary:hover:not(:disabled) {
+  background: #545b62;
+  border-color: #545b62;
+  transform: translateY(-1px);
+}
+
+.graph-operations-modal .btn-info {
+  background: #17a2b8;
+  color: white;
+  border-color: #17a2b8;
+}
+
+.graph-operations-modal .btn-info:hover:not(:disabled) {
+  background: #138496;
+  border-color: #138496;
+  transform: translateY(-1px);
+}
+
+.graph-operations-modal .btn-success {
+  background: #28a745;
+  color: white;
+  border-color: #28a745;
+}
+
+.graph-operations-modal .btn-success:hover:not(:disabled) {
+  background: #218838;
+  border-color: #218838;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+  .graph-operations-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .preview-box {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-operations-modal .modal-footer {
+    flex-direction: column;
+  }
+
+  .graph-operations-modal .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ============================================
+   End Graph Operations Modal Styles
+   ============================================ */
+
+/* ============================================
+   Node Share Modal Styles
+   ============================================ */
+
+.node-share-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.node-share-modal {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 550px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.node-share-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e9ecef;
+  background: linear-gradient(135deg, #17a2b8 0%, #20c997 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.node-share-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.node-share-modal .modal-body {
+  padding: 24px;
+}
+
+.node-share-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid #e9ecef;
+}
+
+.share-section {
+  margin-bottom: 20px;
+}
+
+.share-section .form-label {
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.social-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-social {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-twitter {
+  background: #1da1f2;
+  color: white;
+  border: none;
+}
+
+.btn-twitter:hover {
+  background: #1a8cd8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(29, 161, 242, 0.3);
+}
+
+.btn-facebook {
+  background: #1877f2;
+  color: white;
+  border: none;
+}
+
+.btn-facebook:hover {
+  background: #145dbf;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(24, 119, 242, 0.3);
+}
+
+.btn-linkedin {
+  background: #0a66c2;
+  color: white;
+  border: none;
+}
+
+.btn-linkedin:hover {
+  background: #084d93;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(10, 102, 194, 0.3);
+}
+
+/* ============================================
+   End Node Share Modal Styles
+   ============================================ */
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .reorder-modal {
@@ -8616,32 +9873,83 @@ const saveAttribution = async () => {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-/* SEO Admin Button */
-.seo-admin-button {
-  margin-right: 8px;
-  background: #212529;
-  border: 2px solid #212529;
-  color: white;
-  font-weight: 500;
+.header-actions .btn {
+  background: white;
+  color: #667eea;
+  border: 2px solid white;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 8px 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.header-actions .btn i {
+  margin-right: 6px;
+}
+
+.header-actions .btn:hover {
+  background: #f8f9fa;
+  color: #5568d3;
+  border-color: #f8f9fa;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.header-actions .btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.header-actions .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* SEO Admin Button - Green accent */
+.seo-admin-button {
+  background: #28a745 !important;
+  color: white !important;
+  border-color: #28a745 !important;
 }
 
 .seo-admin-button:hover {
-  background: #343a40;
-  border-color: #343a40;
-  color: white;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: #218838 !important;
+  border-color: #218838 !important;
+  color: white !important;
 }
 
-.seo-admin-button:active {
-  background: #1a1e21;
-  border-color: #1a1e21;
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+/* Print Button - Blue accent */
+.print-button {
+  background: #007bff !important;
+  color: white !important;
+  border-color: #007bff !important;
+}
+
+.print-button:hover {
+  background: #0056b3 !important;
+  border-color: #0056b3 !important;
+  color: white !important;
+}
+
+/* Graph Operations Button - Info/cyan accent */
+.header-actions .btn-outline-info {
+  background: #17a2b8 !important;
+  color: white !important;
+  border-color: #17a2b8 !important;
+}
+
+.header-actions .btn-outline-info:hover {
+  background: #138496 !important;
+  border-color: #138496 !important;
+  color: white !important;
 }
 
 .seo-admin-button:disabled {

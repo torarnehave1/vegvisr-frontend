@@ -39,6 +39,8 @@ import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'(Admin Only) -->
         @node-updated="handleNodeUpdated"
         @node-deleted="handleNodeDeleted"
         @node-created="handleNodeCreated"
+        @open-node-seo="$emit('open-node-seo', $event)"
+        @open-node-share="$emit('open-node-share', $event)"
       />
     </div>
 
@@ -129,6 +131,8 @@ const emit = defineEmits([
   'move-up',
   'move-down',
   'open-reorder',
+  'open-node-seo',
+  'open-node-share',
 ])
 
 // Computed properties for reordering

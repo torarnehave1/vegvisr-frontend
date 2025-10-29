@@ -22,6 +22,15 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
   const nodeCount = ref(0)
   const edgeCount = ref(0)
 
+  // SEO Context for node-specific SEO
+  const seoContext = ref({
+    nodeId: null,
+    nodeLabel: null,
+    nodeContent: null,
+    nodeType: null,
+    isNodeSpecific: false
+  })
+
   // Computed properties for counts
   const getNodeCount = computed(() => nodeCount.value)
   const getEdgeCount = computed(() => edgeCount.value)
@@ -246,6 +255,27 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     edgeCount.value = edges.value.length
   }
 
+  // SEO Context methods
+  const setSEOContext = (context) => {
+    seoContext.value = {
+      nodeId: context.nodeId || null,
+      nodeLabel: context.nodeLabel || null,
+      nodeContent: context.nodeContent || null,
+      nodeType: context.nodeType || null,
+      isNodeSpecific: true
+    }
+  }
+
+  const clearSEOContext = () => {
+    seoContext.value = {
+      nodeId: null,
+      nodeLabel: null,
+      nodeContent: null,
+      nodeType: null,
+      isNodeSpecific: false
+    }
+  }
+
   return {
     graphMetadata,
     nodes,
@@ -271,5 +301,8 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     edgeCount,
     getNodeCount,
     getEdgeCount,
+    seoContext,
+    setSEOContext,
+    clearSEOContext,
   }
 })
