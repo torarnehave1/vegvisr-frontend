@@ -24,6 +24,101 @@
       </div>
     </div>
 
+    <!-- Speaker Diarization Test Section -->
+    <div class="test-section">
+      <h2>👥 Speaker Diarization Test</h2>
+      <p class="section-description">
+        Test speaker identification (who is speaking when) using pyannote/speaker-diarization-3.1
+      </p>
+
+      <!-- Audio Source Selection -->
+      <div class="audio-source-selection mb-3">
+        <label class="form-label"><strong>Select Audio Source:</strong></label>
+        <div class="btn-group" role="group">
+          <input type="radio" class="btn-check" name="diarizationSource" id="diarizationUpload" value="upload" v-model="diarizationSource" autocomplete="off" checked>
+          <label class="btn btn-outline-primary" for="diarizationUpload">📁 Upload File</label>
+
+          <input type="radio" class="btn-check" name="diarizationSource" id="diarizationPortfolio" value="portfolio" v-model="diarizationSource" autocomplete="off">
+          <label class="btn btn-outline-primary" for="diarizationPortfolio">🎤 From Portfolio</label>
+        </div>
+      </div>
+
+      <!-- Upload Option -->
+      <div v-if="diarizationSource === 'upload'" class="diarization-upload">
+        <input
+          ref="diarizationFileInput"
+          type="file"
+          accept="audio/*"
+          @change="handleDiarizationFile"
+          style="display: none"
+        />
+        <button @click="$refs.diarizationFileInput.click()" class="btn btn-primary">
+          📁 Select Audio File for Diarization
+        </button>
+        
+        <div v-if="diarizationFile" class="file-selected">
+          <strong>Selected:</strong> {{ diarizationFile.name }}
+          <span class="file-size">({{ (diarizationFile.size / 1024 / 1024).toFixed(2) }} MB)</span>
+        </div>
+      </div>
+
+      <!-- Portfolio Option -->
+      <div v-if="diarizationSource === 'portfolio'" class="diarization-portfolio">
+        <div v-if="loadingPortfolio" class="text-center">
+          <div class="spinner-border spinner-border-sm" role="status"></div>
+          <span class="ms-2">Loading portfolio...</span>
+        </div>
+
+        <div v-else-if="portfolioAudioItems.length === 0" class="alert alert-info">
+          📼 No audio recordings in your portfolio yet.
+          <router-link to="/audio-portfolio" class="btn btn-sm btn-outline-primary ms-2">
+            Go to Portfolio
+          </router-link>
+        </div>
+
+        <div v-else class="portfolio-selector">
+          <select v-model="selectedPortfolioAudioId" class="form-select">
+            <option value="">-- Select an audio recording --</option>
+            <option v-for="item in portfolioAudioItems" :key="item.id" :value="item.id">
+              {{ item.displayName || item.fileName }} 
+              ({{ formatDuration(item.metadata?.duration) }})
+            </option>
+          </select>
+
+          <div v-if="selectedPortfolioAudioId" class="file-selected mt-2">
+            <strong>Selected:</strong> {{ getSelectedAudioName() }}
+          </div>
+        </div>
+      </div>
+
+      <button 
+        @click="testDiarization" 
+        :disabled="!canTestDiarization || diarizationLoading"
+        class="btn btn-success mt-3"
+      >
+        {{ diarizationLoading ? '🔄 Analyzing Speakers...' : '👥 Test Speaker Diarization' }}
+      </button>
+
+      <div v-if="diarizationError" class="alert alert-danger mt-3">
+        <strong>Error:</strong> {{ diarizationError }}
+      </div>
+
+      <!-- Diarization Results -->
+      <div v-if="diarizationResult" class="diarization-result">
+        <h3>📊 Diarization Results</h3>
+        <div class="speaker-timeline">
+          <div v-for="(segment, index) in diarizationResult.segments" :key="index" class="speaker-segment">
+            <span class="speaker-label">{{ segment.speaker }}</span>
+            <span class="time-range">{{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}</span>
+            <span class="duration">({{ (segment.end - segment.start).toFixed(1) }}s)</span>
+          </div>
+        </div>
+        <div class="diarization-summary">
+          <strong>Total Speakers:</strong> {{ diarizationResult.num_speakers || 'Unknown' }}
+        </div>
+      </div>
+    </div>
+
     <!-- Norwegian Model Info -->
     <div class="test-section">
       <h2>🇳🇴 Norwegian Transcription Model</h2>
@@ -578,6 +673,16 @@ const graphError = ref(null)
 // Using single Norwegian model endpoint - no selection needed
 const selectedEndpoint = ref('cpu') // Default to CPU endpoint
 
+// Speaker diarization state
+const diarizationFile = ref(null)
+const diarizationLoading = ref(false)
+const diarizationResult = ref(null)
+const diarizationError = ref(null)
+const diarizationSource = ref('upload') // 'upload' or 'portfolio'
+const portfolioAudioItems = ref([])
+const selectedPortfolioAudioId = ref('')
+const loadingPortfolio = ref(false)
+
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
@@ -597,6 +702,14 @@ const extractedAudioUrl = computed(() => {
   return extractedAudioBlob.value ? URL.createObjectURL(extractedAudioBlob.value) : null
 })
 
+const canTestDiarization = computed(() => {
+  if (diarizationSource.value === 'upload') {
+    return !!diarizationFile.value
+  } else {
+    return !!selectedPortfolioAudioId.value
+  }
+})
+
 // Lifecycle
 onMounted(async () => {
   // Check microphone support
@@ -608,6 +721,11 @@ onMounted(async () => {
       console.log('Microphone access not available:', err)
       microphoneSupported.value = false
     }
+  }
+
+  // Load portfolio audio if user is logged in
+  if (userStore.email) {
+    await loadPortfolioAudio()
   }
 })
 
@@ -995,6 +1113,111 @@ const stopRecording = () => {
     }
 
     console.log('🎤 Recording stopped')
+  }
+}
+
+// Portfolio audio loading
+const loadPortfolioAudio = async () => {
+  loadingPortfolio.value = true
+  try {
+    const response = await fetch(
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+    )
+    
+    if (!response.ok) {
+      throw new Error(`Failed to load portfolio: ${response.statusText}`)
+    }
+    
+    const data = await response.json()
+    portfolioAudioItems.value = data.recordings || []
+    console.log('📼 Loaded portfolio audio:', portfolioAudioItems.value.length, 'items')
+  } catch (err) {
+    console.error('❌ Error loading portfolio:', err)
+  } finally {
+    loadingPortfolio.value = false
+  }
+}
+
+const getSelectedAudioName = () => {
+  const item = portfolioAudioItems.value.find(a => a.id === selectedPortfolioAudioId.value)
+  return item ? (item.displayName || item.fileName) : ''
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds) return 'Unknown'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// Speaker diarization handlers
+const handleDiarizationFile = (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    diarizationFile.value = file
+    diarizationResult.value = null
+    diarizationError.value = null
+    console.log('📁 Diarization file selected:', file.name)
+  }
+}
+
+const testDiarization = async () => {
+  // Check if we have audio source
+  if (diarizationSource.value === 'upload' && !diarizationFile.value) return
+  if (diarizationSource.value === 'portfolio' && !selectedPortfolioAudioId.value) return
+
+  diarizationLoading.value = true
+  diarizationResult.value = null
+  diarizationError.value = null
+
+  try {
+    console.log('👥 Starting speaker diarization test...')
+
+    let audioBlob
+
+    // Get audio from selected source
+    if (diarizationSource.value === 'upload') {
+      audioBlob = diarizationFile.value
+      console.log('📁 Using uploaded file:', diarizationFile.value.name)
+    } else {
+      // Fetch audio from portfolio
+      const selectedAudio = portfolioAudioItems.value.find(a => a.id === selectedPortfolioAudioId.value)
+      if (!selectedAudio) {
+        throw new Error('Selected portfolio audio not found')
+      }
+
+      console.log('🎤 Fetching portfolio audio:', selectedAudio.displayName)
+      const audioResponse = await fetch(selectedAudio.r2Url)
+      if (!audioResponse.ok) {
+        throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`)
+      }
+      audioBlob = await audioResponse.blob()
+    }
+
+    // Send audio to the worker's diarization endpoint
+    const formData = new FormData()
+    formData.append('audio', audioBlob)
+
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/test-diarization`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Diarization failed: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('✅ Diarization result:', result)
+
+    diarizationResult.value = result
+
+  } catch (err) {
+    console.error('❌ Diarization error:', err)
+    diarizationError.value = err.message
+  } finally {
+    diarizationLoading.value = false
   }
 }
 
@@ -2834,5 +3057,106 @@ const createChunkedGraph = async () => {
   color: #666;
   font-size: 0.9rem;
   margin: 0;
+}
+
+/* Speaker Diarization Styles */
+.diarization-upload {
+  margin: 15px 0;
+}
+
+.file-selected {
+  margin-top: 10px;
+  padding: 10px;
+  background: #e7f3ff;
+  border-radius: 6px;
+  border-left: 3px solid #0066cc;
+}
+
+.file-size {
+  color: #666;
+  font-size: 0.9em;
+  margin-left: 8px;
+}
+
+.audio-source-selection {
+  margin-bottom: 20px;
+}
+
+.audio-source-selection .btn-group {
+  width: 100%;
+}
+
+.audio-source-selection .btn-check + .btn {
+  flex: 1;
+}
+
+.portfolio-selector {
+  margin-top: 10px;
+}
+
+.portfolio-selector .form-select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+}
+
+.diarization-upload,
+.diarization-portfolio {
+  min-height: 80px;
+}
+
+.diarization-result {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.diarization-result h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.speaker-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.speaker-segment {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 15px;
+  background: white;
+  border-radius: 6px;
+  border-left: 4px solid #6366f1;
+}
+
+.speaker-label {
+  font-weight: bold;
+  color: #6366f1;
+  min-width: 100px;
+}
+
+.time-range {
+  color: #666;
+  font-family: monospace;
+}
+
+.duration {
+  color: #999;
+  font-size: 0.9em;
+}
+
+.diarization-summary {
+  padding: 15px;
+  background: #e0e7ff;
+  border-radius: 6px;
+  color: #4338ca;
+  font-size: 1.1em;
 }
 </style>
