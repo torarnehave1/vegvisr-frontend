@@ -55,7 +55,7 @@
         <button @click="$refs.diarizationFileInput.click()" class="btn btn-primary">
           📁 Select Audio File for Diarization
         </button>
-        
+
         <div v-if="diarizationFile" class="file-selected">
           <strong>Selected:</strong> {{ diarizationFile.name }}
           <span class="file-size">({{ (diarizationFile.size / 1024 / 1024).toFixed(2) }} MB)</span>
@@ -80,7 +80,7 @@
           <select v-model="selectedPortfolioAudioId" class="form-select">
             <option value="">-- Select an audio recording --</option>
             <option v-for="item in portfolioAudioItems" :key="item.id" :value="item.id">
-              {{ item.displayName || item.fileName }} 
+              {{ item.displayName || item.fileName }}
               ({{ formatDuration(item.metadata?.duration) }})
             </option>
           </select>
@@ -91,8 +91,8 @@
         </div>
       </div>
 
-      <button 
-        @click="testDiarization" 
+      <button
+        @click="testDiarization"
         :disabled="!canTestDiarization || diarizationLoading"
         class="btn btn-success mt-3"
       >
@@ -1123,11 +1123,11 @@ const loadPortfolioAudio = async () => {
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
     )
-    
+
     if (!response.ok) {
       throw new Error(`Failed to load portfolio: ${response.statusText}`)
     }
-    
+
     const data = await response.json()
     portfolioAudioItems.value = data.recordings || []
     console.log('📼 Loaded portfolio audio:', portfolioAudioItems.value.length, 'items')
