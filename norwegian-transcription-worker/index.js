@@ -466,15 +466,75 @@ export default {
           status: 'healthy',
           service: 'Norwegian Transcription Worker',
           version: '2.0.0',
-          features: ['transcription', 'text_improvement', 'upload'],
+          features: ['transcription', 'text_improvement', 'upload', 'speaker_diarization'],
           timestamp: new Date().toISOString(),
           endpoints: {
             transcribe: '/ (POST)',
             upload: '/upload (POST)',
             health: '/health (GET)',
+            diarization: '/test-diarization (POST)',
           },
         }),
       )
+    }
+
+    // Speaker Diarization Test Endpoint
+    if (request.method === 'POST' && url.pathname === '/test-diarization') {
+      try {
+        console.log('👥 Starting speaker diarization test...')
+
+        const formData = await request.formData()
+        const audioFile = formData.get('audio')
+
+        if (!audioFile) {
+          return createErrorResponse('No audio file provided', 400)
+        }
+
+        // Get audio buffer
+        const audioBuffer = await audioFile.arrayBuffer()
+        console.log('📊 Audio file size:', audioBuffer.byteLength, 'bytes')
+
+        // Call Hugging Face Inference API for speaker diarization
+        const response = await fetch(
+          'https://api-inference.huggingface.co/models/pyannote/speaker-diarization-3.1',
+          {
+            headers: {
+              'Authorization': `Bearer ${env.HF_TOKEN}`,
+              'Content-Type': 'audio/wav',
+            },
+            method: 'POST',
+            body: audioBuffer,
+          }
+        )
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('❌ Diarization API error:', errorText)
+          throw new Error(`Diarization API failed: ${response.status} - ${errorText}`)
+        }
+
+        const result = await response.json()
+        console.log('✅ Diarization result:', result)
+
+        // Transform result to a more user-friendly format
+        const segments = result.labels || result.segments || []
+        const numSpeakers = new Set(segments.map(s => s.label || s.speaker)).size
+
+        return createResponse(JSON.stringify({
+          success: true,
+          segments: segments.map(seg => ({
+            speaker: seg.label || seg.speaker || 'Unknown',
+            start: seg.start || 0,
+            end: seg.end || 0,
+          })),
+          num_speakers: numSpeakers,
+          raw_result: result,
+        }))
+
+      } catch (error) {
+        console.error('❌ Diarization test error:', error)
+        return createErrorResponse(`Diarization test failed: ${error.message}`, 500)
+      }
     }
 
     // Upload endpoint - for uploading audio files to R2
