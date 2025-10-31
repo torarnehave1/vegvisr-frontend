@@ -24,222 +24,6 @@
       </div>
     </div>
 
-    <!-- Speaker Identification Test Section -->
-    <div class="test-section">
-      <h2>👥 Speaker Identification Test</h2>
-      <p class="section-description">
-        Analyze dialogue from your audio portfolio recordings to identify different speakers and add timestamps
-      </p>
-
-      <!-- Load Portfolio Button -->
-      <button
-        @click="loadPortfolioForSpeakers"
-        :disabled="loadingPortfolio"
-        class="btn btn-primary"
-      >
-        {{ loadingPortfolio ? '📼 Loading Portfolio...' : '📼 Load My Audio Portfolio' }}
-      </button>
-
-      <!-- Portfolio Recordings List -->
-      <div v-if="portfolioRecordings.length > 0" class="portfolio-list">
-        <h4>Select a Recording:</h4>
-        <div class="recordings-grid">
-          <div
-            v-for="recording in portfolioRecordings"
-            :key="recording.id"
-            class="recording-card"
-            :class="{ selected: selectedRecordingId === recording.id }"
-            @click="selectRecording(recording)"
-          >
-            <div class="recording-header">
-              <strong>{{ recording.displayName || recording.fileName }}</strong>
-              <span class="recording-date">{{ formatDate(recording.timestamp) }}</span>
-            </div>
-            <div class="recording-meta">
-              <span v-if="recording.duration">⏱️ {{ formatDuration(recording.duration) }}</span>
-              <span v-if="recording.fileSize">📦 {{ formatFileSize(recording.fileSize) }}</span>
-            </div>
-            <div v-if="recording.transcriptionText" class="recording-preview">
-              {{ recording.transcriptionText.substring(0, 100) }}...
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Speaker Configuration -->
-      <div v-if="selectedRecording" class="speaker-config">
-        <h4>Speaker Configuration</h4>
-        <div class="config-input">
-          <label>How many speakers are in this recording?</label>
-          <input
-            type="number"
-            v-model.number="numSpeakers"
-            min="1"
-            max="10"
-            class="form-control"
-          />
-        </div>
-
-        <!-- Speaker Names -->
-        <div v-if="numSpeakers > 0" class="speaker-names">
-          <h5>Name the speakers (optional):</h5>
-          <div v-for="i in numSpeakers" :key="i" class="speaker-name-input">
-            <label>Speaker {{ i }}:</label>
-            <input
-              type="text"
-              v-model="speakerNames[i-1]"
-              :placeholder="`Speaker ${i}`"
-              class="form-control"
-            />
-          </div>
-        </div>
-
-        <!-- Audio Player -->
-        <div class="audio-player-section">
-          <h5>🎧 Listen to Recording:</h5>
-          <audio
-            v-if="selectedRecording.r2Url"
-            :src="selectedRecording.r2Url"
-            controls
-            class="audio-player"
-            @timeupdate="updateCurrentTime"
-            ref="audioPlayer"
-          ></audio>
-          <div class="current-time">Current time: {{ formatTime(currentAudioTime) }}</div>
-        </div>
-
-        <!-- Transcription Display -->
-        <div v-if="selectedRecording.transcriptionText" class="transcription-display">
-          <h5>📝 Transcription:</h5>
-          <div class="transcription-text">
-            {{ selectedRecording.transcriptionText }}
-          </div>
-        </div>
-
-        <!-- Manual Timestamp Entry -->
-        <div class="timestamp-entry">
-          <h5>➕ Add Speaker Timestamp:</h5>
-          <div class="timestamp-form">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Speaker:</label>
-                <select v-model="currentSpeakerIndex" class="form-control">
-                  <option v-for="i in numSpeakers" :key="i" :value="i-1">
-                    {{ speakerNames[i-1] || `Speaker ${i}` }}
-                  </option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Start Time (seconds):</label>
-                <input
-                  type="number"
-                  v-model.number="currentTimestamp.start"
-                  step="0.1"
-                  class="form-control"
-                />
-              </div>
-              <div class="form-group">
-                <label>End Time (seconds):</label>
-                <input
-                  type="number"
-                  v-model.number="currentTimestamp.end"
-                  step="0.1"
-                  class="form-control"
-                />
-              </div>
-              <div class="form-group">
-                <button @click="useCurrentTime('start')" class="btn btn-sm btn-secondary">
-                  Use Current (Start)
-                </button>
-                <button @click="useCurrentTime('end')" class="btn btn-sm btn-secondary">
-                  Use Current (End)
-                </button>
-              </div>
-            </div>
-            <button @click="addTimestamp" class="btn btn-success">
-              ➕ Add Timestamp
-            </button>
-          </div>
-        </div>
-
-        <!-- Speaker Timeline -->
-        <div v-if="speakerTimeline.length > 0" class="speaker-timeline">
-          <h5>📊 Speaker Timeline:</h5>
-          <div class="timeline-list">
-            <div
-              v-for="(segment, index) in sortedTimeline"
-              :key="index"
-              class="timeline-segment"
-            >
-              <div class="segment-header">
-                <strong>{{ segment.speakerName }}</strong>
-                <span class="time-range">
-                  {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
-                </span>
-                <button @click="removeTimestamp(index)" class="btn-remove">❌</button>
-              </div>
-              <div class="segment-text" v-if="segment.text">
-                {{ segment.text }}
-              </div>
-            </div>
-          </div>
-
-          <!-- AI Speaker Identification -->
-          <div class="ai-identification-section">
-            <h5>🤖 AI Speaker Identification</h5>
-            <p class="hint-text">Let AI analyze the dialogue to identify speaker roles based on language patterns and conversation dynamics</p>
-            <button
-              @click="identifySpeakersWithAI"
-              :disabled="identifyingAI || speakerTimeline.length === 0"
-              class="btn btn-secondary"
-            >
-              {{ identifyingAI ? '🤖 Analyzing...' : '🤖 Auto-Identify Speaker Roles' }}
-            </button>
-
-            <!-- AI Results -->
-            <div v-if="aiIdentification" class="ai-results">
-              <h6>AI Analysis Results:</h6>
-              <div v-for="(speaker, idx) in aiIdentification.speakers" :key="idx" class="ai-speaker-result">
-                <div class="ai-speaker-header">
-                  <strong>{{ speakerNames[speaker.index] || `Speaker ${speaker.index + 1}` }}</strong>
-                  <span class="ai-role-badge">{{ speaker.role }}</span>
-                </div>
-                <div class="ai-reasoning">{{ speaker.reasoning }}</div>
-                <div class="ai-suggestion">
-                  💡 Suggested name: <strong>{{ speaker.suggestedName }}</strong>
-                  <button @click="applySuggestedName(speaker.index, speaker.suggestedName)" class="btn-apply">
-                    Apply
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="aiError" class="error-message">
-              ❌ {{ aiError }}
-            </div>
-          </div>
-
-          <!-- Save Button -->
-          <div class="save-section">
-            <button
-              @click="saveSpeakerTimeline"
-              :disabled="savingSpeakers"
-              class="btn btn-primary btn-lg"
-            >
-              {{ savingSpeakers ? 'Saving...' : '💾 Save Speaker Timeline to Portfolio' }}
-            </button>
-
-            <div v-if="speakersSaved" class="success-message">
-              ✅ Speaker timeline saved successfully!
-            </div>
-            <div v-if="speakersError" class="error-message">
-              ❌ {{ speakersError }}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Automated Speaker Diarization Section -->
     <div class="test-section">
       <h2>🎯 Automated Speaker Diarization (AI-Powered)</h2>
@@ -248,14 +32,33 @@
         Perfect for analyzing therapy sessions, interviews, and multi-speaker conversations.
       </p>
 
-      <!-- Load Portfolio Button -->
-      <button
-        @click="loadPortfolioForDiarization"
-        :disabled="loadingDiarizationPortfolio"
-        class="btn btn-primary"
-      >
-        {{ loadingDiarizationPortfolio ? '📼 Loading Portfolio...' : '📼 Load Audio Portfolio' }}
-      </button>
+      <!-- Audio Source Options -->
+      <div class="audio-source-options">
+        <h4>Choose Audio Source:</h4>
+        
+        <!-- Option 1: Use Transcription Result -->
+        <div v-if="transcriptionResult && transcriptionResult.r2Url" class="audio-option">
+          <button
+            @click="useTranscriptionForDiarization"
+            class="btn btn-secondary"
+          >
+            🎯 Analyze Current Transcription Audio
+          </button>
+          <p class="option-hint">Use the audio from your current transcription</p>
+        </div>
+
+        <!-- Option 2: Load from Portfolio -->
+        <div class="audio-option">
+          <button
+            @click="loadPortfolioForDiarization"
+            :disabled="loadingDiarizationPortfolio"
+            class="btn btn-primary"
+          >
+            {{ loadingDiarizationPortfolio ? '📼 Loading Portfolio...' : '📼 Load Audio Portfolio' }}
+          </button>
+          <p class="option-hint">Choose from your saved recordings</p>
+        </div>
+      </div>
 
       <!-- Portfolio Recordings List for Diarization -->
       <div v-if="diarizationRecordings.length > 0" class="portfolio-list">
@@ -1696,6 +1499,30 @@ const applySuggestedName = (speakerIndex, suggestedName) => {
 }
 
 // ========== AUTOMATED SPEAKER DIARIZATION FUNCTIONS ==========
+
+const useTranscriptionForDiarization = () => {
+  if (!transcriptionResult.value || !transcriptionResult.value.r2Url) {
+    diarizationError.value = 'No transcription result available'
+    return
+  }
+
+  // Create a recording object from transcription result
+  selectedDiarizationRecording.value = {
+    id: 'transcription-current',
+    fileName: transcriptionResult.value.fileName || 'Current Transcription',
+    displayName: transcriptionResult.value.fileName || 'Current Transcription',
+    r2Url: transcriptionResult.value.r2Url,
+    duration: transcriptionResult.value.duration,
+    timestamp: new Date().toISOString()
+  }
+  
+  selectedDiarizationId.value = 'transcription-current'
+  diarizationResult.value = null
+  diarizationError.value = null
+  diarizationSaved.value = false
+  
+  console.log('🎧 Using transcription audio for diarization:', transcriptionResult.value.r2Url)
+}
 
 const loadPortfolioForDiarization = async () => {
   loadingDiarizationPortfolio.value = true
@@ -4093,6 +3920,37 @@ const createChunkedGraph = async () => {
 }
 
 /* ========== AUTOMATED DIARIZATION STYLES ========== */
+
+.audio-source-options {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.audio-source-options h4 {
+  color: #1e293b;
+  margin: 0 0 15px 0;
+  font-size: 1.1rem;
+}
+
+.audio-option {
+  margin: 15px 0;
+}
+
+.audio-option button {
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 5px;
+}
+
+.option-hint {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 5px 0 0 0;
+  font-style: italic;
+}
 
 .diarization-analysis {
   margin-top: 20px;
