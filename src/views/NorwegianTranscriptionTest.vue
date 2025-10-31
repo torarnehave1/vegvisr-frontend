@@ -24,6 +24,187 @@
       </div>
     </div>
 
+    <!-- Speaker Identification Test Section -->
+    <div class="test-section">
+      <h2>👥 Speaker Identification Test</h2>
+      <p class="section-description">
+        Analyze dialogue from your audio portfolio recordings to identify different speakers and add timestamps
+      </p>
+
+      <!-- Load Portfolio Button -->
+      <button 
+        @click="loadPortfolioForSpeakers" 
+        :disabled="loadingPortfolio"
+        class="btn btn-primary"
+      >
+        {{ loadingPortfolio ? '📼 Loading Portfolio...' : '📼 Load My Audio Portfolio' }}
+      </button>
+
+      <!-- Portfolio Recordings List -->
+      <div v-if="portfolioRecordings.length > 0" class="portfolio-list">
+        <h4>Select a Recording:</h4>
+        <div class="recordings-grid">
+          <div 
+            v-for="recording in portfolioRecordings" 
+            :key="recording.id"
+            class="recording-card"
+            :class="{ selected: selectedRecordingId === recording.id }"
+            @click="selectRecording(recording)"
+          >
+            <div class="recording-header">
+              <strong>{{ recording.displayName || recording.fileName }}</strong>
+              <span class="recording-date">{{ formatDate(recording.timestamp) }}</span>
+            </div>
+            <div class="recording-meta">
+              <span v-if="recording.duration">⏱️ {{ formatDuration(recording.duration) }}</span>
+              <span v-if="recording.fileSize">📦 {{ formatFileSize(recording.fileSize) }}</span>
+            </div>
+            <div v-if="recording.transcriptionText" class="recording-preview">
+              {{ recording.transcriptionText.substring(0, 100) }}...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Speaker Configuration -->
+      <div v-if="selectedRecording" class="speaker-config">
+        <h4>Speaker Configuration</h4>
+        <div class="config-input">
+          <label>How many speakers are in this recording?</label>
+          <input 
+            type="number" 
+            v-model.number="numSpeakers" 
+            min="1" 
+            max="10"
+            class="form-control"
+          />
+        </div>
+
+        <!-- Speaker Names -->
+        <div v-if="numSpeakers > 0" class="speaker-names">
+          <h5>Name the speakers (optional):</h5>
+          <div v-for="i in numSpeakers" :key="i" class="speaker-name-input">
+            <label>Speaker {{ i }}:</label>
+            <input 
+              type="text" 
+              v-model="speakerNames[i-1]" 
+              :placeholder="`Speaker ${i}`"
+              class="form-control"
+            />
+          </div>
+        </div>
+
+        <!-- Audio Player -->
+        <div class="audio-player-section">
+          <h5>🎧 Listen to Recording:</h5>
+          <audio 
+            v-if="selectedRecording.r2Url" 
+            :src="selectedRecording.r2Url" 
+            controls 
+            class="audio-player"
+            @timeupdate="updateCurrentTime"
+            ref="audioPlayer"
+          ></audio>
+          <div class="current-time">Current time: {{ formatTime(currentAudioTime) }}</div>
+        </div>
+
+        <!-- Transcription Display -->
+        <div v-if="selectedRecording.transcriptionText" class="transcription-display">
+          <h5>📝 Transcription:</h5>
+          <div class="transcription-text">
+            {{ selectedRecording.transcriptionText }}
+          </div>
+        </div>
+
+        <!-- Manual Timestamp Entry -->
+        <div class="timestamp-entry">
+          <h5>➕ Add Speaker Timestamp:</h5>
+          <div class="timestamp-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Speaker:</label>
+                <select v-model="currentSpeakerIndex" class="form-control">
+                  <option v-for="i in numSpeakers" :key="i" :value="i-1">
+                    {{ speakerNames[i-1] || `Speaker ${i}` }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Start Time (seconds):</label>
+                <input 
+                  type="number" 
+                  v-model.number="currentTimestamp.start" 
+                  step="0.1"
+                  class="form-control"
+                />
+              </div>
+              <div class="form-group">
+                <label>End Time (seconds):</label>
+                <input 
+                  type="number" 
+                  v-model.number="currentTimestamp.end" 
+                  step="0.1"
+                  class="form-control"
+                />
+              </div>
+              <div class="form-group">
+                <button @click="useCurrentTime('start')" class="btn btn-sm btn-secondary">
+                  Use Current (Start)
+                </button>
+                <button @click="useCurrentTime('end')" class="btn btn-sm btn-secondary">
+                  Use Current (End)
+                </button>
+              </div>
+            </div>
+            <button @click="addTimestamp" class="btn btn-success">
+              ➕ Add Timestamp
+            </button>
+          </div>
+        </div>
+
+        <!-- Speaker Timeline -->
+        <div v-if="speakerTimeline.length > 0" class="speaker-timeline">
+          <h5>📊 Speaker Timeline:</h5>
+          <div class="timeline-list">
+            <div 
+              v-for="(segment, index) in sortedTimeline" 
+              :key="index"
+              class="timeline-segment"
+            >
+              <div class="segment-header">
+                <strong>{{ segment.speakerName }}</strong>
+                <span class="time-range">
+                  {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
+                </span>
+                <button @click="removeTimestamp(index)" class="btn-remove">❌</button>
+              </div>
+              <div class="segment-text" v-if="segment.text">
+                {{ segment.text }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Save Button -->
+          <div class="save-section">
+            <button 
+              @click="saveSpeakerTimeline" 
+              :disabled="savingSpeakers"
+              class="btn btn-primary btn-lg"
+            >
+              {{ savingSpeakers ? 'Saving...' : '💾 Save Speaker Timeline to Portfolio' }}
+            </button>
+
+            <div v-if="speakersSaved" class="success-message">
+              ✅ Speaker timeline saved successfully!
+            </div>
+            <div v-if="speakersError" class="error-message">
+              ❌ {{ speakersError }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Norwegian Model Info -->
     <div class="test-section">
       <h2>🇳🇴 Norwegian Transcription Model</h2>
@@ -526,7 +707,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
@@ -578,6 +759,21 @@ const graphError = ref(null)
 // Using single Norwegian model endpoint - no selection needed
 const selectedEndpoint = ref('cpu') // Default to CPU endpoint
 
+// Speaker identification state
+const loadingPortfolio = ref(false)
+const portfolioRecordings = ref([])
+const selectedRecordingId = ref(null)
+const selectedRecording = ref(null)
+const numSpeakers = ref(2)
+const speakerNames = ref(['Speaker 1', 'Speaker 2'])
+const speakerTimeline = ref([])
+const currentTimestamp = ref({ start: 0, end: 0 })
+const currentSpeakerIndex = ref(0)
+const currentAudioTime = ref(0)
+const savingSpeakers = ref(false)
+const speakersSaved = ref(false)
+const speakersError = ref(null)
+
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
@@ -597,6 +793,11 @@ const extractedAudioUrl = computed(() => {
   return extractedAudioBlob.value ? URL.createObjectURL(extractedAudioBlob.value) : null
 })
 
+// Computed property for sorted speaker timeline
+const sortedTimeline = computed(() => {
+  return [...speakerTimeline.value].sort((a, b) => a.start - b.start)
+})
+
 // Lifecycle
 onMounted(async () => {
   // Check microphone support
@@ -611,6 +812,19 @@ onMounted(async () => {
   }
 
   // Removed portfolio loading - not needed without diarization feature
+})
+
+// Watch numSpeakers to update speakerNames array
+watch(numSpeakers, (newNum, oldNum) => {
+  if (newNum > oldNum) {
+    // Add new speakers
+    for (let i = oldNum; i < newNum; i++) {
+      speakerNames.value[i] = `Speaker ${i + 1}`
+    }
+  } else if (newNum < oldNum) {
+    // Remove excess speakers
+    speakerNames.value = speakerNames.value.slice(0, newNum)
+  }
 })
 
 onUnmounted(() => {
@@ -1029,6 +1243,156 @@ const checkHealth = async () => {
     }
   } finally {
     healthLoading.value = false
+  }
+}
+
+// Speaker Identification Functions
+const loadPortfolioForSpeakers = async () => {
+  if (!userStore.email) {
+    speakersError.value = 'Please log in to access your audio portfolio'
+    return
+  }
+
+  loadingPortfolio.value = true
+  speakersError.value = null
+
+  try {
+    const response = await fetch(
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to load portfolio: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    portfolioRecordings.value = data.recordings || []
+    console.log('📼 Loaded portfolio recordings:', portfolioRecordings.value.length)
+  } catch (err) {
+    console.error('Error loading portfolio:', err)
+    speakersError.value = err.message
+  } finally {
+    loadingPortfolio.value = false
+  }
+}
+
+const selectRecording = (recording) => {
+  selectedRecordingId.value = recording.id
+  selectedRecording.value = recording
+  speakerTimeline.value = []
+  currentTimestamp.value = { start: 0, end: 0 }
+  speakersSaved.value = false
+  speakersError.value = null
+
+  // Load existing speaker timeline if available
+  if (recording.speakerTimeline) {
+    speakerTimeline.value = recording.speakerTimeline
+  }
+
+  // Load speaker configuration if available
+  if (recording.numSpeakers) {
+    numSpeakers.value = recording.numSpeakers
+  }
+  if (recording.speakerNames) {
+    speakerNames.value = recording.speakerNames
+  }
+
+  console.log('Selected recording:', recording.displayName || recording.fileName)
+}
+
+const updateCurrentTime = (event) => {
+  currentAudioTime.value = event.target.currentTime
+}
+
+const useCurrentTime = (type) => {
+  if (type === 'start') {
+    currentTimestamp.value.start = Math.round(currentAudioTime.value * 10) / 10
+  } else {
+    currentTimestamp.value.end = Math.round(currentAudioTime.value * 10) / 10
+  }
+}
+
+const addTimestamp = () => {
+  if (currentTimestamp.value.start >= currentTimestamp.value.end) {
+    speakersError.value = 'End time must be greater than start time'
+    return
+  }
+
+  const speakerName = speakerNames.value[currentSpeakerIndex.value] || `Speaker ${currentSpeakerIndex.value + 1}`
+
+  speakerTimeline.value.push({
+    speaker: currentSpeakerIndex.value,
+    speakerName: speakerName,
+    start: currentTimestamp.value.start,
+    end: currentTimestamp.value.end,
+    text: '' // Could be filled in later
+  })
+
+  // Reset for next entry
+  currentTimestamp.value = { start: currentTimestamp.value.end, end: currentTimestamp.value.end + 10 }
+  speakersError.value = null
+
+  console.log('Added timestamp:', speakerName, currentTimestamp.value)
+}
+
+const removeTimestamp = (index) => {
+  speakerTimeline.value.splice(index, 1)
+}
+
+const formatDate = (timestamp) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds) return 'Unknown'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const saveSpeakerTimeline = async () => {
+  if (!selectedRecording.value) return
+
+  savingSpeakers.value = true
+  speakersError.value = null
+
+  try {
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userStore.email,
+        },
+        body: JSON.stringify({
+          id: selectedRecording.value.id,
+          updates: {
+            speakerTimeline: speakerTimeline.value,
+            numSpeakers: numSpeakers.value,
+            speakerNames: speakerNames.value,
+          }
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Failed to save: ${response.status}`)
+    }
+
+    speakersSaved.value = true
+    console.log('✅ Speaker timeline saved successfully')
+
+    // Refresh the recording data
+    await loadPortfolioForSpeakers()
+  } catch (err) {
+    console.error('Failed to save speaker timeline:', err)
+    speakersError.value = err.message
+  } finally {
+    savingSpeakers.value = false
   }
 }
 
@@ -2836,5 +3200,303 @@ const createChunkedGraph = async () => {
   color: #666;
   font-size: 0.9rem;
   margin: 0;
+}
+
+/* Speaker Identification Styles */
+.portfolio-list {
+  margin-top: 20px;
+}
+
+.recordings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.recording-card {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.recording-card:hover {
+  border-color: #dc143c;
+  box-shadow: 0 2px 8px rgba(220, 20, 60, 0.2);
+  transform: translateY(-2px);
+}
+
+.recording-card.selected {
+  border-color: #dc143c;
+  background: #fff5f5;
+  box-shadow: 0 4px 12px rgba(220, 20, 60, 0.3);
+}
+
+.recording-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.recording-header strong {
+  color: #333;
+  font-size: 1rem;
+}
+
+.recording-date {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.recording-meta {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.recording-preview {
+  font-size: 0.85rem;
+  color: #999;
+  font-style: italic;
+  margin-top: 10px;
+  line-height: 1.4;
+}
+
+.speaker-config {
+  margin-top: 30px;
+  padding: 25px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #dc143c;
+}
+
+.config-input {
+  margin-bottom: 20px;
+}
+
+.config-input label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.form-control:focus {
+  border-color: #dc143c;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+}
+
+.speaker-names {
+  margin-top: 20px;
+}
+
+.speaker-names h5 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.speaker-name-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.speaker-name-input label {
+  min-width: 100px;
+  font-weight: 500;
+}
+
+.audio-player-section {
+  margin-top: 25px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+}
+
+.audio-player-section h5 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.current-time {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #666;
+  font-family: monospace;
+}
+
+.transcription-display {
+  margin-top: 25px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+}
+
+.transcription-display h5 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.transcription-text {
+  padding: 15px;
+  background: #f9f9f9;
+  border-radius: 6px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.timestamp-entry {
+  margin-top: 25px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+}
+
+.timestamp-entry h5 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.timestamp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  align-items: end;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #666;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 0.85rem;
+}
+
+.speaker-timeline {
+  margin-top: 30px;
+  padding: 25px;
+  background: #f0f8ff;
+  border-radius: 8px;
+  border: 2px solid #4a90e2;
+}
+
+.speaker-timeline h5 {
+  margin: 0 0 20px 0;
+  color: #1e40af;
+}
+
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.timeline-segment {
+  background: white;
+  border-radius: 6px;
+  padding: 15px;
+  border-left: 4px solid #4a90e2;
+}
+
+.segment-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 8px;
+}
+
+.segment-header strong {
+  color: #1e40af;
+  min-width: 100px;
+}
+
+.time-range {
+  color: #666;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.btn-remove {
+  margin-left: auto;
+  padding: 4px 8px;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-remove:hover {
+  background: #b91c1c;
+}
+
+.segment-text {
+  color: #666;
+  font-size: 0.9rem;
+  padding-left: 10px;
+  border-left: 2px solid #e5e7eb;
+}
+
+.save-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px solid #e5e7eb;
+}
+
+.btn-lg {
+  padding: 15px 30px;
+  font-size: 1.1rem;
+}
+
+.success-message {
+  margin-top: 15px;
+  padding: 12px;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 6px;
+  border: 1px solid #a7f3d0;
+}
+
+.error-message {
+  margin-top: 15px;
+  padding: 12px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
 }
 </style>
