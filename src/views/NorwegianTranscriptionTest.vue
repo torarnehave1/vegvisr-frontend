@@ -32,8 +32,8 @@
       </p>
 
       <!-- Load Portfolio Button -->
-      <button 
-        @click="loadPortfolioForSpeakers" 
+      <button
+        @click="loadPortfolioForSpeakers"
         :disabled="loadingPortfolio"
         class="btn btn-primary"
       >
@@ -44,8 +44,8 @@
       <div v-if="portfolioRecordings.length > 0" class="portfolio-list">
         <h4>Select a Recording:</h4>
         <div class="recordings-grid">
-          <div 
-            v-for="recording in portfolioRecordings" 
+          <div
+            v-for="recording in portfolioRecordings"
             :key="recording.id"
             class="recording-card"
             :class="{ selected: selectedRecordingId === recording.id }"
@@ -71,10 +71,10 @@
         <h4>Speaker Configuration</h4>
         <div class="config-input">
           <label>How many speakers are in this recording?</label>
-          <input 
-            type="number" 
-            v-model.number="numSpeakers" 
-            min="1" 
+          <input
+            type="number"
+            v-model.number="numSpeakers"
+            min="1"
             max="10"
             class="form-control"
           />
@@ -85,9 +85,9 @@
           <h5>Name the speakers (optional):</h5>
           <div v-for="i in numSpeakers" :key="i" class="speaker-name-input">
             <label>Speaker {{ i }}:</label>
-            <input 
-              type="text" 
-              v-model="speakerNames[i-1]" 
+            <input
+              type="text"
+              v-model="speakerNames[i-1]"
               :placeholder="`Speaker ${i}`"
               class="form-control"
             />
@@ -97,10 +97,10 @@
         <!-- Audio Player -->
         <div class="audio-player-section">
           <h5>🎧 Listen to Recording:</h5>
-          <audio 
-            v-if="selectedRecording.r2Url" 
-            :src="selectedRecording.r2Url" 
-            controls 
+          <audio
+            v-if="selectedRecording.r2Url"
+            :src="selectedRecording.r2Url"
+            controls
             class="audio-player"
             @timeupdate="updateCurrentTime"
             ref="audioPlayer"
@@ -131,18 +131,18 @@
               </div>
               <div class="form-group">
                 <label>Start Time (seconds):</label>
-                <input 
-                  type="number" 
-                  v-model.number="currentTimestamp.start" 
+                <input
+                  type="number"
+                  v-model.number="currentTimestamp.start"
                   step="0.1"
                   class="form-control"
                 />
               </div>
               <div class="form-group">
                 <label>End Time (seconds):</label>
-                <input 
-                  type="number" 
-                  v-model.number="currentTimestamp.end" 
+                <input
+                  type="number"
+                  v-model.number="currentTimestamp.end"
                   step="0.1"
                   class="form-control"
                 />
@@ -166,8 +166,8 @@
         <div v-if="speakerTimeline.length > 0" class="speaker-timeline">
           <h5>📊 Speaker Timeline:</h5>
           <div class="timeline-list">
-            <div 
-              v-for="(segment, index) in sortedTimeline" 
+            <div
+              v-for="(segment, index) in sortedTimeline"
               :key="index"
               class="timeline-segment"
             >
@@ -186,8 +186,8 @@
 
           <!-- Save Button -->
           <div class="save-section">
-            <button 
-              @click="saveSpeakerTimeline" 
+            <button
+              @click="saveSpeakerTimeline"
               :disabled="savingSpeakers"
               class="btn btn-primary btn-lg"
             >
