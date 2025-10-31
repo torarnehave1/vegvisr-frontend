@@ -75,9 +75,43 @@
               <strong>{{ recording.displayName || recording.fileName }}</strong>
               <span class="recording-date">{{ formatDate(recording.timestamp) }}</span>
             </div>
-            <div class="recording-meta">
-              <span v-if="recording.duration">⏱️ {{ formatDuration(recording.duration) }}</span>
-              <span v-if="recording.fileSize">📦 {{ formatFileSize(recording.fileSize) }}</span>
+            
+            <!-- Recording Info -->
+            <div class="recording-info">
+              <div class="recording-meta">
+                <span v-if="recording.estimatedDuration || recording.duration">
+                  🕐 {{ formatDuration(recording.estimatedDuration || recording.duration) }}
+                </span>
+                <span v-if="recording.fileSize">📦 {{ formatFileSize(recording.fileSize) }}</span>
+              </div>
+              <div class="badges-container">
+                <span class="badge bg-primary">{{
+                  recording.metadata?.category || recording.category || 'Uncategorized'
+                }}</span>
+                <span
+                  v-for="tag in recording.metadata?.tags || recording.tags || []"
+                  :key="tag"
+                  class="badge bg-secondary ms-1"
+                >
+                  {{ tag }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Transcription Preview -->
+            <div v-if="recording.norwegianTranscription || recording.transcriptionText" class="transcription-preview">
+              <p class="preview-text">
+                {{
+                  recording.norwegianTranscription?.improved_text?.substring(0, 150) ||
+                  recording.norwegianTranscription?.raw_text?.substring(0, 150) ||
+                  recording.transcriptionText?.substring(0, 150) ||
+                  ''
+                }}{{ 
+                  (recording.norwegianTranscription?.improved_text?.length > 150 || 
+                   recording.norwegianTranscription?.raw_text?.length > 150 || 
+                   recording.transcriptionText?.length > 150) ? '...' : '' 
+                }}
+              </p>
             </div>
           </div>
         </div>
