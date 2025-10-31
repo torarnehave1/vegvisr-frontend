@@ -1525,13 +1525,21 @@ const useTranscriptionForDiarization = () => {
 }
 
 const loadPortfolioForDiarization = async () => {
+  if (!userStore.email) {
+    diarizationError.value = 'Please log in to access your audio portfolio'
+    return
+  }
+
   loadingDiarizationPortfolio.value = true
+  diarizationError.value = null
+
   try {
-    const userId = userStore.userId
-    const response = await fetch(`${import.meta.env.VITE_CLOUDFLARE_WORKER_URL}/user/${userId}/recordings`)
+    const response = await fetch(
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+    )
 
     if (!response.ok) {
-      throw new Error('Failed to load portfolio recordings')
+      throw new Error(`Failed to load portfolio: ${response.statusText}`)
     }
 
     const data = await response.json()
