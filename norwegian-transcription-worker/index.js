@@ -487,6 +487,100 @@ export default {
       return createErrorResponse('Diarization endpoint temporarily disabled', 503)
     }
 
+    // AI Speaker Identification Endpoint - Analyze dialogue to identify speaker roles
+    if (request.method === 'POST' && url.pathname === '/identify-speakers') {
+      try {
+        const { transcriptionText, speakerTimeline, numSpeakers } = await request.json()
+
+        if (!transcriptionText || !speakerTimeline || speakerTimeline.length === 0) {
+          return createErrorResponse('Missing required data: transcriptionText and speakerTimeline required', 400)
+        }
+
+        console.log('🤖 Identifying speakers with AI:', {
+          textLength: transcriptionText.length,
+          segments: speakerTimeline.length,
+          numSpeakers
+        })
+
+        // Build the prompt for Llama
+        let prompt = `Analyser denne norske samtalen og identifiser rollene til hver taler basert på språkbruk, samtalemønster og innhold.\n\n`
+
+        // Add each speaker segment with their text
+        speakerTimeline.forEach((segment) => {
+          const speakerLabel = segment.speakerName || `Taler ${segment.speaker + 1}`
+          const startTime = Math.floor(segment.start)
+          const endTime = Math.floor(segment.end)
+
+          // Try to extract approximate text for this time range (rough estimation)
+          // Since we don't have precise text timestamps, we'll divide the text proportionally
+          prompt += `\n${speakerLabel} (${startTime}s - ${endTime}s):\n`
+        })
+
+        prompt += `\nFull transkripsjon:\n${transcriptionText}\n\n`
+        prompt += `Basert på samtalemønstrene, ordvalg og samtaleflyt, vennligst:\n`
+        prompt += `1. Identifiser den sannsynlige rollen til hver taler (f.eks. terapeut/klient, lærer/elev, intervjuer/intervjuet)\n`
+        prompt += `2. Beskriv kort hvorfor du tror dette\n`
+        prompt += `3. Foreslå passende navn/titler for hver taler\n\n`
+        prompt += `Svar på norsk i dette JSON-formatet:\n`
+        prompt += `{\n`
+        prompt += `  "speakers": [\n`
+        prompt += `    {"index": 0, "role": "rolle", "reasoning": "forklaring", "suggestedName": "navn"},\n`
+        prompt += `    {"index": 1, "role": "rolle", "reasoning": "forklaring", "suggestedName": "navn"}\n`
+        prompt += `  ]\n`
+        prompt += `}`
+
+        // Call Cloudflare Workers AI (Llama)
+        const aiResponse = await env.NORWEGIAN_TEXT_WORKER.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+          messages: [
+            {
+              role: 'system',
+              content: 'Du er en ekspert på samtaleanalyse og kommunikasjonsmønster. Du analyserer transkribert tale for å identifisere rollene til ulike talere.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 1000
+        })
+
+        console.log('✅ AI speaker identification response received')
+
+        let speakerIdentifications
+        try {
+          // Try to parse JSON from the response
+          const aiText = aiResponse.response || aiResponse.result?.response || JSON.stringify(aiResponse)
+          const jsonMatch = aiText.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            speakerIdentifications = JSON.parse(jsonMatch[0])
+          } else {
+            // Fallback if JSON parsing fails
+            speakerIdentifications = {
+              speakers: [],
+              rawResponse: aiText
+            }
+          }
+        } catch (parseError) {
+          console.error('Failed to parse AI response:', parseError)
+          speakerIdentifications = {
+            speakers: [],
+            rawResponse: JSON.stringify(aiResponse)
+          }
+        }
+
+        return createResponse(JSON.stringify({
+          success: true,
+          identifications: speakerIdentifications,
+          processingTime: Date.now()
+        }))
+
+      } catch (error) {
+        console.error('Error identifying speakers:', error)
+        return createErrorResponse(`Speaker identification failed: ${error.message}`, 500)
+      }
+    }
+
     // Upload endpoint - for uploading audio files to R2
     if (request.method === 'POST' && url.pathname === '/upload') {
       return handleUpload(request, env)

@@ -184,6 +184,41 @@
             </div>
           </div>
 
+          <!-- AI Speaker Identification -->
+          <div class="ai-identification-section">
+            <h5>🤖 AI Speaker Identification</h5>
+            <p class="hint-text">Let AI analyze the dialogue to identify speaker roles based on language patterns and conversation dynamics</p>
+            <button
+              @click="identifySpeakersWithAI"
+              :disabled="identifyingAI || speakerTimeline.length === 0"
+              class="btn btn-secondary"
+            >
+              {{ identifyingAI ? '🤖 Analyzing...' : '🤖 Auto-Identify Speaker Roles' }}
+            </button>
+
+            <!-- AI Results -->
+            <div v-if="aiIdentification" class="ai-results">
+              <h6>AI Analysis Results:</h6>
+              <div v-for="(speaker, idx) in aiIdentification.speakers" :key="idx" class="ai-speaker-result">
+                <div class="ai-speaker-header">
+                  <strong>{{ speakerNames[speaker.index] || `Speaker ${speaker.index + 1}` }}</strong>
+                  <span class="ai-role-badge">{{ speaker.role }}</span>
+                </div>
+                <div class="ai-reasoning">{{ speaker.reasoning }}</div>
+                <div class="ai-suggestion">
+                  💡 Suggested name: <strong>{{ speaker.suggestedName }}</strong>
+                  <button @click="applySuggestedName(speaker.index, speaker.suggestedName)" class="btn-apply">
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="aiError" class="error-message">
+              ❌ {{ aiError }}
+            </div>
+          </div>
+
           <!-- Save Button -->
           <div class="save-section">
             <button
@@ -773,6 +808,9 @@ const currentAudioTime = ref(0)
 const savingSpeakers = ref(false)
 const speakersSaved = ref(false)
 const speakersError = ref(null)
+const identifyingAI = ref(false)
+const aiIdentification = ref(null)
+const aiError = ref(null)
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1393,6 +1431,71 @@ const saveSpeakerTimeline = async () => {
     speakersError.value = err.message
   } finally {
     savingSpeakers.value = false
+  }
+}
+
+const identifySpeakersWithAI = async () => {
+  if (!selectedRecording.value || speakerTimeline.value.length === 0) {
+    aiError.value = 'Please add speaker timestamps first'
+    return
+  }
+
+  identifyingAI.value = true
+  aiError.value = null
+  aiIdentification.value = null
+
+  try {
+    console.log('🤖 Calling AI to identify speakers...')
+
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/identify-speakers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        transcriptionText: selectedRecording.value.transcriptionText || '',
+        speakerTimeline: speakerTimeline.value,
+        numSpeakers: numSpeakers.value,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `AI identification failed: ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('✅ AI identification result:', result)
+
+    aiIdentification.value = result.identifications
+
+    // If there's a rawResponse instead of speakers array, show it
+    if (!aiIdentification.value.speakers || aiIdentification.value.speakers.length === 0) {
+      if (aiIdentification.value.rawResponse) {
+        aiError.value = 'AI response received but could not be parsed. Check console for details.'
+        console.log('Raw AI response:', aiIdentification.value.rawResponse)
+      }
+    }
+  } catch (err) {
+    console.error('AI speaker identification error:', err)
+    aiError.value = err.message
+  } finally {
+    identifyingAI.value = false
+  }
+}
+
+const applySuggestedName = (speakerIndex, suggestedName) => {
+  if (speakerIndex >= 0 && speakerIndex < speakerNames.value.length) {
+    speakerNames.value[speakerIndex] = suggestedName
+
+    // Update existing timeline segments with the new name
+    speakerTimeline.value.forEach(segment => {
+      if (segment.speaker === speakerIndex) {
+        segment.speakerName = suggestedName
+      }
+    })
+
+    console.log(`✅ Applied suggested name: ${suggestedName} for Speaker ${speakerIndex + 1}`)
   }
 }
 
@@ -3498,5 +3601,108 @@ const createChunkedGraph = async () => {
   color: #991b1b;
   border-radius: 6px;
   border: 1px solid #fecaca;
+}
+
+/* AI Speaker Identification Styles */
+.ai-identification-section {
+  margin-top: 25px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+  border-radius: 8px;
+  border: 2px solid #0ea5e9;
+}
+
+.ai-identification-section h5 {
+  margin: 0 0 10px 0;
+  color: #0369a1;
+}
+
+.ai-identification-section .hint-text {
+  margin: 0 0 15px 0;
+  color: #666;
+  font-size: 0.9rem;
+  background: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.ai-results {
+  margin-top: 20px;
+  padding: 15px;
+  background: white;
+  border-radius: 6px;
+}
+
+.ai-results h6 {
+  margin: 0 0 15px 0;
+  color: #0369a1;
+  font-weight: 600;
+}
+
+.ai-speaker-result {
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border-left: 4px solid #0ea5e9;
+}
+
+.ai-speaker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-speaker-header strong {
+  color: #1e293b;
+  font-size: 1rem;
+}
+
+.ai-role-badge {
+  padding: 4px 12px;
+  background: #0ea5e9;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.ai-reasoning {
+  color: #475569;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.ai-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.ai-suggestion strong {
+  color: #0ea5e9;
+}
+
+.btn-apply {
+  padding: 4px 12px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-apply:hover {
+  background: #059669;
 }
 </style>

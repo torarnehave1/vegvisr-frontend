@@ -300,8 +300,15 @@ const updateRecording = async (env, userEmail, recordingId, updates) => {
 
     const recording = JSON.parse(recordingData)
 
-    // Update allowed fields
-    const allowedUpdates = ['displayName', 'tags', 'category']
+    // Update allowed fields (expanded to include speaker identification fields)
+    const allowedUpdates = [
+      'displayName',
+      'tags',
+      'category',
+      'speakerTimeline',
+      'numSpeakers',
+      'speakerNames'
+    ]
     allowedUpdates.forEach((field) => {
       if (updates[field] !== undefined) {
         recording[field] = updates[field]
@@ -406,11 +413,29 @@ export default {
         return createSuccessResponse(result)
       }
 
-      // PUT /update-recording - Update recording metadata
-      if (pathname === '/update-recording' && request.method === 'PUT') {
-        const userEmail = url.searchParams.get('userEmail')
-        const recordingId = url.searchParams.get('recordingId')
-        const updates = await request.json()
+      // PUT or POST /update-recording - Update recording metadata
+      if (pathname === '/update-recording' && (request.method === 'PUT' || request.method === 'POST')) {
+        let userEmail, recordingId, updates
+
+        // Support both query params (PUT) and JSON body (POST)
+        if (request.method === 'PUT') {
+          userEmail = url.searchParams.get('userEmail')
+          recordingId = url.searchParams.get('recordingId')
+          updates = await request.json()
+        } else {
+          // POST request with JSON body containing id and updates
+          const body = await request.json()
+          userEmail = request.headers.get('X-User-Email') || body.userEmail
+          recordingId = body.id || body.recordingId
+          updates = body.updates || body
+        }
+
+        console.log('📝 Updating recording:', {
+          userEmail,
+          recordingId,
+          updates: Object.keys(updates),
+          hasSpeakerTimeline: !!updates.speakerTimeline,
+        })
 
         const result = await updateRecording(env, userEmail, recordingId, updates)
         return createSuccessResponse(result)
