@@ -240,6 +240,186 @@
       </div>
     </div>
 
+    <!-- Automated Speaker Diarization Section -->
+    <div class="test-section">
+      <h2>🎯 Automated Speaker Diarization (AI-Powered)</h2>
+      <p class="section-description">
+        Use AI to automatically detect and separate different speakers in your audio recordings.
+        Perfect for analyzing therapy sessions, interviews, and multi-speaker conversations.
+      </p>
+
+      <!-- Load Portfolio Button -->
+      <button
+        @click="loadPortfolioForDiarization"
+        :disabled="loadingDiarizationPortfolio"
+        class="btn btn-primary"
+      >
+        {{ loadingDiarizationPortfolio ? '📼 Loading Portfolio...' : '📼 Load Audio Portfolio' }}
+      </button>
+
+      <!-- Portfolio Recordings List for Diarization -->
+      <div v-if="diarizationRecordings.length > 0" class="portfolio-list">
+        <h4>Select a Recording to Analyze:</h4>
+        <div class="recordings-grid">
+          <div
+            v-for="recording in diarizationRecordings"
+            :key="recording.id"
+            class="recording-card"
+            :class="{ selected: selectedDiarizationId === recording.id }"
+            @click="selectDiarizationRecording(recording)"
+          >
+            <div class="recording-header">
+              <strong>{{ recording.displayName || recording.fileName }}</strong>
+              <span class="recording-date">{{ formatDate(recording.timestamp) }}</span>
+            </div>
+            <div class="recording-meta">
+              <span v-if="recording.duration">⏱️ {{ formatDuration(recording.duration) }}</span>
+              <span v-if="recording.fileSize">📦 {{ formatFileSize(recording.fileSize) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected Recording for Diarization -->
+      <div v-if="selectedDiarizationRecording" class="diarization-analysis">
+        <h4>🎧 Analyzing: {{ selectedDiarizationRecording.displayName || selectedDiarizationRecording.fileName }}</h4>
+
+        <!-- Audio Player -->
+        <div class="audio-player-section">
+          <audio
+            v-if="selectedDiarizationRecording.r2Url"
+            :src="selectedDiarizationRecording.r2Url"
+            controls
+            class="audio-player"
+            ref="diarizationAudioPlayer"
+            @timeupdate="updateDiarizationTime"
+          ></audio>
+          <div class="current-time">Current time: {{ formatTime(currentDiarizationTime) }}</div>
+        </div>
+
+        <!-- Analyze Button -->
+        <button
+          @click="analyzeSpeakerDiarization"
+          :disabled="analyzingDiarization"
+          class="btn btn-primary btn-lg"
+        >
+          {{ analyzingDiarization ? '🔄 Analyzing Speakers...' : '🎯 Analyze Speakers (AI)' }}
+        </button>
+
+        <!-- Progress Message -->
+        <div v-if="diarizationProgress" class="progress-message">
+          <div class="progress-spinner">⏳</div>
+          <strong>{{ diarizationProgress }}</strong>
+          <p class="hint-text">This may take 1-2 minutes for longer recordings...</p>
+        </div>
+
+        <!-- Diarization Results -->
+        <div v-if="diarizationResult" class="diarization-results">
+          <div class="results-header">
+            <h5>✅ Diarization Complete!</h5>
+            <div class="results-stats">
+              <span class="stat-badge">👥 {{ diarizationResult.numSpeakers }} Speakers Detected</span>
+              <span class="stat-badge">📊 {{ diarizationResult.segments.length }} Segments</span>
+              <span class="stat-badge">⏱️ {{ formatDuration(diarizationResult.duration) }}</span>
+            </div>
+          </div>
+
+          <!-- Speaker Labels (Editable) -->
+          <div class="speaker-labels-section">
+            <h6>🏷️ Speaker Labels (click to edit):</h6>
+            <div class="speaker-labels-grid">
+              <div
+                v-for="(label, speaker) in speakerLabels"
+                :key="speaker"
+                class="speaker-label-item"
+                :style="{ borderLeft: `4px solid ${getSpeakerColor(speaker)}` }"
+              >
+                <span class="speaker-id">{{ speaker }}</span>
+                <input
+                  v-model="speakerLabels[speaker]"
+                  @change="updateSpeakerLabel(speaker)"
+                  class="speaker-label-input"
+                  :placeholder="`e.g., Therapist, Client`"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Visual Timeline -->
+          <div class="speaker-timeline-visual">
+            <h6>📊 Speaker Timeline:</h6>
+            <div class="timeline-container">
+              <div
+                v-for="(segment, index) in diarizationResult.segments"
+                :key="index"
+                class="timeline-bar"
+                :style="{
+                  left: `${(segment.start / diarizationResult.duration) * 100}%`,
+                  width: `${((segment.end - segment.start) / diarizationResult.duration) * 100}%`,
+                  backgroundColor: getSpeakerColor(segment.speaker)
+                }"
+                :title="`${speakerLabels[segment.speaker] || segment.speaker}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
+                @click="seekToSegment(segment.start)"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Segment List -->
+          <div class="segments-list">
+            <h6>📝 Detailed Segments:</h6>
+            <div class="segments-container">
+              <div
+                v-for="(segment, index) in diarizationResult.segments"
+                :key="index"
+                class="segment-item"
+                :class="{ active: isSegmentActive(segment) }"
+                @click="seekToSegment(segment.start)"
+              >
+                <div class="segment-header">
+                  <span
+                    class="speaker-badge"
+                    :style="{ backgroundColor: getSpeakerColor(segment.speaker) }"
+                  >
+                    {{ speakerLabels[segment.speaker] || segment.speaker }}
+                  </span>
+                  <span class="segment-time">
+                    {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
+                  </span>
+                  <span class="segment-duration">
+                    ({{ formatDuration(segment.end - segment.start) }})
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Save Diarization -->
+          <div class="save-section">
+            <button
+              @click="saveDiarizationResult"
+              :disabled="savingDiarization"
+              class="btn btn-success btn-lg"
+            >
+              {{ savingDiarization ? 'Saving...' : '💾 Save Diarization to Portfolio' }}
+            </button>
+
+            <div v-if="diarizationSaved" class="success-message">
+              ✅ Diarization saved successfully!
+            </div>
+            <div v-if="diarizationSaveError" class="error-message">
+              ❌ {{ diarizationSaveError }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Diarization Error -->
+        <div v-if="diarizationError" class="error-message">
+          <strong>❌ Diarization Failed:</strong>
+          <p>{{ diarizationError }}</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Norwegian Model Info -->
     <div class="test-section">
       <h2>🇳🇴 Norwegian Transcription Model</h2>
@@ -811,6 +991,22 @@ const speakersError = ref(null)
 const identifyingAI = ref(false)
 const aiIdentification = ref(null)
 const aiError = ref(null)
+
+// Automated diarization state
+const loadingDiarizationPortfolio = ref(false)
+const diarizationRecordings = ref([])
+const selectedDiarizationId = ref(null)
+const selectedDiarizationRecording = ref(null)
+const analyzingDiarization = ref(false)
+const diarizationProgress = ref('')
+const diarizationResult = ref(null)
+const diarizationError = ref(null)
+const currentDiarizationTime = ref(0)
+const speakerLabels = ref({})
+const savingDiarization = ref(false)
+const diarizationSaved = ref(false)
+const diarizationSaveError = ref(null)
+const diarizationAudioPlayer = ref(null)
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1498,6 +1694,196 @@ const applySuggestedName = (speakerIndex, suggestedName) => {
     console.log(`✅ Applied suggested name: ${suggestedName} for Speaker ${speakerIndex + 1}`)
   }
 }
+
+// ========== AUTOMATED SPEAKER DIARIZATION FUNCTIONS ==========
+
+const loadPortfolioForDiarization = async () => {
+  loadingDiarizationPortfolio.value = true
+  try {
+    const userId = userStore.userId
+    const response = await fetch(`${import.meta.env.VITE_CLOUDFLARE_WORKER_URL}/user/${userId}/recordings`)
+
+    if (!response.ok) {
+      throw new Error('Failed to load portfolio recordings')
+    }
+
+    const data = await response.json()
+    diarizationRecordings.value = data.recordings || []
+    console.log('📼 Loaded portfolio for diarization:', diarizationRecordings.value.length, 'recordings')
+  } catch (err) {
+    console.error('Error loading portfolio:', err)
+    diarizationError.value = `Failed to load portfolio: ${err.message}`
+  } finally {
+    loadingDiarizationPortfolio.value = false
+  }
+}
+
+const selectDiarizationRecording = (recording) => {
+  selectedDiarizationId.value = recording.id
+  selectedDiarizationRecording.value = recording
+  diarizationResult.value = null
+  diarizationError.value = null
+  diarizationSaved.value = false
+  console.log('🎧 Selected recording for diarization:', recording.displayName || recording.fileName)
+}
+
+const analyzeSpeakerDiarization = async () => {
+  if (!selectedDiarizationRecording.value || !selectedDiarizationRecording.value.r2Url) {
+    diarizationError.value = 'No recording selected or URL missing'
+    return
+  }
+
+  analyzingDiarization.value = true
+  diarizationError.value = null
+  diarizationResult.value = null
+  diarizationProgress.value = 'Preparing audio for analysis...'
+
+  try {
+    console.log('🎯 Starting diarization analysis:', selectedDiarizationRecording.value.r2Url)
+
+    diarizationProgress.value = 'Sending audio to AI diarization service...'
+
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/diarize-audio`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audioUrl: selectedDiarizationRecording.value.r2Url
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Diarization failed: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+
+    if (!result.success || !result.segments) {
+      throw new Error('Invalid diarization response')
+    }
+
+    console.log('✅ Diarization complete:', result.segments.length, 'segments')
+
+    // Process the results
+    const segments = result.segments
+    const duration = selectedDiarizationRecording.value.duration || Math.max(...segments.map(s => s.end))
+    const speakers = [...new Set(segments.map(s => s.speaker))]
+
+    diarizationResult.value = {
+      segments,
+      numSpeakers: speakers.length,
+      duration,
+      metadata: result.metadata || {}
+    }
+
+    // Initialize speaker labels
+    const labels = {}
+    speakers.forEach(speaker => {
+      labels[speaker] = speaker // Default label is the speaker ID
+    })
+    speakerLabels.value = labels
+
+    diarizationProgress.value = ''
+
+  } catch (err) {
+    console.error('Diarization error:', err)
+    diarizationError.value = err.message
+    diarizationProgress.value = ''
+  } finally {
+    analyzingDiarization.value = false
+  }
+}
+
+const updateDiarizationTime = (event) => {
+  currentDiarizationTime.value = event.target.currentTime
+}
+
+const getSpeakerColor = (speaker) => {
+  // Generate consistent colors for speakers
+  const colors = [
+    '#3B82F6', // blue
+    '#10B981', // green
+    '#F59E0B', // amber
+    '#EF4444', // red
+    '#8B5CF6', // purple
+    '#EC4899', // pink
+    '#14B8A6', // teal
+    '#F97316', // orange
+  ]
+  const speakerIndex = parseInt(speaker.replace('SPEAKER_', '')) || 0
+  return colors[speakerIndex % colors.length]
+}
+
+const updateSpeakerLabel = (speaker) => {
+  console.log('🏷️ Updated label for', speaker, ':', speakerLabels.value[speaker])
+}
+
+const isSegmentActive = (segment) => {
+  return currentDiarizationTime.value >= segment.start && currentDiarizationTime.value <= segment.end
+}
+
+const seekToSegment = (time) => {
+  if (diarizationAudioPlayer.value) {
+    diarizationAudioPlayer.value.currentTime = time
+    diarizationAudioPlayer.value.play()
+  }
+}
+
+const saveDiarizationResult = async () => {
+  if (!diarizationResult.value || !selectedDiarizationRecording.value) {
+    return
+  }
+
+  savingDiarization.value = true
+  diarizationSaveError.value = null
+  diarizationSaved.value = false
+
+  try {
+    const userId = userStore.userId
+
+    // Save diarization data to the recording
+    const saveData = {
+      recordingId: selectedDiarizationRecording.value.id,
+      diarization: {
+        segments: diarizationResult.value.segments,
+        speakerLabels: speakerLabels.value,
+        numSpeakers: diarizationResult.value.numSpeakers,
+        metadata: diarizationResult.value.metadata,
+        analyzedAt: new Date().toISOString()
+      }
+    }
+
+    const response = await fetch(`${import.meta.env.VITE_CLOUDFLARE_WORKER_URL}/user/${userId}/recording/${selectedDiarizationRecording.value.id}/diarization`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(saveData)
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to save diarization: ${response.statusText}`)
+    }
+
+    diarizationSaved.value = true
+    console.log('💾 Diarization saved successfully')
+
+    // Auto-hide success message after 3 seconds
+    setTimeout(() => {
+      diarizationSaved.value = false
+    }, 3000)
+
+  } catch (err) {
+    console.error('Error saving diarization:', err)
+    diarizationSaveError.value = err.message
+  } finally {
+    savingDiarization.value = false
+  }
+}
+
+// ========== END DIARIZATION FUNCTIONS ==========
 
 const transcribeAudio = async () => {
   if (!selectedFile.value && !recordedBlob.value) {
@@ -3705,4 +4091,249 @@ const createChunkedGraph = async () => {
 .btn-apply:hover {
   background: #059669;
 }
+
+/* ========== AUTOMATED DIARIZATION STYLES ========== */
+
+.diarization-analysis {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.diarization-analysis h4 {
+  color: #1e293b;
+  margin-bottom: 15px;
+}
+
+.progress-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px;
+  background: white;
+  border-radius: 8px;
+  border: 2px dashed #3b82f6;
+  margin: 20px 0;
+}
+
+.progress-spinner {
+  font-size: 2rem;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-message strong {
+  color: #1e293b;
+  font-size: 1.1rem;
+  margin: 10px 0;
+}
+
+.hint-text {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 5px 0;
+}
+
+.diarization-results {
+  margin-top: 20px;
+}
+
+.results-header {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.results-header h5 {
+  color: #10b981;
+  margin: 0 0 15px 0;
+  font-size: 1.2rem;
+}
+
+.results-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  padding: 8px 16px;
+  background: #f1f5f9;
+  color: #1e293b;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+}
+
+.speaker-labels-section {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.speaker-labels-section h6 {
+  color: #1e293b;
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+}
+
+.speaker-labels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 15px;
+}
+
+.speaker-label-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.speaker-id {
+  font-weight: 600;
+  color: #64748b;
+  min-width: 100px;
+  font-size: 0.9rem;
+}
+
+.speaker-label-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  transition: border-color 0.2s;
+}
+
+.speaker-label-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.speaker-timeline-visual {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.speaker-timeline-visual h6 {
+  color: #1e293b;
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+}
+
+.timeline-container {
+  position: relative;
+  height: 60px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.timeline-bar {
+  position: absolute;
+  height: 100%;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+
+.timeline-bar:hover {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.segments-list {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.segments-list h6 {
+  color: #1e293b;
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+}
+
+.segments-container {
+  max-height: 500px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.segment-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.segment-item:hover {
+  background: #f8fafc;
+}
+
+.segment-item.active {
+  background: #dbeafe;
+  border-left: 4px solid #3b82f6;
+}
+
+.segment-item:last-child {
+  border-bottom: none;
+}
+
+.segment-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.speaker-badge {
+  padding: 4px 12px;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 120px;
+  text-align: center;
+}
+
+.segment-time {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.segment-duration {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+/* ========== END DIARIZATION STYLES ========== */
 </style>
