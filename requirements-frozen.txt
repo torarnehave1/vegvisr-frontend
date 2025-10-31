@@ -1,0 +1,15 @@
+# COMPLETELY FROZEN - Copy exact versions from working environment
+# Run `pip freeze > requirements-frozen.txt` in a working environment
+# This is the SAFEST but requires you to have a working env first
+
+pyannote.audio==3.1.1
+torch==2.1.0
+torchaudio==2.1.0
+torchvision==0.16.0
+numpy==1.24.3
+scipy==1.11.3
+lightning==2.1.0
+pytorch-lightning==2.1.0
+huggingface-hub==0.17.3
+transformers==4.33.2
+soundfile==0.12.1

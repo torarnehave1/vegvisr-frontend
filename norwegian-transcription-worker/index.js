@@ -472,19 +472,108 @@ export default {
             transcribe: '/ (POST)',
             upload: '/upload (POST)',
             health: '/health (GET)',
-            diarization: '/diarize (POST) or /test-diarization (POST)',
+            diarization: '/diarize-audio (POST) - NEW: Test speaker diarization',
           },
           diarization: {
             provider: 'Hugging Face Inference Endpoint',
-            model: 'pyannote/speaker-diarization-3.1'
+            model: 'pyannote/speaker-diarization-3.1',
+            endpoint: 'https://xr8h7vvrrtja455d.us-east-1.aws.endpoints.huggingface.cloud',
+            status: 'active'
           }
         }),
       )
     }
 
-    // Speaker Diarization Endpoint
-    if (request.method === 'POST' && (url.pathname === '/diarize' || url.pathname === '/test-diarization')) {
-      return createErrorResponse('Diarization endpoint temporarily disabled', 503)
+    // Speaker Diarization Endpoint - NEW IMPLEMENTATION
+    if (request.method === 'POST' && url.pathname === '/diarize-audio') {
+      try {
+        const { audioUrl } = await request.json()
+
+        if (!audioUrl) {
+          return createErrorResponse('Missing required audioUrl parameter', 400)
+        }
+
+        console.log('🎤 Diarization request:', { audioUrl, timestamp: new Date().toISOString() })
+
+        // Extract R2 key from URL
+        let r2Key
+        if (audioUrl.includes('audio.vegvisr.org/')) {
+          r2Key = audioUrl.split('audio.vegvisr.org/')[1]
+        } else if (audioUrl.includes('.r2.cloudflarestorage.com/')) {
+          r2Key = audioUrl.split('.r2.cloudflarestorage.com/')[1]
+        } else {
+          return createErrorResponse(`Invalid audio URL format: ${audioUrl}`, 400)
+        }
+
+        // Download audio from R2
+        console.log('📥 Downloading audio from R2:', { r2Key })
+        const audioObject = await env.NORWEGIAN_AUDIO_BUCKET.get(r2Key)
+
+        if (!audioObject) {
+          return createErrorResponse(`Audio file not found: ${r2Key}`, 404)
+        }
+
+        const audioBuffer = await audioObject.arrayBuffer()
+        console.log('📁 Audio downloaded:', {
+          size: audioBuffer.byteLength,
+          sizeMB: (audioBuffer.byteLength / 1024 / 1024).toFixed(2),
+        })
+
+        // Convert to base64
+        const base64Audio = arrayBufferToBase64(audioBuffer)
+        console.log('🔄 Converted to base64:', { length: base64Audio.length })
+
+        // Call Hugging Face diarization endpoint
+        const HF_DIARIZATION_ENDPOINT = 'https://xr8h7vvrrtja455d.us-east-1.aws.endpoints.huggingface.cloud'
+
+        console.log('🚀 Calling HF diarization endpoint...')
+        const diarizationResponse = await fetch(HF_DIARIZATION_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${env.whisperailab}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            inputs: base64Audio
+          }),
+        })
+
+        if (!diarizationResponse.ok) {
+          const errorText = await diarizationResponse.text()
+          console.error('❌ Diarization failed:', {
+            status: diarizationResponse.status,
+            error: errorText
+          })
+          return createErrorResponse(
+            `Diarization service error (${diarizationResponse.status}): ${errorText}`,
+            502
+          )
+        }
+
+        const diarizationResult = await diarizationResponse.json()
+        console.log('✅ Diarization successful:', {
+          hasSegments: !!diarizationResult.segments,
+          segmentCount: diarizationResult.segments?.length
+        })
+
+        // Return editable segments
+        return createResponse(JSON.stringify({
+          success: true,
+          segments: diarizationResult.segments || [],
+          metadata: {
+            audioUrl,
+            r2Key,
+            processedAt: new Date().toISOString(),
+            service: 'Hugging Face Speaker Diarization',
+            model: 'pyannote/speaker-diarization-3.1',
+            segmentCount: diarizationResult.segments?.length || 0
+          }
+        }))
+
+      } catch (error) {
+        console.error('❌ Diarization error:', error)
+        return createErrorResponse(`Diarization failed: ${error.message}`, 500)
+      }
     }
 
     // AI Speaker Identification Endpoint - Analyze dialogue to identify speaker roles
@@ -502,70 +591,130 @@ export default {
           numSpeakers
         })
 
-        // Build the prompt for Llama
-        let prompt = `Analyser denne norske samtalen og identifiser rollene til hver taler basert på språkbruk, samtalemønster og innhold.\n\n`
+        // Build a prompt for AI to segment the conversation automatically
+        const totalDuration = Math.max(...speakerTimeline.map(s => s.end))
+        const totalChars = transcriptionText.length
+        const approxSecondsPerChar = totalDuration / totalChars
 
-        // Add each speaker segment with their text
-        speakerTimeline.forEach((segment) => {
-          const speakerLabel = segment.speakerName || `Taler ${segment.speaker + 1}`
-          const startTime = Math.floor(segment.start)
-          const endTime = Math.floor(segment.end)
+        let prompt = `Du skal automatisk segmentere denne norske samtalen i talersegmenter.\n\n`
 
-          // Try to extract approximate text for this time range (rough estimation)
-          // Since we don't have precise text timestamps, we'll divide the text proportionally
-          prompt += `\n${speakerLabel} (${startTime}s - ${endTime}s):\n`
+        prompt += `INFORMASJON:\n`
+        prompt += `- Antall talere: ${numSpeakers}\n`
+        prompt += `- Total varighet: ${Math.round(totalDuration)} sekunder\n`
+        prompt += `- Beregningsformel: tegnposisjon × ${approxSecondsPerChar.toFixed(4)} = sekunder\n\n`
+
+        prompt += `TRANSKRIPSJON:\n"${transcriptionText}"\n\n`
+
+        prompt += `OPPGAVE:\n`
+        prompt += `1. Les hele samtalen og identifiser rollene til hver taler\n`
+        prompt += `2. Analyser dialogmønsteret - spørsmål, svar, lengre monologer, korte responser\n`
+        prompt += `3. Identifiser ALLE steder i teksten hvor taleren skifter\n`
+        prompt += `4. For hvert segment, beregn start/slutt-tid basert på tegnposisjon i teksten\n\n`
+
+        prompt += `EKSEMPEL PÅ TALERSKIFT:\n`
+        prompt += `- Spørsmål etterfulgt av svar = talerskift\n`
+        prompt += `- Lang monolog = én taler\n`
+        prompt += `- Korte bekreftelser ("ja", "ok") = én taler\n`
+        prompt += `- Emnebytte eller ny tankerekke = potensielt talerskift\n\n`
+
+        prompt += `Svar KUN med JSON (ingen markdown, ingen forklaring):\n`
+        prompt += `{"speakers":[{"index":0,"role":"Terapeut/Klient","reasoning":"kort forklaring","suggestedName":"Navn"}],`
+        prompt += `"suggestedTimeline":[{"speaker":0,"start":0,"end":15.5,"role":"Terapeut","textExcerpt":"første 50 tegn..."}]}\n\n`
+        prompt += `VIKTIG: Generer ALLE segmenter du kan identifisere i samtalen.`
+
+        console.log('📤 Calling Cloudflare Workers AI for automatic speaker segmentation')
+        console.log('📊 Input:', {
+          promptLength: prompt.length,
+          transcriptionLength: transcriptionText.length,
+          expectedSegments: 'auto-detect all speaker changes'
         })
 
-        prompt += `\nFull transkripsjon:\n${transcriptionText}\n\n`
-        prompt += `Basert på samtalemønstrene, ordvalg og samtaleflyt, vennligst:\n`
-        prompt += `1. Identifiser den sannsynlige rollen til hver taler (f.eks. terapeut/klient, lærer/elev, intervjuer/intervjuet)\n`
-        prompt += `2. Beskriv kort hvorfor du tror dette\n`
-        prompt += `3. Foreslå passende navn/titler for hver taler\n\n`
-        prompt += `Svar på norsk i dette JSON-formatet:\n`
-        prompt += `{\n`
-        prompt += `  "speakers": [\n`
-        prompt += `    {"index": 0, "role": "rolle", "reasoning": "forklaring", "suggestedName": "navn"},\n`
-        prompt += `    {"index": 1, "role": "rolle", "reasoning": "forklaring", "suggestedName": "navn"}\n`
-        prompt += `  ]\n`
-        prompt += `}`
-
-        // Call Cloudflare Workers AI (Llama)
-        const aiResponse = await env.NORWEGIAN_TEXT_WORKER.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+        // Call Cloudflare Workers AI with settings optimized for longer output
+        const aiResponse = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
           messages: [
             {
               role: 'system',
-              content: 'Du er en ekspert på samtaleanalyse og kommunikasjonsmønster. Du analyserer transkribert tale for å identifisere rollene til ulike talere.'
+              content: 'Du er ekspert på å analysere dialoger og identifisere talerskift. Du analyserer norsk transkribert tale og genererer automatiske talersegmenter. Svar KUN med valid JSON. VIKTIG: Sørg for at JSON er komplett og valid med alle krøllete parenteser lukket.'
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: 1000
+          temperature: 0.1,
+          max_tokens: 4096,
+          stream: false
         })
 
-        console.log('✅ AI speaker identification response received')
+        console.log('✅ AI response received:', {
+          hasResponse: !!aiResponse,
+          responseType: typeof aiResponse
+        })
+
+        console.log('✅ AI response received:', {
+          hasResponse: !!aiResponse,
+          responseType: typeof aiResponse
+        })
 
         let speakerIdentifications
         try {
-          // Try to parse JSON from the response
-          const aiText = aiResponse.response || aiResponse.result?.response || JSON.stringify(aiResponse)
-          const jsonMatch = aiText.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            speakerIdentifications = JSON.parse(jsonMatch[0])
-          } else {
-            // Fallback if JSON parsing fails
-            speakerIdentifications = {
-              speakers: [],
-              rawResponse: aiText
-            }
+          // AI.run() returns the response directly
+          const aiText = aiResponse.response || JSON.stringify(aiResponse)
+          console.log('📝 Full AI response text length:', aiText.length)
+          console.log('📝 AI response text (first 500 chars):', aiText.substring(0, 500))
+
+          // Remove markdown code blocks if present
+          let cleanedText = aiText.trim()
+          if (cleanedText.startsWith('```json')) {
+            cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/```\s*$/, '')
+          } else if (cleanedText.startsWith('```')) {
+            cleanedText = cleanedText.replace(/^```\s*/, '').replace(/```\s*$/, '')
           }
+
+          // Fix incomplete JSON - if it ends abruptly, close it properly
+          if (!cleanedText.trim().endsWith('}')) {
+            console.log('⚠️ JSON appears incomplete, attempting to repair')
+            // Count open/close brackets to determine what's missing
+            const openBrackets = (cleanedText.match(/\[/g) || []).length
+            const closeBrackets = (cleanedText.match(/\]/g) || []).length
+            const openBraces = (cleanedText.match(/\{/g) || []).length
+            const closeBraces = (cleanedText.match(/\}/g) || []).length
+
+            // Remove trailing commas and incomplete entries
+            cleanedText = cleanedText.replace(/,\s*$/, '')
+
+            // Close arrays and objects as needed
+            for (let i = 0; i < (openBrackets - closeBrackets); i++) {
+              cleanedText += ']'
+            }
+            for (let i = 0; i < (openBraces - closeBraces); i++) {
+              cleanedText += '}'
+            }
+
+            console.log('🔧 Repaired JSON (last 200 chars):', cleanedText.substring(cleanedText.length - 200))
+          }
+
+          console.log('📝 Final JSON (first 200 chars):', cleanedText.substring(0, 200))
+
+          // Try to parse the JSON
+          speakerIdentifications = JSON.parse(cleanedText)
+          console.log('✅ Successfully parsed speaker identifications:', {
+            hasSpeakers: !!speakerIdentifications.speakers,
+            speakersCount: speakerIdentifications.speakers?.length,
+            hasTimeline: !!speakerIdentifications.suggestedTimeline,
+            timelineCount: speakerIdentifications.suggestedTimeline?.length
+          })
         } catch (parseError) {
           console.error('Failed to parse AI response:', parseError)
+          console.error('Parse error details:', {
+            message: parseError.message,
+            stack: parseError.stack
+          })
           speakerIdentifications = {
             speakers: [],
-            rawResponse: JSON.stringify(aiResponse)
+            suggestedTimeline: [],
+            rawResponse: JSON.stringify(aiResponse),
+            error: parseError.message
           }
         }
 

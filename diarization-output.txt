@@ -1,0 +1,13 @@
+🎤 Testing Hugging Face Speaker Diarization...
+✅ Audio file found: 72M
+
+🚀 Calling Hugging Face diarization endpoint...
+Endpoint: https://tv9uh64c02d09jja.us-east-1.aws.endpoints.huggingface.cloud
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  3 71.9M    0     0    3 2559k      0  2177k  0:00:33  0:00:01  0:00:32 2176k 28 71.9M    0     0   28 20.7M      0  9833k  0:00:07  0:00:02  0:00:05 9832k 58 71.9M    0     0   58 42.3M      0  13.4M  0:00:05  0:00:03  0:00:02 13.4M 94 71.9M    0     0   94 67.8M      0  16.2M  0:00:04  0:00:04 --:--:-- 16.2M100 71.9M  100    74  100 71.9M     15  15.3M  0:00:04  0:00:04 --:--:-- 16.2M
+{
+  "error": "'waveform' must be provided as a (channel, time) torch Tensor."
+}
+
+✅ Test complete

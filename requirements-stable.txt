@@ -1,0 +1,22 @@
+# STABLE PRODUCTION VERSIONS - Tested and Working
+# pyannote.audio 3.1.1 ecosystem
+
+# Core ML packages
+pyannote.audio==3.1.1
+torch==2.1.0
+torchaudio==2.1.0
+torchvision==0.16.0
+
+# Critical: NumPy must be <2.0 for pyannote.audio 3.1.1
+numpy>=1.22.0,<2.0.0
+
+# Hugging Face ecosystem
+huggingface-hub>=0.17.0,<1.0.0
+transformers>=4.30.0,<5.0.0
+
+# Audio processing
+soundfile>=0.12.0
+
+# Dependencies that may need pinning
+lightning>=2.0.0,<3.0.0
+scipy>=1.9.0,<2.0.0
