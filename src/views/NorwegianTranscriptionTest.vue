@@ -1727,6 +1727,10 @@ const seekToSegment = (time) => {
 
 const saveDiarizationResult = async () => {
   if (!diarizationResult.value || !selectedDiarizationRecording.value) {
+    console.error('❌ Missing data:', {
+      hasDiarizationResult: !!diarizationResult.value,
+      hasSelectedRecording: !!selectedDiarizationRecording.value
+    })
     return
   }
 
@@ -1735,6 +1739,27 @@ const saveDiarizationResult = async () => {
   diarizationSaved.value = false
 
   try {
+    const requestBody = {
+      id: selectedDiarizationRecording.value.id,
+      updates: {
+        diarization: {
+          segments: diarizationResult.value.segments,
+          speakerLabels: speakerLabels.value,
+          numSpeakers: diarizationResult.value.numSpeakers,
+          metadata: diarizationResult.value.metadata,
+          analyzedAt: new Date().toISOString()
+        }
+      }
+    }
+    
+    console.log('💾 Saving diarization with:', {
+      userEmail: userStore.email,
+      recordingId: selectedDiarizationRecording.value.id,
+      recordingTitle: selectedDiarizationRecording.value.displayName,
+      numSegments: diarizationResult.value.segments.length,
+      requestBody
+    })
+
     // Save diarization data to the recording using update-recording endpoint
     const response = await fetch(
       'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
@@ -1744,18 +1769,7 @@ const saveDiarizationResult = async () => {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
         },
-        body: JSON.stringify({
-          id: selectedDiarizationRecording.value.id,
-          updates: {
-            diarization: {
-              segments: diarizationResult.value.segments,
-              speakerLabels: speakerLabels.value,
-              numSpeakers: diarizationResult.value.numSpeakers,
-              metadata: diarizationResult.value.metadata,
-              analyzedAt: new Date().toISOString()
-            }
-          }
-        }),
+        body: JSON.stringify(requestBody),
       }
     )
 
