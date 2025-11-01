@@ -1591,12 +1591,12 @@ const loadPortfolioForDiarization = async () => {
 }
 
 const selectDiarizationRecording = (recording) => {
-  selectedDiarizationId.value = recording.id
+  selectedDiarizationId.value = recording.recordingId
   selectedDiarizationRecording.value = recording
   diarizationResult.value = null
   diarizationError.value = null
   diarizationSaved.value = false
-  console.log('🎧 Selected recording for diarization:', recording.displayName || recording.fileName)
+  console.log('🎧 Selected recording for diarization:', recording.recordingId, recording.displayName || recording.fileName)
 }
 
 const analyzeSpeakerDiarization = async () => {
@@ -1740,7 +1740,7 @@ const saveDiarizationResult = async () => {
 
   try {
     const requestBody = {
-      id: selectedDiarizationRecording.value.id,
+      id: selectedDiarizationRecording.value.recordingId,
       updates: {
         diarization: {
           segments: diarizationResult.value.segments,
@@ -1754,7 +1754,7 @@ const saveDiarizationResult = async () => {
 
     console.log('💾 Saving diarization with:', {
       userEmail: userStore.email,
-      recordingId: selectedDiarizationRecording.value.id,
+      recordingId: selectedDiarizationRecording.value.recordingId,
       recordingTitle: selectedDiarizationRecording.value.displayName,
       numSegments: diarizationResult.value.segments.length,
       requestBody
