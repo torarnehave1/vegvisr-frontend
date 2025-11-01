@@ -1751,7 +1751,7 @@ const saveDiarizationResult = async () => {
         }
       }
     }
-    
+
     console.log('💾 Saving diarization with:', {
       userEmail: userStore.email,
       recordingId: selectedDiarizationRecording.value.id,
