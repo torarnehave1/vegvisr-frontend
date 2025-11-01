@@ -1671,7 +1671,7 @@ const analyzeSpeakerDiarization = async () => {
 const updateDiarizationTime = (event) => {
   currentDiarizationTime.value = event.target.currentTime
   
-  // Auto-scroll to active segment
+  // Auto-scroll to active segment within container only (don't scroll page)
   if (diarizationResult.value && segmentsContainer.value) {
     const segments = diarizationResult.value.segments
     const activeIndex = segments.findIndex(segment => 
@@ -1682,17 +1682,24 @@ const updateDiarizationTime = (event) => {
       const activeElement = segmentRefs.value[activeIndex]
       const container = segmentsContainer.value
       
-      // Calculate if element is visible
+      // Calculate positions relative to container
       const elementTop = activeElement.offsetTop
-      const elementBottom = elementTop + activeElement.offsetHeight
-      const containerTop = container.scrollTop
-      const containerBottom = containerTop + container.clientHeight
+      const elementHeight = activeElement.offsetHeight
+      const containerScrollTop = container.scrollTop
+      const containerHeight = container.clientHeight
       
-      // Scroll if element is not fully visible
-      if (elementTop < containerTop || elementBottom > containerBottom) {
-        activeElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center'
+      // Calculate visible range
+      const visibleTop = containerScrollTop
+      const visibleBottom = containerScrollTop + containerHeight
+      const elementBottom = elementTop + elementHeight
+      
+      // Scroll only if element is not fully visible, centering it in the container
+      if (elementTop < visibleTop || elementBottom > visibleBottom) {
+        // Center the element in the container
+        const targetScroll = elementTop - (containerHeight / 2) + (elementHeight / 2)
+        container.scrollTo({
+          top: targetScroll,
+          behavior: 'smooth'
         })
       }
     }
