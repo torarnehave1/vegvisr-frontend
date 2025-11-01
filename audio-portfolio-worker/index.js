@@ -300,14 +300,15 @@ const updateRecording = async (env, userEmail, recordingId, updates) => {
 
     const recording = JSON.parse(recordingData)
 
-    // Update allowed fields (expanded to include speaker identification fields)
+    // Update allowed fields (expanded to include speaker identification and diarization fields)
     const allowedUpdates = [
       'displayName',
       'tags',
       'category',
       'speakerTimeline',
       'numSpeakers',
-      'speakerNames'
+      'speakerNames',
+      'diarization'
     ]
     allowedUpdates.forEach((field) => {
       if (updates[field] !== undefined) {
