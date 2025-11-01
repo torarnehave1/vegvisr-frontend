@@ -1595,7 +1595,7 @@ const selectDiarizationRecording = (recording) => {
   selectedDiarizationRecording.value = recording
   diarizationError.value = null
   diarizationSaved.value = false
-  
+
   // Load existing diarization if available
   if (recording.diarization && recording.diarization.segments) {
     diarizationResult.value = {
