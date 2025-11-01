@@ -204,10 +204,11 @@
           <!-- Segment List -->
           <div class="segments-list">
             <h6>📝 Detailed Segments:</h6>
-            <div class="segments-container">
+            <div class="segments-container" ref="segmentsContainer">
               <div
                 v-for="(segment, index) in diarizationResult.segments"
                 :key="index"
+                :ref="el => { if (el) segmentRefs[index] = el }"
                 class="segment-item"
                 :class="{ active: isSegmentActive(segment) }"
                 @click="seekToSegment(segment.start)"
@@ -844,6 +845,8 @@ const savingDiarization = ref(false)
 const diarizationSaved = ref(false)
 const diarizationSaveError = ref(null)
 const diarizationAudioPlayer = ref(null)
+const segmentsContainer = ref(null)
+const segmentRefs = ref({})
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1667,6 +1670,33 @@ const analyzeSpeakerDiarization = async () => {
 
 const updateDiarizationTime = (event) => {
   currentDiarizationTime.value = event.target.currentTime
+  
+  // Auto-scroll to active segment
+  if (diarizationResult.value && segmentsContainer.value) {
+    const segments = diarizationResult.value.segments
+    const activeIndex = segments.findIndex(segment => 
+      currentDiarizationTime.value >= segment.start && currentDiarizationTime.value <= segment.end
+    )
+    
+    if (activeIndex !== -1 && segmentRefs.value[activeIndex]) {
+      const activeElement = segmentRefs.value[activeIndex]
+      const container = segmentsContainer.value
+      
+      // Calculate if element is visible
+      const elementTop = activeElement.offsetTop
+      const elementBottom = elementTop + activeElement.offsetHeight
+      const containerTop = container.scrollTop
+      const containerBottom = containerTop + container.clientHeight
+      
+      // Scroll if element is not fully visible
+      if (elementTop < containerTop || elementBottom > containerBottom) {
+        activeElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        })
+      }
+    }
+  }
 }
 
 const getSpeakerColor = (speaker) => {
