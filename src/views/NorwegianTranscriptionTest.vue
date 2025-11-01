@@ -847,6 +847,7 @@ const diarizationSaveError = ref(null)
 const diarizationAudioPlayer = ref(null)
 const segmentsContainer = ref(null)
 const segmentRefs = ref([])
+let lastScrolledPage = -1 // Track which page we last scrolled to
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1657,6 +1658,9 @@ const analyzeSpeakerDiarization = async () => {
     })
     speakerLabels.value = labels
 
+    // Reset scroll tracking when new results load
+    lastScrolledPage = -1
+
     diarizationProgress.value = ''
 
   } catch (err) {
@@ -1672,81 +1676,34 @@ const updateDiarizationTime = (event) => {
   const currentTime = event.target.currentTime
   currentDiarizationTime.value = currentTime
   
-  // Auto-scroll to active segment - paginated by groups of 8
-  if (diarizationResult.value && segmentsContainer.value && segmentRefs.value.length > 0) {
-    const segments = diarizationResult.value.segments
+  // Simple paginated scroll: 8 segments per page
+  if (!diarizationResult.value?.segments || !segmentsContainer.value || segmentRefs.value.length === 0) {
+    return
+  }
+  
+  const segments = diarizationResult.value.segments
+  
+  // Find active segment
+  const activeIndex = segments.findIndex(s => currentTime >= s.start && currentTime < s.end)
+  
+  if (activeIndex === -1) return
+  
+  // Which page of 8 segments?
+  const SEGMENTS_PER_PAGE = 8
+  const currentPage = Math.floor(activeIndex / SEGMENTS_PER_PAGE)
+  
+  // Only scroll if we changed pages
+  if (currentPage !== lastScrolledPage) {
+    lastScrolledPage = currentPage
     
-    // DEBUG: Log current playback time
-    console.log('🎵 Audio time:', currentTime.toFixed(2), 's')
+    const pageStartIndex = currentPage * SEGMENTS_PER_PAGE
+    const firstSegmentElement = segmentRefs.value[pageStartIndex]
     
-    // Find the active segment based on current playback time
-    const activeIndex = segments.findIndex(segment => 
-      currentTime >= segment.start && 
-      currentTime < segment.end
-    )
-    
-    // DEBUG: Log which segment we found
-    if (activeIndex !== -1) {
-      console.log('✅ Found active segment:', {
-        index: activeIndex,
-        start: segments[activeIndex].start.toFixed(2),
-        end: segments[activeIndex].end.toFixed(2),
-        speaker: segments[activeIndex].speaker
+    if (firstSegmentElement) {
+      segmentsContainer.value.scrollTo({
+        top: firstSegmentElement.offsetTop,
+        behavior: 'smooth'
       })
-    } else {
-      console.log('❌ No active segment found at time', currentTime.toFixed(2))
-      console.log('First 3 segments:', segments.slice(0, 3).map(s => ({
-        start: s.start.toFixed(2),
-        end: s.end.toFixed(2)
-      })))
-    }
-    
-    // If no exact match, find the closest upcoming segment
-    const segmentIndex = activeIndex !== -1 ? activeIndex : 
-      segments.findIndex(segment => segment.start > currentTime)
-    
-    if (segmentIndex !== -1 && segmentRefs.value[segmentIndex]) {
-      const activeElement = segmentRefs.value[segmentIndex]
-      const container = segmentsContainer.value
-      
-      // Calculate which "page" of 8 segments we should be on
-      const segmentsPerPage = 8
-      const currentPage = Math.floor(segmentIndex / segmentsPerPage)
-      const pageStartIndex = currentPage * segmentsPerPage
-      
-      console.log('📄 Page info:', {
-        segmentIndex,
-        currentPage,
-        pageStartIndex,
-        shouldShowSegments: `${pageStartIndex} - ${pageStartIndex + 7}`
-      })
-      
-      // Get the first segment of the current page
-      const pageStartElement = segmentRefs.value[pageStartIndex]
-      
-      if (pageStartElement) {
-        const pageTop = pageStartElement.offsetTop
-        const containerScrollTop = container.scrollTop
-        const containerHeight = container.clientHeight
-        
-        // Calculate if we need to scroll to show this page
-        const elementTop = activeElement.offsetTop
-        const elementHeight = activeElement.offsetHeight
-        const visibleTop = containerScrollTop
-        const visibleBottom = containerScrollTop + containerHeight
-        
-        // Only scroll if the active segment is outside the visible area
-        if (elementTop < visibleTop || elementTop + elementHeight > visibleBottom) {
-          console.log('⬇️ SCROLLING to page', currentPage, 'at offsetTop:', pageTop)
-          // Scroll to the top of the current page (group of 8)
-          container.scrollTo({
-            top: pageTop,
-            behavior: 'smooth'
-          })
-        } else {
-          console.log('✋ No scroll needed - segment visible')
-        }
-      }
     }
   }
 }
