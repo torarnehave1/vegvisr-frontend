@@ -1671,36 +1671,51 @@ const analyzeSpeakerDiarization = async () => {
 const updateDiarizationTime = (event) => {
   currentDiarizationTime.value = event.target.currentTime
   
-  // Auto-scroll to active segment within container only (don't scroll page)
-  if (diarizationResult.value && segmentsContainer.value) {
+  // Auto-scroll to active segment - paginated by groups of 8
+  if (diarizationResult.value && segmentsContainer.value && segmentRefs.value.length > 0) {
     const segments = diarizationResult.value.segments
+    
+    // Find the active segment based on current playback time
     const activeIndex = segments.findIndex(segment => 
-      currentDiarizationTime.value >= segment.start && currentDiarizationTime.value <= segment.end
+      currentDiarizationTime.value >= segment.start && 
+      currentDiarizationTime.value < segment.end
     )
     
-    if (activeIndex !== -1 && segmentRefs.value[activeIndex]) {
-      const activeElement = segmentRefs.value[activeIndex]
+    // If no exact match, find the closest upcoming segment
+    const segmentIndex = activeIndex !== -1 ? activeIndex : 
+      segments.findIndex(segment => segment.start > currentDiarizationTime.value)
+    
+    if (segmentIndex !== -1 && segmentRefs.value[segmentIndex]) {
+      const activeElement = segmentRefs.value[segmentIndex]
       const container = segmentsContainer.value
       
-      // Calculate positions relative to container
-      const elementTop = activeElement.offsetTop
-      const elementHeight = activeElement.offsetHeight
-      const containerScrollTop = container.scrollTop
-      const containerHeight = container.clientHeight
+      // Calculate which "page" of 8 segments we should be on
+      const segmentsPerPage = 8
+      const currentPage = Math.floor(segmentIndex / segmentsPerPage)
+      const pageStartIndex = currentPage * segmentsPerPage
       
-      // Calculate visible range
-      const visibleTop = containerScrollTop
-      const visibleBottom = containerScrollTop + containerHeight
-      const elementBottom = elementTop + elementHeight
+      // Get the first segment of the current page
+      const pageStartElement = segmentRefs.value[pageStartIndex]
       
-      // Scroll only if element is not fully visible, centering it in the container
-      if (elementTop < visibleTop || elementBottom > visibleBottom) {
-        // Center the element in the container
-        const targetScroll = elementTop - (containerHeight / 2) + (elementHeight / 2)
-        container.scrollTo({
-          top: targetScroll,
-          behavior: 'smooth'
-        })
+      if (pageStartElement) {
+        const pageTop = pageStartElement.offsetTop
+        const containerScrollTop = container.scrollTop
+        const containerHeight = container.clientHeight
+        
+        // Calculate if we need to scroll to show this page
+        const elementTop = activeElement.offsetTop
+        const elementHeight = activeElement.offsetHeight
+        const visibleTop = containerScrollTop
+        const visibleBottom = containerScrollTop + containerHeight
+        
+        // Only scroll if the active segment is outside the visible area
+        if (elementTop < visibleTop || elementTop + elementHeight > visibleBottom) {
+          // Scroll to the top of the current page (group of 8)
+          container.scrollTo({
+            top: pageTop,
+            behavior: 'smooth'
+          })
+        }
       }
     }
   }
