@@ -35,7 +35,7 @@
       <!-- Audio Source Options -->
       <div class="audio-source-options">
         <h4>Choose Audio Source:</h4>
-        
+
         <!-- Option 1: Use Transcription Result -->
         <div v-if="transcriptionResult && transcriptionResult.r2Url" class="audio-option">
           <button
@@ -75,7 +75,7 @@
               <strong>{{ recording.displayName || recording.fileName }}</strong>
               <span class="recording-date">{{ formatDate(recording.timestamp) }}</span>
             </div>
-            
+
             <!-- Recording Info -->
             <div class="recording-info">
               <div class="recording-meta">
@@ -106,10 +106,10 @@
                   recording.norwegianTranscription?.raw_text?.substring(0, 150) ||
                   recording.transcriptionText?.substring(0, 150) ||
                   ''
-                }}{{ 
-                  (recording.norwegianTranscription?.improved_text?.length > 150 || 
-                   recording.norwegianTranscription?.raw_text?.length > 150 || 
-                   recording.transcriptionText?.length > 150) ? '...' : '' 
+                }}{{
+                  (recording.norwegianTranscription?.improved_text?.length > 150 ||
+                   recording.norwegianTranscription?.raw_text?.length > 150 ||
+                   recording.transcriptionText?.length > 150) ? '...' : ''
                 }}
               </p>
             </div>
@@ -1552,12 +1552,12 @@ const useTranscriptionForDiarization = () => {
     duration: transcriptionResult.value.duration,
     timestamp: new Date().toISOString()
   }
-  
+
   selectedDiarizationId.value = 'transcription-current'
   diarizationResult.value = null
   diarizationError.value = null
   diarizationSaved.value = false
-  
+
   console.log('🎧 Using transcription audio for diarization:', transcriptionResult.value.r2Url)
 }
 
@@ -1671,28 +1671,27 @@ const analyzeSpeakerDiarization = async () => {
 const updateDiarizationTime = (event) => {
   const currentTime = event.target.currentTime
   currentDiarizationTime.value = currentTime
-  
-  // Keep active segment at top of list
+
   if (!diarizationResult.value?.segments || !segmentsContainer.value || segmentRefs.value.length === 0) {
     return
   }
-  
+
   const segments = diarizationResult.value.segments
-  
-  // Find active segment
   const activeIndex = segments.findIndex(s => currentTime >= s.start && currentTime < s.end)
-  
-  // Only scroll if we have an active segment
+
   if (activeIndex !== -1) {
     const activeElement = segmentRefs.value[activeIndex]
     if (activeElement) {
+      const containerTop = segmentsContainer.value.offsetTop
+      const elementTop = activeElement.offsetTop
+      const relativeTop = elementTop - containerTop
+
       segmentsContainer.value.scrollTo({
-        top: activeElement.offsetTop,
+        top: relativeTop,
         behavior: 'smooth'
       })
     }
   }
-  // If no active segment (silence/gaps), don't scroll - keep viewing current position
 }
 
 const getSpeakerColor = (speaker) => {
