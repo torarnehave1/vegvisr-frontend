@@ -1593,10 +1593,24 @@ const loadPortfolioForDiarization = async () => {
 const selectDiarizationRecording = (recording) => {
   selectedDiarizationId.value = recording.recordingId
   selectedDiarizationRecording.value = recording
-  diarizationResult.value = null
   diarizationError.value = null
   diarizationSaved.value = false
-  console.log('🎧 Selected recording for diarization:', recording.recordingId, recording.displayName || recording.fileName)
+  
+  // Load existing diarization if available
+  if (recording.diarization && recording.diarization.segments) {
+    diarizationResult.value = {
+      segments: recording.diarization.segments,
+      numSpeakers: recording.diarization.numSpeakers,
+      metadata: recording.diarization.metadata || {}
+    }
+    speakerLabels.value = recording.diarization.speakerLabels || {}
+    diarizationSaved.value = true // Already saved
+    console.log('✅ Loaded existing diarization:', recording.diarization.segments.length, 'segments')
+  } else {
+    diarizationResult.value = null
+    speakerLabels.value = {}
+    console.log('🎧 Selected recording for diarization:', recording.recordingId, recording.displayName || recording.fileName)
+  }
 }
 
 const analyzeSpeakerDiarization = async () => {
