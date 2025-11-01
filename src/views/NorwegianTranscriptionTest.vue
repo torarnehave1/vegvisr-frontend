@@ -1672,8 +1672,16 @@ const updateDiarizationTime = (event) => {
   const currentTime = event.target.currentTime
   currentDiarizationTime.value = currentTime
   
+  console.log('🎵 updateDiarizationTime called:', currentTime.toFixed(2))
+  
   // Ultra-simple: Keep active segment at top of list
   if (!diarizationResult.value?.segments || !segmentsContainer.value || segmentRefs.value.length === 0) {
+    console.log('❌ Missing data:', {
+      hasResult: !!diarizationResult.value,
+      hasSegments: !!diarizationResult.value?.segments,
+      hasContainer: !!segmentsContainer.value,
+      refsLength: segmentRefs.value.length
+    })
     return
   }
   
@@ -1682,15 +1690,24 @@ const updateDiarizationTime = (event) => {
   // Find active segment
   const activeIndex = segments.findIndex(s => currentTime >= s.start && currentTime < s.end)
   
+  console.log('🔍 Active segment:', {
+    activeIndex,
+    currentTime: currentTime.toFixed(2),
+    firstSegment: segments[0] ? `${segments[0].start.toFixed(2)}-${segments[0].end.toFixed(2)}` : 'none'
+  })
+  
   if (activeIndex === -1) return
   
   // Scroll active segment to top
   const activeElement = segmentRefs.value[activeIndex]
   if (activeElement) {
+    console.log('⬇️ Scrolling to segment', activeIndex)
     segmentsContainer.value.scrollTo({
       top: activeElement.offsetTop,
       behavior: 'smooth'
     })
+  } else {
+    console.log('❌ No element ref for segment', activeIndex)
   }
 }
 
