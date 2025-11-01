@@ -846,7 +846,7 @@ const diarizationSaved = ref(false)
 const diarizationSaveError = ref(null)
 const diarizationAudioPlayer = ref(null)
 const segmentsContainer = ref(null)
-const segmentRefs = ref({})
+const segmentRefs = ref([])
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1740,34 +1740,40 @@ const saveDiarizationResult = async () => {
   diarizationSaved.value = false
 
   try {
-    const userId = userStore.userId
-
-    // Save diarization data to the recording
-    const saveData = {
-      recordingId: selectedDiarizationRecording.value.id,
-      diarization: {
-        segments: diarizationResult.value.segments,
-        speakerLabels: speakerLabels.value,
-        numSpeakers: diarizationResult.value.numSpeakers,
-        metadata: diarizationResult.value.metadata,
-        analyzedAt: new Date().toISOString()
+    // Save diarization data to the recording using update-recording endpoint
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userStore.email,
+        },
+        body: JSON.stringify({
+          id: selectedDiarizationRecording.value.id,
+          updates: {
+            diarization: {
+              segments: diarizationResult.value.segments,
+              speakerLabels: speakerLabels.value,
+              numSpeakers: diarizationResult.value.numSpeakers,
+              metadata: diarizationResult.value.metadata,
+              analyzedAt: new Date().toISOString()
+            }
+          }
+        }),
       }
-    }
-
-    const response = await fetch(`${import.meta.env.VITE_CLOUDFLARE_WORKER_URL}/user/${userId}/recording/${selectedDiarizationRecording.value.id}/diarization`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(saveData)
-    })
+    )
 
     if (!response.ok) {
-      throw new Error(`Failed to save diarization: ${response.statusText}`)
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Failed to save: ${response.status}`)
     }
 
     diarizationSaved.value = true
     console.log('💾 Diarization saved successfully')
+
+    // Refresh the portfolio data
+    await loadPortfolioForDiarization()
 
     // Auto-hide success message after 3 seconds
     setTimeout(() => {
