@@ -95,6 +95,13 @@
                 >
                   {{ tag }}
                 </span>
+                <span
+                  v-if="recording.diarization && recording.diarization.segments && recording.diarization.segments.length > 0"
+                  class="badge bg-success ms-1"
+                  title="Speaker diarization available"
+                >
+                  🎤 {{ recording.diarization.numSpeakers || recording.diarization.segments.length }} Speakers
+                </span>
               </div>
             </div>
 
