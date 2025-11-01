@@ -1669,21 +1669,41 @@ const analyzeSpeakerDiarization = async () => {
 }
 
 const updateDiarizationTime = (event) => {
-  currentDiarizationTime.value = event.target.currentTime
+  const currentTime = event.target.currentTime
+  currentDiarizationTime.value = currentTime
   
   // Auto-scroll to active segment - paginated by groups of 8
   if (diarizationResult.value && segmentsContainer.value && segmentRefs.value.length > 0) {
     const segments = diarizationResult.value.segments
     
+    // DEBUG: Log current playback time
+    console.log('🎵 Audio time:', currentTime.toFixed(2), 's')
+    
     // Find the active segment based on current playback time
     const activeIndex = segments.findIndex(segment => 
-      currentDiarizationTime.value >= segment.start && 
-      currentDiarizationTime.value < segment.end
+      currentTime >= segment.start && 
+      currentTime < segment.end
     )
+    
+    // DEBUG: Log which segment we found
+    if (activeIndex !== -1) {
+      console.log('✅ Found active segment:', {
+        index: activeIndex,
+        start: segments[activeIndex].start.toFixed(2),
+        end: segments[activeIndex].end.toFixed(2),
+        speaker: segments[activeIndex].speaker
+      })
+    } else {
+      console.log('❌ No active segment found at time', currentTime.toFixed(2))
+      console.log('First 3 segments:', segments.slice(0, 3).map(s => ({
+        start: s.start.toFixed(2),
+        end: s.end.toFixed(2)
+      })))
+    }
     
     // If no exact match, find the closest upcoming segment
     const segmentIndex = activeIndex !== -1 ? activeIndex : 
-      segments.findIndex(segment => segment.start > currentDiarizationTime.value)
+      segments.findIndex(segment => segment.start > currentTime)
     
     if (segmentIndex !== -1 && segmentRefs.value[segmentIndex]) {
       const activeElement = segmentRefs.value[segmentIndex]
@@ -1693,6 +1713,13 @@ const updateDiarizationTime = (event) => {
       const segmentsPerPage = 8
       const currentPage = Math.floor(segmentIndex / segmentsPerPage)
       const pageStartIndex = currentPage * segmentsPerPage
+      
+      console.log('📄 Page info:', {
+        segmentIndex,
+        currentPage,
+        pageStartIndex,
+        shouldShowSegments: `${pageStartIndex} - ${pageStartIndex + 7}`
+      })
       
       // Get the first segment of the current page
       const pageStartElement = segmentRefs.value[pageStartIndex]
@@ -1710,11 +1737,14 @@ const updateDiarizationTime = (event) => {
         
         // Only scroll if the active segment is outside the visible area
         if (elementTop < visibleTop || elementTop + elementHeight > visibleBottom) {
+          console.log('⬇️ SCROLLING to page', currentPage, 'at offsetTop:', pageTop)
           // Scroll to the top of the current page (group of 8)
           container.scrollTo({
             top: pageTop,
             behavior: 'smooth'
           })
+        } else {
+          console.log('✋ No scroll needed - segment visible')
         }
       }
     }
