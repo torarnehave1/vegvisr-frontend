@@ -847,7 +847,6 @@ const diarizationSaveError = ref(null)
 const diarizationAudioPlayer = ref(null)
 const segmentsContainer = ref(null)
 const segmentRefs = ref([])
-let lastScrolledPage = -1 // Track which page we last scrolled to
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1658,9 +1657,6 @@ const analyzeSpeakerDiarization = async () => {
     })
     speakerLabels.value = labels
 
-    // Reset scroll tracking when new results load
-    lastScrolledPage = -1
-
     diarizationProgress.value = ''
 
   } catch (err) {
@@ -1676,7 +1672,7 @@ const updateDiarizationTime = (event) => {
   const currentTime = event.target.currentTime
   currentDiarizationTime.value = currentTime
   
-  // Simple paginated scroll: 8 segments per page
+  // Ultra-simple: Keep active segment at top of list
   if (!diarizationResult.value?.segments || !segmentsContainer.value || segmentRefs.value.length === 0) {
     return
   }
@@ -1688,23 +1684,13 @@ const updateDiarizationTime = (event) => {
   
   if (activeIndex === -1) return
   
-  // Which page of 8 segments?
-  const SEGMENTS_PER_PAGE = 8
-  const currentPage = Math.floor(activeIndex / SEGMENTS_PER_PAGE)
-  
-  // Only scroll if we changed pages
-  if (currentPage !== lastScrolledPage) {
-    lastScrolledPage = currentPage
-    
-    const pageStartIndex = currentPage * SEGMENTS_PER_PAGE
-    const firstSegmentElement = segmentRefs.value[pageStartIndex]
-    
-    if (firstSegmentElement) {
-      segmentsContainer.value.scrollTo({
-        top: firstSegmentElement.offsetTop,
-        behavior: 'smooth'
-      })
-    }
+  // Scroll active segment to top
+  const activeElement = segmentRefs.value[activeIndex]
+  if (activeElement) {
+    segmentsContainer.value.scrollTo({
+      top: activeElement.offsetTop,
+      behavior: 'smooth'
+    })
   }
 }
 
