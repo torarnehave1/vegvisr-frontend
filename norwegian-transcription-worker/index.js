@@ -473,6 +473,8 @@ export default {
             upload: '/upload (POST)',
             health: '/health (GET)',
             diarization: '/diarize-audio (POST) - NEW: Test speaker diarization',
+            speakerIdentification: '/identify-speakers (POST) - AI-powered speaker identification',
+            conversationAnalysis: '/analyze-conversation (POST) - AI conversation analysis with diarization',
           },
           diarization: {
             provider: 'Hugging Face Inference Endpoint',
@@ -727,6 +729,216 @@ export default {
       } catch (error) {
         console.error('Error identifying speakers:', error)
         return createErrorResponse(`Speaker identification failed: ${error.message}`, 500)
+      }
+    }
+
+    // Analyze conversation endpoint - combines transcription + diarization for AI analysis
+    if (request.method === 'POST' && url.pathname === '/analyze-conversation') {
+      try {
+        const body = await request.json()
+        const { transcription, diarization, context, model = 'cloudflare' } = body
+
+        if (!transcription || !diarization?.segments) {
+          return createErrorResponse('Transcription and diarization data required', 400)
+        }
+
+        // Provider configuration - matches action_test providers exactly
+        const providers = {
+          cloudflare: { type: 'cloudflare', model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
+          claude: { type: 'anthropic', apiKey: env.ANTHROPIC_API_KEY, baseURL: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20241022' },
+          grok: { type: 'openai', apiKey: env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1', model: 'grok-beta' },
+          gemini: { type: 'gemini', apiKey: env.GOOGLE_GEMINI_API_KEY, baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-1.5-pro' },
+          gpt4: { type: 'openai', apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-4' },
+          gpt5: { type: 'openai', apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-5' }
+        }
+
+        const provider = providers[model] || providers.cloudflare
+
+        console.log('🎭 Analyzing conversation:', {
+          segmentCount: diarization.segments.length,
+          hasContext: !!context,
+          transcriptionLength: transcription.length,
+          provider: model,
+          type: provider.type
+        })
+
+        // Build conversation timeline with speaker attribution
+        const conversationTimeline = diarization.segments.map(segment => {
+          const startTime = Math.floor(segment.start)
+          const minutes = Math.floor(startTime / 60)
+          const seconds = startTime % 60
+          const timeLabel = `${minutes}:${seconds.toString().padStart(2, '0')}`
+
+          return `[${timeLabel}] ${segment.speaker}: [speaking for ${Math.floor(segment.end - segment.start)}s]`
+        }).join('\n')
+
+        // Build AI prompt
+        const systemPrompt = 'Du er en ekspert på samtaleanalyse. Du analyserer norske samtaler og gir innsiktsfulle, strukturerte analyser. Svar alltid med valid JSON.'
+
+        let userPrompt = `Analyser denne samtalen og gi en strukturert analyse.\n\n`
+
+        if (context) {
+          userPrompt += `Kontekst: ${context}\n\n`
+        }
+
+        userPrompt += `Samtale tidslinje:\n${conversationTimeline}\n\n`
+        userPrompt += `Full transkripsjon:\n${transcription.substring(0, 8000)}\n\n` // Limit to avoid token limits
+
+        userPrompt += `Generer analyse i følgende JSON-format:\n`
+        userPrompt += `{\n`
+        userPrompt += `  "summary": "Kort 2-3 setningers oppsummering",\n`
+        userPrompt += `  "keyThemes": ["tema1", "tema2", "tema3"],\n`
+        userPrompt += `  "speakerRoles": {\n`
+        userPrompt += `    "SPEAKER_01": {"role": "Rolle", "characteristics": "Beskrivelse"},\n`
+        userPrompt += `    "SPEAKER_02": {"role": "Rolle", "characteristics": "Beskrivelse"}\n`
+        userPrompt += `  },\n`
+        userPrompt += `  "keyMoments": [\n`
+        userPrompt += `    {"timestamp": 145, "speaker": "SPEAKER_01", "description": "Hva skjedde"}\n`
+        userPrompt += `  ],\n`
+        userPrompt += `  "actionItems": ["handling1", "handling2"]\n`
+        userPrompt += `}\n\n`
+        userPrompt += `Svar KUN med valid JSON, ingen markdown eller forklaring.`
+
+        let analysisResult
+
+        // Call appropriate AI service based on provider type
+        if (provider.type === 'cloudflare') {
+          console.log('📤 Calling Cloudflare Workers AI')
+
+          const aiResponse = await env.AI.run(provider.model, {
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 2048,
+            stream: false
+          })
+
+          console.log('✅ AI analysis response received')
+
+          // Parse Cloudflare AI response
+          if (aiResponse.response && typeof aiResponse.response === 'object') {
+            analysisResult = aiResponse.response
+          } else {
+            const aiText = aiResponse.response || aiResponse.result?.response || aiResponse.text || JSON.stringify(aiResponse)
+            let cleanedText = typeof aiText === 'string' ? aiText.trim() : JSON.stringify(aiText)
+
+            if (cleanedText.startsWith('```json')) {
+              cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/```\s*$/, '')
+            } else if (cleanedText.startsWith('```')) {
+              cleanedText = cleanedText.replace(/^```\s*/, '').replace(/```\s*$/, '')
+            }
+
+            analysisResult = JSON.parse(cleanedText)
+          }
+
+        } else if (provider.type === 'anthropic') {
+          // Claude API
+          console.log('📤 Calling Claude API')
+
+          if (!provider.apiKey) {
+            return createErrorResponse('Anthropic API key not configured', 500)
+          }
+
+          const response = await fetch(`${provider.baseURL}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': provider.apiKey,
+              'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+              model: provider.model,
+              max_tokens: 4096,
+              temperature: 0.2,
+              messages: [
+                { role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }
+              ]
+            })
+          })
+
+          const data = await response.json()
+          const textContent = data.content?.[0]?.text || JSON.stringify(data)
+          analysisResult = JSON.parse(textContent.replace(/^```json\s*/, '').replace(/```\s*$/, ''))
+
+          console.log('✅ Claude analysis completed')
+
+        } else if (provider.type === 'gemini') {
+          // Gemini API
+          console.log('📤 Calling Gemini API')
+
+          if (!provider.apiKey) {
+            return createErrorResponse('Google Gemini API key not configured', 500)
+          }
+
+          const response = await fetch(`${provider.baseURL}/models/${provider.model}:generateContent?key=${provider.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+              }],
+              generationConfig: {
+                temperature: 0.2,
+                maxOutputTokens: 4096
+              }
+            })
+          })
+
+          const data = await response.json()
+          const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data)
+          analysisResult = JSON.parse(textContent.replace(/^```json\s*/, '').replace(/```\s*$/, ''))
+
+          console.log('✅ Gemini analysis completed')
+
+        } else if (provider.type === 'openai') {
+          // OpenAI-compatible API (GPT-4, Grok, etc.)
+          console.log('📤 Calling OpenAI-compatible API:', model, provider.model)
+
+          if (!provider.apiKey) {
+            return createErrorResponse(`API key not configured for ${model} provider`, 500)
+          }
+
+          const response = await fetch(`${provider.baseURL}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${provider.apiKey}`
+            },
+            body: JSON.stringify({
+              model: provider.model,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+              ],
+              temperature: 0.2,
+              max_tokens: 4096
+            })
+          })
+
+          const data = await response.json()
+          const textContent = data.choices?.[0]?.message?.content || JSON.stringify(data)
+          analysisResult = JSON.parse(textContent.replace(/^```json\s*/, '').replace(/```\s*$/, ''))
+
+          console.log('✅ OpenAI-compatible analysis completed')
+        }
+
+        return createResponse(JSON.stringify({
+          success: true,
+          analysis: analysisResult,
+          metadata: {
+            model: model,
+            provider: provider.type,
+            analyzedAt: new Date().toISOString(),
+            segmentCount: diarization.segments.length,
+            hasContext: !!context
+          }
+        }))
+
+      } catch (error) {
+        console.error('Conversation analysis error:', error)
+        return createErrorResponse(error.message || 'Analysis failed', 500)
       }
     }
 

@@ -308,7 +308,8 @@ const updateRecording = async (env, userEmail, recordingId, updates) => {
       'speakerTimeline',
       'numSpeakers',
       'speakerNames',
-      'diarization'
+      'diarization',
+      'conversationAnalysis'
     ]
     allowedUpdates.forEach((field) => {
       if (updates[field] !== undefined) {
@@ -440,6 +441,99 @@ export default {
 
         const result = await updateRecording(env, userEmail, recordingId, updates)
         return createSuccessResponse(result)
+      }
+
+      // GET /context-templates - Get user's saved context templates
+      if (pathname === '/context-templates' && request.method === 'GET') {
+        const userEmail = url.searchParams.get('userEmail')
+        if (!userEmail) {
+          return createErrorResponse('User email is required', 400)
+        }
+
+        const templatesKey = `context-templates:${userEmail}`
+        const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey)
+        const templates = templatesData ? JSON.parse(templatesData) : { templates: [] }
+
+        return createSuccessResponse(templates)
+      }
+
+      // POST /context-templates - Save a new context template
+      if (pathname === '/context-templates' && request.method === 'POST') {
+        const body = await request.json()
+        const { userEmail, name, context } = body
+
+        if (!userEmail || !name || !context) {
+          return createErrorResponse('User email, name, and context are required', 400)
+        }
+
+        const templatesKey = `context-templates:${userEmail}`
+        const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey)
+        const templates = templatesData ? JSON.parse(templatesData) : { templates: [] }
+
+        // Add new template
+        const newTemplate = {
+          id: `template_${Date.now()}`,
+          name,
+          context,
+          createdAt: new Date().toISOString(),
+          lastUsed: new Date().toISOString()
+        }
+
+        templates.templates.push(newTemplate)
+        await env.AUDIO_PORTFOLIO.put(templatesKey, JSON.stringify(templates))
+
+        return createSuccessResponse({ template: newTemplate, allTemplates: templates })
+      }
+
+      // DELETE /context-templates - Delete a context template
+      if (pathname === '/context-templates' && request.method === 'DELETE') {
+        const userEmail = url.searchParams.get('userEmail')
+        const templateId = url.searchParams.get('templateId')
+
+        if (!userEmail || !templateId) {
+          return createErrorResponse('User email and template ID are required', 400)
+        }
+
+        const templatesKey = `context-templates:${userEmail}`
+        const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey)
+
+        if (!templatesData) {
+          return createErrorResponse('No templates found', 404)
+        }
+
+        const templates = JSON.parse(templatesData)
+        templates.templates = templates.templates.filter(t => t.id !== templateId)
+
+        await env.AUDIO_PORTFOLIO.put(templatesKey, JSON.stringify(templates))
+
+        return createSuccessResponse({ deleted: templateId, allTemplates: templates })
+      }
+
+      // PUT /context-templates - Update template last used timestamp
+      if (pathname === '/context-templates' && request.method === 'PUT') {
+        const body = await request.json()
+        const { userEmail, templateId } = body
+
+        if (!userEmail || !templateId) {
+          return createErrorResponse('User email and template ID are required', 400)
+        }
+
+        const templatesKey = `context-templates:${userEmail}`
+        const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey)
+
+        if (!templatesData) {
+          return createErrorResponse('No templates found', 404)
+        }
+
+        const templates = JSON.parse(templatesData)
+        const template = templates.templates.find(t => t.id === templateId)
+
+        if (template) {
+          template.lastUsed = new Date().toISOString()
+          await env.AUDIO_PORTFOLIO.put(templatesKey, JSON.stringify(templates))
+        }
+
+        return createSuccessResponse({ template, allTemplates: templates })
       }
 
       // 404 for unknown endpoints

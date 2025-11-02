@@ -241,6 +241,12 @@
                           >
                             📊 {{ recording.norwegianTranscription.chunks }} chunks
                           </span>
+                          <span
+                            v-if="recording.conversationAnalysis"
+                            class="badge bg-primary"
+                          >
+                            🤖 AI Analysis
+                          </span>
                         </div>
 
                         <!-- Show improved text if available, otherwise raw text -->
@@ -275,6 +281,13 @@
                         @click="showFullTranscription(recording)"
                       >
                         View Full Transcription
+                      </button>
+                      <button
+                        v-if="recording.conversationAnalysis"
+                        class="btn btn-outline-primary btn-sm ms-2"
+                        @click="viewAnalysis(recording)"
+                      >
+                        🤖 View Analysis
                       </button>
                     </div>
 
@@ -433,7 +446,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useUserStore } from '@/stores/userStore'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/userStore'
 
 // Ensure Bootstrap is available globally
 if (typeof window !== 'undefined') {
@@ -461,6 +475,7 @@ const props = defineProps({
 
 // Store
 const userStore = useUserStore()
+const router = useRouter()
 
 // Reactive data
 const recordings = ref([])
@@ -757,6 +772,14 @@ const showFullTranscription = (recording) => {
   }
 
   console.log('=== END MODAL DEBUG ===')
+}
+
+const viewAnalysis = (recording) => {
+  // Navigate to the conversation analysis page with this recording
+  router.push({
+    name: 'conversation-analysis',
+    params: { recordingId: recording.id }
+  })
 }
 
 const copyTranscription = () => {

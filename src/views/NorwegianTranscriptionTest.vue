@@ -102,6 +102,13 @@
                 >
                   🎤 {{ recording.diarization.numSpeakers || recording.diarization.segments.length }} Speakers
                 </span>
+                <span
+                  v-if="recording.conversationAnalysis"
+                  class="badge bg-primary ms-1"
+                  title="AI conversation analysis available"
+                >
+                  🤖 AI Analysis
+                </span>
               </div>
             </div>
 
@@ -119,6 +126,20 @@
                    recording.transcriptionText?.length > 150) ? '...' : ''
                 }}
               </p>
+            </div>
+
+            <!-- Action Buttons -->
+            <div v-if="recording.diarization?.segments && recording.transcriptionText" class="card-actions mt-2">
+              <router-link
+                :to="{
+                  name: 'conversation-analysis',
+                  query: { recordingId: recording.recordingId }
+                }"
+                :class="['btn', 'btn-sm', recording.conversationAnalysis ? 'btn-primary' : 'btn-success']"
+                @click.stop
+              >
+                {{ recording.conversationAnalysis ? '🤖 View Analysis' : '🎭 Analyze Conversation' }}
+              </router-link>
             </div>
           </div>
         </div>
@@ -1589,6 +1610,13 @@ const loadPortfolioForDiarization = async () => {
     const data = await response.json()
     diarizationRecordings.value = data.recordings || []
     console.log('📼 Loaded portfolio for diarization:', diarizationRecordings.value.length, 'recordings')
+
+    // Debug: Check which recordings have analysis
+    diarizationRecordings.value.forEach(rec => {
+      if (rec.conversationAnalysis) {
+        console.log('🤖 Recording has analysis:', rec.displayName || rec.fileName, rec.conversationAnalysis)
+      }
+    })
   } catch (err) {
     console.error('Error loading portfolio:', err)
     diarizationError.value = `Failed to load portfolio: ${err.message}`
@@ -1634,49 +1662,99 @@ const analyzeSpeakerDiarization = async () => {
   try {
     console.log('🎯 Starting diarization analysis:', selectedDiarizationRecording.value.r2Url)
 
-    diarizationProgress.value = 'Sending audio to AI diarization service...'
+    const recording = selectedDiarizationRecording.value
+    const duration = recording.duration || 0
+    const fileSizeMB = recording.fileSize ? recording.fileSize / 1024 / 1024 : 0
 
-    const response = await fetch(`${NORWEGIAN_WORKER_URL}/diarize-audio`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        audioUrl: selectedDiarizationRecording.value.r2Url
+    // Check if file needs chunking (>30 min OR >30 MB)
+    const needsChunking = duration > 30 * 60 || fileSizeMB > 30
+
+    if (needsChunking) {
+      console.log('⚠️ Large file detected - using chunking approach:', {
+        duration: `${Math.floor(duration / 60)}:${Math.floor(duration % 60)}`,
+        sizeMB: fileSizeMB.toFixed(2)
       })
-    })
+      
+      // Use chunking approach (dynamic import to avoid loading if not needed)
+      const { diarizeWithChunkingFromUrl } = await import('@/utils/audioChunker')
+      
+      const allSegments = await diarizeWithChunkingFromUrl(recording.r2Url, {
+        chunkDuration: 15 * 60, // 15 minutes per chunk
+        totalDuration: duration,
+        workerUrl: NORWEGIAN_WORKER_URL,
+        onProgress: (progress) => {
+          diarizationProgress.value = `Processing chunk ${progress.current} of ${progress.total} (${progress.percent}%)...`
+          console.log(`📊 Chunking progress: ${progress.current}/${progress.total}`)
+        }
+      })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || `Diarization failed: ${response.statusText}`)
+      console.log('✅ Chunked diarization complete:', allSegments.length, 'segments')
+
+      // Process results
+      const speakers = [...new Set(allSegments.map(s => s.speaker))]
+      diarizationResult.value = {
+        segments: allSegments,
+        numSpeakers: speakers.length,
+        duration,
+        metadata: {
+          processedAt: new Date().toISOString(),
+          chunked: true,
+          service: 'Hugging Face Speaker Diarization (Chunked)'
+        }
+      }
+
+      // Initialize speaker labels
+      const labels = {}
+      speakers.forEach(speaker => {
+        labels[speaker] = speaker
+      })
+      speakerLabels.value = labels
+
+    } else {
+      console.log('✅ File size OK - using direct diarization')
+      diarizationProgress.value = 'Sending audio to AI diarization service...'
+
+      const response = await fetch(`${NORWEGIAN_WORKER_URL}/diarize-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrl: recording.r2Url
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Diarization failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      if (!result.success || !result.segments) {
+        throw new Error('Invalid diarization response')
+      }
+
+      console.log('✅ Diarization complete:', result.segments.length, 'segments')
+
+      // Process the results
+      const segments = result.segments
+      const speakers = [...new Set(segments.map(s => s.speaker))]
+
+      diarizationResult.value = {
+        segments,
+        numSpeakers: speakers.length,
+        duration: duration || Math.max(...segments.map(s => s.end)),
+        metadata: result.metadata || {}
+      }
+
+      // Initialize speaker labels
+      const labels = {}
+      speakers.forEach(speaker => {
+        labels[speaker] = speaker // Default label is the speaker ID
+      })
+      speakerLabels.value = labels
     }
-
-    const result = await response.json()
-
-    if (!result.success || !result.segments) {
-      throw new Error('Invalid diarization response')
-    }
-
-    console.log('✅ Diarization complete:', result.segments.length, 'segments')
-
-    // Process the results
-    const segments = result.segments
-    const duration = selectedDiarizationRecording.value.duration || Math.max(...segments.map(s => s.end))
-    const speakers = [...new Set(segments.map(s => s.speaker))]
-
-    diarizationResult.value = {
-      segments,
-      numSpeakers: speakers.length,
-      duration,
-      metadata: result.metadata || {}
-    }
-
-    // Initialize speaker labels
-    const labels = {}
-    speakers.forEach(speaker => {
-      labels[speaker] = speaker // Default label is the speaker ID
-    })
-    speakerLabels.value = labels
 
     diarizationProgress.value = ''
 

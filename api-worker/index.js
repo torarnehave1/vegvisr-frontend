@@ -2992,6 +2992,100 @@ Return only JSON: {"nodes": [...], "edges": []}`
   }
 }
 
+// --- Analyze Conversation Theme Endpoint ---
+const handleAnalyzeConversationTheme = async (request, env) => {
+  try {
+    console.log('=== handleAnalyzeConversationTheme called ===')
+
+    const body = await request.json()
+    const { theme, themeConversation, fullTranscript, language = 'norwegian' } = body
+
+    if (!theme || !themeConversation) {
+      return createErrorResponse('Missing theme or themeConversation', 400)
+    }
+
+    console.log('Theme:', theme)
+    console.log('Theme conversation length:', themeConversation.length)
+    console.log('Language:', language)
+
+    // Check if Grok API key is available
+    const apiKey = env.XAI_API_KEY
+    if (!apiKey) {
+      console.error('Grok API key not found in environment')
+      return createErrorResponse('Grok API key not configured', 500)
+    }
+
+    // Build Grok prompt for theme analysis
+    const prompt = `Analyze this conversation excerpt focused on the theme "${theme}". Create a comprehensive, well-structured analysis that preserves the actual wording and references from the conversation.
+
+THEME: ${theme}
+LANGUAGE: ${language === 'norwegian' ? 'Norwegian (keep in Norwegian)' : 'Original language'}
+
+CONVERSATION EXCERPT:
+${themeConversation}
+
+${fullTranscript ? `\nFULL CONTEXT (for reference):\n${fullTranscript.substring(0, 2000)}...` : ''}
+
+INSTRUCTIONS:
+1. Create a detailed thematic analysis in ${language === 'norwegian' ? 'Norwegian' : 'the original language'}
+2. PRESERVE the actual words and phrases used in the conversation - quote directly
+3. Structure the analysis with:
+   - ## Hovedtema (Main theme overview)
+   - ## Nøkkelpunkter (Key points with direct quotes)
+   - ## Dypere innsikt (Deeper insights)
+   - ## Praktisk anvendelse (Practical applications)
+4. Use markdown formatting (headers, bold, italic, lists, quotes)
+5. Include timestamps from the conversation [MM:SS]
+6. Reference specific speakers and their contributions
+7. Stay true to the conversation's tone and nuance
+
+Return a well-formatted markdown analysis that captures the essence of the theme as discussed in this specific conversation.`
+
+    console.log('Calling Grok API for theme analysis...')
+
+    const { default: OpenAI } = await import('openai')
+    const client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.x.ai/v1',
+    })
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.5, // Lower temperature for more faithful reproduction
+      max_tokens: 8000,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert conversation analyst specializing in extracting and analyzing themes from dialogues. Your strength is preserving the authentic voice and specific wording of the participants while providing insightful analysis. Always quote directly from the conversation and maintain the original tone and context.`
+        },
+        { role: 'user', content: prompt }
+      ]
+    })
+
+    const analysis = completion.choices[0].message.content.trim()
+    console.log('Grok analysis received, length:', analysis.length)
+
+    // Parse for title if present
+    const titleMatch = analysis.match(/^#\s+(.+)$/m)
+    const title = titleMatch ? titleMatch[1] : `Tema: ${theme}`
+
+    return createResponse(JSON.stringify({
+      analysis: analysis,
+      title: title,
+      metadata: {
+        theme: theme,
+        modelUsed: 'grok-3-beta',
+        analysisLength: analysis.length,
+        processedAt: new Date().toISOString()
+      }
+    }))
+
+  } catch (error) {
+    console.error('Error in handleAnalyzeConversationTheme:', error)
+    return createErrorResponse(error.message || 'Internal server error', 500)
+  }
+}
+
 // --- AI Generate Node Endpoint ---
 const handleAIGenerateNode = async (request, env) => {
   try {
@@ -6546,6 +6640,10 @@ export default {
 
     if (pathname === '/process-transcript' && request.method === 'POST') {
       return await handleProcessTranscript(request, env)
+    }
+
+    if (pathname === '/analyze-conversation-theme' && request.method === 'POST') {
+      return await handleAnalyzeConversationTheme(request, env)
     }
 
     if (pathname === '/apply-style-template' && request.method === 'POST') {
