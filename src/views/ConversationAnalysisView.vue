@@ -396,9 +396,9 @@
                   <h6 class="text-primary text-capitalize">
                     {{ formatFieldName(key) }}
                   </h6>
-                  
+
                   <!-- Array of strings (keywords, hashtags) -->
-                  <div v-if="Array.isArray(value) && value.length > 0 && typeof value[0] === 'string'" 
+                  <div v-if="Array.isArray(value) && value.length > 0 && typeof value[0] === 'string'"
                        class="d-flex flex-wrap gap-2 mb-2">
                     <span
                       v-for="(item, idx) in value"
@@ -409,7 +409,7 @@
                       {{ item }}
                     </span>
                   </div>
-                  
+
                   <!-- Array of objects -->
                   <div v-else-if="Array.isArray(value) && value.length > 0" class="list-group">
                     <div
@@ -420,12 +420,12 @@
                       <pre class="mb-0">{{ JSON.stringify(item, null, 2) }}</pre>
                     </div>
                   </div>
-                  
+
                   <!-- Object -->
                   <div v-else-if="typeof value === 'object'" class="bg-light p-3 rounded">
                     <pre class="mb-0">{{ JSON.stringify(value, null, 2) }}</pre>
                   </div>
-                  
+
                   <!-- String -->
                   <p v-else class="mb-0">{{ value }}</p>
                 </div>
@@ -482,18 +482,18 @@
               Choose which sections and subsections to include in your knowledge graph.
               Click the arrows to expand sections.
             </p>
-            
+
             <!-- Global Select All / Deselect All -->
             <div class="mb-3">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 class="btn btn-sm btn-outline-secondary"
                 @click="toggleAllSections"
               >
                 {{ allSelected ? '☐ Deselect All' : '☑ Select All' }}
               </button>
             </div>
-            
+
             <div class="selection-tree">
               <!-- Summary -->
               <div class="tree-item mb-3">
@@ -510,8 +510,8 @@
                     {{ expanded.themes ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.themes.includeAll"
                       @change="toggleAll('themes')"
                       :indeterminate="isIndeterminate('themes')"
@@ -520,11 +520,11 @@
                     <strong>💡 Hovedtemaer ({{ analysis.keyThemes.length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.themes" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(theme, index) in analysis.keyThemes" 
-                    :key="index" 
+                  <div
+                    v-for="(theme, index) in analysis.keyThemes"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-start">
@@ -534,7 +534,7 @@
                           {{ theme.tema || theme.name }}
                         </strong>
                         <span v-else>{{ theme }}</span>
-                        <small v-if="typeof theme === 'object' && (theme.beskrivelse || theme.detaljer)" 
+                        <small v-if="typeof theme === 'object' && (theme.beskrivelse || theme.detaljer)"
                                class="d-block text-muted">
                           {{ (theme.beskrivelse || theme.detaljer || '').substring(0, 80) }}...
                         </small>
@@ -545,15 +545,15 @@
               </div>
 
               <!-- Speaker Roles -->
-              <div v-if="analysis.speakerRoles && Object.keys(analysis.speakerRoles).filter(k => k !== 'dynamikk').length > 0" 
+              <div v-if="analysis.speakerRoles && Object.keys(analysis.speakerRoles).filter(k => k !== 'dynamikk').length > 0"
                    class="tree-item mb-3">
                 <div class="d-flex align-items-center">
                   <span @click="toggleExpand('speakers')" class="expand-icon me-2">
                     {{ expanded.speakers ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.speakers.includeAll"
                       @change="toggleAll('speakers')"
                       :indeterminate="isIndeterminate('speakers')"
@@ -562,11 +562,11 @@
                     <strong>🎤 Roller i samtalen ({{ Object.keys(analysis.speakerRoles).filter(k => k !== 'dynamikk').length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.speakers" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(speaker, index) in Object.keys(analysis.speakerRoles).filter(k => k !== 'dynamikk')" 
-                    :key="index" 
+                  <div
+                    v-for="(speaker, index) in Object.keys(analysis.speakerRoles).filter(k => k !== 'dynamikk')"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-start">
@@ -589,8 +589,8 @@
                     {{ expanded.moments ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.moments.includeAll"
                       @change="toggleAll('moments')"
                       :indeterminate="isIndeterminate('moments')"
@@ -599,11 +599,11 @@
                     <strong>⭐ Viktige Øyeblikk ({{ analysis.keyMoments.length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.moments" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(moment, index) in analysis.keyMoments" 
-                    :key="index" 
+                  <div
+                    v-for="(moment, index) in analysis.keyMoments"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-start">
@@ -626,8 +626,8 @@
                     {{ expanded.actions ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.actions.includeAll"
                       @change="toggleAll('actions')"
                       :indeterminate="isIndeterminate('actions')"
@@ -636,11 +636,11 @@
                     <strong>✅ Handlingspunkter ({{ analysis.actionItems.length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.actions" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(item, index) in analysis.actionItems" 
-                    :key="index" 
+                  <div
+                    v-for="(item, index) in analysis.actionItems"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-start">
@@ -657,15 +657,15 @@
               </div>
 
               <!-- Keywords -->
-              <div v-if="analysis.extraFields && (analysis.extraFields['nøkkelord_for_ordsky'] || analysis.extraFields['keywords'])" 
+              <div v-if="analysis.extraFields && (analysis.extraFields['nøkkelord_for_ordsky'] || analysis.extraFields['keywords'])"
                    class="tree-item mb-3">
                 <div class="d-flex align-items-center">
                   <span @click="toggleExpand('keywords')" class="expand-icon me-2">
                     {{ expanded.keywords ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.keywords.includeAll"
                       @change="toggleAll('keywords')"
                       :indeterminate="isIndeterminate('keywords')"
@@ -674,11 +674,11 @@
                     <strong>🏷️ Nøkkelord ({{ (analysis.extraFields['nøkkelord_for_ordsky'] || analysis.extraFields['keywords'] || []).length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.keywords" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(keyword, index) in (analysis.extraFields['nøkkelord_for_ordsky'] || analysis.extraFields['keywords'] || [])" 
-                    :key="index" 
+                  <div
+                    v-for="(keyword, index) in (analysis.extraFields['nøkkelord_for_ordsky'] || analysis.extraFields['keywords'] || [])"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-center">
@@ -690,15 +690,15 @@
               </div>
 
               <!-- Hashtags -->
-              <div v-if="analysis.extraFields && (analysis.extraFields['hashtag_sammendrag'] || analysis.extraFields['hashtags'])" 
+              <div v-if="analysis.extraFields && (analysis.extraFields['hashtag_sammendrag'] || analysis.extraFields['hashtags'])"
                    class="tree-item mb-3">
                 <div class="d-flex align-items-center">
                   <span @click="toggleExpand('hashtags')" class="expand-icon me-2">
                     {{ expanded.hashtags ? '▼' : '▶' }}
                   </span>
                   <label class="d-flex align-items-center mb-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       v-model="selections.hashtags.includeAll"
                       @change="toggleAll('hashtags')"
                       :indeterminate="isIndeterminate('hashtags')"
@@ -707,11 +707,11 @@
                     <strong>#️⃣ Hashtags ({{ (analysis.extraFields['hashtag_sammendrag'] || analysis.extraFields['hashtags'] || []).length }} tilgjengelig)</strong>
                   </label>
                 </div>
-                
+
                 <div v-if="expanded.hashtags" class="tree-children ms-4 mt-2">
-                  <div 
-                    v-for="(hashtag, index) in (analysis.extraFields['hashtag_sammendrag'] || analysis.extraFields['hashtags'] || [])" 
-                    :key="index" 
+                  <div
+                    v-for="(hashtag, index) in (analysis.extraFields['hashtag_sammendrag'] || analysis.extraFields['hashtags'] || [])"
+                    :key="index"
                     class="tree-child mb-2"
                   >
                     <label class="d-flex align-items-center">
@@ -726,10 +726,10 @@
           <div class="modal-footer d-flex justify-content-between align-items-center">
             <div>
               <div class="form-check">
-                <input 
-                  type="checkbox" 
-                  v-model="autoProcessAfterNavigation" 
-                  class="form-check-input" 
+                <input
+                  type="checkbox"
+                  v-model="autoProcessAfterNavigation"
+                  class="form-check-input"
                   id="autoProcessCheck"
                 />
                 <label class="form-check-label" for="autoProcessCheck">
@@ -737,22 +737,22 @@
                 </label>
               </div>
               <div class="form-check mt-2">
-                <input 
-                  type="checkbox" 
-                  v-model="includeDiarizedText" 
-                  class="form-check-input" 
+                <input
+                  type="checkbox"
+                  v-model="includeDiarizedText"
+                  class="form-check-input"
                   id="includeDiarizedCheck"
                 />
                 <label class="form-check-label" for="includeDiarizedCheck">
                   Include full diarized conversation text
                 </label>
               </div>
-              
+
               <!-- Theme Extraction Button -->
               <div class="mt-3">
-                <button 
-                  type="button" 
-                  class="btn btn-outline-warning btn-sm w-100" 
+                <button
+                  type="button"
+                  class="btn btn-outline-warning btn-sm w-100"
                   @click="showThemeExtractionModal = true"
                   title="Extract specific theme from conversation"
                 >
@@ -764,18 +764,18 @@
               <button type="button" class="btn btn-secondary me-2" @click="showSelectionModal = false">
                 Cancel
               </button>
-              <button 
-                type="button" 
-                class="btn btn-success me-2" 
+              <button
+                type="button"
+                class="btn btn-success me-2"
                 @click="createGraphDirectly"
                 :disabled="!hasSelection()"
                 title="Create graph immediately from selected sections"
               >
                 <i class="fas fa-bolt me-1"></i> Create Graph Directly
               </button>
-              <button 
-                type="button" 
-                class="btn btn-primary" 
+              <button
+                type="button"
+                class="btn btn-primary"
                 @click="sendToTranscriptProcessor"
                 :disabled="!hasSelection()"
                 title="Send to Transcript Processor for AI enhancement"
@@ -803,10 +803,10 @@
         <div class="modal-body">
           <div class="mb-3">
             <label for="themeInput" class="form-label fw-bold">Theme / Topic</label>
-            <input 
-              type="text" 
-              class="form-control" 
-              id="themeInput" 
+            <input
+              type="text"
+              class="form-control"
+              id="themeInput"
               v-model="themeToExtract"
               placeholder="e.g., perspektiv, kjærlighet, meditasjon, tankefrihet"
               @keyup.enter="extractTheme"
@@ -817,10 +817,10 @@
           </div>
 
           <div class="form-check mb-3">
-            <input 
-              type="checkbox" 
-              v-model="useGrokForTheme" 
-              class="form-check-input" 
+            <input
+              type="checkbox"
+              v-model="useGrokForTheme"
+              class="form-check-input"
               id="useGrokThemeCheck"
             />
             <label class="form-check-label" for="useGrokThemeCheck">
@@ -843,9 +843,9 @@
           <button type="button" class="btn btn-secondary" @click="showThemeExtractionModal = false">
             Cancel
           </button>
-          <button 
-            type="button" 
-            class="btn btn-warning" 
+          <button
+            type="button"
+            class="btn btn-warning"
             @click="extractTheme"
             :disabled="!themeToExtract || isExtractingTheme"
           >
@@ -997,7 +997,7 @@ async function analyzeConversation() {
     const endpoint = endpointMap[selectedModel.value] || endpointMap.cloudflare
 
     // Get speaker labels if available (for anonymity/regulations)
-    const speakerLabels = recording.value.diarization?.speakerLabels || 
+    const speakerLabels = recording.value.diarization?.speakerLabels ||
                          recording.value.speakerLabels || {}
 
     // Build the conversation text with speaker timeline
@@ -1006,10 +1006,10 @@ async function analyzeConversation() {
       const minutes = Math.floor(startTime / 60)
       const seconds = startTime % 60
       const timeLabel = `${minutes}:${seconds.toString().padStart(2, '0')}`
-      
+
       // Use speaker label if available, otherwise use speaker ID
       const speakerName = speakerLabels[segment.speaker] || segment.speaker
-      
+
       return `[${timeLabel}] ${speakerName}: [speaking for ${Math.floor(segment.end - segment.start)}s]`
     }).join('\n')
 
@@ -1027,7 +1027,7 @@ async function analyzeConversation() {
     let prompt = `Analyser denne norske samtalen:\n\n`
     prompt += `TRANSKRIBERING:\n${recording.value.transcriptionText}\n\n`
     prompt += `HØYTALERTIDSLINJEN:\n${conversationTimeline}\n`
-    
+
     if (speakerContext) {
       prompt += speakerContext
     }
@@ -1085,9 +1085,9 @@ async function analyzeConversation() {
         cleanedText = cleanedText.replace(/^```\n?/, '').replace(/\n?```$/, '')
         console.log('🧹 Stripped code fences')
       }
-      
+
       const parsedData = JSON.parse(cleanedText)
-      
+
       console.log('🔍 Parsed JSON keys:', Object.keys(parsedData))
       console.log('🔍 Full parsed data:', parsedData)
 
@@ -1097,13 +1097,13 @@ async function analyzeConversation() {
       // Extract action items and conclusion from Grok's nested structure
       let actionItems = []
       let conclusion = null
-      
+
       if (data['5_handlingspunkter_eller_konklusjoner']) {
         const handlingsData = data['5_handlingspunkter_eller_konklusjoner']
-        
+
         // Extract punkter array
         let rawItems = handlingsData.punkter || []
-        
+
         // Separate action items from conclusion
         actionItems = []
         rawItems.forEach(item => {
@@ -1124,29 +1124,29 @@ async function analyzeConversation() {
             actionItems.push(item)
           }
         })
-        
+
         // Also check for conclusion at top level of handlingsData
         if (!conclusion && handlingsData.konklusjon) {
           conclusion = handlingsData.konklusjon
         }
       } else {
-        actionItems = data.handlingspunkter_eller_konklusjoner || 
-                     data.actionItems || data.action_items || data.actions || 
+        actionItems = data.handlingspunkter_eller_konklusjoner ||
+                     data.actionItems || data.action_items || data.actions ||
                      data.conclusions || []
       }
 
       // Map core fields (Norwegian → English)
       analysis.value = {
-        summary: data.sammendrag || data.summary || 
+        summary: data.sammendrag || data.summary ||
                 data['1_sammendrag_av_samtalen']?.beskrivelse || '',
-        keyThemes: data.hovedtemaer || data.keyThemes || data.themes || 
-                  data['2_hovedtemaer_som_diskuteres']?.temaer || 
+        keyThemes: data.hovedtemaer || data.keyThemes || data.themes ||
+                  data['2_hovedtemaer_som_diskuteres']?.temaer ||
                   data['2_hovedtemaer_som_diskuteres'] || [],
         speakerRoles: data.hoyttalerroller_og_dynamikk || data.høyttalerroller_og_dynamikk ||
-                     data.speakerRoles || data.speaker_roles || data.rolle || 
+                     data.speakerRoles || data.speaker_roles || data.rolle ||
                      data['3_høyttalerroller_og_dynamikk']?.roller ||
                      data['3_høyttalerroller_og_dynamikk'] || {},
-        keyMoments: data.viktige_oyeblikk || data.viktige_øyeblikk || 
+        keyMoments: data.viktige_oyeblikk || data.viktige_øyeblikk ||
                    data.keyMoments || data.key_moments || data.moments ||
                    data['4_viktige_øyeblikk_eller_vendepunkter']?.øyeblikk ||
                    data['4_viktige_øyeblikk_eller_vendepunkter'] || [],
@@ -1158,15 +1158,15 @@ async function analyzeConversation() {
 
       // Add any extra fields that weren't mapped above
       const knownFields = ['sammendrag', 'summary', 'hovedtemaer', 'keyThemes', 'themes',
-                          'hoyttalerroller_og_dynamikk', 'høyttalerroller_og_dynamikk', 
+                          'hoyttalerroller_og_dynamikk', 'høyttalerroller_og_dynamikk',
                           'speakerRoles', 'speaker_roles', 'rolle',
                           'viktige_oyeblikk', 'viktige_øyeblikk', 'keyMoments', 'key_moments', 'moments',
-                          'handlingspunkter_eller_konklusjoner', 'actionItems', 'action_items', 
+                          'handlingspunkter_eller_konklusjoner', 'actionItems', 'action_items',
                           'actions', 'conclusions',
                           '1_sammendrag_av_samtalen', '2_hovedtemaer_som_diskuteres',
                           '3_høyttalerroller_og_dynamikk', '4_viktige_øyeblikk_eller_vendepunkter',
                           '5_handlingspunkter_eller_konklusjoner']
-      
+
       // Capture extra fields from parent level (for fields like keywords, hashtags)
       Object.keys(parsedData).forEach(key => {
         if (!knownFields.includes(key) && key !== 'analyse') {
@@ -1272,30 +1272,30 @@ const selections = ref({
 
 function initializeSelections() {
   if (!analysis.value) return
-  
+
   // Initialize themes
   const themes = analysis.value.keyThemes || []
   selections.value.themes.items = new Array(themes.length).fill(false)
-  
+
   // Initialize speakers
   const speakers = Object.keys(analysis.value.speakerRoles || {}).filter(k => k !== 'dynamikk')
   selections.value.speakers.items = new Array(speakers.length).fill(false)
-  
+
   // Initialize moments
   const moments = analysis.value.keyMoments || []
   selections.value.moments.items = new Array(moments.length).fill(false)
-  
+
   // Initialize actions
   const actions = analysis.value.actionItems || []
   selections.value.actions.items = new Array(actions.length).fill(false)
-  
+
   // Initialize keywords
-  const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] || 
+  const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] ||
                    analysis.value.extraFields?.['keywords'] || []
   selections.value.keywords.items = new Array(keywords.length).fill(false)
-  
+
   // Initialize hashtags
-  const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] || 
+  const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] ||
                    analysis.value.extraFields?.['hashtags'] || []
   selections.value.hashtags.items = new Array(hashtags.length).fill(false)
 }
@@ -1330,30 +1330,30 @@ const allSelected = computed(() => {
 // Toggle all sections on/off
 function toggleAllSections() {
   const selectAll = !allSelected.value
-  
+
   // Toggle summary
   selections.value.summary.include = selectAll
-  
+
   // Toggle all themes
   selections.value.themes.includeAll = selectAll
   selections.value.themes.items = selections.value.themes.items.map(() => selectAll)
-  
+
   // Toggle all speakers
   selections.value.speakers.includeAll = selectAll
   selections.value.speakers.items = selections.value.speakers.items.map(() => selectAll)
-  
+
   // Toggle all moments
   selections.value.moments.includeAll = selectAll
   selections.value.moments.items = selections.value.moments.items.map(() => selectAll)
-  
+
   // Toggle all actions
   selections.value.actions.includeAll = selectAll
   selections.value.actions.items = selections.value.actions.items.map(() => selectAll)
-  
+
   // Toggle all keywords
   selections.value.keywords.includeAll = selectAll
   selections.value.keywords.items = selections.value.keywords.items.map(() => selectAll)
-  
+
   // Toggle all hashtags
   selections.value.hashtags.includeAll = selectAll
   selections.value.hashtags.items = selections.value.hashtags.items.map(() => selectAll)
@@ -1392,28 +1392,28 @@ async function sendToTranscriptProcessor() {
     saveError.value = 'Please select at least one section'
     return
   }
-  
+
   showSelectionModal.value = false
   saving.value = 'transcript'
-  
+
   try {
     // Build markdown text from selections
     const text = buildMarkdownFromSelections()
-    
+
     // Store in sessionStorage and navigate
     sessionStorage.setItem('prefill_transcript', text)
-    
+
     // Set auto_process flag based on checkbox
     if (autoProcessAfterNavigation.value) {
       sessionStorage.setItem('auto_process', 'true')
     }
-    
+
     // Navigate to transcript processor using Vue Router
-    await router.push({ 
-      path: '/transcript-processor', 
-      query: { prefill: 'true' } 
+    await router.push({
+      path: '/transcript-processor',
+      query: { prefill: 'true' }
     })
-    
+
   } catch (err) {
     saveError.value = `Error: ${err.message}`
     saving.value = null
@@ -1426,14 +1426,14 @@ async function createGraphDirectly() {
     saveError.value = 'Please select at least one section'
     return
   }
-  
+
   showSelectionModal.value = false
   saving.value = 'graph'
-  
+
   try {
     const nodes = []
     let nodeIndex = 0
-    
+
     // Summary node
     if (selections.value.summary.include && analysis.value.summary) {
       nodes.push({
@@ -1450,9 +1450,9 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Themes node (all themes in ONE node)
-    const selectedThemes = (analysis.value.keyThemes || []).filter((_, index) => 
+    const selectedThemes = (analysis.value.keyThemes || []).filter((_, index) =>
       selections.value.themes.items[index]
     )
     if (selectedThemes.length > 0) {
@@ -1466,7 +1466,7 @@ async function createGraphDirectly() {
           content += `### ${idx + 1}. ${theme}\n\n`
         }
       })
-      
+
       nodes.push({
         id: `analysis_themes_${Date.now()}`,
         label: `🎯 Hovedtemaer (${selectedThemes.length})`,
@@ -1481,10 +1481,10 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Speakers node (all speakers in ONE node)
     const speakerKeys = Object.keys(analysis.value.speakerRoles || {}).filter(k => k !== 'dynamikk')
-    const selectedSpeakers = speakerKeys.filter((_, index) => 
+    const selectedSpeakers = speakerKeys.filter((_, index) =>
       selections.value.speakers.items[index]
     )
     if (selectedSpeakers.length > 0) {
@@ -1492,7 +1492,7 @@ async function createGraphDirectly() {
       selectedSpeakers.forEach((speaker, idx) => {
         const roleData = analysis.value.speakerRoles[speaker]
         content += `### ${idx + 1}. ${speaker}\n\n`
-        
+
         if (typeof roleData === 'string') {
           content += `${roleData}\n\n`
         } else if (roleData.rolle || roleData.role) {
@@ -1501,7 +1501,7 @@ async function createGraphDirectly() {
           if (desc) content += `${desc}\n\n`
         }
       })
-      
+
       nodes.push({
         id: `analysis_speakers_${Date.now()}`,
         label: `🎤 Roller i samtalen (${selectedSpeakers.length})`,
@@ -1516,9 +1516,9 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Moments node (all moments in ONE node)
-    const selectedMoments = (analysis.value.keyMoments || []).filter((_, index) => 
+    const selectedMoments = (analysis.value.keyMoments || []).filter((_, index) =>
       selections.value.moments.items[index]
     )
     if (selectedMoments.length > 0) {
@@ -1531,7 +1531,7 @@ async function createGraphDirectly() {
           content += `### ${idx + 1}. ${moment}\n\n`
         }
       })
-      
+
       nodes.push({
         id: `analysis_moments_${Date.now()}`,
         label: `⏱️ Viktige Øyeblikk (${selectedMoments.length})`,
@@ -1546,9 +1546,9 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Action items node
-    const selectedActions = (analysis.value.actionItems || []).filter((_, index) => 
+    const selectedActions = (analysis.value.actionItems || []).filter((_, index) =>
       selections.value.actions.items[index]
     )
     if (selectedActions.length > 0) {
@@ -1563,7 +1563,7 @@ async function createGraphDirectly() {
           }
         }
       })
-      
+
       nodes.push({
         id: `analysis_actions_${Date.now()}`,
         label: '✅ Handlingspunkter',
@@ -1578,19 +1578,19 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Keywords & Hashtags node
-    const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] || 
+    const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] ||
                      analysis.value.extraFields?.['keywords'] || []
-    const selectedKeywords = keywords.filter((_, index) => 
+    const selectedKeywords = keywords.filter((_, index) =>
       selections.value.keywords.items[index]
     )
-    const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] || 
+    const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] ||
                      analysis.value.extraFields?.['hashtags'] || []
-    const selectedHashtags = hashtags.filter((_, index) => 
+    const selectedHashtags = hashtags.filter((_, index) =>
       selections.value.hashtags.items[index]
     )
-    
+
     if (selectedKeywords.length > 0 || selectedHashtags.length > 0) {
       let content = ''
       if (selectedKeywords.length > 0) {
@@ -1599,7 +1599,7 @@ async function createGraphDirectly() {
       if (selectedHashtags.length > 0) {
         content += `## Hashtags\n\n${selectedHashtags.join(' ')}`
       }
-      
+
       nodes.push({
         id: `analysis_tags_${Date.now()}`,
         label: '🏷️ Nøkkelord & Tags',
@@ -1614,33 +1614,33 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Diarized conversation text (optional)
     if (includeDiarizedText.value && recording.value) {
       const speakerLabels = recording.value.diarization?.speakerLabels || {}
-      
+
       let conversationText = '## Full Conversation with Timeline\n\n'
-      
+
       // Use advanced alignment if diarization segments and transcript are available
-      if (recording.value.diarization && 
-          recording.value.diarization.segments && 
+      if (recording.value.diarization &&
+          recording.value.diarization.segments &&
           recording.value.transcriptionText) {
-        
+
         // Align diarization with actual text
         const alignedSegments = alignDiarizationWithTextAdvanced(
           recording.value.diarization.segments,
           recording.value.norwegianTranscription?.improved_text || recording.value.transcriptionText,
           speakerLabels
         )
-        
+
         // Format as markdown with text per segment
         conversationText = formatAlignedSegmentsAsMarkdown(alignedSegments)
-        
+
       } else {
         // Fallback: show timeline only + full transcript
         if (recording.value.diarization && recording.value.diarization.segments) {
           conversationText += '### Speaker Timeline\n\n'
-          
+
           recording.value.diarization.segments.forEach((segment) => {
             const startTime = Math.floor(segment.start)
             const endTime = Math.floor(segment.end)
@@ -1648,25 +1648,25 @@ async function createGraphDirectly() {
             const seconds = startTime % 60
             const timeLabel = `${minutes}:${seconds.toString().padStart(2, '0')}`
             const duration = Math.floor(endTime - startTime)
-            
+
             const speakerLabel = speakerLabels[segment.speaker] || segment.speaker
-            
+
             conversationText += `- **[${timeLabel}]** ${speakerLabel} (${duration}s)\n`
           })
-          
+
           conversationText += '\n'
         }
-        
+
         // Add full transcript text
         conversationText += '### Full Transcript\n\n'
-        
-        const transcriptText = recording.value.norwegianTranscription?.improved_text || 
-                               recording.value.transcriptionText || 
+
+        const transcriptText = recording.value.norwegianTranscription?.improved_text ||
+                               recording.value.transcriptionText ||
                                'No transcript text available'
-        
+
         conversationText += transcriptText
       }
-      
+
       nodes.push({
         id: `diarized_conversation_${Date.now()}`,
         label: '🗣️ Full Conversation & Timeline',
@@ -1681,12 +1681,12 @@ async function createGraphDirectly() {
         position: { x: 100, y: 100 + (nodeIndex++ * 250) }
       })
     }
-    
+
     // Create metadata
     const today = new Date()
     const dateStr = today.toLocaleDateString('no-NO')
     const timeStr = today.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })
-    
+
     const graphData = {
       nodes: nodes,
       edges: [],
@@ -1700,12 +1700,12 @@ async function createGraphDirectly() {
         updatedAt: new Date().toISOString()
       }
     }
-    
+
     // Generate unique graph ID
     const graphId = `conversation_analysis_${Date.now()}`
-    
+
     console.log('💾 Saving graph with', nodes.length, 'nodes...')
-    
+
     // Save to backend
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
@@ -1713,29 +1713,29 @@ async function createGraphDirectly() {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken
       },
-      body: JSON.stringify({ 
-        id: graphId, 
+      body: JSON.stringify({
+        id: graphId,
         graphData,
-        override: true 
+        override: true
       })
     })
-    
+
     if (!response.ok) {
       const errorText = await response.text()
       console.error('Save failed:', response.status, errorText)
       throw new Error(`Failed to save graph: ${response.status}`)
     }
-    
+
     const result = await response.json()
     console.log('✅ Graph saved successfully:', result)
-    
+
     saveSuccess.value = 'Knowledge graph created successfully!'
     saving.value = null
-    
+
     // Navigate to GNew viewer (correct route)
     console.log('🚀 Navigating to /gnew-viewer?graphId=' + graphId)
     await router.push(`/gnew-viewer?graphId=${graphId}`)
-    
+
   } catch (err) {
     console.error('❌ Error creating graph:', err)
     saveError.value = `Error creating graph: ${err.message}`
@@ -1751,7 +1751,7 @@ async function extractTheme() {
   }
 
   isExtractingTheme.value = true
-  
+
   try {
     // Get aligned segments
     const transcript = recording.value.norwegianTranscription?.improved_text || recording.value.transcriptionText
@@ -1760,29 +1760,29 @@ async function extractTheme() {
       transcript,
       recording.value.diarization.speakerLabels || {}
     )
-    
+
     // Find theme-related segments
     const themeSegments = findThemeSegments(alignedSegments, themeToExtract.value)
-    
+
     if (themeSegments.length === 0) {
       alert(`No segments found containing "${themeToExtract.value}"`)
       isExtractingTheme.value = false
       return
     }
-    
+
     let themeNode = null
-    
+
     if (useGrokForTheme.value) {
       // Use Grok for enhanced analysis
       console.log('🤖 Using Grok for theme analysis...')
-      
+
       const requestData = prepareThemeAnalysisRequest(
         themeSegments,
         themeToExtract.value,
         transcript,
         'norwegian'
       )
-      
+
       const response = await fetch('https://api.vegvisr.org/analyze-conversation-theme', {
         method: 'POST',
         headers: {
@@ -1790,26 +1790,26 @@ async function extractTheme() {
         },
         body: JSON.stringify(requestData)
       })
-      
+
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`)
       }
-      
+
       const grokResponse = await response.json()
       themeNode = formatGrokThemeNode(grokResponse, themeToExtract.value)
-      
+
     } else {
       // Simple local extraction
       themeNode = createSimpleThemeNode(themeSegments, themeToExtract.value)
     }
-    
+
     if (!themeNode) {
       throw new Error('Failed to create theme node')
     }
-    
+
     // Add position
     themeNode.position = { x: 100, y: 100 }
-    
+
     // Create a graph with just this theme node
     const graphData = {
       nodes: [themeNode],
@@ -1821,9 +1821,9 @@ async function extractTheme() {
         createdAt: new Date().toISOString()
       }
     }
-    
+
     const graphId = `theme_${themeToExtract.value.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`
-    
+
     // Save to backend
     const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
@@ -1831,23 +1831,23 @@ async function extractTheme() {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken
       },
-      body: JSON.stringify({ 
-        id: graphId, 
+      body: JSON.stringify({
+        id: graphId,
         graphData,
-        override: true 
+        override: true
       })
     })
-    
+
     if (!saveResponse.ok) {
       throw new Error(`Failed to save: ${saveResponse.status}`)
     }
-    
+
     console.log('✅ Theme graph created successfully')
-    
+
     // Close modal and navigate
     showThemeExtractionModal.value = false
     await router.push(`/gnew-viewer?graphId=${graphId}`)
-    
+
   } catch (error) {
     console.error('❌ Error extracting theme:', error)
     alert(`Error extracting theme: ${error.message}`)
@@ -1859,14 +1859,14 @@ async function extractTheme() {
 // Helper function to build markdown from selections
 function buildMarkdownFromSelections() {
   let text = "# SAMTALEANALYSE\n\n"
-    
+
     // Summary
     if (selections.value.summary.include && analysis.value.summary) {
       text += `## Oppsummering\n\n${analysis.value.summary}\n\n`
     }
-    
+
     // Themes
-    const selectedThemes = (analysis.value.keyThemes || []).filter((_, index) => 
+    const selectedThemes = (analysis.value.keyThemes || []).filter((_, index) =>
       selections.value.themes.items[index]
     )
     if (selectedThemes.length > 0) {
@@ -1884,10 +1884,10 @@ function buildMarkdownFromSelections() {
       })
       text += '\n'
     }
-    
+
     // Speakers
     const speakerKeys = Object.keys(analysis.value.speakerRoles || {}).filter(k => k !== 'dynamikk')
-    const selectedSpeakers = speakerKeys.filter((_, index) => 
+    const selectedSpeakers = speakerKeys.filter((_, index) =>
       selections.value.speakers.items[index]
     )
     if (selectedSpeakers.length > 0) {
@@ -1906,9 +1906,9 @@ function buildMarkdownFromSelections() {
         }
       })
     }
-    
+
     // Key Moments
-    const selectedMoments = (analysis.value.keyMoments || []).filter((_, index) => 
+    const selectedMoments = (analysis.value.keyMoments || []).filter((_, index) =>
       selections.value.moments.items[index]
     )
     if (selectedMoments.length > 0) {
@@ -1922,9 +1922,9 @@ function buildMarkdownFromSelections() {
         }
       })
     }
-    
+
     // Action Items
-    const selectedActions = (analysis.value.actionItems || []).filter((_, index) => 
+    const selectedActions = (analysis.value.actionItems || []).filter((_, index) =>
       selections.value.actions.items[index]
     )
     if (selectedActions.length > 0) {
@@ -1941,37 +1941,37 @@ function buildMarkdownFromSelections() {
       })
       text += '\n'
     }
-    
+
     // Keywords
-    const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] || 
+    const keywords = analysis.value.extraFields?.['nøkkelord_for_ordsky'] ||
                      analysis.value.extraFields?.['keywords'] || []
-    const selectedKeywords = keywords.filter((_, index) => 
+    const selectedKeywords = keywords.filter((_, index) =>
       selections.value.keywords.items[index]
     )
     if (selectedKeywords.length > 0) {
       text += `## Nøkkelord\n\n${selectedKeywords.join(', ')}\n\n`
     }
-    
+
     // Hashtags
-    const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] || 
+    const hashtags = analysis.value.extraFields?.['hashtag_sammendrag'] ||
                      analysis.value.extraFields?.['hashtags'] || []
-    const selectedHashtags = hashtags.filter((_, index) => 
+    const selectedHashtags = hashtags.filter((_, index) =>
       selections.value.hashtags.items[index]
     )
     if (selectedHashtags.length > 0) {
       text += `## Hashtags\n\n${selectedHashtags.join(' ')}\n\n`
     }
-    
+
     return text
   }
-  
+
   function formatDuration(seconds) {
     if (!seconds) return 'Unknown'
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
-  
+
   function formatFieldName(fieldName) {
   // Convert camelCase, snake_case, or kebab-case to readable text
   return fieldName

@@ -575,27 +575,27 @@ const redirectToNorwegianTranscription = () => {
 onMounted(async () => {
   // Check for prefilled content from conversation analysis
   const isPrefill = route.query.prefill === 'true'
-  
+
   if (isPrefill) {
     const prefilledText = sessionStorage.getItem('prefill_transcript')
     const autoProcess = sessionStorage.getItem('auto_process')
-    
+
     if (prefilledText) {
       // Set the transcript text
       transcriptText.value = prefilledText
       inputMethod.value = 'paste'
       currentStep.value = 1
-      
+
       // Clean up sessionStorage
       sessionStorage.removeItem('prefill_transcript')
-      
+
       // Auto-start processing if requested
       if (autoProcess === 'true') {
         sessionStorage.removeItem('auto_process')
-        
+
         // Wait a moment for UI to update
         await new Promise(resolve => setTimeout(resolve, 500))
-        
+
         // Start processing automatically
         await startProcessing()
       }
