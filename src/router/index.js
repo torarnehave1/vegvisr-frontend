@@ -233,6 +233,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/conversation-analysis',
+      name: 'conversation-analysis',
+      component: () => import('../views/ConversationAnalysisView.vue'),
+      meta: {
+        layout: null,
+        requiresAuth: true,
+        requiresSuperadmin: true,
+      },
+    },
+    {
       path: '/sandbox',
       name: 'sandbox',
       component: SandboxWorkspace,
