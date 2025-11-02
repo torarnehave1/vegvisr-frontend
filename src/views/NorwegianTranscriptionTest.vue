@@ -1666,8 +1666,22 @@ const analyzeSpeakerDiarization = async () => {
     const duration = recording.duration || 0
     const fileSizeMB = recording.fileSize ? recording.fileSize / 1024 / 1024 : 0
 
+    console.log('📊 File info:', {
+      duration: `${Math.floor(duration / 60)}:${Math.floor(duration % 60).toString().padStart(2, '0')}`,
+      durationSeconds: duration,
+      fileSizeMB: fileSizeMB.toFixed(2),
+      fileName: recording.fileName
+    })
+
     // Check if file needs chunking (>30 min OR >30 MB)
     const needsChunking = duration > 30 * 60 || fileSizeMB > 30
+
+    console.log('🔍 Chunking decision:', {
+      needsChunking,
+      durationCheck: duration > 30 * 60,
+      sizeCheck: fileSizeMB > 30,
+      threshold: '30 min OR 30 MB'
+    })
 
     if (needsChunking) {
       console.log('⚠️ Large file detected - using chunking approach:', {
