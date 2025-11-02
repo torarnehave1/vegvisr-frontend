@@ -1,6 +1,6 @@
 /**
  * Test: Diarization Text Alignment
- * 
+ *
  * This demonstrates how the alignment function matches timing segments
  * with actual transcript text.
  */

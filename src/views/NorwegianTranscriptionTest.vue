@@ -1674,10 +1674,10 @@ const analyzeSpeakerDiarization = async () => {
         duration: `${Math.floor(duration / 60)}:${Math.floor(duration % 60)}`,
         sizeMB: fileSizeMB.toFixed(2)
       })
-      
+
       // Use chunking approach (dynamic import to avoid loading if not needed)
       const { diarizeWithChunkingFromUrl } = await import('@/utils/audioChunker')
-      
+
       const allSegments = await diarizeWithChunkingFromUrl(recording.r2Url, {
         chunkDuration: 15 * 60, // 15 minutes per chunk
         totalDuration: duration,
