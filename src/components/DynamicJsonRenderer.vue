@@ -25,8 +25,7 @@
         <span 
           v-for="(item, index) in data" 
           :key="index"
-          class="badge"
-          :class="getBadgeClass(label)"
+          class="badge bg-secondary"
         >
           {{ item }}
         </span>
@@ -38,8 +37,7 @@
       <div 
         v-for="(item, index) in data" 
         :key="index"
-        class="array-item mb-3 p-3 border-start border-3 rounded"
-        :class="getArrayItemClass()"
+        class="array-item mb-3 p-3 border-start border-3 border-secondary rounded"
       >
         <div class="d-flex align-items-start">
           <span class="badge bg-secondary me-2">{{ index + 1 }}</span>
@@ -59,7 +57,7 @@
           :class="getColumnClass(value)"
         >
           <div class="card h-100">
-            <div class="card-header" :class="getHeaderClass(key)">
+            <div class="card-header bg-light border-bottom">
               <h6 class="mb-0">{{ formatFieldName(key) }}</h6>
             </div>
             <div class="card-body">
@@ -134,32 +132,10 @@ function formatFieldName(fieldName) {
     .trim()
 }
 
-function getBadgeClass(label) {
-  const lower = (label || '').toLowerCase()
-  if (lower.includes('hashtag') || lower.includes('tag')) return 'bg-info'
-  if (lower.includes('keyword') || lower.includes('nøkkelord')) return 'bg-secondary'
-  if (lower.includes('theme') || lower.includes('tema')) return 'bg-primary'
-  if (lower.includes('action') || lower.includes('handling')) return 'bg-danger'
-  return 'bg-secondary'
-}
-
-function getHeaderClass(key) {
-  const lower = (key || '').toLowerCase()
-  if (lower.includes('summary') || lower.includes('sammendrag')) return 'bg-primary text-white'
-  if (lower.includes('theme') || lower.includes('tema')) return 'bg-info text-white'
-  if (lower.includes('speaker') || lower.includes('høyttaler') || lower.includes('rolle')) return 'bg-success text-white'
-  if (lower.includes('moment') || lower.includes('øyeblikk')) return 'bg-warning text-dark'
-  if (lower.includes('action') || lower.includes('handling')) return 'bg-danger text-white'
-  if (lower.includes('conclusion') || lower.includes('konklusjon')) return 'bg-dark text-white'
-  return 'bg-light'
-}
-
-function getArrayItemClass() {
-  return 'border-primary'
-}
-
 function getColumnClass(value) {
   // Decide column width based on content
+  if (!value) return 'col-md-6 col-lg-4' // Handle null/undefined
+  
   if (typeof value === 'string' && value.length > 200) {
     return 'col-12' // Full width for long text
   }

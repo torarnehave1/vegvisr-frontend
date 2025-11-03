@@ -185,250 +185,13 @@
 
           <!-- Analysis Results -->
           <div v-if="analysis" class="analysis-results">
-            <!-- Summary Card -->
+            <!-- Raw JSON Display -->
             <div class="card mb-4">
-              <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">📝 Summary</h5>
+              <div class="card-header bg-light">
+                <h5 class="mb-0">📋 Analysis Results</h5>
               </div>
               <div class="card-body">
-                <p class="lead">{{ analysis.summary }}</p>
-              </div>
-            </div>
-
-            <!-- Key Themes -->
-            <div class="card mb-4">
-              <div class="card-header bg-info text-white">
-                <h5 class="mb-0">💡 Key Themes</h5>
-              </div>
-              <div class="card-body">
-                <!-- Handle array of theme objects with tema/detaljer -->
-                <div v-if="Array.isArray(analysis.keyThemes) && analysis.keyThemes.length > 0">
-                  <div
-                    v-for="(theme, index) in analysis.keyThemes"
-                    :key="index"
-                    class="theme-item mb-3 p-3 border rounded"
-                  >
-                    <!-- Grok format: tema + beskrivelse -->
-                    <template v-if="typeof theme === 'object' && (theme.tema || theme.name)">
-                      <h6 class="text-info mb-2">{{ theme.tema || theme.name }}</h6>
-                      <p v-if="theme.beskrivelse || theme.detaljer || theme.details || theme.description" class="mb-0 text-muted">
-                        {{ theme.beskrivelse || theme.detaljer || theme.details || theme.description }}
-                      </p>
-                    </template>
-                    <!-- Simple string theme -->
-                    <h6 v-else class="text-info mb-0">{{ theme }}</h6>
-                  </div>
-                </div>
-                <!-- Fallback for simple array of strings -->
-                <div v-else class="d-flex flex-wrap gap-2">
-                  <span class="badge bg-secondary">No themes available</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Speaker Roles -->
-            <div class="card mb-4">
-              <div class="card-header bg-success text-white">
-                <h5 class="mb-0">🎤 Speaker Roles</h5>
-              </div>
-              <div class="card-body">
-                <!-- Handle object with speaker keys -->
-                <div v-if="typeof analysis.speakerRoles === 'object' && Object.keys(analysis.speakerRoles).length > 0">
-                  <div class="row">
-                    <template
-                      v-for="(roleData, speaker) in analysis.speakerRoles"
-                      :key="speaker"
-                    >
-                      <div
-                        v-if="speaker !== 'dynamikk'"
-                        class="col-md-6 mb-3"
-                      >
-                        <div class="speaker-role-card p-3 border rounded">
-                          <h6 class="text-primary">{{ speaker }}</h6>
-                          <!-- Handle string description (Norwegian format) -->
-                          <p v-if="typeof roleData === 'string'" class="mb-0">{{ roleData }}</p>
-                          <!-- Handle Grok format with rolle + beskrivelse -->
-                          <div v-else-if="roleData.rolle || roleData.role">
-                            <p class="mb-1"><strong>{{ roleData.rolle || roleData.role }}</strong></p>
-                            <p v-if="roleData.beskrivelse || roleData.description" class="mb-0 text-muted">
-                              {{ roleData.beskrivelse || roleData.description }}
-                            </p>
-                          </div>
-                          <!-- Handle object with characteristics (English format) -->
-                          <div v-else>
-                            <p v-if="roleData.characteristics" class="mb-0">
-                              {{ roleData.characteristics }}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <!-- Display dynamikk section separately if present -->
-                  <div v-if="analysis.speakerRoles.dynamikk" class="mt-3 p-3 bg-light rounded">
-                    <h6 class="text-success mb-2">🔄 Dynamikk</h6>
-                    <p class="mb-0">{{ analysis.speakerRoles.dynamikk.beskrivelse || analysis.speakerRoles.dynamikk.description || analysis.speakerRoles.dynamikk }}</p>
-                  </div>
-                </div>
-                <div v-else>
-                  <span class="badge bg-secondary">No speaker roles available</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Key Moments -->
-            <div class="card mb-4">
-              <div class="card-header bg-warning text-dark">
-                <h5 class="mb-0">⭐ Key Moments</h5>
-              </div>
-              <div class="card-body">
-                <div v-if="analysis.keyMoments && analysis.keyMoments.length > 0" class="timeline">
-                  <div
-                    v-for="(moment, index) in analysis.keyMoments"
-                    :key="index"
-                    class="timeline-item mb-3 p-3 border-start border-3 border-warning"
-                  >
-                    <!-- Grok format: tidspunkt + beskrivelse -->
-                    <div v-if="moment.tidspunkt || moment.timestamp">
-                      <div class="mb-2">
-                        <span class="badge bg-warning text-dark">
-                          {{ moment.tidspunkt || formatTimestamp(moment.timestamp) }}
-                        </span>
-                      </div>
-                      <p class="mb-0">{{ moment.beskrivelse || moment.description || moment }}</p>
-                    </div>
-                    <!-- Legacy format with speaker -->
-                    <div v-else class="d-flex align-items-start">
-                      <div class="flex-grow-1">
-                        <strong v-if="moment.speaker">{{ moment.speaker }}</strong>
-                        <div v-if="moment.beskrivelse">
-                          <p class="mb-1"><strong>{{ moment.beskrivelse }}</strong></p>
-                          <p v-if="moment.betydning" class="mb-0 text-muted">
-                            <em>Significance:</em> {{ moment.betydning }}
-                          </p>
-                        </div>
-                        <p v-else class="mb-0">{{ moment.description || moment }}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-else>
-                  <span class="badge bg-secondary">No key moments available</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Action Items -->
-            <div v-if="analysis.actionItems && analysis.actionItems.length > 0" class="card mb-4">
-              <div class="card-header bg-danger text-white">
-                <h5 class="mb-0">✅ Action Items</h5>
-              </div>
-              <div class="card-body">
-                <ul class="list-group list-group-flush">
-                  <li
-                    v-for="(item, index) in analysis.actionItems"
-                    :key="index"
-                    class="list-group-item"
-                  >
-                    <!-- Handle string items -->
-                    <template v-if="typeof item === 'string'">
-                      {{ item }}
-                    </template>
-                    <!-- Grok format: punkt/handlingspunkt + beskrivelse -->
-                    <template v-else-if="typeof item === 'object'">
-                      <!-- Regular action item -->
-                      <div v-if="item.punkt || item.handlingspunkt">
-                        <strong class="text-primary d-block mb-2">
-                          {{ item.punkt || item.handlingspunkt }}
-                        </strong>
-                        <p v-if="item.beskrivelse" class="mb-0 text-muted">
-                          {{ item.beskrivelse }}
-                        </p>
-                      </div>
-                      <!-- Konklusjon format (should be filtered out) -->
-                      <div v-else-if="item.konklusjon">
-                        <div class="alert alert-info mb-0">
-                          <strong>Konklusjon:</strong> {{ item.konklusjon.beskrivelse || item.konklusjon }}
-                        </div>
-                      </div>
-                      <!-- Fallback for other object formats -->
-                      <div v-else>
-                        {{ item.action || item.description || JSON.stringify(item) }}
-                      </div>
-                    </template>
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <!-- Conclusion (Grok-specific) -->
-            <div v-if="analysis.conclusion" class="card mb-4">
-              <div class="card-header bg-dark text-white">
-                <h5 class="mb-0">🎯 Konklusjon</h5>
-              </div>
-              <div class="card-body">
-                <!-- Handle object with heading + beskrivelse -->
-                <div v-if="typeof analysis.conclusion === 'object' && analysis.conclusion.heading">
-                  <h6 class="text-dark mb-2">{{ analysis.conclusion.heading }}</h6>
-                  <p class="mb-0">{{ analysis.conclusion.beskrivelse || analysis.conclusion.description }}</p>
-                </div>
-                <!-- Handle simple object with just beskrivelse -->
-                <div v-else-if="typeof analysis.conclusion === 'object'">
-                  <p class="mb-0">{{ analysis.conclusion.beskrivelse || analysis.conclusion.description || JSON.stringify(analysis.conclusion) }}</p>
-                </div>
-                <!-- Handle string -->
-                <p v-else class="mb-0">{{ analysis.conclusion }}</p>
-              </div>
-            </div>
-
-            <!-- Dynamic Extra Fields (Keywords, Hashtags, etc.) -->
-            <div v-if="analysis.extraFields && Object.keys(analysis.extraFields).length > 0" class="card mb-4">
-              <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">🎯 Additional Insights</h5>
-              </div>
-              <div class="card-body">
-                <div
-                  v-for="(value, key) in analysis.extraFields"
-                  :key="key"
-                  class="extra-field-section mb-3"
-                >
-                  <!-- Display field name (convert underscore/camelCase to readable) -->
-                  <h6 class="text-primary text-capitalize">
-                    {{ formatFieldName(key) }}
-                  </h6>
-
-                  <!-- Array of strings (keywords, hashtags) -->
-                  <div v-if="Array.isArray(value) && value.length > 0 && typeof value[0] === 'string'"
-                       class="d-flex flex-wrap gap-2 mb-2">
-                    <span
-                      v-for="(item, idx) in value"
-                      :key="idx"
-                      class="badge"
-                      :class="key.includes('hashtag') ? 'bg-info' : 'bg-secondary'"
-                    >
-                      {{ item }}
-                    </span>
-                  </div>
-
-                  <!-- Array of objects -->
-                  <div v-else-if="Array.isArray(value) && value.length > 0" class="list-group">
-                    <div
-                      v-for="(item, idx) in value"
-                      :key="idx"
-                      class="list-group-item"
-                    >
-                      <pre class="mb-0">{{ JSON.stringify(item, null, 2) }}</pre>
-                    </div>
-                  </div>
-
-                  <!-- Object -->
-                  <div v-else-if="typeof value === 'object'" class="bg-light p-3 rounded">
-                    <pre class="mb-0">{{ JSON.stringify(value, null, 2) }}</pre>
-                  </div>
-
-                  <!-- String -->
-                  <p v-else class="mb-0">{{ value }}</p>
-                </div>
+                <pre class="bg-light p-3 rounded" style="max-height: 600px; overflow-y: auto;">{{ JSON.stringify(analysis, null, 2) }}</pre>
               </div>
             </div>
 
@@ -984,9 +747,9 @@ async function analyzeConversation() {
   saveError.value = null
 
   try {
-    // Map provider names to actual API endpoints (same as action_test)
+    // Map provider names to actual API endpoints
     const endpointMap = {
-      cloudflare: 'https://knowledge.vegvisr.org/generate-worker-ai',
+      cloudflare: 'https://norwegian-transcription-worker.torarnehave.workers.dev/generate-analysis',
       grok: 'https://api.vegvisr.org/groktest',
       claude: 'https://api.vegvisr.org/claude-test',
       gemini: 'https://api.vegvisr.org/gemini-test',
@@ -1063,18 +826,23 @@ async function analyzeConversation() {
     const result = await response.json()
 
     console.log('🔍 API Response:', result)
+    console.log('🔍 Result keys:', Object.keys(result))
+    console.log('🔍 Result.info:', result.info)
+    console.log('🔍 Result.text:', result.text)
 
     // action_test endpoints return {info: "...", bibl: [...]}
     // We just need the text from result.info
-    const analysisText = result.info || result.text || JSON.stringify(result)
+    const analysisText = result.info || result.text || result.response || JSON.stringify(result)
 
     console.log('📝 Analysis text:', analysisText)
+    console.log('📝 Analysis text type:', typeof analysisText)
+    console.log('📝 Analysis text length:', analysisText?.length)
 
     if (!analysisText || analysisText === 'undefined' || analysisText === '{}') {
       throw new Error('Empty response from AI model. The API may not have generated content.')
     }
 
-    // Try to parse as JSON for structured display
+    // Try to parse as JSON
     try {
       // Strip markdown code fences if present (Gemini adds ```json ... ```)
       let cleanedText = analysisText.trim()
@@ -1091,116 +859,15 @@ async function analyzeConversation() {
       console.log('🔍 Parsed JSON keys:', Object.keys(parsedData))
       console.log('🔍 Full parsed data:', parsedData)
 
-      // Handle Grok's nested "analyse" structure
-      const data = parsedData.analyse || parsedData
+      // Store the raw parsed data - no transformation
+      analysis.value = parsedData
 
-      // Extract action items and conclusion from Grok's nested structure
-      let actionItems = []
-      let conclusion = null
-
-      if (data['5_handlingspunkter_eller_konklusjoner']) {
-        const handlingsData = data['5_handlingspunkter_eller_konklusjoner']
-
-        // Extract punkter array
-        let rawItems = handlingsData.punkter || []
-
-        // Separate action items from conclusion
-        actionItems = []
-        rawItems.forEach(item => {
-          if (typeof item === 'object') {
-            // Check if this item is a conclusion (has konklusjon field)
-            if (item.konklusjon) {
-              // Extract as conclusion
-              conclusion = {
-                heading: item.konklusjon,
-                beskrivelse: item.beskrivelse
-              }
-            } else if (item.punkt || item.handlingspunkt) {
-              // Regular action item
-              actionItems.push(item)
-            }
-          } else if (typeof item === 'string') {
-            // String items go to action items
-            actionItems.push(item)
-          }
-        })
-
-        // Also check for conclusion at top level of handlingsData
-        if (!conclusion && handlingsData.konklusjon) {
-          conclusion = handlingsData.konklusjon
-        }
-      } else {
-        actionItems = data.handlingspunkter_eller_konklusjoner ||
-                     data.actionItems || data.action_items || data.actions ||
-                     data.conclusions || []
-      }
-
-      // Map core fields (Norwegian → English)
-      analysis.value = {
-        summary: data.sammendrag || data.summary ||
-                data['1_sammendrag_av_samtalen']?.beskrivelse || '',
-        keyThemes: data.hovedtemaer || data.keyThemes || data.themes ||
-                  data['2_hovedtemaer_som_diskuteres']?.temaer ||
-                  data['2_hovedtemaer_som_diskuteres'] || [],
-        speakerRoles: data.hoyttalerroller_og_dynamikk || data.høyttalerroller_og_dynamikk ||
-                     data.speakerRoles || data.speaker_roles || data.rolle ||
-                     data['3_høyttalerroller_og_dynamikk']?.roller ||
-                     data['3_høyttalerroller_og_dynamikk'] || {},
-        keyMoments: data.viktige_oyeblikk || data.viktige_øyeblikk ||
-                   data.keyMoments || data.key_moments || data.moments ||
-                   data['4_viktige_øyeblikk_eller_vendepunkter']?.øyeblikk ||
-                   data['4_viktige_øyeblikk_eller_vendepunkter'] || [],
-        actionItems: actionItems,
-        conclusion: conclusion, // Add conclusion field
-        // Capture ALL extra fields dynamically (keywords, hashtags, etc.)
-        extraFields: {}
-      }
-
-      // Add any extra fields that weren't mapped above
-      const knownFields = ['sammendrag', 'summary', 'hovedtemaer', 'keyThemes', 'themes',
-                          'hoyttalerroller_og_dynamikk', 'høyttalerroller_og_dynamikk',
-                          'speakerRoles', 'speaker_roles', 'rolle',
-                          'viktige_oyeblikk', 'viktige_øyeblikk', 'keyMoments', 'key_moments', 'moments',
-                          'handlingspunkter_eller_konklusjoner', 'actionItems', 'action_items',
-                          'actions', 'conclusions',
-                          '1_sammendrag_av_samtalen', '2_hovedtemaer_som_diskuteres',
-                          '3_høyttalerroller_og_dynamikk', '4_viktige_øyeblikk_eller_vendepunkter',
-                          '5_handlingspunkter_eller_konklusjoner']
-
-      // Capture extra fields from parent level (for fields like keywords, hashtags)
-      Object.keys(parsedData).forEach(key => {
-        if (!knownFields.includes(key) && key !== 'analyse') {
-          // Handle nested keywords structure
-          if (key === 'nøkkelord_for_ordsky_og_hashtags' && typeof parsedData[key] === 'object') {
-            // Expand nested structure into separate fields
-            if (parsedData[key].nøkkelord) {
-              analysis.value.extraFields['nøkkelord_for_ordsky'] = parsedData[key].nøkkelord
-            }
-            if (parsedData[key].hashtags) {
-              analysis.value.extraFields['hashtag_sammendrag'] = parsedData[key].hashtags
-            }
-          } else {
-            analysis.value.extraFields[key] = parsedData[key]
-          }
-        }
-      })
-
-      console.log('✅ Parsed analysis:', analysis.value)
-      console.log('📊 Speaker roles type:', typeof analysis.value.speakerRoles)
-      console.log('📊 Speaker roles keys:', Object.keys(analysis.value.speakerRoles || {}))
-      console.log('📊 Key moments length:', analysis.value.keyMoments?.length)
-      console.log('🎁 Extra fields:', Object.keys(analysis.value.extraFields))
-      console.log('✅ Action items count:', analysis.value.actionItems?.length)
-      console.log('🎯 Conclusion:', analysis.value.conclusion)
+      console.log('✅ Stored raw analysis:', analysis.value)
     } catch (e) {
       console.error('❌ JSON parse error:', e)
-      // If not JSON, create a simple structure with the text
+      // If not JSON, just store the text
       analysis.value = {
-        summary: analysisText,
-        keyThemes: [],
-        speakerRoles: {},
-        keyMoments: [],
-        actionItems: []
+        rawText: analysisText
       }
     }
   } catch (err) {
@@ -1971,16 +1638,6 @@ function buildMarkdownFromSelections() {
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
-
-  function formatFieldName(fieldName) {
-  // Convert camelCase, snake_case, or kebab-case to readable text
-  return fieldName
-    .replace(/([A-Z])/g, ' $1') // camelCase → spaces
-    .replace(/_/g, ' ') // snake_case → spaces
-    .replace(/-/g, ' ') // kebab-case → spaces
-    .replace(/\b\w/g, char => char.toUpperCase()) // capitalize words
-    .trim()
-}
 
 // Context Template Functions
 async function loadContextTemplates() {
