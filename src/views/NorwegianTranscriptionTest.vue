@@ -1693,7 +1693,7 @@ const analyzeSpeakerDiarization = async () => {
       const { diarizeWithChunkingFromUrl } = await import('@/utils/audioChunker')
 
       const allSegments = await diarizeWithChunkingFromUrl(recording.r2Url, {
-        chunkDuration: 15 * 60, // 15 minutes per chunk
+        chunkDuration: 5 * 60, // 5 minutes per chunk (smaller for high-quality audio)
         totalDuration: duration,
         workerUrl: NORWEGIAN_WORKER_URL,
         onProgress: (progress) => {
