@@ -138,44 +138,32 @@
                   <template v-else>
                     <div class="d-flex justify-content-between align-items-start">
                       <h5 class="card-title mb-0">{{ recording.displayName }}</h5>
-                      <div class="dropdown">
+                      <div class="btn-group btn-group-sm" role="group">
                         <button
-                          class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                          class="btn btn-outline-secondary"
                           type="button"
-                          :id="'dropdownMenuButton' + (recording.recordingId || recording.id)"
-                          data-bs-toggle="dropdown"
-                          aria-expanded="false"
-                          @click="toggleDropdown($event)"
+                          @click="startEdit(recording)"
+                          title="Edit recording"
                         >
-                          ⚙️
+                          ✏️
                         </button>
-                        <ul
-                          class="dropdown-menu"
-                          :aria-labelledby="'dropdownMenuButton' + (recording.recordingId || recording.id)"
+                        <button
+                          class="btn btn-outline-danger"
+                          type="button"
+                          @click="confirmDelete(recording)"
+                          title="Delete recording"
                         >
-                          <li>
-                            <a class="dropdown-item" href="#" @click.prevent="startEdit(recording)"
-                              >✏️ Edit</a
-                            >
-                          </li>
-                          <li>
-                            <a class="dropdown-item" href="#" @click.prevent="confirmDelete(recording)"
-                              >🗑️ Delete</a
-                            >
-                          </li>
-                          <li v-if="userStore.role === 'Superadmin'">
-                            <hr class="dropdown-divider">
-                          </li>
-                          <li v-if="userStore.role === 'Superadmin'">
-                            <a class="dropdown-item" href="#" @click.prevent="showRawData(recording)"
-                              >🔍 RAW Data</a
-                            >
-                          </li>
-                          <!-- Debug: Show role for all users temporarily -->
-                          <li class="dropdown-item disabled">
-                            <small class="text-muted">Role: {{ userStore.role }}</small>
-                          </li>
-                        </ul>
+                          🗑️
+                        </button>
+                        <button
+                          v-if="userStore.role === 'Superadmin'"
+                          class="btn btn-outline-info"
+                          type="button"
+                          @click="showRawData(recording)"
+                          title="View RAW KV data"
+                        >
+                          🔍
+                        </button>
                       </div>
                     </div>
 
@@ -524,7 +512,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 
@@ -679,14 +667,6 @@ const fetchRecordings = async () => {
     error.value = err.message
   } finally {
     loading.value = false
-    
-    // Reinitialize Bootstrap dropdowns after data loads and DOM updates
-    nextTick(() => {
-      setTimeout(() => {
-        console.log('🔄 Reinitializing dropdowns after data load...')
-        initializeBootstrapComponents()
-      }, 300)
-    })
   }
 }
 
@@ -874,32 +854,6 @@ const viewAnalysis = (recording) => {
     console.error('Navigation error:', err)
     alert('Failed to navigate to analysis page. Please check console for details.')
   })
-}
-
-// Manual dropdown toggle function
-const toggleDropdown = (event) => {
-  console.log('🖱️ Dropdown button clicked manually')
-  const button = event.currentTarget
-  
-  if (!window.bootstrap || !window.bootstrap.Dropdown) {
-    console.error('❌ Bootstrap.Dropdown not available!')
-    return
-  }
-  
-  try {
-    // Get or create dropdown instance
-    let dropdown = window.bootstrap.Dropdown.getInstance(button)
-    if (!dropdown) {
-      console.log('Creating new dropdown instance...')
-      dropdown = new window.bootstrap.Dropdown(button)
-    }
-    
-    // Toggle the dropdown
-    dropdown.toggle()
-    console.log('✅ Dropdown toggled')
-  } catch (error) {
-    console.error('❌ Error toggling dropdown:', error)
-  }
 }
 
 const showRawData = (recording) => {
@@ -1116,53 +1070,7 @@ const handleAudioError = (event, recording) => {
 // Lifecycle
 onMounted(async () => {
   await fetchRecordings()
-  
-  // Wait for DOM to be fully rendered, then initialize Bootstrap
-  nextTick(() => {
-    // Give a short delay to ensure Bootstrap is loaded
-    setTimeout(() => {
-      initializeBootstrapComponents()
-    }, 500)
-  })
 })
-
-// Initialize Bootstrap dropdowns
-const initializeBootstrapComponents = async () => {
-  console.log('🔧 Attempting to initialize Bootstrap dropdowns...')
-  console.log('Bootstrap available?', typeof window.bootstrap !== 'undefined')
-  console.log('window.bootstrap:', window.bootstrap)
-  
-  if (typeof window.bootstrap === 'undefined') {
-    console.error('❌ Bootstrap is not available on window!')
-    return
-  }
-  
-  const dropdownElements = document.querySelectorAll('[data-bs-toggle="dropdown"]')
-  console.log(`Found ${dropdownElements.length} dropdown elements`)
-  
-  if (dropdownElements.length === 0) {
-    console.warn('⚠️ No dropdown elements found! DOM may not be ready.')
-    return
-  }
-  
-  dropdownElements.forEach((element, index) => {
-    try {
-      // Dispose of any existing dropdown instance first
-      const existingInstance = window.bootstrap.Dropdown.getInstance(element)
-      if (existingInstance) {
-        existingInstance.dispose()
-      }
-      
-      // Create new dropdown instance
-      new window.bootstrap.Dropdown(element)
-      console.log(`✅ Dropdown ${index + 1} initialized:`, element.id)
-    } catch (error) {
-      console.error(`❌ Error initializing dropdown ${index + 1}:`, error)
-    }
-  })
-  
-  console.log('✨ Bootstrap dropdown initialization complete')
-}
 </script>
 
 <style scoped>
