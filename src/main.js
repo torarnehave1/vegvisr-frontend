@@ -1,7 +1,13 @@
 import './assets/main.css'
 import 'bootstrap/dist/css/bootstrap.min.css'
-import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+import * as bootstrap from 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import 'bootstrap-icons/font/bootstrap-icons.css'
+
+// Attach Bootstrap to window for global access
+if (typeof window !== 'undefined') {
+  window.bootstrap = bootstrap
+  console.log('✅ Bootstrap attached to window')
+}
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
