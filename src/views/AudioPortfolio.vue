@@ -781,9 +781,13 @@ const showFullTranscription = (recording) => {
 
 const viewAnalysis = (recording) => {
   // Navigate to the conversation analysis page with this recording
+  console.log('Navigating to conversation analysis with recordingId:', recording.recordingId || recording.id)
   router.push({
     name: 'conversation-analysis',
-    params: { recordingId: recording.recordingId || recording.id }
+    query: { recordingId: recording.recordingId || recording.id }
+  }).catch(err => {
+    console.error('Navigation error:', err)
+    alert('Failed to navigate to analysis page. Please check console for details.')
   })
 }
 
