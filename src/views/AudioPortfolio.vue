@@ -136,9 +136,9 @@
 
                   <!-- View Mode -->
                   <template v-else>
-                    <div class="d-flex justify-content-between align-items-start">
-                      <h5 class="card-title mb-0">{{ recording.displayName }}</h5>
-                      <div class="btn-group btn-group-sm" role="group">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                      <h5 class="card-title mb-0 flex-grow-1">{{ recording.displayName }}</h5>
+                      <div class="btn-group btn-group-sm flex-shrink-0" role="group" style="margin-left: 8px;">
                         <button
                           class="btn btn-outline-secondary"
                           type="button"
@@ -1092,6 +1092,16 @@ onMounted(async () => {
 .card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card .btn-group {
+  position: relative;
+  z-index: 10;
+}
+
+.card-body {
+  position: relative;
+  z-index: 1;
 }
 
 .audio-player audio {
