@@ -175,6 +175,7 @@
                           :src="recording.r2Url"
                           @error="handleAudioError($event, recording)"
                           @loadstart="console.log('Audio loading started for:', recording.r2Url)"
+                          @loadedmetadata="handleAudioMetadata($event, recording)"
                           @loadeddata="console.log('Audio loaded successfully for:', recording.recordingId || recording.id)"
                           preload="metadata"
                         >
@@ -870,6 +871,61 @@ const formatDate = (dateString) => {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+const handleAudioMetadata = async (event, recording) => {
+  const audioElement = event.target
+  const duration = Math.floor(audioElement.duration)
+  
+  console.log('=== AUDIO METADATA LOADED ===')
+  console.log('Recording:', recording.displayName || recording.fileName)
+  console.log('Current duration in data:', recording.duration)
+  console.log('Actual audio duration:', duration)
+  
+  // If duration is missing or 0, update it
+  if (!recording.duration || recording.duration === 0) {
+    console.log('⚠️ Duration missing or 0, updating...')
+    
+    try {
+      const response = await fetch(
+        'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userEmail: userStore.email,
+            recordingId: recording.recordingId || recording.id,
+            updates: {
+              duration: duration
+            },
+          }),
+        },
+      )
+
+      if (response.ok) {
+        console.log('✅ Duration updated successfully to', duration, 'seconds')
+        // Update local data
+        recording.duration = duration
+        
+        // Force re-render by updating the recordings array
+        const index = recordings.value.findIndex(r => 
+          (r.recordingId || r.id) === (recording.recordingId || recording.id)
+        )
+        if (index !== -1) {
+          recordings.value[index].duration = duration
+        }
+      } else {
+        console.error('❌ Failed to update duration:', response.statusText)
+      }
+    } catch (err) {
+      console.error('❌ Error updating duration:', err)
+    }
+  } else {
+    console.log('✓ Duration already set:', recording.duration, 'seconds')
+  }
+  console.log('============================')
 }
 
 const handleAudioError = (event, recording) => {
