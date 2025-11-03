@@ -527,19 +527,29 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 
+// Store reference to Bootstrap load promise
+let bootstrapLoadPromise = null
+
 // Ensure Bootstrap is available globally
 if (typeof window !== 'undefined') {
-  // Import Bootstrap if not already available
   if (typeof window.bootstrap === 'undefined') {
-    import('bootstrap/dist/js/bootstrap.bundle.min.js')
-      .then(() => {
-        console.log('Bootstrap imported dynamically')
+    console.log('📦 Loading Bootstrap dynamically...')
+    bootstrapLoadPromise = import('bootstrap/dist/js/bootstrap.bundle.min.js')
+      .then((module) => {
+        // Attach Bootstrap to window if not already there
+        if (!window.bootstrap && module.default) {
+          window.bootstrap = module.default
+        }
+        console.log('✅ Bootstrap loaded successfully')
+        return window.bootstrap
       })
       .catch((error) => {
-        console.error('Failed to import Bootstrap:', error)
+        console.error('❌ Failed to import Bootstrap:', error)
+        return null
       })
   } else {
-    console.log('Bootstrap already available')
+    console.log('✅ Bootstrap already available')
+    bootstrapLoadPromise = Promise.resolve(window.bootstrap)
   }
 }
 
@@ -1113,39 +1123,47 @@ onMounted(async () => {
 })
 
 // Initialize Bootstrap dropdowns
-const initializeBootstrapComponents = () => {
+const initializeBootstrapComponents = async () => {
   console.log('🔧 Attempting to initialize Bootstrap dropdowns...')
+  
+  // Wait for Bootstrap to load if it's still loading
+  if (bootstrapLoadPromise) {
+    console.log('⏳ Waiting for Bootstrap to load...')
+    await bootstrapLoadPromise
+  }
+  
   console.log('Bootstrap available?', typeof window.bootstrap !== 'undefined')
   
-  if (typeof window.bootstrap !== 'undefined') {
-    const dropdownElements = document.querySelectorAll('[data-bs-toggle="dropdown"]')
-    console.log(`Found ${dropdownElements.length} dropdown elements`)
-    
-    if (dropdownElements.length === 0) {
-      console.warn('⚠️ No dropdown elements found! DOM may not be ready.')
-      return
-    }
-    
-    dropdownElements.forEach((element, index) => {
-      try {
-        // Dispose of any existing dropdown instance first
-        const existingInstance = window.bootstrap.Dropdown.getInstance(element)
-        if (existingInstance) {
-          existingInstance.dispose()
-        }
-        
-        // Create new dropdown instance
-        new window.bootstrap.Dropdown(element)
-        console.log(`✅ Dropdown ${index + 1} initialized:`, element.id)
-      } catch (error) {
-        console.error(`❌ Error initializing dropdown ${index + 1}:`, error)
-      }
-    })
-    
-    console.log('✨ Bootstrap dropdown initialization complete')
-  } else {
-    console.error('❌ Bootstrap is not available! Cannot initialize dropdowns.')
+  if (typeof window.bootstrap === 'undefined') {
+    console.error('❌ Bootstrap is still not available after loading attempt!')
+    return
   }
+  
+  const dropdownElements = document.querySelectorAll('[data-bs-toggle="dropdown"]')
+  console.log(`Found ${dropdownElements.length} dropdown elements`)
+  
+  if (dropdownElements.length === 0) {
+    console.warn('⚠️ No dropdown elements found! DOM may not be ready.')
+    return
+  }
+  
+  dropdownElements.forEach((element, index) => {
+    try {
+      // Dispose of any existing dropdown instance first
+      const existingInstance = window.bootstrap.Dropdown.getInstance(element)
+      if (existingInstance) {
+        existingInstance.dispose()
+      }
+      
+      // Create new dropdown instance
+      new window.bootstrap.Dropdown(element)
+      console.log(`✅ Dropdown ${index + 1} initialized:`, element.id)
+    } catch (error) {
+      console.error(`❌ Error initializing dropdown ${index + 1}:`, error)
+    }
+  })
+  
+  console.log('✨ Bootstrap dropdown initialization complete')
 }
 </script>
 
