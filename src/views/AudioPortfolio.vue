@@ -145,6 +145,7 @@
                           :id="'dropdownMenuButton' + (recording.recordingId || recording.id)"
                           data-bs-toggle="dropdown"
                           aria-expanded="false"
+                          @click="toggleDropdown($event)"
                         >
                           ⚙️
                         </button>
@@ -153,12 +154,12 @@
                           :aria-labelledby="'dropdownMenuButton' + (recording.recordingId || recording.id)"
                         >
                           <li>
-                            <a class="dropdown-item" href="#" @click="startEdit(recording)"
+                            <a class="dropdown-item" href="#" @click.prevent="startEdit(recording)"
                               >✏️ Edit</a
                             >
                           </li>
                           <li>
-                            <a class="dropdown-item" href="#" @click="confirmDelete(recording)"
+                            <a class="dropdown-item" href="#" @click.prevent="confirmDelete(recording)"
                               >🗑️ Delete</a
                             >
                           </li>
@@ -166,7 +167,7 @@
                             <hr class="dropdown-divider">
                           </li>
                           <li v-if="userStore.role === 'Superadmin'">
-                            <a class="dropdown-item" href="#" @click="showRawData(recording)"
+                            <a class="dropdown-item" href="#" @click.prevent="showRawData(recording)"
                               >🔍 RAW Data</a
                             >
                           </li>
@@ -873,6 +874,32 @@ const viewAnalysis = (recording) => {
     console.error('Navigation error:', err)
     alert('Failed to navigate to analysis page. Please check console for details.')
   })
+}
+
+// Manual dropdown toggle function
+const toggleDropdown = (event) => {
+  console.log('🖱️ Dropdown button clicked manually')
+  const button = event.currentTarget
+  
+  if (!window.bootstrap || !window.bootstrap.Dropdown) {
+    console.error('❌ Bootstrap.Dropdown not available!')
+    return
+  }
+  
+  try {
+    // Get or create dropdown instance
+    let dropdown = window.bootstrap.Dropdown.getInstance(button)
+    if (!dropdown) {
+      console.log('Creating new dropdown instance...')
+      dropdown = new window.bootstrap.Dropdown(button)
+    }
+    
+    // Toggle the dropdown
+    dropdown.toggle()
+    console.log('✅ Dropdown toggled')
+  } catch (error) {
+    console.error('❌ Error toggling dropdown:', error)
+  }
 }
 
 const showRawData = (recording) => {
