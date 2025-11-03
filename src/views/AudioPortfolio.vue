@@ -162,6 +162,14 @@
                               >🗑️ Delete</a
                             >
                           </li>
+                          <li v-if="userStore.role === 'Superadmin'">
+                            <hr class="dropdown-divider">
+                          </li>
+                          <li v-if="userStore.role === 'Superadmin'">
+                            <a class="dropdown-item" href="#" @click="showRawData(recording)"
+                              >🔍 RAW Data</a
+                            >
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -435,6 +443,66 @@
                       'No transcription available'
                     }}
                   </p>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAW Data Modal (Superadmin only) -->
+        <div
+          class="modal fade"
+          id="rawDataModal"
+          tabindex="-1"
+          aria-labelledby="rawDataModalLabel"
+          aria-hidden="true"
+        >
+          <div class="modal-dialog modal-xl">
+            <div
+              class="modal-content"
+              :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+            >
+              <div class="modal-header">
+                <h5 class="modal-title" id="rawDataModalLabel">
+                  🔍 RAW KV Data: {{ selectedRecording?.displayName }}
+                </h5>
+                <button
+                  type="button"
+                  class="btn-close"
+                  data-bs-dismiss="modal"
+                  aria-label="Close"
+                ></button>
+              </div>
+              <div class="modal-body">
+                <div class="d-flex justify-content-between mb-3">
+                  <div>
+                    <span class="badge bg-warning text-dark">🔒 Superadmin Only</span>
+                    <span class="badge bg-info ms-1">Cloudflare KV Data</span>
+                  </div>
+                  <button class="btn btn-outline-primary btn-sm" @click="copyRawData">
+                    📋 Copy JSON
+                  </button>
+                </div>
+
+                <div class="raw-data-container">
+                  <pre class="raw-data-pre"><code>{{ formatRawData(selectedRecording) }}</code></pre>
+                </div>
+
+                <div class="mt-3">
+                  <h6 class="text-muted">Quick Info:</h6>
+                  <div class="info-grid">
+                    <div><strong>Recording ID:</strong> {{ selectedRecording?.recordingId }}</div>
+                    <div><strong>User Email:</strong> {{ selectedRecording?.userEmail }}</div>
+                    <div><strong>File Size:</strong> {{ formatFileSize(selectedRecording?.fileSize || 0) }}</div>
+                    <div><strong>Duration:</strong> {{ selectedRecording?.duration }} seconds</div>
+                    <div><strong>Created At:</strong> {{ selectedRecording?.createdAt }}</div>
+                    <div><strong>R2 Key:</strong> {{ selectedRecording?.r2Key }}</div>
+                  </div>
                 </div>
               </div>
               <div class="modal-footer">
@@ -806,6 +874,56 @@ const viewAnalysis = (recording) => {
   })
 }
 
+const showRawData = (recording) => {
+  console.log('=== SHOW RAW DATA (Superadmin) ===')
+  console.log('Full recording object:', recording)
+  
+  selectedRecording.value = recording
+
+  try {
+    const Bootstrap = window.bootstrap
+    if (typeof Bootstrap !== 'undefined' && Bootstrap.Modal) {
+      const modalElement = document.getElementById('rawDataModal')
+      if (modalElement) {
+        const modal = new Bootstrap.Modal(modalElement)
+        modal.show()
+        console.log('RAW data modal shown')
+      } else {
+        console.error('RAW data modal element not found')
+      }
+    } else {
+      // Fallback: copy to clipboard and alert
+      const rawJson = JSON.stringify(recording, null, 2)
+      navigator.clipboard.writeText(rawJson)
+        .then(() => alert('RAW data copied to clipboard!\n\n' + rawJson.substring(0, 500) + '...'))
+        .catch(() => alert('RAW data:\n\n' + rawJson.substring(0, 500) + '...'))
+    }
+  } catch (error) {
+    console.error('Error showing RAW data modal:', error)
+    alert('Error displaying RAW data. Check console for details.')
+  }
+}
+
+const formatRawData = (recording) => {
+  if (!recording) return '{}'
+  return JSON.stringify(recording, null, 2)
+}
+
+const copyRawData = () => {
+  if (!selectedRecording.value) return
+  
+  const rawJson = JSON.stringify(selectedRecording.value, null, 2)
+  navigator.clipboard.writeText(rawJson)
+    .then(() => {
+      console.log('RAW data copied to clipboard')
+      alert('✅ RAW JSON data copied to clipboard!')
+    })
+    .catch((err) => {
+      console.error('Failed to copy RAW data:', err)
+      alert('❌ Failed to copy to clipboard')
+    })
+}
+
 const copyTranscription = () => {
   if (!selectedRecording.value) return
 
@@ -1103,4 +1221,50 @@ onMounted(() => {
 .border-secondary {
   border-color: #6c757d !important;
 }
+
+/* RAW Data Modal Styles */
+.raw-data-container {
+  background-color: #1e1e1e;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.raw-data-pre {
+  margin: 0;
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.raw-data-pre code {
+  color: #ce9178;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 0.5rem;
+  border: 1px solid #dee2e6;
+}
+
+.bg-dark .info-grid {
+  background-color: #343a40;
+  border-color: #495057;
+  color: #ffffff;
+}
+
+.info-grid div {
+  padding: 0.5rem;
+  border-left: 3px solid #007bff;
+  padding-left: 0.75rem;
+}
 </style>
+
