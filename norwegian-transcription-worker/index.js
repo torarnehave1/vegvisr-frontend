@@ -481,16 +481,16 @@ export default {
 
         if (prompt.length > MAX_INPUT_LENGTH) {
           console.log(`⚠️ Prompt too long (${prompt.length} chars), truncating to ${MAX_INPUT_LENGTH}`)
-          
+
           // Try to intelligently truncate - keep the instructions and summary parts
           const parts = prompt.split('\n\n')
           const instructions = parts.slice(-5).join('\n\n') // Keep last 5 paragraphs (usually instructions)
           const conversationParts = parts.slice(0, -5).join('\n\n')
-          
+
           // Calculate how much conversation we can keep
           const instructionsLength = instructions.length
           const availableSpace = MAX_INPUT_LENGTH - instructionsLength - 200 // 200 char buffer
-          
+
           if (conversationParts.length > availableSpace) {
             // Truncate from the middle, keep beginning and end
             const keepLength = Math.floor(availableSpace / 2)
@@ -500,7 +500,7 @@ export default {
           } else {
             processedPrompt = `${conversationParts}\n\n${instructions}`
           }
-          
+
           console.log(`✂️ Truncated prompt from ${prompt.length} to ${processedPrompt.length} chars`)
         }
 
