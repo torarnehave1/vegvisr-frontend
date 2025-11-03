@@ -90,14 +90,14 @@
         <!-- Recordings Grid -->
         <div v-if="!loading && !error && filteredRecordings.length > 0">
           <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
-            <div v-for="recording in filteredRecordings" :key="recording.id" class="col">
+            <div v-for="recording in filteredRecordings" :key="recording.recordingId || recording.id" class="col">
               <div
                 class="card h-100"
                 :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
               >
                 <div class="card-body">
                   <!-- Edit Mode -->
-                  <div v-if="editingRecordingId === recording.id" class="edit-form">
+                  <div v-if="editingRecordingId === (recording.recordingId || recording.id)" class="edit-form">
                     <div class="mb-3">
                       <label class="form-label">Display Name</label>
                       <input
@@ -142,7 +142,7 @@
                         <button
                           class="btn btn-outline-secondary btn-sm dropdown-toggle"
                           type="button"
-                          :id="'dropdownMenuButton' + recording.id"
+                          :id="'dropdownMenuButton' + (recording.recordingId || recording.id)"
                           data-bs-toggle="dropdown"
                           aria-expanded="false"
                         >
@@ -150,7 +150,7 @@
                         </button>
                         <ul
                           class="dropdown-menu"
-                          :aria-labelledby="'dropdownMenuButton' + recording.id"
+                          :aria-labelledby="'dropdownMenuButton' + (recording.recordingId || recording.id)"
                         >
                           <li>
                             <a class="dropdown-item" href="#" @click="startEdit(recording)"
@@ -175,7 +175,7 @@
                           :src="recording.r2Url"
                           @error="handleAudioError($event, recording)"
                           @loadstart="console.log('Audio loading started for:', recording.r2Url)"
-                          @loadeddata="console.log('Audio loaded successfully for:', recording.id)"
+                          @loadeddata="console.log('Audio loaded successfully for:', recording.recordingId || recording.id)"
                           preload="metadata"
                         >
                           Your browser does not support the audio element.
@@ -598,7 +598,7 @@ const fetchRecordings = async () => {
 
     recordings.value.forEach((recording, index) => {
       console.log(`Recording ${index + 1}:`)
-      console.log('  - ID:', recording.id)
+      console.log('  - ID:', recording.recordingId || recording.id)
       console.log('  - Display Name:', recording.displayName || recording.fileName)
       console.log('  - R2 URL:', recording.r2Url)
       console.log('  - Has transcription object:', !!recording.transcription)
@@ -626,7 +626,7 @@ const sortRecordings = () => {
 }
 
 const startEdit = (recording) => {
-  editingRecordingId.value = recording.id
+  editingRecordingId.value = recording.recordingId || recording.id
   editingRecording.value = {
     displayName: recording.displayName || recording.fileName || '',
     metadata: {
@@ -660,7 +660,7 @@ const saveEdit = async (recording) => {
         },
         body: JSON.stringify({
           userEmail: userStore.email,
-          recordingId: recording.id,
+          recordingId: recording.recordingId || recording.id,
           updates: editingRecording.value,
         }),
       },
@@ -671,7 +671,7 @@ const saveEdit = async (recording) => {
     }
 
     // Update local data
-    const recordingIndex = recordings.value.findIndex((r) => r.id === recording.id)
+    const recordingIndex = recordings.value.findIndex((r) => (r.recordingId || r.id) === (recording.recordingId || recording.id))
     if (recordingIndex !== -1) {
       recordings.value[recordingIndex].displayName = editingRecording.value.displayName
       // Ensure metadata object exists
@@ -711,7 +711,7 @@ const deleteRecording = async (recording) => {
         },
         body: JSON.stringify({
           userEmail: userStore.email,
-          recordingId: recording.id,
+          recordingId: recording.recordingId || recording.id,
         }),
       },
     )
@@ -721,7 +721,7 @@ const deleteRecording = async (recording) => {
     }
 
     // Remove from local data
-    recordings.value = recordings.value.filter((r) => r.id !== recording.id)
+    recordings.value = recordings.value.filter((r) => (r.recordingId || r.id) !== (recording.recordingId || recording.id))
     console.log('Recording deleted successfully')
   } catch (err) {
     console.error('Error deleting recording:', err)
@@ -783,7 +783,7 @@ const viewAnalysis = (recording) => {
   // Navigate to the conversation analysis page with this recording
   router.push({
     name: 'conversation-analysis',
-    params: { recordingId: recording.id }
+    params: { recordingId: recording.recordingId || recording.id }
   })
 }
 
@@ -855,7 +855,7 @@ const handleAudioError = (event, recording) => {
   console.error('Error code:', event.target?.error?.code)
   console.error('Error message:', event.target?.error?.message)
   console.error('Recording r2Url:', recording.r2Url)
-  console.error('Recording ID:', recording.id)
+  console.error('Recording ID:', recording.recordingId || recording.id)
 
   // Provide specific error messages based on error code
   let errorMessage = 'Failed to load audio.'
