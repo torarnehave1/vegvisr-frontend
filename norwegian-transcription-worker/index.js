@@ -459,6 +459,73 @@ export default {
       })
     }
 
+    // Generate AI Analysis Endpoint - Simple conversation analysis using Workers AI
+    if (request.method === 'POST' && url.pathname === '/generate-analysis') {
+      try {
+        const { prompt, returnType = 'json' } = await request.json()
+
+        if (!prompt) {
+          return createErrorResponse('Missing required prompt parameter', 400)
+        }
+
+        console.log('🤖 Generating AI analysis:', {
+          promptLength: prompt.length,
+          returnType,
+          timestamp: new Date().toISOString()
+        })
+
+        // Call Cloudflare Workers AI with Llama model
+        const aiResponse = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+          messages: [
+            {
+              role: 'system',
+              content: 'Du er en ekspert på samtalanalyse. Svar KUN med valid JSON uten markdown formatering.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 4096,
+          stream: false
+        })
+
+        console.log('✅ AI response received:', {
+          hasResponse: !!aiResponse,
+          responseType: typeof aiResponse
+        })
+
+        // Extract response text
+        let responseText
+        if (aiResponse.response && typeof aiResponse.response === 'object') {
+          responseText = JSON.stringify(aiResponse.response)
+        } else {
+          responseText = aiResponse.response || aiResponse.result?.response || aiResponse.text || JSON.stringify(aiResponse)
+        }
+
+        // Clean markdown code blocks if present
+        let cleanedText = typeof responseText === 'string' ? responseText.trim() : JSON.stringify(responseText)
+        if (cleanedText.startsWith('```json')) {
+          cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/```\s*$/, '')
+        } else if (cleanedText.startsWith('```')) {
+          cleanedText = cleanedText.replace(/^```\s*/, '').replace(/```\s*$/, '')
+        }
+
+        // Return in the expected format (matching the frontend's expectation)
+        return createResponse(JSON.stringify({
+          success: true,
+          info: cleanedText,
+          bibl: [],
+          timestamp: new Date().toISOString()
+        }))
+
+      } catch (error) {
+        console.error('Error generating AI analysis:', error)
+        return createErrorResponse(`AI analysis failed: ${error.message}`, 500)
+      }
+    }
+
     // Health check endpoint
     if (request.method === 'GET' && url.pathname === '/health') {
       return createResponse(
@@ -472,7 +539,8 @@ export default {
             transcribe: '/ (POST)',
             upload: '/upload (POST)',
             health: '/health (GET)',
-            diarization: '/diarize-audio (POST) - NEW: Test speaker diarization',
+            generateAnalysis: '/generate-analysis (POST) - NEW: Simple AI analysis using Workers AI',
+            diarization: '/diarize-audio (POST) - Test speaker diarization',
             speakerIdentification: '/identify-speakers (POST) - AI-powered speaker identification',
             conversationAnalysis: '/analyze-conversation (POST) - AI conversation analysis with diarization',
           },
