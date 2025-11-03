@@ -601,6 +601,8 @@ const fetchRecordings = async () => {
       console.log('  - ID:', recording.recordingId || recording.id)
       console.log('  - Display Name:', recording.displayName || recording.fileName)
       console.log('  - R2 URL:', recording.r2Url)
+      console.log('  - Duration:', recording.duration)
+      console.log('  - Estimated Duration:', recording.estimatedDuration)
       console.log('  - Has transcription object:', !!recording.transcription)
       console.log('  - Has transcriptionText:', !!recording.transcriptionText)
       console.log(
@@ -847,8 +849,14 @@ const formatFileSize = (bytes) => {
 
 const formatDuration = (seconds) => {
   if (!seconds || seconds === 0) return '0:00'
-  const mins = Math.floor(seconds / 60)
+  
+  const hours = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
+  
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
