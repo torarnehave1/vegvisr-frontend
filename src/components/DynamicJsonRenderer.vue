@@ -1,7 +1,7 @@
 <template>
   <div class="dynamic-json-renderer">
     <!-- Render based on data type -->
-    
+
     <!-- String value -->
     <div v-if="isString" class="value-string">
       <p class="mb-0" v-html="formatText(data)"></p>
@@ -22,8 +22,8 @@
     <!-- Array of strings/numbers (badges) -->
     <div v-else-if="isSimpleArray" class="value-array-simple">
       <div class="d-flex flex-wrap gap-2">
-        <span 
-          v-for="(item, index) in data" 
+        <span
+          v-for="(item, index) in data"
           :key="index"
           class="badge bg-secondary"
         >
@@ -34,8 +34,8 @@
 
     <!-- Array of objects (list) -->
     <div v-else-if="isArray" class="value-array">
-      <div 
-        v-for="(item, index) in data" 
+      <div
+        v-for="(item, index) in data"
         :key="index"
         class="array-item mb-3 p-3 border-start border-3 border-secondary rounded"
       >
@@ -51,8 +51,8 @@
     <!-- Object (nested fields) -->
     <div v-else-if="isObject" class="value-object">
       <div class="row g-3">
-        <div 
-          v-for="(value, key) in data" 
+        <div
+          v-for="(value, key) in data"
           :key="key"
           :class="getColumnClass(value)"
         >
@@ -97,16 +97,16 @@ const isString = computed(() => typeof props.data === 'string')
 const isNumber = computed(() => typeof props.data === 'number')
 const isBoolean = computed(() => typeof props.data === 'boolean')
 const isArray = computed(() => Array.isArray(props.data))
-const isObject = computed(() => 
-  props.data !== null && 
-  typeof props.data === 'object' && 
+const isObject = computed(() =>
+  props.data !== null &&
+  typeof props.data === 'object' &&
   !Array.isArray(props.data)
 )
 
 const isSimpleArray = computed(() => {
   if (!isArray.value || props.data.length === 0) return false
   // Check if all items are strings or numbers
-  return props.data.every(item => 
+  return props.data.every(item =>
     typeof item === 'string' || typeof item === 'number'
   )
 })
@@ -135,7 +135,7 @@ function formatFieldName(fieldName) {
 function getColumnClass(value) {
   // Decide column width based on content
   if (!value) return 'col-md-6 col-lg-4' // Handle null/undefined
-  
+
   if (typeof value === 'string' && value.length > 200) {
     return 'col-12' // Full width for long text
   }
