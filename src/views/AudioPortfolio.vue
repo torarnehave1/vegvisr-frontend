@@ -170,6 +170,10 @@
                               >🔍 RAW Data</a
                             >
                           </li>
+                          <!-- Debug: Show role for all users temporarily -->
+                          <li class="dropdown-item disabled">
+                            <small class="text-muted">Role: {{ userStore.role }}</small>
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -655,6 +659,8 @@ const fetchRecordings = async () => {
 
     // === AUDIO PORTFOLIO DEBUG ANALYSIS ===
     console.log('=== AUDIO PORTFOLIO DATA ANALYSIS ===')
+    console.log('Current User Role:', userStore.role)
+    console.log('Is Superadmin?:', userStore.role === 'Superadmin')
     console.log('Raw API Response:', JSON.stringify(data, null, 2))
     console.log('Number of recordings:', recordings.value.length)
 
