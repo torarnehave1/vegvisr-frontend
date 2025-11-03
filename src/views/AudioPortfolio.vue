@@ -781,10 +781,22 @@ const showFullTranscription = (recording) => {
 
 const viewAnalysis = (recording) => {
   // Navigate to the conversation analysis page with this recording
-  console.log('Navigating to conversation analysis with recordingId:', recording.recordingId || recording.id)
+  const recordingId = recording.recordingId || recording.id
+  
+  console.log('=== VIEW ANALYSIS DEBUG ===')
+  console.log('Recording object:', recording)
+  console.log('Recording ID:', recordingId)
+  console.log('Recording has conversationAnalysis:', !!recording.conversationAnalysis)
+  console.log('==========================')
+  
+  if (!recordingId) {
+    alert('Error: Recording ID is missing. Cannot navigate to analysis page.')
+    return
+  }
+  
   router.push({
     name: 'conversation-analysis',
-    query: { recordingId: recording.recordingId || recording.id }
+    query: { recordingId: recordingId }
   }).catch(err => {
     console.error('Navigation error:', err)
     alert('Failed to navigate to analysis page. Please check console for details.')
