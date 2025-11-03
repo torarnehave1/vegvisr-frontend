@@ -194,7 +194,7 @@
                       <div v-else class="alert alert-warning">
                         <strong>⚠️ Audio Unavailable:</strong> No audio URL found for this
                         recording.
-                        <small class="d-block">Recording ID: {{ recording.id }}</small>
+                        <small class="d-block">Recording ID: {{ recording.recordingId || recording.id }}</small>
                       </div>
                     </div>
 
@@ -208,6 +208,11 @@
                           }}</span
                         >
                         <span>📁 {{ formatFileSize(recording.fileSize) }}</span>
+                      </div>
+                      <div class="mb-2">
+                        <small class="text-muted">
+                          <strong>Recording ID:</strong> <code>{{ recording.recordingId || recording.id }}</code>
+                        </small>
                       </div>
                       <span class="badge bg-primary">{{
                         recording.metadata?.category || recording.category || 'Uncategorized'
