@@ -692,10 +692,13 @@ const fetchRecordings = async () => {
   } finally {
     loading.value = false
     
-    // Reinitialize Bootstrap dropdowns after data loads
-    setTimeout(() => {
-      initializeBootstrapComponents()
-    }, 100)
+    // Reinitialize Bootstrap dropdowns after data loads and DOM updates
+    nextTick(() => {
+      setTimeout(() => {
+        console.log('🔄 Reinitializing dropdowns after data load...')
+        initializeBootstrapComponents()
+      }, 300)
+    })
   }
 }
 
@@ -1097,29 +1100,51 @@ const handleAudioError = (event, recording) => {
 }
 
 // Lifecycle
-onMounted(() => {
-  fetchRecordings()
+onMounted(async () => {
+  await fetchRecordings()
   
-  // Initialize Bootstrap components after a short delay
-  setTimeout(() => {
-    initializeBootstrapComponents()
-  }, 1000)
+  // Wait for DOM to be fully rendered, then initialize Bootstrap
+  nextTick(() => {
+    // Give a short delay to ensure Bootstrap is loaded
+    setTimeout(() => {
+      initializeBootstrapComponents()
+    }, 500)
+  })
 })
 
 // Initialize Bootstrap dropdowns
 const initializeBootstrapComponents = () => {
+  console.log('🔧 Attempting to initialize Bootstrap dropdowns...')
+  console.log('Bootstrap available?', typeof window.bootstrap !== 'undefined')
+  
   if (typeof window.bootstrap !== 'undefined') {
-    console.log('Initializing Bootstrap dropdowns...')
     const dropdownElements = document.querySelectorAll('[data-bs-toggle="dropdown"]')
-    dropdownElements.forEach(element => {
-      if (!element.classList.contains('dropdown-initialized')) {
+    console.log(`Found ${dropdownElements.length} dropdown elements`)
+    
+    if (dropdownElements.length === 0) {
+      console.warn('⚠️ No dropdown elements found! DOM may not be ready.')
+      return
+    }
+    
+    dropdownElements.forEach((element, index) => {
+      try {
+        // Dispose of any existing dropdown instance first
+        const existingInstance = window.bootstrap.Dropdown.getInstance(element)
+        if (existingInstance) {
+          existingInstance.dispose()
+        }
+        
+        // Create new dropdown instance
         new window.bootstrap.Dropdown(element)
-        element.classList.add('dropdown-initialized')
-        console.log('Dropdown initialized for:', element.id)
+        console.log(`✅ Dropdown ${index + 1} initialized:`, element.id)
+      } catch (error) {
+        console.error(`❌ Error initializing dropdown ${index + 1}:`, error)
       }
     })
+    
+    console.log('✨ Bootstrap dropdown initialization complete')
   } else {
-    console.warn('Bootstrap not available for dropdown initialization')
+    console.error('❌ Bootstrap is not available! Cannot initialize dropdowns.')
   }
 }
 </script>
