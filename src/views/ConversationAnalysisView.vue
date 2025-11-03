@@ -158,15 +158,11 @@
             <div class="card-body">
               <label for="modelSelection" class="form-label">Choose AI Model:</label>
               <select id="modelSelection" v-model="selectedModel" class="form-select" :disabled="analyzing">
-                <option value="cloudflare">🔥 Cloudflare Workers AI (Fast & Free)</option>
-                <option value="claude">🧠 Claude AI (Advanced Reasoning)</option>
                 <option value="grok">🤔 Grok AI (Philosophical Insights)</option>
-                <option value="gemini">⚡ Google Gemini (Fast Responses)</option>
-                <option value="gpt4">🧩 GPT-4 (Structured Reasoning)</option>
                 <option value="gpt5">🚀 GPT-5 (Next Generation AI)</option>
               </select>
               <small class="form-text text-muted mt-2 d-block">
-                <strong>Cloudflare</strong> is free. Other models require API keys configured in the backend.
+                AI models require API keys configured in the backend.
               </small>
             </div>
           </div>
@@ -660,7 +656,7 @@ watch(themeToExtract, async (newTheme) => {
   }
 })
 const context = ref('')
-const selectedModel = ref('cloudflare') // Default to cloudflare provider
+const selectedModel = ref('grok') // Default to Grok provider
 const analyzing = ref(false)
 const analysis = ref(null)
 const saving = ref(null)
@@ -749,7 +745,6 @@ async function analyzeConversation() {
   try {
     // Map provider names to actual API endpoints
     const endpointMap = {
-      cloudflare: 'https://norwegian-transcription-worker.torarnehave.workers.dev/generate-analysis',
       grok: 'https://api.vegvisr.org/groktest',
       claude: 'https://api.vegvisr.org/claude-test',
       gemini: 'https://api.vegvisr.org/gemini-test',
@@ -757,7 +752,11 @@ async function analyzeConversation() {
       gpt5: 'https://api.vegvisr.org/gpt-5-test'
     }
 
-    const endpoint = endpointMap[selectedModel.value] || endpointMap.cloudflare
+    const endpoint = endpointMap[selectedModel.value]
+    
+    if (!endpoint) {
+      throw new Error(`Unknown AI model: ${selectedModel.value}`)
+    }
 
     // Get speaker labels if available (for anonymity/regulations)
     const speakerLabels = recording.value.diarization?.speakerLabels ||

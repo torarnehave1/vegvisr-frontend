@@ -474,6 +474,36 @@ export default {
           timestamp: new Date().toISOString()
         })
 
+        // Llama 3.3 70B has a 24k token context limit (~18k tokens for input after system prompt + completion)
+        // Rough estimate: 1 token ≈ 4 characters, so limit input to ~40k characters to be safe
+        const MAX_INPUT_LENGTH = 40000
+        let processedPrompt = prompt
+
+        if (prompt.length > MAX_INPUT_LENGTH) {
+          console.log(`⚠️ Prompt too long (${prompt.length} chars), truncating to ${MAX_INPUT_LENGTH}`)
+          
+          // Try to intelligently truncate - keep the instructions and summary parts
+          const parts = prompt.split('\n\n')
+          const instructions = parts.slice(-5).join('\n\n') // Keep last 5 paragraphs (usually instructions)
+          const conversationParts = parts.slice(0, -5).join('\n\n')
+          
+          // Calculate how much conversation we can keep
+          const instructionsLength = instructions.length
+          const availableSpace = MAX_INPUT_LENGTH - instructionsLength - 200 // 200 char buffer
+          
+          if (conversationParts.length > availableSpace) {
+            // Truncate from the middle, keep beginning and end
+            const keepLength = Math.floor(availableSpace / 2)
+            const beginning = conversationParts.substring(0, keepLength)
+            const end = conversationParts.substring(conversationParts.length - keepLength)
+            processedPrompt = `${beginning}\n\n[... ${Math.floor((conversationParts.length - availableSpace) / 1000)}k characters omitted for context length ...]\n\n${end}\n\n${instructions}`
+          } else {
+            processedPrompt = `${conversationParts}\n\n${instructions}`
+          }
+          
+          console.log(`✂️ Truncated prompt from ${prompt.length} to ${processedPrompt.length} chars`)
+        }
+
         // Call Cloudflare Workers AI with Llama model
         const aiResponse = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
           messages: [
@@ -483,11 +513,11 @@ export default {
             },
             {
               role: 'user',
-              content: prompt
+              content: processedPrompt
             }
           ],
           temperature: 0.2,
-          max_tokens: 4096,
+          max_tokens: 2048,
           stream: false
         })
 
