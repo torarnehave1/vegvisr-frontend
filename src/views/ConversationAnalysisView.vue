@@ -753,7 +753,7 @@ async function analyzeConversation() {
     }
 
     const endpoint = endpointMap[selectedModel.value]
-    
+
     if (!endpoint) {
       throw new Error(`Unknown AI model: ${selectedModel.value}`)
     }
