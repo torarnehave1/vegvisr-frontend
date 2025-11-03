@@ -58,37 +58,61 @@ export async function chunkAudioWithWebAudio(audioFile, chunkDurationSeconds = 9
 }
 
 /**
- * Convert AudioBuffer to WAV Blob
- *
+ * Convert AudioBuffer to WAV Blob with optional compression
+ * 
  * @param {AudioBuffer} audioBuffer - Audio buffer to convert
+ * @param {Object} options - Conversion options
  * @returns {Blob} WAV file blob
  */
-export function audioBufferToWav(audioBuffer) {
-  const numberOfChannels = audioBuffer.numberOfChannels
-  const sampleRate = audioBuffer.sampleRate
+export function audioBufferToWav(audioBuffer, options = {}) {
+  const {
+    sampleRate = audioBuffer.sampleRate,
+    bitDepth = 16,
+    mono = false // Convert to mono to reduce size
+  } = options
+  
+  // Resample if needed
+  let resampledBuffer = audioBuffer
+  if (sampleRate !== audioBuffer.sampleRate) {
+    resampledBuffer = resampleAudioBuffer(audioBuffer, sampleRate)
+  }
+  
+  // Convert to mono if requested
+  const numberOfChannels = mono ? 1 : resampledBuffer.numberOfChannels
   const format = 1 // PCM
-  const bitDepth = 16
-
   const bytesPerSample = bitDepth / 8
   const blockAlign = numberOfChannels * bytesPerSample
-
+  
   // Get channel data
   const channelData = []
-  for (let channel = 0; channel < numberOfChannels; channel++) {
-    channelData.push(audioBuffer.getChannelData(channel))
+  if (mono && resampledBuffer.numberOfChannels > 1) {
+    // Mix down to mono
+    const left = resampledBuffer.getChannelData(0)
+    const right = resampledBuffer.numberOfChannels > 1 
+      ? resampledBuffer.getChannelData(1) 
+      : left
+    const monoData = new Float32Array(left.length)
+    for (let i = 0; i < left.length; i++) {
+      monoData[i] = (left[i] + right[i]) / 2
+    }
+    channelData.push(monoData)
+  } else {
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      channelData.push(resampledBuffer.getChannelData(channel))
+    }
   }
-
-  const dataLength = audioBuffer.length * blockAlign
+  
+  const dataLength = resampledBuffer.length * blockAlign
   const buffer = new ArrayBuffer(44 + dataLength)
   const view = new DataView(buffer)
-
+  
   // Helper to write string to buffer
   const writeString = (offset, string) => {
     for (let i = 0; i < string.length; i++) {
       view.setUint8(offset + i, string.charCodeAt(i))
     }
   }
-
+  
   // WAV header
   writeString(0, 'RIFF')
   view.setUint32(4, 36 + dataLength, true)
@@ -103,10 +127,10 @@ export function audioBufferToWav(audioBuffer) {
   view.setUint16(34, bitDepth, true)
   writeString(36, 'data')
   view.setUint32(40, dataLength, true)
-
+  
   // Interleave audio data
   let offset = 44
-  for (let i = 0; i < audioBuffer.length; i++) {
+  for (let i = 0; i < resampledBuffer.length; i++) {
     for (let channel = 0; channel < numberOfChannels; channel++) {
       const sample = Math.max(-1, Math.min(1, channelData[channel][i]))
       const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF
@@ -114,11 +138,43 @@ export function audioBufferToWav(audioBuffer) {
       offset += 2
     }
   }
-
+  
   return new Blob([buffer], { type: 'audio/wav' })
 }
 
 /**
+ * Simple resampling (linear interpolation)
+ */
+function resampleAudioBuffer(audioBuffer, targetSampleRate) {
+  const sourceSampleRate = audioBuffer.sampleRate
+  const ratio = sourceSampleRate / targetSampleRate
+  const newLength = Math.floor(audioBuffer.length / ratio)
+  
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+  const resampled = audioContext.createBuffer(
+    audioBuffer.numberOfChannels,
+    newLength,
+    targetSampleRate
+  )
+  
+  for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+    const sourceData = audioBuffer.getChannelData(channel)
+    const targetData = resampled.getChannelData(channel)
+    
+    for (let i = 0; i < newLength; i++) {
+      const sourceIndex = i * ratio
+      const index = Math.floor(sourceIndex)
+      const fraction = sourceIndex - index
+      
+      const sample1 = sourceData[index] || 0
+      const sample2 = sourceData[Math.min(index + 1, sourceData.length - 1)] || 0
+      
+      targetData[i] = sample1 + (sample2 - sample1) * fraction
+    }
+  }
+  
+  return resampled
+}/**
  * Process large audio file with automatic chunking and diarization
  *
  * @param {File|Blob} audioFile - Audio file to process
@@ -149,11 +205,15 @@ export async function diarizeWithChunking(audioFile, options = {}) {
     }
 
     console.log(`🎤 Processing chunk ${i + 1}/${chunks.length}...`)
-
-    // Convert chunk to WAV blob
-    const chunkBlob = audioBufferToWav(chunks[i])
+    
+    // Convert chunk to compressed WAV blob (mono, 16kHz for speech)
+    const chunkBlob = audioBufferToWav(chunks[i], {
+      sampleRate: 16000, // Downsample to 16kHz (good for speech)
+      bitDepth: 16,
+      mono: true // Convert to mono
+    })
     console.log(`📦 Chunk ${i + 1} size: ${(chunkBlob.size / 1024 / 1024).toFixed(2)} MB`)
-
+    
     try {
       // Upload chunk to R2
       const uploadResponse = await fetch(`${workerUrl}/upload`, {
