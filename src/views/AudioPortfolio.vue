@@ -523,7 +523,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 
@@ -691,6 +691,11 @@ const fetchRecordings = async () => {
     error.value = err.message
   } finally {
     loading.value = false
+    
+    // Reinitialize Bootstrap dropdowns after data loads
+    setTimeout(() => {
+      initializeBootstrapComponents()
+    }, 100)
   }
 }
 
@@ -1094,7 +1099,29 @@ const handleAudioError = (event, recording) => {
 // Lifecycle
 onMounted(() => {
   fetchRecordings()
+  
+  // Initialize Bootstrap components after a short delay
+  setTimeout(() => {
+    initializeBootstrapComponents()
+  }, 1000)
 })
+
+// Initialize Bootstrap dropdowns
+const initializeBootstrapComponents = () => {
+  if (typeof window.bootstrap !== 'undefined') {
+    console.log('Initializing Bootstrap dropdowns...')
+    const dropdownElements = document.querySelectorAll('[data-bs-toggle="dropdown"]')
+    dropdownElements.forEach(element => {
+      if (!element.classList.contains('dropdown-initialized')) {
+        new window.bootstrap.Dropdown(element)
+        element.classList.add('dropdown-initialized')
+        console.log('Dropdown initialized for:', element.id)
+      }
+    })
+  } else {
+    console.warn('Bootstrap not available for dropdown initialization')
+  }
+}
 </script>
 
 <style scoped>
