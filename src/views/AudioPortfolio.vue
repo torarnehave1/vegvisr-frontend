@@ -835,18 +835,18 @@ const showFullTranscription = (recording) => {
 const viewAnalysis = (recording) => {
   // Navigate to the conversation analysis page with this recording
   const recordingId = recording.recordingId || recording.id
-  
+
   console.log('=== VIEW ANALYSIS DEBUG ===')
   console.log('Recording object:', recording)
   console.log('Recording ID:', recordingId)
   console.log('Recording has conversationAnalysis:', !!recording.conversationAnalysis)
   console.log('==========================')
-  
+
   if (!recordingId) {
     alert('Error: Recording ID is missing. Cannot navigate to analysis page.')
     return
   }
-  
+
   router.push({
     name: 'conversation-analysis',
     query: { recordingId: recordingId }
@@ -859,7 +859,7 @@ const viewAnalysis = (recording) => {
 const showRawData = (recording) => {
   console.log('=== SHOW RAW DATA (Superadmin) ===')
   console.log('Full recording object:', recording)
-  
+
   selectedRecording.value = recording
 
   try {
@@ -893,7 +893,7 @@ const formatRawData = (recording) => {
 
 const copyRawData = () => {
   if (!selectedRecording.value) return
-  
+
   const rawJson = JSON.stringify(selectedRecording.value, null, 2)
   navigator.clipboard.writeText(rawJson)
     .then(() => {
@@ -950,11 +950,11 @@ const formatFileSize = (bytes) => {
 
 const formatDuration = (seconds) => {
   if (!seconds || seconds === 0) return '0:00'
-  
+
   const hours = Math.floor(seconds / 3600)
   const mins = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-  
+
   if (hours > 0) {
     return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
@@ -976,16 +976,16 @@ const formatDate = (dateString) => {
 const handleAudioMetadata = async (event, recording) => {
   const audioElement = event.target
   const duration = Math.floor(audioElement.duration)
-  
+
   console.log('=== AUDIO METADATA LOADED ===')
   console.log('Recording:', recording.displayName || recording.fileName)
   console.log('Current duration in data:', recording.duration)
   console.log('Actual audio duration:', duration)
-  
+
   // If duration is missing or 0, update it
   if (!recording.duration || recording.duration === 0) {
     console.log('⚠️ Duration missing or 0, updating...')
-    
+
     try {
       const response = await fetch(
         'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
@@ -1008,9 +1008,9 @@ const handleAudioMetadata = async (event, recording) => {
         console.log('✅ Duration updated successfully to', duration, 'seconds')
         // Update local data
         recording.duration = duration
-        
+
         // Force re-render by updating the recordings array
-        const index = recordings.value.findIndex(r => 
+        const index = recordings.value.findIndex(r =>
           (r.recordingId || r.id) === (recording.recordingId || recording.id)
         )
         if (index !== -1) {
