@@ -90,6 +90,25 @@
                 </div>
               </div>
 
+              <!-- Source Transcript Display -->
+              <div class="card mb-3 border-info">
+                <div class="card-header bg-info bg-opacity-10">
+                  <h6 class="mb-0">📄 Source Transcript</h6>
+                </div>
+                <div class="card-body">
+                  <label class="form-label small text-muted">
+                    Full conversation text used for analysis (this is what the AI analyzes and what theme extraction searches within):
+                  </label>
+                  <textarea 
+                    readonly 
+                    class="form-control font-monospace bg-light" 
+                    rows="8"
+                    style="font-size: 0.85rem; cursor: text;"
+                    :value="recording?.norwegianTranscription?.improved_text || recording?.transcriptionText || 'No transcript available'"
+                  ></textarea>
+                </div>
+              </div>
+
               <!-- Context Textarea -->
               <label for="contextInput" class="form-label">
                 Provide additional context to help the AI understand the conversation better:
