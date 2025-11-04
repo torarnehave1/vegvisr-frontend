@@ -11,7 +11,6 @@ export const usePortfolioStore = defineStore('portfolio', () => {
 
   // Computed property to get unique meta areas from all graphs
   const updateMetaAreas = (graphs) => {
-    console.log('Updating meta areas with graphs:', graphs)
     const areas = new Set()
     const frequencies = {}
 
@@ -30,8 +29,6 @@ export const usePortfolioStore = defineStore('portfolio', () => {
 
     allMetaAreas.value = Array.from(areas)
     metaAreaFrequencies.value = frequencies
-    console.log('Updated meta areas:', allMetaAreas.value)
-    console.log('Updated frequencies:', metaAreaFrequencies.value)
   }
 
   // Computed property to get meta areas sorted by frequency
@@ -39,13 +36,11 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     const sorted = allMetaAreas.value.sort(
       (a, b) => (metaAreaFrequencies.value[b] || 0) - (metaAreaFrequencies.value[a] || 0),
     )
-    console.log('Sorted meta areas:', sorted)
     return sorted
   })
 
   // Method to directly set all meta areas (used for system-wide meta areas in branding)
   const setAllMetaAreas = (metaAreas) => {
-    console.log('Setting all meta areas directly:', metaAreas)
     allMetaAreas.value = metaAreas
     // Reset frequencies since we're setting system-wide meta areas
     metaAreaFrequencies.value = {}
