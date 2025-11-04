@@ -221,9 +221,9 @@
                 :style="{
                   left: `${(segment.start / diarizationResult.duration) * 100}%`,
                   width: `${((segment.end - segment.start) / diarizationResult.duration) * 100}%`,
-                  backgroundColor: getSpeakerColor(segment.speaker)
+                  backgroundColor: getEffectiveSpeakerColor(segment)
                 }"
-                :title="`${speakerLabels[segment.speaker] || segment.speaker}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
+                :title="`${getDisplaySpeakerName(segment)}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
                 @click="seekToSegment(segment.start)"
               ></div>
             </div>
@@ -1904,6 +1904,16 @@ const getSpeakerColor = (speaker) => {
   return colors[speakerIndex % colors.length]
 }
 
+// Get effective speaker color considering BLANK_SPEAKER mappings
+const getEffectiveSpeakerColor = (segment) => {
+  // If segment has BLANK_SPEAKER mapping, use that for color
+  if (segment.blankSpeaker) {
+    return getBlankTagColor(segment.blankSpeaker)
+  }
+  // Otherwise use original speaker color
+  return getSpeakerColor(segment.speaker)
+}
+
 const updateSpeakerLabel = (speaker) => {
   console.log('🏷️ Updated label for', speaker, ':', speakerLabels.value[speaker])
 }
@@ -2083,7 +2093,7 @@ const assignBlankSpeaker = (segmentIndex) => {
     segment.blankSpeaker = selectedBlankTag.value
     console.log('✅ Assigned segment', segmentIndex, 'to', selectedBlankTag.value, {
       originalSpeaker: segment.speaker,
-      chunk: segment.chunk,
+      chunk: segment.chunk ?? segment.chunkIndex,
       time: `${formatTime(segment.start)} - ${formatTime(segment.end)}`
     })
   }
