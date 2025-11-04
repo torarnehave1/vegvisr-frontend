@@ -1708,15 +1708,15 @@ const selectDiarizationRecording = (recording) => {
     diarizationSaved.value = true // Already saved
     console.log('✅ Loaded existing diarization:', recording.diarization.segments.length, 'segments')
 
-    // Debug: Check segment structure
-    if (recording.diarization.segments.length > 0) {
-      const firstSegment = recording.diarization.segments[0]
-      const lastSegment = recording.diarization.segments[recording.diarization.segments.length - 1]
-      console.log('🔍 First segment structure:', firstSegment)
-      console.log('🔍 Last segment structure:', lastSegment)
-      const chunks = new Set(recording.diarization.segments.map(s => s.chunk ?? s.chunkIndex).filter(c => c !== undefined))
-      console.log('🔍 Chunks found:', Array.from(chunks))
-    }
+    // Debug: Check segment structure - ALWAYS RUN
+    const segLen = recording.diarization.segments.length
+    console.log('🔍 Segment array length:', segLen)
+    const firstSegment = recording.diarization.segments[0]
+    const lastSegment = recording.diarization.segments[segLen - 1]
+    console.log('🔍 First segment:', JSON.stringify(firstSegment))
+    console.log('🔍 Last segment:', JSON.stringify(lastSegment))
+    const chunks = new Set(recording.diarization.segments.map(s => s.chunk ?? s.chunkIndex).filter(c => c !== undefined))
+    console.log('🔍 Chunks found:', Array.from(chunks))
 
     if (Object.keys(blankSpeakerNames.value).length > 0) {
       console.log('🏷️ Loaded BLANK_SPEAKER mappings:', blankSpeakerNames.value)
