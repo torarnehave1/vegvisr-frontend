@@ -300,8 +300,8 @@
                   <span class="segment-duration">
                     ({{ formatDuration(segment.end - segment.start) }})
                   </span>
-                  <span v-if="segment.chunk !== undefined" class="chunk-badge">
-                    Chunk {{ segment.chunk + 1 }}
+                  <span v-if="segment.chunk !== undefined || segment.chunkIndex !== undefined" class="chunk-badge">
+                    Chunk {{ (segment.chunk ?? segment.chunkIndex) + 1 }}
                   </span>
 
                   <!-- Speaker mapping button -->
@@ -1986,7 +1986,8 @@ const saveDiarizationResult = async () => {
 // Computed: Check if we have segments from multiple chunks
 const hasMultipleChunks = computed(() => {
   if (!diarizationResult.value?.segments) return false
-  const chunks = new Set(diarizationResult.value.segments.map(s => s.chunk).filter(c => c !== undefined))
+  // Check both 'chunk' and 'chunkIndex' for backward compatibility
+  const chunks = new Set(diarizationResult.value.segments.map(s => s.chunk ?? s.chunkIndex).filter(c => c !== undefined))
   return chunks.size > 1
 })
 
