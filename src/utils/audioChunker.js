@@ -252,7 +252,7 @@ export async function diarizeWithChunking(audioFile, options = {}) {
         ...seg,
         start: seg.start + chunkStartTime,
         end: seg.end + chunkStartTime,
-        chunkIndex: i
+        chunk: i // Use 'chunk' instead of 'chunkIndex' for UI consistency
       }))
 
       allSegments.push(...adjustedSegments)
