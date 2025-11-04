@@ -229,6 +229,52 @@
             </div>
           </div>
 
+          <!-- Speaker Mapping Management (for Chunked Transcriptions) -->
+          <div v-if="hasMultipleChunks" class="speaker-mapping-section">
+            <h6>🎯 Speaker Mapping (Cross-Chunk)</h6>
+            <p class="mapping-help">
+              Since this audio was processed in chunks, speakers may have different IDs across chunks.
+              Use BLANK_SPEAKER tags to group the same person across different chunks.
+            </p>
+            
+            <!-- Available BLANK_SPEAKER tags -->
+            <div class="blank-speaker-tags">
+              <button
+                v-for="blankTag in availableBlankTags"
+                :key="blankTag"
+                @click="selectBlankTag(blankTag)"
+                :class="['blank-tag-btn', { active: selectedBlankTag === blankTag }]"
+                :style="{ borderColor: getBlankTagColor(blankTag) }"
+              >
+                {{ blankSpeakerNames[blankTag] || blankTag }}
+              </button>
+              <button @click="addNewBlankTag" class="blank-tag-btn new-tag">
+                ➕ Add New Tag
+              </button>
+            </div>
+
+            <!-- Rename BLANK_SPEAKER tags -->
+            <div v-if="Object.keys(blankSpeakerNames).length > 0" class="blank-speaker-names">
+              <h6>🏷️ Name Your Speakers:</h6>
+              <div class="speaker-name-grid">
+                <div
+                  v-for="(name, tag) in blankSpeakerNames"
+                  :key="tag"
+                  class="speaker-name-item"
+                >
+                  <span class="tag-label" :style="{ color: getBlankTagColor(tag) }">{{ tag }}</span>
+                  <input
+                    v-model="blankSpeakerNames[tag]"
+                    @change="updateBlankSpeakerName(tag)"
+                    class="speaker-name-input"
+                    :placeholder="`e.g., Tor Arne, Therapist`"
+                  />
+                  <button @click="removeBlankTag(tag)" class="btn-remove-tag" title="Remove this tag">✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Segment List -->
           <div class="segments-list">
             <h6>📝 Detailed Segments:</h6>
@@ -239,14 +285,14 @@
                 :ref="el => { if (el) segmentRefs[index] = el }"
                 class="segment-item"
                 :class="{ active: isSegmentActive(segment) }"
-                @click="seekToSegment(segment.start)"
               >
                 <div class="segment-header">
                   <span
                     class="speaker-badge"
                     :style="{ backgroundColor: getSpeakerColor(segment.speaker) }"
+                    @click="seekToSegment(segment.start)"
                   >
-                    {{ speakerLabels[segment.speaker] || segment.speaker }}
+                    {{ getDisplaySpeakerName(segment) }}
                   </span>
                   <span class="segment-time">
                     {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
@@ -254,6 +300,20 @@
                   <span class="segment-duration">
                     ({{ formatDuration(segment.end - segment.start) }})
                   </span>
+                  <span v-if="segment.chunk !== undefined" class="chunk-badge">
+                    Chunk {{ segment.chunk + 1 }}
+                  </span>
+                  
+                  <!-- Speaker mapping button -->
+                  <button
+                    v-if="hasMultipleChunks && selectedBlankTag"
+                    @click.stop="assignBlankSpeaker(index)"
+                    :class="['btn-map-speaker', { mapped: segment.blankSpeaker }]"
+                    :style="{ borderColor: getBlankTagColor(selectedBlankTag) }"
+                    :title="`Assign to ${selectedBlankTag}`"
+                  >
+                    {{ segment.blankSpeaker ? '✓' : '→' }} {{ selectedBlankTag }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -875,6 +935,11 @@ const diarizationSaveError = ref(null)
 const diarizationAudioPlayer = ref(null)
 const segmentsContainer = ref(null)
 const segmentRefs = ref([])
+
+// Speaker mapping state (for cross-chunk speaker identification)
+const selectedBlankTag = ref(null)
+const blankSpeakerNames = ref({}) // { BLANK_SPEAKER_A: "Tor Arne", BLANK_SPEAKER_B: "Therapist" }
+const nextBlankTagLetter = ref('A')
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -1639,11 +1704,16 @@ const selectDiarizationRecording = (recording) => {
       metadata: recording.diarization.metadata || {}
     }
     speakerLabels.value = recording.diarization.speakerLabels || {}
+    blankSpeakerNames.value = recording.diarization.blankSpeakerNames || {}
     diarizationSaved.value = true // Already saved
     console.log('✅ Loaded existing diarization:', recording.diarization.segments.length, 'segments')
+    if (Object.keys(blankSpeakerNames.value).length > 0) {
+      console.log('🏷️ Loaded BLANK_SPEAKER mappings:', blankSpeakerNames.value)
+    }
   } else {
     diarizationResult.value = null
     speakerLabels.value = {}
+    blankSpeakerNames.value = {}
     console.log('🎧 Selected recording for diarization:', recording.recordingId, recording.displayName || recording.fileName)
   }
 }
@@ -1858,6 +1928,7 @@ const saveDiarizationResult = async () => {
         diarization: {
           segments: diarizationResult.value.segments,
           speakerLabels: speakerLabels.value,
+          blankSpeakerNames: blankSpeakerNames.value, // Save BLANK_SPEAKER mappings
           numSpeakers: diarizationResult.value.numSpeakers,
           metadata: diarizationResult.value.metadata,
           analyzedAt: new Date().toISOString()
@@ -1908,6 +1979,116 @@ const saveDiarizationResult = async () => {
   } finally {
     savingDiarization.value = false
   }
+}
+
+// ========== SPEAKER MAPPING FUNCTIONS (Cross-Chunk) ==========
+
+// Computed: Check if we have segments from multiple chunks
+const hasMultipleChunks = computed(() => {
+  if (!diarizationResult.value?.segments) return false
+  const chunks = new Set(diarizationResult.value.segments.map(s => s.chunk).filter(c => c !== undefined))
+  return chunks.size > 1
+})
+
+// Computed: Available BLANK_SPEAKER tags
+const availableBlankTags = computed(() => {
+  const tags = Object.keys(blankSpeakerNames.value)
+  if (tags.length === 0) {
+    return ['BLANK_SPEAKER_A'] // Show first tag by default
+  }
+  return tags
+})
+
+// Get color for BLANK_SPEAKER tag
+const getBlankTagColor = (tag) => {
+  const colors = {
+    'BLANK_SPEAKER_A': '#3B82F6',
+    'BLANK_SPEAKER_B': '#10B981',
+    'BLANK_SPEAKER_C': '#F59E0B',
+    'BLANK_SPEAKER_D': '#EF4444',
+    'BLANK_SPEAKER_E': '#8B5CF6',
+    'BLANK_SPEAKER_F': '#EC4899',
+  }
+  return colors[tag] || '#64748b'
+}
+
+// Select a BLANK_SPEAKER tag to use for mapping
+const selectBlankTag = (tag) => {
+  selectedBlankTag.value = tag
+  // Initialize the tag if it doesn't exist
+  if (!blankSpeakerNames.value[tag]) {
+    blankSpeakerNames.value[tag] = tag
+  }
+}
+
+// Add a new BLANK_SPEAKER tag
+const addNewBlankTag = () => {
+  const letter = nextBlankTagLetter.value
+  const newTag = `BLANK_SPEAKER_${letter}`
+  blankSpeakerNames.value[newTag] = newTag
+  selectedBlankTag.value = newTag
+  
+  // Increment letter (A -> B -> C, etc.)
+  nextBlankTagLetter.value = String.fromCharCode(letter.charCodeAt(0) + 1)
+  console.log('✅ Added new BLANK_SPEAKER tag:', newTag)
+}
+
+// Remove a BLANK_SPEAKER tag
+const removeBlankTag = (tag) => {
+  // Remove tag from names
+  delete blankSpeakerNames.value[tag]
+  
+  // Remove assignments from segments
+  if (diarizationResult.value?.segments) {
+    diarizationResult.value.segments.forEach(segment => {
+      if (segment.blankSpeaker === tag) {
+        delete segment.blankSpeaker
+      }
+    })
+  }
+  
+  // Deselect if it was selected
+  if (selectedBlankTag.value === tag) {
+    selectedBlankTag.value = null
+  }
+  
+  console.log('🗑️ Removed BLANK_SPEAKER tag:', tag)
+}
+
+// Assign a segment to the currently selected BLANK_SPEAKER
+const assignBlankSpeaker = (segmentIndex) => {
+  if (!selectedBlankTag.value || !diarizationResult.value?.segments[segmentIndex]) {
+    return
+  }
+  
+  const segment = diarizationResult.value.segments[segmentIndex]
+  
+  // Toggle: if already assigned to this tag, remove it
+  if (segment.blankSpeaker === selectedBlankTag.value) {
+    delete segment.blankSpeaker
+    console.log('🔄 Removed BLANK_SPEAKER from segment:', segmentIndex)
+  } else {
+    segment.blankSpeaker = selectedBlankTag.value
+    console.log('✅ Assigned segment', segmentIndex, 'to', selectedBlankTag.value, {
+      originalSpeaker: segment.speaker,
+      chunk: segment.chunk,
+      time: `${formatTime(segment.start)} - ${formatTime(segment.end)}`
+    })
+  }
+}
+
+// Update the name for a BLANK_SPEAKER tag
+const updateBlankSpeakerName = (tag) => {
+  console.log('🏷️ Updated name for', tag, ':', blankSpeakerNames.value[tag])
+}
+
+// Get the display name for a segment (considering BLANK_SPEAKER mapping)
+const getDisplaySpeakerName = (segment) => {
+  // Priority: blankSpeaker name > speakerLabel > original speaker
+  if (segment.blankSpeaker) {
+    return blankSpeakerNames.value[segment.blankSpeaker] || segment.blankSpeaker
+  }
+  return speakerLabels.value[segment.speaker] || segment.speaker
 }
 
 // ========== END DIARIZATION FUNCTIONS ==========
@@ -4391,6 +4572,161 @@ const createChunkedGraph = async () => {
 .segment-duration {
   color: #94a3b8;
   font-size: 0.85rem;
+}
+
+.chunk-badge {
+  padding: 2px 8px;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.btn-map-speaker {
+  padding: 4px 10px;
+  background: white;
+  border: 2px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.btn-map-speaker:hover {
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+
+.btn-map-speaker.mapped {
+  background: #dbeafe;
+  border-color: currentColor;
+}
+
+/* Speaker Mapping Section */
+.speaker-mapping-section {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 2px solid #cbd5e1;
+}
+
+.speaker-mapping-section h6 {
+  color: #1e293b;
+  margin: 0 0 10px 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mapping-help {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0 0 15px 0;
+  line-height: 1.5;
+}
+
+.blank-speaker-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.blank-tag-btn {
+  padding: 8px 16px;
+  background: white;
+  border: 2px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.blank-tag-btn:hover {
+  background: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.blank-tag-btn.active {
+  background: #dbeafe;
+  border-color: currentColor;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.blank-tag-btn.new-tag {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+.blank-tag-btn.new-tag:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+.blank-speaker-names {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.blank-speaker-names h6 {
+  color: #1e293b;
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.speaker-name-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.speaker-name-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tag-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 150px;
+}
+
+.speaker-name-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.speaker-name-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btn-remove-tag {
+  padding: 4px 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-remove-tag:hover {
+  background: #fecaca;
 }
 
 /* ========== END DIARIZATION STYLES ========== */
