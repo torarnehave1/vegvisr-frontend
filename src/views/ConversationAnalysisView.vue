@@ -99,9 +99,9 @@
                   <label class="form-label small text-muted">
                     Full conversation text used for analysis (this is what the AI analyzes and what theme extraction searches within):
                   </label>
-                  <textarea 
-                    readonly 
-                    class="form-control font-monospace bg-light" 
+                  <textarea
+                    readonly
+                    class="form-control font-monospace bg-light"
                     rows="8"
                     style="font-size: 0.85rem; cursor: text;"
                     :value="recording?.norwegianTranscription?.improved_text || recording?.transcriptionText || 'No transcript available'"
