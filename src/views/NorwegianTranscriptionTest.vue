@@ -236,7 +236,7 @@
               Since this audio was processed in chunks, speakers may have different IDs across chunks.
               Use BLANK_SPEAKER tags to group the same person across different chunks.
             </p>
-            
+
             <!-- Available BLANK_SPEAKER tags -->
             <div class="blank-speaker-tags">
               <button
@@ -303,7 +303,7 @@
                   <span v-if="segment.chunk !== undefined" class="chunk-badge">
                     Chunk {{ segment.chunk + 1 }}
                   </span>
-                  
+
                   <!-- Speaker mapping button -->
                   <button
                     v-if="hasMultipleChunks && selectedBlankTag"
@@ -2027,7 +2027,7 @@ const addNewBlankTag = () => {
   const newTag = `BLANK_SPEAKER_${letter}`
   blankSpeakerNames.value[newTag] = newTag
   selectedBlankTag.value = newTag
-  
+
   // Increment letter (A -> B -> C, etc.)
   nextBlankTagLetter.value = String.fromCharCode(letter.charCodeAt(0) + 1)
   console.log('✅ Added new BLANK_SPEAKER tag:', newTag)
@@ -2037,7 +2037,7 @@ const addNewBlankTag = () => {
 const removeBlankTag = (tag) => {
   // Remove tag from names
   delete blankSpeakerNames.value[tag]
-  
+
   // Remove assignments from segments
   if (diarizationResult.value?.segments) {
     diarizationResult.value.segments.forEach(segment => {
@@ -2046,12 +2046,12 @@ const removeBlankTag = (tag) => {
       }
     })
   }
-  
+
   // Deselect if it was selected
   if (selectedBlankTag.value === tag) {
     selectedBlankTag.value = null
   }
-  
+
   console.log('🗑️ Removed BLANK_SPEAKER tag:', tag)
 }
 
@@ -2060,9 +2060,9 @@ const assignBlankSpeaker = (segmentIndex) => {
   if (!selectedBlankTag.value || !diarizationResult.value?.segments[segmentIndex]) {
     return
   }
-  
+
   const segment = diarizationResult.value.segments[segmentIndex]
-  
+
   // Toggle: if already assigned to this tag, remove it
   if (segment.blankSpeaker === selectedBlankTag.value) {
     delete segment.blankSpeaker
