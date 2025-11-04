@@ -1698,15 +1698,21 @@ const selectDiarizationRecording = (recording) => {
 
   // Load existing diarization if available
   if (recording.diarization && recording.diarization.segments) {
+    // Calculate duration from segments if not stored
+    const calculatedDuration = recording.diarization.duration ||
+      Math.max(...recording.diarization.segments.map(s => s.end))
+
     diarizationResult.value = {
       segments: recording.diarization.segments,
       numSpeakers: recording.diarization.numSpeakers,
+      duration: calculatedDuration,
       metadata: recording.diarization.metadata || {}
     }
     speakerLabels.value = recording.diarization.speakerLabels || {}
     blankSpeakerNames.value = recording.diarization.blankSpeakerNames || {}
     diarizationSaved.value = true // Already saved
     console.log('✅ Loaded existing diarization:', recording.diarization.segments.length, 'segments')
+    console.log('⏱️ Duration:', calculatedDuration.toFixed(2), 'seconds')
 
     // Debug: Check segment structure - ALWAYS RUN
     const segLen = recording.diarization.segments.length
@@ -1951,6 +1957,7 @@ const saveDiarizationResult = async () => {
           speakerLabels: speakerLabels.value,
           blankSpeakerNames: blankSpeakerNames.value, // Save BLANK_SPEAKER mappings
           numSpeakers: diarizationResult.value.numSpeakers,
+          duration: diarizationResult.value.duration, // Save duration for timeline
           metadata: diarizationResult.value.metadata,
           analyzedAt: new Date().toISOString()
         }
