@@ -1743,14 +1743,14 @@ const analyzeSpeakerDiarization = async () => {
       fileName: recording.fileName
     })
 
-    // Check if file needs chunking (>30 min OR >30 MB)
-    const needsChunking = duration > 30 * 60 || fileSizeMB > 30
+    // Check if file needs chunking (>30 min OR >40 MB)
+    const needsChunking = duration > 30 * 60 || fileSizeMB > 40
 
     console.log('🔍 Chunking decision:', {
       needsChunking,
       durationCheck: duration > 30 * 60,
-      sizeCheck: fileSizeMB > 30,
-      threshold: '30 min OR 30 MB'
+      sizeCheck: fileSizeMB > 40,
+      threshold: '30 min OR 40 MB'
     })
 
     if (needsChunking) {
