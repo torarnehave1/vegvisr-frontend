@@ -105,6 +105,72 @@ const detectAudioFormat = (audioBuffer) => {
   return { contentType: 'audio/wav', extension: '.wav', format: 'Unknown' }
 }
 
+// Helper function to format seconds as MM:SS timestamp
+const formatTimestamp = (seconds) => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// Helper function to add sentence-level timestamps to transcription text
+const addSentenceTimestamps = (transcriptionData) => {
+  // Check if we have word-level timestamp data
+  if (!transcriptionData.chunks || !Array.isArray(transcriptionData.chunks)) {
+    console.log('⚠️ No chunks data for timestamps, returning plain text')
+    return transcriptionData.text || ''
+  }
+
+  console.log('🕐 Processing word timestamps:', {
+    totalChunks: transcriptionData.chunks.length,
+    firstChunk: transcriptionData.chunks[0]
+  })
+
+  let timestampedText = ''
+  let currentSentence = ''
+  let sentenceStartTime = null
+
+  // Norwegian sentence ending markers
+  const sentenceEnders = ['.', '!', '?', '...']
+
+  for (const chunk of transcriptionData.chunks) {
+    const word = chunk.text || ''
+    const timestamp = chunk.timestamp?.[0] || 0
+
+    // Mark sentence start time
+    if (sentenceStartTime === null) {
+      sentenceStartTime = timestamp
+    }
+
+    // Add word to current sentence
+    currentSentence += word
+
+    // Check if this word ends a sentence
+    const endsWithPunctuation = sentenceEnders.some(ender => word.trim().endsWith(ender))
+
+    if (endsWithPunctuation) {
+      // Complete sentence - add timestamp and text
+      timestampedText += `[${formatTimestamp(sentenceStartTime)}] ${currentSentence.trim()}\n`
+
+      // Reset for next sentence
+      currentSentence = ''
+      sentenceStartTime = null
+    }
+  }
+
+  // Add any remaining text as final sentence
+  if (currentSentence.trim()) {
+    timestampedText += `[${formatTimestamp(sentenceStartTime || 0)}] ${currentSentence.trim()}\n`
+  }
+
+  console.log('✅ Sentence timestamps added:', {
+    originalLength: transcriptionData.text?.length || 0,
+    timestampedLength: timestampedText.length,
+    sentences: (timestampedText.match(/\[/g) || []).length
+  })
+
+  return timestampedText
+}
+
 // Helper function to get audio content type from file extension
 const getAudioContentType = (fileName) => {
   if (!fileName) return 'audio/wav'
@@ -209,7 +275,9 @@ const callNorwegianTranscription = async (base64Audio, env, useGpu = false) => {
 
       const payload = {
         inputs: base64Audio,
-        parameters: {}
+        parameters: {
+          return_timestamps: "word" // Request word-level timestamps from Whisper
+        }
       }
 
       const response = await fetch(endpoint, {
@@ -404,12 +472,17 @@ const handleNorwegianTranscribe = async (request, env) => {
 
     // Extract text from Hugging Face response format
     let transcriptionText = ''
+    let timestampedText = ''
+
     if (typeof transcriptionResult === 'string') {
       transcriptionText = transcriptionResult
     } else if (transcriptionResult.text) {
       transcriptionText = transcriptionResult.text
+      // Try to add sentence-level timestamps if word data is available
+      timestampedText = addSentenceTimestamps(transcriptionResult)
     } else if (Array.isArray(transcriptionResult) && transcriptionResult[0]?.text) {
       transcriptionText = transcriptionResult[0].text
+      timestampedText = addSentenceTimestamps(transcriptionResult[0])
     } else if (transcriptionResult.generated_text) {
       transcriptionText = transcriptionResult.generated_text
     } else {
@@ -420,6 +493,7 @@ const handleNorwegianTranscribe = async (request, env) => {
       JSON.stringify({
         success: true,
         text: transcriptionText,
+        timestampedText: timestampedText || transcriptionText, // Include timestamped version
         transcription: transcriptionResult,
         language: 'no',
         service: 'Hugging Face Norwegian Transcription',
@@ -435,6 +509,7 @@ const handleNorwegianTranscribe = async (request, env) => {
           requestedEndpoint: endpointType,
           language: 'Norwegian',
           coldStartDetected: transcriptionResponse.coldStartDetected,
+          hasTimestamps: !!timestampedText,
         },
       }),
     )
@@ -1104,12 +1179,17 @@ export default {
 
       // Extract text from Hugging Face response format
       let rawText = ''
+      let timestampedText = ''
+
       if (typeof transcriptionData === 'string') {
         rawText = transcriptionData
       } else if (transcriptionData.text) {
         rawText = transcriptionData.text
+        // Try to add sentence-level timestamps if word data is available
+        timestampedText = addSentenceTimestamps(transcriptionData)
       } else if (Array.isArray(transcriptionData) && transcriptionData[0]?.text) {
         rawText = transcriptionData[0].text
+        timestampedText = addSentenceTimestamps(transcriptionData[0])
       } else if (transcriptionData.generated_text) {
         rawText = transcriptionData.generated_text
       } else {
@@ -1161,6 +1241,7 @@ export default {
           success: true,
           transcription: {
             raw_text: rawText,
+            timestamped_text: timestampedText || rawText, // Include timestamped version
             improved_text: improvedText,
             language: 'no',
             chunks: 1,
@@ -1183,6 +1264,7 @@ export default {
               ? 'Cloudflare Workers AI - Llama 3.3 70B Fast'
               : 'Not available',
             cloudflare_ai_available: improvedText !== null,
+            hasTimestamps: !!timestampedText,
           },
         }),
         {
