@@ -425,7 +425,7 @@
                             :src="getPortfolioImage(graph.nodes).path"
                             :alt="getPortfolioImage(graph.nodes).label"
                             class="portfolio-image"
-                            @error="console.error('Image failed to load:', $event)"
+                            @error="() => {}"
                           />
                         </div>
                         <p class="card-text text-muted" v-if="graph.metadata?.description">
@@ -984,8 +984,6 @@ const previewUrlParams = computed(() => {
   return presets[settings.preset] || presets.balanced
 })
 
-console.log('User role:', userStore.role)
-
 // Add the allMetaAreas computed property
 const allMetaAreas = computed(() => portfolioStore.allMetaAreas)
 
@@ -1007,8 +1005,8 @@ const checkVectorizationStatus = async (graphIds) => {
       const data = await response.json()
       return data.statusMap
     }
-  } catch (error) {
-    console.error('Failed to check vectorization status:', error)
+  } catch {
+    // Failed to check vectorization status
   }
   return {}
 }
@@ -1031,8 +1029,8 @@ const checkAmbassadorStatus = async (graphIds) => {
       const data = await response.json()
       return data.statusMap
     }
-  } catch (error) {
-    console.error('Failed to check ambassador status:', error)
+  } catch {
+    // Failed to check ambassador status
   }
   return {}
 }
@@ -1044,23 +1042,19 @@ const checkAffiliateStatus = async (graphId) => {
   }
 
   try {
-    console.log(`� Checking affiliate status for graph ${graphId}`)
     const response = await fetch(
       `https://aff-worker.torarnehave.workers.dev/check-affiliate-deal?deal_name=${encodeURIComponent(graphId)}`,
     )
 
     if (response.ok) {
       const data = await response.json()
-      console.log(`✅ Affiliate check result for ${graphId}:`, data)
 
       const hasAffiliates = data.success && data.hasAffiliates
       affiliateCache.value.set(graphId, hasAffiliates)
       return hasAffiliates
-    } else {
-      console.log(`❌ API response not ok for ${graphId}:`, response.status)
     }
-  } catch (error) {
-    console.error(`Failed to check affiliate status for ${graphId}:`, error)
+  } catch {
+    // Failed to check affiliate status
   }
 
   affiliateCache.value.set(graphId, false)
@@ -1069,7 +1063,6 @@ const checkAffiliateStatus = async (graphId) => {
 
 // Load affiliate deals to show affiliate badges (deprecated - keeping for compatibility)
 const loadAffiliateDeals = async () => {
-  console.log('📧 loadAffiliateDeals called but using direct graph lookup instead')
   // No longer needed since we check per graph
 }
 
@@ -1130,7 +1123,6 @@ const vectorizeGraph = async (graph) => {
           isVectorizing: false,
           vectorCount: parseInt(result.message.match(/(\d+) vectors/)?.[1] || 0),
         }
-        console.log(`Graph ${graph.id} was already vectorized`)
       } else {
         // Graph was newly vectorized
         graph.vectorization = {
@@ -1138,11 +1130,9 @@ const vectorizeGraph = async (graph) => {
           isVectorizing: false,
           vectorCount: result.vectorsCreated || 0,
         }
-        console.log(`Graph ${graph.id} vectorized successfully: ${result.vectorsCreated} vectors`)
       }
     } else {
       const errorData = await response.text()
-      console.error('Vectorization failed:', errorData)
       // Reset state on failure
       graph.vectorization = {
         isVectorized: false,
@@ -1152,7 +1142,6 @@ const vectorizeGraph = async (graph) => {
       error.value = `Failed to vectorize graph: ${errorData}`
     }
   } catch (err) {
-    console.error('Vectorization error:', err)
     // Reset state on failure
     graph.vectorization = {
       isVectorized: false,
@@ -1171,7 +1160,6 @@ const fetchGraphs = async () => {
     const response = await fetch(apiUrls.getKnowledgeGraphs())
     if (response.ok) {
       const data = await response.json()
-      console.log('Raw API response:', JSON.stringify(data, null, 2))
 
       if (data.results) {
         // Fetch complete data for each graph
@@ -1180,7 +1168,6 @@ const fetchGraphs = async () => {
             const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
             if (graphResponse.ok) {
               const graphData = await graphResponse.json()
-              console.log('Fetched complete graph data:', JSON.stringify(graphData, null, 2))
 
               // Extract nodes and edges, ensuring they are arrays
               const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : []
@@ -1225,8 +1212,7 @@ const fetchGraphs = async () => {
               }
             }
             return null
-          } catch (e) {
-            console.error('Error fetching graph data:', e)
+          } catch {
             return null
           }
         })
@@ -1269,13 +1255,7 @@ const fetchGraphs = async () => {
 
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)
-
-        console.log(
-          'Final processed graphs with vectorization status:',
-          JSON.stringify(graphs.value, null, 2),
-        )
       } else {
-        console.warn('No results found in API response')
         graphs.value = []
       }
     } else {
@@ -1283,7 +1263,6 @@ const fetchGraphs = async () => {
     }
   } catch (err) {
     error.value = err.message
-    console.error('Error fetching graphs:', err)
   } finally {
     loading.value = false
   }
@@ -1470,7 +1449,6 @@ const editGraph = async (graph) => {
     }
   } catch (err) {
     error.value = err.message
-    console.error('Error loading graph for editing:', err)
   }
 }
 
@@ -1511,10 +1489,6 @@ const cancelEdit = () => {
 // Save edited graph
 const saveEdit = async (originalGraph) => {
   try {
-    console.log('=== SAVING PORTFOLIO METADATA UPDATE ===')
-    console.log('Original metadata:', JSON.stringify(originalGraph.metadata, null, 2))
-    console.log('Updated metadata:', JSON.stringify(editingGraph.value.metadata, null, 2))
-
     // Fetch latest graph data to ensure metadata preservation (same pattern as GraphAdmin)
     const latestResponse = await fetch(
       `https://knowledge.vegvisr.org/getknowgraph?id=${originalGraph.id}`,
@@ -1527,12 +1501,8 @@ const saveEdit = async (originalGraph) => {
     // Handle case where metadata doesn't exist at all
     const existingMetadata = latestGraph.metadata || {}
 
-    console.log('Latest graph metadata:', JSON.stringify(existingMetadata, null, 2))
-    console.log('Meta area in latest graph:', existingMetadata.metaArea || 'NO META AREA FOUND')
-
     // Get the current version from the latest graph data
     const currentVersion = existingMetadata.version || 1
-    console.log('Current version from latest graph:', currentVersion)
 
     // Build safe metadata with explicit defaults
     const preservedMetadata = {
@@ -1557,16 +1527,6 @@ const saveEdit = async (originalGraph) => {
       // Let backend handle version control and timestamps entirely
     }
 
-    console.log(
-      '💾 [Portfolio] Saving with preserved metadata:',
-      JSON.stringify(preservedMetadata, null, 2),
-    )
-    console.log(
-      '💾 [Portfolio] Meta area being saved:',
-      preservedMetadata.metaArea || 'NO META AREA',
-    )
-    console.log('💾 [Portfolio] Version being sent to backend:', preservedMetadata.version)
-
     // Use saveGraphWithHistory to ensure metadata updates create new versions
     // This fixes the table mismatch between knowledge_graphs and knowledge_graph_history
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
@@ -1587,14 +1547,10 @@ const saveEdit = async (originalGraph) => {
 
     if (response.ok) {
       const result = await response.json()
-      console.log('=== PORTFOLIO UPDATE SUCCESS ===')
-      console.log('Full API response:', JSON.stringify(result, null, 2))
-      console.log('Metadata saved to both knowledge_graphs and knowledge_graph_history tables')
 
       // Extract version number from different possible response structures
       const newVersion =
         result.version || result.newVersion || result.data?.version || currentVersion + 1
-      console.log('Extracted version:', newVersion)
 
       // Update the local graph data
       const index = graphs.value.findIndex((g) => g.id === originalGraph.id)
@@ -1622,15 +1578,13 @@ const saveEdit = async (originalGraph) => {
         if (cardElement) {
           cardElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
-      }, 100)
+        }, 100)
     } else {
       const errorText = await response.text()
-      console.error('Portfolio update failed:', errorText)
       throw new Error(`Failed to update graph: ${response.status} - ${errorText}`)
     }
   } catch (err) {
     error.value = err.message
-    console.error('Error updating graph:', err)
   }
 }
 
@@ -1641,7 +1595,6 @@ const confirmDelete = async (graph) => {
     )
   ) {
     try {
-      console.log('[Client] Attempting to delete graph:', graph.id)
       const response = await fetch(apiUrls.deleteKnowledgeGraph(), {
         method: 'POST',
         headers: {
@@ -1656,7 +1609,6 @@ const confirmDelete = async (graph) => {
         let errorMessage
         try {
           const errorData = await response.json()
-          console.error('[Client] Server error response:', errorData)
           if (response.status === 404) {
             errorMessage = 'Graph not found. It may have been already deleted.'
           } else {
@@ -1665,8 +1617,7 @@ const confirmDelete = async (graph) => {
               errorMessage += `\nDetails: ${errorData.details}`
             }
           }
-        } catch (parseError) {
-          console.error('[Client] Error parsing server response:', parseError)
+        } catch {
           errorMessage = `Server error (${response.status})`
         }
         throw new Error(errorMessage)
@@ -1674,7 +1625,6 @@ const confirmDelete = async (graph) => {
 
       // Remove the graph from the local array
       graphs.value = graphs.value.filter((g) => g.id !== graph.id)
-      console.log('[Client] Graph removed from local state:', graph.id)
 
       // Show success message
       error.value = null // Clear any existing error
@@ -1687,7 +1637,6 @@ const confirmDelete = async (graph) => {
     } catch (err) {
       successMessage.value = null // Clear any existing success message
       error.value = err.message
-      console.error('[Client] Error deleting graph:', err)
       alert(
         `Failed to delete graph: ${err.message}\n\nPlease try again later or contact support if the problem persists.`,
       )
@@ -1811,7 +1760,6 @@ const suggestTitle = async (graph) => {
     const data = await response.json()
     editingGraph.value.metadata.title = data.title
   } catch (err) {
-    console.error('Error getting title suggestion:', err)
     alert('Failed to get title suggestion: ' + err.message)
   } finally {
     isLoadingTitle.value = false
@@ -1840,7 +1788,6 @@ const suggestCategories = async (graph) => {
     const data = await response.json()
     editingGraph.value.metadata.category = data.categories
   } catch (err) {
-    console.error('Error getting category suggestions:', err)
     alert('Failed to get category suggestions: ' + err.message)
   } finally {
     isLoadingCategories.value = false
@@ -1869,7 +1816,6 @@ const suggestDescription = async (graph) => {
     const data = await response.json()
     editingGraph.value.metadata.description = data.description
   } catch (err) {
-    console.error('Error getting description suggestion:', err)
     alert('Failed to get description suggestion: ' + err.message)
   } finally {
     isLoadingDescription.value = false
@@ -1885,7 +1831,6 @@ const getPortfolioImage = (nodes) => {
   // The path is directly on the node object
   const path = imageNode.path
   if (!path) {
-    console.warn('Portfolio image node found but no path specified:', imageNode)
     return null
   }
 
@@ -2023,8 +1968,8 @@ const fetchR2Images = async () => {
     const res = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
     const data = await res.json()
     r2Images.value = data.images
-  } catch (error) {
-    console.error('Error fetching R2 images:', error)
+  } catch {
+    // Error fetching R2 images
   }
 }
 
@@ -2095,7 +2040,6 @@ const insertPortfolioImage = async (imageUrl = null) => {
     // Refresh the graphs data
     await fetchGraphs()
   } catch (error) {
-    console.error('Error updating portfolio image:', error)
     alert('Failed to update portfolio image: ' + error.message)
   } finally {
     isLoadingPortfolioImage.value = false
@@ -2133,8 +2077,6 @@ const getOptimizedImageUrl = (baseUrl) => {
 const updateImagePreview = () => {
   // Force reactivity update by triggering computed property recalculation
   // The images will automatically update due to the reactive getOptimizedImageUrl
-  console.log('Quality settings updated:', imageQualitySettings.value)
-  console.log('New URL params:', previewUrlParams.value)
 }
 
 const resetQualitySettings = () => {
@@ -2231,7 +2173,6 @@ onUnmounted(() => {
 })
 
 onMounted(() => {
-  console.log('GraphPortfolio mounted, fetching graphs...')
   fetchGraphs()
 })
 
