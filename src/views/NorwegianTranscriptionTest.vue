@@ -769,7 +769,7 @@
       <!-- Combined results summary -->
       <div v-if="!isChunkedProcessing && chunkResults.length > 0" class="combined-results">
         <h3>📋 Complete Transcription</h3>
-        
+
         <!-- Audio Statistics Summary -->
         <div class="audio-statistics" v-if="chunkResults.some(c => c.silent || c.error)">
           <h4>📊 Audio Analysis:</h4>
@@ -792,7 +792,7 @@
             </div>
           </div>
         </div>
-        
+
         <div class="combined-text">
           <h4>✨ Full Enhanced Text:</h4>
           <div class="text-content enhanced-combined">
@@ -2247,7 +2247,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     clearTimeout(extendedTimer)
 
     const processingTime = Math.round((Date.now() - startTime) / 1000)
-    
+
     if (!transcribeResponse.ok) {
       throw new Error(
         `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
@@ -2261,7 +2261,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     const modelUsed = result.metadata?.model || 'nb-whisper-small'
     const isGPU = result.metadata?.gpu_used === true || modelUsed.includes('large')
     const modelType = isGPU ? 'GPU' : 'CPU'
-    
+
     // Update completion message with model info
     loadingMessage.value = `✅ Completed in ${processingTime}s (${modelType} - ${modelUsed})`
 
@@ -2316,7 +2316,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       loadingMessage.value = `🎵 Creating chunk ${progress.current}/${progress.total}...`
     }
   })
-  
+
   totalChunks.value = chunks.length
 
   console.log(`📊 Split into ${chunks.length} chunks of ~2 minutes each`)
@@ -2329,7 +2329,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     }
 
     currentChunk.value = i + 1
-    
+
     // Determine which model endpoint will be used (CPU or GPU based on availability)
     const modelType = i === 0 ? 'CPU/GPU' : 'CPU/GPU' // Worker decides dynamically
     loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} (${modelType}) (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
@@ -2398,7 +2398,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
         `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s (${modelType}):`,
         result.transcription?.raw_text?.substring(0, 100),
       )
-      
+
       // Update status message with model info
       loadingMessage.value = `✅ Chunk ${i + 1}/${chunks.length} done in ${chunkProcessingTime}s (${modelType})`
 
@@ -2420,7 +2420,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
 
       // Check if this is a silence/no speech error
       const isSilenceError = err.message && (
-        err.message.includes('400') || 
+        err.message.includes('400') ||
         err.message.includes('not supported between instances') ||
         err.message.includes('NoneType') ||
         err.message.toLowerCase().includes('no speech')
@@ -2429,7 +2429,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       if (isSilenceError) {
         console.log(`⏸️ Chunk ${i + 1} appears to be silent or has no recognizable speech - skipping`)
         loadingMessage.value = `⏸️ Chunk ${i + 1} is silent - skipping...`
-        
+
         // Add silent chunk placeholder
         chunkResults.value.push({
           index: i,
@@ -2460,7 +2460,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     const successfulChunks = chunkResults.value.filter(c => !c.error && !c.silent).length
     const silentChunks = chunkResults.value.filter(c => c.silent).length
     const errorChunks = chunkResults.value.filter(c => c.error).length
-    
+
     let summary = `✅ Processed ${chunkResults.value.length} chunks`
     if (silentChunks > 0) {
       summary += ` (${silentChunks} silent)`
@@ -2468,7 +2468,7 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     if (errorChunks > 0) {
       summary += ` (${errorChunks} errors)`
     }
-    
+
     loadingMessage.value = summary
     console.log(`🎉 Chunk processing complete: ${successfulChunks} successful, ${silentChunks} silent, ${errorChunks} errors`)
 
@@ -2661,16 +2661,16 @@ const calculateAudioStatistics = (chunks) => {
   const successfulChunks = chunks.filter(c => !c.error && !c.silent)
   const silentChunks = chunks.filter(c => c.silent)
   const errorChunks = chunks.filter(c => c.error)
-  
+
   // Calculate durations
   const totalDuration = chunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
   const speechDuration = successfulChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
   const silenceDuration = silentChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
   const errorDuration = errorChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
-  
+
   const speechPercentage = totalDuration > 0 ? (speechDuration / totalDuration * 100) : 0
   const silencePercentage = totalDuration > 0 ? (silenceDuration / totalDuration * 100) : 0
-  
+
   return {
     totalChunks: chunks.length,
     successfulChunks: successfulChunks.length,
