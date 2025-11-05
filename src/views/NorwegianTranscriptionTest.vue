@@ -208,14 +208,14 @@
                 />
               </div>
             </div>
-            
+
             <!-- Smart Identify Feature -->
             <div v-if="canRunSmartIdentify" class="smart-identify-section">
               <div class="smart-identify-header">
                 <h6>🤖 AI-Powered Speaker Identification</h6>
                 <p class="help-text">Label a few segments with a speaker name (e.g., "Mentor"), then let AI find similar patterns</p>
               </div>
-              
+
               <div class="smart-identify-controls">
                 <input
                   v-model="targetSpeakerForAI"
@@ -2231,12 +2231,12 @@ const analyzingSpeaker = ref(false)
 // Check if we have enough labeled segments for pattern analysis
 const canRunSmartIdentify = computed(() => {
   if (!diarizationResult.value?.segments) return false
-  
+
   // Check if we have any custom labels (not SPEAKER_XX format)
-  const hasCustomLabels = Object.values(speakerLabels.value).some(label => 
+  const hasCustomLabels = Object.values(speakerLabels.value).some(label =>
     label && label !== label.toUpperCase() && !label.startsWith('SPEAKER_')
   )
-  
+
   return hasCustomLabels
 })
 
@@ -2248,7 +2248,7 @@ const smartIdentifySpeaker = async (targetSpeakerName) => {
 
   analyzingSpeaker.value = true
   aiSuggestions.value = []
-  
+
   try {
     // Find segments already labeled with this speaker name
     const labeledSegments = diarizationResult.value.segments.filter((seg, idx) => {
@@ -2293,7 +2293,7 @@ const smartIdentifySpeaker = async (targetSpeakerName) => {
       // Calculate confidence based on pattern matching (NOT speaker ID matching)
       let confidence = 0.3 // Base confidence
       const duration = segment.end - segment.start
-      
+
       // Strong bonus for similar duration (mentors often speak for similar lengths)
       const durationDiff = Math.abs(duration - patterns.avgDuration)
       if (durationDiff < patterns.avgDuration * 0.3) {
@@ -2301,7 +2301,7 @@ const smartIdentifySpeaker = async (targetSpeakerName) => {
       } else if (durationDiff < patterns.avgDuration * 0.5) {
         confidence += 0.15 // Somewhat similar
       }
-      
+
       // Bonus for position patterns (mentors often speak first/last)
       if (patterns.isFirstSpeaker && segment.start < 60) {
         confidence += 0.2 // Speaks early like mentor
@@ -2331,7 +2331,7 @@ const smartIdentifySpeaker = async (targetSpeakerName) => {
 
     // Sort by confidence
     aiSuggestions.value = candidates.sort((a, b) => b.confidence - a.confidence)
-    
+
     console.log(`✨ Found ${aiSuggestions.value.length} suggestions for "${targetSpeakerName}"`)
 
   } catch (err) {
@@ -2346,24 +2346,24 @@ const smartIdentifySpeaker = async (targetSpeakerName) => {
 const applySuggestion = (suggestion, speakerName) => {
   // Use per-segment labeling for cross-chunk identification
   customSegmentLabels.value[suggestion.segmentIndex] = speakerName
-  
+
   // Remove from suggestions
   aiSuggestions.value = aiSuggestions.value.filter(s => s.segmentIndex !== suggestion.segmentIndex)
-  
+
   console.log(`✅ Applied suggestion: Segment ${suggestion.segmentIndex} (${formatTime(suggestion.segment.start)}) → "${speakerName}"`)
 }
 
 // Apply all high-confidence suggestions (>70%)
 const applyAllHighConfidence = (speakerName) => {
   const highConfidence = aiSuggestions.value.filter(s => s.confidence > 0.7)
-  
+
   highConfidence.forEach(suggestion => {
     customSegmentLabels.value[suggestion.segmentIndex] = speakerName
   })
-  
+
   // Remove applied suggestions
   aiSuggestions.value = aiSuggestions.value.filter(s => s.confidence <= 0.7)
-  
+
   console.log(`✅ Applied ${highConfidence.length} high-confidence suggestions for "${speakerName}"`)
 }
 
