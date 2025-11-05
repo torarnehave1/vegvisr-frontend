@@ -769,15 +769,39 @@
       <!-- Combined results summary -->
       <div v-if="!isChunkedProcessing && chunkResults.length > 0" class="combined-results">
         <h3>📋 Complete Transcription</h3>
+        
+        <!-- Audio Statistics Summary -->
+        <div class="audio-statistics" v-if="chunkResults.some(c => c.silent || c.error)">
+          <h4>📊 Audio Analysis:</h4>
+          <div class="stats-grid">
+            <div class="stat-item">
+              <span class="stat-label">Total Duration:</span>
+              <span class="stat-value">{{ formatTime(chunkResults.reduce((s, c) => s + (c.endTime - c.startTime), 0)) }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Speech Duration:</span>
+              <span class="stat-value">{{ formatTime(chunkResults.filter(c => !c.silent && !c.error).reduce((s, c) => s + (c.endTime - c.startTime), 0)) }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Silence Duration:</span>
+              <span class="stat-value">{{ formatTime(chunkResults.filter(c => c.silent).reduce((s, c) => s + (c.endTime - c.startTime), 0)) }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Speech Percentage:</span>
+              <span class="stat-value">{{ Math.round(chunkResults.filter(c => !c.silent && !c.error).reduce((s, c) => s + (c.endTime - c.startTime), 0) / chunkResults.reduce((s, c) => s + (c.endTime - c.startTime), 0) * 100) }}%</span>
+            </div>
+          </div>
+        </div>
+        
         <div class="combined-text">
           <h4>✨ Full Enhanced Text:</h4>
           <div class="text-content enhanced-combined">
-            {{ chunkResults.map((chunk) => chunk.improved_text || chunk.raw_text).join(' ') }}
+            {{ chunkResults.filter(c => !c.silent && !c.error).map((chunk) => chunk.improved_text || chunk.raw_text).join(' ') }}
           </div>
 
           <h4>🎤 Full Raw Text:</h4>
           <div class="text-content raw-combined">
-            {{ chunkResults.map((chunk) => chunk.raw_text).join(' ') }}
+            {{ chunkResults.filter(c => !c.silent && !c.error).map((chunk) => chunk.raw_text).join(' ') }}
           </div>
         </div>
 
@@ -1028,7 +1052,7 @@ const getAudioDuration = (audioBlob) => {
   })
 }
 
-const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120) => {
+const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120, onProgress = null) => {
   return new Promise((resolve, reject) => {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)()
     const fileReader = new FileReader()
@@ -1046,12 +1070,14 @@ const splitAudioIntoChunks = async (audioBlob, chunkDurationSeconds = 120) => {
         const chunks = []
 
         console.log(`🔧 Audio info: ${totalSamples} samples, ${sampleRate}Hz, ${numChunks} chunks needed`)
+        if (onProgress) onProgress({ phase: 'info', numChunks, sampleRate, totalSamples })
 
         for (let i = 0; i < numChunks; i++) {
           const startSample = i * chunkSamples
           const endSample = Math.min(startSample + chunkSamples, totalSamples)
 
           console.log(`🎵 Creating chunk ${i + 1}: samples ${startSample}-${endSample}`)
+          if (onProgress) onProgress({ phase: 'creating', current: i + 1, total: numChunks })
 
           // Create new audio buffer for this chunk
           const chunkBuffer = audioContext.createBuffer(
@@ -1760,14 +1786,17 @@ const analyzeSpeakerDiarization = async () => {
       fileName: recording.fileName
     })
 
-    // Check if file needs chunking (>30 min OR >40 MB)
-    const needsChunking = duration > 30 * 60 || fileSizeMB > 40
+    // Check if file needs chunking for diarization
+    // More conservative than transcription due to inference endpoint timeout limits
+    // Use chunking if: duration unknown OR >15 min OR >20 MB
+    const needsChunking = duration === 0 || duration > 15 * 60 || fileSizeMB > 20
 
     console.log('🔍 Chunking decision:', {
       needsChunking,
-      durationCheck: duration > 30 * 60,
-      sizeCheck: fileSizeMB > 40,
-      threshold: '30 min OR 40 MB'
+      durationCheck: duration > 15 * 60,
+      sizeCheck: fileSizeMB > 20,
+      durationUnknown: duration === 0,
+      threshold: '15 min OR 20 MB (or unknown duration)'
     })
 
     if (needsChunking) {
@@ -2193,17 +2222,17 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 
   // Progressive messaging based on processing time
   const processingTimer = setTimeout(() => {
-    loadingMessage.value = "Processing audio with Norwegian model..."
+    loadingMessage.value = "⚙️ Processing with Norwegian Whisper (GPU/CPU)..."
   }, 10000)
 
   // If taking longer than normal, suggest possible cold start
   const coldStartTimer = setTimeout(() => {
-    loadingMessage.value = "⏳ Taking longer than usual - model may be warming up (3-4 minutes)..."
+    loadingMessage.value = "⏳ Model warming up (GPU) - first request may take 3-4 minutes..."
   }, 60000) // Only after 1 minute
 
   // Extended processing message
   const extendedTimer = setTimeout(() => {
-    loadingMessage.value = "🔥 Model warming up detected - this saves ~80% on infrastructure costs..."
+    loadingMessage.value = "🔥 GPU model warming up - saves ~80% on infrastructure costs..."
   }, 120000) // After 2 minutes
 
   try {
@@ -2218,8 +2247,7 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     clearTimeout(extendedTimer)
 
     const processingTime = Math.round((Date.now() - startTime) / 1000)
-    loadingMessage.value = `✅ Transcription completed in ${processingTime}s`
-
+    
     if (!transcribeResponse.ok) {
       throw new Error(
         `Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}`,
@@ -2229,10 +2257,18 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
     const result = await transcribeResponse.json()
     console.log('✅ Single file transcription result:', result)
 
+    // Determine which model was used
+    const modelUsed = result.metadata?.model || 'nb-whisper-small'
+    const isGPU = result.metadata?.gpu_used === true || modelUsed.includes('large')
+    const modelType = isGPU ? 'GPU' : 'CPU'
+    
+    // Update completion message with model info
+    loadingMessage.value = `✅ Completed in ${processingTime}s (${modelType} - ${modelUsed})`
+
     // Check if cold start was detected by the backend
     if (result.metadata?.coldStartDetected) {
       console.log('🔥 Cold start was detected during transcription (503 received)')
-      loadingMessage.value = `✅ Completed after model warm-up in ${processingTime}s`
+      loadingMessage.value = `✅ Completed after GPU warm-up in ${processingTime}s`
     }
 
     transcriptionResult.value = {
@@ -2267,13 +2303,20 @@ const processSingleAudioFile = async (audioBlob, fileName) => {
 }
 
 const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
-  loadingMessage.value = 'Splitting audio into 2-minute chunks...'
+  loadingMessage.value = '📊 Analyzing audio file...'
   isChunkedProcessing.value = true
 
   console.log('🧩 Processing in chunks - splitting audio...')
 
-  // Split audio into 2-minute chunks
-  const chunks = await splitAudioIntoChunks(audioBlob, 120) // 2 minutes
+  // Split audio into 2-minute chunks with progress callback
+  const chunks = await splitAudioIntoChunks(audioBlob, 120, (progress) => {
+    if (progress.phase === 'info') {
+      loadingMessage.value = `📊 Audio: ${progress.numChunks} chunks needed (${progress.sampleRate}Hz)`
+    } else if (progress.phase === 'creating') {
+      loadingMessage.value = `🎵 Creating chunk ${progress.current}/${progress.total}...`
+    }
+  })
+  
   totalChunks.value = chunks.length
 
   console.log(`📊 Split into ${chunks.length} chunks of ~2 minutes each`)
@@ -2286,11 +2329,14 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
     }
 
     currentChunk.value = i + 1
-    loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} with Norwegian model (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+    
+    // Determine which model endpoint will be used (CPU or GPU based on availability)
+    const modelType = i === 0 ? 'CPU/GPU' : 'CPU/GPU' // Worker decides dynamically
+    loadingMessage.value = `🚀 Processing chunk ${i + 1}/${chunks.length} (${modelType}) (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
 
-    // Simple processing timer for chunks - no cold start assumptions
+    // Simple processing timer for chunks
     const chunkProcessingTimer = setTimeout(() => {
-      loadingMessage.value = `Processing chunk ${i + 1}/${chunks.length}...`
+      loadingMessage.value = `⚙️ Processing chunk ${i + 1}/${chunks.length} with Norwegian Whisper...`
     }, 10000)
 
     try {
@@ -2343,10 +2389,18 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
       // Clear processing timer on success
       clearTimeout(chunkProcessingTimer)
 
+      // Determine which model was used for this chunk
+      const modelUsed = result.metadata?.model || 'nb-whisper-small'
+      const isGPU = result.metadata?.gpu_used === true || modelUsed.includes('large')
+      const modelType = isGPU ? 'GPU' : 'CPU'
+
       console.log(
-        `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s:`,
+        `✅ Chunk ${i + 1} completed in ${chunkProcessingTime}s (${modelType}):`,
         result.transcription?.raw_text?.substring(0, 100),
       )
+      
+      // Update status message with model info
+      loadingMessage.value = `✅ Chunk ${i + 1}/${chunks.length} done in ${chunkProcessingTime}s (${modelType})`
 
       // Add to results
       chunkResults.value.push({
@@ -2364,26 +2418,68 @@ const processAudioInChunks = async (audioBlob, fileName, audioDuration) => {
 
       console.error(`Error processing chunk ${i + 1}:`, err)
 
-      // Add failed chunk to results
-      chunkResults.value.push({
-        index: i,
-        startTime: chunks[i].startTime,
-        endTime: chunks[i].endTime,
-        raw_text: `[Error processing chunk ${i + 1}: ${err.message}]`,
-        improved_text: null,
-        processingTime: 0,
-        error: true,
-      })
+      // Check if this is a silence/no speech error
+      const isSilenceError = err.message && (
+        err.message.includes('400') || 
+        err.message.includes('not supported between instances') ||
+        err.message.includes('NoneType') ||
+        err.message.toLowerCase().includes('no speech')
+      )
+
+      if (isSilenceError) {
+        console.log(`⏸️ Chunk ${i + 1} appears to be silent or has no recognizable speech - skipping`)
+        loadingMessage.value = `⏸️ Chunk ${i + 1} is silent - skipping...`
+        
+        // Add silent chunk placeholder
+        chunkResults.value.push({
+          index: i,
+          startTime: chunks[i].startTime,
+          endTime: chunks[i].endTime,
+          raw_text: '[Silent segment - no speech detected]',
+          improved_text: null,
+          processingTime: 0,
+          silent: true,
+        })
+      } else {
+        // Other errors - mark as failed
+        chunkResults.value.push({
+          index: i,
+          startTime: chunks[i].startTime,
+          endTime: chunks[i].endTime,
+          raw_text: `[Error processing chunk ${i + 1}: ${err.message}]`,
+          improved_text: null,
+          processingTime: 0,
+          error: true,
+        })
+      }
     }
   }
 
   if (!processingAborted.value) {
-    loadingMessage.value = `Completed processing ${chunkResults.value.length} chunks!`
-    console.log('🎉 All chunks processed successfully')
+    // Count successful, silent, and error chunks
+    const successfulChunks = chunkResults.value.filter(c => !c.error && !c.silent).length
+    const silentChunks = chunkResults.value.filter(c => c.silent).length
+    const errorChunks = chunkResults.value.filter(c => c.error).length
+    
+    let summary = `✅ Processed ${chunkResults.value.length} chunks`
+    if (silentChunks > 0) {
+      summary += ` (${silentChunks} silent)`
+    }
+    if (errorChunks > 0) {
+      summary += ` (${errorChunks} errors)`
+    }
+    
+    loadingMessage.value = summary
+    console.log(`🎉 Chunk processing complete: ${successfulChunks} successful, ${silentChunks} silent, ${errorChunks} errors`)
 
     // Combine all chunk results into a single transcriptionResult for graph creation
-    const combinedRawText = chunkResults.value.map((chunk) => chunk.raw_text).join(' ')
+    // Exclude silent chunks and error chunks from the text
+    const combinedRawText = chunkResults.value
+      .filter(c => !c.silent && !c.error)
+      .map((chunk) => chunk.raw_text)
+      .join(' ')
     const combinedImprovedText = chunkResults.value
+      .filter(c => !c.silent && !c.error)
       .map((chunk) => chunk.improved_text || chunk.raw_text)
       .join(' ')
 
@@ -2560,6 +2656,35 @@ const saveToPortfolio = async () => {
   }
 }
 
+// Calculate audio statistics (speech vs silence)
+const calculateAudioStatistics = (chunks) => {
+  const successfulChunks = chunks.filter(c => !c.error && !c.silent)
+  const silentChunks = chunks.filter(c => c.silent)
+  const errorChunks = chunks.filter(c => c.error)
+  
+  // Calculate durations
+  const totalDuration = chunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
+  const speechDuration = successfulChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
+  const silenceDuration = silentChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
+  const errorDuration = errorChunks.reduce((sum, c) => sum + (c.endTime - c.startTime), 0)
+  
+  const speechPercentage = totalDuration > 0 ? (speechDuration / totalDuration * 100) : 0
+  const silencePercentage = totalDuration > 0 ? (silenceDuration / totalDuration * 100) : 0
+  
+  return {
+    totalChunks: chunks.length,
+    successfulChunks: successfulChunks.length,
+    silentChunks: silentChunks.length,
+    errorChunks: errorChunks.length,
+    totalDuration: Math.round(totalDuration),
+    speechDuration: Math.round(speechDuration),
+    silenceDuration: Math.round(silenceDuration),
+    errorDuration: Math.round(errorDuration),
+    speechPercentage: Math.round(speechPercentage * 10) / 10,
+    silencePercentage: Math.round(silencePercentage * 10) / 10,
+  }
+}
+
 const saveChunkedToPortfolio = async () => {
   if (!chunkResults.value.length || !userStore.loggedIn) {
     return
@@ -2592,9 +2717,17 @@ const saveChunkedToPortfolio = async () => {
     const uploadResult = await uploadResponse.json()
     console.log('✅ Chunked audio uploaded to R2:', uploadResult)
 
-    // Step 2: Combine all chunk results
-    const combinedRawText = chunkResults.value.map((chunk) => chunk.raw_text).join(' ')
+    // Calculate audio statistics (speech vs silence)
+    const audioStats = calculateAudioStatistics(chunkResults.value)
+    console.log('📊 Audio statistics:', audioStats)
+
+    // Step 2: Combine all chunk results (excluding silent and error chunks)
+    const combinedRawText = chunkResults.value
+      .filter(c => !c.silent && !c.error)
+      .map((chunk) => chunk.raw_text)
+      .join(' ')
     const combinedImprovedText = chunkResults.value
+      .filter(c => !c.silent && !c.error)
       .map((chunk) => chunk.improved_text || chunk.raw_text)
       .join(' ')
 
@@ -2631,7 +2764,11 @@ const saveChunkedToPortfolio = async () => {
           raw_text: chunk.raw_text,
           improved_text: chunk.improved_text,
           processingTime: chunk.processingTime,
+          silent: chunk.silent,
+          error: chunk.error,
         })),
+        // Audio statistics
+        audioStatistics: audioStats,
       },
 
       // Organization
@@ -3378,6 +3515,47 @@ const createChunkedGraph = async () => {
 
 .combined-results h3 {
   margin: 0 0 20px 0;
+  color: #1f2937;
+}
+
+.audio-statistics {
+  background: #eff6ff;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.audio-statistics h4 {
+  margin: 0 0 12px 0;
+  color: #1e40af;
+  font-size: 16px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #dbeafe;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
   color: #1f2937;
 }
 
