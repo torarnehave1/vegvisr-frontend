@@ -208,6 +208,72 @@
                 />
               </div>
             </div>
+            
+            <!-- Smart Identify Feature -->
+            <div v-if="canRunSmartIdentify" class="smart-identify-section">
+              <div class="smart-identify-header">
+                <h6>🤖 AI-Powered Speaker Identification</h6>
+                <p class="help-text">Label a few segments with a speaker name (e.g., "Mentor"), then let AI find similar patterns</p>
+              </div>
+              
+              <div class="smart-identify-controls">
+                <input
+                  v-model="targetSpeakerForAI"
+                  class="speaker-input"
+                  placeholder="Enter speaker name (e.g., Mentor)"
+                />
+                <button
+                  @click="smartIdentifySpeaker(targetSpeakerForAI)"
+                  :disabled="!targetSpeakerForAI || analyzingSpeaker"
+                  class="btn btn-primary smart-btn"
+                >
+                  {{ analyzingSpeaker ? '🔍 Analyzing...' : '✨ Find Similar Patterns' }}
+                </button>
+              </div>
+
+              <!-- AI Suggestions -->
+              <div v-if="aiSuggestions.length > 0" class="ai-suggestions">
+                <div class="suggestions-header">
+                  <h6>💡 Found {{ aiSuggestions.length }} Suggestions</h6>
+                  <button
+                    @click="applyAllHighConfidence(targetSpeakerForAI)"
+                    class="btn btn-success btn-sm"
+                  >
+                    ✅ Apply High Confidence (>70%)
+                  </button>
+                  <button
+                    @click="clearSuggestions"
+                    class="btn btn-outline-secondary btn-sm"
+                  >
+                    ✖ Clear
+                  </button>
+                </div>
+
+                <div class="suggestions-list">
+                  <div
+                    v-for="(suggestion, idx) in aiSuggestions.slice(0, 10)"
+                    :key="idx"
+                    class="suggestion-item"
+                    :class="{ 'high-confidence': suggestion.confidence > 0.7 }"
+                  >
+                    <div class="suggestion-info">
+                      <span class="confidence-badge">{{ Math.round(suggestion.confidence * 100) }}%</span>
+                      <span class="segment-time">{{ formatTime(suggestion.segment.start) }} - {{ formatTime(suggestion.segment.end) }}</span>
+                      <span class="segment-speaker">{{ suggestion.segment.speaker }}</span>
+                    </div>
+                    <button
+                      @click="applySuggestion(suggestion, targetSpeakerForAI)"
+                      class="btn btn-sm btn-success apply-btn"
+                    >
+                      ✓ Apply
+                    </button>
+                  </div>
+                  <p v-if="aiSuggestions.length > 10" class="more-suggestions">
+                    + {{ aiSuggestions.length - 10 }} more suggestions
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Visual Timeline -->
@@ -223,7 +289,7 @@
                   width: `${((segment.end - segment.start) / diarizationResult.duration) * 100}%`,
                   backgroundColor: getEffectiveSpeakerColor(segment)
                 }"
-                :title="`${getDisplaySpeakerName(segment)}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
+                :title="`${getDisplaySpeakerName(segment, index)}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
                 @click="seekToSegment(segment.start)"
               ></div>
             </div>
@@ -292,7 +358,7 @@
                     :style="{ backgroundColor: getSpeakerColor(segment.speaker) }"
                     @click="seekToSegment(segment.start)"
                   >
-                    {{ getDisplaySpeakerName(segment) }}
+                    {{ getDisplaySpeakerName(segment, index) }}
                   </span>
                   <span class="segment-time">
                     {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
@@ -952,7 +1018,8 @@ const diarizationProgress = ref('')
 const diarizationResult = ref(null)
 const diarizationError = ref(null)
 const currentDiarizationTime = ref(0)
-const speakerLabels = ref({})
+const speakerLabels = ref({}) // Labels by speaker ID (SPEAKER_00 → "Mentor")
+const customSegmentLabels = ref({}) // Per-segment override labels { "segmentIndex": "Custom Name" }
 const savingDiarization = ref(false)
 const diarizationSaved = ref(false)
 const diarizationSaveError = ref(null)
@@ -964,6 +1031,9 @@ const segmentRefs = ref([])
 const selectedBlankTag = ref(null)
 const blankSpeakerNames = ref({}) // { BLANK_SPEAKER_A: "Tor Arne", BLANK_SPEAKER_B: "Therapist" }
 const nextBlankTagLetter = ref('A')
+
+// Smart identification state
+const targetSpeakerForAI = ref('')
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
@@ -2141,12 +2211,165 @@ const updateBlankSpeakerName = (tag) => {
 }
 
 // Get the display name for a segment (considering BLANK_SPEAKER mapping)
-const getDisplaySpeakerName = (segment) => {
-  // Priority: blankSpeaker name > speakerLabel > original speaker
+const getDisplaySpeakerName = (segment, segmentIndex = null) => {
+  // Priority: per-segment custom label > blankSpeaker name > speakerLabel > original speaker
+  if (segmentIndex !== null && customSegmentLabels.value[segmentIndex]) {
+    return customSegmentLabels.value[segmentIndex]
+  }
   if (segment.blankSpeaker) {
     return blankSpeakerNames.value[segment.blankSpeaker] || segment.blankSpeaker
   }
   return speakerLabels.value[segment.speaker] || segment.speaker
+}
+
+// ========== SMART MENTOR IDENTIFICATION ==========
+
+// State for AI suggestions
+const aiSuggestions = ref([])
+const analyzingSpeaker = ref(false)
+
+// Check if we have enough labeled segments for pattern analysis
+const canRunSmartIdentify = computed(() => {
+  if (!diarizationResult.value?.segments) return false
+  
+  // Check if we have any custom labels (not SPEAKER_XX format)
+  const hasCustomLabels = Object.values(speakerLabels.value).some(label => 
+    label && label !== label.toUpperCase() && !label.startsWith('SPEAKER_')
+  )
+  
+  return hasCustomLabels
+})
+
+// Smart identify: Find segments matching a labeled speaker's patterns
+const smartIdentifySpeaker = async (targetSpeakerName) => {
+  if (!diarizationResult.value?.segments || !selectedDiarizationRecording.value) {
+    return
+  }
+
+  analyzingSpeaker.value = true
+  aiSuggestions.value = []
+  
+  try {
+    // Find segments already labeled with this speaker name
+    const labeledSegments = diarizationResult.value.segments.filter((seg, idx) => {
+      const displayName = getDisplaySpeakerName(seg, idx)
+      return displayName === targetSpeakerName
+    })
+
+    if (labeledSegments.length < 3) {
+      console.log('❌ Need at least 3 labeled segments for pattern analysis')
+      analyzingSpeaker.value = false
+      return
+    }
+
+    console.log(`🤖 Analyzing patterns for "${targetSpeakerName}" from ${labeledSegments.length} labeled segments`)
+
+    // Analyze patterns from labeled segments
+    const patterns = {
+      avgDuration: labeledSegments.reduce((sum, s) => sum + (s.end - s.start), 0) / labeledSegments.length,
+      minDuration: Math.min(...labeledSegments.map(s => s.end - s.start)),
+      maxDuration: Math.max(...labeledSegments.map(s => s.end - s.start)),
+      positions: labeledSegments.map(s => s.start),
+      isFirstSpeaker: labeledSegments.some(s => s.start < 30), // Speaks in first 30 seconds
+      isLastSpeaker: labeledSegments.some(s => {
+        const maxTime = Math.max(...diarizationResult.value.segments.map(seg => seg.end))
+        return s.end > maxTime - 30 // Speaks in last 30 seconds
+      }),
+      totalDuration: labeledSegments.reduce((sum, s) => sum + (s.end - s.start), 0),
+      frequency: labeledSegments.length, // How many times they speak
+    }
+
+    console.log('📊 Speaker patterns:', patterns)
+
+    // Find candidate segments (unlabeled segments that match the pattern)
+    const candidates = []
+    diarizationResult.value.segments.forEach((segment, index) => {
+      // Skip segments that are already labeled with this name
+      const currentLabel = getDisplaySpeakerName(segment, index)
+      if (currentLabel === targetSpeakerName) {
+        return
+      }
+
+      // Calculate confidence based on pattern matching (NOT speaker ID matching)
+      let confidence = 0.3 // Base confidence
+      const duration = segment.end - segment.start
+      
+      // Strong bonus for similar duration (mentors often speak for similar lengths)
+      const durationDiff = Math.abs(duration - patterns.avgDuration)
+      if (durationDiff < patterns.avgDuration * 0.3) {
+        confidence += 0.25 // Very similar duration
+      } else if (durationDiff < patterns.avgDuration * 0.5) {
+        confidence += 0.15 // Somewhat similar
+      }
+      
+      // Bonus for position patterns (mentors often speak first/last)
+      if (patterns.isFirstSpeaker && segment.start < 60) {
+        confidence += 0.2 // Speaks early like mentor
+      }
+      if (patterns.isLastSpeaker) {
+        const maxTime = Math.max(...diarizationResult.value.segments.map(s => s.end))
+        if (segment.end > maxTime - 60) {
+          confidence += 0.2 // Speaks late like mentor
+        }
+      }
+
+      // Only suggest if confidence is reasonable
+      if (confidence >= 0.5) {
+        let reason = 'Similar speaking pattern'
+        if (durationDiff < patterns.avgDuration * 0.3) {
+          reason = `Similar duration (~${Math.round(duration)}s, mentor avg: ${Math.round(patterns.avgDuration)}s)`
+        }
+
+        candidates.push({
+          segmentIndex: index,
+          segment: segment,
+          confidence: Math.min(confidence, 0.95), // Cap at 95%
+          reason: reason
+        })
+      }
+    })
+
+    // Sort by confidence
+    aiSuggestions.value = candidates.sort((a, b) => b.confidence - a.confidence)
+    
+    console.log(`✨ Found ${aiSuggestions.value.length} suggestions for "${targetSpeakerName}"`)
+
+  } catch (err) {
+    console.error('Error in smart identify:', err)
+  } finally {
+    analyzingSpeaker.value = false
+  }
+}
+
+// Apply a suggestion (label the segment)
+// Apply a suggestion (label the specific segment, not all segments with that speaker ID)
+const applySuggestion = (suggestion, speakerName) => {
+  // Use per-segment labeling for cross-chunk identification
+  customSegmentLabels.value[suggestion.segmentIndex] = speakerName
+  
+  // Remove from suggestions
+  aiSuggestions.value = aiSuggestions.value.filter(s => s.segmentIndex !== suggestion.segmentIndex)
+  
+  console.log(`✅ Applied suggestion: Segment ${suggestion.segmentIndex} (${formatTime(suggestion.segment.start)}) → "${speakerName}"`)
+}
+
+// Apply all high-confidence suggestions (>70%)
+const applyAllHighConfidence = (speakerName) => {
+  const highConfidence = aiSuggestions.value.filter(s => s.confidence > 0.7)
+  
+  highConfidence.forEach(suggestion => {
+    customSegmentLabels.value[suggestion.segmentIndex] = speakerName
+  })
+  
+  // Remove applied suggestions
+  aiSuggestions.value = aiSuggestions.value.filter(s => s.confidence <= 0.7)
+  
+  console.log(`✅ Applied ${highConfidence.length} high-confidence suggestions for "${speakerName}"`)
+}
+
+// Clear suggestions
+const clearSuggestions = () => {
+  aiSuggestions.value = []
 }
 
 // ========== END DIARIZATION FUNCTIONS ==========
@@ -4642,6 +4865,228 @@ const createChunkedGraph = async () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 15px;
+}
+
+/* Smart Speaker Identification Styles */
+.smart-identify-section {
+  margin-top: 20px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 8px;
+  border: 1px solid #bae6fd;
+}
+
+.smart-identify-header {
+  margin-bottom: 15px;
+}
+
+.smart-identify-header h6 {
+  color: #0369a1;
+  margin: 0 0 8px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.smart-identify-header p {
+  color: #0c4a6e;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.smart-identify-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.smart-identify-controls input {
+  flex: 1;
+  padding: 10px 15px;
+  border: 2px solid #38bdf8;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: white;
+  transition: all 0.2s;
+}
+
+.smart-identify-controls input:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+}
+
+.smart-identify-controls input::placeholder {
+  color: #94a3b8;
+}
+
+.smart-identify-controls button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
+}
+
+.smart-identify-controls button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(2, 132, 199, 0.4);
+}
+
+.smart-identify-controls button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+.ai-suggestions {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ai-suggestions h6 {
+  color: #0c4a6e;
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s;
+}
+
+.suggestion-item:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateX(2px);
+}
+
+.suggestion-item.high-confidence {
+  background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+  border-color: #22d3ee;
+}
+
+.suggestion-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.confidence-badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-width: 60px;
+  text-align: center;
+  color: white;
+}
+
+.confidence-badge.high {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.confidence-badge.medium {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+}
+
+.confidence-badge.low {
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+  box-shadow: 0 2px 4px rgba(100, 116, 139, 0.3);
+}
+
+.segment-info {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.segment-info strong {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.apply-btn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(6, 182, 212, 0.3);
+}
+
+.apply-btn:hover {
+  background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(6, 182, 212, 0.4);
+}
+
+.suggestions-list p {
+  text-align: center;
+  color: #64748b;
+  padding: 20px;
+  margin: 0;
+  font-style: italic;
+}
+
+.bulk-actions {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bulk-actions button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.bulk-actions button:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
 }
 
 .speaker-label-item {
