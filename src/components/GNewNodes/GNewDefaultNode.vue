@@ -251,7 +251,7 @@ const parseFormattedElements = (text) => {
   // Ensure proper line breaks before headers and around content
   processedText = processedText
     .replace(/\.#/g, '.\n\n#')  // Fix "content.#" -> "content.\n\n#"
-    .replace(/([.!?])\s*([#*|-])/g, '$1\n\n$2')  // Ensure line breaks before markdown elements
+    .replace(/([.!?])\s*(#)/g, '$1\n\n$2')  // Ensure line breaks before headers only
     .replace(/\n{3,}/g, '\n\n')  // Clean up excessive line breaks
 
   console.log('🔄 AFTER line break fixes:', processedText.substring(0, 500))
@@ -2060,5 +2060,40 @@ const convertStylesToString = (styleObj) => {
 /* Emoji and special characters in tables */
 .node-content :deep(table td) {
   line-height: 1.4;
+}
+
+/* Numbered and bulleted list styling */
+.node-content :deep(ol),
+.node-content :deep(ul) {
+  margin: 10px 0;
+  padding-left: 30px;
+  line-height: 1.6;
+}
+
+.node-content :deep(ol) {
+  list-style-type: decimal;
+}
+
+.node-content :deep(ul) {
+  list-style-type: disc;
+}
+
+.node-content :deep(li) {
+  margin: 5px 0;
+  padding-left: 5px;
+}
+
+.node-content :deep(li p) {
+  margin: 0;
+  display: inline;
+}
+
+/* Nested lists */
+.node-content :deep(ol ol),
+.node-content :deep(ul ul),
+.node-content :deep(ol ul),
+.node-content :deep(ul ol) {
+  margin: 5px 0;
+  padding-left: 25px;
 }
 </style>

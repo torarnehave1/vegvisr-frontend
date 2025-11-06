@@ -2151,3 +2151,101 @@ html body div[style*='display: grid'] .grid-item img {
     min-height: 60px !important;
   }
 }
+
+/* =====================================================
+   List Styles - Numbered and Bulleted Lists
+   ===================================================== */
+
+/* Ordered Lists (numbered) */
+ol {
+  margin: 15px 0;
+  padding-left: 40px;
+  line-height: 1.8;
+  list-style-type: decimal;
+}
+
+/* Unordered Lists (bulleted) */
+ul {
+  margin: 15px 0;
+  padding-left: 40px;
+  line-height: 1.8;
+  list-style-type: disc;
+}
+
+/* List Items */
+li {
+  margin: 8px 0;
+  padding-left: 8px;
+}
+
+/* Paragraphs inside list items should not add extra spacing */
+li p {
+  margin: 0;
+  display: inline;
+}
+
+/* Nested Lists */
+ol ol,
+ul ul,
+ol ul,
+ul ol {
+  margin: 8px 0;
+  padding-left: 30px;
+}
+
+/* Secondary level lists */
+ol ol {
+  list-style-type: lower-alpha;
+}
+
+ul ul {
+  list-style-type: circle;
+}
+
+/* Tertiary level lists */
+ol ol ol {
+  list-style-type: lower-roman;
+}
+
+ul ul ul {
+  list-style-type: square;
+}
+
+/* Lists within node content */
+.node-content ol,
+.node-content ul {
+  margin: 15px 0;
+  padding-left: 40px;
+  line-height: 1.8;
+}
+
+.node-content li {
+  margin: 8px 0;
+  padding-left: 8px;
+}
+
+.node-content li p {
+  margin: 0;
+  display: inline;
+}
+
+/* Mobile responsive list styles */
+@media (max-width: 768px) {
+  ol,
+  ul {
+    padding-left: 30px;
+    line-height: 1.7;
+  }
+
+  li {
+    margin: 6px 0;
+    padding-left: 5px;
+  }
+
+  ol ol,
+  ul ul,
+  ol ul,
+  ul ol {
+    padding-left: 25px;
+  }
+}

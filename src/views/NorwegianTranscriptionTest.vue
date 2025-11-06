@@ -2021,6 +2021,8 @@ const getEffectiveSpeakerColor = (segment) => {
 
 const updateSpeakerLabel = (speaker) => {
   console.log('🏷️ Updated label for', speaker, ':', speakerLabels.value[speaker])
+  console.log('🏷️ All speaker labels now:', speakerLabels.value)
+  console.log('🏷️ canRunSmartIdentify should update...')
 }
 
 const isSegmentActive = (segment) => {
@@ -2230,12 +2232,23 @@ const analyzingSpeaker = ref(false)
 
 // Check if we have enough labeled segments for pattern analysis
 const canRunSmartIdentify = computed(() => {
-  if (!diarizationResult.value?.segments) return false
+  if (!diarizationResult.value?.segments) {
+    console.log('🚫 canRunSmartIdentify: No segments')
+    return false
+  }
 
   // Check if we have any custom labels (not SPEAKER_XX format)
-  const hasCustomLabels = Object.values(speakerLabels.value).some(label =>
+  const labels = Object.values(speakerLabels.value)
+  const hasCustomLabels = labels.some(label =>
     label && label !== label.toUpperCase() && !label.startsWith('SPEAKER_')
   )
+
+  console.log('🔍 canRunSmartIdentify check:', {
+    totalLabels: labels.length,
+    labels: speakerLabels.value,
+    hasCustomLabels,
+    customLabelsFound: labels.filter(label => label && label !== label.toUpperCase() && !label.startsWith('SPEAKER_'))
+  })
 
   return hasCustomLabels
 })
