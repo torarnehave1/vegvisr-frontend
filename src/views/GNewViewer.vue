@@ -3271,7 +3271,7 @@ const restoreOriginalContent = () => {
 
 const translateAllNodes = async (targetLanguage) => {
   isTranslating.value = true
-  
+
   try {
     // Store original content if not already stored
     graphData.value.nodes.forEach(node => {
@@ -3286,19 +3286,19 @@ const translateAllNodes = async (targetLanguage) => {
     )
 
     console.log(`🌍 Starting translation of ${nodesToTranslate.length} nodes to ${targetLanguage}`)
-    
+
     // Translate nodes ONE AT A TIME for progressive rendering
     let translatedCount = 0
     for (const node of nodesToTranslate) {
       // Update status message with progress
       statusMessage.value = `Translating ${translatedCount + 1} of ${nodesToTranslate.length} nodes...`
-      
+
       // Check cache first
       const cacheKey = `${node.id}_${targetLanguage}`
       if (translationCache.value[cacheKey]) {
         node.info = translationCache.value[cacheKey]
         translatedCount++
-        
+
         // Force Vue to re-render cached nodes too
         await nextTick()
         await new Promise(resolve => setTimeout(resolve, 50))
@@ -3310,20 +3310,20 @@ const translateAllNodes = async (targetLanguage) => {
         originalNodeContents.value[node.id],
         targetLanguage
       )
-      
+
       if (translated && translated !== originalNodeContents.value[node.id]) {
         translationCache.value[cacheKey] = translated
         node.info = translated
         translatedCount++
-        
+
         // Force Vue to re-render immediately with nextTick
         await nextTick()
-        
+
         // Small delay to allow UI to paint (progressive rendering)
         await new Promise(resolve => setTimeout(resolve, 50))
       }
     }
-    
+
     statusMessage.value = `✅ Translation complete! ${translatedCount} nodes translated.`
     setTimeout(() => { statusMessage.value = '' }, 3000)
   } catch (err) {
@@ -6260,7 +6260,7 @@ const handleNodeUpdated = async (updatedNode) => {
 
     // Update local state
     graphData.value = updatedGraphData
-    
+
     // Clear translation cache and original content for this node since it was updated
     if (originalNodeContents.value[updatedNode.id]) {
       delete originalNodeContents.value[updatedNode.id]
