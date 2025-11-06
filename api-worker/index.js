@@ -6463,6 +6463,79 @@ const handleRemoveDomain = async (request, env) => {
   }
 }
 
+// POST /ai-translate - Translate text using Cloudflare Workers AI (Llama)
+const handleAITranslate = async (request, env) => {
+  try {
+    const { text, targetLanguage, prompt } = await request.json()
+
+    if (!text || !targetLanguage) {
+      return createErrorResponse('Missing required parameters: text, targetLanguage', 400)
+    }
+
+    // Language code mapping
+    const languageNames = {
+      en: 'English',
+      no: 'Norwegian (Bokmål)',
+      tr: 'Turkish',
+      es: 'Spanish',
+      fr: 'French',
+      de: 'German',
+      sv: 'Swedish',
+      da: 'Danish',
+      fi: 'Finnish',
+      is: 'Icelandic'
+    }
+
+    const targetLangName = languageNames[targetLanguage] || targetLanguage
+
+    // Build translation prompt
+    const translationPrompt = prompt || `Translate the following text to ${targetLangName}. Preserve all markdown formatting, including headers (#), lists, bold (**text**), italic (*text*), and links. Keep any HTML tags intact. Only translate the actual text content, not the formatting codes. Provide ONLY the translated text, no explanations or additional comments.
+
+Text to translate:
+${text}`
+
+    console.log('🌍 Translation request:', {
+      targetLanguage,
+      textLength: text.length,
+      model: '@cf/meta/llama-3.2-3b-instruct'
+    })
+
+    // Use Cloudflare Workers AI with Llama 3.2 3B (better for multilingual)
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional translator. Translate text accurately while preserving all formatting.'
+        },
+        {
+          role: 'user',
+          content: translationPrompt
+        }
+      ],
+      max_tokens: 2048,
+      temperature: 0.3, // Lower temperature for more consistent translations
+    })
+
+    const translatedText = aiResponse.response || text
+
+    console.log('✅ Translation completed:', {
+      originalLength: text.length,
+      translatedLength: translatedText.length
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      translation: translatedText,
+      targetLanguage,
+      model: '@cf/meta/llama-3.2-3b-instruct'
+    }))
+
+  } catch (error) {
+    console.error('❌ Error in handleAITranslate:', error)
+    return createErrorResponse('Translation failed: ' + error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -6597,6 +6670,11 @@ export default {
     }
     if (pathname === '/list-r2-images' && request.method === 'GET') {
       return await handleListR2Images(request, env)
+    }
+
+    // AI Translation endpoint using Cloudflare Workers AI (Llama)
+    if (pathname === '/ai-translate' && request.method === 'POST') {
+      return await handleAITranslate(request, env)
     }
 
     if (pathname === '/youtube-search' && request.method === 'GET') {
