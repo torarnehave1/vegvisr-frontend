@@ -16,6 +16,28 @@
       </div>
 
       <div v-else-if="graphData.nodes.length > 0" class="graph-content">
+        <!-- Language Selector (Public View) -->
+        <div class="language-selector-public">
+          <label class="language-label"><strong>Select Language:</strong></label>
+          <select v-model="selectedLanguage" @change="handleLanguageChange" class="form-select form-select-sm">
+            <option value="original">Original Language</option>
+            <option value="en">English</option>
+            <option value="no">Norwegian</option>
+            <option value="tr">Turkish</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+          </select>
+          <span v-if="isTranslating" class="translating-indicator">
+            <span class="spinner-border spinner-border-sm" role="status"></span>
+            <span v-if="statusMessage" class="translation-progress">{{ statusMessage }}</span>
+            <span v-else>Translating...</span>
+          </span>
+          <span v-else-if="statusMessage && statusMessage.includes('✅')" class="translation-success">
+            {{ statusMessage }}
+          </span>
+        </div>
+
         <!-- Ads (Public) - Phase 1: Static slots, single fetch in viewer -->
         <div v-if="currentGraphId" class="ads-layout ads-public">
           <!-- Hero Top (16:9) -->
@@ -231,6 +253,28 @@
 
         <!-- Admin Actions -->
         <div class="header-actions">
+          <!-- Language Selector -->
+          <div class="language-selector-admin">
+            <label class="language-label-admin"><strong>Select Language:</strong></label>
+            <select v-model="selectedLanguage" @change="handleLanguageChange" class="form-select form-select-sm language-selector">
+              <option value="original">Original</option>
+              <option value="en">🇬🇧 English</option>
+              <option value="no">🇳🇴 Norwegian</option>
+              <option value="tr">🇹🇷 Turkish</option>
+              <option value="es">🇪🇸 Spanish</option>
+              <option value="fr">🇫🇷 French</option>
+              <option value="de">🇩🇪 German</option>
+            </select>
+            <span v-if="isTranslating" class="translating-indicator ms-2">
+              <span class="spinner-border spinner-border-sm" role="status"></span>
+              <span v-if="statusMessage" class="translation-progress ms-1">{{ statusMessage }}</span>
+              <span v-else class="ms-1">Translating...</span>
+            </span>
+            <span v-else-if="statusMessage && statusMessage.includes('✅')" class="translation-success ms-2">
+              {{ statusMessage }}
+            </span>
+          </div>
+
           <!-- SEO Admin Button (Superadmin only) -->
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
@@ -2142,6 +2186,12 @@ const error = ref(null)
 const statusMessage = ref('')
 const duplicatingGraph = ref(false)
 
+// Translation state
+const selectedLanguage = ref('original')
+const isTranslating = ref(false)
+const translationCache = ref({}) // Cache translations: { nodeId: { lang: translatedContent } }
+const originalNodeContents = ref({}) // Store original content before translation
+
 // Password verification state
 const showPasswordModal = ref(false)
 const passwordInput = ref('')
@@ -3199,6 +3249,141 @@ const filteredMobileTemplates = computed(() => {
 })
 
 // Methods
+// Translation functions
+const handleLanguageChange = async () => {
+  if (selectedLanguage.value === 'original') {
+    // Restore original content
+    restoreOriginalContent()
+    return
+  }
+
+  // Translate all nodes (only when user explicitly selects)
+  await translateAllNodes(selectedLanguage.value)
+}
+
+const restoreOriginalContent = () => {
+  graphData.value.nodes.forEach(node => {
+    if (originalNodeContents.value[node.id]) {
+      node.info = originalNodeContents.value[node.id]
+    }
+  })
+}
+
+const translateAllNodes = async (targetLanguage) => {
+  isTranslating.value = true
+  
+  try {
+    // Store original content if not already stored
+    graphData.value.nodes.forEach(node => {
+      if (!originalNodeContents.value[node.id] && node.info) {
+        originalNodeContents.value[node.id] = node.info
+      }
+    })
+
+    // Filter nodes that need translation (fulltext nodes with content)
+    const nodesToTranslate = graphData.value.nodes.filter(
+      node => node.type === 'fulltext' && node.info && node.info.trim().length > 0
+    )
+
+    console.log(`🌍 Starting translation of ${nodesToTranslate.length} nodes to ${targetLanguage}`)
+    
+    // Translate nodes ONE AT A TIME for progressive rendering
+    let translatedCount = 0
+    for (const node of nodesToTranslate) {
+      // Update status message with progress
+      statusMessage.value = `Translating ${translatedCount + 1} of ${nodesToTranslate.length} nodes...`
+      
+      // Check cache first
+      const cacheKey = `${node.id}_${targetLanguage}`
+      if (translationCache.value[cacheKey]) {
+        node.info = translationCache.value[cacheKey]
+        translatedCount++
+        
+        // Force Vue to re-render cached nodes too
+        await nextTick()
+        await new Promise(resolve => setTimeout(resolve, 50))
+        continue
+      }
+
+      // Translate using AI
+      const translated = await translateNodeContent(
+        originalNodeContents.value[node.id],
+        targetLanguage
+      )
+      
+      if (translated && translated !== originalNodeContents.value[node.id]) {
+        translationCache.value[cacheKey] = translated
+        node.info = translated
+        translatedCount++
+        
+        // Force Vue to re-render immediately with nextTick
+        await nextTick()
+        
+        // Small delay to allow UI to paint (progressive rendering)
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+    }
+    
+    statusMessage.value = `✅ Translation complete! ${translatedCount} nodes translated.`
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+  } catch (err) {
+    console.error('Translation error:', err)
+    statusMessage.value = 'Translation failed: ' + err.message
+    setTimeout(() => { statusMessage.value = '' }, 5000)
+  } finally {
+    isTranslating.value = false
+  }
+}
+
+const translateNodeContent = async (content, targetLanguage) => {
+  const languageNames = {
+    en: 'English',
+    no: 'Norwegian (Bokmål)',
+    tr: 'Turkish',
+    es: 'Spanish',
+    fr: 'French',
+    de: 'German'
+  }
+
+  const prompt = `Translate the following text to ${languageNames[targetLanguage]}. Preserve all markdown formatting, including headers (#), lists, bold (**text**), italic (*text*), and links. Keep any HTML tags intact. Only translate the actual text content, not the formatting codes. Provide ONLY the translated text, no explanations.
+
+Text to translate:
+${content}`
+
+  console.log('🌍 Translating to:', languageNames[targetLanguage], 'Length:', content.length)
+
+  try {
+    // Use Cloudflare Workers AI with Llama model (much cheaper!)
+    const apiUrl = 'https://api.vegvisr.org/ai-translate'
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: content,
+        targetLanguage: targetLanguage,
+        model: '@cf/meta/llama-3.2-3b-instruct', // Cloudflare Workers AI model
+        prompt: prompt
+      }),
+    })
+
+    if (!response.ok) {
+      console.error('❌ Translation API failed:', response.status, response.statusText)
+      throw new Error(`Translation API error: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    console.log('✅ Translation received:', data.translation?.substring(0, 100) + '...')
+    return data.translation || data.text || content
+  } catch (err) {
+    console.error('❌ Translation API error:', err)
+    statusMessage.value = `Translation failed: ${err.message}`
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+    return content // Return original on error
+  }
+}
+
 // Clear password verification sessions for graphs other than the current one
 const clearOtherGraphPasswordSessions = (currentGraphId) => {
   const keysToRemove = []
@@ -6075,6 +6260,17 @@ const handleNodeUpdated = async (updatedNode) => {
 
     // Update local state
     graphData.value = updatedGraphData
+    
+    // Clear translation cache and original content for this node since it was updated
+    if (originalNodeContents.value[updatedNode.id]) {
+      delete originalNodeContents.value[updatedNode.id]
+    }
+    // Clear all cached translations for this node
+    Object.keys(translationCache.value).forEach(key => {
+      if (key.startsWith(`${updatedNode.id}_`)) {
+        delete translationCache.value[key]
+      }
+    })
 
     console.log('🎤 GNew: Node updated successfully, path:', updatedNode.path)
   } catch (error) {
@@ -7849,6 +8045,101 @@ const saveAttribution = async () => {
   font-weight: 700;
   flex-grow: 1;
   text-align: center;
+}
+
+/* Language Selector Styles */
+.language-selector {
+  max-width: 180px;
+  background: white;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.language-selector:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+.language-selector-admin {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-label-admin {
+  margin: 0;
+  font-size: 0.9rem;
+  color: white;
+  white-space: nowrap;
+}
+
+.language-label {
+  margin: 0;
+  margin-right: 10px;
+  font-size: 1rem;
+  color: #333;
+}
+
+.language-selector-public {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border: 2px solid #dee2e6;
+}
+
+.language-selector-public .form-select {
+  max-width: 200px;
+  font-weight: 500;
+}
+
+.translating-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.translating-indicator .spinner-border {
+  width: 1rem;
+  height: 1rem;
+  border-width: 2px;
+}
+
+.translation-progress {
+  font-size: 0.85rem;
+  color: #667eea;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.translation-success {
+  font-size: 0.9rem;
+  color: #28a745;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.language-selector-admin .translation-progress {
+  color: white;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .gnew-subtitle {
