@@ -602,6 +602,89 @@
       </div>
     </div>
 
+    <!-- Save Audio Only Section (NEW) -->
+    <div class="test-section save-audio-only-section">
+      <h2>💾 Save Audio Without Transcription</h2>
+      <p class="section-description">
+        Save pure audio recordings (mantras, music, sound recordings) to your portfolio without transcription
+      </p>
+
+      <!-- Audio metadata for direct save -->
+      <div v-if="selectedFile || recordedBlob" class="audio-metadata-form">
+        <div class="form-group">
+          <label><strong>Display Name:</strong></label>
+          <input 
+            v-model="audioOnlyDisplayName" 
+            type="text" 
+            class="form-control" 
+            placeholder="e.g., Morning Mantra, Jazz Session, Nature Sounds"
+          />
+        </div>
+
+        <div class="form-group">
+          <label><strong>Category:</strong></label>
+          <select v-model="audioOnlyCategory" class="form-control">
+            <option value="mantra">🕉️ Mantra/Meditation</option>
+            <option value="music">🎵 Music</option>
+            <option value="nature">🌿 Nature Sounds</option>
+            <option value="ambiance">🎧 Ambiance</option>
+            <option value="podcast">🎙️ Podcast/Speech</option>
+            <option value="other">📁 Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label><strong>Tags (comma separated):</strong></label>
+          <input 
+            v-model="audioOnlyTags" 
+            type="text" 
+            class="form-control" 
+            placeholder="e.g., meditation, relaxation, tibetan"
+          />
+        </div>
+
+        <div class="form-group">
+          <label><strong>Description (optional):</strong></label>
+          <textarea 
+            v-model="audioOnlyDescription" 
+            class="form-control" 
+            rows="2"
+            placeholder="Brief description of the audio content..."
+          ></textarea>
+        </div>
+
+        <button
+          @click="saveAudioOnly"
+          :disabled="savingAudioOnly || !userStore.loggedIn"
+          class="btn btn-primary save-audio-btn"
+        >
+          {{ savingAudioOnly ? '💾 Saving...' : '💾 Save Audio to Portfolio' }}
+        </button>
+
+        <div v-if="!userStore.loggedIn" class="login-hint">
+          ⚠️ Please log in to save audio to your portfolio
+        </div>
+
+        <div v-if="audioOnlySaved" class="portfolio-success">
+          ✅ Audio saved to your portfolio!
+          <router-link to="/audio-portfolio" class="btn btn-outline-primary btn-sm">
+            View Portfolio
+          </router-link>
+        </div>
+
+        <div v-if="audioOnlyError" class="portfolio-error">
+          ❌ Failed to save: {{ audioOnlyError }}
+          <button @click="saveAudioOnly" class="btn btn-outline-danger btn-sm">
+            Try Again
+          </button>
+        </div>
+      </div>
+
+      <div v-else class="no-audio-hint">
+        📌 Record or upload an audio file above to save it to your portfolio
+      </div>
+    </div>
+
     <!-- Norwegian Transcription Section -->
     <div class="test-section">
       <h2>🇳🇴 Norwegian Transcription</h2>
@@ -980,6 +1063,15 @@ const processingAborted = ref(false)
 const savingToPortfolio = ref(false)
 const portfolioSaved = ref(false)
 const portfolioError = ref(null)
+
+// Audio-only save state (NEW)
+const audioOnlyDisplayName = ref('')
+const audioOnlyCategory = ref('other')
+const audioOnlyTags = ref('')
+const audioOnlyDescription = ref('')
+const savingAudioOnly = ref(false)
+const audioOnlySaved = ref(false)
+const audioOnlyError = ref(null)
 
 // Graph creation state
 const creatingGraph = ref(false)
@@ -2889,6 +2981,118 @@ const saveToPortfolio = async () => {
     portfolioError.value = err.message
   } finally {
     savingToPortfolio.value = false
+  }
+}
+
+// Save audio only (without transcription) - NEW FUNCTION
+const saveAudioOnly = async () => {
+  if ((!selectedFile.value && !recordedBlob.value) || !userStore.loggedIn) {
+    audioOnlyError.value = 'Please select or record an audio file and log in'
+    return
+  }
+
+  savingAudioOnly.value = true
+  audioOnlyError.value = null
+
+  try {
+    const audioBlob = selectedFile.value || recordedBlob.value
+    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+
+    console.log('=== SAVING AUDIO ONLY (NO TRANSCRIPTION) ===')
+    console.log('Audio details:', { fileName, size: audioBlob.size, type: audioBlob.type })
+
+    // Step 1: Upload audio file to R2
+    const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
+      method: 'POST',
+      headers: {
+        'X-File-Name': fileName,
+      },
+      body: audioBlob,
+    })
+
+    if (!uploadResponse.ok) {
+      const uploadError = await uploadResponse.json()
+      throw new Error(uploadError.error || `Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadResult = await uploadResponse.json()
+    console.log('✅ Audio uploaded to R2:', uploadResult)
+
+    // Step 2: Parse tags
+    const tags = audioOnlyTags.value
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0)
+
+    // Step 3: Create recording data (audio-only, no transcription)
+    const recordingData = {
+      userEmail: userStore.email,
+      fileName: fileName,
+      displayName: audioOnlyDisplayName.value || fileName.replace(/\.[^/.]+$/, ''),
+      fileSize: audioBlob.size,
+      duration: recordingDuration.value || 0,
+
+      // R2 Information
+      r2Key: uploadResult.r2Key,
+      r2Url: uploadResult.audioUrl,
+
+      // No transcription data
+      transcriptionText: audioOnlyDescription.value || '', // Use description as fallback text
+      
+      // Organization
+      category: audioOnlyCategory.value,
+      tags: ['audio-only', 'no-transcription', ...tags],
+
+      // Technical metadata
+      audioFormat: audioBlob.type.split('/')[1] || 'wav',
+      sampleRate: 16000, // Default
+      channels: 1, // Default
+
+      // Mark as audio-only (no AI processing)
+      aiService: 'none',
+      aiModel: 'none',
+      processingTime: 0,
+    }
+
+    console.log('Recording data:', JSON.stringify(recordingData, null, 2))
+
+    // Step 4: Save to audio-portfolio-worker
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/save-recording',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userStore.email,
+        },
+        body: JSON.stringify(recordingData),
+      },
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Failed to save: ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('✅ Audio-only saved successfully:', result)
+
+    audioOnlySaved.value = true
+    
+    // Reset form
+    setTimeout(() => {
+      audioOnlyDisplayName.value = ''
+      audioOnlyCategory.value = 'other'
+      audioOnlyTags.value = ''
+      audioOnlyDescription.value = ''
+      audioOnlySaved.value = false
+    }, 3000)
+
+  } catch (err) {
+    console.error('Failed to save audio-only:', err)
+    audioOnlyError.value = err.message
+  } finally {
+    savingAudioOnly.value = false
   }
 }
 
@@ -5392,6 +5596,89 @@ const createChunkedGraph = async () => {
 
 .btn-remove-tag:hover {
   background: #fecaca;
+}
+
+/* Audio-Only Save Section Styles */
+.save-audio-only-section {
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border: 2px solid #86efac;
+}
+
+.save-audio-only-section h2 {
+  color: #166534;
+}
+
+.audio-metadata-form {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+.audio-metadata-form .form-group {
+  margin-bottom: 15px;
+}
+
+.audio-metadata-form label {
+  display: block;
+  margin-bottom: 5px;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.audio-metadata-form .form-control {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.audio-metadata-form .form-control:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+.save-audio-btn {
+  width: 100%;
+  padding: 12px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 10px;
+}
+
+.save-audio-btn:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+.save-audio-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.no-audio-hint {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.login-hint {
+  background: #fef3c7;
+  padding: 10px 15px;
+  border-radius: 6px;
+  color: #92400e;
+  margin-top: 10px;
+  font-size: 0.9rem;
 }
 
 /* ========== END DIARIZATION STYLES ========== */
