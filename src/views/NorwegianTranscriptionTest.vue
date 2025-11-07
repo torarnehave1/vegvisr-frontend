@@ -1188,11 +1188,11 @@ onMounted(async () => {
       }
 
       const blob = await response.blob()
-      
+
       // Create a File object from the blob
       const fileName = route.query.fileName || 'portfolio-audio.wav'
       const file = new File([blob], fileName, { type: blob.type || 'audio/wav' })
-      
+
       selectedFile.value = file
       console.log('✅ Audio file loaded from portfolio:', fileName, blob.size, 'bytes')
 
