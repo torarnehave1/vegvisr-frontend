@@ -1194,15 +1194,15 @@ onMounted(async () => {
       const file = new File([blob], fileName, { type: blob.type || 'audio/wav' })
 
       selectedFile.value = file
-      
+
       // Cleanup old preview URL if exists
       if (audioPreviewUrl.value) {
         URL.revokeObjectURL(audioPreviewUrl.value)
       }
-      
+
       // Create preview URL for audio player - this is CRITICAL for playback!
       // The audio player uses audioPreviewUrl computed property
-      
+
       console.log('✅ Audio file loaded from portfolio:', fileName, blob.size, 'bytes')
       console.log('📁 File object created, audio player should now be able to play it')
 
