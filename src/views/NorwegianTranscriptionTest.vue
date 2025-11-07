@@ -613,10 +613,10 @@
       <div v-if="selectedFile || recordedBlob" class="audio-metadata-form">
         <div class="form-group">
           <label><strong>Display Name:</strong></label>
-          <input 
-            v-model="audioOnlyDisplayName" 
-            type="text" 
-            class="form-control" 
+          <input
+            v-model="audioOnlyDisplayName"
+            type="text"
+            class="form-control"
             placeholder="e.g., Morning Mantra, Jazz Session, Nature Sounds"
           />
         </div>
@@ -635,19 +635,19 @@
 
         <div class="form-group">
           <label><strong>Tags (comma separated):</strong></label>
-          <input 
-            v-model="audioOnlyTags" 
-            type="text" 
-            class="form-control" 
+          <input
+            v-model="audioOnlyTags"
+            type="text"
+            class="form-control"
             placeholder="e.g., meditation, relaxation, tibetan"
           />
         </div>
 
         <div class="form-group">
           <label><strong>Description (optional):</strong></label>
-          <textarea 
-            v-model="audioOnlyDescription" 
-            class="form-control" 
+          <textarea
+            v-model="audioOnlyDescription"
+            class="form-control"
             rows="2"
             placeholder="Brief description of the audio content..."
           ></textarea>
@@ -3038,7 +3038,7 @@ const saveAudioOnly = async () => {
 
       // No transcription data
       transcriptionText: audioOnlyDescription.value || '', // Use description as fallback text
-      
+
       // Organization
       category: audioOnlyCategory.value,
       tags: ['audio-only', 'no-transcription', ...tags],
@@ -3078,7 +3078,7 @@ const saveAudioOnly = async () => {
     console.log('✅ Audio-only saved successfully:', result)
 
     audioOnlySaved.value = true
-    
+
     // Reset form
     setTimeout(() => {
       audioOnlyDisplayName.value = ''
