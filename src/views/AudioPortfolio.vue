@@ -296,6 +296,14 @@
                       >
                         🤖 View Analysis
                       </button>
+                      <button
+                        v-if="recording.r2Url"
+                        class="btn btn-outline-success btn-sm ms-2"
+                        @click="reTranscribe(recording)"
+                        title="Re-transcribe or analyze this recording"
+                      >
+                        🔄 Re-transcribe
+                      </button>
                     </div>
 
                     <!-- Connected Graphs -->
@@ -853,6 +861,36 @@ const viewAnalysis = (recording) => {
   }).catch(err => {
     console.error('Navigation error:', err)
     alert('Failed to navigate to analysis page. Please check console for details.')
+  })
+}
+
+const reTranscribe = (recording) => {
+  // Navigate to Norwegian Transcription page with this recording's audio URL
+  console.log('=== RE-TRANSCRIBE DEBUG ===')
+  console.log('Recording:', recording.displayName || recording.fileName)
+  console.log('R2 URL:', recording.r2Url)
+  console.log('Recording ID:', recording.recordingId || recording.id)
+  console.log('==========================')
+
+  if (!recording.r2Url) {
+    alert('Error: No audio URL available for this recording.')
+    return
+  }
+
+  // Navigate to Norwegian Transcription Test page with audio URL as query parameter
+  router.push({
+    path: '/norwegian-transcription-test',
+    query: {
+      audioUrl: recording.r2Url,
+      fileName: recording.fileName || recording.displayName,
+      recordingId: recording.recordingId || recording.id,
+      fromPortfolio: 'true'
+    }
+  }).then(() => {
+    console.log('✅ Navigated to Norwegian Transcription page')
+  }).catch(err => {
+    console.error('❌ Navigation error:', err)
+    alert('Failed to navigate to transcription page. Please check console for details.')
   })
 }
 

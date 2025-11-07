@@ -9,6 +9,11 @@
       </div>
     </div>
 
+    <!-- Status Message Display -->
+    <div v-if="statusMessage" class="status-banner" :class="statusMessage.includes('✅') ? 'success' : 'info'">
+      {{ statusMessage }}
+    </div>
+
     <!-- Health Check Section -->
     <div class="test-section">
       <h2>🏥 Service Health Check</h2>
@@ -1022,11 +1027,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
 // Router and Store
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 // Reactive data
@@ -1051,6 +1057,7 @@ const loadingMessage = ref('')
 const transcriptionResult = ref(null)
 const error = ref(null)
 const transcriptionContext = ref('')
+const statusMessage = ref('') // For general status messages
 
 // Chunked processing state
 const isChunkedProcessing = ref(false)
@@ -1161,6 +1168,41 @@ onMounted(async () => {
     } catch (err) {
       console.log('Microphone access not available:', err)
       microphoneSupported.value = false
+    }
+  }
+
+  // Check for audio URL from portfolio (query parameters)
+  const route = useRoute()
+  if (route.query.audioUrl && route.query.fromPortfolio === 'true') {
+    console.log('=== LOADING AUDIO FROM PORTFOLIO ===')
+    console.log('Audio URL:', route.query.audioUrl)
+    console.log('File Name:', route.query.fileName)
+    console.log('Recording ID:', route.query.recordingId)
+    console.log('====================================')
+
+    // Load the audio from URL
+    try {
+      const response = await fetch(route.query.audioUrl)
+      if (!response.ok) {
+        throw new Error(`Failed to load audio: ${response.statusText}`)
+      }
+
+      const blob = await response.blob()
+      
+      // Create a File object from the blob
+      const fileName = route.query.fileName || 'portfolio-audio.wav'
+      const file = new File([blob], fileName, { type: blob.type || 'audio/wav' })
+      
+      selectedFile.value = file
+      console.log('✅ Audio file loaded from portfolio:', fileName, blob.size, 'bytes')
+
+      // Show success message
+      statusMessage.value = `✅ Loaded: ${fileName} from Audio Portfolio`
+      setTimeout(() => { statusMessage.value = '' }, 5000)
+
+    } catch (err) {
+      console.error('❌ Failed to load audio from portfolio:', err)
+      error.value = { message: `Failed to load audio: ${err.message}` }
     }
   }
 
@@ -3768,6 +3810,39 @@ const createChunkedGraph = async () => {
   border-color: #dc143c;
   outline: none;
   box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+}
+
+/* Status Banner Styles */
+.status-banner {
+  padding: 15px 20px;
+  margin: 20px 0;
+  border-radius: 8px;
+  font-weight: 600;
+  text-align: center;
+  animation: slideDown 0.3s ease;
+}
+
+.status-banner.success {
+  background: #d1fae5;
+  color: #065f46;
+  border: 2px solid #10b981;
+}
+
+.status-banner.info {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 2px solid #3b82f6;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .context-examples {
