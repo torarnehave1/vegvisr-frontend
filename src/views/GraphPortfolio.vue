@@ -1210,7 +1210,7 @@ const fetchGraphs = async () => {
                   mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
                   mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
                   // Publication State (NEW) - Auto-publish if SEO slug exists
-                  publicationState: graphData.metadata?.publicationState || 
+                  publicationState: graphData.metadata?.publicationState ||
                                    (graphData.metadata?.seoSlug ? 'published' : 'draft'),
                   publishedAt: graphData.metadata?.publishedAt || null,
                 },
@@ -1280,8 +1280,8 @@ const fetchGraphs = async () => {
         if (userStore.role !== 'Superadmin') {
           // Regular users only see published graphs
           // Graphs with SEO slugs are automatically considered published
-          graphs.value = graphs.value.filter(graph => 
-            graph.metadata?.publicationState === 'published' || 
+          graphs.value = graphs.value.filter(graph =>
+            graph.metadata?.publicationState === 'published' ||
             graph.metadata?.seoSlug
           )
         }
