@@ -543,6 +543,7 @@
                           <!-- Vectorization Button (Superadmin only) -->
                           <button
                             v-if="
+                              userStore.email &&
                               userStore.role === 'Superadmin' &&
                               !graph.vectorization?.isVectorized &&
                               !graph.vectorization?.isVectorizing
@@ -554,7 +555,7 @@
                             <i class="bi bi-search"></i> Vectorize
                           </button>
                           <button
-                            v-if="userStore.role === 'Superadmin' && graph.vectorization?.isVectorizing"
+                            v-if="userStore.email && userStore.role === 'Superadmin' && graph.vectorization?.isVectorizing"
                             class="btn btn-outline-warning btn-sm"
                             disabled
                             title="Vectorization in progress..."
@@ -562,7 +563,7 @@
                             <i class="bi bi-hourglass-split"></i> Vectorizing...
                           </button>
                           <span
-                            v-if="userStore.role === 'Superadmin' && graph.vectorization?.isVectorized"
+                            v-if="userStore.email && userStore.role === 'Superadmin' && graph.vectorization?.isVectorized"
                             class="btn btn-success btn-sm"
                             title="Graph is vectorized and searchable"
                           >
