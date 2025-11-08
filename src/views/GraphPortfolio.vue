@@ -460,6 +460,15 @@
                             <i class="bi bi-person-badge"></i>
                             {{ graph.ambassadorStatus.affiliateCount }} Ambassadors
                           </span>
+                          <!-- Publication State Badge (Superadmin only) -->
+                          <span
+                            v-if="userStore.role === 'Superadmin'"
+                            class="badge ms-2 publication-state-badge"
+                            :class="graph.metadata?.publicationState === 'published' ? 'bg-success' : 'bg-warning text-dark'"
+                            :title="graph.metadata?.publicationState === 'published' ? 'Published - Visible to all users' : 'Draft - Only visible to Superadmin'"
+                          >
+                            {{ graph.metadata?.publicationState === 'published' ? '✅ Published' : '📝 Draft' }}
+                          </span>
                           <span
                             v-if="hasAffiliate(graph.id)"
                             class="badge bg-affiliate ms-2"
@@ -576,6 +585,16 @@
                             @click="editGraph(graph)"
                           >
                             Edit Graph
+                          </button>
+                          <!-- Toggle Publication State (Superadmin only) -->
+                          <button
+                            v-if="userStore.role === 'Superadmin' && editingGraphId !== graph.id"
+                            class="btn btn-sm"
+                            :class="graph.metadata?.publicationState === 'published' ? 'btn-outline-warning' : 'btn-outline-success'"
+                            @click="toggleGraphPublicationState(graph)"
+                            :title="graph.metadata?.publicationState === 'published' ? 'Unpublish (make draft)' : 'Publish (make visible to users)'"
+                          >
+                            {{ graph.metadata?.publicationState === 'published' ? '📝 Unpublish' : '✅ Publish' }}
                           </button>
                           <button
                             v-if="editingGraphId !== graph.id"
@@ -1190,6 +1209,9 @@ const fetchGraphs = async () => {
                   mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
                   mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
                   mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
+                  // Publication State (NEW)
+                  publicationState: graphData.metadata?.publicationState || 'draft',
+                  publishedAt: graphData.metadata?.publishedAt || null,
                 },
                 nodes: nodes.map((node) => ({
                   id: node.id,
@@ -1252,6 +1274,13 @@ const fetchGraphs = async () => {
             topAffiliate: status.topAffiliate || null,
           }
         })
+
+        // Filter by publication state based on user role (NEW)
+        if (userStore.role !== 'Superadmin') {
+          // Regular users only see published graphs
+          graphs.value = graphs.value.filter(graph => graph.metadata?.publicationState === 'published')
+        }
+        // Superadmin sees everything (no filtering needed)
 
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)
@@ -1585,6 +1614,70 @@ const saveEdit = async (originalGraph) => {
     }
   } catch (err) {
     error.value = err.message
+  }
+}
+
+// Toggle publication state for graphs (Superadmin only)
+const toggleGraphPublicationState = async (graph) => {
+  if (userStore.role !== 'Superadmin') {
+    alert('Only Superadmin can change publication state')
+    return
+  }
+
+  const newState = graph.metadata?.publicationState === 'published' ? 'draft' : 'published'
+  const confirmMessage = newState === 'published'
+    ? `Publish "${graph.metadata?.title || 'Untitled Graph'}"?\n\nThis will make it visible to all users.`
+    : `Unpublish "${graph.metadata?.title || 'Untitled Graph'}"?\n\nThis will make it only visible to Superadmin.`
+
+  if (!confirm(confirmMessage)) {
+    return
+  }
+
+  try {
+    // Fetch latest graph data to preserve all fields
+    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+    if (!graphResponse.ok) {
+      throw new Error('Failed to fetch current graph data')
+    }
+    const latestGraph = await graphResponse.json()
+
+    // Update publication state in metadata
+    const updatedMetadata = {
+      ...latestGraph.metadata,
+      publicationState: newState,
+      publishedAt: newState === 'published' ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString(),
+    }
+
+    // Save with updated metadata
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        id: graph.id,
+        graphData: {
+          ...latestGraph,
+          metadata: updatedMetadata,
+        },
+        override: false, // Create new version
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to update publication state: ${response.statusText}`)
+    }
+
+    // Update local graph data
+    graph.metadata.publicationState = newState
+    graph.metadata.publishedAt = updatedMetadata.publishedAt
+
+    console.log(`Graph ${newState === 'published' ? 'published' : 'unpublished'} successfully`)
+  } catch (err) {
+    console.error('Error updating publication state:', err)
+    alert('Failed to update publication state: ' + err.message)
   }
 }
 
@@ -2730,5 +2823,16 @@ const filterByMetaArea = (area) => {
   .mobile-title {
     font-size: 1.1rem;
   }
+}
+
+/* Publication State Badge */
+.publication-state-badge {
+  font-size: 0.75rem;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

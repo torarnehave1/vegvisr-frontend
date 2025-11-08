@@ -137,7 +137,17 @@
                   <!-- View Mode -->
                   <template v-else>
                     <div class="d-flex justify-content-between align-items-start mb-2">
-                      <h5 class="card-title mb-0 flex-grow-1">{{ recording.displayName }}</h5>
+                      <div class="flex-grow-1">
+                        <h5 class="card-title mb-0">{{ recording.displayName }}</h5>
+                        <!-- Publication State Badge (Superadmin only) -->
+                        <span
+                          v-if="userStore.role === 'Superadmin'"
+                          class="badge publication-state-badge"
+                          :class="recording.publicationState === 'published' ? 'bg-success' : 'bg-warning text-dark'"
+                        >
+                          {{ recording.publicationState === 'published' ? '✅ Published' : '📝 Draft' }}
+                        </span>
+                      </div>
                       <div class="btn-group btn-group-sm flex-shrink-0" role="group" style="margin-left: 8px;">
                         <button
                           class="btn btn-outline-secondary"
@@ -163,6 +173,17 @@
                           title="View RAW KV data"
                         >
                           🔍
+                        </button>
+                        <!-- Toggle Publication State (Superadmin only) -->
+                        <button
+                          v-if="userStore.role === 'Superadmin'"
+                          class="btn"
+                          :class="recording.publicationState === 'published' ? 'btn-outline-warning' : 'btn-outline-success'"
+                          type="button"
+                          @click="togglePublicationState(recording)"
+                          :title="recording.publicationState === 'published' ? 'Unpublish (make draft)' : 'Publish'"
+                        >
+                          {{ recording.publicationState === 'published' ? '📝 Draft' : '✅ Publish' }}
                         </button>
                       </div>
                     </div>
@@ -630,8 +651,11 @@ const fetchRecordings = async () => {
   error.value = null
 
   try {
+    // Pass user role to backend for filtering
+    const userRole = userStore.role === 'Superadmin' ? 'superadmin' : 'user'
+
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`,
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`,
     )
 
     if (!response.ok) {
@@ -662,6 +686,7 @@ const fetchRecordings = async () => {
       console.log('  - R2 URL:', recording.r2Url)
       console.log('  - Duration:', recording.duration)
       console.log('  - Estimated Duration:', recording.estimatedDuration)
+      console.log('  - Publication State:', recording.publicationState || 'N/A')
       console.log('  - Has transcription object:', !!recording.transcription)
       console.log('  - Has transcriptionText:', !!recording.transcriptionText)
       console.log(
@@ -787,6 +812,54 @@ const deleteRecording = async (recording) => {
   } catch (err) {
     console.error('Error deleting recording:', err)
     alert('Failed to delete recording: ' + err.message)
+  }
+}
+
+// Toggle publication state (Superadmin only)
+const togglePublicationState = async (recording) => {
+  if (userStore.role !== 'Superadmin') {
+    alert('Only Superadmin can change publication state')
+    return
+  }
+
+  const newState = recording.publicationState === 'published' ? 'draft' : 'published'
+  const confirmMessage = newState === 'published'
+    ? 'Publish this recording? It will be visible to all users.'
+    : 'Unpublish this recording? It will only be visible to Superadmin.'
+
+  if (!confirm(confirmMessage)) {
+    return
+  }
+
+  try {
+    const response = await fetch(
+      'https://audio-portfolio-worker.torarnehave.workers.dev/update-publication-state',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userEmail: userStore.email,
+          recordingId: recording.recordingId || recording.id,
+          publicationState: newState,
+          requestingUserRole: 'superadmin',
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to update publication state: ${response.statusText}`)
+    }
+
+    // Update local data
+    recording.publicationState = newState
+    recording.publishedAt = newState === 'published' ? new Date().toISOString() : null
+
+    console.log(`Recording ${newState === 'published' ? 'published' : 'unpublished'} successfully`)
+  } catch (err) {
+    console.error('Error updating publication state:', err)
+    alert('Failed to update publication state: ' + err.message)
   }
 }
 
@@ -1273,6 +1346,19 @@ onMounted(async () => {
 
 .raw-data-pre code {
   color: #ce9178;
+}
+
+/* Publication State Badge */
+.publication-state-badge {
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .info-grid {

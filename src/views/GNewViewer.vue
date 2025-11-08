@@ -4108,6 +4108,8 @@ const duplicateKnowledgeGraph = async () => {
         version: 1,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        publicationState: 'draft', // NEW: Default to draft for duplicated graphs
+        publishedAt: null,
       },
       nodes: duplicatedNodes,
       edges: duplicatedEdges,
