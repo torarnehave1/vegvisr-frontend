@@ -77,6 +77,10 @@ const saveRecordingToPortfolio = async (env, recordingData) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
 
+      // Publication State (NEW)
+      publicationState: recordingData.publicationState || 'draft', // 'draft' or 'published'
+      publishedAt: recordingData.publicationState === 'published' ? new Date().toISOString() : null,
+
       // Technical Details
       audioFormat: recordingData.audioFormat || 'wav',
       sampleRate: recordingData.sampleRate || 16000,
@@ -130,7 +134,7 @@ const saveRecordingToPortfolio = async (env, recordingData) => {
 }
 
 // Get user's audio recordings
-const getUserRecordings = async (env, userEmail, limit = 50, offset = 0) => {
+const getUserRecordings = async (env, userEmail, limit = 50, offset = 0, userRole = 'user') => {
   try {
     if (!userEmail) {
       throw new Error('User email is required')
@@ -151,7 +155,13 @@ const getUserRecordings = async (env, userEmail, limit = 50, offset = 0) => {
       const recordingKey = `audio-recording:${userEmail}:${recordingId}`
       const recordingData = await env.AUDIO_PORTFOLIO.get(recordingKey)
       if (recordingData) {
-        recordings.push(JSON.parse(recordingData))
+        const recording = JSON.parse(recordingData)
+
+        // Filter by publication state based on user role
+        // Superadmin sees everything, regular users only see published
+        if (userRole === 'superadmin' || recording.publicationState === 'published') {
+          recordings.push(recording)
+        }
       }
     }
 
@@ -160,7 +170,7 @@ const getUserRecordings = async (env, userEmail, limit = 50, offset = 0) => {
 
     return {
       recordings,
-      total: index.totalRecordings,
+      total: recordings.length, // Total after filtering
       userStats: {
         totalRecordings: index.totalRecordings,
         totalDuration: index.totalDuration,
@@ -391,8 +401,9 @@ export default {
         const userEmail = url.searchParams.get('userEmail')
         const limit = parseInt(url.searchParams.get('limit') || '50')
         const offset = parseInt(url.searchParams.get('offset') || '0')
+        const userRole = url.searchParams.get('userRole') || 'user' // NEW: Get user role
 
-        const result = await getUserRecordings(env, userEmail, limit, offset)
+        const result = await getUserRecordings(env, userEmail, limit, offset, userRole)
         return createSuccessResponse(result)
       }
 
@@ -438,6 +449,29 @@ export default {
           updates: Object.keys(updates),
           hasSpeakerTimeline: !!updates.speakerTimeline,
         })
+
+        const result = await updateRecording(env, userEmail, recordingId, updates)
+        return createSuccessResponse(result)
+      }
+
+      // POST /update-publication-state - Update publication state (Superadmin only)
+      if (pathname === '/update-publication-state' && request.method === 'POST') {
+        const body = await request.json()
+        const { userEmail, recordingId, publicationState, requestingUserRole } = body
+
+        // Only superadmin can change publication state
+        if (requestingUserRole !== 'superadmin') {
+          return createErrorResponse('Only superadmin can change publication state', 403)
+        }
+
+        if (!['draft', 'published'].includes(publicationState)) {
+          return createErrorResponse('Invalid publication state. Must be "draft" or "published"', 400)
+        }
+
+        const updates = {
+          publicationState,
+          publishedAt: publicationState === 'published' ? new Date().toISOString() : null
+        }
 
         const result = await updateRecording(env, userEmail, recordingId, updates)
         return createSuccessResponse(result)

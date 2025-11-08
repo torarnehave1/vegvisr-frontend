@@ -1014,10 +1014,12 @@ const testWorkerConnection = async () => {
 
 const saveSlugToGraphMetadata = async (slug) => {
   try {
-    // Update the graph's metadata with the SEO slug
+    // Update the graph's metadata with the SEO slug and auto-publish
     const updatedMetadata = {
       ...graphData.value.metadata,
       seoSlug: slug,
+      publicationState: 'published', // AUTO-PUBLISH when SEO is created
+      publishedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
 
@@ -1042,7 +1044,7 @@ const saveSlugToGraphMetadata = async (slug) => {
     // Update local data
     graphData.value = updatedGraphData
 
-    console.log('Successfully saved SEO slug to graph metadata:', slug)
+    console.log('Successfully saved SEO slug to graph metadata and auto-published graph:', slug)
   } catch (error) {
     console.error('Error saving slug to graph metadata:', error)
     throw error
@@ -1112,7 +1114,7 @@ const generateStaticPage = async () => {
     // Save the slug to the graph's metadata
     try {
       await saveSlugToGraphMetadata(seoConfig.value.slug)
-      successMessage.value = '✅ Static page generated successfully and slug saved to graph metadata!'
+      successMessage.value = '✅ Static page generated successfully! Graph auto-published and slug saved to metadata.'
     } catch (slugError) {
       console.warn('Failed to save slug to metadata:', slugError)
       successMessage.value = '✅ Static page generated successfully! (Warning: slug not saved to metadata)'
