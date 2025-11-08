@@ -1209,8 +1209,9 @@ const fetchGraphs = async () => {
                   mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
                   mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
                   mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
-                  // Publication State (NEW)
-                  publicationState: graphData.metadata?.publicationState || 'draft',
+                  // Publication State (NEW) - Auto-publish if SEO slug exists
+                  publicationState: graphData.metadata?.publicationState || 
+                                   (graphData.metadata?.seoSlug ? 'published' : 'draft'),
                   publishedAt: graphData.metadata?.publishedAt || null,
                 },
                 nodes: nodes.map((node) => ({
@@ -1278,7 +1279,11 @@ const fetchGraphs = async () => {
         // Filter by publication state based on user role (NEW)
         if (userStore.role !== 'Superadmin') {
           // Regular users only see published graphs
-          graphs.value = graphs.value.filter(graph => graph.metadata?.publicationState === 'published')
+          // Graphs with SEO slugs are automatically considered published
+          graphs.value = graphs.value.filter(graph => 
+            graph.metadata?.publicationState === 'published' || 
+            graph.metadata?.seoSlug
+          )
         }
         // Superadmin sees everything (no filtering needed)
 
