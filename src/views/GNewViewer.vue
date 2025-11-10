@@ -131,6 +131,61 @@
         <!-- Action Buttons (Mobile) -->
         <div class="mobile-menu-section">
           <h6>Actions</h6>
+
+          <!-- Language Selector (Mobile) -->
+          <div class="mb-3">
+            <label class="form-label small">Select Language:</label>
+            <select
+              v-model="selectedLanguage"
+              @change="handleLanguageChange"
+              class="form-select form-select-sm"
+              :disabled="isTranslating"
+            >
+              <option value="original">Original</option>
+              <option value="en">🇬🇧 English</option>
+              <option value="no">🇳🇴 Norwegian</option>
+              <option value="tr">🇹🇷 Turkish</option>
+              <option value="es">🇪🇸 Spanish</option>
+              <option value="fr">🇫🇷 French</option>
+              <option value="de">🇩🇪 German</option>
+            </select>
+            <div v-if="isTranslating" class="small text-muted mt-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>
+              {{ statusMessage || 'Translating...' }}
+            </div>
+            <div v-else-if="statusMessage && statusMessage.includes('✅')" class="small text-success mt-1">
+              {{ statusMessage }}
+            </div>
+          </div>
+
+          <!-- SEO Admin Button (Mobile - Superadmin only) -->
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="openSEOAdminAndClose"
+            class="btn btn-outline-success w-100 mb-2"
+            :disabled="!currentGraphId"
+          >
+            <i class="bi bi-gear-fill"></i> SEO Admin
+          </button>
+
+          <!-- Print Button (Mobile) -->
+          <button
+            @click="printGraphAndClose"
+            class="btn btn-outline-primary w-100 mb-2"
+          >
+            <i class="bi bi-printer"></i> Print
+          </button>
+
+          <!-- Graph Operations Button (Mobile - Superadmin only) -->
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="openGraphOperationsModalAndClose"
+            class="btn btn-outline-info w-100 mb-2"
+            :disabled="!currentGraphId"
+          >
+            <i class="bi bi-lightning-fill"></i> Graph Operations
+          </button>
+
           <button
             v-if="userStore.loggedIn"
             @click="navigateToProfessionalFeedAndClose"
@@ -3849,6 +3904,22 @@ const navigateToProfessionalFeed = () => {
 const navigateToProfessionalFeedAndClose = () => {
   closeMobileMenu()
   navigateToProfessionalFeed()
+}
+
+// Mobile menu wrappers for SEO, Print, and Graph Operations
+const openSEOAdminAndClose = () => {
+  closeMobileMenu()
+  openSEOAdmin()
+}
+
+const printGraphAndClose = () => {
+  closeMobileMenu()
+  printGraph()
+}
+
+const openGraphOperationsModalAndClose = () => {
+  closeMobileMenu()
+  openGraphOperationsModal()
 }
 
 // Node creation mobile wrappers
@@ -9027,6 +9098,14 @@ const saveAttribution = async () => {
 
   .gnew-header h1 {
     font-size: 2rem;
+  }
+
+  /* Hide desktop control buttons on mobile */
+  .gnew-header .language-selector-admin,
+  .gnew-header .seo-admin-button,
+  .gnew-header .print-button,
+  .gnew-header .btn-outline-info {
+    display: none !important;
   }
 
   .action-toolbar {
