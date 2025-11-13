@@ -185,7 +185,11 @@ const sendSMS = async () => {
       body: JSON.stringify(payload),
     })
 
+    console.log('SMS API Response Status:', response.status, response.statusText)
+
     const result = await response.json()
+
+    console.log('SMS API Response Data:', result)
 
     if (result.success) {
       successMessage.value = `Successfully sent SMS to ${result.successfulSends} recipient${result.successfulSends > 1 ? 's' : ''}!`
@@ -200,6 +204,7 @@ const sendSMS = async () => {
         recipients.value = []
       }, 3000)
     } else {
+      console.error('SMS sending failed:', result)
       errorMessage.value = result.error?.message || 'Failed to send SMS. Please try again.'
     }
 
@@ -207,6 +212,7 @@ const sendSMS = async () => {
     console.error('Error sending SMS:', error)
     errorMessage.value = 'Network error. Please check your connection and try again.'
   } finally {
+    console.log('SMS sending completed. Sending:', sending.value)
     sending.value = false
   }
 }
