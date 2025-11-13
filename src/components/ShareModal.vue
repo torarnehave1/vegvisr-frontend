@@ -88,6 +88,14 @@
           >
             <i class="bi bi-facebook"></i> Facebook
           </button>
+          <button
+            class="btn btn-outline-success share-btn sms-btn"
+            @click="shareViaSMS"
+            :disabled="shareContent.includes('Generating')"
+            title="Share via SMS"
+          >
+            <i class="bi bi-chat-dots"></i> SMS
+          </button>
 
           <!-- NEW: Share to AI button (superadmin only) -->
           <button
@@ -271,6 +279,13 @@ const shareToFacebook = () => {
   const url = encodeURIComponent(getShareUrl())
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`
   window.open(facebookUrl, '_blank', 'width=600,height=400')
+}
+
+const shareViaSMS = () => {
+  // Navigate to SMS sharing page with the share content
+  const url = getShareUrl()
+  const smsPageUrl = `/sms-share?content=${encodeURIComponent(shareContent.value)}&url=${encodeURIComponent(url)}&graphId=${props.currentGraphId}`
+  window.location.href = smsPageUrl
 }
 
 const shareToAI = async () => {
@@ -463,6 +478,16 @@ watch(
 
 .facebook-btn:hover:not(:disabled) {
   background-color: #1877f2;
+  color: white;
+}
+
+.sms-btn {
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.sms-btn:hover:not(:disabled) {
+  background-color: #28a745;
   color: white;
 }
 
