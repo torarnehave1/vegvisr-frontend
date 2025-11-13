@@ -1,11 +1,11 @@
 /**
  * SMS Gateway Worker (Cloudflare)
  *
- * Sends SMS messages via SMSMobileAPI (https://api.smsmobileapi.com)
+ * Sends SMS messages via GatewayAPI (https://gatewayapi.com)
  *
  * Environment Variables Required:
- *   SMS_API_BASE_URL - Base URL for SMS API (e.g., "https://api.smsmobileapi.com/sendsms/")
- *   SMS_API_KEY      - API key for SMS service (set as Wrangler secret)
+ *   SMS_API_BASE_URL - Base URL for SMS API (e.g., "https://gatewayapi.com/rest/mtsms")
+ *   SMS_API_TOKEN    - API token for GatewayAPI (set as Wrangler secret)
  */
 
 // Main request handler
@@ -34,7 +34,7 @@ export default {
 async function handleSendSMS(request, env) {
   try {
     // Validate environment variables
-    if (!env.SMS_API_BASE_URL || !env.SMS_API_KEY) {
+    if (!env.SMS_API_BASE_URL || !env.SMS_API_TOKEN) {
       console.error('Missing required environment variables')
       return jsonResponse(
         { error: 'Server configuration error: missing SMS API credentials' },
@@ -80,18 +80,21 @@ async function handleSendSMS(request, env) {
       )
     }
 
-    // Send SMS to all recipients
-    const results = await sendBulkSMS(recipients, message, env)
+    // Normalize and validate sender name (max 11 alphanumeric chars or 15 digits)
+    let sender = body.sender || null
+    if (sender) {
+      sender = String(sender).trim()
+      // Truncate to 11 characters for alphanumeric senders
+      if (sender.length > 11) {
+        console.log(`Sender name truncated from "${sender}" to "${sender.substring(0, 11)}"`)
+        sender = sender.substring(0, 11)
+      }
+    }
 
-    // Determine overall success
-    const allSuccessful = results.every(r => r.ok)
+    // Send SMS using GatewayAPI (single request for all recipients)
+    const result = await sendSMSViaGatewayAPI(recipients, message, sender, env)
 
-    return jsonResponse({
-      success: allSuccessful,
-      totalRecipients: recipients.length,
-      successfulSends: results.filter(r => r.ok).length,
-      results: results
-    })
+    return jsonResponse(result)
 
   } catch (error) {
     console.error('Unexpected error in handleSendSMS:', error)
@@ -119,75 +122,89 @@ function normalizePhoneNumbers(input) {
 }
 
 /**
- * Send SMS to multiple recipients
- * Sends one request per recipient
+ * Send SMS via GatewayAPI
+ * Uses GatewayAPI REST endpoint with Basic Authentication
  */
-async function sendBulkSMS(recipients, message, env) {
-  const promises = recipients.map(phoneNumber =>
-    sendSingleSMS(phoneNumber, message, env)
-  )
-
-  return await Promise.all(promises)
-}
-
-/**
- * Send SMS to a single recipient
- * Returns detailed result object
- */
-async function sendSingleSMS(phoneNumber, message, env) {
+async function sendSMSViaGatewayAPI(recipients, message, sender, env) {
   const result = {
-    number: phoneNumber,
-    ok: false,
-    status: null,
-    providerResponse: null
+    success: false,
+    totalRecipients: recipients.length,
+    successfulSends: 0,
+    messageIds: [],
+    usage: null,
+    error: null
   }
 
   try {
-    // Build provider URL with query parameters
-    const providerUrl = new URL(env.SMS_API_BASE_URL)
-    providerUrl.searchParams.set('recipients', phoneNumber)
-    providerUrl.searchParams.set('message', message)
-    providerUrl.searchParams.set('apikey', env.SMS_API_KEY)
+    // Convert phone numbers to GatewayAPI format (msisdn objects)
+    const recipientsArray = recipients.map(phoneNumber => ({
+      msisdn: parseInt(phoneNumber.replace(/\+/g, ''), 10) // Remove + and convert to integer
+    }))
 
-    console.log(`Sending SMS to ${phoneNumber}`)
-
-    // Call provider API
-    const response = await fetch(providerUrl.toString(), {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Vegvisr-SMS-Gateway/1.0'
-      }
-    })
-
-    result.status = response.status
-    result.ok = response.ok
-
-    // Try to parse response
-    const contentType = response.headers.get('content-type') || ''
-
-    if (contentType.includes('application/json')) {
-      try {
-        result.providerResponse = await response.json()
-      } catch {
-        result.providerResponse = await response.text()
-      }
-    } else {
-      result.providerResponse = await response.text()
+    // Build request payload
+    const payload = {
+      message: message,
+      recipients: recipientsArray
     }
 
+    // Add sender if provided (up to 11 alphanumeric chars or 15 digits)
+    if (sender) {
+      payload.sender = sender
+    }
+
+    console.log('Sending SMS via GatewayAPI:', {
+      recipients: recipientsArray.length,
+      sender: sender || 'default'
+    })
+
+    // Create Basic Auth header (format: "token:")
+    const authString = btoa(`${env.SMS_API_TOKEN}:`)
+
+    // Call GatewayAPI
+    const response = await fetch(env.SMS_API_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${authString}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Vegvisr-SMS-Gateway/2.0'
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const responseData = await response.json()
+
     if (response.ok) {
-      console.log(`✅ SMS sent successfully to ${phoneNumber}`)
+      // Success response
+      result.success = true
+      result.successfulSends = recipients.length
+      result.messageIds = responseData.ids || []
+      result.usage = responseData.usage || null
+
+      console.log(`✅ SMS sent successfully to ${recipients.length} recipient(s)`)
+      console.log(`   Message IDs: ${result.messageIds.join(', ')}`)
+      if (result.usage) {
+        console.log(`   Cost: ${result.usage.total_cost} ${result.usage.currency}`)
+      }
     } else {
-      console.error(`❌ SMS failed for ${phoneNumber}: ${response.status}`, result.providerResponse)
+      // Error response
+      result.success = false
+      result.error = {
+        status: response.status,
+        code: responseData.code || null,
+        message: responseData.message || 'Unknown error',
+        incident_uuid: responseData.incident_uuid || null
+      }
+
+      console.error(`❌ SMS failed: ${response.status}`, responseData)
     }
 
   } catch (error) {
-    console.error(`Error sending SMS to ${phoneNumber}:`, error)
-    result.ok = false
-    result.status = 0
-    result.providerResponse = {
-      error: 'Network error',
-      details: error.message
+    console.error('Error calling GatewayAPI:', error)
+    result.success = false
+    result.error = {
+      type: 'network_error',
+      message: error.message
     }
   }
 
