@@ -31,7 +31,7 @@
             Recipients
             <span class="badge bg-primary ms-2">{{ recipients.length }}</span>
           </label>
-          
+
           <!-- Add Recipient Input -->
           <div class="add-recipient-group">
             <input
@@ -189,7 +189,7 @@ const sendSMS = async () => {
 
     if (result.success) {
       successMessage.value = `Successfully sent SMS to ${result.successfulSends} recipient${result.successfulSends > 1 ? 's' : ''}!`
-      
+
       // Show cost information if available
       if (result.usage && result.usage.total_cost) {
         successMessage.value += ` Cost: €${result.usage.total_cost.toFixed(4)}`
@@ -218,7 +218,7 @@ const goBack = () => {
 // Load content from URL parameters
 onMounted(() => {
   shareContent.value = route.query.content || 'Check out this knowledge graph!'
-  
+
   // Optionally pre-populate sender name
   senderName.value = 'Vegvisr'
 })
