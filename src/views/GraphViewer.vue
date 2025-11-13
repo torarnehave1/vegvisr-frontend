@@ -2,7 +2,7 @@
   <div class="graph-viewer container">
     <!-- DEBUG: User Role Indicator -->
     <div v-if="userStore.loggedIn" style="background: #f0f0f0; padding: 8px; margin-bottom: 10px; border-radius: 4px; font-size: 12px;">
-      🔍 Debug: Logged in as <strong>{{ userStore.email }}</strong> | Role: <strong>{{ userStore.role }}</strong> | 
+      🔍 Debug: Logged in as <strong>{{ userStore.email }}</strong> | Role: <strong>{{ userStore.role }}</strong> |
       NodeControlBar visible: <strong>{{ ['Admin', 'Editor', 'Superadmin'].includes(userStore.role) ? 'YES ✅' : 'NO ❌' }}</strong>
     </div>
     <!-- ============================= -->
