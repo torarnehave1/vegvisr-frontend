@@ -603,11 +603,15 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-height: 600px;
+  max-height: 650px; /* ~5 items */
   overflow-y: scroll; /* Always show scrollbar */
   padding-right: 0.5rem;
   scrollbar-width: thin; /* For Firefox */
-  scrollbar-color: #888 #f1f1f1; /* For Firefox */
+  scrollbar-color: #28a745 #f1f1f1; /* For Firefox */
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fafafa;
 }
 
 .history-list::-webkit-scrollbar {
@@ -758,7 +762,7 @@ onMounted(() => {
   }
 
   .history-list {
-    max-height: 400px;
+    max-height: 500px; /* ~5 items on mobile */
   }
 
   .history-footer {
