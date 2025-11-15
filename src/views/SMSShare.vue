@@ -18,7 +18,6 @@
             v-model="shareContent"
             class="form-control message-preview"
             rows="6"
-            readonly
           ></textarea>
           <small class="text-muted">
             {{ messageCharCount }} characters
