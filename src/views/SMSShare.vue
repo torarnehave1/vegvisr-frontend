@@ -307,7 +307,8 @@ const sendSMS = async () => {
 
       // Show cost information if available from ClickSend
       if (result.totalPrice) {
-        successMessage.value += ` Cost: $${result.totalPrice.toFixed(2)} ${result.currency || 'USD'}`
+        const currency = result.currency || 'NOK'
+        successMessage.value += ` Cost: ${result.totalPrice.toFixed(2)} ${currency}`
       }
 
       // Clear recipients after successful send
@@ -602,6 +603,27 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.history-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.history-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 .history-item {
@@ -729,6 +751,16 @@ onMounted(() => {
 
   .btn-lg {
     width: 100%;
+  }
+
+  .history-list {
+    max-height: 400px;
+  }
+
+  .history-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
 </style>
