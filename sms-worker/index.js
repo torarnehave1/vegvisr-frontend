@@ -21,6 +21,10 @@ export default {
       return handleSendSMS(request, env)
     }
 
+    if (url.pathname === '/api/sms/history' && request.method === 'GET') {
+      return handleGetSMSHistory(request, env)
+    }
+
     if (url.pathname === '/' || url.pathname === '/api') {
       return jsonResponse({
         success: true,
@@ -31,6 +35,66 @@ export default {
     }
 
     return jsonResponse({ error: 'Not found' }, 404)
+  }
+}
+
+async function handleGetSMSHistory(request, env) {
+  try {
+    if (!env.CLICKSEND_USERNAME || !env.CLICKSEND_API_KEY) {
+      return jsonResponse(
+        { error: 'Missing ClickSend API credentials' },
+        500
+      )
+    }
+
+    const url = new URL(request.url)
+    const page = url.searchParams.get('page') || '1'
+    const status = url.searchParams.get('status') || 'all'
+
+    const authString = btoa(`${env.CLICKSEND_USERNAME}:${env.CLICKSEND_API_KEY}`)
+
+    let historyUrl = `https://rest.clicksend.com/v3/sms/history?page=${page}`
+    if (status !== 'all') {
+      historyUrl += `&status=${status}`
+    }
+
+    console.log('Fetching SMS history:', { page, status })
+
+    const response = await fetch(historyUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${authString}`,
+        'Accept': 'application/json'
+      }
+    })
+
+    const data = await response.json()
+
+    console.log('ClickSend History Response:', {
+      status: response.status,
+      hasData: !!data
+    })
+
+    if (response.ok) {
+      return jsonResponse({
+        success: true,
+        data: data.data || data,
+        http_code: data.http_code
+      })
+    } else {
+      return jsonResponse({
+        success: false,
+        error: data.response_msg || data.message || 'Failed to fetch history',
+        http_code: data.http_code || response.status
+      }, response.status)
+    }
+
+  } catch (error) {
+    console.error('Error fetching SMS history:', error)
+    return jsonResponse(
+      { error: 'Internal server error', details: error.message },
+      500
+    )
   }
 }
 
@@ -46,7 +110,7 @@ async function handleSendSMS(request, env) {
     let body
     try {
       body = await request.json()
-    } catch (parseError) {
+    } catch {
       return jsonResponse({ error: 'Invalid JSON' }, 400)
     }
 
