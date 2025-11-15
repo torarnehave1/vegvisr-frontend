@@ -68,6 +68,26 @@
             <span class="badge bg-primary ms-2">{{ recipients.length }}</span>
           </label>
 
+          <!-- Load from List -->
+          <div class="mb-3">
+            <label class="form-label small">Quick Load from List</label>
+            <div class="input-group">
+              <select v-model="selectedListForSend" class="form-select" @change="loadListRecipientsForSend">
+                <option value="">-- Select a list --</option>
+                <option v-for="list in recipientLists" :key="list.id" :value="list.id">
+                  {{ list.name }}
+                </option>
+              </select>
+              <button 
+                @click="loadListRecipientsForSend" 
+                class="btn btn-outline-primary"
+                :disabled="!selectedListForSend"
+              >
+                <i class="bi bi-download"></i> Load
+              </button>
+            </div>
+          </div>
+
           <!-- Add Recipient Input -->
           <div class="add-recipient-group">
             <input
@@ -394,6 +414,7 @@ const loadFromList = ref(false)
 const selectedFile = ref(null)
 const fileInput = ref(null)
 const importing = ref(false)
+const selectedListForSend = ref('')
 
 // History data
 const smsHistory = ref([])
@@ -621,6 +642,32 @@ const loadRecipientsToSend = () => {
   setTimeout(() => { successMessage.value = '' }, 3000)
 }
 
+const loadListRecipientsForSend = async () => {
+  if (!selectedListForSend.value) return
+  
+  try {
+    const response = await fetch(`https://sms-gateway.torarnehave.workers.dev/api/sms/lists/${selectedListForSend.value}/recipients`, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch recipients')
+    }
+    
+    const data = await response.json()
+    recipients.value = data.map(r => r.phone_number)
+    
+    const listName = recipientLists.value.find(l => l.id === selectedListForSend.value)?.name
+    successMessage.value = `Loaded ${recipients.value.length} recipients from ${listName}`
+    setTimeout(() => { successMessage.value = '' }, 3000)
+  } catch (err) {
+    errorMessage.value = `Failed to load recipients: ${err.message}`
+    setTimeout(() => { errorMessage.value = '' }, 3000)
+  }
+}
+
 const handleFileUpload = (event) => {
   selectedFile.value = event.target.files[0]
 }
@@ -780,6 +827,9 @@ onMounted(() => {
 
   // Optionally pre-populate sender name
   senderName.value = 'Vegvisr'
+  
+  // Load recipient lists for dropdown in Send tab
+  loadLists()
 })
 </script>
 
