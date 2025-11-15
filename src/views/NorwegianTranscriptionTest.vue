@@ -1172,7 +1172,6 @@ onMounted(async () => {
   }
 
   // Check for audio URL from portfolio (query parameters)
-  const route = useRoute()
   if (route.query.audioUrl && route.query.fromPortfolio === 'true') {
     console.log('=== LOADING AUDIO FROM PORTFOLIO ===')
     console.log('Audio URL:', route.query.audioUrl)
