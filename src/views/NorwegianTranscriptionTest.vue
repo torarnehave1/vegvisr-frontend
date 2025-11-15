@@ -1919,7 +1919,10 @@ const loadPortfolioForDiarization = async () => {
 
     const data = await response.json()
     console.log('🔍 API Response:', data)
+    console.log('🔍 Full API response JSON:', JSON.stringify(data, null, 2))
     console.log('🔍 Recordings in response:', data.recordings?.length || 0)
+    console.log('🔍 User email used:', userStore.email)
+    console.log('🔍 User role used:', userRole)
     diarizationRecordings.value = data.recordings || []
     console.log('📼 Loaded portfolio for diarization:', diarizationRecordings.value.length, 'recordings')
 
