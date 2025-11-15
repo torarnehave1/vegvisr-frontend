@@ -25,6 +25,31 @@ export default {
       return handleGetSMSHistory(request, env)
     }
 
+    // Recipient Lists endpoints
+    if (url.pathname === '/api/lists' && request.method === 'GET') {
+      return handleGetLists(request, env)
+    }
+
+    if (url.pathname === '/api/lists' && request.method === 'POST') {
+      return handleCreateList(request, env)
+    }
+
+    if (url.pathname.startsWith('/api/lists/') && request.method === 'DELETE') {
+      return handleDeleteList(request, env)
+    }
+
+    if (url.pathname.startsWith('/api/lists/') && url.pathname.endsWith('/recipients') && request.method === 'GET') {
+      return handleGetRecipients(request, env)
+    }
+
+    if (url.pathname.startsWith('/api/lists/') && url.pathname.endsWith('/recipients') && request.method === 'POST') {
+      return handleAddRecipient(request, env)
+    }
+
+    if (url.pathname.match(/^\/api\/lists\/[^/]+\/recipients\/[^/]+$/) && request.method === 'DELETE') {
+      return handleDeleteRecipient(request, env)
+    }
+
     if (url.pathname === '/' || url.pathname === '/api') {
       return jsonResponse({
         success: true,
@@ -334,9 +359,136 @@ function handleCORS() {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Max-Age': '86400',
     }
   })
+}
+
+// ===== RECIPIENT LISTS HANDLERS =====
+
+async function handleGetLists(request, env) {
+  try {
+    const url = new URL(request.url)
+    const userEmail = url.searchParams.get('userEmail')
+
+    if (!userEmail) {
+      return jsonResponse({ error: 'userEmail parameter required' }, 400)
+    }
+
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM sms_recipient_lists WHERE user_email = ? ORDER BY updated_at DESC'
+    ).bind(userEmail).all()
+
+    return jsonResponse({ success: true, lists: results })
+  } catch (error) {
+    console.error('Error getting lists:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+async function handleCreateList(request, env) {
+  try {
+    const body = await request.json()
+    const { userEmail, userId, name, description } = body
+
+    if (!userEmail || !userId || !name) {
+      return jsonResponse({ error: 'userEmail, userId, and name are required' }, 400)
+    }
+
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+
+    await env.DB.prepare(
+      'INSERT INTO sms_recipient_lists (id, user_id, user_email, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, userId, userEmail, name, description || null, now, now).run()
+
+    return jsonResponse({ success: true, id, name })
+  } catch (error) {
+    console.error('Error creating list:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+async function handleDeleteList(request, env) {
+  try {
+    const url = new URL(request.url)
+    const listId = url.pathname.split('/')[3]
+
+    if (!listId) {
+      return jsonResponse({ error: 'List ID required' }, 400)
+    }
+
+    await env.DB.prepare('DELETE FROM sms_recipient_lists WHERE id = ?').bind(listId).run()
+
+    return jsonResponse({ success: true })
+  } catch (error) {
+    console.error('Error deleting list:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+async function handleGetRecipients(request, env) {
+  try {
+    const url = new URL(request.url)
+    const listId = url.pathname.split('/')[3]
+
+    if (!listId) {
+      return jsonResponse({ error: 'List ID required' }, 400)
+    }
+
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM sms_recipients WHERE list_id = ? ORDER BY created_at DESC'
+    ).bind(listId).all()
+
+    return jsonResponse({ success: true, recipients: results })
+  } catch (error) {
+    console.error('Error getting recipients:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+async function handleAddRecipient(request, env) {
+  try {
+    const url = new URL(request.url)
+    const listId = url.pathname.split('/')[3]
+    const body = await request.json()
+    const { name, phoneNumber, notes } = body
+
+    if (!listId || !phoneNumber) {
+      return jsonResponse({ error: 'List ID and phoneNumber are required' }, 400)
+    }
+
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+
+    await env.DB.prepare(
+      'INSERT INTO sms_recipients (id, list_id, name, phone_number, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(id, listId, name || null, phoneNumber, notes || null, now).run()
+
+    return jsonResponse({ success: true, id })
+  } catch (error) {
+    console.error('Error adding recipient:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+async function handleDeleteRecipient(request, env) {
+  try {
+    const url = new URL(request.url)
+    const parts = url.pathname.split('/')
+    const recipientId = parts[5]
+
+    if (!recipientId) {
+      return jsonResponse({ error: 'Recipient ID required' }, 400)
+    }
+
+    await env.DB.prepare('DELETE FROM sms_recipients WHERE id = ?').bind(recipientId).run()
+
+    return jsonResponse({ success: true })
+  } catch (error) {
+    console.error('Error deleting recipient:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
 }
