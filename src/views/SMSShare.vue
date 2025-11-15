@@ -106,7 +106,7 @@
         <!-- Cost Estimate -->
         <div v-if="recipients.length > 0" class="cost-estimate">
           <i class="bi bi-info-circle"></i>
-          Estimated cost: ~€{{ (recipients.length * 0.05).toFixed(2) }} for {{ recipients.length }} recipient{{ recipients.length > 1 ? 's' : '' }}
+          Estimated cost: ~${{ (recipients.length * 0.68).toFixed(2) }} for {{ recipients.length }} recipient{{ recipients.length > 1 ? 's' : '' }}
         </div>
       </div>
     </div>
@@ -194,9 +194,9 @@ const sendSMS = async () => {
     if (result.success) {
       successMessage.value = `Successfully sent SMS to ${result.successfulSends} recipient${result.successfulSends > 1 ? 's' : ''}!`
 
-      // Show cost information if available
-      if (result.usage && result.usage.total_cost) {
-        successMessage.value += ` Cost: €${result.usage.total_cost.toFixed(4)}`
+      // Show cost information if available from ClickSend
+      if (result.totalPrice) {
+        successMessage.value += ` Cost: $${result.totalPrice.toFixed(2)} ${result.currency || 'USD'}`
       }
 
       // Clear recipients after successful send
