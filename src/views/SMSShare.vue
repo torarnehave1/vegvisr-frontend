@@ -231,6 +231,31 @@
               </button>
             </div>
 
+            <!-- Import from CSV/Excel -->
+            <div class="import-section mb-3">
+              <h6>Import from File</h6>
+              <div class="input-group">
+                <input
+                  ref="fileInput"
+                  type="file"
+                  class="form-control"
+                  accept=".csv,.xlsx,.xls"
+                  @change="handleFileUpload"
+                />
+                <button @click="importFile" class="btn btn-info" :disabled="!selectedFile || importing">
+                  <span v-if="!importing">
+                    <i class="bi bi-upload"></i> Import
+                  </span>
+                  <span v-else>
+                    <span class="spinner-border spinner-border-sm me-1"></span> Importing...
+                  </span>
+                </button>
+              </div>
+              <small class="text-muted">
+                Supported: CSV, Excel (.xlsx, .xls). Expected columns: Name, Phone (or Phone Number)
+              </small>
+            </div>
+
             <!-- Load to Send Form -->
             <button @click="loadRecipientsToSend" class="btn btn-primary mb-3">
               <i class="bi bi-arrow-right"></i> Load All to Send Form
@@ -339,6 +364,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
+import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 
 const route = useRoute()
 const router = useRouter()
@@ -364,6 +391,9 @@ const listRecipients = ref([])
 const newRecipientName = ref('')
 const newRecipientPhone = ref('')
 const loadFromList = ref(false)
+const selectedFile = ref(null)
+const fileInput = ref(null)
+const importing = ref(false)
 
 // History data
 const smsHistory = ref([])
@@ -589,6 +619,112 @@ const loadRecipientsToSend = () => {
   activeTab.value = 'send'
   successMessage.value = `Loaded ${recipients.value.length} recipients from ${selectedList.value.name}`
   setTimeout(() => { successMessage.value = '' }, 3000)
+}
+
+const handleFileUpload = (event) => {
+  selectedFile.value = event.target.files[0]
+}
+
+const importFile = async () => {
+  if (!selectedFile.value || !selectedList.value) return
+
+  importing.value = true
+  try {
+    const fileName = selectedFile.value.name.toLowerCase()
+    let parsedData = []
+
+    if (fileName.endsWith('.csv')) {
+      parsedData = await parseCSV(selectedFile.value)
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      parsedData = await parseExcel(selectedFile.value)
+    } else {
+      alert('Unsupported file format. Please use CSV or Excel files.')
+      return
+    }
+
+    // Import recipients in batch
+    let imported = 0
+    for (const recipient of parsedData) {
+      if (recipient.phone) {
+        try {
+          const response = await fetch(
+            `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: recipient.name || '',
+                phoneNumber: recipient.phone
+              })
+            }
+          )
+          if ((await response.json()).success) {
+            imported++
+          }
+        } catch (error) {
+          console.error('Error importing recipient:', error)
+        }
+      }
+    }
+
+    // Refresh the list
+    await selectList(selectedList.value)
+    
+    // Clear file input
+    selectedFile.value = null
+    if (fileInput.value) {
+      fileInput.value.value = ''
+    }
+
+    alert(`Successfully imported ${imported} out of ${parsedData.length} recipients`)
+  } catch (error) {
+    console.error('Error importing file:', error)
+    alert('Error importing file. Please check the format and try again.')
+  } finally {
+    importing.value = false
+  }
+}
+
+const parseCSV = (file) => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data.map(row => ({
+          name: row.Name || row.name || row.NAME || '',
+          phone: row.Phone || row.phone || row.PHONE || row['Phone Number'] || row['phone number'] || ''
+        }))
+        resolve(data)
+      },
+      error: (error) => reject(error)
+    })
+  })
+}
+
+const parseExcel = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet)
+        
+        const parsedData = jsonData.map(row => ({
+          name: row.Name || row.name || row.NAME || '',
+          phone: row.Phone || row.phone || row.PHONE || row['Phone Number'] || row['phone number'] || ''
+        }))
+        
+        resolve(parsedData)
+      } catch (error) {
+        reject(error)
+      }
+    }
+    reader.onerror = (error) => reject(error)
+    reader.readAsArrayBuffer(file)
+  })
 }
 
 const loadHistory = async (page = 1) => {
@@ -1066,6 +1202,19 @@ onMounted(() => {
 
 .recipient-card:hover {
   border-color: #28a745;
+}
+
+.import-section {
+  background: #f0f8ff;
+  border: 1px dashed #007bff;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.import-section h6 {
+  margin-bottom: 0.75rem;
+  color: #007bff;
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {
