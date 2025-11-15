@@ -11,6 +11,33 @@
           <p class="subtitle">Send this knowledge graph to your contacts</p>
         </div>
 
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-4">
+          <li class="nav-item">
+            <a 
+              class="nav-link" 
+              :class="{ active: activeTab === 'send' }"
+              @click="activeTab = 'send'"
+              href="#"
+            >
+              <i class="bi bi-send"></i> Send SMS
+            </a>
+          </li>
+          <li class="nav-item">
+            <a 
+              class="nav-link" 
+              :class="{ active: activeTab === 'history' }"
+              @click="activeTab = 'history'; loadHistory()"
+              href="#"
+            >
+              <i class="bi bi-clock-history"></i> History
+            </a>
+          </li>
+        </ul>
+
+        <!-- Send SMS Tab -->
+        <div v-if="activeTab === 'send'">
+
         <!-- Share Content Preview -->
         <div class="content-preview">
           <label class="form-label">Message Preview</label>
@@ -107,6 +134,83 @@
           <i class="bi bi-info-circle"></i>
           Estimated cost: ~${{ (recipients.length * 0.68).toFixed(2) }} for {{ recipients.length }} recipient{{ recipients.length > 1 ? 's' : '' }}
         </div>
+        </div>
+
+        <!-- History Tab -->
+        <div v-if="activeTab === 'history'">
+          <div v-if="loadingHistory" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading SMS history...</p>
+          </div>
+
+          <div v-else-if="historyError" class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle"></i> {{ historyError }}
+          </div>
+
+          <div v-else-if="smsHistory.length === 0" class="text-center py-5 text-muted">
+            <i class="bi bi-inbox" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
+            <p>No SMS history found</p>
+          </div>
+
+          <div v-else>
+            <!-- History List -->
+            <div class="history-list">
+              <div 
+                v-for="(sms, index) in smsHistory" 
+                :key="index"
+                class="history-item"
+              >
+                <div class="history-header">
+                  <span class="history-date">
+                    <i class="bi bi-calendar3"></i>
+                    {{ formatDate(sms.date) }}
+                  </span>
+                  <span class="history-status" :class="getStatusClass(sms.status)">
+                    {{ sms.status }}
+                  </span>
+                </div>
+                <div class="history-recipient">
+                  <i class="bi bi-phone"></i>
+                  <strong>To:</strong> {{ sms.to }}
+                </div>
+                <div class="history-message">
+                  {{ sms.body }}
+                </div>
+                <div class="history-footer">
+                  <span v-if="sms.from" class="history-from">
+                    <i class="bi bi-person"></i> From: {{ sms.from }}
+                  </span>
+                  <span v-if="sms.price" class="history-price">
+                    <i class="bi bi-currency-dollar"></i> {{ sms.price }} {{ sms.currency || 'NOK' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pagination -->
+            <div v-if="totalPages > 1" class="pagination-controls">
+              <button 
+                @click="loadHistory(currentPage - 1)" 
+                :disabled="currentPage === 1"
+                class="btn btn-outline-primary"
+              >
+                <i class="bi bi-chevron-left"></i> Previous
+              </button>
+              <span class="page-info">
+                Page {{ currentPage }} of {{ totalPages }}
+              </span>
+              <button 
+                @click="loadHistory(currentPage + 1)" 
+                :disabled="currentPage === totalPages"
+                class="btn btn-outline-primary"
+              >
+                Next <i class="bi bi-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -120,6 +224,7 @@ const route = useRoute()
 const router = useRouter()
 
 // Reactive data
+const activeTab = ref('send')
 const shareContent = ref('')
 const recipients = ref([])
 const newRecipient = ref('')
@@ -127,6 +232,13 @@ const senderName = ref('')
 const sending = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
+
+// History data
+const smsHistory = ref([])
+const loadingHistory = ref(false)
+const historyError = ref('')
+const currentPage = ref(1)
+const totalPages = ref(1)
 
 // Computed
 const messageCharCount = computed(() => shareContent.value.length)
@@ -218,6 +330,53 @@ const sendSMS = async () => {
 
 const goBack = () => {
   router.back()
+}
+
+const loadHistory = async (page = 1) => {
+  loadingHistory.value = true
+  historyError.value = ''
+  
+  try {
+    const response = await fetch(
+      `https://sms-gateway.torarnehave.workers.dev/api/sms/history?page=${page}&status=all`
+    )
+    
+    const result = await response.json()
+    
+    if (result.success && result.data) {
+      const data = result.data
+      smsHistory.value = data.data || []
+      currentPage.value = data.current_page || page
+      totalPages.value = data.last_page || 1
+    } else {
+      historyError.value = result.error || 'Failed to load SMS history'
+    }
+  } catch (error) {
+    console.error('Error loading SMS history:', error)
+    historyError.value = 'Failed to load SMS history. Please try again.'
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+const formatDate = (timestamp) => {
+  if (!timestamp) return 'N/A'
+  const date = new Date(timestamp * 1000)
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+const getStatusClass = (status) => {
+  const statusLower = (status || '').toLowerCase()
+  if (statusLower === 'delivered') return 'status-success'
+  if (statusLower === 'sent') return 'status-info'
+  if (statusLower === 'failed') return 'status-danger'
+  return 'status-default'
 }
 
 // Load content from URL parameters
@@ -409,6 +568,150 @@ onMounted(() => {
 
 .cost-estimate i {
   margin-right: 0.5rem;
+}
+
+.cost-estimate i {
+  margin-right: 0.5rem;
+}
+
+.nav-tabs {
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.nav-tabs .nav-link {
+  color: #666;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.nav-tabs .nav-link:hover {
+  color: #28a745;
+  border-bottom: 2px solid #28a745;
+}
+
+.nav-tabs .nav-link.active {
+  color: #28a745;
+  font-weight: 600;
+  border-bottom: 2px solid #28a745;
+  background: none;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.history-item {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #28a745;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.history-date {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.history-date i {
+  margin-right: 0.25rem;
+}
+
+.history-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-info {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-danger {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-default {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+.history-recipient {
+  margin-bottom: 0.75rem;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.history-recipient i {
+  color: #28a745;
+  margin-right: 0.5rem;
+}
+
+.history-message {
+  background: white;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #333;
+}
+
+.history-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.history-from,
+.history-price {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #e0e0e0;
+}
+
+.page-info {
+  font-weight: 600;
+  color: #333;
 }
 
 @media (max-width: 768px) {
