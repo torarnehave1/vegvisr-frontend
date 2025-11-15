@@ -1665,7 +1665,7 @@ const loadPortfolioForSpeakers = async () => {
   try {
     // Pass user role to backend for filtering (same as AudioPortfolio.vue)
     const userRole = userStore.role === 'Superadmin' ? 'superadmin' : 'user'
-    
+
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`
     )
@@ -1908,7 +1908,7 @@ const loadPortfolioForDiarization = async () => {
   try {
     // Pass user role to backend for filtering (same as AudioPortfolio.vue)
     const userRole = userStore.role === 'Superadmin' ? 'superadmin' : 'user'
-    
+
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`
     )

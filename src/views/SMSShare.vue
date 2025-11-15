@@ -14,8 +14,8 @@
         <!-- Tab Navigation -->
         <ul class="nav nav-tabs mb-4">
           <li class="nav-item">
-            <a 
-              class="nav-link" 
+            <a
+              class="nav-link"
               :class="{ active: activeTab === 'send' }"
               @click="activeTab = 'send'"
               href="#"
@@ -24,8 +24,8 @@
             </a>
           </li>
           <li class="nav-item">
-            <a 
-              class="nav-link" 
+            <a
+              class="nav-link"
               :class="{ active: activeTab === 'history' }"
               @click="activeTab = 'history'; loadHistory()"
               href="#"
@@ -157,8 +157,8 @@
           <div v-else>
             <!-- History List -->
             <div class="history-list">
-              <div 
-                v-for="(sms, index) in smsHistory" 
+              <div
+                v-for="(sms, index) in smsHistory"
                 :key="index"
                 class="history-item"
               >
@@ -191,8 +191,8 @@
 
             <!-- Pagination -->
             <div v-if="totalPages > 1" class="pagination-controls">
-              <button 
-                @click="loadHistory(currentPage - 1)" 
+              <button
+                @click="loadHistory(currentPage - 1)"
                 :disabled="currentPage === 1"
                 class="btn btn-outline-primary"
               >
@@ -201,8 +201,8 @@
               <span class="page-info">
                 Page {{ currentPage }} of {{ totalPages }}
               </span>
-              <button 
-                @click="loadHistory(currentPage + 1)" 
+              <button
+                @click="loadHistory(currentPage + 1)"
                 :disabled="currentPage === totalPages"
                 class="btn btn-outline-primary"
               >
@@ -336,14 +336,14 @@ const goBack = () => {
 const loadHistory = async (page = 1) => {
   loadingHistory.value = true
   historyError.value = ''
-  
+
   try {
     const response = await fetch(
       `https://sms-gateway.torarnehave.workers.dev/api/sms/history?page=${page}&status=all`
     )
-    
+
     const result = await response.json()
-    
+
     if (result.success && result.data) {
       const data = result.data
       smsHistory.value = data.data || []
