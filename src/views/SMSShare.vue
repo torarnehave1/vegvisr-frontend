@@ -604,26 +604,30 @@ onMounted(() => {
   flex-direction: column;
   gap: 1rem;
   max-height: 600px;
-  overflow-y: auto;
+  overflow-y: scroll; /* Always show scrollbar */
   padding-right: 0.5rem;
+  scrollbar-width: thin; /* For Firefox */
+  scrollbar-color: #888 #f1f1f1; /* For Firefox */
 }
 
 .history-list::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  display: block; /* Force display */
 }
 
 .history-list::-webkit-scrollbar-track {
   background: #f1f1f1;
-  border-radius: 4px;
+  border-radius: 5px;
 }
 
 .history-list::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+  background: #28a745;
+  border-radius: 5px;
+  border: 2px solid #f1f1f1;
 }
 
 .history-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #1e7e34;
 }
 
 .history-item {
