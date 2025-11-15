@@ -1,103 +1,92 @@
 /**
  * SMS Gateway Worker (Cloudflare)
  *
- * Sends SMS messages via GatewayAPI (https://gatewayapi.com)
+ * Sends SMS messages via ClickSend (https://www.clicksend.com)
  *
  * Environment Variables Required:
- *   SMS_API_BASE_URL - Base URL for SMS API (e.g., "https://gatewayapi.com/rest/mtsms")
- *   SMS_API_TOKEN    - API token for GatewayAPI (set as Wrangler secret)
+ *   SMS_API_BASE_URL     - Base URL for SMS API
+ *   CLICKSEND_USERNAME   - ClickSend account username (secret)
+ *   CLICKSEND_API_KEY    - ClickSend API key (secret)
  */
 
-// Main request handler
 export default {
   async fetch(request, env, ctx) {
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return handleCORS()
     }
 
     const url = new URL(request.url)
 
-    // Route: POST /api/sms
     if (url.pathname === '/api/sms' && request.method === 'POST') {
       return handleSendSMS(request, env)
     }
 
-    // Route not found
+    if (url.pathname === '/' || url.pathname === '/api') {
+      return jsonResponse({
+        success: true,
+        message: 'SMS Gateway Worker - ClickSend',
+        version: '3.0.0',
+        timestamp: new Date().toISOString()
+      })
+    }
+
     return jsonResponse({ error: 'Not found' }, 404)
   }
 }
 
-/**
- * Handle SMS sending requests
- */
 async function handleSendSMS(request, env) {
   try {
-    // Validate environment variables
-    if (!env.SMS_API_BASE_URL || !env.SMS_API_TOKEN) {
-      console.error('Missing required environment variables')
+    if (!env.SMS_API_BASE_URL || !env.CLICKSEND_USERNAME || !env.CLICKSEND_API_KEY) {
       return jsonResponse(
-        { error: 'Server configuration error: missing SMS API credentials' },
+        { error: 'Missing ClickSend API credentials' },
         500
       )
     }
 
-    // Parse request body
     let body
     try {
       body = await request.json()
     } catch (parseError) {
+      return jsonResponse({ error: 'Invalid JSON' }, 400)
+    }
+
+    if (!body.to && !body.recipients) {
       return jsonResponse(
-        { error: 'Invalid JSON in request body' },
+        { error: 'Missing "to" or "recipients" field' },
         400
       )
     }
 
-    // Validate required fields
-    if (!body.to || !body.message) {
-      return jsonResponse(
-        { error: 'Missing required fields: "to" and "message" are required' },
-        400
-      )
+    if (!body.message) {
+      return jsonResponse({ error: 'Missing "message" field' }, 400)
     }
 
-    // Normalize phone numbers to array
-    const recipients = normalizePhoneNumbers(body.to)
+    const phoneNumbers = body.recipients || body.to
+    const recipients = normalizePhoneNumbers(phoneNumbers)
 
     if (recipients.length === 0) {
-      return jsonResponse(
-        { error: 'No valid phone numbers provided' },
-        400
-      )
+      return jsonResponse({ error: 'No valid phone numbers' }, 400)
     }
 
-    // Validate message
     const message = String(body.message).trim()
     if (!message) {
-      return jsonResponse(
-        { error: 'Message cannot be empty' },
-        400
-      )
+      return jsonResponse({ error: 'Message cannot be empty' }, 400)
     }
 
-    // Normalize and validate sender name (max 11 alphanumeric chars or 15 digits)
-    let sender = body.sender || null
+    let sender = body.sender || body.source || 'SMS'
     if (sender) {
       sender = String(sender).trim()
-      // Truncate to 11 characters for alphanumeric senders
       if (sender.length > 11) {
-        console.log(`Sender name truncated from "${sender}" to "${sender.substring(0, 11)}"`)
+        console.log(`Sender truncated: "${sender}" -> "${sender.substring(0, 11)}"`)
         sender = sender.substring(0, 11)
       }
     }
 
-    // Send SMS using GatewayAPI (single request for all recipients)
-    const result = await sendSMSViaGatewayAPI(recipients, message, sender, env)
-
-    return jsonResponse(result)
+    const result = await sendSMSViaClickSend(recipients, message, sender, env)
+    return jsonResponse(result, result.success ? 200 : 400)
 
   } catch (error) {
-    console.error('Unexpected error in handleSendSMS:', error)
+    console.error('Error in handleSendSMS:', error)
     return jsonResponse(
       { error: 'Internal server error', details: error.message },
       500
@@ -105,103 +94,111 @@ async function handleSendSMS(request, env) {
   }
 }
 
-/**
- * Normalize phone numbers input to array
- * Handles both string and array inputs, trims whitespace
- */
 function normalizePhoneNumbers(input) {
   if (!input) return []
 
-  // Convert to array if string
-  const numbers = Array.isArray(input) ? input : [input]
+  if (Array.isArray(input)) {
+    return input.map(item => {
+      if (typeof item === 'object' && item !== null) {
+        const phone = item.msisdn || item.phone || item.to || item.number
+        if (phone) {
+          return normalizePhoneNumber(phone)
+        }
+        return null
+      }
+      return normalizePhoneNumber(item)
+    }).filter(num => num !== null)
+  }
 
-  // Filter and trim
-  return numbers
-    .map(num => String(num).trim())
-    .filter(num => num.length > 0)
+  return [normalizePhoneNumber(input)].filter(num => num !== null)
 }
 
-/**
- * Send SMS via GatewayAPI
- * Uses GatewayAPI REST endpoint with Basic Authentication
- */
-async function sendSMSViaGatewayAPI(recipients, message, sender, env) {
+function normalizePhoneNumber(phone) {
+  if (!phone) return null
+
+  let phoneStr = String(phone).trim()
+  if (!phoneStr) return null
+
+  if (!phoneStr.startsWith('+')) {
+    phoneStr = '+' + phoneStr
+  }
+
+  return phoneStr
+}
+
+async function sendSMSViaClickSend(recipients, message, sender, env) {
   const result = {
     success: false,
     totalRecipients: recipients.length,
     successfulSends: 0,
     messageIds: [],
-    usage: null,
+    totalPrice: 0,
+    currency: 'USD',
+    messages: [],
     error: null
   }
 
   try {
-    // Convert phone numbers to GatewayAPI format (msisdn objects)
-    const recipientsArray = recipients.map(phoneNumber => ({
-      msisdn: parseInt(phoneNumber.replace(/\+/g, ''), 10) // Remove + and convert to integer
+    const messages = recipients.map(phoneNumber => ({
+      source: sender,
+      body: message,
+      to: phoneNumber
     }))
 
-    // Build request payload
-    const payload = {
-      message: message,
-      recipients: recipientsArray
-    }
+    const payload = { messages: messages }
 
-    // Add sender if provided (up to 11 alphanumeric chars or 15 digits)
-    if (sender) {
-      payload.sender = sender
-    }
-
-    console.log('Sending SMS via GatewayAPI:', {
-      recipients: recipientsArray.length,
-      sender: sender || 'default'
+    console.log('ClickSend Request:', {
+      recipients: recipients.length,
+      sender: sender,
+      messageLength: message.length
     })
 
-    // Create Basic Auth header (format: "token:")
-    const authString = btoa(`${env.SMS_API_TOKEN}:`)
+    const authString = btoa(`${env.CLICKSEND_USERNAME}:${env.CLICKSEND_API_KEY}`)
 
-    // Call GatewayAPI
     const response = await fetch(env.SMS_API_BASE_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${authString}`,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Vegvisr-SMS-Gateway/2.0'
+        'Accept': 'application/json'
       },
       body: JSON.stringify(payload)
     })
 
     const responseData = await response.json()
 
-    if (response.ok) {
-      // Success response
-      result.success = true
-      result.successfulSends = recipients.length
-      result.messageIds = responseData.ids || []
-      result.usage = responseData.usage || null
+    console.log('ClickSend Response:', {
+      status: response.status,
+      data: responseData
+    })
 
-      console.log(`✅ SMS sent successfully to ${recipients.length} recipient(s)`)
-      console.log(`   Message IDs: ${result.messageIds.join(', ')}`)
-      if (result.usage) {
-        console.log(`   Cost: ${result.usage.total_cost} ${result.usage.currency}`)
-      }
+    if (response.ok && responseData.http_code === 200) {
+      const data = responseData.data || {}
+      const messageDetails = data.messages || []
+
+      result.success = true
+      result.successfulSends = data.total_count || recipients.length
+      result.messageIds = messageDetails.map(msg => msg.message_id)
+      result.totalPrice = data.total_price || 0
+      result.currency = data.currency || 'USD'
+      result.messages = messageDetails
+
+      console.log(`✅ SMS sent: ${result.successfulSends} recipients, ${result.totalPrice} ${result.currency}`)
     } else {
-      // Error response
-      result.success = false
+      const errorMessage = responseData.response_msg || responseData.message || 'Unknown error'
+      const errorCode = responseData.response_code || responseData.http_code || response.status
+
       result.error = {
         status: response.status,
-        code: responseData.code || null,
-        message: responseData.message || 'Unknown error',
-        incident_uuid: responseData.incident_uuid || null
+        code: errorCode,
+        message: errorMessage
       }
 
-      console.error(`❌ SMS failed: ${response.status}`, responseData)
+      console.error(`❌ SMS failed: ${errorCode} - ${errorMessage}`)
     }
 
   } catch (error) {
-    console.error('Error calling GatewayAPI:', error)
-    result.success = false
+    console.error('Error calling ClickSend:', error)
     result.error = {
       type: 'network_error',
       message: error.message
@@ -211,9 +208,6 @@ async function sendSMSViaGatewayAPI(recipients, message, sender, env) {
   return result
 }
 
-/**
- * Create JSON response with CORS headers
- */
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -226,9 +220,6 @@ function jsonResponse(data, status = 200) {
   })
 }
 
-/**
- * Handle CORS preflight requests
- */
 function handleCORS() {
   return new Response(null, {
     status: 204,
