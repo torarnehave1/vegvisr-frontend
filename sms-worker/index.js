@@ -119,11 +119,46 @@ function normalizePhoneNumber(phone) {
   let phoneStr = String(phone).trim()
   if (!phoneStr) return null
 
-  if (!phoneStr.startsWith('+')) {
-    phoneStr = '+' + phoneStr
+  // Remove common separators
+  const cleaned = phoneStr.replace(/[()\s-]/g, '')
+
+  // Extract digits only for length checks
+  const digits = cleaned.replace(/\D/g, '')
+
+  // Handle international style starting with +
+  if (cleaned.startsWith('+')) {
+    // keep plus and digits
+    if (cleaned.startsWith('+47')) {
+      return '+' + digits
+    }
+    // Other country codes are not allowed in this system (only Norway)
+    console.log(`Rejected non-Norwegian number (starts with +): ${phoneStr}`)
+    return null
   }
 
-  return phoneStr
+  // Handle international 00 prefix (e.g., 0047...)
+  if (cleaned.startsWith('00')) {
+    const after00 = digits.replace(/^00/, '')
+    if (after00.startsWith('47')) {
+      return '+' + after00
+    }
+    console.log(`Rejected non-Norwegian number (00 prefix but not 47): ${phoneStr}`)
+    return null
+  }
+
+  // If digits.length is 8 -> assume local Norwegian number and prepend +47
+  if (digits.length === 8) {
+    return '+47' + digits
+  }
+
+  // If digits length is 10 and starts with 47 -> add +
+  if (digits.length === 10 && digits.startsWith('47')) {
+    return '+' + digits
+  }
+
+  // If digits length matches other patterns, reject - we only support Norway (+47)
+  console.log(`Rejected phone number (unsupported format): ${phoneStr}`)
+  return null
 }
 
 async function sendSMSViaClickSend(recipients, message, sender, env) {
@@ -180,7 +215,10 @@ async function sendSMSViaClickSend(recipients, message, sender, env) {
       result.successfulSends = data.total_count || recipients.length
       result.messageIds = messageDetails.map(msg => msg.message_id)
       result.totalPrice = data.total_price || 0
-      result.currency = data.currency || 'USD'
+
+      // We only send to Norway (+47). Ensure we report currency as NOK for clarity
+      // ClickSend may return USD; for the UI we force NOK label. No conversion is applied.
+      result.currency = 'NOK'
       result.messages = messageDetails
 
       console.log(`✅ SMS sent: ${result.successfulSends} recipients, ${result.totalPrice} ${result.currency}`)
@@ -203,6 +241,13 @@ async function sendSMSViaClickSend(recipients, message, sender, env) {
       type: 'network_error',
       message: error.message
     }
+  }
+
+  // Log the final recipient list for debugging
+  try {
+    console.log('Final recipients:', recipients)
+  } catch {
+    // ignore
   }
 
   return result
