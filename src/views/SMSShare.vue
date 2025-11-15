@@ -26,6 +26,16 @@
           <li class="nav-item">
             <a
               class="nav-link"
+              :class="{ active: activeTab === 'lists' }"
+              @click="activeTab = 'lists'; loadLists()"
+              href="#"
+            >
+              <i class="bi bi-people"></i> Lists
+            </a>
+          </li>
+          <li class="nav-item">
+            <a
+              class="nav-link"
               :class="{ active: activeTab === 'history' }"
               @click="activeTab = 'history'; loadHistory()"
               href="#"
@@ -136,6 +146,115 @@
         </div>
         </div>
 
+        <!-- Lists Tab -->
+        <div v-if="activeTab === 'lists'">
+          <!-- Create New List -->
+          <div class="mb-4">
+            <h5>Create New List</h5>
+            <div class="input-group mb-3">
+              <input
+                v-model="newListName"
+                type="text"
+                class="form-control"
+                placeholder="List name (e.g., Family, Work, Friends)"
+                @keyup.enter="createList"
+              />
+              <input
+                v-model="newListDescription"
+                type="text"
+                class="form-control"
+                placeholder="Description (optional)"
+                @keyup.enter="createList"
+              />
+              <button @click="createList" class="btn btn-primary" :disabled="!newListName.trim()">
+                <i class="bi bi-plus-circle"></i> Create
+              </button>
+            </div>
+          </div>
+
+          <!-- Lists Display -->
+          <div v-if="loadingLists" class="text-center py-5">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">Loading lists...</p>
+          </div>
+
+          <div v-else-if="recipientLists.length === 0" class="text-center py-5 text-muted">
+            <i class="bi bi-inbox" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
+            <p>No recipient lists yet. Create one above!</p>
+          </div>
+
+          <div v-else class="lists-container">
+            <div v-for="list in recipientLists" :key="list.id" class="list-card">
+              <div class="list-header">
+                <div>
+                  <h6>{{ list.name }}</h6>
+                  <small class="text-muted">{{ list.description }}</small>
+                </div>
+                <div class="list-actions">
+                  <button @click="selectList(list)" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye"></i> View
+                  </button>
+                  <button @click="deleteList(list.id)" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Selected List Recipients -->
+          <div v-if="selectedList" class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5>{{ selectedList.name }} - Recipients</h5>
+              <button @click="selectedList = null; loadFromList = false" class="btn btn-sm btn-secondary">
+                <i class="bi bi-x"></i> Close
+              </button>
+            </div>
+
+            <!-- Add Recipient to List -->
+            <div class="input-group mb-3">
+              <input
+                v-model="newRecipientName"
+                type="text"
+                class="form-control"
+                placeholder="Name (optional)"
+              />
+              <input
+                v-model="newRecipientPhone"
+                type="tel"
+                class="form-control"
+                placeholder="Phone number"
+                @keyup.enter="addRecipientToList"
+              />
+              <button @click="addRecipientToList" class="btn btn-success" :disabled="!newRecipientPhone.trim()">
+                <i class="bi bi-plus"></i> Add
+              </button>
+            </div>
+
+            <!-- Load to Send Form -->
+            <button @click="loadRecipientsToSend" class="btn btn-primary mb-3">
+              <i class="bi bi-arrow-right"></i> Load All to Send Form
+            </button>
+
+            <!-- Recipients in Selected List -->
+            <div v-if="listRecipients.length === 0" class="text-muted text-center py-3">
+              No recipients in this list yet
+            </div>
+            <div v-else class="list-recipients">
+              <div v-for="recipient in listRecipients" :key="recipient.id" class="recipient-card">
+                <div>
+                  <strong>{{ recipient.name || 'No name' }}</strong>
+                  <br />
+                  <small>{{ recipient.phone_number }}</small>
+                </div>
+                <button @click="deleteRecipient(recipient.id)" class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- History Tab -->
         <div v-if="activeTab === 'history'">
           <div v-if="loadingHistory" class="text-center py-5">
@@ -219,9 +338,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useUserStore } from '@/stores/userStore'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 // Reactive data
 const activeTab = ref('send')
@@ -232,6 +353,17 @@ const senderName = ref('')
 const sending = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
+
+// Lists data
+const recipientLists = ref([])
+const loadingLists = ref(false)
+const newListName = ref('')
+const newListDescription = ref('')
+const selectedList = ref(null)
+const listRecipients = ref([])
+const newRecipientName = ref('')
+const newRecipientPhone = ref('')
+const loadFromList = ref(false)
 
 // History data
 const smsHistory = ref([])
@@ -331,6 +463,132 @@ const sendSMS = async () => {
 
 const goBack = () => {
   router.back()
+}
+
+// ===== LISTS FUNCTIONS =====
+
+const loadLists = async () => {
+  if (!userStore.email) return
+  
+  loadingLists.value = true
+  try {
+    const response = await fetch(
+      `https://sms-gateway.torarnehave.workers.dev/api/lists?userEmail=${encodeURIComponent(userStore.email)}`
+    )
+    const result = await response.json()
+    if (result.success) {
+      recipientLists.value = result.lists || []
+    }
+  } catch (error) {
+    console.error('Error loading lists:', error)
+  } finally {
+    loadingLists.value = false
+  }
+}
+
+const createList = async () => {
+  if (!newListName.value.trim() || !userStore.email) return
+  
+  try {
+    const response = await fetch('https://sms-gateway.torarnehave.workers.dev/api/lists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userEmail: userStore.email,
+        userId: userStore.userId,
+        name: newListName.value.trim(),
+        description: newListDescription.value.trim()
+      })
+    })
+    
+    const result = await response.json()
+    if (result.success) {
+      newListName.value = ''
+      newListDescription.value = ''
+      await loadLists()
+    }
+  } catch (error) {
+    console.error('Error creating list:', error)
+  }
+}
+
+const deleteList = async (listId) => {
+  if (!confirm('Delete this list and all its recipients?')) return
+  
+  try {
+    await fetch(`https://sms-gateway.torarnehave.workers.dev/api/lists/${listId}`, {
+      method: 'DELETE'
+    })
+    await loadLists()
+    if (selectedList.value?.id === listId) {
+      selectedList.value = null
+    }
+  } catch (error) {
+    console.error('Error deleting list:', error)
+  }
+}
+
+const selectList = async (list) => {
+  selectedList.value = list
+  try {
+    const response = await fetch(
+      `https://sms-gateway.torarnehave.workers.dev/api/lists/${list.id}/recipients`
+    )
+    const result = await response.json()
+    if (result.success) {
+      listRecipients.value = result.recipients || []
+    }
+  } catch (error) {
+    console.error('Error loading recipients:', error)
+  }
+}
+
+const addRecipientToList = async () => {
+  if (!newRecipientPhone.value.trim() || !selectedList.value) return
+  
+  try {
+    const response = await fetch(
+      `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newRecipientName.value.trim(),
+          phoneNumber: newRecipientPhone.value.trim()
+        })
+      }
+    )
+    
+    const result = await response.json()
+    if (result.success) {
+      newRecipientName.value = ''
+      newRecipientPhone.value = ''
+      await selectList(selectedList.value)
+    }
+  } catch (error) {
+    console.error('Error adding recipient:', error)
+  }
+}
+
+const deleteRecipient = async (recipientId) => {
+  if (!selectedList.value) return
+  
+  try {
+    await fetch(
+      `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients/${recipientId}`,
+      { method: 'DELETE' }
+    )
+    await selectList(selectedList.value)
+  } catch (error) {
+    console.error('Error deleting recipient:', error)
+  }
+}
+
+const loadRecipientsToSend = () => {
+  recipients.value = listRecipients.value.map(r => r.phone_number)
+  activeTab.value = 'send'
+  successMessage.value = `Loaded ${recipients.value.length} recipients from ${selectedList.value.name}`
+  setTimeout(() => { successMessage.value = '' }, 3000)
 }
 
 const loadHistory = async (page = 1) => {
@@ -742,6 +1000,72 @@ onMounted(() => {
 .page-info {
   font-weight: 600;
   color: #333;
+}
+
+.page-info {
+  font-weight: 600;
+  color: #333;
+}
+
+/* Lists Tab Styles */
+.lists-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.list-card {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s;
+}
+
+.list-card:hover {
+  border-color: #28a745;
+  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.1);
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.list-header h6 {
+  margin: 0;
+  color: #333;
+  font-weight: 600;
+}
+
+.list-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.list-recipients {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.recipient-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.recipient-card:hover {
+  border-color: #28a745;
 }
 
 @media (max-width: 768px) {
