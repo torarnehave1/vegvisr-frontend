@@ -5,6 +5,55 @@
 const NORWEGIAN_CPU_ENDPOINT = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
 const NORWEGIAN_GPU_ENDPOINT = 'https://vfclin5tvetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
 
+// Helper function to generate minimal WAV audio for endpoint wake-up/testing
+const generateSilentWAV = (durationSeconds = 1) => {
+  const sampleRate = 16000
+  const numChannels = 1
+  const bitsPerSample = 16
+  const numSamples = Math.floor(sampleRate * durationSeconds)
+  
+  // Calculate sizes
+  const dataSize = numSamples * numChannels * (bitsPerSample / 8)
+  const fileSize = 44 + dataSize // WAV header is 44 bytes
+  
+  // Create buffer
+  const buffer = new ArrayBuffer(fileSize)
+  const view = new DataView(buffer)
+  
+  // Helper to write string
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i))
+    }
+  }
+  
+  // RIFF chunk descriptor
+  writeString(0, 'RIFF')
+  view.setUint32(4, fileSize - 8, true) // File size - 8
+  writeString(8, 'WAVE')
+  
+  // fmt sub-chunk
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true) // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true) // AudioFormat (1 = PCM)
+  view.setUint16(22, numChannels, true) // NumChannels
+  view.setUint32(24, sampleRate, true) // SampleRate
+  view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true) // ByteRate
+  view.setUint16(32, numChannels * (bitsPerSample / 8), true) // BlockAlign
+  view.setUint16(34, bitsPerSample, true) // BitsPerSample
+  
+  // data sub-chunk
+  writeString(36, 'data')
+  view.setUint32(40, dataSize, true) // Subchunk2Size
+  
+  // Fill with silent PCM data (zeros)
+  for (let i = 44; i < fileSize; i++) {
+    view.setUint8(i, 0)
+  }
+  
+  return buffer
+}
+
 // Helper function to safely convert ArrayBuffer to base64 (avoids call stack overflow)
 const arrayBufferToBase64 = (buffer) => {
   const uint8Array = new Uint8Array(buffer)
@@ -532,6 +581,146 @@ export default {
           'Access-Control-Allow-Headers': 'Content-Type, X-File-Name',
         },
       })
+    }
+
+    // HF Endpoint Status Check API
+    if (request.method === 'GET' && url.pathname === '/hf-endpoint/status') {
+      const endpointType = url.searchParams.get('type') || 'cpu'
+      const endpoint = endpointType.toLowerCase() === 'gpu' ? NORWEGIAN_GPU_ENDPOINT : NORWEGIAN_CPU_ENDPOINT
+      
+      try {
+        console.log(`🔍 Checking ${endpointType.toUpperCase()} endpoint status:`, endpoint)
+        
+        // Create minimal test audio (100ms)
+        const testAudioBuffer = generateSilentWAV(0.1)
+        
+        // Send test request with 5-second timeout
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000)
+        
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'audio/wav',
+            'Authorization': `Bearer ${env.whisperailab}`,
+          },
+          body: testAudioBuffer,
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+        
+        // Determine status
+        let status, message, details
+        if (response.status === 200 || response.status === 400 || response.status === 422) {
+          status = 'ready'
+          message = `✅ ${endpointType.toUpperCase()} endpoint is READY`
+          details = `Status ${response.status} - Endpoint is warm and ready to process requests`
+        } else if (response.status === 503 || response.status === 504) {
+          status = 'scaled_to_zero'
+          message = `⏳ ${endpointType.toUpperCase()} endpoint is SCALED TO ZERO`
+          details = `Status ${response.status} - Endpoint needs to be woken up`
+        } else {
+          status = 'unknown'
+          message = `ℹ️ ${endpointType.toUpperCase()} endpoint status: ${response.status}`
+          details = 'Endpoint responded but status is unclear'
+        }
+        
+        return createResponse(JSON.stringify({
+          status,
+          message,
+          details,
+          endpoint: endpointType,
+          httpStatus: response.status
+        }))
+        
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          return createResponse(JSON.stringify({
+            status: 'timeout',
+            message: `⏳ ${endpointType.toUpperCase()} endpoint timeout`,
+            details: 'Endpoint did not respond within 5 seconds - likely scaled to zero',
+            endpoint: endpointType
+          }))
+        }
+        return createErrorResponse(`Endpoint check failed: ${err.message}`, 500)
+      }
+    }
+
+    // HF Endpoint Wake-up API
+    if (request.method === 'POST' && url.pathname === '/hf-endpoint/wake') {
+      const endpointType = url.searchParams.get('type') || 'cpu'
+      const endpoint = endpointType.toLowerCase() === 'gpu' ? NORWEGIAN_GPU_ENDPOINT : NORWEGIAN_CPU_ENDPOINT
+      
+      try {
+        console.log(`🚀 Waking up ${endpointType.toUpperCase()} endpoint:`, endpoint)
+        
+        const maxAttempts = 20
+        const pollInterval = 6000 // 6 seconds
+        let attempt = 0
+        
+        // Generate 1 second of silent audio for wake-up
+        const wakeAudioBuffer = generateSilentWAV(1)
+        
+        while (attempt < maxAttempts) {
+          attempt++
+          console.log(`🔄 Wake-up attempt ${attempt}/${maxAttempts}`)
+          
+          try {
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 5000)
+            
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'audio/wav',
+                'Authorization': `Bearer ${env.whisperailab}`,
+              },
+              body: wakeAudioBuffer,
+              signal: controller.signal
+            })
+            
+            clearTimeout(timeoutId)
+            
+            // Check if endpoint is ready
+            if (response.status === 200 || response.status === 400 || response.status === 422) {
+              console.log(`✅ ${endpointType.toUpperCase()} endpoint ready after ${attempt} attempts`)
+              return createResponse(JSON.stringify({
+                success: true,
+                message: `✅ ${endpointType.toUpperCase()} endpoint is now READY`,
+                attempts: attempt,
+                endpoint: endpointType,
+                httpStatus: response.status
+              }))
+            }
+            
+            // Endpoint still waking up, wait before retry
+            if (attempt < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, pollInterval))
+            }
+          } catch (err) {
+            if (err.name === 'AbortError') {
+              console.log(`⏳ Attempt ${attempt} timeout, retrying...`)
+              if (attempt < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, pollInterval))
+              }
+            } else {
+              throw err
+            }
+          }
+        }
+        
+        // Max attempts reached
+        return createResponse(JSON.stringify({
+          success: false,
+          message: `❌ ${endpointType.toUpperCase()} endpoint did not wake up`,
+          attempts: maxAttempts,
+          endpoint: endpointType
+        }), 504)
+        
+      } catch (err) {
+        return createErrorResponse(`Wake-up failed: ${err.message}`, 500)
+      }
     }
 
     // Generate AI Analysis Endpoint - Simple conversation analysis using Workers AI
