@@ -16,16 +16,33 @@
 
     <!-- Health Check Section -->
     <div class="test-section">
-      <h2>🏥 Service Health Check</h2>
-      <button @click="checkHealth" :disabled="healthLoading" class="btn btn-primary">
-        {{ healthLoading ? 'Checking...' : 'Check Norwegian Service Health' }}
-      </button>
+      <h2>🏥 Transcription Endpoint Status</h2>
+      <p class="section-description">
+        Norwegian Whisper endpoint (nb-whisper-medium-rda) may be scaled to zero. 
+        Wake it up and wait for it to be ready before transcribing.
+      </p>
 
-      <div v-if="healthStatus" class="status-result" :class="healthStatus.type">
-        <strong>Status:</strong> {{ healthStatus.message }}
-        <div v-if="healthStatus.details" class="health-details">
-          <pre>{{ healthStatus.details }}</pre>
+      <div class="endpoint-controls">
+        <button @click="checkEndpointStatus" :disabled="checkingEndpoint" class="btn btn-primary">
+          {{ checkingEndpoint ? 'Checking...' : '🔍 Check Endpoint Status' }}
+        </button>
+        <button @click="wakeUpAndWait" :disabled="wakingUpEndpoint" class="btn btn-success">
+          {{ wakingUpEndpoint ? 'Waking Up...' : '⚡ Wake Up & Wait Until Ready' }}
+        </button>
+      </div>
+
+      <div v-if="endpointStatus" class="status-result" :class="endpointStatus.type">
+        <strong>Status:</strong> {{ endpointStatus.message }}
+        <div v-if="endpointStatus.details" class="health-details">
+          <pre>{{ endpointStatus.details }}</pre>
         </div>
+      </div>
+
+      <!-- Progress indicator for wake-up -->
+      <div v-if="wakingUpEndpoint" class="wake-progress">
+        <div class="progress-spinner">⏳</div>
+        <strong>{{ wakeUpProgress }}</strong>
+        <p class="hint-text">This typically takes 30-60 seconds...</p>
       </div>
     </div>
 
@@ -1061,6 +1078,12 @@ const extractedAudioBlob = ref(null)
 
 const healthLoading = ref(false)
 const healthStatus = ref(null)
+
+// Endpoint status checking
+const checkingEndpoint = ref(false)
+const wakingUpEndpoint = ref(false)
+const endpointStatus = ref(null)
+const wakeUpProgress = ref('')
 const transcribing = ref(false)
 const loadingMessage = ref('')
 const transcriptionResult = ref(null)
@@ -1145,6 +1168,9 @@ const targetSpeakerForAI = ref('')
 
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
+
+// HuggingFace Inference Endpoint for Norwegian Whisper (nb-whisper-medium-rda)
+const HF_ENDPOINT_URL = 'https://vfclin5vetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
 
 // Base URL for audio extraction worker (FFmpeg container)
 const AUDIO_WORKER_BASE_URL = 'https://vegvisr-container.torarnehave.workers.dev'
@@ -1658,6 +1684,141 @@ const checkHealth = async () => {
     }
   } finally {
     healthLoading.value = false
+  }
+}
+
+// Check HuggingFace Inference Endpoint Status
+const checkEndpointStatus = async () => {
+  checkingEndpoint.value = true
+  endpointStatus.value = null
+
+  try {
+    console.log('🔍 Checking HF endpoint status:', HF_ENDPOINT_URL)
+    
+    // Try to hit the endpoint with a simple health check
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+    
+    const response = await fetch(HF_ENDPOINT_URL, {
+      method: 'GET',
+      signal: controller.signal
+    })
+    
+    clearTimeout(timeoutId)
+
+    if (response.ok || response.status === 405) { // 405 = Method Not Allowed means it's up
+      endpointStatus.value = {
+        type: 'success',
+        message: '✅ Endpoint is READY and running',
+        details: `Status: ${response.status} - Endpoint is warm and ready to process requests`
+      }
+    } else if (response.status === 503 || response.status === 504) {
+      endpointStatus.value = {
+        type: 'warning',
+        message: '⏳ Endpoint is SCALED TO ZERO or starting up',
+        details: `Status: ${response.status} - Use "Wake Up & Wait" button to activate it`
+      }
+    } else {
+      endpointStatus.value = {
+        type: 'info',
+        message: `ℹ️ Endpoint responded with status ${response.status}`,
+        details: `This might indicate the endpoint is warming up or needs attention`
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      endpointStatus.value = {
+        type: 'warning',
+        message: '⏳ Endpoint is likely SCALED TO ZERO (timeout)',
+        details: 'The endpoint did not respond within 5 seconds. It may be scaled to zero and needs to be woken up.'
+      }
+    } else {
+      endpointStatus.value = {
+        type: 'error',
+        message: `❌ Cannot reach endpoint: ${err.message}`,
+        details: 'Check your network connection or endpoint configuration'
+      }
+    }
+  } finally {
+    checkingEndpoint.value = false
+  }
+}
+
+// Wake up endpoint and poll until ready
+const wakeUpAndWait = async () => {
+  wakingUpEndpoint.value = true
+  endpointStatus.value = null
+  wakeUpProgress.value = 'Sending wake-up request to endpoint...'
+
+  const maxAttempts = 20 // Try for up to ~2 minutes (20 attempts * 6 seconds)
+  let attempt = 0
+
+  try {
+    // First, send a wake-up request (this will fail but triggers the endpoint)
+    console.log('⚡ Waking up endpoint:', HF_ENDPOINT_URL)
+    wakeUpProgress.value = 'Wake-up request sent. Endpoint is starting...'
+    
+    try {
+      await fetch(HF_ENDPOINT_URL, { method: 'GET' })
+    } catch {
+      // Expected to fail, endpoint is starting
+    }
+
+    // Now poll until it's ready
+    while (attempt < maxAttempts) {
+      attempt++
+      wakeUpProgress.value = `Checking endpoint status... (Attempt ${attempt}/${maxAttempts})`
+      
+      await new Promise(resolve => setTimeout(resolve, 6000)) // Wait 6 seconds between checks
+
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000)
+        
+        const response = await fetch(HF_ENDPOINT_URL, {
+          method: 'GET',
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+
+        // If we get 405 (Method Not Allowed) or 200, the endpoint is ready!
+        if (response.ok || response.status === 405) {
+          endpointStatus.value = {
+            type: 'success',
+            message: `✅ Endpoint is READY! (took ~${attempt * 6} seconds)`,
+            details: 'The endpoint is now warm and ready to process transcription requests.'
+          }
+          wakingUpEndpoint.value = false
+          wakeUpProgress.value = ''
+          console.log('✅ Endpoint ready after', attempt, 'attempts')
+          return
+        }
+        
+        // Still warming up
+        console.log(`Attempt ${attempt}: Status ${response.status}, still waiting...`)
+        
+      } catch (err) {
+        // Timeout or error, keep trying
+        console.log(`Attempt ${attempt}: ${err.message}, retrying...`)
+      }
+    }
+
+    // Max attempts reached
+    endpointStatus.value = {
+      type: 'warning',
+      message: '⏰ Timeout: Endpoint took longer than expected to wake up',
+      details: `Tried for ${maxAttempts * 6} seconds. The endpoint may still be starting. Try checking status again in a moment.`
+    }
+    
+  } catch (err) {
+    endpointStatus.value = {
+      type: 'error',
+      message: `❌ Error during wake-up: ${err.message}`
+    }
+  } finally {
+    wakingUpEndpoint.value = false
+    wakeUpProgress.value = ''
   }
 }
 
@@ -4354,6 +4515,51 @@ const createChunkedGraph = async () => {
   background: #f8d7da;
   border-color: #dc3545;
   color: #721c24;
+}
+
+.status-result.warning {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+}
+
+.status-result.info {
+  background: #d1ecf1;
+  border-color: #17a2b8;
+  color: #0c5460;
+}
+
+.endpoint-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+
+.wake-progress {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.wake-progress .progress-spinner {
+  font-size: 2rem;
+  margin-bottom: 10px;
+  animation: spin 2s linear infinite;
+}
+
+.wake-progress strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #333;
+}
+
+.wake-progress .hint-text {
+  color: #666;
+  font-size: 0.9rem;
+  margin-top: 5px;
 }
 
 .health-details {
