@@ -367,6 +367,16 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/template-manager',
+      name: 'template-manager',
+      component: () => import('../views/TemplateManager.vue'),
+      meta: {
+        requiresAuth: true,
+        requiresSuperadmin: true, // Only superadmins can manage templates
+        layout: null,
+      },
+    },
   ],
 })
 
