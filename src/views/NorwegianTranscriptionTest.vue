@@ -1742,6 +1742,35 @@ const checkEndpointStatus = async () => {
   try {
     console.log('🔍 Checking HF GPU endpoint status:', HF_ENDPOINT_URL_GPU)
     
+    // Create minimal audio for test
+    const sampleRate = 16000
+    const duration = 0.1 // 100ms
+    const numSamples = Math.floor(sampleRate * duration)
+    const buffer = new ArrayBuffer(44 + numSamples * 2)
+    const view = new DataView(buffer)
+    
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+    
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + numSamples * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, numSamples * 2, true)
+    
+    const audioBlob = new Blob([buffer], { type: 'audio/wav' })
+    
     // Try to hit the endpoint with a test request
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
@@ -1749,9 +1778,9 @@ const checkEndpointStatus = async () => {
     const response = await fetch(HF_ENDPOINT_URL_GPU, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'audio/wav',
       },
-      body: JSON.stringify({ inputs: "test" }),
+      body: audioBlob,
       signal: controller.signal
     })
     
@@ -1806,21 +1835,53 @@ const wakeUpAndWait = async () => {
   let attempt = 0
 
   try {
-    // First, send a wake-up request with dummy data (this triggers the endpoint to start)
+    // First, send a wake-up request with minimal audio data (this triggers the endpoint to start)
     console.log('⚡ Waking up GPU endpoint:', HF_ENDPOINT_URL_GPU)
     wakeUpProgress.value = 'Wake-up request sent. GPU endpoint is starting...'
     
     try {
-      // Send a minimal POST request to wake up the inference endpoint
-      // Using a tiny base64 audio snippet to trigger the model
+      // Create a minimal silent audio blob (1 second of silence, mono, 16kHz WAV)
+      const sampleRate = 16000
+      const duration = 1 // 1 second
+      const numSamples = sampleRate * duration
+      const buffer = new ArrayBuffer(44 + numSamples * 2) // WAV header + PCM data
+      const view = new DataView(buffer)
+      
+      // WAV header
+      const writeString = (offset, string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+      
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + numSamples * 2, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true) // fmt chunk size
+      view.setUint16(20, 1, true) // PCM format
+      view.setUint16(22, 1, true) // mono
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * 2, true) // byte rate
+      view.setUint16(32, 2, true) // block align
+      view.setUint16(34, 16, true) // bits per sample
+      writeString(36, 'data')
+      view.setUint32(40, numSamples * 2, true)
+      
+      // Silent PCM data (all zeros)
+      for (let i = 0; i < numSamples; i++) {
+        view.setInt16(44 + i * 2, 0, true)
+      }
+      
+      const audioBlob = new Blob([buffer], { type: 'audio/wav' })
+      
+      // Send the audio file to wake up the endpoint
       await fetch(HF_ENDPOINT_URL_GPU, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'audio/wav',
         },
-        body: JSON.stringify({
-          inputs: "dummy"  // Minimal payload to trigger endpoint
-        })
+        body: audioBlob
       })
     } catch {
       // Expected to fail or timeout, but it triggers the endpoint to start
@@ -1897,15 +1958,44 @@ const checkEndpointStatusCPU = async () => {
   try {
     console.log('🔍 Checking HF CPU endpoint status:', HF_ENDPOINT_URL_CPU)
     
+    // Create minimal audio for test
+    const sampleRate = 16000
+    const duration = 0.1 // 100ms
+    const numSamples = Math.floor(sampleRate * duration)
+    const buffer = new ArrayBuffer(44 + numSamples * 2)
+    const view = new DataView(buffer)
+    
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+    
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + numSamples * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, numSamples * 2, true)
+    
+    const audioBlob = new Blob([buffer], { type: 'audio/wav' })
+    
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000)
     
     const response = await fetch(HF_ENDPOINT_URL_CPU, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'audio/wav',
       },
-      body: JSON.stringify({ inputs: "test" }),
+      body: audioBlob,
       signal: controller.signal
     })
     
@@ -1963,12 +2053,45 @@ const wakeUpAndWaitCPU = async () => {
     wakeUpProgressCPU.value = 'Wake-up request sent. CPU endpoint is starting...'
     
     try {
+      // Create a minimal silent audio blob (1 second of silence, mono, 16kHz WAV)
+      const sampleRate = 16000
+      const duration = 1
+      const numSamples = sampleRate * duration
+      const buffer = new ArrayBuffer(44 + numSamples * 2)
+      const view = new DataView(buffer)
+      
+      const writeString = (offset, string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+      
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + numSamples * 2, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * 2, true)
+      view.setUint16(32, 2, true)
+      view.setUint16(34, 16, true)
+      writeString(36, 'data')
+      view.setUint32(40, numSamples * 2, true)
+      
+      for (let i = 0; i < numSamples; i++) {
+        view.setInt16(44 + i * 2, 0, true)
+      }
+      
+      const audioBlob = new Blob([buffer], { type: 'audio/wav' })
+      
       await fetch(HF_ENDPOINT_URL_CPU, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'audio/wav',
         },
-        body: JSON.stringify({ inputs: "dummy" })
+        body: audioBlob
       })
     } catch {
       // Expected to fail or timeout, but it triggers the endpoint to start
