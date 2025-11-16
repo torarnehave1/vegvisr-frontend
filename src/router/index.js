@@ -393,9 +393,9 @@ router.beforeEach(async (to, from, next) => {
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {
-      // Check for Superadmin requirement
-      if (to.meta.requiresSuperadmin && userStore.role !== 'Superadmin') {
-        console.warn('[Router] User is not Superadmin. Access denied.')
+      // Check for Superadmin requirement (allow Admin and Superadmin)
+      if (to.meta.requiresSuperadmin && userStore.role !== 'Superadmin' && userStore.role !== 'Admin') {
+        console.warn('[Router] User is not Admin or Superadmin. Access denied.')
         next({ path: '/user' }) // Redirect to user dashboard
         return
       }
