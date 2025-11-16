@@ -176,6 +176,15 @@
           {{ analyzingDiarization ? '🔄 Analyzing Speakers...' : '🎯 Analyze Speakers (AI)' }}
         </button>
 
+        <!-- Use for Transcription Button -->
+        <button
+          @click="useThisAudioForTranscription"
+          class="btn btn-success btn-lg"
+          style="margin-left: 10px;"
+        >
+          🇳🇴 Use This Audio for Transcription
+        </button>
+
         <!-- Progress Message -->
         <div v-if="diarizationProgress" class="progress-message">
           <div class="progress-spinner">⏳</div>
@@ -1894,6 +1903,53 @@ const useTranscriptionForDiarization = () => {
   diarizationSaved.value = false
 
   console.log('🎧 Using transcription audio for diarization:', transcriptionResult.value.r2Url)
+}
+
+const useThisAudioForTranscription = async () => {
+  if (!selectedDiarizationRecording.value || !selectedDiarizationRecording.value.r2Url) {
+    error.value = { message: 'No audio selected for diarization' }
+    return
+  }
+
+  try {
+    // Fetch the audio from the R2 URL
+    const response = await fetch(selectedDiarizationRecording.value.r2Url)
+    if (!response.ok) {
+      throw new Error(`Failed to load audio: ${response.statusText}`)
+    }
+
+    const blob = await response.blob()
+
+    // Create a File object from the blob
+    const fileName = selectedDiarizationRecording.value.fileName || 
+                     selectedDiarizationRecording.value.displayName || 
+                     'portfolio-audio.wav'
+    const file = new File([blob], fileName, { type: blob.type || 'audio/wav' })
+
+    selectedFile.value = file
+    recordedBlob.value = null // Clear any recorded audio
+
+    // Cleanup old preview URL if exists
+    if (audioPreviewUrl.value) {
+      URL.revokeObjectURL(audioPreviewUrl.value)
+    }
+
+    // Scroll to transcription section
+    setTimeout(() => {
+      const transcriptionSection = document.querySelector('.save-audio-only-section')
+      if (transcriptionSection) {
+        transcriptionSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 100)
+
+    statusMessage.value = `✅ Ready to transcribe: ${fileName}`
+    setTimeout(() => { statusMessage.value = '' }, 5000)
+
+    console.log('🇳🇴 Audio ready for transcription:', fileName, blob.size, 'bytes')
+  } catch (err) {
+    console.error('❌ Failed to load audio for transcription:', err)
+    error.value = { message: `Failed to load audio: ${err.message}` }
+  }
 }
 
 const loadPortfolioForDiarization = async () => {
