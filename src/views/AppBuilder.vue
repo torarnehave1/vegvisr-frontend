@@ -236,48 +236,14 @@ const generateApp = async () => {
   deploymentStatus.value = { type: 'info', message: '🤖 AI is generating your app...' }
 
   try {
-    const response = await fetch('https://api.vegvisr.org/generate-worker', {
+    const response = await fetch('https://api.vegvisr.org/generate-app', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        prompt: `You are creating a STANDALONE HTML FILE that will be opened directly in a web browser, NOT a Cloudflare Worker.
-
-USER REQUEST: ${appPrompt.value}
-
-CRITICAL REQUIREMENTS:
-1. Start with exactly: <!DOCTYPE html>
-2. Include ALL code in ONE HTML file
-3. CSS must be in <style> tags inside <head>
-4. JavaScript must be in <script> tags at end of <body>
-5. NO external dependencies, NO imports, NO fetch to external APIs
-6. NO Cloudflare Worker code (no addEventListener, no event.respondWith)
-7. NO server-side code - this runs 100% in the browser
-8. Make it visually beautiful with CSS gradients and animations
-
-EXAMPLE STRUCTURE:
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>My App</title>
-  <style>
-    /* Beautiful CSS here */
-  </style>
-</head>
-<body>
-  <!-- HTML content here -->
-  <script>
-    // Interactive JavaScript here
-  <` + `/script>
-</body>
-</html>
-
-Return ONLY the complete HTML code, nothing else. No explanations, no markdown, no code blocks.`,
-        aiModel: 'grok',
-        userPrompt: appPrompt.value,
-        selectedExamples: []
+        prompt: appPrompt.value,
+        aiModel: 'grok'
       })
     })
 
