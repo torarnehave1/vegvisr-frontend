@@ -351,31 +351,43 @@ const copyCode = async () => {
 const deployApp = async () => {
   if (!currentApp.value || !generatedCode.value) return
 
-  // For client-side apps, we'll save to a knowledge graph template instead
-  // This creates a reusable template that can be embedded anywhere
-  
   isDeploying.value = true
   deploymentStatus.value = { type: 'info', message: 'Saving app as template...' }
 
   try {
-    // Create a template node with the app
+    // Get app name from user
+    const appName = prompt('Enter a name for this app:', appPrompt.value.substring(0, 50))
+    if (!appName || !appName.trim()) {
+      deploymentStatus.value = null
+      isDeploying.value = false
+      return
+    }
+
+    // Create template in correct GraphTemplates format
     const templateData = {
-      name: `App: ${appPrompt.value.substring(0, 50)}`,
-      type: 'app-template',
-      category: 'Apps',
-      nodes: [{
+      name: appName.trim(),
+      type: 'app-viewer', // Node type for rendering
+      category: 'Apps', // Category for filtering
+      nodes: JSON.stringify([{
         id: `app-${Date.now()}`,
         type: 'app-viewer',
-        label: appPrompt.value.substring(0, 50),
-        info: generatedCode.value, // Store the HTML code
+        label: appName.trim(),
+        info: generatedCode.value, // Store the complete HTML code
         color: '#11998e',
-        visible: true
-      }],
-      edges: [],
-      ai_instructions: {
+        visible: true,
+        imageWidth: '100%',
+        imageHeight: '100%',
+        bibl: []
+      }]),
+      edges: JSON.stringify([]), // No edges for standalone apps
+      thumbnail_path: null,
+      standard_question: appPrompt.value, // Store original prompt
+      ai_instructions: JSON.stringify({
         prompt: appPrompt.value,
-        generated_at: new Date().toISOString()
-      }
+        model: 'claude',
+        generated_at: new Date().toISOString(),
+        generated_by: 'AI App Builder'
+      })
     }
 
     const response = await fetch('https://knowledge.vegvisr.org/addTemplate', {
@@ -387,23 +399,16 @@ const deployApp = async () => {
     })
 
     if (!response.ok) {
-      throw new Error(`Save failed: ${response.status}`)
+      const errorData = await response.json().catch(() => ({ error: response.statusText }))
+      throw new Error(errorData.error || `Save failed: ${response.status}`)
     }
 
     const result = await response.json()
     console.log('Template saved:', result)
     
-    // Also create a downloadable HTML file
-    const blob = new Blob([generatedCode.value], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `app-${Date.now()}.html`
-    
-    deployedUrl.value = url
     deploymentStatus.value = { 
       type: 'success', 
-      message: '✅ App saved! You can download it or use it as a template.' 
+      message: `✅ "${appName}" saved as template! You can now find it in GNewViewer under Apps category.` 
     }
     
     setTimeout(() => {
