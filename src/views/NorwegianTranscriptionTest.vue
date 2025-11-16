@@ -17,32 +17,69 @@
     <!-- Health Check Section -->
     <div class="test-section">
       <h2>🏥 Transcription Endpoint Status</h2>
-      <p class="section-description">
-        Norwegian Whisper endpoint (nb-whisper-medium-rda) may be scaled to zero. 
-        Wake it up and wait for it to be ready before transcribing.
-      </p>
+      
+      <!-- GPU Endpoint Section -->
+      <div class="endpoint-section">
+        <h3>🚀 GPU Endpoint (nb-whisper-medium-rda)</h3>
+        <p class="section-description">
+          Nvidia H200 GPU endpoint - Faster but may be scaled to zero. 
+          Wake it up and wait for it to be ready before transcribing.
+        </p>
 
-      <div class="endpoint-controls">
-        <button @click="checkEndpointStatus" :disabled="checkingEndpoint" class="btn btn-primary">
-          {{ checkingEndpoint ? 'Checking...' : '🔍 Check Endpoint Status' }}
-        </button>
-        <button @click="wakeUpAndWait" :disabled="wakingUpEndpoint" class="btn btn-success">
-          {{ wakingUpEndpoint ? 'Waking Up...' : '⚡ Wake Up & Wait Until Ready' }}
-        </button>
-      </div>
+        <div class="endpoint-controls">
+          <button @click="checkEndpointStatus" :disabled="checkingEndpoint" class="btn btn-primary">
+            {{ checkingEndpoint ? 'Checking...' : '🔍 Check GPU Status' }}
+          </button>
+          <button @click="wakeUpAndWait" :disabled="wakingUpEndpoint" class="btn btn-success">
+            {{ wakingUpEndpoint ? 'Waking Up...' : '⚡ Wake Up GPU & Wait' }}
+          </button>
+        </div>
 
-      <div v-if="endpointStatus" class="status-result" :class="endpointStatus.type">
-        <strong>Status:</strong> {{ endpointStatus.message }}
-        <div v-if="endpointStatus.details" class="health-details">
-          <pre>{{ endpointStatus.details }}</pre>
+        <div v-if="endpointStatus" class="status-result" :class="endpointStatus.type">
+          <strong>GPU Status:</strong> {{ endpointStatus.message }}
+          <div v-if="endpointStatus.details" class="health-details">
+            <pre>{{ endpointStatus.details }}</pre>
+          </div>
+        </div>
+
+        <!-- Progress indicator for GPU wake-up -->
+        <div v-if="wakingUpEndpoint" class="wake-progress">
+          <div class="progress-spinner">⏳</div>
+          <strong>{{ wakeUpProgress }}</strong>
+          <p class="hint-text">GPU typically takes 30-60 seconds...</p>
         </div>
       </div>
 
-      <!-- Progress indicator for wake-up -->
-      <div v-if="wakingUpEndpoint" class="wake-progress">
-        <div class="progress-spinner">⏳</div>
-        <strong>{{ wakeUpProgress }}</strong>
-        <p class="hint-text">This typically takes 30-60 seconds...</p>
+      <!-- CPU Endpoint Section -->
+      <div class="endpoint-section">
+        <h3>💻 CPU Endpoint (nb-whisper-medium-kgm)</h3>
+        <p class="section-description">
+          Intel Sapphire Rapids CPU endpoint - More economical, may be scaled to zero.
+          Wake it up and wait for it to be ready before transcribing.
+        </p>
+
+        <div class="endpoint-controls">
+          <button @click="checkEndpointStatusCPU" :disabled="checkingEndpointCPU" class="btn btn-primary">
+            {{ checkingEndpointCPU ? 'Checking...' : '🔍 Check CPU Status' }}
+          </button>
+          <button @click="wakeUpAndWaitCPU" :disabled="wakingUpEndpointCPU" class="btn btn-success">
+            {{ wakingUpEndpointCPU ? 'Waking Up...' : '⚡ Wake Up CPU & Wait' }}
+          </button>
+        </div>
+
+        <div v-if="endpointStatusCPU" class="status-result" :class="endpointStatusCPU.type">
+          <strong>CPU Status:</strong> {{ endpointStatusCPU.message }}
+          <div v-if="endpointStatusCPU.details" class="health-details">
+            <pre>{{ endpointStatusCPU.details }}</pre>
+          </div>
+        </div>
+
+        <!-- Progress indicator for CPU wake-up -->
+        <div v-if="wakingUpEndpointCPU" class="wake-progress">
+          <div class="progress-spinner">⏳</div>
+          <strong>{{ wakeUpProgressCPU }}</strong>
+          <p class="hint-text">CPU typically takes 30-60 seconds...</p>
+        </div>
       </div>
     </div>
 
@@ -1079,11 +1116,18 @@ const extractedAudioBlob = ref(null)
 const healthLoading = ref(false)
 const healthStatus = ref(null)
 
-// Endpoint status checking
+// GPU Endpoint status checking
 const checkingEndpoint = ref(false)
 const wakingUpEndpoint = ref(false)
 const endpointStatus = ref(null)
 const wakeUpProgress = ref('')
+
+// CPU Endpoint status checking
+const checkingEndpointCPU = ref(false)
+const wakingUpEndpointCPU = ref(false)
+const endpointStatusCPU = ref(null)
+const wakeUpProgressCPU = ref('')
+
 const transcribing = ref(false)
 const loadingMessage = ref('')
 const transcriptionResult = ref(null)
@@ -1169,8 +1213,11 @@ const targetSpeakerForAI = ref('')
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
-// HuggingFace Inference Endpoint for Norwegian Whisper (nb-whisper-medium-rda)
-const HF_ENDPOINT_URL = 'https://vfclin5vetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
+// HuggingFace Inference Endpoint for Norwegian Whisper GPU (nb-whisper-medium-rda)
+const HF_ENDPOINT_URL_GPU = 'https://vfclin5vetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
+
+// HuggingFace Inference Endpoint for Norwegian Whisper CPU (nb-whisper-medium-kgm)
+const HF_ENDPOINT_URL_CPU = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
 
 // Base URL for audio extraction worker (FFmpeg container)
 const AUDIO_WORKER_BASE_URL = 'https://vegvisr-container.torarnehave.workers.dev'
@@ -1687,19 +1734,19 @@ const checkHealth = async () => {
   }
 }
 
-// Check HuggingFace Inference Endpoint Status
+// Check HuggingFace Inference Endpoint Status (GPU)
 const checkEndpointStatus = async () => {
   checkingEndpoint.value = true
   endpointStatus.value = null
 
   try {
-    console.log('🔍 Checking HF endpoint status:', HF_ENDPOINT_URL)
+    console.log('🔍 Checking HF GPU endpoint status:', HF_ENDPOINT_URL_GPU)
     
     // Try to hit the endpoint with a simple health check
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
     
-    const response = await fetch(HF_ENDPOINT_URL, {
+    const response = await fetch(HF_ENDPOINT_URL_GPU, {
       method: 'GET',
       signal: controller.signal
     })
@@ -1744,22 +1791,22 @@ const checkEndpointStatus = async () => {
   }
 }
 
-// Wake up endpoint and poll until ready
+// Wake up endpoint and poll until ready (GPU)
 const wakeUpAndWait = async () => {
   wakingUpEndpoint.value = true
   endpointStatus.value = null
-  wakeUpProgress.value = 'Sending wake-up request to endpoint...'
+  wakeUpProgress.value = 'Sending wake-up request to GPU endpoint...'
 
   const maxAttempts = 20 // Try for up to ~2 minutes (20 attempts * 6 seconds)
   let attempt = 0
 
   try {
     // First, send a wake-up request (this will fail but triggers the endpoint)
-    console.log('⚡ Waking up endpoint:', HF_ENDPOINT_URL)
-    wakeUpProgress.value = 'Wake-up request sent. Endpoint is starting...'
+    console.log('⚡ Waking up GPU endpoint:', HF_ENDPOINT_URL_GPU)
+    wakeUpProgress.value = 'Wake-up request sent. GPU endpoint is starting...'
     
     try {
-      await fetch(HF_ENDPOINT_URL, { method: 'GET' })
+      await fetch(HF_ENDPOINT_URL_GPU, { method: 'GET' })
     } catch {
       // Expected to fail, endpoint is starting
     }
@@ -1767,7 +1814,7 @@ const wakeUpAndWait = async () => {
     // Now poll until it's ready
     while (attempt < maxAttempts) {
       attempt++
-      wakeUpProgress.value = `Checking endpoint status... (Attempt ${attempt}/${maxAttempts})`
+      wakeUpProgress.value = `Checking GPU endpoint status... (Attempt ${attempt}/${maxAttempts})`
       
       await new Promise(resolve => setTimeout(resolve, 6000)) // Wait 6 seconds between checks
 
@@ -1775,7 +1822,7 @@ const wakeUpAndWait = async () => {
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 5000)
         
-        const response = await fetch(HF_ENDPOINT_URL, {
+        const response = await fetch(HF_ENDPOINT_URL_GPU, {
           method: 'GET',
           signal: controller.signal
         })
@@ -1819,6 +1866,134 @@ const wakeUpAndWait = async () => {
   } finally {
     wakingUpEndpoint.value = false
     wakeUpProgress.value = ''
+  }
+}
+
+// Check HuggingFace Inference Endpoint Status (CPU)
+const checkEndpointStatusCPU = async () => {
+  checkingEndpointCPU.value = true
+  endpointStatusCPU.value = null
+
+  try {
+    console.log('🔍 Checking HF CPU endpoint status:', HF_ENDPOINT_URL_CPU)
+    
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
+    const response = await fetch(HF_ENDPOINT_URL_CPU, {
+      method: 'GET',
+      signal: controller.signal
+    })
+    
+    clearTimeout(timeoutId)
+
+    if (response.ok || response.status === 405) {
+      endpointStatusCPU.value = {
+        type: 'success',
+        message: '✅ CPU Endpoint is READY and running',
+        details: `Status: ${response.status} - Endpoint is warm and ready to process requests`
+      }
+    } else if (response.status === 503 || response.status === 504) {
+      endpointStatusCPU.value = {
+        type: 'warning',
+        message: '⏳ CPU Endpoint is SCALED TO ZERO or starting up',
+        details: `Status: ${response.status} - Use "Wake Up & Wait" button to activate it`
+      }
+    } else {
+      endpointStatusCPU.value = {
+        type: 'info',
+        message: `ℹ️ CPU Endpoint responded with status ${response.status}`,
+        details: `This might indicate the endpoint is warming up or needs attention`
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      endpointStatusCPU.value = {
+        type: 'warning',
+        message: '⏳ CPU Endpoint is likely SCALED TO ZERO (timeout)',
+        details: 'The endpoint did not respond within 5 seconds. It may be scaled to zero and needs to be woken up.'
+      }
+    } else {
+      endpointStatusCPU.value = {
+        type: 'error',
+        message: `❌ Cannot reach CPU endpoint: ${err.message}`,
+        details: 'Check your network connection or endpoint configuration'
+      }
+    }
+  } finally {
+    checkingEndpointCPU.value = false
+  }
+}
+
+// Wake up CPU endpoint and poll until ready
+const wakeUpAndWaitCPU = async () => {
+  wakingUpEndpointCPU.value = true
+  endpointStatusCPU.value = null
+  wakeUpProgressCPU.value = 'Sending wake-up request to CPU endpoint...'
+
+  const maxAttempts = 20
+  let attempt = 0
+
+  try {
+    console.log('⚡ Waking up CPU endpoint:', HF_ENDPOINT_URL_CPU)
+    wakeUpProgressCPU.value = 'Wake-up request sent. CPU endpoint is starting...'
+    
+    try {
+      await fetch(HF_ENDPOINT_URL_CPU, { method: 'GET' })
+    } catch {
+      // Expected to fail, endpoint is starting
+    }
+
+    while (attempt < maxAttempts) {
+      attempt++
+      wakeUpProgressCPU.value = `Checking CPU endpoint status... (Attempt ${attempt}/${maxAttempts})`
+      
+      await new Promise(resolve => setTimeout(resolve, 6000))
+
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000)
+        
+        const response = await fetch(HF_ENDPOINT_URL_CPU, {
+          method: 'GET',
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+
+        if (response.ok || response.status === 405) {
+          endpointStatusCPU.value = {
+            type: 'success',
+            message: `✅ CPU Endpoint is READY! (took ~${attempt * 6} seconds)`,
+            details: 'The CPU endpoint is now warm and ready to process transcription requests.'
+          }
+          wakingUpEndpointCPU.value = false
+          wakeUpProgressCPU.value = ''
+          console.log('✅ CPU Endpoint ready after', attempt, 'attempts')
+          return
+        }
+        
+        console.log(`CPU Attempt ${attempt}: Status ${response.status}, still waiting...`)
+        
+      } catch (err) {
+        console.log(`CPU Attempt ${attempt}: ${err.message}, retrying...`)
+      }
+    }
+
+    endpointStatusCPU.value = {
+      type: 'warning',
+      message: '⏰ Timeout: CPU Endpoint took longer than expected to wake up',
+      details: `Tried for ${maxAttempts * 6} seconds. The endpoint may still be starting. Try checking status again in a moment.`
+    }
+    
+  } catch (err) {
+    endpointStatusCPU.value = {
+      type: 'error',
+      message: `❌ Error during CPU wake-up: ${err.message}`
+    }
+  } finally {
+    wakingUpEndpointCPU.value = false
+    wakeUpProgressCPU.value = ''
   }
 }
 
@@ -4529,6 +4704,20 @@ const createChunkedGraph = async () => {
   color: #0c5460;
 }
 
+.endpoint-section {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.endpoint-section h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #333;
+}
+
 .endpoint-controls {
   display: flex;
   gap: 10px;
@@ -4539,9 +4728,10 @@ const createChunkedGraph = async () => {
 .wake-progress {
   margin-top: 20px;
   padding: 20px;
-  background: #f8f9fa;
+  background: #fff;
   border-radius: 8px;
   text-align: center;
+  border: 1px solid #ddd;
 }
 
 .wake-progress .progress-spinner {
