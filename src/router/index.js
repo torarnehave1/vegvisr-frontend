@@ -377,6 +377,15 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/app-builder',
+      name: 'app-builder',
+      component: () => import('../views/AppBuilder.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
   ],
 })
 

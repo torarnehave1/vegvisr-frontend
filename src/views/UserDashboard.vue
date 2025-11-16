@@ -338,6 +338,55 @@
           </div>
         </div>
 
+        <!-- App Builder Section (All Users) -->
+        <div v-if="userStore.loggedIn" class="mt-4">
+          <div
+            class="app-builder-card"
+            style="
+              background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+              border-radius: 12px;
+              padding: 1.5rem;
+              color: white;
+              position: relative;
+              overflow: hidden;
+            "
+          >
+            <div
+              class="app-builder-pattern"
+              style="
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 100px;
+                height: 100px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                transform: translate(30px, -30px);
+              "
+            ></div>
+            <div class="app-builder-content" style="position: relative; z-index: 2">
+              <h5 class="mb-3 d-flex align-items-center">
+                🚀 <span class="ms-2">App Builder</span>
+              </h5>
+              <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
+                Create and deploy custom applications powered by AI. Build todo lists, calculators,
+                dashboards, and more with simple prompts. Deploy instantly to Cloudflare Workers.
+              </p>
+
+              <div class="d-flex justify-content-end">
+                <router-link
+                  to="/app-builder"
+                  class="btn btn-light btn-sm"
+                  style="font-weight: 600; text-decoration: none"
+                >
+                  <i class="fas fa-rocket me-1"></i>
+                  Build an App
+                </router-link>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- User Secret Section -->
         <div class="user-id-section alert alert-info mt-5">
           <p>Current User Secret:</p>
