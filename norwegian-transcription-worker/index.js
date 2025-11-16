@@ -11,27 +11,27 @@ const generateSilentWAV = (durationSeconds = 1) => {
   const numChannels = 1
   const bitsPerSample = 16
   const numSamples = Math.floor(sampleRate * durationSeconds)
-  
+
   // Calculate sizes
   const dataSize = numSamples * numChannels * (bitsPerSample / 8)
   const fileSize = 44 + dataSize // WAV header is 44 bytes
-  
+
   // Create buffer
   const buffer = new ArrayBuffer(fileSize)
   const view = new DataView(buffer)
-  
+
   // Helper to write string
   const writeString = (offset, string) => {
     for (let i = 0; i < string.length; i++) {
       view.setUint8(offset + i, string.charCodeAt(i))
     }
   }
-  
+
   // RIFF chunk descriptor
   writeString(0, 'RIFF')
   view.setUint32(4, fileSize - 8, true) // File size - 8
   writeString(8, 'WAVE')
-  
+
   // fmt sub-chunk
   writeString(12, 'fmt ')
   view.setUint32(16, 16, true) // Subchunk1Size (16 for PCM)
@@ -41,16 +41,16 @@ const generateSilentWAV = (durationSeconds = 1) => {
   view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true) // ByteRate
   view.setUint16(32, numChannels * (bitsPerSample / 8), true) // BlockAlign
   view.setUint16(34, bitsPerSample, true) // BitsPerSample
-  
+
   // data sub-chunk
   writeString(36, 'data')
   view.setUint32(40, dataSize, true) // Subchunk2Size
-  
+
   // Fill with silent PCM data (zeros)
   for (let i = 44; i < fileSize; i++) {
     view.setUint8(i, 0)
   }
-  
+
   return buffer
 }
 
@@ -587,17 +587,17 @@ export default {
     if (request.method === 'GET' && url.pathname === '/hf-endpoint/status') {
       const endpointType = url.searchParams.get('type') || 'cpu'
       const endpoint = endpointType.toLowerCase() === 'gpu' ? NORWEGIAN_GPU_ENDPOINT : NORWEGIAN_CPU_ENDPOINT
-      
+
       try {
         console.log(`🔍 Checking ${endpointType.toUpperCase()} endpoint status:`, endpoint)
-        
+
         // Create minimal test audio (100ms)
         const testAudioBuffer = generateSilentWAV(0.1)
-        
+
         // Send test request with 5-second timeout
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 5000)
-        
+
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -607,9 +607,9 @@ export default {
           body: testAudioBuffer,
           signal: controller.signal
         })
-        
+
         clearTimeout(timeoutId)
-        
+
         // Determine status
         let status, message, details
         if (response.status === 200 || response.status === 400 || response.status === 422) {
@@ -625,7 +625,7 @@ export default {
           message = `ℹ️ ${endpointType.toUpperCase()} endpoint status: ${response.status}`
           details = 'Endpoint responded but status is unclear'
         }
-        
+
         return createResponse(JSON.stringify({
           status,
           message,
@@ -633,7 +633,7 @@ export default {
           endpoint: endpointType,
           httpStatus: response.status
         }))
-        
+
       } catch (err) {
         if (err.name === 'AbortError') {
           return createResponse(JSON.stringify({
@@ -651,25 +651,25 @@ export default {
     if (request.method === 'POST' && url.pathname === '/hf-endpoint/wake') {
       const endpointType = url.searchParams.get('type') || 'cpu'
       const endpoint = endpointType.toLowerCase() === 'gpu' ? NORWEGIAN_GPU_ENDPOINT : NORWEGIAN_CPU_ENDPOINT
-      
+
       try {
         console.log(`🚀 Waking up ${endpointType.toUpperCase()} endpoint:`, endpoint)
-        
+
         const maxAttempts = 20
         const pollInterval = 6000 // 6 seconds
         let attempt = 0
-        
+
         // Generate 1 second of silent audio for wake-up
         const wakeAudioBuffer = generateSilentWAV(1)
-        
+
         while (attempt < maxAttempts) {
           attempt++
           console.log(`🔄 Wake-up attempt ${attempt}/${maxAttempts}`)
-          
+
           try {
             const controller = new AbortController()
             const timeoutId = setTimeout(() => controller.abort(), 5000)
-            
+
             const response = await fetch(endpoint, {
               method: 'POST',
               headers: {
@@ -679,9 +679,9 @@ export default {
               body: wakeAudioBuffer,
               signal: controller.signal
             })
-            
+
             clearTimeout(timeoutId)
-            
+
             // Check if endpoint is ready
             if (response.status === 200 || response.status === 400 || response.status === 422) {
               console.log(`✅ ${endpointType.toUpperCase()} endpoint ready after ${attempt} attempts`)
@@ -693,7 +693,7 @@ export default {
                 httpStatus: response.status
               }))
             }
-            
+
             // Endpoint still waking up, wait before retry
             if (attempt < maxAttempts) {
               await new Promise(resolve => setTimeout(resolve, pollInterval))
@@ -709,7 +709,7 @@ export default {
             }
           }
         }
-        
+
         // Max attempts reached
         return createResponse(JSON.stringify({
           success: false,
@@ -717,7 +717,7 @@ export default {
           attempts: maxAttempts,
           endpoint: endpointType
         }), 504)
-        
+
       } catch (err) {
         return createErrorResponse(`Wake-up failed: ${err.message}`, 500)
       }

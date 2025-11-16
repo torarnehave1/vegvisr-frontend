@@ -17,12 +17,12 @@
     <!-- Health Check Section -->
     <div class="test-section">
       <h2>🏥 Transcription Endpoint Status</h2>
-      
+
       <!-- GPU Endpoint Section -->
       <div class="endpoint-section">
         <h3>🚀 GPU Endpoint (nb-whisper-medium-rda)</h3>
         <p class="section-description">
-          Nvidia H200 GPU endpoint - Faster but may be scaled to zero. 
+          Nvidia H200 GPU endpoint - Faster but may be scaled to zero.
           Wake it up and wait for it to be ready before transcribing.
         </p>
 
@@ -1735,15 +1735,15 @@ const checkEndpointStatus = async () => {
 
   try {
     console.log('🔍 Checking GPU endpoint status via worker API')
-    
+
     const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/status?type=gpu`)
-    
+
     if (!response.ok) {
       throw new Error(`Worker API error: ${response.status}`)
     }
-    
+
     const result = await response.json()
-    
+
     // Map worker response to UI status
     if (result.status === 'ready') {
       endpointStatus.value = {
@@ -1783,17 +1783,17 @@ const wakeUpAndWait = async () => {
 
   try {
     console.log('⚡ Waking up GPU endpoint via worker API')
-    
+
     const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/wake?type=gpu`, {
       method: 'POST'
     })
-    
+
     if (!response.ok) {
       throw new Error(`Worker API error: ${response.status}`)
     }
-    
+
     const result = await response.json()
-    
+
     if (result.success) {
       endpointStatus.value = {
         type: 'success',
@@ -1826,15 +1826,15 @@ const checkEndpointStatusCPU = async () => {
 
   try {
     console.log('🔍 Checking CPU endpoint status via worker API')
-    
+
     const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/status?type=cpu`)
-    
+
     if (!response.ok) {
       throw new Error(`Worker API error: ${response.status}`)
     }
-    
+
     const result = await response.json()
-    
+
     // Map worker response to UI status
     if (result.status === 'ready') {
       endpointStatusCPU.value = {
@@ -1874,17 +1874,17 @@ const wakeUpAndWaitCPU = async () => {
 
   try {
     console.log('⚡ Waking up CPU endpoint via worker API')
-    
+
     const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/wake?type=cpu`, {
       method: 'POST'
     })
-    
+
     if (!response.ok) {
       throw new Error(`Worker API error: ${response.status}`)
     }
-    
+
     const result = await response.json()
-    
+
     if (result.success) {
       endpointStatusCPU.value = {
         type: 'success',
@@ -2170,8 +2170,8 @@ const useThisAudioForTranscription = async () => {
     const blob = await response.blob()
 
     // Create a File object from the blob
-    const fileName = selectedDiarizationRecording.value.fileName || 
-                     selectedDiarizationRecording.value.displayName || 
+    const fileName = selectedDiarizationRecording.value.fileName ||
+                     selectedDiarizationRecording.value.displayName ||
                      'portfolio-audio.wav'
     const file = new File([blob], fileName, { type: blob.type || 'audio/wav' })
 
