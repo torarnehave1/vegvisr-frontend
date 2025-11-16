@@ -363,11 +363,9 @@ const deployApp = async () => {
       return
     }
 
-    // Create template in correct GraphTemplates format
+    // Create template matching the exact database structure
     const templateData = {
       name: appName.trim(),
-      type: 'app-viewer', // Node type for rendering
-      category: 'Apps', // Category for filtering
       nodes: JSON.stringify([{
         id: `app-${Date.now()}`,
         type: 'app-viewer',
@@ -375,13 +373,15 @@ const deployApp = async () => {
         info: generatedCode.value, // Store the complete HTML code
         color: '#11998e',
         visible: true,
+        bibl: [],
         imageWidth: '100%',
         imageHeight: '100%',
-        bibl: []
+        path: null
       }]),
-      edges: JSON.stringify([]), // No edges for standalone apps
+      edges: JSON.stringify([]),
+      category: 'Apps',
       thumbnail_path: null,
-      standard_question: appPrompt.value, // Store original prompt
+      standard_question: appPrompt.value,
       ai_instructions: JSON.stringify({
         prompt: appPrompt.value,
         model: 'claude',
