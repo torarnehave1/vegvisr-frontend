@@ -6158,7 +6158,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         break
       }
 
-      case 'anthropic': {
+      case 'claude': {
         apiKey = env.ANTHROPIC_API_KEY
         if (!apiKey) {
           return createErrorResponse('Anthropic API key not configured', 500)
@@ -6174,15 +6174,25 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           body: JSON.stringify({
             model: 'claude-3-5-sonnet-20241022',
             max_tokens: 4000,
-            temperature: 0.3,
-            system:
-              'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            messages: [{ role: 'user', content: finalPrompt }],
+            messages: [
+              {
+                role: 'user',
+                content: finalPrompt,
+              },
+            ],
           }),
         })
 
+        if (!anthropicResponse.ok) {
+          const errorText = await anthropicResponse.text()
+          return createErrorResponse(
+            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+            500,
+          )
+        }
+
         const anthropicData = await anthropicResponse.json()
-        result = anthropicData.content[0].text.trim()
+        result = anthropicData.content?.[0]?.text?.trim() || ''
         break
       }
 
