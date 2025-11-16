@@ -242,17 +242,39 @@ const generateApp = async () => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        prompt: `Create a complete standalone HTML application. ${appPrompt.value}. 
-        
-IMPORTANT: Return ONLY a complete HTML document (starting with <!DOCTYPE html>) that includes:
-- All HTML structure
-- Embedded CSS in <style> tags
-- Embedded JavaScript in <script> tags
-- No external dependencies
-- No worker code, no addEventListener, no fetch handlers
-- Just a pure client-side HTML/CSS/JS application that runs in a browser
+        prompt: `You are creating a STANDALONE HTML FILE that will be opened directly in a web browser, NOT a Cloudflare Worker.
 
-The app should be fully self-contained and work when opened directly in a browser.`,
+USER REQUEST: ${appPrompt.value}
+
+CRITICAL REQUIREMENTS:
+1. Start with exactly: <!DOCTYPE html>
+2. Include ALL code in ONE HTML file
+3. CSS must be in <style> tags inside <head>
+4. JavaScript must be in <script> tags at end of <body>
+5. NO external dependencies, NO imports, NO fetch to external APIs
+6. NO Cloudflare Worker code (no addEventListener, no event.respondWith)
+7. NO server-side code - this runs 100% in the browser
+8. Make it visually beautiful with CSS gradients and animations
+
+EXAMPLE STRUCTURE:
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>My App</title>
+  <style>
+    /* Beautiful CSS here */
+  </style>
+</head>
+<body>
+  <!-- HTML content here -->
+  <script>
+    // Interactive JavaScript here
+  <` + `/script>
+</body>
+</html>
+
+Return ONLY the complete HTML code, nothing else. No explanations, no markdown, no code blocks.`,
         aiModel: 'grok',
         userPrompt: appPrompt.value,
         selectedExamples: []
