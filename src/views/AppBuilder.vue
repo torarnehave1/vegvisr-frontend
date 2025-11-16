@@ -242,9 +242,10 @@ const generateApp = async () => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        prompt: appPrompt.value,
-        type: 'app',
-        includeHTML: true
+        prompt: `Create a complete Cloudflare Worker that serves an interactive web application. ${appPrompt.value}. The worker should include a complete HTML page with CSS styling and JavaScript interactivity. Return the full worker code that handles both serving the HTML and any API endpoints needed.`,
+        aiModel: 'grok', // Use Grok AI model
+        userPrompt: appPrompt.value,
+        selectedExamples: []
       })
     })
 
