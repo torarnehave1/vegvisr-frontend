@@ -788,26 +788,24 @@ const confirmDelete = (recording) => {
 
 const deleteRecording = async (recording) => {
   try {
+    const recordingId = recording.recordingId || recording.id
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/delete-recording`,
+      `https://audio-portfolio-worker.torarnehave.workers.dev/delete-recording?userEmail=${encodeURIComponent(userStore.email)}&recordingId=${encodeURIComponent(recordingId)}`,
       {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          userEmail: userStore.email,
-          recordingId: recording.recordingId || recording.id,
-        }),
       },
     )
 
     if (!response.ok) {
-      throw new Error(`Failed to delete recording: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({ error: response.statusText }))
+      throw new Error(errorData.error || response.statusText)
     }
 
     // Remove from local data
-    recordings.value = recordings.value.filter((r) => (r.recordingId || r.id) !== (recording.recordingId || recording.id))
+    recordings.value = recordings.value.filter((r) => (r.recordingId || r.id) !== recordingId)
     console.log('Recording deleted successfully')
   } catch (err) {
     console.error('Error deleting recording:', err)
