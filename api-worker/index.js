@@ -6062,6 +6062,162 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
   }
 }
 
+// --- Generate HTML App Handler ---
+const handleGenerateHTMLApp = async (request, env) => {
+  try {
+    const body = await request.json()
+    const { prompt, aiModel } = body
+
+    if (!prompt || !aiModel) {
+      return createErrorResponse('Missing required parameters: prompt and aiModel', 400)
+    }
+
+    const finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
+
+User Request: ${prompt}
+
+CRITICAL REQUIREMENTS:
+1. Return ONLY a complete HTML document
+2. Start with <!DOCTYPE html>
+3. Include ALL styles in <style> tags
+4. Include ALL JavaScript in <script> tags
+5. NO external dependencies (no CDN links)
+6. NO Cloudflare Worker code
+7. NO addEventListener('fetch')
+8. NO server-side code
+9. Just pure client-side HTML/CSS/JavaScript
+
+The application should be:
+- Self-contained in a single HTML file
+- Work when opened directly in a browser
+- Include modern, beautiful styling
+- Be fully functional and interactive
+- Use vanilla JavaScript (no frameworks needed)
+
+Return ONLY the HTML code, nothing else. No explanations, no markdown, just the HTML.`
+
+    let apiKey, result
+
+    // Call the appropriate AI model
+    switch (aiModel) {
+      case 'grok': {
+        apiKey = env.XAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('XAI API key not configured', 500)
+        }
+
+        const grokClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.x.ai/v1',
+        })
+
+        const grokCompletion = await grokClient.chat.completions.create({
+          model: 'grok-beta',
+          temperature: 0.3,
+          max_tokens: 4000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = grokCompletion.choices[0].message.content.trim()
+        break
+      }
+
+      case 'openai': {
+        apiKey = env.OPENAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('OpenAI API key not configured', 500)
+        }
+
+        const openaiClient = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.openai.com/v1',
+        })
+
+        const openaiCompletion = await openaiClient.chat.completions.create({
+          model: 'gpt-4',
+          temperature: 0.3,
+          max_tokens: 4000,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+            },
+            { role: 'user', content: finalPrompt },
+          ],
+        })
+
+        result = openaiCompletion.choices[0].message.content.trim()
+        break
+      }
+
+      case 'anthropic': {
+        apiKey = env.ANTHROPIC_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('Anthropic API key not configured', 500)
+        }
+
+        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 4000,
+            temperature: 0.3,
+            system:
+              'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+            messages: [{ role: 'user', content: finalPrompt }],
+          }),
+        })
+
+        const anthropicData = await anthropicResponse.json()
+        result = anthropicData.content[0].text.trim()
+        break
+      }
+
+      default:
+        return createErrorResponse(`Unsupported AI model: ${aiModel}`, 400)
+    }
+
+    // Clean up the result - remove markdown code blocks if present
+    let cleanHTML = result
+      .replace(/```html\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim()
+
+    // Ensure it starts with <!DOCTYPE html>
+    if (!cleanHTML.toLowerCase().startsWith('<!doctype html>')) {
+      return createErrorResponse(
+        'Generated code does not appear to be valid HTML. Please try again.',
+        500,
+      )
+    }
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        code: cleanHTML,
+        model: aiModel,
+        timestamp: new Date().toISOString(),
+      }),
+    )
+  } catch (error) {
+    console.error('HTML app generation error:', error)
+    return createErrorResponse(`HTML app generation failed: ${error.message}`, 500)
+  }
+}
+
 // Removed handleCreateSandboxBrandDomain - using direct API calls instead
 
 // --- Update Sandman Worker Endpoint ---
@@ -6830,6 +6986,10 @@ export default {
 
     if (pathname === '/generate-youtube-script' && request.method === 'POST') {
       return await handleGenerateYouTubeScript(request, env)
+    }
+
+    if (pathname === '/generate-app' && request.method === 'POST') {
+      return await handleGenerateHTMLApp(request, env)
     }
 
     if (pathname === '/update-sandman' && request.method === 'POST') {
