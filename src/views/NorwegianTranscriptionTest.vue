@@ -1742,18 +1742,23 @@ const checkEndpointStatus = async () => {
   try {
     console.log('🔍 Checking HF GPU endpoint status:', HF_ENDPOINT_URL_GPU)
     
-    // Try to hit the endpoint with a simple health check
+    // Try to hit the endpoint with a test request
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
     
     const response = await fetch(HF_ENDPOINT_URL_GPU, {
-      method: 'GET',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ inputs: "test" }),
       signal: controller.signal
     })
     
     clearTimeout(timeoutId)
 
-    if (response.ok || response.status === 405) { // 405 = Method Not Allowed means it's up
+    // Endpoint is ready if it responds (even with errors like 400/422 means it's processing)
+    if (response.status === 200 || response.status === 400 || response.status === 422) {
       endpointStatus.value = {
         type: 'success',
         message: '✅ Endpoint is READY and running',
@@ -1801,14 +1806,24 @@ const wakeUpAndWait = async () => {
   let attempt = 0
 
   try {
-    // First, send a wake-up request (this will fail but triggers the endpoint)
+    // First, send a wake-up request with dummy data (this triggers the endpoint to start)
     console.log('⚡ Waking up GPU endpoint:', HF_ENDPOINT_URL_GPU)
     wakeUpProgress.value = 'Wake-up request sent. GPU endpoint is starting...'
     
     try {
-      await fetch(HF_ENDPOINT_URL_GPU, { method: 'GET' })
+      // Send a minimal POST request to wake up the inference endpoint
+      // Using a tiny base64 audio snippet to trigger the model
+      await fetch(HF_ENDPOINT_URL_GPU, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputs: "dummy"  // Minimal payload to trigger endpoint
+        })
+      })
     } catch {
-      // Expected to fail, endpoint is starting
+      // Expected to fail or timeout, but it triggers the endpoint to start
     }
 
     // Now poll until it's ready
@@ -1822,15 +1837,20 @@ const wakeUpAndWait = async () => {
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 5000)
         
+        // Try a lightweight health check
         const response = await fetch(HF_ENDPOINT_URL_GPU, {
-          method: 'GET',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ inputs: "test" }),
           signal: controller.signal
         })
         
         clearTimeout(timeoutId)
 
-        // If we get 405 (Method Not Allowed) or 200, the endpoint is ready!
-        if (response.ok || response.status === 405) {
+        // If we get any response (even error), endpoint is alive
+        if (response.status === 200 || response.status === 400 || response.status === 422) {
           endpointStatus.value = {
             type: 'success',
             message: `✅ Endpoint is READY! (took ~${attempt * 6} seconds)`,
@@ -1881,13 +1901,17 @@ const checkEndpointStatusCPU = async () => {
     const timeoutId = setTimeout(() => controller.abort(), 5000)
     
     const response = await fetch(HF_ENDPOINT_URL_CPU, {
-      method: 'GET',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ inputs: "test" }),
       signal: controller.signal
     })
     
     clearTimeout(timeoutId)
 
-    if (response.ok || response.status === 405) {
+    if (response.status === 200 || response.status === 400 || response.status === 422) {
       endpointStatusCPU.value = {
         type: 'success',
         message: '✅ CPU Endpoint is READY and running',
@@ -1939,9 +1963,15 @@ const wakeUpAndWaitCPU = async () => {
     wakeUpProgressCPU.value = 'Wake-up request sent. CPU endpoint is starting...'
     
     try {
-      await fetch(HF_ENDPOINT_URL_CPU, { method: 'GET' })
+      await fetch(HF_ENDPOINT_URL_CPU, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ inputs: "dummy" })
+      })
     } catch {
-      // Expected to fail, endpoint is starting
+      // Expected to fail or timeout, but it triggers the endpoint to start
     }
 
     while (attempt < maxAttempts) {
@@ -1955,13 +1985,17 @@ const wakeUpAndWaitCPU = async () => {
         const timeoutId = setTimeout(() => controller.abort(), 5000)
         
         const response = await fetch(HF_ENDPOINT_URL_CPU, {
-          method: 'GET',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ inputs: "test" }),
           signal: controller.signal
         })
         
         clearTimeout(timeoutId)
 
-        if (response.ok || response.status === 405) {
+        if (response.status === 200 || response.status === 400 || response.status === 422) {
           endpointStatusCPU.value = {
             type: 'success',
             message: `✅ CPU Endpoint is READY! (took ~${attempt * 6} seconds)`,
