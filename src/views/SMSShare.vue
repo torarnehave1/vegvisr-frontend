@@ -78,8 +78,8 @@
                   {{ list.name }}
                 </option>
               </select>
-              <button 
-                @click="loadListRecipientsForSend" 
+              <button
+                @click="loadListRecipientsForSend"
                 class="btn btn-outline-primary"
                 :disabled="!selectedListForSend"
               >
@@ -520,7 +520,7 @@ const goBack = () => {
 
 const loadLists = async () => {
   if (!userStore.email) return
-  
+
   loadingLists.value = true
   try {
     const response = await fetch(
@@ -539,7 +539,7 @@ const loadLists = async () => {
 
 const createList = async () => {
   if (!newListName.value.trim() || !userStore.email) return
-  
+
   try {
     const response = await fetch('https://sms-gateway.torarnehave.workers.dev/api/lists', {
       method: 'POST',
@@ -551,7 +551,7 @@ const createList = async () => {
         description: newListDescription.value.trim()
       })
     })
-    
+
     const result = await response.json()
     if (result.success) {
       newListName.value = ''
@@ -565,7 +565,7 @@ const createList = async () => {
 
 const deleteList = async (listId) => {
   if (!confirm('Delete this list and all its recipients?')) return
-  
+
   try {
     await fetch(`https://sms-gateway.torarnehave.workers.dev/api/lists/${listId}`, {
       method: 'DELETE'
@@ -596,7 +596,7 @@ const selectList = async (list) => {
 
 const addRecipientToList = async () => {
   if (!newRecipientPhone.value.trim() || !selectedList.value) return
-  
+
   try {
     const response = await fetch(
       `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
@@ -609,7 +609,7 @@ const addRecipientToList = async () => {
         })
       }
     )
-    
+
     const result = await response.json()
     if (result.success) {
       newRecipientName.value = ''
@@ -623,7 +623,7 @@ const addRecipientToList = async () => {
 
 const deleteRecipient = async (recipientId) => {
   if (!selectedList.value) return
-  
+
   try {
     await fetch(
       `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients/${recipientId}`,
@@ -644,21 +644,21 @@ const loadRecipientsToSend = () => {
 
 const loadListRecipientsForSend = async () => {
   if (!selectedListForSend.value) return
-  
+
   try {
     const response = await fetch(`https://sms-gateway.torarnehave.workers.dev/api/sms/lists/${selectedListForSend.value}/recipients`, {
       headers: {
         'Content-Type': 'application/json'
       }
     })
-    
+
     if (!response.ok) {
       throw new Error('Failed to fetch recipients')
     }
-    
+
     const data = await response.json()
     recipients.value = data.map(r => r.phone_number)
-    
+
     const listName = recipientLists.value.find(l => l.id === selectedListForSend.value)?.name
     successMessage.value = `Loaded ${recipients.value.length} recipients from ${listName}`
     setTimeout(() => { successMessage.value = '' }, 3000)
@@ -716,7 +716,7 @@ const importFile = async () => {
 
     // Refresh the list
     await selectList(selectedList.value)
-    
+
     // Clear file input
     selectedFile.value = null
     if (fileInput.value) {
@@ -758,12 +758,12 @@ const parseExcel = (file) => {
         const workbook = XLSX.read(data, { type: 'array' })
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(firstSheet)
-        
+
         const parsedData = jsonData.map(row => ({
           name: row.Name || row.name || row.NAME || '',
           phone: row.Phone || row.phone || row.PHONE || row['Phone Number'] || row['phone number'] || ''
         }))
-        
+
         resolve(parsedData)
       } catch (error) {
         reject(error)
@@ -827,7 +827,7 @@ onMounted(() => {
 
   // Optionally pre-populate sender name
   senderName.value = 'Vegvisr'
-  
+
   // Load recipient lists for dropdown in Send tab
   loadLists()
 })
