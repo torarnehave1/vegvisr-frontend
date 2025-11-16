@@ -243,7 +243,7 @@ const generateApp = async () => {
       },
       body: JSON.stringify({
         prompt: appPrompt.value,
-        aiModel: 'grok'
+        aiModel: 'claude'
       })
     })
 
