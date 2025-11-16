@@ -1213,12 +1213,6 @@ const targetSpeakerForAI = ref('')
 // Base URL for Norwegian transcription worker (complete workflow)
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 
-// HuggingFace Inference Endpoint for Norwegian Whisper GPU (nb-whisper-medium-rda)
-const HF_ENDPOINT_URL_GPU = 'https://vfclin5vetohyv0.us-east-2.aws.endpoints.huggingface.cloud'
-
-// HuggingFace Inference Endpoint for Norwegian Whisper CPU (nb-whisper-medium-kgm)
-const HF_ENDPOINT_URL_CPU = 'https://oor2ob8vgl59eiht.eu-west-1.aws.endpoints.huggingface.cloud'
-
 // Base URL for audio extraction worker (FFmpeg container)
 const AUDIO_WORKER_BASE_URL = 'https://vegvisr-container.torarnehave.workers.dev'
 
@@ -1740,85 +1734,41 @@ const checkEndpointStatus = async () => {
   endpointStatus.value = null
 
   try {
-    console.log('🔍 Checking HF GPU endpoint status:', HF_ENDPOINT_URL_GPU)
+    console.log('🔍 Checking GPU endpoint status via worker API')
     
-    // Create minimal audio for test
-    const sampleRate = 16000
-    const duration = 0.1 // 100ms
-    const numSamples = Math.floor(sampleRate * duration)
-    const buffer = new ArrayBuffer(44 + numSamples * 2)
-    const view = new DataView(buffer)
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/status?type=gpu`)
     
-    const writeString = (offset, string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i))
-      }
+    if (!response.ok) {
+      throw new Error(`Worker API error: ${response.status}`)
     }
     
-    writeString(0, 'RIFF')
-    view.setUint32(4, 36 + numSamples * 2, true)
-    writeString(8, 'WAVE')
-    writeString(12, 'fmt ')
-    view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
-    view.setUint16(22, 1, true)
-    view.setUint32(24, sampleRate, true)
-    view.setUint32(28, sampleRate * 2, true)
-    view.setUint16(32, 2, true)
-    view.setUint16(34, 16, true)
-    writeString(36, 'data')
-    view.setUint32(40, numSamples * 2, true)
+    const result = await response.json()
     
-    const audioBlob = new Blob([buffer], { type: 'audio/wav' })
-    
-    // Try to hit the endpoint with a test request
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
-    
-    const response = await fetch(HF_ENDPOINT_URL_GPU, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'audio/wav',
-      },
-      body: audioBlob,
-      signal: controller.signal
-    })
-    
-    clearTimeout(timeoutId)
-
-    // Endpoint is ready if it responds (even with errors like 400/422 means it's processing)
-    if (response.status === 200 || response.status === 400 || response.status === 422) {
+    // Map worker response to UI status
+    if (result.status === 'ready') {
       endpointStatus.value = {
         type: 'success',
-        message: '✅ Endpoint is READY and running',
-        details: `Status: ${response.status} - Endpoint is warm and ready to process requests`
+        message: result.message,
+        details: result.details
       }
-    } else if (response.status === 503 || response.status === 504) {
+    } else if (result.status === 'scaled_to_zero' || result.status === 'timeout') {
       endpointStatus.value = {
         type: 'warning',
-        message: '⏳ Endpoint is SCALED TO ZERO or starting up',
-        details: `Status: ${response.status} - Use "Wake Up & Wait" button to activate it`
+        message: result.message,
+        details: result.details
       }
     } else {
       endpointStatus.value = {
         type: 'info',
-        message: `ℹ️ Endpoint responded with status ${response.status}`,
-        details: `This might indicate the endpoint is warming up or needs attention`
+        message: result.message,
+        details: result.details
       }
     }
   } catch (err) {
-    if (err.name === 'AbortError') {
-      endpointStatus.value = {
-        type: 'warning',
-        message: '⏳ Endpoint is likely SCALED TO ZERO (timeout)',
-        details: 'The endpoint did not respond within 5 seconds. It may be scaled to zero and needs to be woken up.'
-      }
-    } else {
-      endpointStatus.value = {
-        type: 'error',
-        message: `❌ Cannot reach endpoint: ${err.message}`,
-        details: 'Check your network connection or endpoint configuration'
-      }
+    endpointStatus.value = {
+      type: 'error',
+      message: `❌ Cannot check endpoint: ${err.message}`,
+      details: 'Failed to communicate with worker API'
     }
   } finally {
     checkingEndpoint.value = false
@@ -1829,120 +1779,39 @@ const checkEndpointStatus = async () => {
 const wakeUpAndWait = async () => {
   wakingUpEndpoint.value = true
   endpointStatus.value = null
-  wakeUpProgress.value = 'Sending wake-up request to GPU endpoint...'
-
-  const maxAttempts = 20 // Try for up to ~2 minutes (20 attempts * 6 seconds)
-  let attempt = 0
+  wakeUpProgress.value = 'Waking up GPU endpoint via worker...'
 
   try {
-    // First, send a wake-up request with minimal audio data (this triggers the endpoint to start)
-    console.log('⚡ Waking up GPU endpoint:', HF_ENDPOINT_URL_GPU)
-    wakeUpProgress.value = 'Wake-up request sent. GPU endpoint is starting...'
+    console.log('⚡ Waking up GPU endpoint via worker API')
     
-    try {
-      // Create a minimal silent audio blob (1 second of silence, mono, 16kHz WAV)
-      const sampleRate = 16000
-      const duration = 1 // 1 second
-      const numSamples = sampleRate * duration
-      const buffer = new ArrayBuffer(44 + numSamples * 2) // WAV header + PCM data
-      const view = new DataView(buffer)
-      
-      // WAV header
-      const writeString = (offset, string) => {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i))
-        }
-      }
-      
-      writeString(0, 'RIFF')
-      view.setUint32(4, 36 + numSamples * 2, true)
-      writeString(8, 'WAVE')
-      writeString(12, 'fmt ')
-      view.setUint32(16, 16, true) // fmt chunk size
-      view.setUint16(20, 1, true) // PCM format
-      view.setUint16(22, 1, true) // mono
-      view.setUint32(24, sampleRate, true)
-      view.setUint32(28, sampleRate * 2, true) // byte rate
-      view.setUint16(32, 2, true) // block align
-      view.setUint16(34, 16, true) // bits per sample
-      writeString(36, 'data')
-      view.setUint32(40, numSamples * 2, true)
-      
-      // Silent PCM data (all zeros)
-      for (let i = 0; i < numSamples; i++) {
-        view.setInt16(44 + i * 2, 0, true)
-      }
-      
-      const audioBlob = new Blob([buffer], { type: 'audio/wav' })
-      
-      // Send the audio file to wake up the endpoint
-      await fetch(HF_ENDPOINT_URL_GPU, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'audio/wav',
-        },
-        body: audioBlob
-      })
-    } catch {
-      // Expected to fail or timeout, but it triggers the endpoint to start
-    }
-
-    // Now poll until it's ready
-    while (attempt < maxAttempts) {
-      attempt++
-      wakeUpProgress.value = `Checking GPU endpoint status... (Attempt ${attempt}/${maxAttempts})`
-      
-      await new Promise(resolve => setTimeout(resolve, 6000)) // Wait 6 seconds between checks
-
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000)
-        
-        // Try a lightweight health check
-        const response = await fetch(HF_ENDPOINT_URL_GPU, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ inputs: "test" }),
-          signal: controller.signal
-        })
-        
-        clearTimeout(timeoutId)
-
-        // If we get any response (even error), endpoint is alive
-        if (response.status === 200 || response.status === 400 || response.status === 422) {
-          endpointStatus.value = {
-            type: 'success',
-            message: `✅ Endpoint is READY! (took ~${attempt * 6} seconds)`,
-            details: 'The endpoint is now warm and ready to process transcription requests.'
-          }
-          wakingUpEndpoint.value = false
-          wakeUpProgress.value = ''
-          console.log('✅ Endpoint ready after', attempt, 'attempts')
-          return
-        }
-        
-        // Still warming up
-        console.log(`Attempt ${attempt}: Status ${response.status}, still waiting...`)
-        
-      } catch (err) {
-        // Timeout or error, keep trying
-        console.log(`Attempt ${attempt}: ${err.message}, retrying...`)
-      }
-    }
-
-    // Max attempts reached
-    endpointStatus.value = {
-      type: 'warning',
-      message: '⏰ Timeout: Endpoint took longer than expected to wake up',
-      details: `Tried for ${maxAttempts * 6} seconds. The endpoint may still be starting. Try checking status again in a moment.`
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/wake?type=gpu`, {
+      method: 'POST'
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Worker API error: ${response.status}`)
     }
     
+    const result = await response.json()
+    
+    if (result.success) {
+      endpointStatus.value = {
+        type: 'success',
+        message: result.message,
+        details: `Endpoint ready after ${result.attempts} attempts`
+      }
+    } else {
+      endpointStatus.value = {
+        type: 'error',
+        message: result.message,
+        details: `Failed after ${result.attempts} attempts`
+      }
+    }
   } catch (err) {
     endpointStatus.value = {
       type: 'error',
-      message: `❌ Error during wake-up: ${err.message}`
+      message: `❌ Wake-up failed: ${err.message}`,
+      details: 'Failed to communicate with worker API'
     }
   } finally {
     wakingUpEndpoint.value = false
@@ -1956,83 +1825,41 @@ const checkEndpointStatusCPU = async () => {
   endpointStatusCPU.value = null
 
   try {
-    console.log('🔍 Checking HF CPU endpoint status:', HF_ENDPOINT_URL_CPU)
+    console.log('🔍 Checking CPU endpoint status via worker API')
     
-    // Create minimal audio for test
-    const sampleRate = 16000
-    const duration = 0.1 // 100ms
-    const numSamples = Math.floor(sampleRate * duration)
-    const buffer = new ArrayBuffer(44 + numSamples * 2)
-    const view = new DataView(buffer)
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/status?type=cpu`)
     
-    const writeString = (offset, string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i))
-      }
+    if (!response.ok) {
+      throw new Error(`Worker API error: ${response.status}`)
     }
     
-    writeString(0, 'RIFF')
-    view.setUint32(4, 36 + numSamples * 2, true)
-    writeString(8, 'WAVE')
-    writeString(12, 'fmt ')
-    view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
-    view.setUint16(22, 1, true)
-    view.setUint32(24, sampleRate, true)
-    view.setUint32(28, sampleRate * 2, true)
-    view.setUint16(32, 2, true)
-    view.setUint16(34, 16, true)
-    writeString(36, 'data')
-    view.setUint32(40, numSamples * 2, true)
+    const result = await response.json()
     
-    const audioBlob = new Blob([buffer], { type: 'audio/wav' })
-    
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
-    
-    const response = await fetch(HF_ENDPOINT_URL_CPU, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'audio/wav',
-      },
-      body: audioBlob,
-      signal: controller.signal
-    })
-    
-    clearTimeout(timeoutId)
-
-    if (response.status === 200 || response.status === 400 || response.status === 422) {
+    // Map worker response to UI status
+    if (result.status === 'ready') {
       endpointStatusCPU.value = {
         type: 'success',
-        message: '✅ CPU Endpoint is READY and running',
-        details: `Status: ${response.status} - Endpoint is warm and ready to process requests`
+        message: result.message,
+        details: result.details
       }
-    } else if (response.status === 503 || response.status === 504) {
+    } else if (result.status === 'scaled_to_zero' || result.status === 'timeout') {
       endpointStatusCPU.value = {
         type: 'warning',
-        message: '⏳ CPU Endpoint is SCALED TO ZERO or starting up',
-        details: `Status: ${response.status} - Use "Wake Up & Wait" button to activate it`
+        message: result.message,
+        details: result.details
       }
     } else {
       endpointStatusCPU.value = {
         type: 'info',
-        message: `ℹ️ CPU Endpoint responded with status ${response.status}`,
-        details: `This might indicate the endpoint is warming up or needs attention`
+        message: result.message,
+        details: result.details
       }
     }
   } catch (err) {
-    if (err.name === 'AbortError') {
-      endpointStatusCPU.value = {
-        type: 'warning',
-        message: '⏳ CPU Endpoint is likely SCALED TO ZERO (timeout)',
-        details: 'The endpoint did not respond within 5 seconds. It may be scaled to zero and needs to be woken up.'
-      }
-    } else {
-      endpointStatusCPU.value = {
-        type: 'error',
-        message: `❌ Cannot reach CPU endpoint: ${err.message}`,
-        details: 'Check your network connection or endpoint configuration'
-      }
+    endpointStatusCPU.value = {
+      type: 'error',
+      message: `❌ Cannot check CPU endpoint: ${err.message}`,
+      details: 'Failed to communicate with worker API'
     }
   } finally {
     checkingEndpointCPU.value = false
@@ -2043,110 +1870,39 @@ const checkEndpointStatusCPU = async () => {
 const wakeUpAndWaitCPU = async () => {
   wakingUpEndpointCPU.value = true
   endpointStatusCPU.value = null
-  wakeUpProgressCPU.value = 'Sending wake-up request to CPU endpoint...'
-
-  const maxAttempts = 20
-  let attempt = 0
+  wakeUpProgressCPU.value = 'Waking up CPU endpoint via worker...'
 
   try {
-    console.log('⚡ Waking up CPU endpoint:', HF_ENDPOINT_URL_CPU)
-    wakeUpProgressCPU.value = 'Wake-up request sent. CPU endpoint is starting...'
+    console.log('⚡ Waking up CPU endpoint via worker API')
     
-    try {
-      // Create a minimal silent audio blob (1 second of silence, mono, 16kHz WAV)
-      const sampleRate = 16000
-      const duration = 1
-      const numSamples = sampleRate * duration
-      const buffer = new ArrayBuffer(44 + numSamples * 2)
-      const view = new DataView(buffer)
-      
-      const writeString = (offset, string) => {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i))
-        }
-      }
-      
-      writeString(0, 'RIFF')
-      view.setUint32(4, 36 + numSamples * 2, true)
-      writeString(8, 'WAVE')
-      writeString(12, 'fmt ')
-      view.setUint32(16, 16, true)
-      view.setUint16(20, 1, true)
-      view.setUint16(22, 1, true)
-      view.setUint32(24, sampleRate, true)
-      view.setUint32(28, sampleRate * 2, true)
-      view.setUint16(32, 2, true)
-      view.setUint16(34, 16, true)
-      writeString(36, 'data')
-      view.setUint32(40, numSamples * 2, true)
-      
-      for (let i = 0; i < numSamples; i++) {
-        view.setInt16(44 + i * 2, 0, true)
-      }
-      
-      const audioBlob = new Blob([buffer], { type: 'audio/wav' })
-      
-      await fetch(HF_ENDPOINT_URL_CPU, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'audio/wav',
-        },
-        body: audioBlob
-      })
-    } catch {
-      // Expected to fail or timeout, but it triggers the endpoint to start
-    }
-
-    while (attempt < maxAttempts) {
-      attempt++
-      wakeUpProgressCPU.value = `Checking CPU endpoint status... (Attempt ${attempt}/${maxAttempts})`
-      
-      await new Promise(resolve => setTimeout(resolve, 6000))
-
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000)
-        
-        const response = await fetch(HF_ENDPOINT_URL_CPU, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ inputs: "test" }),
-          signal: controller.signal
-        })
-        
-        clearTimeout(timeoutId)
-
-        if (response.status === 200 || response.status === 400 || response.status === 422) {
-          endpointStatusCPU.value = {
-            type: 'success',
-            message: `✅ CPU Endpoint is READY! (took ~${attempt * 6} seconds)`,
-            details: 'The CPU endpoint is now warm and ready to process transcription requests.'
-          }
-          wakingUpEndpointCPU.value = false
-          wakeUpProgressCPU.value = ''
-          console.log('✅ CPU Endpoint ready after', attempt, 'attempts')
-          return
-        }
-        
-        console.log(`CPU Attempt ${attempt}: Status ${response.status}, still waiting...`)
-        
-      } catch (err) {
-        console.log(`CPU Attempt ${attempt}: ${err.message}, retrying...`)
-      }
-    }
-
-    endpointStatusCPU.value = {
-      type: 'warning',
-      message: '⏰ Timeout: CPU Endpoint took longer than expected to wake up',
-      details: `Tried for ${maxAttempts * 6} seconds. The endpoint may still be starting. Try checking status again in a moment.`
+    const response = await fetch(`${NORWEGIAN_WORKER_URL}/hf-endpoint/wake?type=cpu`, {
+      method: 'POST'
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Worker API error: ${response.status}`)
     }
     
+    const result = await response.json()
+    
+    if (result.success) {
+      endpointStatusCPU.value = {
+        type: 'success',
+        message: result.message,
+        details: `Endpoint ready after ${result.attempts} attempts`
+      }
+    } else {
+      endpointStatusCPU.value = {
+        type: 'error',
+        message: result.message,
+        details: `Failed after ${result.attempts} attempts`
+      }
+    }
   } catch (err) {
     endpointStatusCPU.value = {
       type: 'error',
-      message: `❌ Error during CPU wake-up: ${err.message}`
+      message: `❌ Wake-up failed: ${err.message}`,
+      details: 'Failed to communicate with worker API'
     }
   } finally {
     wakingUpEndpointCPU.value = false
