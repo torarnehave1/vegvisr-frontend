@@ -3673,6 +3673,7 @@ const getTemplateIcon = (type) => {
     title: '🎯',
     action_test: '🤖',
     advertisement_manager: '📢',
+    'app-viewer': '📱',
   }
   return iconMap[type] || '🧩'
 }
@@ -3693,6 +3694,7 @@ const getTemplateDescription = (type) => {
     title: 'Section headers and titles',
     action_test: 'AI endpoint testing interface',
     advertisement_manager: 'Manage advertisements for knowledge graphs',
+    'app-viewer': 'Interactive HTML application',
   }
   return descriptions[type] || 'Custom template'
 }
@@ -6699,6 +6701,7 @@ const getNodeTypeIcon = (type) => {
     bubblechart: '💭',
     'mermaid-diagram': '🔀',
     background: '🖼️',
+    'app-viewer': '📱',
   }
   return icons[type] || '📄'
 }
