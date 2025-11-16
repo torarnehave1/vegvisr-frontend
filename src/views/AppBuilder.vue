@@ -253,7 +253,7 @@ const generateApp = async () => {
     }
 
     const data = await response.json()
-    
+
     if (data.success && data.code) {
       generatedCode.value = data.code
       currentApp.value = {
@@ -261,10 +261,10 @@ const generateApp = async () => {
         code: data.code,
         timestamp: new Date().toISOString()
       }
-      
+
       // Create preview URL (blob URL for local preview)
       createPreview(data.code)
-      
+
       deploymentStatus.value = { type: 'success', message: '✅ App generated successfully!' }
       setTimeout(() => {
         deploymentStatus.value = null
@@ -334,11 +334,11 @@ const deployApp = async () => {
     }
 
     const data = await response.json()
-    
+
     if (data.success) {
       deployedUrl.value = data.endpoint || data.url
       deploymentStatus.value = { type: 'success', message: '🎉 App deployed successfully!' }
-      
+
       setTimeout(() => {
         deploymentStatus.value = null
       }, 5000)
