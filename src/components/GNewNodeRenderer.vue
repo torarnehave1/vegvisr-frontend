@@ -92,6 +92,7 @@ import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
 import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
 import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
 import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'
+import GNewAppViewerNode from './GNewNodes/GNewAppViewerNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -204,6 +205,8 @@ const nodeComponents = {
   'password-protection': GNewPasswordProtectionNode,
   // Mermaid diagram node
   'mermaid-diagram': GNewMermaidNode,
+  // App Viewer node (AI-generated HTML apps)
+  'app-viewer': GNewAppViewerNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,
