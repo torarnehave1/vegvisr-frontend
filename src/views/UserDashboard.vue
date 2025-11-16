@@ -289,6 +289,55 @@
           </div>
         </div>
 
+        <!-- Superadmin Template Management Section -->
+        <div v-if="userRole === 'Superadmin'" class="mt-4">
+          <div
+            class="template-management-card"
+            style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              border-radius: 12px;
+              padding: 1.5rem;
+              color: white;
+              position: relative;
+              overflow: hidden;
+            "
+          >
+            <div
+              class="template-pattern"
+              style="
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 100px;
+                height: 100px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                transform: translate(30px, -30px);
+              "
+            ></div>
+            <div class="template-content" style="position: relative; z-index: 2">
+              <h5 class="mb-3 d-flex align-items-center">
+                📊 <span class="ms-2">Knowledge Graph Templates</span>
+              </h5>
+              <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
+                Manage AI-powered templates for the Knowledge Graph. Create, edit, and delete
+                templates with custom nodes, edges, and AI instructions for different use cases.
+              </p>
+
+              <div class="d-flex justify-content-end">
+                <router-link
+                  to="/template-manager"
+                  class="btn btn-light btn-sm"
+                  style="font-weight: 600; text-decoration: none"
+                >
+                  <i class="fas fa-cogs me-1"></i>
+                  Manage Templates
+                </router-link>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- User Secret Section -->
         <div class="user-id-section alert alert-info mt-5">
           <p>Current User Secret:</p>
