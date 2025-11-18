@@ -67,8 +67,32 @@
               <button @click="editCode = !editCode" class="btn-small">
                 {{ editCode ? '👁️ Preview' : '✏️ Edit' }}
               </button>
+              <button @click="showErrorReporter = !showErrorReporter" class="btn-small btn-warning">
+                🐛 Report Error
+              </button>
             </div>
           </div>
+
+          <!-- Error Reporter -->
+          <div v-if="showErrorReporter" class="error-reporter">
+            <h4>🐛 Report an Error</h4>
+            <p>Paste the error message and the AI will fix it:</p>
+            <textarea
+              v-model="errorMessage"
+              placeholder="Example: Uncaught ReferenceError: generatePalette is not defined at HTMLButtonElement.onclick"
+              rows="4"
+              class="error-input"
+            ></textarea>
+            <div class="error-actions">
+              <button @click="regenerateWithFix" :disabled="!errorMessage.trim() || isGenerating" class="btn-primary">
+                {{ isGenerating ? '🔧 Fixing...' : '🔧 Fix & Regenerate' }}
+              </button>
+              <button @click="showErrorReporter = false; errorMessage = ''" class="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+
           <textarea
             v-if="editCode"
             v-model="generatedCode"
@@ -119,6 +143,9 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+
+const userStore = useUserStore()
 
 // State
 const showTemplates = ref(true)
@@ -133,6 +160,8 @@ const previewUrl = ref('')
 const deployedUrl = ref('')
 const deploymentStatus = ref(null)
 const previewFrame = ref(null)
+const showErrorReporter = ref(false)
+const errorMessage = ref('')
 
 // App Templates
 const appTemplates = ref([
@@ -252,16 +281,16 @@ const generateApp = async () => {
     }
 
     const data = await response.json()
-    
+
     if (data.success && data.code) {
       // Extract HTML from worker code if it's wrapped in a worker
       let htmlCode = data.code
-      
+
       // If AI returned worker code, extract the HTML
-      const htmlMatch = htmlCode.match(/`(<!DOCTYPE html>[\s\S]*?)`/m) || 
+      const htmlMatch = htmlCode.match(/`(<!DOCTYPE html>[\s\S]*?)`/m) ||
                        htmlCode.match(/return\s+`(<!DOCTYPE html>[\s\S]*?)`/m) ||
                        htmlCode.match(/return new Response\(`(<!DOCTYPE html>[\s\S]*?)`/m)
-      
+
       if (htmlMatch) {
         htmlCode = htmlMatch[1]
       } else if (!htmlCode.includes('<!DOCTYPE html>')) {
@@ -282,17 +311,23 @@ const generateApp = async () => {
 </body>
 </html>`
       }
-      
+
       generatedCode.value = htmlCode
+
+      // Inject AI helper if prompt mentions AI/chat
+      if (needsAIHelper(appPrompt.value)) {
+        generatedCode.value = injectAIHelper(htmlCode)
+      }
+
       currentApp.value = {
         prompt: appPrompt.value,
-        code: htmlCode,
+        code: generatedCode.value,
         timestamp: new Date().toISOString()
       }
-      
+
       // Create preview URL (blob URL for local preview)
-      createPreview(htmlCode)
-      
+      createPreview(generatedCode.value)
+
       deploymentStatus.value = { type: 'success', message: '✅ App generated successfully! Running in browser.' }
       setTimeout(() => {
         deploymentStatus.value = null
@@ -312,27 +347,163 @@ const generateApp = async () => {
 }
 
 const createPreview = (htmlCode) => {
-  // Clean up the HTML code (remove escape characters, etc.)
-  const cleanedHTML = htmlCode
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\'/g, "'")
-    .replace(/\\"/g, '"')
-  
-  // Create blob URL for preview
-  const blob = new Blob([cleanedHTML], { type: 'text/html' })
-  
+  // Create blob URL for preview directly without string manipulation
+  // The HTML from Claude is already clean and ready to use
+  const blob = new Blob([htmlCode], { type: 'text/html' })
+
   // Revoke old blob URL if exists
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
   }
-  
+
   previewUrl.value = URL.createObjectURL(blob)
 }
 
 const refreshPreview = () => {
   if (generatedCode.value) {
     createPreview(generatedCode.value)
+  }
+}
+
+// Check if prompt mentions AI-related keywords
+const needsAIHelper = (prompt) => {
+  const aiKeywords = ['ai', 'chat', 'assistant', 'grok', 'question', 'ask']
+  const lowerPrompt = prompt.toLowerCase()
+  return aiKeywords.some(keyword => lowerPrompt.includes(keyword))
+}
+
+// Inject AI helper function into HTML
+const injectAIHelper = (htmlCode) => {
+  // Don't remove anything - just inject the real askAI which will override the mock one
+  // This way we don't risk breaking other functions
+
+  const aiHelper = `
+  <script>
+    // Vegvisr AI Helper - Auto-injected for Superadmin users
+    // This will override any mock askAI function that was generated
+    console.log('🤖 Vegvisr AI Helper loaded!');
+
+    async function askAI(question, options = {}) {
+      console.log('🤖 askAI called with question:', question);
+
+      try {
+        const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: question }],
+            max_tokens: options.max_tokens || 500,
+            graph_id: options.graph_id || null,
+            userEmail: 'superadmin'
+          })
+        });
+
+        console.log('🤖 AI Response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('🤖 AI Error response:', errorText);
+          throw new Error('AI request failed: ' + response.status);
+        }
+
+        const data = await response.json();
+        console.log('🤖 AI Response data:', data);
+
+        // Return the message string directly for easy display
+        // Also return node if it needs to be added to graph
+        if (window.parent !== window && data.node) {
+          console.log('🤖 Sending node to parent window:', data.node);
+          window.parent.postMessage({
+            type: 'ADD_AI_NODE',
+            node: data.node
+          }, '*');
+        }
+
+        // Return just the message string for simple usage
+        return data.message || 'No response from AI';
+      } catch (error) {
+        console.error('🤖 AI Error:', error);
+        throw error; // Let the caller handle the error
+      }
+    }
+
+    // Make it globally accessible - this will override any existing askAI
+    window.askAI = askAI;
+    console.log('🤖 Real askAI function is now available globally (mock overridden)');
+  </scr` + `ipt>
+  `
+
+  // Insert before closing </body> tag
+  return htmlCode.replace('</body>', `${aiHelper}\n</body>`)
+}
+
+const regenerateWithFix = async () => {
+  if (!errorMessage.value.trim()) return
+
+  isGenerating.value = true
+  showErrorReporter.value = false
+
+  try {
+    const fixPrompt = `${appPrompt.value}
+
+IMPORTANT: The previous version had this error:
+${errorMessage.value}
+
+Please fix this error in the code. Make sure all functions are properly defined before they are used.
+
+Previous code that had the error:
+\`\`\`html
+${generatedCode.value}
+\`\`\`
+
+Generate a corrected version with the error fixed.`
+
+    const response = await fetch('https://api.vegvisr.org/generate-app', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: fixPrompt,
+        aiModel: 'claude'
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.success && data.code) {
+      let htmlCode = data.code
+
+      // Check if AI needs to inject helper function
+      if (needsAIHelper(appPrompt.value)) {
+        htmlCode = injectAIHelper(htmlCode)
+      }
+
+      generatedCode.value = htmlCode
+      currentApp.value = {
+        prompt: appPrompt.value,
+        code: htmlCode,
+        timestamp: new Date().toISOString()
+      }
+
+      createPreview(generatedCode.value)
+      errorMessage.value = '' // Clear error message after successful fix
+
+      deploymentStatus.value = { type: 'success', message: '✅ App regenerated with fix!' }
+      setTimeout(() => {
+        deploymentStatus.value = null
+      }, 3000)
+    } else {
+      throw new Error(data.error || 'Failed to regenerate app')
+    }
+  } catch (error) {
+    console.error('Regeneration error:', error)
+    deploymentStatus.value = { type: 'error', message: `❌ Error: ${error.message}` }
+    setTimeout(() => {
+      deploymentStatus.value = null
+    }, 5000)
+  } finally {
+    isGenerating.value = false
   }
 }
 
@@ -363,10 +534,11 @@ const deployApp = async () => {
       return
     }
 
-    // Create template matching the exact database structure
+    // API expects: { name, node, ai_instructions }
+    // ai_instructions must be a JSON STRING, not object
     const templateData = {
       name: appName.trim(),
-      nodes: JSON.stringify([{
+      node: {
         id: `app-${Date.now()}`,
         type: 'app-viewer',
         label: appName.trim(),
@@ -377,11 +549,7 @@ const deployApp = async () => {
         imageWidth: '100%',
         imageHeight: '100%',
         path: null
-      }]),
-      edges: JSON.stringify([]),
-      category: 'Apps',
-      thumbnail_path: null,
-      standard_question: appPrompt.value,
+      },
       ai_instructions: JSON.stringify({
         prompt: appPrompt.value,
         model: 'claude',
@@ -390,7 +558,7 @@ const deployApp = async () => {
       })
     }
 
-    const response = await fetch('https://knowledge.vegvisr.org/addTemplate', {
+    const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/addTemplate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -399,22 +567,28 @@ const deployApp = async () => {
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error(errorData.error || `Save failed: ${response.status}`)
+      const errorText = await response.text()
+      console.error('Server response:', errorText)
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.error || errorData.details || `Save failed: ${response.status}`)
+      } catch {
+        throw new Error(errorText || `Save failed: ${response.status}`)
+      }
     }
 
     const result = await response.json()
     console.log('Template saved:', result)
-    
-    deploymentStatus.value = { 
-      type: 'success', 
-      message: `✅ "${appName}" saved as template! You can now find it in GNewViewer under Apps category.` 
+
+    deploymentStatus.value = {
+      type: 'success',
+      message: `✅ "${appName}" saved as template! You can now find it in GNewViewer under Apps category.`
     }
-    
+
     setTimeout(() => {
       deploymentStatus.value = null
     }, 5000)
-    
+
   } catch (error) {
     console.error('Save error:', error)
     deploymentStatus.value = { type: 'error', message: `❌ Save failed: ${error.message}` }
@@ -434,7 +608,7 @@ const openInNewTab = () => {
 
 const downloadApp = () => {
   if (!generatedCode.value) return
-  
+
   const blob = new Blob([generatedCode.value], { type: 'text/html' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -444,7 +618,7 @@ const downloadApp = () => {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  
+
   deploymentStatus.value = { type: 'success', message: '📥 App downloaded!' }
   setTimeout(() => {
     deploymentStatus.value = null
@@ -653,6 +827,51 @@ const downloadApp = () => {
 .code-preview code {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Error Reporter */
+.error-reporter {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.error-reporter h4 {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+}
+
+.error-reporter p {
+  margin: 0 0 1rem 0;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.error-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+  margin-bottom: 1rem;
+}
+
+.error-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-warning {
+  background: #ffc107 !important;
+  color: #000 !important;
+}
+
+.btn-warning:hover {
+  background: #e0a800 !important;
 }
 
 /* Preview Panel */
