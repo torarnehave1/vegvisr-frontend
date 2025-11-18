@@ -95,11 +95,11 @@ export async function handleCreateAPIToken(request, env) {
     }
 
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user by emailVerificationToken in config table
     const userQuery = `SELECT email FROM config WHERE emailVerificationToken = ?`
     const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
