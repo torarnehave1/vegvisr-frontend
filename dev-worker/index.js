@@ -813,7 +813,7 @@ export default {
   async fetch(request, env) {
     const corsHeaders = {
       'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers':
         'Content-Type, x-user-role, X-API-Token, Accept, Origin, Cache-Control',
       'Access-Control-Allow-Credentials': 'true',
@@ -1707,7 +1707,7 @@ export default {
       if (pathname === '/addTemplate' && request.method === 'POST') {
         try {
           const requestBody = await request.json()
-          const { name, node, ai_instructions } = requestBody
+          const { name, node, ai_instructions, category, userId } = requestBody
 
           if (!name || !node) {
             return new Response(
@@ -1716,7 +1716,7 @@ export default {
             )
           }
 
-          console.log(`[Worker] Adding template: ${name}`)
+          console.log(`[Worker] Adding template: ${name} for user: ${userId || 'anonymous'}`)
 
           const templateId = crypto.randomUUID()
 
@@ -1726,9 +1726,11 @@ export default {
               name,
               nodes,
               edges,
-              ai_instructions
+              ai_instructions,
+              category,
+              userId
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `
           await env.vegvisr_org
             .prepare(query)
@@ -1738,6 +1740,8 @@ export default {
               JSON.stringify([node]),
               JSON.stringify([]),
               ai_instructions || null,
+              category || 'General',
+              userId || null,
             )
             .run()
 
@@ -1771,11 +1775,65 @@ export default {
         }
       }
 
+      if (pathname === '/deleteTemplate' && request.method === 'DELETE') {
+        try {
+          const requestBody = await request.json()
+          const { templateId, userId } = requestBody
+
+          if (!templateId) {
+            return new Response(
+              JSON.stringify({ error: 'Template ID is required.' }),
+              { status: 400, headers: corsHeaders },
+            )
+          }
+
+          console.log(`[Worker] Deleting template: ${templateId} for user: ${userId || 'unknown'}`)
+
+          // First, verify the template exists and belongs to the user
+          const checkQuery = `SELECT userId FROM graphTemplates WHERE id = ?`
+          const existingTemplate = await env.vegvisr_org.prepare(checkQuery).bind(templateId).first()
+
+          if (!existingTemplate) {
+            return new Response(
+              JSON.stringify({ error: 'Template not found.' }),
+              { status: 404, headers: corsHeaders },
+            )
+          }
+
+          // Verify ownership (if userId is provided)
+          if (userId && existingTemplate.userId !== userId) {
+            return new Response(
+              JSON.stringify({ error: 'You do not have permission to delete this template.' }),
+              { status: 403, headers: corsHeaders },
+            )
+          }
+
+          // Delete the template
+          const deleteQuery = `DELETE FROM graphTemplates WHERE id = ?`
+          await env.vegvisr_org.prepare(deleteQuery).bind(templateId).run()
+
+          console.log('[Worker] Template deleted successfully')
+          return new Response(
+            JSON.stringify({ success: true, message: 'Template deleted successfully' }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        } catch (error) {
+          console.error('[Worker] Error deleting template:', error)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
+            status: 500,
+            headers: corsHeaders,
+          })
+        }
+      }
+
       if (pathname === '/getTemplates' && request.method === 'GET') {
         try {
           console.log('[Worker] Fetching list of graph templates')
 
-          const query = `SELECT id, name, nodes, edges, category FROM graphTemplates`
+          const query = `SELECT id, name, nodes, edges, category, userId FROM graphTemplates`
           const results = await env.vegvisr_org.prepare(query).all()
 
           console.log('[Worker] Graph templates fetched successfully')

@@ -286,7 +286,17 @@
                     <div class="template-label">{{ template.label }}</div>
                     <div class="template-description">{{ template.description }}</div>
                   </div>
-                  <span class="template-add-btn">+</span>
+                  <div class="template-actions">
+                    <span class="template-add-btn">+</span>
+                    <span
+                      v-if="category === 'My Apps' && template.userId === userStore.email"
+                      class="template-delete-btn"
+                      @click.stop="confirmDeleteTemplate(template)"
+                      title="Delete template"
+                    >
+                      🗑️
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2164,6 +2174,21 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- Delete Template Confirmation Modal -->
+  <ConfirmationModal
+    v-model:isOpen="showDeleteConfirmModal"
+    title="Delete Template"
+    :message="deleteConfirmMessage"
+    variant="danger"
+    :require-confirmation="true"
+    confirmation-text="DELETE"
+    confirmation-label="Type DELETE in capital letters to confirm:"
+    confirm-text="Delete Template"
+    cancel-text="Cancel"
+    @confirm="handleDeleteConfirmed"
+    @cancel="handleDeleteCancelled"
+  />
 </template>
 
 <script setup>
@@ -2187,6 +2212,7 @@ import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
 import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
+import ConfirmationModal from '@/components/ConfirmationModal.vue'
 
 // Props
 const props = defineProps({
@@ -2818,6 +2844,15 @@ const quickColors = ref([
 // Sharing functionality
 const showShareModal = ref(false)
 
+// Delete template confirmation modal
+const showDeleteConfirmModal = ref(false)
+const templateToDelete = ref(null)
+const deleteConfirmMessage = computed(() => {
+  return templateToDelete.value
+    ? `This will permanently delete the template "${templateToDelete.value.name}".`
+    : 'This will permanently delete the template.'
+})
+
 // Formatted definition functionality
 const formattedDefinition = ref('')
 
@@ -3319,8 +3354,28 @@ const mobileTemplateCategories = computed(() => {
   }
 
   const categories = [...new Set(mobileTemplates.value.map((t) => t.category).filter(Boolean))]
+  
+  // Add "My Apps" category if user is logged in and has apps
+  const userEmail = userStore.email || userStore.user?.email
+  console.log('🔍 Checking for My Apps - userEmail:', userEmail)
+  console.log('🔍 All templates with userId:', mobileTemplates.value.filter(t => t.userId).map(t => ({ name: t.name, userId: t.userId })))
+  
+  if (userEmail) {
+    const hasUserApps = mobileTemplates.value.some(t => t.userId === userEmail)
+    console.log('🔍 Has user apps?', hasUserApps, 'userEmail:', userEmail)
+    if (hasUserApps && !categories.includes('My Apps')) {
+      categories.unshift('My Apps') // Add at beginning
+      console.log('✅ Added My Apps category')
+    }
+  }
+  
   console.log('Mobile template categories:', categories)
-  return categories.sort()
+  return categories.sort((a, b) => {
+    // Keep "My Apps" at the top
+    if (a === 'My Apps') return -1
+    if (b === 'My Apps') return 1
+    return a.localeCompare(b)
+  })
 })
 
 const filteredMobileTemplates = computed(() => {
@@ -3687,6 +3742,7 @@ const fetchMobileTemplates = async () => {
         type: template.type || 'general',
         icon: getTemplateIcon(template.type),
         description: getTemplateDescription(template.type),
+        userId: template.userId, // Include userId for "My Apps" filtering
       }))
       console.log('Mobile templates loaded:', mobileTemplates.value.length)
       console.log('Sample template:', mobileTemplates.value[0])
@@ -4001,7 +4057,20 @@ const getTemplatesByCategory = (category) => {
     return []
   }
 
-  let filtered = mobileTemplates.value.filter((template) => template.category === category)
+  let filtered = []
+
+  // Special handling for "My Apps" category - filter by userId
+  if (category === 'My Apps') {
+    const userEmail = userStore.email || userStore.user?.email
+    if (!userEmail) {
+      console.log('🚫 My Apps filter requires logged in user')
+      return []
+    }
+    filtered = mobileTemplates.value.filter((template) => template.userId === userEmail)
+    console.log(`✅ My Apps filtered for user ${userEmail}:`, filtered.length, filtered)
+  } else {
+    filtered = mobileTemplates.value.filter((template) => template.category === category)
+  }
 
   // Filter out password protection templates for unauthorized users
   filtered = filtered.filter((template) => {
@@ -4061,6 +4130,7 @@ const getCategoryIcon = (category) => {
     Widgets: '📱',
     Forms: '📄',
     Content: '📰',
+    'My Apps': '🚀',
   }
 
   return iconMap[category] || '📁'
@@ -4151,6 +4221,82 @@ const addTemplateAndClose = async (template) => {
   }
 
   await handleTemplateAdded({ template, node: nodeData })
+}
+
+// Delete template with confirmation
+const confirmDeleteTemplate = (template) => {
+  templateToDelete.value = template
+  showDeleteConfirmModal.value = true
+}
+
+const handleDeleteConfirmed = async () => {
+  const template = templateToDelete.value
+  if (!template) return
+
+  try {
+    console.log('🗑️ Attempting to delete template:', template.name, template.id)
+    
+    // Call the delete API endpoint
+    const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/deleteTemplate', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        templateId: template.id,
+        userId: userStore.email, // For verification
+      }),
+    })
+
+    console.log('📡 Delete response status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Delete failed with status:', response.status, errorText)
+      throw new Error(`Server returned ${response.status}: ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('📦 Delete result:', result)
+
+    if (result.success) {
+      // Remove from local templates array
+      const index = mobileTemplates.value.findIndex((t) => t.id === template.id)
+      if (index > -1) {
+        mobileTemplates.value.splice(index, 1)
+        console.log('✅ Removed from local array at index:', index)
+      }
+
+      console.log('✅ Template deleted successfully:', template.name)
+      
+      // Show success message using a simple notification
+      setTimeout(() => {
+        alert(`✅ Template "${template.name}" deleted successfully!`)
+      }, 100)
+    } else {
+      throw new Error(result.error || 'Unknown error')
+    }
+  } catch (error) {
+    console.error('❌ Error deleting template:', error)
+    
+    // More specific error messages
+    let errorMessage = error.message
+    if (error.message.includes('Failed to fetch')) {
+      errorMessage = 'Network error. Please check your connection and try again.'
+    } else if (error.message.includes('403')) {
+      errorMessage = 'You do not have permission to delete this template.'
+    } else if (error.message.includes('404')) {
+      errorMessage = 'Template not found. It may have already been deleted.'
+    }
+    
+    alert(`❌ Failed to delete template: ${errorMessage}`)
+  } finally {
+    templateToDelete.value = null
+  }
+}
+
+const handleDeleteCancelled = () => {
+  templateToDelete.value = null
 }
 
 // Duplicate graph functionality
@@ -11203,5 +11349,53 @@ const saveAttribution = async () => {
 .ai-elaborate-modal .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Template Actions (Add & Delete buttons) */
+.template-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-add-btn,
+.template-delete-btn {
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.template-add-btn {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.template-add-btn:hover {
+  background: #d4edda;
+  transform: scale(1.1);
+}
+
+.template-delete-btn {
+  color: #dc3545;
+}
+
+.template-delete-btn:hover {
+  background: #f8d7da;
+  transform: scale(1.1);
+}
+
+/* Update mobile template item to use flexbox for actions */
+.mobile-template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.template-info {
+  flex-grow: 1;
 }
 </style>

@@ -50,13 +50,22 @@
             rows="4"
             class="prompt-input"
           ></textarea>
-          <button
-            @click="generateApp"
-            :disabled="!appPrompt.trim() || isGenerating"
-            class="btn-primary"
-          >
-            {{ isGenerating ? '🤖 Generating...' : '✨ Generate App with AI' }}
-          </button>
+          <div class="prompt-actions">
+            <button @click="openPortfolioModal" class="btn-secondary">
+              🎨 Add Portfolio Images
+            </button>
+            <button
+              @click="generateApp"
+              :disabled="!appPrompt.trim() || isGenerating"
+              class="btn-primary"
+            >
+              {{ isGenerating ? '🤖 Generating...' : '✨ Generate App with AI' }}
+            </button>
+          </div>
+          <div v-if="selectedPortfolioImages.length > 0" class="selected-images-info">
+            <span>{{ selectedPortfolioImages.length }} image(s) selected</span>
+            <button @click="clearSelectedImages" class="btn-link">Clear</button>
+          </div>
         </div>
 
         <div v-if="generatedCode" class="code-section">
@@ -138,6 +147,72 @@
     <div v-if="deploymentStatus" class="deployment-toast" :class="deploymentStatus.type">
       {{ deploymentStatus.message }}
     </div>
+
+    <!-- Portfolio Image Modal -->
+    <div v-if="showPortfolioModal" class="modal-overlay" @click.self="closePortfolioModal">
+      <div class="portfolio-modal">
+        <div class="modal-header">
+          <h3>🎨 Select Portfolio Images</h3>
+          <button @click="closePortfolioModal" class="btn-close">&times;</button>
+        </div>
+        
+        <div class="modal-body">
+          <div v-if="loadingPortfolioImages" class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading portfolio images...</p>
+          </div>
+
+          <div v-else-if="portfolioImages.length > 0">
+            <div class="image-quality-selector">
+              <label>Image Quality:</label>
+              <select v-model="imageQualityPreset">
+                <option value="ultraFast">Ultra Fast (Low Quality)</option>
+                <option value="balanced">Balanced (Recommended)</option>
+                <option value="highQuality">High Quality</option>
+              </select>
+            </div>
+
+            <div class="portfolio-grid">
+              <div
+                v-for="img in portfolioImages"
+                :key="img.url"
+                class="portfolio-image-card"
+                :class="{ selected: isImageSelected(img) }"
+                @click="toggleImageSelection(img)"
+              >
+                <img :src="getOptimizedImageUrl(img.url)" :alt="img.key" loading="lazy" />
+                <div class="image-overlay">
+                  <span v-if="isImageSelected(img)" class="check-icon">✓</span>
+                </div>
+                <div class="image-info">
+                  <small>{{ img.key }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>No portfolio images found.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <div class="selection-info">
+            <strong>{{ selectedPortfolioImages.length }}</strong> image(s) selected
+          </div>
+          <div class="modal-actions">
+            <button @click="closePortfolioModal" class="btn-secondary">Cancel</button>
+            <button 
+              @click="addSelectedImagesToPrompt" 
+              class="btn-primary"
+              :disabled="selectedPortfolioImages.length === 0"
+            >
+              Add to Prompt
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -162,6 +237,13 @@ const deploymentStatus = ref(null)
 const previewFrame = ref(null)
 const showErrorReporter = ref(false)
 const errorMessage = ref('')
+
+// Portfolio images state
+const showPortfolioModal = ref(false)
+const portfolioImages = ref([])
+const loadingPortfolioImages = ref(false)
+const selectedPortfolioImages = ref([])
+const imageQualityPreset = ref('balanced')
 
 // App Templates
 const appTemplates = ref([
@@ -429,9 +511,45 @@ const injectAIHelper = (htmlCode) => {
       }
     }
 
-    // Make it globally accessible - this will override any existing askAI
+    // Portfolio image fetcher function
+    async function getPortfolioImages(quality = 'balanced') {
+      console.log('🎨 Fetching portfolio images with quality:', quality);
+      
+      try {
+        const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch portfolio images');
+        }
+        
+        const data = await response.json();
+        const images = data.images || [];
+        
+        // Apply quality presets to image URLs
+        const qualityPresets = {
+          ultraFast: '?w=150&h=94&fit=crop&auto=format,compress&q=30',
+          balanced: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2',
+          highQuality: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5',
+          original: ''
+        };
+        
+        const params = qualityPresets[quality] || qualityPresets.balanced;
+        
+        return images.map(img => ({
+          ...img,
+          url: img.url.includes('?') ? img.url.split('?')[0] + params : img.url + params,
+          originalUrl: img.url
+        }));
+      } catch (error) {
+        console.error('🎨 Portfolio images error:', error);
+        return [];
+      }
+    }
+
+    // Make functions globally accessible
     window.askAI = askAI;
-    console.log('🤖 Real askAI function is now available globally (mock overridden)');
+    window.getPortfolioImages = getPortfolioImages;
+    console.log('🤖 Real askAI and getPortfolioImages functions are now available globally');
   </scr` + `ipt>
   `
 
@@ -534,10 +652,12 @@ const deployApp = async () => {
       return
     }
 
-    // API expects: { name, node, ai_instructions }
+    // API expects: { name, node, ai_instructions, category, userId }
     // ai_instructions must be a JSON STRING, not object
     const templateData = {
       name: appName.trim(),
+      category: 'My Apps', // User-specific category
+      userId: userStore.email || 'anonymous', // Store user's email
       node: {
         id: `app-${Date.now()}`,
         type: 'app-viewer',
@@ -554,7 +674,8 @@ const deployApp = async () => {
         prompt: appPrompt.value,
         model: 'claude',
         generated_at: new Date().toISOString(),
-        generated_by: 'AI App Builder'
+        generated_by: 'AI App Builder',
+        user_email: userStore.email || 'anonymous'
       })
     }
 
@@ -582,7 +703,7 @@ const deployApp = async () => {
 
     deploymentStatus.value = {
       type: 'success',
-      message: `✅ "${appName}" saved as template! You can now find it in GNewViewer under Apps category.`
+      message: `✅ "${appName}" saved to My Apps! You can find it in GNewViewer under My Apps category.`
     }
 
     setTimeout(() => {
@@ -623,6 +744,86 @@ const downloadApp = () => {
   setTimeout(() => {
     deploymentStatus.value = null
   }, 2000)
+}
+
+// Portfolio Image Functions
+const openPortfolioModal = async () => {
+  showPortfolioModal.value = true
+  loadingPortfolioImages.value = true
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
+    const data = await response.json()
+    portfolioImages.value = data.images || []
+  } catch (error) {
+    console.error('Error fetching portfolio images:', error)
+    portfolioImages.value = []
+  } finally {
+    loadingPortfolioImages.value = false
+  }
+}
+
+const closePortfolioModal = () => {
+  showPortfolioModal.value = false
+}
+
+const toggleImageSelection = (img) => {
+  const index = selectedPortfolioImages.value.findIndex(i => i.url === img.url)
+  if (index > -1) {
+    selectedPortfolioImages.value.splice(index, 1)
+  } else {
+    selectedPortfolioImages.value.push(img)
+  }
+}
+
+const isImageSelected = (img) => {
+  return selectedPortfolioImages.value.some(i => i.url === img.url)
+}
+
+const getOptimizedImageUrl = (baseUrl, preset = null) => {
+  if (!baseUrl) return baseUrl
+
+  const currentPreset = preset || imageQualityPreset.value
+  const presets = {
+    ultraFast: '?w=150&h=94&fit=crop&auto=format,compress&q=30',
+    balanced: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2',
+    highQuality: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5',
+  }
+
+  const params = presets[currentPreset] || presets.balanced
+
+  if (baseUrl.includes('?')) {
+    return baseUrl.split('?')[0] + params
+  }
+  return baseUrl + params
+}
+
+const addSelectedImagesToPrompt = () => {
+  if (selectedPortfolioImages.value.length === 0) return
+
+  const imageUrls = selectedPortfolioImages.value
+    .map(img => getOptimizedImageUrl(img.url, 'highQuality'))
+    .join(', ')
+
+  const imageSection = `\n\nAvailable portfolio images to use in the app:\n${imageUrls}`
+  
+  if (!appPrompt.value.includes('Available portfolio images')) {
+    appPrompt.value += imageSection
+  }
+
+  deploymentStatus.value = { 
+    type: 'success', 
+    message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!` 
+  }
+  setTimeout(() => {
+    deploymentStatus.value = null
+  }, 2000)
+
+  closePortfolioModal()
+}
+
+const clearSelectedImages = () => {
+  selectedPortfolioImages.value = []
 }
 </script>
 
@@ -1023,10 +1224,284 @@ const downloadApp = () => {
   }
 }
 
+/* Portfolio Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 2rem;
+}
+
+.portfolio-modal {
+  background: white;
+  border-radius: 16px;
+  max-width: 1000px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.btn-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 2rem;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #666;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.image-quality-selector {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.image-quality-selector label {
+  font-weight: 500;
+  color: #333;
+}
+
+.image-quality-selector select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.portfolio-image-card {
+  position: relative;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #f9f9f9;
+}
+
+.portfolio-image-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: #667eea;
+}
+
+.portfolio-image-card.selected {
+  border-color: #667eea;
+  border-width: 3px;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.portfolio-image-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(102, 126, 234, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.portfolio-image-card.selected .image-overlay {
+  opacity: 1;
+}
+
+.check-icon {
+  color: white;
+  font-size: 2rem;
+  font-weight: bold;
+}
+
+.image-info {
+  padding: 0.5rem;
+  background: white;
+  text-align: center;
+}
+
+.image-info small {
+  color: #666;
+  font-size: 0.75rem;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #999;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e0e0e0;
+  background: #f9f9f9;
+}
+
+.selection-info {
+  color: #666;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.selected-images-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #e8f5e9;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #2e7d32;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #667eea;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 0.9rem;
+  padding: 0;
+}
+
+.btn-link:hover {
+  color: #764ba2;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .ai-builder {
     grid-template-columns: 1fr;
+  }
+  
+  .portfolio-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .modal-overlay {
+    padding: 1rem;
+  }
+  
+  .portfolio-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.5rem;
+  }
+  
+  .modal-header {
+    padding: 1rem;
+  }
+  
+  .modal-body {
+    padding: 1rem;
+  }
+  
+  .modal-footer {
+    padding: 1rem;
+    flex-direction: column;
+    gap: 1rem;
   }
 }
 </style>
