@@ -95,28 +95,17 @@ export async function handleCreateAPIToken(request, env) {
     }
 
     const userToken = authHeader.replace('Bearer ', '')
-
+    
     // Look up user by emailVerificationToken in config table
-    const userQuery = `SELECT email, data FROM config WHERE email IS NOT NULL`
-    const allUsers = await env.vegvisr_org.prepare(userQuery).all()
-
-    let user = null
-    for (const row of allUsers.results) {
-      const data = JSON.parse(row.data || '{}')
-      if (data.emailVerificationToken === userToken) {
-        user = { email: row.email, emailVerificationToken: userToken }
-        break
-      }
-    }
-
+    const userQuery = `SELECT email FROM config WHERE emailVerificationToken = ?`
+    const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
+    
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
-    }
-
-    // Validate scopes
+    }    // Validate scopes
     await validateScopes(scopes, env)
 
     // Generate token
@@ -202,17 +191,8 @@ export async function handleListAPITokens(request, env) {
     const userToken = authHeader.replace('Bearer ', '')
 
     // Look up user by emailVerificationToken in config table
-    const userQuery = `SELECT email, data FROM config WHERE email IS NOT NULL`
-    const allUsers = await env.vegvisr_org.prepare(userQuery).all()
-
-    let user = null
-    for (const row of allUsers.results) {
-      const data = JSON.parse(row.data || '{}')
-      if (data.emailVerificationToken === userToken) {
-        user = { email: row.email }
-        break
-      }
-    }
+    const userQuery = `SELECT email FROM config WHERE emailVerificationToken = ?`
+    const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
 
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
