@@ -155,7 +155,7 @@
           <h3>🎨 Select Portfolio Images</h3>
           <button @click="closePortfolioModal" class="btn-close">&times;</button>
         </div>
-        
+
         <div class="modal-body">
           <div v-if="loadingPortfolioImages" class="loading-state">
             <div class="spinner"></div>
@@ -202,8 +202,8 @@
           </div>
           <div class="modal-actions">
             <button @click="closePortfolioModal" class="btn-secondary">Cancel</button>
-            <button 
-              @click="addSelectedImagesToPrompt" 
+            <button
+              @click="addSelectedImagesToPrompt"
               class="btn-primary"
               :disabled="selectedPortfolioImages.length === 0"
             >
@@ -514,17 +514,17 @@ const injectAIHelper = (htmlCode) => {
     // Portfolio image fetcher function
     async function getPortfolioImages(quality = 'balanced') {
       console.log('🎨 Fetching portfolio images with quality:', quality);
-      
+
       try {
         const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small');
-        
+
         if (!response.ok) {
           throw new Error('Failed to fetch portfolio images');
         }
-        
+
         const data = await response.json();
         const images = data.images || [];
-        
+
         // Apply quality presets to image URLs
         const qualityPresets = {
           ultraFast: '?w=150&h=94&fit=crop&auto=format,compress&q=30',
@@ -532,9 +532,9 @@ const injectAIHelper = (htmlCode) => {
           highQuality: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5',
           original: ''
         };
-        
+
         const params = qualityPresets[quality] || qualityPresets.balanced;
-        
+
         return images.map(img => ({
           ...img,
           url: img.url.includes('?') ? img.url.split('?')[0] + params : img.url + params,
@@ -806,14 +806,14 @@ const addSelectedImagesToPrompt = () => {
     .join(', ')
 
   const imageSection = `\n\nAvailable portfolio images to use in the app:\n${imageUrls}`
-  
+
   if (!appPrompt.value.includes('Available portfolio images')) {
     appPrompt.value += imageSection
   }
 
-  deploymentStatus.value = { 
-    type: 'success', 
-    message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!` 
+  deploymentStatus.value = {
+    type: 'success',
+    message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!`
   }
   setTimeout(() => {
     deploymentStatus.value = null
@@ -1474,7 +1474,7 @@ const clearSelectedImages = () => {
   .ai-builder {
     grid-template-columns: 1fr;
   }
-  
+
   .portfolio-grid {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
@@ -1484,20 +1484,20 @@ const clearSelectedImages = () => {
   .modal-overlay {
     padding: 1rem;
   }
-  
+
   .portfolio-grid {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 0.5rem;
   }
-  
+
   .modal-header {
     padding: 1rem;
   }
-  
+
   .modal-body {
     padding: 1rem;
   }
-  
+
   .modal-footer {
     padding: 1rem;
     flex-direction: column;

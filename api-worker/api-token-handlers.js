@@ -14,10 +14,10 @@
 function generateAPIToken(environment = 'prod') {
   const randomBytes = new Uint8Array(24) // 24 bytes = 48 hex chars, we'll take 32
   crypto.getRandomValues(randomBytes)
-  const randomString = Array.from(randomBytes, byte => 
+  const randomString = Array.from(randomBytes, byte =>
     byte.toString(16).padStart(2, '0')
   ).join('').substring(0, 32)
-  
+
   return `vv_${environment}_${randomString}`
 }
 
@@ -46,12 +46,12 @@ async function validateScopes(scopes, env) {
   const query = `SELECT scope_name FROM api_scopes WHERE is_active = 1`
   const result = await env.vegvisr_org.prepare(query).all()
   const validScopes = result.results.map(r => r.scope_name)
-  
+
   const invalidScopes = scopes.filter(scope => !validScopes.includes(scope))
   if (invalidScopes.length > 0) {
     throw new Error(`Invalid scopes: ${invalidScopes.join(', ')}`)
   }
-  
+
   return true
 }
 
@@ -61,15 +61,15 @@ async function validateScopes(scopes, env) {
 async function verifyTokenOwnership(tokenId, userId, env) {
   const query = `SELECT user_id FROM api_tokens WHERE id = ?`
   const result = await env.vegvisr_org.prepare(query).bind(tokenId).first()
-  
+
   if (!result) {
     throw new Error('Token not found')
   }
-  
+
   if (result.user_id !== userId) {
     throw new Error('Unauthorized: You do not own this token')
   }
-  
+
   return true
 }
 
@@ -84,7 +84,7 @@ async function verifyTokenOwnership(tokenId, userId, env) {
 export async function handleCreateAPIToken(request, env) {
   try {
     const { name, scopes = ['ai:chat'], expiresIn = null, rateLimit = 1000 } = await request.json()
-    
+
     // Get user from emailVerificationToken (for now, until we have session management)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -93,13 +93,13 @@ export async function handleCreateAPIToken(request, env) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user by emailVerificationToken in config table
     const userQuery = `SELECT email, data FROM config WHERE email IS NOT NULL`
     const allUsers = await env.vegvisr_org.prepare(userQuery).all()
-    
+
     let user = null
     for (const row of allUsers.results) {
       const data = JSON.parse(row.data || '{}')
@@ -108,38 +108,38 @@ export async function handleCreateAPIToken(request, env) {
         break
       }
     }
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     // Validate scopes
     await validateScopes(scopes, env)
-    
+
     // Generate token
     const token = generateAPIToken('prod')
     const tokenHash = await hashToken(token)
     const tokenPrefix = getTokenPrefix(token)
     const tokenId = crypto.randomUUID()
-    
+
     // Calculate expiration
     let expiresAt = null
     if (expiresIn) {
       const expireDate = new Date(Date.now() + expiresIn * 1000)
       expiresAt = expireDate.toISOString()
     }
-    
+
     // Insert token
     const insertQuery = `
       INSERT INTO api_tokens (
-        id, user_id, token, token_name, token_prefix, 
+        id, user_id, token, token_name, token_prefix,
         scopes, rate_limit, expires_at, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `
-    
+
     await env.vegvisr_org
       .prepare(insertQuery)
       .bind(
@@ -153,7 +153,7 @@ export async function handleCreateAPIToken(request, env) {
         expiresAt
       )
       .run()
-    
+
     // Return response with FULL token (only time it's shown!)
     return new Response(JSON.stringify({
       success: true,
@@ -172,12 +172,12 @@ export async function handleCreateAPIToken(request, env) {
       status: 201,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     })
-    
+
   } catch (error) {
     console.error('Error creating API token:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Failed to create API token', 
-      details: error.message 
+    return new Response(JSON.stringify({
+      error: 'Failed to create API token',
+      details: error.message
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -198,13 +198,13 @@ export async function handleListAPITokens(request, env) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user by emailVerificationToken in config table
     const userQuery = `SELECT email, data FROM config WHERE email IS NOT NULL`
     const allUsers = await env.vegvisr_org.prepare(userQuery).all()
-    
+
     let user = null
     for (const row of allUsers.results) {
       const data = JSON.parse(row.data || '{}')
@@ -213,17 +213,17 @@ export async function handleListAPITokens(request, env) {
         break
       }
     }
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     // Get tokens with usage counts
     const query = `
-      SELECT 
+      SELECT
         t.id,
         t.token_name as name,
         t.token_prefix as prefix,
@@ -240,9 +240,9 @@ export async function handleListAPITokens(request, env) {
       GROUP BY t.id
       ORDER BY t.created_at DESC
     `
-    
+
     const result = await env.vegvisr_org.prepare(query).bind(user.email).all()
-    
+
     // Parse JSON fields
     const tokens = result.results.map(token => ({
       ...token,
@@ -250,7 +250,7 @@ export async function handleListAPITokens(request, env) {
       isActive: Boolean(token.isActive),
       usageCount: token.usageCount || 0,
     }))
-    
+
     return new Response(JSON.stringify({
       success: true,
       tokens,
@@ -258,12 +258,12 @@ export async function handleListAPITokens(request, env) {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     })
-    
+
   } catch (error) {
     console.error('Error listing API tokens:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Failed to list API tokens', 
-      details: error.message 
+    return new Response(JSON.stringify({
+      error: 'Failed to list API tokens',
+      details: error.message
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -284,27 +284,27 @@ export async function handleRevokeAPIToken(request, env, tokenId) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user
     const userQuery = `SELECT user_id FROM users WHERE emailVerificationToken = ?`
     const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     // Verify ownership
     await verifyTokenOwnership(tokenId, user.email, env)
-    
+
     // Delete token
     const deleteQuery = `DELETE FROM api_tokens WHERE id = ?`
     await env.vegvisr_org.prepare(deleteQuery).bind(tokenId).run()
-    
+
     return new Response(JSON.stringify({
       success: true,
       message: 'Token revoked successfully',
@@ -312,12 +312,12 @@ export async function handleRevokeAPIToken(request, env, tokenId) {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     })
-    
+
   } catch (error) {
     console.error('Error revoking API token:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Failed to revoke API token', 
-      details: error.message 
+    return new Response(JSON.stringify({
+      error: 'Failed to revoke API token',
+      details: error.message
     }), {
       status: error.message.includes('Unauthorized') ? 403 : 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -332,7 +332,7 @@ export async function handleRevokeAPIToken(request, env, tokenId) {
 export async function handleUpdateAPIToken(request, env, tokenId) {
   try {
     const { name, isActive, rateLimit } = await request.json()
-    
+
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Missing or invalid authorization' }), {
@@ -340,27 +340,27 @@ export async function handleUpdateAPIToken(request, env, tokenId) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user
     const userQuery = `SELECT user_id FROM users WHERE emailVerificationToken = ?`
     const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     // Verify ownership
     await verifyTokenOwnership(tokenId, user.email, env)
-    
+
     // Build update query
     const updates = []
     const bindings = []
-    
+
     if (name !== undefined) {
       updates.push('token_name = ?')
       bindings.push(name)
@@ -373,28 +373,28 @@ export async function handleUpdateAPIToken(request, env, tokenId) {
       updates.push('rate_limit = ?')
       bindings.push(rateLimit)
     }
-    
+
     if (updates.length === 0) {
       return new Response(JSON.stringify({ error: 'No fields to update' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     bindings.push(tokenId)
-    
+
     const updateQuery = `
-      UPDATE api_tokens 
-      SET ${updates.join(', ')} 
+      UPDATE api_tokens
+      SET ${updates.join(', ')}
       WHERE id = ?
     `
-    
+
     await env.vegvisr_org.prepare(updateQuery).bind(...bindings).run()
-    
+
     // Fetch updated token
     const selectQuery = `SELECT * FROM api_tokens WHERE id = ?`
     const updatedToken = await env.vegvisr_org.prepare(selectQuery).bind(tokenId).first()
-    
+
     return new Response(JSON.stringify({
       success: true,
       token: {
@@ -406,12 +406,12 @@ export async function handleUpdateAPIToken(request, env, tokenId) {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     })
-    
+
   } catch (error) {
     console.error('Error updating API token:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Failed to update API token', 
-      details: error.message 
+    return new Response(JSON.stringify({
+      error: 'Failed to update API token',
+      details: error.message
     }), {
       status: error.message.includes('Unauthorized') ? 403 : 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -432,26 +432,26 @@ export async function handleGetTokenUsage(request, env, tokenId) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     const userToken = authHeader.replace('Bearer ', '')
-    
+
     // Look up user
     const userQuery = `SELECT user_id FROM users WHERE emailVerificationToken = ?`
     const user = await env.vegvisr_org.prepare(userQuery).bind(userToken).first()
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid user token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
     }
-    
+
     // Verify ownership
     await verifyTokenOwnership(tokenId, user.email, env)
-    
+
     // Get usage stats
     const statsQuery = `
-      SELECT 
+      SELECT
         COUNT(*) as totalRequests,
         SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as successfulRequests,
         SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as failedRequests,
@@ -462,21 +462,21 @@ export async function handleGetTokenUsage(request, env, tokenId) {
       WHERE token_id = ?
       GROUP BY endpoint
     `
-    
+
     const stats = await env.vegvisr_org.prepare(statsQuery).bind(tokenId).all()
-    
+
     // Get recent usage
     const recentQuery = `
-      SELECT endpoint, method, status_code as statusCode, 
+      SELECT endpoint, method, status_code as statusCode,
              response_time_ms as responseTime, created_at as timestamp
       FROM api_token_usage
       WHERE token_id = ?
       ORDER BY created_at DESC
       LIMIT 20
     `
-    
+
     const recentUsage = await env.vegvisr_org.prepare(recentQuery).bind(tokenId).all()
-    
+
     return new Response(JSON.stringify({
       success: true,
       stats: {
@@ -494,12 +494,12 @@ export async function handleGetTokenUsage(request, env, tokenId) {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     })
-    
+
   } catch (error) {
     console.error('Error getting token usage:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Failed to get token usage', 
-      details: error.message 
+    return new Response(JSON.stringify({
+      error: 'Failed to get token usage',
+      details: error.message
     }), {
       status: error.message.includes('Unauthorized') ? 403 : 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
