@@ -3354,12 +3354,12 @@ const mobileTemplateCategories = computed(() => {
   }
 
   const categories = [...new Set(mobileTemplates.value.map((t) => t.category).filter(Boolean))]
-  
+
   // Add "My Apps" category if user is logged in and has apps
   const userEmail = userStore.email || userStore.user?.email
   console.log('🔍 Checking for My Apps - userEmail:', userEmail)
   console.log('🔍 All templates with userId:', mobileTemplates.value.filter(t => t.userId).map(t => ({ name: t.name, userId: t.userId })))
-  
+
   if (userEmail) {
     const hasUserApps = mobileTemplates.value.some(t => t.userId === userEmail)
     console.log('🔍 Has user apps?', hasUserApps, 'userEmail:', userEmail)
@@ -3368,7 +3368,7 @@ const mobileTemplateCategories = computed(() => {
       console.log('✅ Added My Apps category')
     }
   }
-  
+
   console.log('Mobile template categories:', categories)
   return categories.sort((a, b) => {
     // Keep "My Apps" at the top
@@ -4235,7 +4235,7 @@ const handleDeleteConfirmed = async () => {
 
   try {
     console.log('🗑️ Attempting to delete template:', template.name, template.id)
-    
+
     // Call the delete API endpoint
     const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/deleteTemplate', {
       method: 'DELETE',
@@ -4268,7 +4268,7 @@ const handleDeleteConfirmed = async () => {
       }
 
       console.log('✅ Template deleted successfully:', template.name)
-      
+
       // Show success message using a simple notification
       setTimeout(() => {
         alert(`✅ Template "${template.name}" deleted successfully!`)
@@ -4278,7 +4278,7 @@ const handleDeleteConfirmed = async () => {
     }
   } catch (error) {
     console.error('❌ Error deleting template:', error)
-    
+
     // More specific error messages
     let errorMessage = error.message
     if (error.message.includes('Failed to fetch')) {
@@ -4288,7 +4288,7 @@ const handleDeleteConfirmed = async () => {
     } else if (error.message.includes('404')) {
       errorMessage = 'Template not found. It may have already been deleted.'
     }
-    
+
     alert(`❌ Failed to delete template: ${errorMessage}`)
   } finally {
     templateToDelete.value = null
