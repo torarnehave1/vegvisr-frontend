@@ -6086,6 +6086,26 @@ CRITICAL REQUIREMENTS:
 7. NO addEventListener('fetch')
 8. NO server-side code
 9. Just pure client-side HTML/CSS/JavaScript
+10. IMPORTANT: Define ALL functions BEFORE they are referenced in onclick handlers
+11. Make sure every onclick="functionName()" has a corresponding function functionName() defined in the script
+
+SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
+If the user asks for AI, chat, or assistant functionality, use this REAL endpoint:
+
+async function askAI(question) {
+  const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [{ role: 'user', content: question }],
+      userEmail: 'superadmin'
+    })
+  });
+  const data = await response.json();
+  return data.message; // Returns the AI response as a string
+}
+
+DO NOT create mock/fake AI responses. Always use the real askAI() function above for AI functionality.
 
 The application should be:
 - Self-contained in a single HTML file
@@ -6093,6 +6113,8 @@ The application should be:
 - Include modern, beautiful styling
 - Be fully functional and interactive
 - Use vanilla JavaScript (no frameworks needed)
+- Have all event handler functions properly defined
+- Use REAL API endpoints, not mock data (for AI features)
 
 Return ONLY the HTML code, nothing else. No explanations, no markdown, just the HTML.`
 
@@ -6172,7 +6194,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-5-20250929',
             max_tokens: 4000,
             messages: [
               {
@@ -6225,6 +6247,84 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
   } catch (error) {
     console.error('HTML app generation error:', error)
     return createErrorResponse(`HTML app generation failed: ${error.message}`, 500)
+  }
+}
+
+// --- User AI Chat Endpoint ---
+// Allows Superadmin users to call Grok AI from their apps (simplified - no token validation for now)
+const handleUserAIChat = async (request, env) => {
+  try {
+    // Parse request body
+    const { messages, max_tokens = 500, graph_id, userEmail = 'anonymous' } = await request.json()
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return createErrorResponse('Messages array is required', 400)
+    }
+
+    // Call Grok AI
+    const apiKey = env.XAI_API_KEY
+    const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3-beta',
+        messages: messages,
+        max_tokens: max_tokens,
+        temperature: 0.7,
+      }),
+    })
+
+    if (!grokResponse.ok) {
+      const errorText = await grokResponse.text()
+      console.error('Grok API error:', errorText)
+      return createErrorResponse(`AI service error: ${grokResponse.status}`, 500)
+    }
+
+    const grokData = await grokResponse.json()
+    const aiMessage = grokData.choices?.[0]?.message?.content
+
+    if (!aiMessage) {
+      return createErrorResponse('No response from AI', 500)
+    }
+
+    // Create fulltext node structure (matching action_test pattern)
+    const nodeId = `ai_response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const fulltextNode = {
+      id: nodeId,
+      label: 'AI Response',
+      type: 'fulltext',
+      info: aiMessage,
+      color: '#2ecc71',
+      bibl: [],
+      imageWidth: '100%',
+      imageHeight: '100%',
+      visible: true,
+      path: null,
+    }
+
+    // Log usage (optional - for future tracking)
+    const tokensUsed = grokData.usage?.total_tokens || 0
+    console.log(
+      `AI Chat - User: ${userEmail}, Tokens: ${tokensUsed}, Graph: ${graph_id || 'unknown'}`,
+    )
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        node: fulltextNode,
+        message: aiMessage,
+        usage: {
+          tokens: tokensUsed,
+          model: 'grok-beta',
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('User AI chat error:', error)
+    return createErrorResponse(`AI chat failed: ${error.message}`, 500)
   }
 }
 
@@ -7000,6 +7100,10 @@ export default {
 
     if (pathname === '/generate-app' && request.method === 'POST') {
       return await handleGenerateHTMLApp(request, env)
+    }
+
+    if (pathname === '/user-ai-chat' && request.method === 'POST') {
+      return await handleUserAIChat(request, env)
     }
 
     if (pathname === '/update-sandman' && request.method === 'POST') {

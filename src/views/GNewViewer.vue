@@ -2418,10 +2418,55 @@ onMounted(() => {
 
   window.addEventListener('storage', handleAdRefresh)
 
+  // Listen for AI nodes from app-viewer iframes
+  const handleAINodeMessage = async (event) => {
+    // Security: Verify origin if needed
+    if (event.data && event.data.type === 'ADD_AI_NODE' && event.data.node) {
+      console.log('🤖 Received AI node from app:', event.data.node)
+      
+      // Add the node to the graph
+      const aiNode = {
+        ...event.data.node,
+        updatedAt: new Date().toISOString()
+      }
+      graphData.value.nodes.push(aiNode)
+      
+      // Save to Knowledge Graph backend using correct format
+      try {
+        const response = await fetch(
+          getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: currentGraphId.value,
+              graphData: graphData.value,
+              override: true
+            })
+          }
+        )
+        
+        if (response.ok) {
+          console.log('✅ AI node saved to Knowledge Graph:', aiNode.id)
+          // Update the knowledge graph store
+          knowledgeGraphStore.updateGraphFromJson(graphData.value)
+        } else {
+          const errorText = await response.text()
+          console.error('❌ Failed to save AI node:', errorText)
+        }
+      } catch (error) {
+        console.error('❌ Error saving AI node:', error)
+      }
+    }
+  }
+
+  window.addEventListener('message', handleAINodeMessage)
+
   // Cleanup on unmount
   onUnmounted(() => {
     window.removeEventListener('storage', handleAdRefresh)
     window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.removeEventListener('message', handleAINodeMessage)
   })
 })
 watch(

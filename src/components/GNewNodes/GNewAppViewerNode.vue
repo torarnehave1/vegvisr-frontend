@@ -15,8 +15,8 @@
       </div>
     </div>
 
-    <div 
-      class="app-container" 
+    <div
+      class="app-container"
       :class="{ 'fullscreen': isFullscreen }"
       ref="appContainer"
     >
@@ -78,7 +78,7 @@ const refreshApp = () => {
 // Toggle fullscreen mode
 const toggleFullscreen = () => {
   isFullscreen.value = !isFullscreen.value
-  
+
   if (isFullscreen.value) {
     document.body.style.overflow = 'hidden'
   } else {
@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
   if (appUrl.value && appUrl.value.startsWith('blob:')) {
     URL.revokeObjectURL(appUrl.value)
   }
-  
+
   // Clean up fullscreen state
   if (isFullscreen.value) {
     document.body.style.overflow = ''
