@@ -6,6 +6,13 @@
 
 import { marked } from 'marked'
 import { OpenAI } from 'openai'
+import {
+  handleCreateAPIToken,
+  handleListAPITokens,
+  handleRevokeAPIToken,
+  handleUpdateAPIToken,
+  handleGetTokenUsage,
+} from './api-token-handlers.js'
 
 // Utility functions
 const corsHeaders = {
@@ -7100,6 +7107,33 @@ export default {
 
     if (pathname === '/generate-app' && request.method === 'POST') {
       return await handleGenerateHTMLApp(request, env)
+    }
+
+    // ============================================
+    // API Token Management Endpoints
+    // ============================================
+    
+    if (pathname === '/api/tokens/create' && request.method === 'POST') {
+      return await handleCreateAPIToken(request, env)
+    }
+
+    if (pathname === '/api/tokens/list' && request.method === 'GET') {
+      return await handleListAPITokens(request, env)
+    }
+
+    if (pathname.startsWith('/api/tokens/') && pathname.endsWith('/usage') && request.method === 'GET') {
+      const tokenId = pathname.split('/')[3]
+      return await handleGetTokenUsage(request, env, tokenId)
+    }
+
+    if (pathname.startsWith('/api/tokens/') && request.method === 'DELETE') {
+      const tokenId = pathname.split('/')[3]
+      return await handleRevokeAPIToken(request, env, tokenId)
+    }
+
+    if (pathname.startsWith('/api/tokens/') && request.method === 'PATCH') {
+      const tokenId = pathname.split('/')[3]
+      return await handleUpdateAPIToken(request, env, tokenId)
     }
 
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
