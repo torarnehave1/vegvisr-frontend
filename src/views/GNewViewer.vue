@@ -2423,14 +2423,14 @@ onMounted(() => {
     // Security: Verify origin if needed
     if (event.data && event.data.type === 'ADD_AI_NODE' && event.data.node) {
       console.log('🤖 Received AI node from app:', event.data.node)
-      
+
       // Add the node to the graph
       const aiNode = {
         ...event.data.node,
         updatedAt: new Date().toISOString()
       }
       graphData.value.nodes.push(aiNode)
-      
+
       // Save to Knowledge Graph backend using correct format
       try {
         const response = await fetch(
@@ -2445,7 +2445,7 @@ onMounted(() => {
             })
           }
         )
-        
+
         if (response.ok) {
           console.log('✅ AI node saved to Knowledge Graph:', aiNode.id)
           // Update the knowledge graph store
