@@ -424,6 +424,11 @@
           </div>
         </div>
 
+        <!-- API Token Management Section -->
+        <div class="mt-5">
+          <TokenManagement />
+        </div>
+
         <!-- Subscription Management for All Users -->
         <div v-if="userStore.loggedIn" class="mt-4">
           <div
@@ -790,11 +795,13 @@ import { useRouter } from 'vue-router' // Import router
 import { apiUrls } from '@/config/api' // Import API configuration
 import BrandingModal from '@/components/BrandingModal.vue' // Import branding modal
 import AffiliateManagement from '@/components/AffiliateManagement.vue' // Import affiliate management
+import TokenManagement from '@/components/TokenManagement.vue' // Import token management
 
 export default {
   components: {
     BrandingModal,
     AffiliateManagement,
+    TokenManagement,
   },
   data() {
     return {

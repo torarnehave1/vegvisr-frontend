@@ -42,25 +42,77 @@
     <!-- AI App Builder -->
     <div v-else class="ai-builder">
       <div class="builder-panel">
+        <!-- Conversation History -->
+        <div v-if="conversationHistory.length > 0" class="conversation-history">
+          <div
+            v-for="(message, index) in conversationHistory"
+            :key="index"
+            :class="['message', message.role]"
+          >
+            <div class="message-header">
+              <span class="message-author">
+                {{ message.role === 'user' ? '👤 You' : '🤖 AI Assistant' }}
+              </span>
+              <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+            </div>
+            <div class="message-content">
+              <div v-if="message.role === 'user'" class="user-message">
+                {{ message.content }}
+              </div>
+              <div v-else class="assistant-message">
+                <div v-if="message.thinking" class="thinking-indicator">
+                  💭 {{ message.thinking }}
+                </div>
+                <div v-if="message.code" class="code-preview">
+                  <div class="code-preview-header">
+                    <span>Generated Code</span>
+                    <button @click="useCode(message.code)" class="btn-tiny">Use This Version</button>
+                  </div>
+                  <pre><code>{{ message.code.substring(0, 200) }}...</code></pre>
+                </div>
+                <div v-if="message.explanation" class="explanation">
+                  {{ message.explanation }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Prompt Section -->
         <div class="prompt-section">
-          <h2>✨ Describe Your App</h2>
+          <h2 v-if="conversationHistory.length === 0">✨ Describe Your App</h2>
+          <h2 v-else>💬 Continue the conversation</h2>
           <textarea
             v-model="appPrompt"
-            placeholder="Example: Create a todo list app with local storage, add/delete tasks, and mark as complete"
-            rows="4"
+            :placeholder="conversationHistory.length === 0 
+              ? 'Example: Create a todo list app with local storage, add/delete tasks, and mark as complete' 
+              : 'Example: Add a dark mode toggle, Make the buttons bigger, Fix the alignment issue'"
+            rows="3"
             class="prompt-input"
+            @keydown.meta.enter="sendMessage"
+            @keydown.ctrl.enter="sendMessage"
           ></textarea>
           <div class="prompt-actions">
             <button @click="openPortfolioModal" class="btn-secondary">
-              🎨 Add Portfolio Images
+              🎨 Add Images
             </button>
             <button
-              @click="generateApp"
+              v-if="conversationHistory.length > 0"
+              @click="startNewConversation"
+              class="btn-secondary"
+            >
+              🔄 Start New
+            </button>
+            <button
+              @click="sendMessage"
               :disabled="!appPrompt.trim() || isGenerating"
               class="btn-primary"
             >
-              {{ isGenerating ? '🤖 Generating...' : '✨ Generate App with AI' }}
+              {{ isGenerating ? '🤖 Generating...' : (conversationHistory.length === 0 ? '✨ Generate App' : '💬 Send') }}
             </button>
+          </div>
+          <div class="prompt-hints">
+            <span class="hint">💡 Tip: Press {{ navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl' }}+Enter to send</span>
           </div>
           <div v-if="selectedPortfolioImages.length > 0" class="selected-images-info">
             <span>{{ selectedPortfolioImages.length }} image(s) selected</span>
@@ -238,6 +290,10 @@ const previewFrame = ref(null)
 const showErrorReporter = ref(false)
 const errorMessage = ref('')
 
+// Conversation state
+const conversationHistory = ref([])
+const conversationMode = ref(false)
+
 // Portfolio images state
 const showPortfolioModal = ref(false)
 const portfolioImages = ref([])
@@ -340,21 +396,101 @@ const selectTemplate = (template) => {
   }
 }
 
-const generateApp = async () => {
-  if (!appPrompt.value.trim()) return
+// Helper functions for conversation
+const formatTime = (timestamp) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diff = now - date
+  
+  if (diff < 60000) return 'Just now'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  return date.toLocaleDateString()
+}
+
+const useCode = (code) => {
+  generatedCode.value = code
+  createPreview(code)
+  deploymentStatus.value = { type: 'success', message: '✅ Using this version of the code' }
+  setTimeout(() => deploymentStatus.value = null, 3000)
+}
+
+const startNewConversation = () => {
+  if (conversationHistory.value.length > 0) {
+    if (!confirm('Start a new conversation? Current conversation will be cleared.')) {
+      return
+    }
+  }
+  conversationHistory.value = []
+  conversationMode.value = false
+  appPrompt.value = ''
+  generatedCode.value = ''
+  deploymentStatus.value = null
+}
+
+const sendMessage = async () => {
+  if (!appPrompt.value.trim() || isGenerating.value) return
+  
+  // Add user message to history
+  const userMessage = {
+    role: 'user',
+    content: appPrompt.value,
+    timestamp: new Date().toISOString(),
+    images: selectedPortfolioImages.value.length > 0 ? [...selectedPortfolioImages.value] : null
+  }
+  
+  conversationHistory.value.push(userMessage)
+  conversationMode.value = true
+  
+  // Save current prompt and clear input
+  const currentPrompt = appPrompt.value
+  appPrompt.value = ''
+  
+  await generateApp(currentPrompt)
+}
+
+const generateApp = async (promptOverride = null) => {
+  const prompt = promptOverride || appPrompt.value
+  if (!prompt.trim()) return
 
   isGenerating.value = true
   deploymentStatus.value = { type: 'info', message: '🤖 AI is generating your app...' }
 
+  // Add thinking indicator to conversation
+  const thinkingMessage = {
+    role: 'assistant',
+    thinking: 'Analyzing your request and generating code...',
+    timestamp: new Date().toISOString()
+  }
+  
+  if (conversationMode.value) {
+    conversationHistory.value.push(thinkingMessage)
+  }
+
   try {
+    // Build context from conversation history
+    let fullPrompt = prompt
+    if (conversationHistory.value.length > 1) {
+      const context = conversationHistory.value
+        .filter(msg => msg.role === 'user')
+        .map(msg => msg.content)
+        .slice(-3) // Last 3 user messages for context
+        .join('\n\n')
+      
+      fullPrompt = `Previous context:\n${context}\n\nCurrent request: ${prompt}`
+    }
+
     const response = await fetch('https://api.vegvisr.org/generate-app', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        prompt: appPrompt.value,
-        aiModel: 'claude'
+        prompt: fullPrompt,
+        aiModel: 'claude',
+        conversationMode: conversationMode.value,
+        previousCode: conversationHistory.value.length > 0 && generatedCode.value ? generatedCode.value : null
       })
     })
 
@@ -397,12 +533,26 @@ const generateApp = async () => {
       generatedCode.value = htmlCode
 
       // Inject AI helper if prompt mentions AI/chat
-      if (needsAIHelper(appPrompt.value)) {
+      if (needsAIHelper(prompt)) {
         generatedCode.value = injectAIHelper(htmlCode)
       }
 
+      // Update or add assistant message to conversation
+      if (conversationMode.value) {
+        // Remove thinking message
+        conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
+        
+        // Add assistant response
+        conversationHistory.value.push({
+          role: 'assistant',
+          code: generatedCode.value,
+          explanation: data.explanation || 'Code generated successfully',
+          timestamp: new Date().toISOString()
+        })
+      }
+
       currentApp.value = {
-        prompt: appPrompt.value,
+        prompt: prompt,
         code: generatedCode.value,
         timestamp: new Date().toISOString()
       }
@@ -419,6 +569,19 @@ const generateApp = async () => {
     }
   } catch (error) {
     console.error('Generation error:', error)
+    
+    // Remove thinking message on error
+    if (conversationMode.value) {
+      conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
+      
+      // Add error message to conversation
+      conversationHistory.value.push({
+        role: 'assistant',
+        explanation: `Sorry, I encountered an error: ${error.message}`,
+        timestamp: new Date().toISOString()
+      })
+    }
+    
     deploymentStatus.value = { type: 'error', message: `❌ Error: ${error.message}` }
     setTimeout(() => {
       deploymentStatus.value = null
@@ -956,13 +1119,157 @@ const clearSelectedImages = () => {
   padding: 2rem;
 }
 
+/* Conversation Styles */
+.conversation-history {
+  max-height: 500px;
+  overflow-y: auto;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 12px;
+  scroll-behavior: smooth;
+}
+
+.message {
+  margin-bottom: 1.5rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.message-author {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.message.user .message-author {
+  color: #48bb78;
+}
+
+.message-time {
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.message-content {
+  padding: 1rem;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.user-message {
+  color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.assistant-message {
+  color: #555;
+}
+
+.thinking-indicator {
+  padding: 0.75rem;
+  background: #e6f3ff;
+  border-left: 3px solid #667eea;
+  border-radius: 4px;
+  color: #667eea;
+  font-style: italic;
+  margin-bottom: 1rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.code-preview {
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.code-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: #2d3748;
+  color: white;
+  font-size: 0.85rem;
+}
+
+.code-preview pre {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  background: #1a202c;
+  color: #e2e8f0;
+}
+
+.code-preview code {
+  font-family: inherit;
+}
+
+.btn-tiny {
+  padding: 0.25rem 0.75rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.2s;
+}
+
+.btn-tiny:hover {
+  background: #5568d3;
+}
+
+.explanation {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #f7fafc;
+  border-left: 3px solid #48bb78;
+  border-radius: 4px;
+  color: #2d3748;
+  line-height: 1.6;
+}
+
 .prompt-section {
   margin-bottom: 2rem;
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .prompt-section h2 {
   margin-bottom: 1rem;
   color: #333;
+  font-size: 1.25rem;
 }
 
 .prompt-input {
@@ -980,6 +1287,44 @@ const clearSelectedImages = () => {
 .prompt-input:focus {
   outline: none;
   border-color: #667eea;
+}
+
+.prompt-hints {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #999;
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.selected-images-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #e6f3ff;
+  border-radius: 6px;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #2c5282;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #667eea;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 0.9rem;
+  padding: 0;
+}
+
+.btn-link:hover {
+  color: #5568d3;
 }
 
 .code-section {
