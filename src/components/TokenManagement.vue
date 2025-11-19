@@ -65,8 +65,8 @@
           <button @click="viewUsage(token)" class="btn-secondary">
             📊 View Usage
           </button>
-          <button 
-            @click="toggleTokenStatus(token)" 
+          <button
+            @click="toggleTokenStatus(token)"
             class="btn-secondary"
             :class="{ warning: token.isActive }"
           >
@@ -161,8 +161,8 @@
 
           <div class="modal-footer">
             <button @click="closeCreateModal" class="btn-secondary">Cancel</button>
-            <button 
-              @click="createToken" 
+            <button
+              @click="createToken"
               class="btn-primary"
               :disabled="!canCreateToken || isCreating"
             >
@@ -321,7 +321,7 @@ const fetchTokens = async () => {
         'Authorization': `Bearer ${userStore.emailVerificationToken}`
       }
     })
-    
+
     const data = await response.json()
     if (data.success) {
       tokens.value = data.tokens

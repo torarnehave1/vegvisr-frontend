@@ -84,8 +84,8 @@
           <h2 v-else>💬 Continue the conversation</h2>
           <textarea
             v-model="appPrompt"
-            :placeholder="conversationHistory.length === 0 
-              ? 'Example: Create a todo list app with local storage, add/delete tasks, and mark as complete' 
+            :placeholder="conversationHistory.length === 0
+              ? 'Example: Create a todo list app with local storage, add/delete tasks, and mark as complete'
               : 'Example: Add a dark mode toggle, Make the buttons bigger, Fix the alignment issue'"
             rows="3"
             class="prompt-input"
@@ -402,7 +402,7 @@ const formatTime = (timestamp) => {
   const date = new Date(timestamp)
   const now = new Date()
   const diff = now - date
-  
+
   if (diff < 60000) return 'Just now'
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
@@ -431,7 +431,7 @@ const startNewConversation = () => {
 
 const sendMessage = async () => {
   if (!appPrompt.value.trim() || isGenerating.value) return
-  
+
   // Add user message to history
   const userMessage = {
     role: 'user',
@@ -439,14 +439,14 @@ const sendMessage = async () => {
     timestamp: new Date().toISOString(),
     images: selectedPortfolioImages.value.length > 0 ? [...selectedPortfolioImages.value] : null
   }
-  
+
   conversationHistory.value.push(userMessage)
   conversationMode.value = true
-  
+
   // Save current prompt and clear input
   const currentPrompt = appPrompt.value
   appPrompt.value = ''
-  
+
   await generateApp(currentPrompt)
 }
 
@@ -463,7 +463,7 @@ const generateApp = async (promptOverride = null) => {
     thinking: 'Analyzing your request and generating code...',
     timestamp: new Date().toISOString()
   }
-  
+
   if (conversationMode.value) {
     conversationHistory.value.push(thinkingMessage)
   }
@@ -477,7 +477,7 @@ const generateApp = async (promptOverride = null) => {
         .map(msg => msg.content)
         .slice(-3) // Last 3 user messages for context
         .join('\n\n')
-      
+
       fullPrompt = `Previous context:\n${context}\n\nCurrent request: ${prompt}`
     }
 
@@ -541,7 +541,7 @@ const generateApp = async (promptOverride = null) => {
       if (conversationMode.value) {
         // Remove thinking message
         conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
-        
+
         // Add assistant response
         conversationHistory.value.push({
           role: 'assistant',
@@ -569,11 +569,11 @@ const generateApp = async (promptOverride = null) => {
     }
   } catch (error) {
     console.error('Generation error:', error)
-    
+
     // Remove thinking message on error
     if (conversationMode.value) {
       conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
-      
+
       // Add error message to conversation
       conversationHistory.value.push({
         role: 'assistant',
@@ -581,7 +581,7 @@ const generateApp = async (promptOverride = null) => {
         timestamp: new Date().toISOString()
       })
     }
-    
+
     deploymentStatus.value = { type: 'error', message: `❌ Error: ${error.message}` }
     setTimeout(() => {
       deploymentStatus.value = null
