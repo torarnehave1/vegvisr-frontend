@@ -18,6 +18,7 @@ import SandboxWorkspace from '../components/SandboxWorkspace.vue'
 import GnewAdmin from '@/views/GnewAdmin.vue' // Import the new GnewAdmin component
 import GNewViewer from '@/views/GNewViewer.vue' // Direct import to avoid chunking issues
 import SMSShare from '@/views/SMSShare.vue' // SMS Share page
+import CanvasDemo from '@/views/CanvasDemo.vue' // Canvas Drawing Demo
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -277,6 +278,14 @@ const router = createRouter({
       component: SMSShare,
       meta: {
         layout: null, // No layout for clean SMS sharing page
+      },
+    },
+    {
+      path: '/canvas-demo',
+      name: 'canvas-demo',
+      component: CanvasDemo,
+      meta: {
+        layout: null, // No layout for clean canvas demo
       },
     },
     {

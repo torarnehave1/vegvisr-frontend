@@ -37,6 +37,12 @@
         All APIs
       </button>
       <button
+        @click="selectedAPICategory = 'components'"
+        :class="['category-tab', { active: selectedAPICategory === 'components' }]"
+      >
+        🧩 Components <span class="count">{{ apiCategoryCount('components') }}</span>
+      </button>
+      <button
         @click="selectedAPICategory = 'images'"
         :class="['category-tab', { active: selectedAPICategory === 'images' }]"
       >
@@ -74,8 +80,8 @@
             <div
               v-for="api in apis"
               :key="api.slug"
-              :class="['api-card', { enabled: isAPIEnabled(api.slug), 'always-on': api.is_always_on }]"
-              @click="toggleAPI(api.slug, api.is_always_on)"
+              :class="['api-card', { enabled: isAPIEnabled(api.slug, api.capability_type), 'always-on': api.is_always_on }]"
+              @click="toggleAPI(api.slug, api.is_always_on, api.capability_type)"
             >
               <div class="api-card-header">
                 <span class="api-icon" :style="{ color: api.color }">{{ api.icon }}</span>
@@ -83,13 +89,14 @@
                   <h5 class="api-name">{{ api.name }}</h5>
                   <span v-if="api.is_always_on" class="always-on-badge">Always On</span>
                   <span v-else-if="api.status === 'coming_soon'" class="coming-soon-badge">Coming Soon</span>
+                  <span v-else-if="api.capability_type === 'component'" class="component-badge">Component</span>
                 </div>
                 <div class="api-toggle" @click.stop>
                   <input
                     type="checkbox"
-                    :checked="isAPIEnabled(api.slug)"
+                    :checked="isAPIEnabled(api.slug, api.capability_type)"
                     :disabled="api.is_always_on"
-                    @change="toggleAPI(api.slug, api.is_always_on)"
+                    @change="toggleAPI(api.slug, api.is_always_on, api.capability_type)"
                   />
                 </div>
               </div>
@@ -136,21 +143,18 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+import { useAppBuilderStore } from '@/stores/appBuilderStore'
 
 const userStore = useUserStore()
+const appBuilderStore = useAppBuilderStore()
 
 // State
 const loadingAPIs = ref(false)
 const availableAPIs = ref({})
-const enabledAPIs = ref([
-  'ai-chat',
-  'cloud-storage-save',
-  'cloud-storage-load',
-  'cloud-storage-load-all',
-  'cloud-storage-delete',
-  'pexels',
-  'portfolio-images'
-])
+
+// Use store for enabled APIs and components
+const { enabledAPIs, enabledComponents } = appBuilderStore
+
 const selectedAPICategory = ref('all')
 const showAPICreator = ref(false)
 const statusMessage = ref(null)
@@ -190,45 +194,30 @@ const loadAPILibrary = async () => {
   }
 }
 
-const toggleAPI = (slug, isAlwaysOn) => {
+const toggleAPI = (slug, isAlwaysOn, capabilityType = 'api') => {
   if (isAlwaysOn) {
     showStatus('info', 'ℹ️ This API is always enabled and cannot be disabled')
     return
   }
 
-  const index = enabledAPIs.value.indexOf(slug)
+  // Determine which array to use based on capability type
+  const targetArray = capabilityType === 'component' ? enabledComponents : enabledAPIs
+  
+  const index = targetArray.value.indexOf(slug)
   if (index > -1) {
-    enabledAPIs.value.splice(index, 1)
+    targetArray.value.splice(index, 1)
     showStatus('success', `✅ ${slug} disabled`)
   } else {
-    enabledAPIs.value.push(slug)
+    targetArray.value.push(slug)
     showStatus('success', `✅ ${slug} enabled`)
   }
 
-  saveEnabledAPIsToLocalStorage()
+  // Store automatically persists to localStorage
 }
 
-const isAPIEnabled = (slug) => {
-  return enabledAPIs.value.includes(slug)
-}
-
-const saveEnabledAPIsToLocalStorage = () => {
-  try {
-    localStorage.setItem('enabledAPIs', JSON.stringify(enabledAPIs.value))
-  } catch (error) {
-    console.error('Error saving enabled APIs to localStorage:', error)
-  }
-}
-
-const loadEnabledAPIsFromLocalStorage = () => {
-  try {
-    const saved = localStorage.getItem('enabledAPIs')
-    if (saved) {
-      enabledAPIs.value = JSON.parse(saved)
-    }
-  } catch (error) {
-    console.error('Error loading enabled APIs from localStorage:', error)
-  }
+const isAPIEnabled = (slug, capabilityType = 'api') => {
+  const targetArray = capabilityType === 'component' ? enabledComponents : enabledAPIs
+  return targetArray.value.includes(slug)
 }
 
 const showStatus = (type, message) => {
@@ -240,7 +229,7 @@ const showStatus = (type, message) => {
 
 // Lifecycle
 onMounted(() => {
-  loadEnabledAPIsFromLocalStorage()
+  // enabledAPIs loaded from store automatically
   loadAPILibrary()
 })
 </script>
@@ -518,6 +507,11 @@ onMounted(() => {
 
 .coming-soon-badge {
   background: #ff9800;
+  color: white;
+}
+
+.component-badge {
+  background: #667eea;
   color: white;
 }
 

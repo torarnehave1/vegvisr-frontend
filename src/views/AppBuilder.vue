@@ -850,16 +850,8 @@ const portfolioImages = ref([])
 const loadingPortfolioImages = ref(false)
 const selectedPortfolioImages = ref([])
 
-// API Library state (moved to /api-library page, keeping enabledAPIs for localStorage compatibility)
-const enabledAPIs = ref([
-  'ai-chat', // Always on
-  'cloud-storage-save', // Always on
-  'cloud-storage-load', // Always on
-  'cloud-storage-load-all', // Always on
-  'cloud-storage-delete', // Always on
-  'pexels', // Enabled by default
-  'portfolio-images' // Enabled by default
-])
+// Get API and Component state from store
+const { enabledAPIs, enabledComponents } = appBuilderStore
 
 // AI API Creator state
 const showAPICreator = ref(false)
@@ -1497,6 +1489,7 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
     }
 
     console.log('🔌 Enabled APIs being sent:', enabledAPIs.value)
+    console.log('🧩 Enabled Components being sent:', enabledComponents.value)
 
     const response = await fetch('https://api.vegvisr.org/generate-app', {
       method: 'POST',
@@ -1508,7 +1501,8 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
         aiModel: selectedAIModel.value, // Use selected model
         conversationMode: conversationMode.value,
         previousCode: conversationHistory.value.length > 0 && generatedCode.value ? generatedCode.value : null,
-        enabledAPIs: enabledAPIs.value // Send enabled APIs to backend
+        enabledAPIs: enabledAPIs.value, // Send enabled APIs to backend
+        enabledComponents: enabledComponents.value // Send enabled components to backend
       })
     })
 
@@ -2701,29 +2695,8 @@ const deletePromptFromLibrary = async (promptId) => {
 // =====================
 
 // Note: API Library has been moved to /api-library route
-// Only keeping localStorage functions for backward compatibility
-// eslint-disable-next-line no-unused-vars
-const saveEnabledAPIsToLocalStorage = () => {
-  try {
-    localStorage.setItem('enabledAPIs', JSON.stringify(enabledAPIs.value))
-    console.log('✅ Saved enabled APIs to localStorage:', enabledAPIs.value)
-  } catch (error) {
-    console.error('Failed to save enabled APIs:', error)
-  }
-}
-
-const loadEnabledAPIsFromLocalStorage = () => {
-  try {
-    const saved = localStorage.getItem('enabledAPIs')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      enabledAPIs.value = parsed
-      console.log('✅ Loaded enabled APIs from localStorage:', enabledAPIs.value)
-    }
-  } catch (error) {
-    console.error('Failed to load enabled APIs:', error)
-  }
-}
+// enabledAPIs and enabledComponents are now managed in appBuilderStore
+// The store automatically persists to localStorage
 
 // AI API Creator Functions
 // =========================
@@ -2906,7 +2879,7 @@ watch(conversationHistory, (newValue) => {
 
 // Load apps on mount
 onMounted(() => {
-  loadEnabledAPIsFromLocalStorage() // Load saved API selections
+  // enabledAPIs and enabledComponents are loaded from store automatically
 
   // Check if a version was loaded from App History view (via store)
   if (appBuilderStore.currentVersionInfo) {

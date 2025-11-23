@@ -15,6 +15,21 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
   // UI state
   const showTemplates = ref(false)
 
+  // API and Component Library state
+  const enabledAPIs = ref([
+    'ai-chat', // Always on
+    'cloud-storage-save', // Always on
+    'cloud-storage-load', // Always on
+    'cloud-storage-load-all', // Always on
+    'cloud-storage-delete', // Always on
+    'pexels', // Enabled by default
+    'portfolio-images' // Enabled by default
+  ])
+
+  const enabledComponents = ref([
+    // Components are opt-in, none enabled by default
+  ])
+
   // Load persisted state from localStorage on init
   const loadPersistedState = () => {
     try {
@@ -27,6 +42,8 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
         if (state.selectedAIModel) selectedAIModel.value = state.selectedAIModel
         if (state.currentVersionInfo) currentVersionInfo.value = state.currentVersionInfo
         if (state.conversationHistory) conversationHistory.value = state.conversationHistory
+        if (state.enabledAPIs) enabledAPIs.value = state.enabledAPIs
+        if (state.enabledComponents) enabledComponents.value = state.enabledComponents
         console.log('✅ Restored app builder state from storage')
       }
     } catch (error) {
@@ -43,7 +60,9 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
         generatedCode: generatedCode.value,
         selectedAIModel: selectedAIModel.value,
         currentVersionInfo: currentVersionInfo.value,
-        conversationHistory: conversationHistory.value
+        conversationHistory: conversationHistory.value,
+        enabledAPIs: enabledAPIs.value,
+        enabledComponents: enabledComponents.value
       }
       localStorage.setItem('appBuilderState', JSON.stringify(state))
     } catch (error) {
@@ -52,7 +71,7 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
   }
 
   // Watch for changes and persist
-  watch([currentApp, appPrompt, generatedCode, selectedAIModel, currentVersionInfo, conversationHistory], persistState, { deep: true })
+  watch([currentApp, appPrompt, generatedCode, selectedAIModel, currentVersionInfo, conversationHistory, enabledAPIs, enabledComponents], persistState, { deep: true })
 
   // Load persisted state immediately
   loadPersistedState()
@@ -135,6 +154,8 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
     currentVersionInfo,
     showTemplates,
     conversationHistory,
+    enabledAPIs,
+    enabledComponents,
 
     // Actions
     loadVersion,
