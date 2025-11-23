@@ -12,6 +12,9 @@
         <button @click="downloadApp" class="btn-control" title="Download HTML">
           📥 Download
         </button>
+        <button @click="deleteNode" class="btn-control btn-delete" title="Delete App">
+          🗑️ Delete
+        </button>
       </div>
     </div>
 
@@ -24,7 +27,7 @@
         ref="appFrame"
         :src="appUrl"
         class="app-iframe"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox allow-presentation"
         :title="node.label || 'Interactive App'"
       ></iframe>
     </div>
@@ -47,6 +50,8 @@ const props = defineProps({
     default: false
   }
 })
+
+const emit = defineEmits(['node-deleted'])
 
 const appFrame = ref(null)
 const appContainer = ref(null)
@@ -99,6 +104,11 @@ const downloadApp = () => {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+// Delete the node
+const deleteNode = () => {
+  emit('node-deleted', props.node.id)
 }
 
 // Watch for node content changes and update the app
@@ -188,6 +198,15 @@ onBeforeUnmount(() => {
 
 .btn-control:active {
   transform: translateY(0);
+}
+
+.btn-delete {
+  background: rgba(244, 67, 54, 0.3);
+  border-color: rgba(244, 67, 54, 0.5);
+}
+
+.btn-delete:hover {
+  background: rgba(244, 67, 54, 0.5);
 }
 
 .app-container {
