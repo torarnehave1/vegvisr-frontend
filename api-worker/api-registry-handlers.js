@@ -29,16 +29,23 @@ export async function listAPIs(request, env) {
     const url = new URL(request.url)
     const category = url.searchParams.get('category')
     const status = url.searchParams.get('status') || 'active'
+    const capabilityType = url.searchParams.get('type') // NEW: Filter by capability type
 
     let query = 'SELECT * FROM apiForApps WHERE status = ?'
     let params = [status]
 
-    if (category) {
+    if (category && category !== 'all') {
       query += ' AND category = ?'
       params.push(category)
     }
 
-    query += ' ORDER BY category, name'
+    // NEW: Filter by capability type
+    if (capabilityType && capabilityType !== 'all') {
+      query += ' AND capability_type = ?'
+      params.push(capabilityType)
+    }
+
+    query += ' ORDER BY capability_type, category, name'
 
     const result = await env.vegvisr_org.prepare(query).bind(...params).all()
 
@@ -54,7 +61,12 @@ export async function listAPIs(request, env) {
     return createResponse(JSON.stringify({
       success: true,
       apis: groupedAPIs,
-      total: result.results.length
+      total: result.results.length,
+      breakdown: {
+        apis: result.results.filter(i => i.capability_type === 'api').length,
+        components: result.results.filter(i => i.capability_type === 'component').length,
+        webAPIs: result.results.filter(i => i.capability_type === 'web-api').length
+      }
     }))
 
   } catch (error) {

@@ -51,6 +51,7 @@ import {
   trackAPIUsage,
   getEnabledAPIs
 } from './api-registry-handlers.js'
+import { handleServeComponent } from './component-handlers.js'
 
 // Utility functions
 const corsHeaders = {
@@ -6415,9 +6416,10 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
 const handleGenerateHTMLApp = async (request, env) => {
   try {
     const body = await request.json()
-    const { prompt, aiModel, previousCode, enabledAPIs = [] } = body
+    const { prompt, aiModel, previousCode, enabledAPIs = [], enabledComponents = [] } = body
 
     console.log('🔌 Enabled APIs received:', enabledAPIs)
+    console.log('🧩 Enabled Components received:', enabledComponents)
 
     if (!prompt || !aiModel) {
       return createErrorResponse('Missing required parameters: prompt and aiModel', 400)
@@ -6481,6 +6483,133 @@ const handleGenerateHTMLApp = async (request, env) => {
       }
     }
 
+    // Fetch available component capabilities from database
+    let componentDocumentation = ''
+    if (enabledComponents.length > 0) {
+      try {
+        console.log('🧩 Fetching component details for:', enabledComponents)
+        
+        const placeholders = enabledComponents.map(() => '?').join(',')
+        const componentsStmt = env.vegvisr_org.prepare(`
+          SELECT name, slug, description, component_props, component_events, component_slots, tags, cdn_url, function_code, example_code
+          FROM apiForApps
+          WHERE slug IN (${placeholders}) AND capability_type = 'component' AND status = 'active'
+          ORDER BY name
+        `).bind(...enabledComponents)
+
+        const { results: components } = await componentsStmt.all()
+
+        console.log('✅ Found enabled components:', components?.length || 0, components?.map(c => c.slug))
+
+      if (components && components.length > 0) {
+        componentDocumentation = '\n\n🧩 AVAILABLE WEB COMPONENTS - USE THESE CUSTOM ELEMENTS:\n\n'
+        componentDocumentation += 'These are reusable Web Components loaded from CDN. Use them by:\n'
+        componentDocumentation += '1. Adding the script tag in <head>\n'
+        componentDocumentation += '2. Using the custom HTML element in <body>\n\n'
+
+        components.forEach(component => {
+          componentDocumentation += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+          componentDocumentation += `🧩 ${component.name.toUpperCase()}\n`
+          componentDocumentation += `Description: ${component.description}\n`
+          componentDocumentation += `Element: <${component.slug}></${component.slug}>\n\n`
+
+          if (component.cdn_url) {
+            componentDocumentation += `CDN URL:\n<script src="${component.cdn_url}"></script>\n\n`
+          }
+
+          if (component.component_props) {
+            try {
+              const props = JSON.parse(component.component_props)
+              componentDocumentation += `Props (HTML attributes):\n`
+              Object.entries(props).forEach(([key, prop]) => {
+                componentDocumentation += `  ${key}: ${prop.type} - ${prop.description}\n`
+                if (prop.default !== undefined) {
+                  componentDocumentation += `    Default: ${JSON.stringify(prop.default)}\n`
+                }
+              })
+              componentDocumentation += '\n'
+            } catch (e) {
+              console.error('Error parsing component props:', e)
+            }
+          }
+
+          if (component.component_events) {
+            try {
+              const events = JSON.parse(component.component_events)
+              componentDocumentation += `Events (listen with addEventListener):\n`
+              Object.entries(events).forEach(([key, event]) => {
+                componentDocumentation += `  ${key}: ${event.description}\n`
+                if (event.detail) {
+                  componentDocumentation += `    Detail: ${JSON.stringify(event.detail)}\n`
+                }
+              })
+              componentDocumentation += '\n'
+            } catch (e) {
+              console.error('Error parsing component events:', e)
+            }
+          }
+
+          if (component.component_slots) {
+            try {
+              const slots = JSON.parse(component.component_slots)
+              componentDocumentation += `Slots (nested content):\n`
+              Object.entries(slots).forEach(([key, slot]) => {
+                componentDocumentation += `  ${key}: ${slot.description}\n`
+              })
+              componentDocumentation += '\n'
+            } catch (e) {
+              console.error('Error parsing component slots:', e)
+            }
+          }
+
+          // Use function_code if available, otherwise build example
+          if (component.function_code) {
+            componentDocumentation += `Usage Instructions:\n${component.function_code}\n\n`
+          } else {
+            componentDocumentation += `Example Usage:\n`
+            componentDocumentation += `<script src="${component.cdn_url || 'https://cdn.vegvisr.org/components/' + component.slug + '.js'}"></script>\n`
+            componentDocumentation += `<${component.slug}`
+            
+            // Add example props
+            if (component.component_props) {
+              try {
+                const props = JSON.parse(component.component_props)
+                const exampleProps = Object.entries(props).slice(0, 2) // First 2 props as example
+                exampleProps.forEach(([key, prop]) => {
+                  if (prop.default !== undefined) {
+                    componentDocumentation += ` ${key}="${prop.default}"`
+                  }
+                })
+              } catch (err) {
+                console.error('Error generating example props:', err)
+              }
+            }
+            
+            componentDocumentation += `></${component.slug}>\n\n`
+          }
+
+          // Add complete example if available
+          if (component.example_code) {
+            componentDocumentation += `Complete Example:\n${component.example_code}\n\n`
+          }
+        })
+
+        componentDocumentation += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+        componentDocumentation += '🚨 IMPORTANT: \n'
+        componentDocumentation += '- Always include the CDN script in <head> before using the component\n'
+        componentDocumentation += '- Use the exact element name as shown (lowercase with hyphens)\n'
+        componentDocumentation += '- Listen to events with element.addEventListener(eventName, handler)\n'
+        componentDocumentation += '- DO NOT create your own implementation - use the CDN component\n\n'
+        
+        console.log('📝 Component documentation length:', componentDocumentation.length)
+        console.log('📝 Component documentation preview:', componentDocumentation.substring(0, 500))
+      }
+      } catch (error) {
+        console.error('Error fetching component capabilities:', error)
+        // Continue without component docs if fetch fails
+      }
+    }
+
     // If previousCode exists, build a different prompt that includes it
     let finalPrompt
 
@@ -6496,6 +6625,7 @@ ${previousCode}
 USER REQUEST: ${prompt}
 
 ${apiDocumentation}
+${componentDocumentation}
 
 CRITICAL INSTRUCTIONS:
 1. Return the COMPLETE modified HTML document
@@ -6515,21 +6645,23 @@ Return ONLY the complete HTML code, nothing else.`
 
 User Request: ${prompt}
 
+${componentDocumentation}
+${apiDocumentation}
+
 CRITICAL REQUIREMENTS:
 1. Return ONLY a complete HTML document - MUST end with </html>
 2. Start with <!DOCTYPE html>
 3. Include ALL styles in <style> tags
 4. Include ALL JavaScript in <script> tags - MUST close with </script>
-5. NO external dependencies (no CDN links)
+5. EXCEPTION: You MUST use CDN script tags for any enabled Web Components listed above
 6. NO Cloudflare Worker code
 7. NO addEventListener('fetch')
 8. NO server-side code
-9. Just pure client-side HTML/CSS/JavaScript
+9. Use vanilla JavaScript for custom logic
 10. IMPORTANT: Define ALL functions BEFORE they are referenced in onclick handlers
 11. Make sure every onclick="functionName()" has a corresponding function functionName() defined in the script
 12. NEVER TRUNCATE CODE - always finish all functions and close all tags
-
-${apiDocumentation}
+13. 🚨 IF A WEB COMPONENT IS PROVIDED ABOVE, YOU MUST USE IT - DO NOT CREATE YOUR OWN VERSION
 
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
 If the user asks for AI, chat, or assistant functionality, use this REAL endpoint:
@@ -8077,6 +8209,11 @@ export default {
 
     if (pathname === '/admin/remove-domain' && request.method === 'DELETE') {
       return await handleRemoveDomain(request, env)
+    }
+
+    // Serve Web Components
+    if (pathname.startsWith('/components/')) {
+      return await handleServeComponent(request, env, pathname)
     }
 
     // API Registry endpoints
