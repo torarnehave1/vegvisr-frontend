@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .task-form {
+            display: flex;
+            flex-direction: column;
+        }
+        .task-form input, .task-form textarea {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .task-form button {
+            padding: 10px;
+            background-color: #28a745;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .task-form button:hover {
+            background-color: #218838;
+        }
+        .task-list {
+            list-style: none;
+            padding: 0;
+        }
+        .task-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .task-item button {
+            background-color: #dc3545;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 5px 10px;
+        }
+        .task-item button:hover {
+            background-color: #c82333;
+        }
+        .task-item.editing input {
+            border: none;
+            background: #f8f9fa;
+            padding: 5px;
+        }
+        .edit-btn {
+            background-color: #007bff !important;
+            margin-right: 5px;
+        }
+        .edit-btn:hover {
+            background-color: #0056b3 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Task Manager</h1>
+        <form class="task-form" onsubmit="addTask(event)">
+            <input type="text" id="taskTitle" placeholder="Task Title" required>
+            <textarea id="taskDescription" placeholder="Task Description" required></textarea>
+            <button type="submit">Add Task</button>
+        </form>
+        <ul class="task-list" id="taskList"></ul>
+    </div>
+    <script>
+        async function loadTasks() {
+            try {
+                const response = await fetch('https://api.vegvisr.org/api/user-app/data/list?userId=ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b&appId=task-app-123');
+                const result = await response.json();
+                const tasks = result.success ? result.data : [];
+                displayTasks(tasks);
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+            }
+        }
+
+        function displayTasks(tasks) {
+            const taskList = document.getElementById('taskList');
+            taskList.innerHTML = '';
+            tasks.forEach(task => {
+                const taskItem = document.createElement('li');
+                taskItem.className = 'task-item';
+                taskItem.innerHTML = `
+                    <div>
+                        <strong>${task.value.title}</strong>
+                        <p>${task.value.description}</p>
+                    </div>
+                    <div>
+                        <button class="edit-btn" onclick="editTask('${task.key}', '${task.value.title}', '${task.value.description}')">Edit</button>
+                        <button onclick="deleteTask('${task.key}')">Delete</button>
+                    </div>
+                `;
+                taskList.appendChild(taskItem);
+            });
+        }
+
+        async function addTask(event) {
+            event.preventDefault();
+            const title = document.getElementById('taskTitle').value;
+            const description = document.getElementById('taskDescription').value;
+            const taskKey = 'task_' + Date.now();
+            const taskData = { title, completed: false, description };
+            
+            try {
+                await fetch('https://api.vegvisr.org/api/user-app/data/set', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                        appId: 'task-app-123',
+                        key: taskKey,
+                        value: taskData
+                    })
+                });
+                
+                // Clear form
+                document.getElementById('taskTitle').value = '';
+                document.getElementById('taskDescription').value = '';
+                
+                loadTasks();
+            } catch (error) {
+                console.error('Error saving task:', error);
+            }
+        }
+
+        async function editTask(taskKey, currentTitle, currentDescription) {
+            const newTitle = prompt('Edit task title:', currentTitle);
+            const newDescription = prompt('Edit task description:', currentDescription);
+            
+            if (newTitle !== null && newDescription !== null) {
+                const taskData = { title: newTitle, completed: false, description: newDescription };
+                
+                try {
+                    await fetch('https://api.vegvisr.org/api/user-app/data/set', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                            appId: 'task-app-123',
+                            key: taskKey,
+                            value: taskData
+                        })
+                    });
+                    loadTasks();
+                } catch (error) {
+                    console.error('Error updating task:', error);
+                }
+            }
+        }
+
+        async function deleteTask(taskKey) {
+            if (confirm('Are you sure you want to delete this task?')) {
+                try {
+                    await fetch('https://api.vegvisr.org/api/user-app/data/delete', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                            appId: 'task-app-123',
+                            key: taskKey
+                        })
+                    });
+                    loadTasks();
+                } catch (error) {
+                    console.error('Error deleting task:', error);
+                }
+            }
+        }
+
+        window.onload = loadTasks;
+    </script>
+</body>
+</html>

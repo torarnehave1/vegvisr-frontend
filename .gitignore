@@ -43,3 +43,11 @@ nodetest.js
 
 # Documentation with potential secrets
 DIARIZATION_*.md
+
+# SQL files - all migrations and schemas handled locally
+*.sql
+
+# Markdown documentation files - keep locally only
+*.md
+!README.md
+

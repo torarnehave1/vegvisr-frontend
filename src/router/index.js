@@ -386,6 +386,24 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/app-history',
+      name: 'app-history',
+      component: () => import('../views/AppHistoryView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
+      path: '/api-library',
+      name: 'api-library',
+      component: () => import('../views/APILibrary.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
   ],
 })
 

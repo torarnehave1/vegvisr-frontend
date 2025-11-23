@@ -13,6 +13,44 @@ import {
   handleUpdateAPIToken,
   handleGetTokenUsage,
 } from './api-token-handlers.js'
+import {
+  createUserR2Bucket,
+  getUserR2Info,
+  deleteUserR2Bucket,
+  downloadUserDatabase,
+  queryUserDatabase,
+  executeUserDatabase,
+  getUserDatabaseSchema,
+} from './r2-user-database.js'
+import {
+  setData,
+  getData,
+  listData,
+  deleteData
+} from './user-app-storage.js'
+import {
+  saveAppToHistory,
+  getUserAppHistory,
+  createAppVersion,
+  getAppVersions,
+  restoreAppVersion,
+  deleteAppHistory
+} from './app-history-handlers.js'
+import {
+  savePromptToLibrary,
+  getUserPrompts,
+  loadPrompt,
+  deletePrompt
+} from './prompt-library-handlers.js'
+import {
+  listAPIs,
+  getAPI,
+  createAPI,
+  updateAPI,
+  deleteAPI,
+  trackAPIUsage,
+  getEnabledAPIs
+} from './api-registry-handlers.js'
 
 // Utility functions
 const corsHeaders = {
@@ -868,6 +906,104 @@ const handleGrokTest = async (request, env) => {
   } catch (error) {
     console.error('Grok API error details:', error)
     return createErrorResponse(`Grok API error: ${error.message || 'Unknown error'}`, 500)
+  }
+}
+
+const handleEnhancePrompt = async (request, env) => {
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { prompt, userId, appId } = body
+  if (!prompt || typeof prompt !== 'string') {
+    return createErrorResponse('Prompt is missing or invalid', 400)
+  }
+  if (!userId || !appId) {
+    return createErrorResponse('userId and appId are required', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const enhancementPrompt = `You are a technical prompt engineer helping non-technical users create web applications.
+
+USER'S SIMPLE REQUEST:
+"${prompt}"
+
+YOUR TASK:
+Transform this simple request into a detailed, production-ready prompt for building a web application. The prompt should be clear, comprehensive, and follow these guidelines:
+
+1. **Functional Requirements**: List specific features based on the user's request (e.g., add, edit, delete, filter, search)
+
+2. **Data Persistence Using Cloud Storage Helpers**:
+   The application will have these functions ALREADY DEFINED globally - the AI must use them, NOT redefine them:
+   - saveData(key, value) - Save or update data
+   - loadData(key) - Load a specific item by key
+   - loadAllData() - Load all saved data (returns array of {key, value} objects)
+   - deleteData(key) - Delete an item by key
+
+   Include example code showing how to use these functions, such as:
+   - Loading data on window.onload using loadAllData()
+   - Saving items with unique keys (e.g., 'item_' + Date.now())
+   - Deleting items by key
+
+3. **Critical Constraints**:
+   - ABSOLUTELY FORBIDDEN: localStorage, sessionStorage, indexedDB, or any client-side storage
+   - REQUIRED: Must call loadAllData() in window.onload to fetch initial data
+   - DO NOT define the helper functions - they are already available globally
+   - DO NOT make raw fetch() API calls - use the helper functions instead
+
+4. **User Experience**:
+   - Single HTML file with vanilla JavaScript (no build tools)
+   - Modern, responsive design
+   - Loading states during async operations
+   - Error handling with user-friendly messages
+   - Clean, accessible UI
+
+FORMAT YOUR RESPONSE:
+Return ONLY the enhanced prompt text - no conversation, no meta-commentary. Make it detailed and clear with code examples showing how to use the helper functions. Keep it concise but comprehensive.`
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [
+        { role: 'user', content: enhancementPrompt }
+      ],
+    })
+
+    const enhancedPrompt = completion.choices[0].message.content.trim()
+    if (!enhancedPrompt) {
+      return createErrorResponse('Empty enhancement response', 500)
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        enhancedPrompt: enhancedPrompt
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  } catch (error) {
+    console.error('Prompt enhancement error:', error)
+    return createErrorResponse(`Enhancement error: ${error.message || 'Unknown error'}`, 500)
   }
 }
 
@@ -1739,6 +1875,89 @@ const handleSuggestCategories = async (request, env) => {
   } catch {
     console.error('Grok API error:')
     return createErrorResponse(`Grok API error:`, 500)
+  }
+}
+
+const handleSuggestPromptMetadata = async (request, env) => {
+  console.log('Handling prompt metadata suggestion request')
+  const apiKey = env.XAI_API_KEY
+  if (!apiKey) {
+    console.error('XAI API key missing')
+    return createErrorResponse('Internal Server Error: XAI API key missing', 500)
+  }
+
+  let body
+  try {
+    body = await request.json()
+    console.log('Request body:', JSON.stringify(body))
+  } catch {
+    console.error('Invalid JSON body')
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const { promptText } = body
+  if (!promptText || typeof promptText !== 'string') {
+    console.error('Invalid prompt text:', promptText)
+    return createErrorResponse('Invalid prompt text', 400)
+  }
+
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  try {
+    const prompt = `Analyze the following app generation prompt and suggest metadata for organizing it in a prompt library:
+
+PROMPT TO ANALYZE:
+${promptText}
+
+Please provide suggestions in this exact JSON format:
+{
+  "name": "Short descriptive name (3-6 words)",
+  "description": "Brief description of what this prompt creates (1-2 sentences)",
+  "category": "One of: task-management, data-visualization, ui-components, forms, games, utilities, other",
+  "tags": ["tag1", "tag2", "tag3"] // 2-4 relevant tags
+}
+
+Focus on:
+- What type of app/functionality it creates
+- Key features mentioned (cloud storage, CRUD, API integration, etc.)
+- UI/UX patterns
+- Business domain
+
+Return only valid JSON, no additional text.`
+
+    console.log('Sending prompt to Grok for metadata suggestion')
+
+    const completion = await client.chat.completions.create({
+      model: 'grok-3-beta',
+      temperature: 0.3,
+      max_tokens: 300,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert at analyzing app prompts and categorizing them. Return only valid JSON with the requested fields.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const responseText = completion.choices[0].message.content.trim()
+    console.log('Generated metadata:', responseText)
+
+    // Parse the JSON response
+    const metadata = JSON.parse(responseText)
+
+    // Validate the response structure
+    if (!metadata.name || !metadata.category || !Array.isArray(metadata.tags)) {
+      throw new Error('Invalid metadata structure from AI')
+    }
+
+    return createResponse(JSON.stringify(metadata))
+  } catch (error) {
+    console.error('Grok API error or JSON parse error:', error)
+    return createErrorResponse(`Failed to generate metadata suggestions: ${error.message}`, 500)
   }
 }
 
@@ -4264,6 +4483,71 @@ const searchUnsplashImages = async (query, env, count = 1) => {
   }
 }
 
+async function searchPixabayImages(query, env, perPage = 15, page = 1) {
+  const apiKey = env.PIXABAY_API_KEY
+  if (!apiKey) {
+    console.error('Pixabay API key not configured')
+    return []
+  }
+
+  try {
+    const params = new URLSearchParams({
+      key: apiKey,
+      q: query,
+      image_type: 'photo',
+      per_page: perPage.toString(),
+      page: page.toString(),
+      safesearch: 'true'
+    })
+
+    const response = await fetch(`https://pixabay.com/api/?${params}`)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Pixabay API error:', response.status, response.statusText, errorText)
+      return []
+    }
+
+    const data = await response.json()
+    console.log('Pixabay API response:', JSON.stringify(data).substring(0, 200))
+
+    // Transform to standard format matching Pexels/Unsplash
+    // Also include original Pixabay fields for compatibility
+    return data.hits.map(img => ({
+      id: img.id,
+      url: img.webformatURL,
+      largeUrl: img.largeImageURL,
+      photographer: img.user,
+      photographer_url: `https://pixabay.com/users/${img.user}-${img.user_id}/`,
+      alt: img.tags,
+      width: img.webformatWidth,
+      height: img.webformatHeight,
+      // Standard format (matching Pexels/Unsplash)
+      urls: {
+        raw: img.largeImageURL,
+        full: img.largeImageURL,
+        regular: img.webformatURL,
+        small: img.previewURL,
+        thumb: img.previewURL
+      },
+      // Original Pixabay fields for direct compatibility
+      previewURL: img.previewURL,
+      webformatURL: img.webformatURL,
+      largeImageURL: img.largeImageURL,
+      user: img.user,
+      user_id: img.user_id,
+      tags: img.tags,
+      views: img.views,
+      likes: img.likes,
+      downloads: img.downloads,
+      comments: img.comments
+    }))
+  } catch (error) {
+    console.error('Error searching Pixabay:', error)
+    return []
+  }
+}
+
 const generateImageSearchQueries = async (content, env) => {
   const apiKey = env.XAI_API_KEY
   if (!apiKey) {
@@ -4429,21 +4713,31 @@ const handleUnsplashImageSearch = async (request, env) => {
     return createErrorResponse('Unsplash Access Key not configured', 500)
   }
 
-  let body
-  try {
-    body = await request.json()
-  } catch {
-    return createErrorResponse('Invalid JSON body', 400)
-  }
+  let query, count
 
-  const { query, count = 10 } = body
+  // Support both GET (query params) and POST (JSON body)
+  if (request.method === 'GET') {
+    const url = new URL(request.url)
+    query = url.searchParams.get('query')
+    count = parseInt(url.searchParams.get('per_page') || url.searchParams.get('count') || '10')
+  } else {
+    // POST request
+    let body
+    try {
+      body = await request.json()
+    } catch {
+      return createErrorResponse('Invalid JSON body', 400)
+    }
+    query = body.query
+    count = body.count || 10
+  }
 
   if (!query || typeof query !== 'string') {
     return createErrorResponse('Query parameter is required and must be a string', 400)
   }
 
   try {
-    const images = await searchUnsplashImages(query, env, Math.min(count, 20))
+    const images = await searchUnsplashImages(query, env, Math.min(count, 30))
 
     return createResponse(
       JSON.stringify({
@@ -4456,6 +4750,54 @@ const handleUnsplashImageSearch = async (request, env) => {
   } catch (error) {
     console.error('Error in Unsplash search endpoint:', error)
     return createErrorResponse('Failed to search Unsplash images: ' + error.message, 500)
+  }
+}
+
+// --- Pixabay Image Search Endpoint ---
+const handlePixabayImageSearch = async (request, env) => {
+  if (!env.PIXABAY_API_KEY) {
+    return createErrorResponse('Pixabay API Key not configured', 500)
+  }
+
+  let query, perPage, page
+
+  // Support both GET (query params) and POST (JSON body)
+  if (request.method === 'GET') {
+    const url = new URL(request.url)
+    query = url.searchParams.get('query') || url.searchParams.get('q')
+    perPage = parseInt(url.searchParams.get('per_page') || '15')
+    page = parseInt(url.searchParams.get('page') || '1')
+  } else {
+    // POST request
+    let body
+    try {
+      body = await request.json()
+      query = body.query
+      perPage = body.per_page || 15
+      page = body.page || 1
+    } catch {
+      return createErrorResponse('Invalid JSON body', 400)
+    }
+  }
+
+  if (!query || typeof query !== 'string') {
+    return createErrorResponse('Query parameter is required and must be a string', 400)
+  }
+
+  try {
+    const images = await searchPixabayImages(query, env, Math.min(perPage, 30), page)
+
+    return createResponse(
+      JSON.stringify({
+        query,
+        total: images.length,
+        images,
+        success: true,
+      }),
+    )
+  } catch (error) {
+    console.error('Error in Pixabay search endpoint:', error)
+    return createErrorResponse('Failed to search Pixabay images: ' + error.message, 500)
   }
 }
 
@@ -6073,21 +6415,111 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
 const handleGenerateHTMLApp = async (request, env) => {
   try {
     const body = await request.json()
-    const { prompt, aiModel } = body
+    const { prompt, aiModel, previousCode, enabledAPIs = [] } = body
+
+    console.log('🔌 Enabled APIs received:', enabledAPIs)
 
     if (!prompt || !aiModel) {
       return createErrorResponse('Missing required parameters: prompt and aiModel', 400)
     }
 
-    const finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
+    // Fetch enabled API details from database
+    let apiDocumentation = ''
+    if (enabledAPIs.length > 0) {
+      console.log('📡 Fetching API details for:', enabledAPIs)
+
+      // Filter out system APIs (ai-chat, cloud-storage-*) - they're injected separately
+      const externalAPIs = enabledAPIs.filter(slug =>
+        !slug.startsWith('cloud-storage-') && slug !== 'ai-chat'
+      )
+
+      console.log('📡 External APIs to fetch:', externalAPIs)
+
+      if (externalAPIs.length > 0) {
+        try {
+          const placeholders = externalAPIs.map(() => '?').join(',')
+          const stmt = env.vegvisr_org.prepare(`
+            SELECT name, slug, function_name, function_signature, function_code, example_code, description
+            FROM apiForApps
+            WHERE slug IN (${placeholders}) AND status = 'active'
+            ORDER BY category, name
+          `).bind(...externalAPIs)
+
+          const { results: apis } = await stmt.all()
+
+          console.log('✅ Found APIs in database:', apis?.length || 0, apis?.map(a => a.slug))
+
+          if (apis && apis.length > 0) {
+            apiDocumentation = '\n\n🔌 AVAILABLE APIs - USE THESE FUNCTIONS:\n\n'
+
+          apis.forEach(api => {
+            apiDocumentation += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+            apiDocumentation += `📦 ${api.name.toUpperCase()}\n`
+            apiDocumentation += `Description: ${api.description}\n\n`
+
+            if (api.function_signature) {
+              apiDocumentation += `Function Signature:\n${api.function_signature}\n\n`
+            }
+
+            if (api.function_code) {
+              apiDocumentation += `Implementation:\n${api.function_code}\n\n`
+            }
+
+            if (api.example_code) {
+              apiDocumentation += `Example Usage:\n${api.example_code}\n\n`
+            }
+          })
+
+            apiDocumentation += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+            apiDocumentation += '🚨 IMPORTANT: Use ONLY the APIs listed above. DO NOT create mock/fake implementations.\n'
+            apiDocumentation += 'All authentication is handled server-side. Just call the functions as shown.\n\n'
+          }
+        } catch (error) {
+          console.error('Error fetching API details:', error)
+          // Continue without API docs if fetch fails
+        }
+      }
+    }
+
+    // If previousCode exists, build a different prompt that includes it
+    let finalPrompt
+
+    if (previousCode) {
+      // CONVERSATION MODE - User wants to modify existing code
+      finalPrompt = `You are MODIFYING an existing HTML application.
+
+EXISTING CODE:
+\`\`\`html
+${previousCode}
+\`\`\`
+
+USER REQUEST: ${prompt}
+
+${apiDocumentation}
+
+CRITICAL INSTRUCTIONS:
+1. Return the COMPLETE modified HTML document
+2. KEEP ALL existing functionality unless explicitly asked to remove it
+3. ADD or MODIFY only what the user requested
+4. Return ONLY the HTML code - no explanations, no markdown
+5. MUST end with </html> - never truncate
+6. Preserve all existing features, styles, and functions
+7. When adding new features, integrate them smoothly with existing code
+
+Example: If user says "add pagination", you keep 100% of existing code and add pagination features to it.
+
+Return ONLY the complete HTML code, nothing else.`
+    } else {
+      // NEW APP MODE - Creating from scratch
+      finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
 
 User Request: ${prompt}
 
 CRITICAL REQUIREMENTS:
-1. Return ONLY a complete HTML document
+1. Return ONLY a complete HTML document - MUST end with </html>
 2. Start with <!DOCTYPE html>
 3. Include ALL styles in <style> tags
-4. Include ALL JavaScript in <script> tags
+4. Include ALL JavaScript in <script> tags - MUST close with </script>
 5. NO external dependencies (no CDN links)
 6. NO Cloudflare Worker code
 7. NO addEventListener('fetch')
@@ -6095,6 +6527,9 @@ CRITICAL REQUIREMENTS:
 9. Just pure client-side HTML/CSS/JavaScript
 10. IMPORTANT: Define ALL functions BEFORE they are referenced in onclick handlers
 11. Make sure every onclick="functionName()" has a corresponding function functionName() defined in the script
+12. NEVER TRUNCATE CODE - always finish all functions and close all tags
+
+${apiDocumentation}
 
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
 If the user asks for AI, chat, or assistant functionality, use this REAL endpoint:
@@ -6114,6 +6549,84 @@ async function askAI(question) {
 
 DO NOT create mock/fake AI responses. Always use the real askAI() function above for AI functionality.
 
+🚨 MANDATORY CLOUD STORAGE - USE HELPER FUNCTIONS 🚨
+❌ FORBIDDEN: localStorage, sessionStorage, IndexedDB, WebSQL, raw fetch() calls
+✅ REQUIRED: Use ONLY these pre-defined global functions (DO NOT define them yourself):
+
+🔹 SAVE DATA - CALL THIS:
+await saveData(key, value)
+// Example: await saveData('task_' + Date.now(), { title: 'Buy groceries', done: false })
+
+🔹 LOAD SPECIFIC DATA - CALL THIS:
+const data = await loadData(key)
+// Example: const task = await loadData('task_123')
+
+🔹 LOAD ALL DATA - CALL THIS:
+const items = await loadAllData()
+// Returns: [{key: 'task_1', value: {title: '...'}}, {key: 'task_2', value: {...}}]
+
+🔹 DELETE DATA - CALL THIS:
+await deleteData(key)
+// Example: await deleteData('task_123')
+
+🚨 CRITICAL RULES:
+1. These functions are ALREADY DEFINED globally - DO NOT redefine them
+2. DO NOT use fetch() for storage - ONLY use these helper functions
+3. DO NOT hardcode userId, appId, or API tokens
+4. The functions handle all authentication automatically
+5. Always use try/catch when calling these async functions
+
+CONCRETE IMPLEMENTATION EXAMPLE FOR TODO APP:
+<script>
+let tasks = [];
+
+// Load tasks on page load
+window.onload = async function() {
+  try {
+    const items = await loadAllData(); // Returns [{key, value}, ...]
+    tasks = items;
+    items.forEach(item => {
+      displayTask(item.key, item.value);
+    });
+  } catch (error) {
+    console.error('Failed to load tasks:', error);
+  }
+}
+
+// Add new task
+async function addTask() {
+  const title = document.getElementById('taskInput').value;
+  const key = 'task_' + Date.now();
+  const task = { title: title, done: false };
+
+  try {
+    await saveData(key, task); // Use helper function
+    tasks.push({ key, value: task });
+    displayTask(key, task);
+  } catch (error) {
+    alert('Failed to save task');
+  }
+}
+
+// Delete task
+async function deleteTask(key) {
+  try {
+    await deleteData(key); // Use helper function
+    tasks = tasks.filter(t => t.key !== key);
+    removeTaskFromDOM(key);
+  } catch (error) {
+    alert('Failed to delete task');
+  }
+}
+</script>
+
+REMEMBER:
+- Call loadAllData() in window.onload to restore data
+- Use saveData(key, value) to persist changes immediately
+- Use deleteData(key) to remove items
+- Add try/catch blocks for error handling
+- DO NOT define saveData, loadData, loadAllData, or deleteData yourself!
+
 The application should be:
 - Self-contained in a single HTML file
 - Work when opened directly in a browser
@@ -6124,6 +6637,7 @@ The application should be:
 - Use REAL API endpoints, not mock data (for AI features)
 
 Return ONLY the HTML code, nothing else. No explanations, no markdown, just the HTML.`
+    }
 
     let apiKey, result
 
@@ -6141,14 +6655,15 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         })
 
         const grokCompletion = await grokClient.chat.completions.create({
-          model: 'grok-beta',
+          model: 'grok-3-beta',
           temperature: 0.3,
-          max_tokens: 4000,
+          max_tokens: 131072,
           messages: [
             {
               role: 'system',
-              content:
-                'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              content: previousCode
+                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
             },
             { role: 'user', content: finalPrompt },
           ],
@@ -6170,20 +6685,43 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         })
 
         const openaiCompletion = await openaiClient.chat.completions.create({
-          model: 'gpt-4',
+          model: 'gpt-4o',
           temperature: 0.3,
-          max_tokens: 4000,
+          max_tokens: 16384,
           messages: [
             {
               role: 'system',
-              content:
-                'You are an expert HTML/CSS/JavaScript developer. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              content: previousCode
+                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
             },
             { role: 'user', content: finalPrompt },
           ],
         })
 
         result = openaiCompletion.choices[0].message.content.trim()
+        break
+      }
+
+      case 'gpt5': {
+        apiKey = env.OPENAI_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('OpenAI API key not configured', 500)
+        }
+
+        const client = new OpenAI({
+          apiKey: apiKey,
+          baseURL: 'https://api.openai.com/v1',
+        })
+
+        const completion = await client.responses.create({
+          model: 'gpt-5',
+          input: finalPrompt,
+          reasoning: { effort: 'medium' },
+          text: { verbosity: 'medium' },
+        })
+
+        result = completion.output_text.trim()
         break
       }
 
@@ -6201,8 +6739,93 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-5-20250929',
-            max_tokens: 4000,
+            model: 'claude-3-opus-20240229',
+            max_tokens: 4096,
+            system: previousCode
+              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+            messages: [
+              {
+                role: 'user',
+                content: finalPrompt,
+              },
+            ],
+          }),
+        })
+
+        if (!anthropicResponse.ok) {
+          const errorText = await anthropicResponse.text()
+          return createErrorResponse(
+            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+            500,
+          )
+        }
+
+        const anthropicData = await anthropicResponse.json()
+        result = anthropicData.content?.[0]?.text?.trim() || ''
+        break
+      }
+
+      case 'claude-4': {
+        apiKey = env.ANTHROPIC_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('Anthropic API key not configured', 500)
+        }
+
+        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 8192,
+            system: previousCode
+              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+            messages: [
+              {
+                role: 'user',
+                content: finalPrompt,
+              },
+            ],
+          }),
+        })
+
+        if (!anthropicResponse.ok) {
+          const errorText = await anthropicResponse.text()
+          return createErrorResponse(
+            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+            500,
+          )
+        }
+
+        const anthropicData = await anthropicResponse.json()
+        result = anthropicData.content?.[0]?.text?.trim() || ''
+        break
+      }
+
+      case 'claude-4.5': {
+        apiKey = env.ANTHROPIC_API_KEY
+        if (!apiKey) {
+          return createErrorResponse('Anthropic API key not configured', 500)
+        }
+
+        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-5',
+            max_tokens: 8192,
+            system: previousCode
+              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
             messages: [
               {
                 role: 'user',
@@ -6809,6 +7432,146 @@ ${text}`
   }
 }
 
+/**
+ * Secure endpoint to provide API keys to authenticated users
+ * Returns available API keys without exposing values in logs
+ */
+const handleGetEnvKeys = async (request, env) => {
+  try {
+    // Verify authentication
+    const authHeader = request.headers.get('Authorization')
+    const emailVerificationToken = authHeader?.replace('Bearer ', '')
+
+    if (!emailVerificationToken) {
+      return createErrorResponse('Authentication required', 401)
+    }
+
+    // Verify user exists and has permission
+    const user = await env.VEGVISR_ORG.prepare(
+      'SELECT email, Role FROM config WHERE emailVerificationToken = ?'
+    )
+      .bind(emailVerificationToken)
+      .first()
+
+    if (!user) {
+      return createErrorResponse('Invalid authentication token', 401)
+    }
+
+    console.log('🔑 Providing API keys to user:', user.email)
+
+    // Build response with available API keys (only keys that exist)
+    const keys = {}
+
+    // Third-party API keys
+    if (env.PEXELS_API_KEY) {
+      keys.pexels = env.PEXELS_API_KEY
+    }
+
+    if (env.OPENAI_API_KEY) {
+      keys.openai = env.OPENAI_API_KEY
+    }
+
+    if (env.GROK_API_KEY) {
+      keys.grok = env.GROK_API_KEY
+    }
+
+    if (env.GEMINI_API_KEY) {
+      keys.gemini = env.GEMINI_API_KEY
+    }
+
+    if (env.GOOGLE_MAPS_API_KEY) {
+      keys.googleMaps = env.GOOGLE_MAPS_API_KEY
+    }
+
+    if (env.ANTHROPIC_API_KEY) {
+      keys.anthropic = env.ANTHROPIC_API_KEY
+    }
+
+    if (env.HUGGINGFACE_API_KEY) {
+      keys.huggingface = env.HUGGINGFACE_API_KEY
+    }
+
+    // Log which keys were provided (without values)
+    console.log('✅ API keys provided:', {
+      user: user.email,
+      keysAvailable: Object.keys(keys),
+      timestamp: new Date().toISOString()
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      keys: keys,
+      user: {
+        email: user.email,
+        role: user.Role
+      }
+    }))
+
+  } catch (error) {
+    console.error('❌ Error in handleGetEnvKeys:', error)
+    return createErrorResponse('Failed to retrieve API keys: ' + error.message, 500)
+  }
+}
+
+/**
+ * Pexels API proxy - keeps API key secure on server
+ * Proxies search requests to Pexels API
+ */
+const handlePexelsSearch = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const query = url.searchParams.get('query')
+    const perPage = url.searchParams.get('per_page') || '15'
+    const page = url.searchParams.get('page') || '1'
+
+    if (!query) {
+      return createErrorResponse('Search query is required', 400)
+    }
+
+    if (!env.PEXELS_API_KEY) {
+      return createErrorResponse('Pexels API key not configured', 500)
+    }
+
+    console.log('🖼️ Pexels search request:', { query, perPage, page })
+
+    // Call Pexels API
+    const pexelsResponse = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&page=${page}`,
+      {
+        headers: {
+          'Authorization': env.PEXELS_API_KEY
+        }
+      }
+    )
+
+    if (!pexelsResponse.ok) {
+      const errorText = await pexelsResponse.text()
+      console.error('❌ Pexels API error:', errorText)
+      return createErrorResponse(`Pexels API error: ${pexelsResponse.status}`, pexelsResponse.status)
+    }
+
+    const data = await pexelsResponse.json()
+
+    console.log('✅ Pexels search successful:', {
+      query,
+      totalResults: data.total_results,
+      photosReturned: data.photos?.length || 0
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      photos: data.photos,
+      total_results: data.total_results,
+      page: data.page,
+      per_page: data.per_page
+    }))
+
+  } catch (error) {
+    console.error('❌ Error in handlePexelsSearch:', error)
+    return createErrorResponse('Pexels search failed: ' + error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -6892,6 +7655,9 @@ export default {
     }
     if (pathname === '/groktest' && request.method === 'POST') {
       return await handleGrokTest(request, env)
+    }
+    if (pathname === '/enhance-prompt' && request.method === 'POST') {
+      return await handleEnhancePrompt(request, env)
     }
     if (pathname === '/gemini-test' && request.method === 'POST') {
       return await handleGeminiTest(request, env)
@@ -7136,6 +7902,158 @@ export default {
       return await handleUpdateAPIToken(request, env, tokenId)
     }
 
+    // ============================================
+    // R2 User Database Management Endpoints (DEPRECATED)
+    // ============================================
+
+    if (pathname === '/api/user-database/create' && request.method === 'POST') {
+      return await createUserR2Bucket(request, env)
+    }
+
+    if (pathname === '/api/user-database/info' && request.method === 'GET') {
+      return await getUserR2Info(request, env)
+    }
+
+    if (pathname === '/api/user-database/delete' && request.method === 'DELETE') {
+      return await deleteUserR2Bucket(request, env)
+    }
+
+    if (pathname === '/api/user-database/download' && request.method === 'GET') {
+      return await downloadUserDatabase(request, env)
+    }
+
+    if (pathname === '/api/user-database/query' && request.method === 'POST') {
+      return await queryUserDatabase(request, env)
+    }
+
+    if (pathname === '/api/user-database/execute' && request.method === 'POST') {
+      return await executeUserDatabase(request, env)
+    }
+
+    if (pathname === '/api/user-database/schema' && request.method === 'GET') {
+      return await getUserDatabaseSchema(request, env)
+    }
+
+    // ============================================
+    // User App Storage - D1 JSON Storage (NEW)
+    // ============================================
+
+    if (pathname === '/api/user-app/data/set' && request.method === 'POST') {
+      const result = await setData(request, env)
+      // Add CORS headers to the response
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/user-app/data/get' && request.method === 'GET') {
+      const result = await getData(request, env)
+      // Add CORS headers to the response
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/user-app/data/list' && request.method === 'GET') {
+      const result = await listData(request, env)
+      // Add CORS headers to the response
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/user-app/data/delete' && request.method === 'DELETE') {
+      const result = await deleteData(request, env)
+      // Add CORS headers to the response
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    // App History API - Save successful app generations
+    // ================================================
+
+    if (pathname === '/api/app-history/save' && request.method === 'POST') {
+      const result = await saveAppToHistory(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/app-history/list' && request.method === 'GET') {
+      const result = await getUserAppHistory(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/app-history/new-version' && request.method === 'POST') {
+      const result = await createAppVersion(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/app-history/versions' && request.method === 'GET') {
+      const result = await getAppVersions(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/app-history/restore-version' && request.method === 'POST') {
+      const result = await restoreAppVersion(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/app-history/delete' && request.method === 'DELETE') {
+      const result = await deleteAppHistory(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    // Prompt Library endpoints
+    if (pathname === '/api/prompt-library/save' && request.method === 'POST') {
+      const result = await savePromptToLibrary(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/prompt-library/list' && request.method === 'GET') {
+      const result = await getUserPrompts(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/prompt-library/load' && request.method === 'POST') {
+      const result = await loadPrompt(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/prompt-library/delete' && request.method === 'DELETE') {
+      const result = await deletePrompt(request, env)
+      const data = await result.json()
+      return createResponse(JSON.stringify(data), result.status)
+    }
+
+    if (pathname === '/api/prompt-library/suggest-metadata' && request.method === 'POST') {
+      return await handleSuggestPromptMetadata(request, env)
+    }
+
+    // Secure API key endpoint - provides environment variables to authenticated users
+    if (pathname === '/api/env-keys' && request.method === 'GET') {
+      return await handleGetEnvKeys(request, env)
+    }
+
+    // Pexels API proxy - keeps API key secure on server
+    if (pathname === '/api/pexels/search' && request.method === 'GET') {
+      return await handlePexelsSearch(request, env)
+    }
+
+    // Unsplash API proxy - keeps API key secure on server
+    if (pathname === '/api/unsplash/search' && request.method === 'GET') {
+      return await handleUnsplashImageSearch(request, env)
+    }
+
+    // Pixabay API proxy - keeps API key secure on server
+    if (pathname === '/api/pixabay/search' && request.method === 'GET') {
+      return await handlePixabayImageSearch(request, env)
+    }
+
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
       return await handleUserAIChat(request, env)
     }
@@ -7159,6 +8077,36 @@ export default {
 
     if (pathname === '/admin/remove-domain' && request.method === 'DELETE') {
       return await handleRemoveDomain(request, env)
+    }
+
+    // API Registry endpoints
+    if (pathname === '/api/apis/list' && request.method === 'GET') {
+      return await listAPIs(request, env)
+    }
+
+    if (pathname.startsWith('/api/apis/') && pathname !== '/api/apis/list' && pathname !== '/api/apis/create' && pathname !== '/api/apis/get-enabled') {
+      const parts = pathname.split('/')
+      if (parts.length === 4 && request.method === 'GET') {
+        // GET /api/apis/:slug
+        return await getAPI(request, env, parts[3])
+      } else if (parts.length === 4 && request.method === 'PUT') {
+        // PUT /api/apis/:id
+        return await updateAPI(request, env, parts[3])
+      } else if (parts.length === 4 && request.method === 'DELETE') {
+        // DELETE /api/apis/:id
+        return await deleteAPI(request, env, parts[3])
+      } else if (parts.length === 5 && parts[4] === 'track-usage' && request.method === 'POST') {
+        // POST /api/apis/:slug/track-usage
+        return await trackAPIUsage(request, env, parts[3])
+      }
+    }
+
+    if (pathname === '/api/apis/create' && request.method === 'POST') {
+      return await createAPI(request, env)
+    }
+
+    if (pathname === '/api/apis/get-enabled' && request.method === 'POST') {
+      return await getEnabledAPIs(request, env)
     }
 
     // Fallback - log unmatched routes
