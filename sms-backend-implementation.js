@@ -45,26 +45,26 @@ async function handleSMSSend(request, env) {
 
     // 3. Validate input
     if (!to || !message) {
-      return jsonResponse({ 
-        success: false, 
-        error: 'Phone number and message are required' 
+      return jsonResponse({
+        success: false,
+        error: 'Phone number and message are required'
       }, 400);
     }
 
     // Validate phone format (basic)
     if (!to.match(/^\+?[1-9]\d{1,14}$/)) {
-      return jsonResponse({ 
-        success: false, 
-        error: 'Invalid phone number format. Use international format: +4712345678' 
+      return jsonResponse({
+        success: false,
+        error: 'Invalid phone number format. Use international format: +4712345678'
       }, 400);
     }
 
     // 4. Check rate limits
     const canSend = await checkRateLimit(user.user_id, env.SMS_RATE_LIMIT);
     if (!canSend) {
-      return jsonResponse({ 
-        success: false, 
-        error: 'Rate limit exceeded. Max 100 SMS per day.' 
+      return jsonResponse({
+        success: false,
+        error: 'Rate limit exceeded. Max 100 SMS per day.'
       }, 429);
     }
 
@@ -93,9 +93,9 @@ async function handleSMSSend(request, env) {
 
   } catch (error) {
     console.error('SMS send error:', error);
-    return jsonResponse({ 
-      success: false, 
-      error: error.message 
+    return jsonResponse({
+      success: false,
+      error: error.message
     }, 500);
   }
 }
@@ -145,7 +145,7 @@ async function verifyUserToken(token, db) {
 async function checkRateLimit(userId, kvStore) {
   const key = `sms_count_${userId}_${getCurrentDate()}`;
   const count = await kvStore.get(key);
-  
+
   return !count || parseInt(count) < 100;
 }
 
@@ -153,7 +153,7 @@ async function checkRateLimit(userId, kvStore) {
 async function incrementRateLimit(userId, kvStore) {
   const key = `sms_count_${userId}_${getCurrentDate()}`;
   const count = await kvStore.get(key) || '0';
-  
+
   await kvStore.put(key, (parseInt(count) + 1).toString(), {
     expirationTtl: 86400 // Expire after 24 hours
   });
@@ -207,11 +207,11 @@ router.post('/api/sms/send', async (req, res) => {
     // Verify API token
     const apiToken = req.headers['x-api-token'];
     const user = await verifyUserToken(apiToken);
-    
+
     if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid API token' 
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API token'
       });
     }
 
@@ -219,18 +219,18 @@ router.post('/api/sms/send', async (req, res) => {
 
     // Validate
     if (!to || !message) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Phone and message required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Phone and message required'
       });
     }
 
     // Check rate limit
     const canSend = await checkUserRateLimit(user.user_id);
     if (!canSend) {
-      return res.status(429).json({ 
-        success: false, 
-        error: 'Rate limit exceeded' 
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded'
       });
     }
 
@@ -253,9 +253,9 @@ router.post('/api/sms/send', async (req, res) => {
 
   } catch (error) {
     console.error('SMS error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

@@ -324,7 +324,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
             </div>
             <pre class="streaming-code" ref="streamingCodeElement"><code>{{ streamingCode }}</code></pre>
           </div>
-          
+
           <!-- Normal Preview (shown after generation) -->
           <iframe
             v-else-if="previewUrl"
@@ -427,7 +427,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
           <div v-if="smartChangeResult">
             <div v-if="smartChangeResult.success" class="test-result-success">
               <h4>✅ Llama Analysis Result</h4>
-              
+
               <div class="analysis-grid">
                 <div class="analysis-item">
                   <strong>Is Simple:</strong>
@@ -435,12 +435,12 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
                     {{ smartChangeResult.analysis.isSimple ? '✓ Yes' : '✗ No (Complex)' }}
                   </span>
                 </div>
-                
+
                 <div class="analysis-item">
                   <strong>Category:</strong>
                   <span class="badge-info">{{ smartChangeResult.analysis.category }}</span>
                 </div>
-                
+
                 <div class="analysis-item">
                   <strong>Confidence:</strong>
                   <span :class="`badge-${smartChangeResult.analysis.confidence}`">
@@ -1657,7 +1657,7 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
 
     // Check if streaming is supported
     const contentType = response.headers.get('content-type')
-    
+
     if (contentType && contentType.includes('text/event-stream')) {
       // Handle streaming response
       const reader = response.body.getReader()
@@ -1676,7 +1676,7 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
           if (line.startsWith('data: ')) {
             const data = line.slice(6)
             if (data === '[DONE]') continue
-            
+
             try {
               const parsed = JSON.parse(data)
               if (parsed.chunk) {
@@ -1888,7 +1888,7 @@ Respond with ONLY this JSON (no other text):
     })
 
     const data = await response.json()
-    
+
     if (data.success && data.response) {
       try {
         // Try to parse the response as JSON
@@ -3254,14 +3254,14 @@ const handleIframeMessage = async (event) => {
   // Security: Accept messages from preview iframe (same origin OR blob URLs)
   const isPreviewFrame = event.source === previewFrame.value?.contentWindow
   const isSameOrigin = event.origin === window.location.origin
-  
+
   if (!isPreviewFrame && !isSameOrigin) {
     console.warn('⚠️ Rejected message from unknown source:', event.origin)
     return
   }
 
   const { type, payload, requestId } = event.data
-  
+
   console.log('📨 Received message:', { type, origin: event.origin, requestId, isPreviewFrame })
 
   if (type === 'CLOUD_STORAGE_REQUEST') {
@@ -3345,7 +3345,7 @@ const handleIframeMessage = async (event) => {
               sender: payload.appName || 'Vegvisr'
             })
           }).then(r => r.json())
-          
+
           // Send SMS-specific response
           const smsOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
           event.source.postMessage({
@@ -5918,11 +5918,11 @@ textarea.form-control {
   .btn-generate-api {
     width: 100%;
   }
-  
+
   .modal-large {
     max-width: 95vw;
   }
-  
+
   .analysis-grid {
     grid-template-columns: 1fr;
   }
