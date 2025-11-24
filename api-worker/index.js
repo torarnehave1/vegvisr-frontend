@@ -7981,6 +7981,47 @@ const handleAIAnalyze = async (request, env) => {
 }
 
 /**
+ * SMS Proxy endpoint
+ * Proxies SMS requests to the SMS worker to avoid CORS issues
+ */
+const handleSMSProxy = async (request, env) => {
+  try {
+    const { to, message, sender } = await request.json()
+
+    if (!to || !message) {
+      return createErrorResponse('Missing required parameters: to, message', 400)
+    }
+
+    console.log('📱 Proxying SMS request:', {
+      to: to.substring(0, 3) + '***', // Partial phone number for privacy
+      messageLength: message.length,
+      sender: sender || 'Vegvisr'
+    })
+
+    // Forward to SMS worker
+    const smsResponse = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to, message, sender: sender || 'Vegvisr' })
+    })
+
+    const result = await smsResponse.json()
+
+    console.log('📱 SMS worker response:', {
+      success: result.success,
+      status: smsResponse.status
+    })
+
+    return createResponse(JSON.stringify(result), smsResponse.status)
+  } catch (error) {
+    console.error('📱 SMS proxy error:', error)
+    return createErrorResponse('SMS proxy failed: ' + error.message, 500)
+  }
+}
+
+/**
  * Secure endpoint to provide API keys to authenticated users
  * Returns available API keys without exposing values in logs
  */
@@ -8267,6 +8308,11 @@ export default {
     // AI Analysis endpoint using Llama
     if (pathname === '/ai-analyze' && request.method === 'POST') {
       return await handleAIAnalyze(request, env)
+    }
+
+    // SMS proxy endpoint
+    if (pathname === '/sms/send' && request.method === 'POST') {
+      return await handleSMSProxy(request, env)
     }
 
     if (pathname === '/youtube-search' && request.method === 'GET') {
