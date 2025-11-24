@@ -113,6 +113,13 @@
                 <small>Store data permanently using our API (todo lists, contacts, notes, etc.)</small>
               </span>
             </label>
+            <label v-if="enableStorage" class="storage-checkbox sub-option">
+              <input type="checkbox" v-model="enableMultiRowStorage" />
+              <span class="checkbox-label">
+                <strong>📊 Multi-Row Storage Mode</strong>
+                <small>Store multiple rows like a database (for contacts, lists, tables). Each item gets a unique key.</small>
+              </span>
+            </label>
           </div>
 
           <!-- AI Model Selection -->
@@ -120,12 +127,12 @@
             <label class="model-label">
               <strong>🤖 AI Model:</strong>
               <select v-model="selectedAIModel" class="model-select">
-                <option value="grok">Grok Beta (⭐ Best for large apps - 131K output tokens)</option>
-                <option value="gpt5">GPT-5 (Advanced reasoning - 16K output)</option>
+                <option value="grok">Grok Code Fast 1 (⚡ Best for large apps - 131K output)</option>
+                <option value="gpt5">GPT-5.1 (Advanced reasoning - 16K output)</option>
                 <option value="openai">GPT-4o (Fast & balanced - 16K output)</option>
-                <option value="claude">Claude 4 Opus (Detailed - 8K output, may truncate)</option>
-                <option value="claude-4">Claude Sonnet 4 (Fast - 8K output, may truncate)</option>
-                <option value="claude-4.5">Claude 4.5 Sonnet (Balanced - 8K output, may truncate)</option>
+                <option value="claude">Claude 4 Opus (Detailed - 8K output)</option>
+                <option value="claude-4">Claude Sonnet 4 (Fast - 8K output)</option>
+                <option value="claude-4.5">Claude 4.5 Sonnet (Balanced - 8K output)</option>
               </select>
             </label>
             <small class="model-hint">{{ getModelDescription(selectedAIModel) }}</small>
@@ -136,8 +143,8 @@
             <label class="model-label-small">
               <strong>🔄 Regenerate with:</strong>
               <select v-model="regenerateModel" class="model-select-small">
-                <option value="grok">Grok Beta</option>
-                <option value="gpt5">GPT-5</option>
+                <option value="grok">Grok Code Fast 1</option>
+                <option value="gpt5">GPT-5.1</option>
                 <option value="openai">GPT-4o</option>
                 <option value="claude">Claude 4 Opus</option>
                 <option value="claude-4">Claude Sonnet 4</option>
@@ -205,6 +212,15 @@
               title="Let AI enhance your prompt with technical details"
             >
               {{ isEnhancingPrompt ? '✨ Enhancing...' : '✨ AI Enhance Prompt' }}
+            </button>
+            <button
+              v-if="conversationHistory.length > 0 && generatedCode"
+              @click="testSmartChange"
+              :disabled="!appPrompt.trim() || testingSmartChange"
+              class="btn-test"
+              title="Test what Llama detects as simple changes"
+            >
+              {{ testingSmartChange ? '🧪 Testing...' : '🧪 Test Smart Change' }}
             </button>
             <button
               @click="sendMessage"
@@ -278,7 +294,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
       </div>
 
       <!-- Live Preview Panel -->
-      <div class="preview-panel">
+      <div class="preview-panel" :class="{ 'fullscreen-preview': isPreviewFullscreen }">
         <div class="preview-header">
           <h3>
             🎨 Live Preview
@@ -288,14 +304,30 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
           </h3>
           <div class="preview-actions">
             <button @click="refreshPreview" class="btn-small">🔄 Refresh</button>
+            <button v-if="previewUrl || streamingCode" @click="toggleFullscreen" class="btn-small">
+              {{ isPreviewFullscreen ? '🗙 Exit Fullscreen' : '⛶ Fullscreen' }}
+            </button>
             <button v-if="deployedUrl" @click="openInNewTab" class="btn-small">
               🔗 Open in New Tab
             </button>
           </div>
         </div>
         <div class="preview-container">
+          <!-- Streaming Code Preview (shown while generating) -->
+          <div v-if="isGenerating && streamingCode" class="streaming-preview">
+            <div class="streaming-header">
+              <span class="streaming-indicator">
+                <span class="pulse-dot"></span>
+                {{ getModelBadge(selectedAIModel) }} is writing code...
+              </span>
+              <span class="code-length">{{ streamingCode.length }} characters</span>
+            </div>
+            <pre class="streaming-code" ref="streamingCodeElement"><code>{{ streamingCode }}</code></pre>
+          </div>
+          
+          <!-- Normal Preview (shown after generation) -->
           <iframe
-            v-if="previewUrl"
+            v-else-if="previewUrl"
             :src="previewUrl"
             class="preview-iframe"
             sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups allow-downloads allow-popups-to-escape-sandbox allow-presentation"
@@ -380,6 +412,80 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
               Add to Prompt
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Smart Change Test Modal -->
+    <div v-if="showSmartChangeTest" class="modal-overlay" @click.self="showSmartChangeTest = false">
+      <div class="modal modal-large">
+        <div class="modal-header">
+          <h3>🧪 Smart Change Detection Test</h3>
+          <button @click="showSmartChangeTest = false" class="btn-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="smartChangeResult">
+            <div v-if="smartChangeResult.success" class="test-result-success">
+              <h4>✅ Llama Analysis Result</h4>
+              
+              <div class="analysis-grid">
+                <div class="analysis-item">
+                  <strong>Is Simple:</strong>
+                  <span :class="smartChangeResult.analysis.isSimple ? 'badge-success' : 'badge-warning'">
+                    {{ smartChangeResult.analysis.isSimple ? '✓ Yes' : '✗ No (Complex)' }}
+                  </span>
+                </div>
+                
+                <div class="analysis-item">
+                  <strong>Category:</strong>
+                  <span class="badge-info">{{ smartChangeResult.analysis.category }}</span>
+                </div>
+                
+                <div class="analysis-item">
+                  <strong>Confidence:</strong>
+                  <span :class="`badge-${smartChangeResult.analysis.confidence}`">
+                    {{ smartChangeResult.analysis.confidence }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="analysis-section">
+                <h5>🎯 Transformation</h5>
+                <p>{{ smartChangeResult.analysis.transformation }}</p>
+              </div>
+
+              <div class="analysis-section">
+                <h5>🔍 Search Pattern</h5>
+                <pre><code>{{ smartChangeResult.analysis.searchPattern }}</code></pre>
+              </div>
+
+              <div class="analysis-section">
+                <h5>🔄 Replacement</h5>
+                <pre><code>{{ smartChangeResult.analysis.replacement }}</code></pre>
+              </div>
+
+              <details class="raw-response">
+                <summary>📄 Raw JSON Response</summary>
+                <pre><code>{{ smartChangeResult.rawResponse }}</code></pre>
+              </details>
+            </div>
+
+            <div v-else class="test-result-error">
+              <h4>❌ Test Failed</h4>
+              <p><strong>Error:</strong> {{ smartChangeResult.error }}</p>
+              <details v-if="smartChangeResult.rawResponse">
+                <summary>📄 Raw Response</summary>
+                <pre><code>{{ smartChangeResult.rawResponse }}</code></pre>
+              </details>
+              <details v-if="smartChangeResult.details">
+                <summary>🔍 Details</summary>
+                <pre><code>{{ JSON.stringify(smartChangeResult.details, null, 2) }}</code></pre>
+              </details>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showSmartChangeTest = false" class="btn-secondary">Close</button>
         </div>
       </div>
     </div>
@@ -812,10 +918,18 @@ const previewUrl = ref('')
 const deployedUrl = ref('')
 const deploymentStatus = ref(null)
 const previewFrame = ref(null)
+const streamingCodeElement = ref(null)
 const showErrorReporter = ref(false)
 const errorMessage = ref('')
 const selectedAIModel = ref('grok') // Default to Grok (highest token limit, creative)
 const regenerateModel = ref('grok') // Model to use for regeneration
+const streamingCode = ref('') // For real-time streaming preview
+const isPreviewFullscreen = ref(false) // Fullscreen preview state
+
+// Smart change detection test state
+const showSmartChangeTest = ref(false)
+const testingSmartChange = ref(false)
+const smartChangeResult = ref(null)
 
 // My Apps state
 // Conversation state
@@ -824,6 +938,7 @@ const conversationMode = ref(false)
 
 // Storage state
 const enableStorage = ref(true) // Default to true for Superadmin users
+const enableMultiRowStorage = ref(false) // Multi-row storage mode for database-like apps
 
 // App History Management
 const showSaveDialog = ref(false)
@@ -871,7 +986,7 @@ const imageQualityPreset = ref('balanced')
 // Get model description helper
 const getModelDescription = (model) => {
   const descriptions = {
-    grok: '⭐ Best choice: 131K output limit - generates complete apps without truncation. Fast & creative.',
+    grok: '⭐ Best choice: Grok Code Fast 1 - 131K output limit, optimized for code generation. Fast & precise.',
     gpt5: '⚠️ SLOW (60s+) - Advanced reasoning, 16K output. May timeout on complex apps.',
     openai: 'Fast & reliable, 16K output. Good for medium-sized apps with quick iterations.',
     claude: 'High quality but 8K output - may truncate large apps. Use Grok for complex projects.',
@@ -884,9 +999,9 @@ const getModelDescription = (model) => {
 // Get model badge for display in conversation
 const getModelBadge = (model) => {
   const badges = {
-    gpt5: 'GPT-5',
+    gpt5: 'GPT-5.1',
     openai: 'GPT-4o',
-    grok: 'Grok',
+    grok: 'Grok Code Fast 1',
     claude: 'Claude 4 Opus',
     'claude-4': 'Claude Sonnet 4',
     'claude-4.5': 'Claude 4.5 Sonnet'
@@ -1423,6 +1538,7 @@ const generateApp = async (promptOverride = null) => {
   if (!prompt.trim()) return
 
   isGenerating.value = true
+  streamingCode.value = '' // Reset streaming code
   deploymentStatus.value = { type: 'info', message: `🤖 ${getModelBadge(selectedAIModel.value)} is generating your app...` }
 
   // Add thinking indicator to conversation
@@ -1451,39 +1567,66 @@ const generateApp = async (promptOverride = null) => {
 
     // Add storage hint to prompt if enabled
     if (enableStorage.value && userStore.role === 'Superadmin' && conversationHistory.value.length === 0) {
-      fullPrompt += `\n\n⚠️ CRITICAL: Cloud storage is ENABLED. These functions are ALREADY defined globally - DO NOT redefine them, just use them:
+      const storageMode = enableMultiRowStorage.value ? 'MULTI-ROW' : 'SINGLE-ROW'
+      const storageExample = enableMultiRowStorage.value ? `
+MULTI-ROW STORAGE MODE - For apps with multiple records (contacts, inventory, notes):
+
+1. On page load: const items = await loadAllData();
+   Returns: [{key: "contact_123", value: {name: "John", phone: "555-0100"}}, ...]
+
+2. Add record: await saveData('contact_' + Date.now(), {name: name, phone: phone, email: email});
+
+3. Update record: await saveData(existingKey, updatedValue);
+
+4. Delete record: await deleteData(key);
+
+EXAMPLE for contacts app:
+\`\`\`javascript
+async function loadContacts() {
+  const items = await loadAllData();
+  items.forEach(item => addContactToTable(item.key, item.value));
+}
+
+async function addContact(name, phone, email) {
+  const key = 'contact_' + Date.now();
+  const contact = {name, phone, email, created: new Date().toISOString()};
+  await saveData(key, contact);
+  addContactToTable(key, contact);
+}
+
+async function deleteContact(key) {
+  await deleteData(key);
+  removeContactFromTable(key);
+}
+
+// Load on page load
+window.addEventListener('DOMContentLoaded', loadContacts);
+\`\`\`` : `
+SINGLE-ROW STORAGE MODE - For apps with single data state (calculator history, settings):
+
+1. Load: const data = await loadData('appState');
+
+2. Save: await saveData('appState', {settings: {...}, history: [...]});
+
+EXAMPLE for single state app:
+\`\`\`javascript
+async function loadState() {
+  const state = await loadData('appState') || {count: 0};
+  return state;
+}
+
+async function saveState(state) {
+  await saveData('appState', state);
+}
+\`\`\``
+
+      fullPrompt += `\n\n⚠️ CRITICAL: Cloud storage is ENABLED (${storageMode}). These functions are ALREADY defined globally - DO NOT redefine them, just use them:
 - saveData(key, value)
 - loadData(key)
 - loadAllData()
 - deleteData(key)
 
-MUST use cloud storage for persistence:
-
-1. On page load: const items = await loadAllData();
-   Returns: [{key: "todo_123", value: {text: "Task", done: false}}, ...]
-
-2. Add item: await saveData('todo_' + Date.now(), {text: "Task", done: false});
-
-3. Delete: await deleteData(key);
-
-EXAMPLE for todo app - DO NOT define the storage functions, just call them:
-\`\`\`javascript
-async function init() {
-  const items = await loadAllData();
-  items.forEach(item => addToDOM(item.value.text, item.value.done, item.key));
-}
-
-function addTodo(text) {
-  const key = 'todo_' + Date.now();
-  saveData(key, {text: text, done: false});
-  addToDOM(text, false, key);
-}
-
-function deleteTodo(key) {
-  deleteData(key);
-  removeFromDOM(key);
-}
-\`\`\`
+${storageExample}
 
 NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
     }
@@ -1491,7 +1634,7 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
     console.log('🔌 Enabled APIs being sent:', enabledAPIs.value)
     console.log('🧩 Enabled Components being sent:', enabledComponents.value)
 
-    const response = await fetch('https://api.vegvisr.org/generate-app', {
+    const response = await fetch('https://api.vegvisr.org/generate-app?stream=true', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1507,25 +1650,66 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
     })
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`)
+      const errorData = await response.json().catch(() => ({}))
+      console.error('❌ API Error Response:', errorData)
+      throw new Error(`API error: ${response.status} - ${errorData.error || 'Unknown error'}`)
     }
 
-    const data = await response.json()
+    // Check if streaming is supported
+    const contentType = response.headers.get('content-type')
+    
+    if (contentType && contentType.includes('text/event-stream')) {
+      // Handle streaming response
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
 
-    if (data.success && data.code) {
-      // Extract HTML from worker code if it's wrapped in a worker
-      let htmlCode = data.code
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
 
-      // If AI returned worker code, extract the HTML
-      const htmlMatch = htmlCode.match(/`(<!DOCTYPE html>[\s\S]*?)`/m) ||
-                       htmlCode.match(/return\s+`(<!DOCTYPE html>[\s\S]*?)`/m) ||
-                       htmlCode.match(/return new Response\(`(<!DOCTYPE html>[\s\S]*?)`/m)
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-      if (htmlMatch) {
-        htmlCode = htmlMatch[1]
-      } else if (!htmlCode.includes('<!DOCTYPE html>')) {
-        // If no HTML found, create a simple wrapper
-        htmlCode = `<!DOCTYPE html>
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.chunk) {
+                streamingCode.value += parsed.chunk
+              } else if (parsed.done && parsed.code) {
+                streamingCode.value = parsed.code
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
+          }
+        }
+      }
+
+      generatedCode.value = streamingCode.value
+    } else {
+      // Handle non-streaming response (fallback)
+      const data = await response.json()
+
+      if (data.success && data.code) {
+        // Extract HTML from worker code if it's wrapped in a worker
+        let htmlCode = data.code
+
+        // If AI returned worker code, extract the HTML
+        const htmlMatch = htmlCode.match(/`(<!DOCTYPE html>[\s\S]*?)`/m) ||
+                         htmlCode.match(/return\s+`(<!DOCTYPE html>[\s\S]*?)`/m) ||
+                         htmlCode.match(/return new Response\(`(<!DOCTYPE html>[\s\S]*?)`/m)
+
+        if (htmlMatch) {
+          htmlCode = htmlMatch[1]
+        } else if (!htmlCode.includes('<!DOCTYPE html>')) {
+          // If no HTML found, create a simple wrapper
+          htmlCode = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1540,55 +1724,56 @@ NEVER use localStorage. NEVER define saveData/loadData/deleteData/loadAllData.`
   </div>
 </body>
 </html>`
+        }
+
+        generatedCode.value = htmlCode
+      } else {
+        throw new Error(data.error || 'Failed to generate app')
       }
-
-      generatedCode.value = htmlCode
-
-      // Inject AI helper if prompt mentions AI/chat
-      if (needsAIHelper(prompt)) {
-        generatedCode.value = injectAIHelper(htmlCode)
-      }
-
-      // Inject storage helper if enabled
-      if (enableStorage.value && userStore.role === 'Superadmin') {
-        generatedCode.value = injectStorageHelper(generatedCode.value)
-        console.log('✅ Storage helper injected into generated app')
-      }
-
-      // Update or add assistant message to conversation
-      if (conversationMode.value) {
-        // Remove thinking message
-        conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
-
-        // Add assistant response
-        conversationHistory.value.push({
-          role: 'assistant',
-          code: generatedCode.value,
-          explanation: data.explanation || 'Code generated successfully',
-          timestamp: new Date().toISOString(),
-          model: selectedAIModel.value // Track which model was used
-        })
-      }
-
-      currentApp.value = {
-        prompt: prompt,
-        code: generatedCode.value,
-        timestamp: new Date().toISOString()
-      }
-
-      // Update store with generated app
-      appBuilderStore.updateApp(generatedCode.value, prompt)
-
-      // Create preview URL (blob URL for local preview)
-      createPreview(generatedCode.value)
-
-      deploymentStatus.value = { type: 'success', message: '✅ App generated successfully! Running in browser.' }
-      setTimeout(() => {
-        deploymentStatus.value = null
-      }, 3000)
-    } else {
-      throw new Error(data.error || 'Failed to generate app')
     }
+
+    // Inject AI helper if prompt mentions AI/chat or if generated code uses askAI
+    if (needsAIHelper(prompt) || generatedCode.value.includes('askAI(')) {
+      generatedCode.value = injectAIHelper(generatedCode.value)
+    }
+
+    // Inject storage helper if enabled
+    if (enableStorage.value && userStore.role === 'Superadmin') {
+      generatedCode.value = injectStorageHelper(generatedCode.value)
+      console.log('✅ Storage helper injected into generated app')
+    }
+
+    // Update or add assistant message to conversation
+    if (conversationMode.value) {
+      // Remove thinking message
+      conversationHistory.value = conversationHistory.value.filter(msg => !msg.thinking)
+
+      // Add assistant response
+      conversationHistory.value.push({
+        role: 'assistant',
+        code: generatedCode.value,
+        explanation: 'Code generated successfully',
+        timestamp: new Date().toISOString(),
+        model: selectedAIModel.value // Track which model was used
+      })
+    }
+
+    currentApp.value = {
+      prompt: prompt,
+      code: generatedCode.value,
+      timestamp: new Date().toISOString()
+    }
+
+    // Update store with generated app
+    appBuilderStore.updateApp(generatedCode.value, prompt)
+
+    // Create preview URL (blob URL for local preview)
+    createPreview(generatedCode.value)
+
+    deploymentStatus.value = { type: 'success', message: '✅ App generated successfully! Running in browser.' }
+    setTimeout(() => {
+      deploymentStatus.value = null
+    }, 3000)
   } catch (error) {
     console.error('Generation error:', error)
 
@@ -1659,6 +1844,88 @@ const refreshPreview = () => {
   }
 }
 
+const toggleFullscreen = () => {
+  isPreviewFullscreen.value = !isPreviewFullscreen.value
+}
+
+// Test smart change detection with Llama
+const testSmartChange = async () => {
+  if (!appPrompt.value || !generatedCode.value) {
+    deploymentStatus.value = { type: 'error', message: '⚠️ Need both a request and existing code to test' }
+    return
+  }
+
+  testingSmartChange.value = true
+  smartChangeResult.value = null
+
+  try {
+    const analysisPrompt = `You are a code change analyzer. Analyze this request and respond ONLY with valid JSON.
+
+USER REQUEST: ${appPrompt.value}
+
+CODE PREVIEW (first 500 chars):
+${generatedCode.value.substring(0, 500)}...
+
+Respond with ONLY this JSON (no other text):
+{
+  "isSimple": true or false,
+  "category": "title" or "color" or "text" or "css" or "complex",
+  "transformation": "description of what needs to change",
+  "searchPattern": "regex or string to find",
+  "replacement": "what to replace with",
+  "confidence": "high" or "medium" or "low"
+}`
+
+    const response = await fetch('https://api.vegvisr.org/ai-analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt: analysisPrompt,
+        code: generatedCode.value
+      })
+    })
+
+    const data = await response.json()
+    
+    if (data.success && data.response) {
+      try {
+        // Try to parse the response as JSON
+        const analysis = JSON.parse(data.response)
+        smartChangeResult.value = {
+          success: true,
+          analysis,
+          rawResponse: data.response
+        }
+      } catch {
+        // If not JSON, show raw response
+        smartChangeResult.value = {
+          success: false,
+          error: 'Response is not valid JSON',
+          rawResponse: data.response
+        }
+      }
+    } else {
+      smartChangeResult.value = {
+        success: false,
+        error: 'No response from AI',
+        details: data
+      }
+    }
+
+    showSmartChangeTest.value = true
+  } catch (error) {
+    smartChangeResult.value = {
+      success: false,
+      error: error.message
+    }
+    showSmartChangeTest.value = true
+  } finally {
+    testingSmartChange.value = false
+  }
+}
+
 // Debounced function to update preview when code is edited
 let updatePreviewTimeout = null
 const onCodeEdit = () => {
@@ -1692,7 +1959,7 @@ const onEditorKeydown = (event) => {
 
 // Check if prompt mentions AI-related keywords
 const needsAIHelper = (prompt) => {
-  const aiKeywords = ['ai', 'chat', 'assistant', 'grok', 'question', 'ask']
+  const aiKeywords = ['ai', 'chat', 'assistant', 'grok', 'question', 'ask', 'journal', 'reflect', 'summarize', 'insight']
   const lowerPrompt = prompt.toLowerCase()
   return aiKeywords.some(keyword => lowerPrompt.includes(keyword))
 }
@@ -1728,7 +1995,7 @@ const injectAIHelper = (htmlCode) => {
           },
           body: JSON.stringify({
             messages: [{ role: 'user', content: question }],
-            max_tokens: options.max_tokens || 500,
+            max_tokens: options.max_tokens || 4096,
             graph_id: options.graph_id || null,
             userEmail: 'superadmin'
           })
@@ -1903,15 +2170,58 @@ const injectAIHelper = (htmlCode) => {
       }
     }
 
+    // SMS Sending function
+    async function sendSMS(to, message, sender = 'Vegvisr') {
+      console.log('📱 Sending SMS to:', to);
+
+      return new Promise((resolve, reject) => {
+        const requestId = Date.now() + Math.random();
+
+        // Listen for response from parent
+        const handler = (event) => {
+          if (event.data.type === 'SMS_RESPONSE' && event.data.requestId === requestId) {
+            window.removeEventListener('message', handler);
+            if (event.data.success) {
+              console.log('✅ SMS sent successfully:', event.data.result);
+              resolve(event.data.result);
+            } else {
+              console.error('📱 SMS send error:', event.data.error);
+              reject(new Error(event.data.error || 'Failed to send SMS'));
+            }
+          }
+        };
+
+        window.addEventListener('message', handler);
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+          reject(new Error('SMS request timeout'));
+        }, 30000);
+
+        // Send request to parent window
+        window.parent.postMessage({
+          type: 'sendSMS',
+          requestId,
+          payload: {
+            phoneNumber: to,
+            message: message,
+            appName: sender
+          }
+        }, '*');
+      });
+    }
+
     // Make functions globally accessible
     window.askAI = askAI;
     window.getPortfolioImages = getPortfolioImages;
     window.searchPexels = searchPexels;
+    window.sendSMS = sendSMS;
     window.saveData = saveData;
     window.loadData = loadData;
     window.loadAllData = loadAllData;
     window.deleteData = deleteData;
-    console.log('🤖 Real askAI, getPortfolioImages, and searchPexels functions are now available globally');
+    console.log('🤖 Real askAI, getPortfolioImages, searchPexels, and sendSMS functions are now available globally');
     console.log('☁️ Cloud Storage enabled for app:', APP_ID);
   </scr` + `ipt>
   `
@@ -1927,6 +2237,9 @@ const regenerateWithFix = async () => {
   showErrorReporter.value = false
 
   try {
+    // Use the model from the store (which tracks the model used for generation)
+    const modelToUse = appBuilderStore.selectedAIModel || selectedAIModel.value
+
     const fixPrompt = `${appPrompt.value}
 
 IMPORTANT: The previous version had this error:
@@ -1946,7 +2259,7 @@ Generate a corrected version with the error fixed.`
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt: fixPrompt,
-        aiModel: 'claude-4.5'
+        aiModel: modelToUse
       })
     })
 
@@ -1956,7 +2269,7 @@ Generate a corrected version with the error fixed.`
       let htmlCode = data.code
 
       // Check if AI needs to inject helper function
-      if (needsAIHelper(appPrompt.value)) {
+      if (needsAIHelper(appPrompt.value) || htmlCode.includes('askAI(')) {
         htmlCode = injectAIHelper(htmlCode)
       }
 
@@ -2886,7 +3199,7 @@ onMounted(() => {
     // Version was loaded via store, sync to local refs
     appPrompt.value = appBuilderStore.appPrompt
     generatedCode.value = appBuilderStore.generatedCode
-    selectedAIModel.value = appBuilderStore.selectedAIModel
+    selectedAIModel.value = appBuilderStore.selectedAIModel || 'grok' // Ensure valid default
     currentApp.value = appBuilderStore.currentApp
     conversationHistory.value = appBuilderStore.conversationHistory || []
     showTemplates.value = false
@@ -2929,27 +3242,43 @@ onUnmounted(() => {
   window.removeEventListener('message', handleIframeMessage)
 })
 
+// Auto-scroll streaming code to bottom as it updates
+watch(streamingCode, () => {
+  if (streamingCodeElement.value) {
+    streamingCodeElement.value.scrollTop = streamingCodeElement.value.scrollHeight
+  }
+})
+
 // Handle postMessage from iframe apps for cloud storage
 const handleIframeMessage = async (event) => {
-  // Security: Only accept messages from same origin
-  if (event.origin !== window.location.origin) {
-    console.warn('⚠️ Rejected message from different origin:', event.origin)
+  // Security: Accept messages from preview iframe (same origin OR blob URLs)
+  const isPreviewFrame = event.source === previewFrame.value?.contentWindow
+  const isSameOrigin = event.origin === window.location.origin
+  
+  if (!isPreviewFrame && !isSameOrigin) {
+    console.warn('⚠️ Rejected message from unknown source:', event.origin)
     return
   }
 
   const { type, payload, requestId } = event.data
+  
+  console.log('📨 Received message:', { type, origin: event.origin, requestId, isPreviewFrame })
 
   if (type === 'CLOUD_STORAGE_REQUEST') {
     const userId = userStore.user_id
     const apiToken = userStore.emailVerificationToken
 
+    console.log('🔐 Auth check:', { userId: !!userId, apiToken: !!apiToken })
+
     if (!userId || !apiToken) {
+      console.error('❌ Not authenticated')
+      const targetOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
       event.source.postMessage({
         type: 'CLOUD_STORAGE_RESPONSE',
         requestId,
         success: false,
         error: 'Not authenticated'
-      }, event.origin)
+      }, targetOrigin)
       return
     }
 
@@ -2958,6 +3287,7 @@ const handleIframeMessage = async (event) => {
 
       switch (payload.action) {
         case 'save':
+          console.log('💾 Saving to cloud:', { appId: payload.appId, key: payload.key })
           result = await fetch('https://api.vegvisr.org/api/user-app/data/set', {
             method: 'POST',
             headers: {
@@ -2971,6 +3301,7 @@ const handleIframeMessage = async (event) => {
               value: payload.value
             })
           }).then(r => r.json())
+          console.log('📦 Save result:', result)
           break
 
         case 'load':
@@ -3002,26 +3333,53 @@ const handleIframeMessage = async (event) => {
           }).then(r => r.json())
           break
 
+        case 'sendSMS': {
+          result = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              to: payload.phoneNumber,
+              message: payload.message,
+              sender: payload.appName || 'Vegvisr'
+            })
+          }).then(r => r.json())
+          
+          // Send SMS-specific response
+          const smsOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
+          event.source.postMessage({
+            type: 'SMS_RESPONSE',
+            requestId,
+            success: true,
+            result: result
+          }, smsOrigin)
+          return // Exit early, don't send CLOUD_STORAGE_RESPONSE
+        }
+
         default:
           throw new Error(`Unknown action: ${payload.action}`)
       }
 
-      // Send success response back to iframe
+      // Send success response back to iframe (use '*' for blob: origins)
+      const targetOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
+      console.log('✅ Sending success response:', { requestId, targetOrigin, actualOrigin: event.origin })
       event.source.postMessage({
         type: 'CLOUD_STORAGE_RESPONSE',
         requestId,
         success: true,
         data: result
-      }, event.origin)
+      }, targetOrigin)
 
     } catch (error) {
-      console.error('Cloud storage request error:', error)
+      console.error('❌ Cloud storage request error:', error)
+      const targetOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
       event.source.postMessage({
         type: 'CLOUD_STORAGE_RESPONSE',
         requestId,
         success: false,
         error: error.message
-      }, event.origin)
+      }, targetOrigin)
     }
   }
 }
@@ -3190,6 +3548,110 @@ const handleIframeMessage = async (event) => {
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 2rem;
+}
+
+.preview-panel.fullscreen-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  border-radius: 0;
+  padding: 1rem;
+  max-width: 100vw;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-panel.fullscreen-preview .preview-container {
+  flex: 1;
+  height: auto;
+}
+
+/* Streaming Code Preview */
+.streaming-preview {
+  height: 100%;
+  min-height: 600px;
+  background: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.streaming-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #2d2d2d;
+  border-bottom: 1px solid #444;
+}
+
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #4ade80;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #4ade80;
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+.code-length {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.streaming-code {
+  flex: 1;
+  margin: 0;
+  padding: 1.5rem;
+  overflow-y: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.streaming-code::-webkit-scrollbar {
+  width: 10px;
+}
+
+.streaming-code::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.streaming-code::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 5px;
+}
+
+.streaming-code::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 /* Conversation Styles */
@@ -3430,6 +3892,12 @@ const handleIframeMessage = async (event) => {
   gap: 0.75rem;
   cursor: pointer;
   user-select: none;
+}
+
+.storage-checkbox.sub-option {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .storage-checkbox input[type="checkbox"] {
@@ -5265,6 +5733,179 @@ textarea.form-control {
   cursor: pointer;
 }
 
+/* Smart Change Test Styles */
+.btn-test {
+  padding: 0.75rem 1.25rem;
+  border: 2px solid #8b5cf6;
+  background: white;
+  color: #8b5cf6;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-test:hover:not(:disabled) {
+  background: #8b5cf6;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.btn-test:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-large {
+  max-width: 800px;
+  width: 90vw;
+}
+
+.test-result-success,
+.test-result-error {
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.test-result-success {
+  background: #f0fdf4;
+  border: 2px solid #22c55e;
+}
+
+.test-result-error {
+  background: #fef2f2;
+  border: 2px solid #ef4444;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.analysis-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.analysis-item strong {
+  color: #666;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-success {
+  background: #22c55e;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.badge-warning {
+  background: #f59e0b;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.badge-info {
+  background: #3b82f6;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.badge-high {
+  background: #22c55e;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.badge-medium {
+  background: #f59e0b;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.badge-low {
+  background: #ef4444;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.analysis-section {
+  margin: 1.5rem 0;
+}
+
+.analysis-section h5 {
+  color: #333;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+}
+
+.analysis-section p {
+  color: #666;
+  line-height: 1.6;
+}
+
+.analysis-section pre {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.9rem;
+}
+
+.raw-response {
+  margin-top: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.raw-response summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #666;
+  user-select: none;
+}
+
+.raw-response summary:hover {
+  color: #333;
+}
+
+.raw-response pre {
+  margin-top: 1rem;
+  background: #f9fafb;
+  color: #333;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
 @media (max-width: 768px) {
   .api-creator-modal {
     max-width: 95vw;
@@ -5277,5 +5918,14 @@ textarea.form-control {
   .btn-generate-api {
     width: 100%;
   }
+  
+  .modal-large {
+    max-width: 95vw;
+  }
+  
+  .analysis-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
+

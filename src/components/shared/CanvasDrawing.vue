@@ -1,6 +1,6 @@
 <template>
   <div class="canvas-drawing-container">
-    <canvas 
+    <canvas
       ref="canvasRef"
       :width="width"
       :height="height"
@@ -13,25 +13,25 @@
       @touchmove="handleTouchMove"
       @touchend="stopDrawing"
     ></canvas>
-    
+
     <div v-if="showControls" class="canvas-controls">
       <div class="control-group">
         <label for="color-picker">Color:</label>
-        <input 
+        <input
           id="color-picker"
-          type="color" 
+          type="color"
           v-model="currentColor"
           @change="updateColor"
           class="color-input"
         />
         <span class="color-preview" :style="{ backgroundColor: currentColor }"></span>
       </div>
-      
+
       <div class="control-group">
         <label for="stroke-width">Width:</label>
-        <input 
+        <input
           id="stroke-width"
-          type="range" 
+          type="range"
           v-model="currentStrokeWidth"
           min="1"
           max="20"
@@ -39,7 +39,7 @@
         />
         <span class="stroke-value">{{ currentStrokeWidth }}px</span>
       </div>
-      
+
       <div class="control-buttons">
         <button @click="clear" class="btn-control btn-clear">
           🗑️ Clear
@@ -59,29 +59,29 @@
 import { ref, onMounted, watch } from 'vue'
 
 const props = defineProps({
-  width: { 
-    type: Number, 
-    default: 800 
+  width: {
+    type: Number,
+    default: 800
   },
-  height: { 
-    type: Number, 
-    default: 600 
+  height: {
+    type: Number,
+    default: 600
   },
-  strokeColor: { 
-    type: String, 
-    default: '#000000' 
+  strokeColor: {
+    type: String,
+    default: '#000000'
   },
-  strokeWidth: { 
-    type: Number, 
-    default: 2 
+  strokeWidth: {
+    type: Number,
+    default: 2
   },
-  showControls: { 
-    type: Boolean, 
-    default: true 
+  showControls: {
+    type: Boolean,
+    default: true
   },
-  backgroundColor: { 
-    type: String, 
-    default: '#ffffff' 
+  backgroundColor: {
+    type: String,
+    default: '#ffffff'
   }
 })
 
@@ -101,7 +101,7 @@ const lastY = ref(0)
 onMounted(() => {
   ctx.value = canvasRef.value.getContext('2d')
   clear()
-  
+
   // Save initial state
   saveState()
 })
@@ -121,27 +121,27 @@ const startDrawing = (e) => {
   const rect = canvasRef.value.getBoundingClientRect()
   lastX.value = e.clientX - rect.left
   lastY.value = e.clientY - rect.top
-  
+
   ctx.value.beginPath()
   ctx.value.moveTo(lastX.value, lastY.value)
 }
 
 const draw = (e) => {
   if (!isDrawing.value) return
-  
+
   const rect = canvasRef.value.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
-  
+
   ctx.value.lineTo(x, y)
   ctx.value.strokeStyle = currentColor.value
   ctx.value.lineWidth = currentStrokeWidth.value
   ctx.value.lineCap = 'round'
   ctx.value.lineJoin = 'round'
   ctx.value.stroke()
-  
+
   emit('draw', { x, y })
-  
+
   lastX.value = x
   lastY.value = y
 }
@@ -158,11 +158,11 @@ const handleTouchStart = (e) => {
   e.preventDefault()
   const touch = e.touches[0]
   const rect = canvasRef.value.getBoundingClientRect()
-  
+
   isDrawing.value = true
   lastX.value = touch.clientX - rect.left
   lastY.value = touch.clientY - rect.top
-  
+
   ctx.value.beginPath()
   ctx.value.moveTo(lastX.value, lastY.value)
 }
@@ -170,21 +170,21 @@ const handleTouchStart = (e) => {
 const handleTouchMove = (e) => {
   e.preventDefault()
   if (!isDrawing.value) return
-  
+
   const touch = e.touches[0]
   const rect = canvasRef.value.getBoundingClientRect()
   const x = touch.clientX - rect.left
   const y = touch.clientY - rect.top
-  
+
   ctx.value.lineTo(x, y)
   ctx.value.strokeStyle = currentColor.value
   ctx.value.lineWidth = currentStrokeWidth.value
   ctx.value.lineCap = 'round'
   ctx.value.lineJoin = 'round'
   ctx.value.stroke()
-  
+
   emit('draw', { x, y })
-  
+
   lastX.value = x
   lastY.value = y
 }
@@ -204,7 +204,7 @@ const updateColor = () => {
 const exportImage = () => {
   const dataUrl = canvasRef.value.toDataURL('image/png')
   emit('export', dataUrl)
-  
+
   // Also trigger download
   const link = document.createElement('a')
   link.href = dataUrl
@@ -216,7 +216,7 @@ const exportImage = () => {
 const saveState = () => {
   const imageData = ctx.value.getImageData(0, 0, props.width, props.height)
   history.value.push(imageData)
-  
+
   // Limit history to 20 states to prevent memory issues
   if (history.value.length > 20) {
     history.value.shift()
@@ -363,17 +363,17 @@ defineExpose({
   .canvas-drawing-container {
     padding: 1rem;
   }
-  
+
   .canvas-controls {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .control-buttons {
     margin-left: 0;
     width: 100%;
   }
-  
+
   .btn-control {
     flex: 1;
   }

@@ -3,7 +3,7 @@ export async function handleServeComponent(request, env, pathname) {
   try {
     // Extract component name from path: /components/canvas-drawing.js -> canvas-drawing
     const componentName = pathname.replace('/components/', '').replace('.js', '')
-    
+
     // Map of available components
     const components = {
       'canvas-drawing': `/**
@@ -16,7 +16,7 @@ class CanvasDrawing extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    
+
     // State
     this.isDrawing = false
     this.currentColor = '#000000'
@@ -168,7 +168,7 @@ class CanvasDrawing extends HTMLElement {
             <label>Color:</label>
             <input type="color" id="colorPicker" value="\${this.strokeColor}">
           </div>
-          
+
           <div class="control-group">
             <label>Width:</label>
             <input type="range" id="widthSlider" min="1" max="20" value="\${this.strokeWidth}">
@@ -263,12 +263,12 @@ class CanvasDrawing extends HTMLElement {
     if (!this.isDrawing) return
 
     const pos = this.getMousePos(e)
-    
+
     this.ctx.strokeStyle = this.currentColor
     this.ctx.lineWidth = this.currentWidth
     this.ctx.lineCap = 'round'
     this.ctx.lineJoin = 'round'
-    
+
     this.ctx.lineTo(pos.x, pos.y)
     this.ctx.stroke()
 
@@ -289,7 +289,7 @@ class CanvasDrawing extends HTMLElement {
       clientX: touch.clientX,
       clientY: touch.clientY
     })
-    
+
     if (e.type === 'touchstart') {
       this.startDrawing(mouseEvent)
     } else if (e.type === 'touchmove') {
@@ -308,10 +308,10 @@ class CanvasDrawing extends HTMLElement {
   saveState() {
     // Remove any states after current step
     this.history = this.history.slice(0, this.historyStep + 1)
-    
+
     // Add new state
     this.history.push(this.canvas.toDataURL())
-    
+
     // Limit history size
     if (this.history.length > this.maxHistory) {
       this.history.shift()
@@ -342,7 +342,7 @@ class CanvasDrawing extends HTMLElement {
   export() {
     const dataUrl = this.canvas.toDataURL('image/png')
     this.dispatchEvent(new CustomEvent('export', { detail: dataUrl }))
-    
+
     // Auto-download
     const link = document.createElement('a')
     link.download = \`drawing-\${Date.now()}.png\`
@@ -354,9 +354,9 @@ class CanvasDrawing extends HTMLElement {
 // Register the custom element
 customElements.define('canvas-drawing', CanvasDrawing)`
     }
-    
+
     const componentCode = components[componentName]
-    
+
     if (!componentCode) {
       return new Response('Component not found', {
         status: 404,
@@ -366,7 +366,7 @@ customElements.define('canvas-drawing', CanvasDrawing)`
         }
       })
     }
-    
+
     return new Response(componentCode, {
       status: 200,
       headers: {
@@ -375,7 +375,7 @@ customElements.define('canvas-drawing', CanvasDrawing)`
         'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
       }
     })
-    
+
   } catch (error) {
     console.error('Error serving component:', error)
     return new Response(`Error serving component: ${error.message}`, {

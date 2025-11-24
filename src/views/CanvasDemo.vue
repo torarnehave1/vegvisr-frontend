@@ -7,7 +7,7 @@
 
     <div class="demo-section">
       <h2>Default Configuration</h2>
-      <CanvasDrawing 
+      <CanvasDrawing
         @export="handleExport"
         @draw="handleDraw"
         @clear="handleClear"
@@ -17,7 +17,7 @@
 
     <div class="demo-section">
       <h2>Custom Size & Colors</h2>
-      <CanvasDrawing 
+      <CanvasDrawing
         :width="600"
         :height="400"
         stroke-color="#ff6b6b"
@@ -29,7 +29,7 @@
 
     <div class="demo-section">
       <h2>No Controls (Programmatic)</h2>
-      <CanvasDrawing 
+      <CanvasDrawing
         ref="programmaticCanvas"
         :width="500"
         :height="300"
@@ -60,7 +60,7 @@
     <div class="demo-section">
       <h2>Usage Code</h2>
       <pre class="code-block"><code>&lt;template&gt;
-  &lt;CanvasDrawing 
+  &lt;CanvasDrawing
     :width="800"
     :height="600"
     stroke-color="#000000"
@@ -111,7 +111,7 @@ const addEvent = (type, data) => {
     data: JSON.stringify(data),
     time: new Date().toLocaleTimeString()
   })
-  
+
   // Keep only last 20 events
   if (eventLog.value.length > 20) {
     eventLog.value.pop()
@@ -286,15 +286,15 @@ const exportCanvas = () => {
   .canvas-demo {
     padding: 1rem;
   }
-  
+
   .demo-header h1 {
     font-size: 1.8rem;
   }
-  
+
   .external-controls {
     flex-direction: column;
   }
-  
+
   .demo-btn {
     width: 100%;
   }

@@ -6,7 +6,7 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
   const currentApp = ref(null)
   const appPrompt = ref('')
   const generatedCode = ref('')
-  const selectedAIModel = ref('gpt-4o')
+  const selectedAIModel = ref('grok')
   const conversationHistory = ref([])
 
   // Version tracking
@@ -80,7 +80,7 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
   const loadVersion = (versionData) => {
     appPrompt.value = versionData.prompt
     generatedCode.value = versionData.code
-    selectedAIModel.value = versionData.aiModel || 'gpt-4o'
+    selectedAIModel.value = versionData.aiModel || 'grok'
     conversationHistory.value = versionData.conversationHistory || []
 
     currentVersionInfo.value = {
@@ -108,7 +108,7 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
     currentApp.value = null
     appPrompt.value = ''
     generatedCode.value = ''
-    selectedAIModel.value = 'gpt-4o'
+    selectedAIModel.value = 'grok'
     currentVersionInfo.value = null
     conversationHistory.value = []
   }

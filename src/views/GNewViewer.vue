@@ -2486,13 +2486,111 @@ onMounted(() => {
     }
   }
 
+  // Cloud storage message handler (same as AppBuilder)
+  const handleCloudStorageMessage = async (event) => {
+    const { type, payload, requestId } = event.data
+
+    if (type === 'CLOUD_STORAGE_REQUEST') {
+      const userId = userStore.user_id
+      const apiToken = userStore.emailVerificationToken
+
+      console.log('📨 [GNewViewer] Cloud storage request:', { type, action: payload?.action, requestId })
+
+      if (!userId || !apiToken) {
+        console.error('❌ [GNewViewer] Not authenticated')
+        event.source?.postMessage({
+          type: 'CLOUD_STORAGE_RESPONSE',
+          requestId,
+          success: false,
+          error: 'Not authenticated'
+        }, '*')
+        return
+      }
+
+      try {
+        let result
+
+        switch (payload.action) {
+          case 'save':
+            console.log('💾 [GNewViewer] Saving to cloud:', { appId: payload.appId, key: payload.key })
+            result = await fetch('https://api.vegvisr.org/api/user-app/data/set', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-API-Token': apiToken
+              },
+              body: JSON.stringify({
+                userId,
+                appId: payload.appId,
+                key: payload.key,
+                value: payload.value
+              })
+            }).then(r => r.json())
+            console.log('📦 [GNewViewer] Save result:', result)
+            break
+
+          case 'load':
+            result = await fetch(
+              `https://api.vegvisr.org/api/user-app/data/get?userId=${userId}&appId=${payload.appId}&key=${payload.key}`,
+              { headers: { 'X-API-Token': apiToken } }
+            ).then(r => r.json())
+            break
+
+          case 'loadAll':
+            result = await fetch(
+              `https://api.vegvisr.org/api/user-app/data/list?userId=${userId}&appId=${payload.appId}`,
+              { headers: { 'X-API-Token': apiToken } }
+            ).then(r => r.json())
+            break
+
+          case 'delete':
+            result = await fetch('https://api.vegvisr.org/api/user-app/data/delete', {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-API-Token': apiToken
+              },
+              body: JSON.stringify({
+                userId,
+                appId: payload.appId,
+                key: payload.key
+              })
+            }).then(r => r.json())
+            break
+
+          default:
+            throw new Error(`Unknown action: ${payload.action}`)
+        }
+
+        console.log('✅ [GNewViewer] Sending success response:', { requestId })
+        event.source?.postMessage({
+          type: 'CLOUD_STORAGE_RESPONSE',
+          requestId,
+          success: true,
+          data: result
+        }, '*')
+
+      } catch (error) {
+        console.error('❌ [GNewViewer] Cloud storage error:', error)
+        event.source?.postMessage({
+          type: 'CLOUD_STORAGE_RESPONSE',
+          requestId,
+          success: false,
+          error: error.message
+        }, '*')
+      }
+    }
+  }
+
   window.addEventListener('message', handleAINodeMessage)
+  window.addEventListener('message', handleCloudStorageMessage)
 
   // Cleanup on unmount
   onUnmounted(() => {
     window.removeEventListener('storage', handleAdRefresh)
     window.removeEventListener('beforeunload', handleBeforeUnload)
     window.removeEventListener('message', handleAINodeMessage)
+    window.removeEventListener('message', handleCloudStorageMessage)
   })
 })
 watch(

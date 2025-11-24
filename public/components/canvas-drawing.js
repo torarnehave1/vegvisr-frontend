@@ -8,7 +8,7 @@ class CanvasDrawing extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    
+
     // State
     this.isDrawing = false
     this.currentColor = '#000000'
@@ -160,7 +160,7 @@ class CanvasDrawing extends HTMLElement {
             <label>Color:</label>
             <input type="color" id="colorPicker" value="${this.strokeColor}">
           </div>
-          
+
           <div class="control-group">
             <label>Width:</label>
             <input type="range" id="widthSlider" min="1" max="20" value="${this.strokeWidth}">
@@ -255,12 +255,12 @@ class CanvasDrawing extends HTMLElement {
     if (!this.isDrawing) return
 
     const pos = this.getMousePos(e)
-    
+
     this.ctx.strokeStyle = this.currentColor
     this.ctx.lineWidth = this.currentWidth
     this.ctx.lineCap = 'round'
     this.ctx.lineJoin = 'round'
-    
+
     this.ctx.lineTo(pos.x, pos.y)
     this.ctx.stroke()
 
@@ -281,7 +281,7 @@ class CanvasDrawing extends HTMLElement {
       clientX: touch.clientX,
       clientY: touch.clientY
     })
-    
+
     if (e.type === 'touchstart') {
       this.startDrawing(mouseEvent)
     } else if (e.type === 'touchmove') {
@@ -300,10 +300,10 @@ class CanvasDrawing extends HTMLElement {
   saveState() {
     // Remove any states after current step
     this.history = this.history.slice(0, this.historyStep + 1)
-    
+
     // Add new state
     this.history.push(this.canvas.toDataURL())
-    
+
     // Limit history size
     if (this.history.length > this.maxHistory) {
       this.history.shift()
@@ -334,7 +334,7 @@ class CanvasDrawing extends HTMLElement {
   export() {
     const dataUrl = this.canvas.toDataURL('image/png')
     this.dispatchEvent(new CustomEvent('export', { detail: dataUrl }))
-    
+
     // Auto-download
     const link = document.createElement('a')
     link.download = `drawing-${Date.now()}.png`
