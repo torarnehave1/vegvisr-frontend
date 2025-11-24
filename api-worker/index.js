@@ -7999,7 +7999,7 @@ const handleSMSProxy = async (request, env) => {
     })
 
     // Forward to SMS worker
-    const smsResponse = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
+    const smsResponse = await fetch('https://sms-gateway.torarnehave.workers.dev/api/sms', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

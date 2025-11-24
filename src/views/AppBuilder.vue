@@ -3268,7 +3268,7 @@ const handleIframeMessage = async (event) => {
   if (type === 'sendSMS') {
     console.log('📱 SMS request received:', payload)
     try {
-      const result = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
+      const result = await fetch('https://sms-gateway.torarnehave.workers.dev/api/sms', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
