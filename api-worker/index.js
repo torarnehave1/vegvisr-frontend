@@ -6433,18 +6433,18 @@ const handleGenerateHTMLApp = async (request, env) => {
     // 🚀 SMART ROUTING: Check for simple regex-based changes first
     if (previousCode && previousCode.length > 0) {
       console.log('🤖 Checking for simple transformation patterns...')
-      
+
       // Pattern 1: Change title
       const titleMatch = prompt.match(/change\s+(?:the\s+)?title\s+(?:to|of the app to)\s+["']([^"']+)["']/i)
       if (titleMatch) {
         const newTitle = titleMatch[1]
         console.log('✅ Title change detected:', newTitle)
-        
+
         const modifiedCode = previousCode.replace(
           /<title>[^<]*<\/title>/i,
           `<title>${newTitle}</title>`
         )
-        
+
         if (modifiedCode !== previousCode) {
           console.log('✨ Applied title change successfully')
           return new Response(JSON.stringify({
@@ -6457,18 +6457,18 @@ const handleGenerateHTMLApp = async (request, env) => {
           })
         }
       }
-      
+
       // Pattern 2: Change background color
       const bgColorMatch = prompt.match(/(?:change|make|set)\s+(?:the\s+)?background\s+(?:color\s+)?(?:to\s+)?([a-z]+|#[0-9a-f]{3,6})/i)
       if (bgColorMatch) {
         const newColor = bgColorMatch[1]
         console.log('✅ Background color change detected:', newColor)
-        
+
         const modifiedCode = previousCode.replace(
           /background(?:-color)?:\s*[^;]+;/i,
           `background: ${newColor};`
         )
-        
+
         if (modifiedCode !== previousCode) {
           console.log('✨ Applied background color change successfully')
           return new Response(JSON.stringify({
@@ -6481,16 +6481,16 @@ const handleGenerateHTMLApp = async (request, env) => {
           })
         }
       }
-      
+
       // Pattern 3: Simple text replacement
       const replaceMatch = prompt.match(/replace\s+["']([^"']+)["']\s+with\s+["']([^"']+)["']/i)
       if (replaceMatch) {
         const searchText = replaceMatch[1]
         const replaceText = replaceMatch[2]
         console.log('✅ Text replacement detected:', searchText, '→', replaceText)
-        
+
         const modifiedCode = previousCode.replace(new RegExp(searchText, 'g'), replaceText)
-        
+
         if (modifiedCode !== previousCode) {
           console.log('✨ Applied text replacement successfully')
           return new Response(JSON.stringify({
@@ -6503,7 +6503,7 @@ const handleGenerateHTMLApp = async (request, env) => {
           })
         }
       }
-      
+
       console.log('📊 No simple pattern matched, routing to full AI')
     }
 
@@ -6706,7 +6706,7 @@ const handleGenerateHTMLApp = async (request, env) => {
       // CONVERSATION MODE - User wants to modify existing code
       // Check if the code is large (over 3000 characters) to optimize token usage
       const isLargeCodebase = previousCode.length > 3000
-      
+
       if (isLargeCodebase) {
         // For large codebases, provide a summary and ask AI to work incrementally
         const codeStructure = `
@@ -6715,7 +6715,7 @@ Has <style>: ${previousCode.includes('<style>') ? 'yes' : 'no'}
 Has <script>: ${previousCode.includes('<script>') ? 'yes' : 'no'}
 Number of functions: ~${(previousCode.match(/function\s+\w+/g) || []).length}
 `
-        
+
         finalPrompt = `You are MODIFYING a large existing HTML application.
 
 CODE STRUCTURE:
