@@ -142,6 +142,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/userStore'
 import { useAppBuilderStore } from '@/stores/appBuilderStore'
 
@@ -152,8 +153,8 @@ const appBuilderStore = useAppBuilderStore()
 const loadingAPIs = ref(false)
 const availableAPIs = ref({})
 
-// Use store for enabled APIs and components
-const { enabledAPIs, enabledComponents } = appBuilderStore
+// Use store for enabled APIs and components (use storeToRefs for reactivity)
+const { enabledAPIs, enabledComponents } = storeToRefs(appBuilderStore)
 
 const selectedAPICategory = ref('all')
 const showAPICreator = ref(false)
@@ -202,7 +203,7 @@ const toggleAPI = (slug, isAlwaysOn, capabilityType = 'api') => {
 
   // Determine which array to use based on capability type
   const targetArray = capabilityType === 'component' ? enabledComponents : enabledAPIs
-  
+
   const index = targetArray.value.indexOf(slug)
   if (index > -1) {
     targetArray.value.splice(index, 1)

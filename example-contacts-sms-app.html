@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacts Manager with SMS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 2rem;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
+    .add-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 2px solid #e0e0e0;
+    }
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .form-field label {
+      font-weight: 600;
+      color: #333;
+      font-size: 0.9rem;
+    }
+    .form-field input {
+      padding: 0.75rem;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: border-color 0.3s;
+    }
+    .form-field input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      align-self: end;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    .btn-sms {
+      background: #25D366;
+      color: white;
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+    }
+    .btn-sms:hover {
+      background: #20BA5A;
+      transform: translateY(-1px);
+    }
+    .btn-delete {
+      background: #f44336;
+      color: white;
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+    }
+    .btn-delete:hover {
+      background: #d32f2f;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th {
+      background: #f8f9fa;
+      padding: 1rem;
+      text-align: left;
+      font-weight: 600;
+      color: #333;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    td {
+      padding: 1rem;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    tr:hover {
+      background: #f8f9fa;
+    }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #999;
+    }
+    .stats {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      padding: 1rem;
+      background: #e3f2fd;
+      border-radius: 8px;
+    }
+    .stat {
+      flex: 1;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1976d2;
+    }
+    .stat-label {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+    .search-box {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 1rem;
+      width: 100%;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal-content {
+      background: white;
+      padding: 2rem;
+      border-radius: 16px;
+      max-width: 500px;
+      width: 90%;
+    }
+    .modal-content textarea {
+      width: 100%;
+      padding: 1rem;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 1rem;
+      resize: vertical;
+      min-height: 120px;
+      margin: 1rem 0;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📇 Contacts Manager</h1>
+    <p class="subtitle">Add contacts and send them SMS messages</p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="totalContacts">0</div>
+        <div class="stat-label">Total Contacts</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="messagesSent">0</div>
+        <div class="stat-label">Messages Sent</div>
+      </div>
+    </div>
+
+    <div class="add-form">
+      <div class="form-field">
+        <label for="name">📝 Name *</label>
+        <input type="text" id="name" placeholder="Jannick Aune" required>
+      </div>
+      <div class="form-field">
+        <label for="phone">📱 Phone *</label>
+        <input type="tel" id="phone" placeholder="+4791187956" required>
+      </div>
+      <div class="form-field">
+        <label for="email">📧 Email</label>
+        <input type="email" id="email" placeholder="jannick.aune79@gmail.com">
+      </div>
+      <button class="btn btn-primary" onclick="addContact()">➕ Add Contact</button>
+    </div>
+
+    <input type="text" id="searchBox" class="search-box" placeholder="🔍 Search contacts..." onkeyup="filterContacts()">
+
+    <table id="contactsTable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Added</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="contactsList">
+        <tr>
+          <td colspan="5" class="empty-state">No contacts yet. Add your first contact above!</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SMS Modal -->
+  <div id="smsModal" class="modal">
+    <div class="modal-content">
+      <h2 id="modalTitle">📱 Send SMS</h2>
+      <textarea id="smsMessage" placeholder="Type your message here..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-delete" onclick="closeSMSModal()">Cancel</button>
+        <button class="btn btn-sms" onclick="sendMessage()">Send SMS</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // App state
+    let messagesSentCount = 0;
+    let currentContact = null;
+
+    // Load contacts on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadContacts();
+    });
+
+    async function loadContacts() {
+      const contacts = await loadAllData();
+      const tbody = document.getElementById('contactsList');
+      
+      if (contacts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No contacts yet. Add your first contact above!</td></tr>';
+        updateStats(0);
+        return;
+      }
+
+      tbody.innerHTML = '';
+      contacts.forEach(item => {
+        addContactToTable(item.key, item.value);
+      });
+      updateStats(contacts.length);
+    }
+
+    async function addContact() {
+      const name = document.getElementById('name').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const email = document.getElementById('email').value.trim();
+
+      if (!name || !phone) {
+        alert('Please enter name and phone number');
+        return;
+      }
+
+      const key = 'contact_' + Date.now();
+      const contact = {
+        name: name,
+        phone: phone,
+        email: email,
+        created: new Date().toISOString()
+      };
+
+      await saveData(key, contact);
+      addContactToTable(key, contact);
+
+      // Clear form
+      document.getElementById('name').value = '';
+      document.getElementById('phone').value = '';
+      document.getElementById('email').value = '';
+
+      // Update stats
+      const contacts = await loadAllData();
+      updateStats(contacts.length);
+    }
+
+    function addContactToTable(key, contact) {
+      const tbody = document.getElementById('contactsList');
+      
+      // Remove empty state if exists
+      const emptyState = tbody.querySelector('.empty-state');
+      if (emptyState) {
+        tbody.innerHTML = '';
+      }
+
+      const row = document.createElement('tr');
+      row.id = 'row_' + key;
+      
+      const date = new Date(contact.created);
+      const formattedDate = date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: 'numeric'
+      });
+
+      row.innerHTML = `
+        <td><strong>${contact.name}</strong></td>
+        <td>${contact.phone}</td>
+        <td>${contact.email || '—'}</td>
+        <td>${formattedDate}</td>
+        <td class="actions">
+          <button class="btn btn-sms" onclick="openSMSModal('${key}', '${contact.name}', '${contact.phone}')">
+            📱 Send SMS
+          </button>
+          <button class="btn btn-delete" onclick="deleteContact('${key}')">
+            🗑️ Delete
+          </button>
+        </td>
+      `;
+      
+      tbody.appendChild(row);
+    }
+
+    async function deleteContact(key) {
+      const row = document.getElementById('row_' + key);
+      const name = row.querySelector('strong').textContent;
+      
+      if (!confirm(`Delete contact "${name}"?`)) {
+        return;
+      }
+
+      await deleteData(key);
+      row.remove();
+
+      // Check if table is empty
+      const tbody = document.getElementById('contactsList');
+      if (tbody.children.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No contacts yet. Add your first contact above!</td></tr>';
+      }
+
+      // Update stats
+      const contacts = await loadAllData();
+      updateStats(contacts.length);
+    }
+
+    function openSMSModal(key, name, phone) {
+      currentContact = { key, name, phone };
+      document.getElementById('modalTitle').textContent = `📱 Send SMS to ${name}`;
+      document.getElementById('smsMessage').value = '';
+      document.getElementById('smsModal').classList.add('active');
+      document.getElementById('smsMessage').focus();
+    }
+
+    function closeSMSModal() {
+      document.getElementById('smsModal').classList.remove('active');
+      currentContact = null;
+    }
+
+    async function sendMessage() {
+      const message = document.getElementById('smsMessage').value.trim();
+      
+      if (!message) {
+        alert('Please enter a message');
+        return;
+      }
+
+      if (!currentContact) {
+        alert('No contact selected');
+        return;
+      }
+
+      try {
+        const result = await sendSMS(currentContact.phone, message);
+        alert(`✅ SMS sent successfully to ${currentContact.name}!`);
+        
+        messagesSentCount++;
+        updateStats();
+        
+        closeSMSModal();
+      } catch (error) {
+        alert(`❌ Failed to send SMS: ${error.message}`);
+        console.error('SMS error:', error);
+      }
+    }
+
+    async function updateStats(contactCount) {
+      if (contactCount === undefined) {
+        const contacts = await loadAllData();
+        contactCount = contacts.length;
+      }
+      
+      document.getElementById('totalContacts').textContent = contactCount;
+      document.getElementById('messagesSent').textContent = messagesSentCount;
+    }
+
+    function filterContacts() {
+      const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+      const rows = document.querySelectorAll('#contactsList tr');
+      
+      rows.forEach(row => {
+        if (row.querySelector('.empty-state')) return;
+        
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchTerm) ? '' : 'none';
+      });
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('smsModal').addEventListener('click', (e) => {
+      if (e.target.id === 'smsModal') {
+        closeSMSModal();
+      }
+    });
+
+    // Send SMS with Enter key (Ctrl+Enter or Cmd+Enter)
+    document.getElementById('smsMessage').addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>

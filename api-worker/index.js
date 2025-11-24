@@ -6415,14 +6415,96 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
 // --- Generate HTML App Handler ---
 const handleGenerateHTMLApp = async (request, env) => {
   try {
+    // Check if streaming is requested
+    const url = new URL(request.url)
+    const enableStreaming = url.searchParams.get('stream') === 'true'
+
     const body = await request.json()
     const { prompt, aiModel, previousCode, enabledAPIs = [], enabledComponents = [] } = body
 
     console.log('🔌 Enabled APIs received:', enabledAPIs)
     console.log('🧩 Enabled Components received:', enabledComponents)
+    console.log('📡 Streaming enabled:', enableStreaming)
 
     if (!prompt || !aiModel) {
       return createErrorResponse('Missing required parameters: prompt and aiModel', 400)
+    }
+
+    // 🚀 SMART ROUTING: Check for simple regex-based changes first
+    if (previousCode && previousCode.length > 0) {
+      console.log('🤖 Checking for simple transformation patterns...')
+      
+      // Pattern 1: Change title
+      const titleMatch = prompt.match(/change\s+(?:the\s+)?title\s+(?:to|of the app to)\s+["']([^"']+)["']/i)
+      if (titleMatch) {
+        const newTitle = titleMatch[1]
+        console.log('✅ Title change detected:', newTitle)
+        
+        const modifiedCode = previousCode.replace(
+          /<title>[^<]*<\/title>/i,
+          `<title>${newTitle}</title>`
+        )
+        
+        if (modifiedCode !== previousCode) {
+          console.log('✨ Applied title change successfully')
+          return new Response(JSON.stringify({
+            success: true,
+            code: modifiedCode,
+            method: 'regex-replacement',
+            type: 'title-change'
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          })
+        }
+      }
+      
+      // Pattern 2: Change background color
+      const bgColorMatch = prompt.match(/(?:change|make|set)\s+(?:the\s+)?background\s+(?:color\s+)?(?:to\s+)?([a-z]+|#[0-9a-f]{3,6})/i)
+      if (bgColorMatch) {
+        const newColor = bgColorMatch[1]
+        console.log('✅ Background color change detected:', newColor)
+        
+        const modifiedCode = previousCode.replace(
+          /background(?:-color)?:\s*[^;]+;/i,
+          `background: ${newColor};`
+        )
+        
+        if (modifiedCode !== previousCode) {
+          console.log('✨ Applied background color change successfully')
+          return new Response(JSON.stringify({
+            success: true,
+            code: modifiedCode,
+            method: 'regex-replacement',
+            type: 'background-change'
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          })
+        }
+      }
+      
+      // Pattern 3: Simple text replacement
+      const replaceMatch = prompt.match(/replace\s+["']([^"']+)["']\s+with\s+["']([^"']+)["']/i)
+      if (replaceMatch) {
+        const searchText = replaceMatch[1]
+        const replaceText = replaceMatch[2]
+        console.log('✅ Text replacement detected:', searchText, '→', replaceText)
+        
+        const modifiedCode = previousCode.replace(new RegExp(searchText, 'g'), replaceText)
+        
+        if (modifiedCode !== previousCode) {
+          console.log('✨ Applied text replacement successfully')
+          return new Response(JSON.stringify({
+            success: true,
+            code: modifiedCode,
+            method: 'regex-replacement',
+            type: 'text-replacement'
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          })
+        }
+      }
+      
+      console.log('📊 No simple pattern matched, routing to full AI')
     }
 
     // Fetch enabled API details from database
@@ -6488,7 +6570,7 @@ const handleGenerateHTMLApp = async (request, env) => {
     if (enabledComponents.length > 0) {
       try {
         console.log('🧩 Fetching component details for:', enabledComponents)
-        
+
         const placeholders = enabledComponents.map(() => '?').join(',')
         const componentsStmt = env.vegvisr_org.prepare(`
           SELECT name, slug, description, component_props, component_events, component_slots, tags, cdn_url, function_code, example_code
@@ -6502,10 +6584,17 @@ const handleGenerateHTMLApp = async (request, env) => {
         console.log('✅ Found enabled components:', components?.length || 0, components?.map(c => c.slug))
 
       if (components && components.length > 0) {
-        componentDocumentation = '\n\n🧩 AVAILABLE WEB COMPONENTS - USE THESE CUSTOM ELEMENTS:\n\n'
-        componentDocumentation += 'These are reusable Web Components loaded from CDN. Use them by:\n'
-        componentDocumentation += '1. Adding the script tag in <head>\n'
-        componentDocumentation += '2. Using the custom HTML element in <body>\n\n'
+        componentDocumentation = '\n\n🧩 AVAILABLE WEB COMPONENTS:\n\n'
+        componentDocumentation += '🚨 MANDATORY: Include these EXACT script tags in your <head> section:\n\n'
+
+        // First, list all the required script tags
+        components.forEach(component => {
+          if (component.cdn_url) {
+            componentDocumentation += `<script src="${component.cdn_url}"></script>\n`
+          }
+        })
+
+        componentDocumentation += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
         components.forEach(component => {
           componentDocumentation += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
@@ -6569,7 +6658,7 @@ const handleGenerateHTMLApp = async (request, env) => {
             componentDocumentation += `Example Usage:\n`
             componentDocumentation += `<script src="${component.cdn_url || 'https://cdn.vegvisr.org/components/' + component.slug + '.js'}"></script>\n`
             componentDocumentation += `<${component.slug}`
-            
+
             // Add example props
             if (component.component_props) {
               try {
@@ -6584,7 +6673,7 @@ const handleGenerateHTMLApp = async (request, env) => {
                 console.error('Error generating example props:', err)
               }
             }
-            
+
             componentDocumentation += `></${component.slug}>\n\n`
           }
 
@@ -6594,13 +6683,13 @@ const handleGenerateHTMLApp = async (request, env) => {
           }
         })
 
-        componentDocumentation += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-        componentDocumentation += '🚨 IMPORTANT: \n'
-        componentDocumentation += '- Always include the CDN script in <head> before using the component\n'
-        componentDocumentation += '- Use the exact element name as shown (lowercase with hyphens)\n'
-        componentDocumentation += '- Listen to events with element.addEventListener(eventName, handler)\n'
-        componentDocumentation += '- DO NOT create your own implementation - use the CDN component\n\n'
-        
+        componentDocumentation += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+        componentDocumentation += '🚨 CRITICAL: \n'
+        componentDocumentation += '- Copy the EXACT script tags shown above into your <head> section\n'
+        componentDocumentation += '- DO NOT modify the URLs - use them exactly as written\n'
+        componentDocumentation += '- DO NOT use jsdelivr, unpkg, or any other CDN\n'
+        componentDocumentation += '- Then use the custom elements like: <canvas-drawing></canvas-drawing>\n\n'
+
         console.log('📝 Component documentation length:', componentDocumentation.length)
         console.log('📝 Component documentation preview:', componentDocumentation.substring(0, 500))
       }
@@ -6615,7 +6704,45 @@ const handleGenerateHTMLApp = async (request, env) => {
 
     if (previousCode) {
       // CONVERSATION MODE - User wants to modify existing code
-      finalPrompt = `You are MODIFYING an existing HTML application.
+      // Check if the code is large (over 3000 characters) to optimize token usage
+      const isLargeCodebase = previousCode.length > 3000
+      
+      if (isLargeCodebase) {
+        // For large codebases, provide a summary and ask AI to work incrementally
+        const codeStructure = `
+File size: ${previousCode.length} characters
+Has <style>: ${previousCode.includes('<style>') ? 'yes' : 'no'}
+Has <script>: ${previousCode.includes('<script>') ? 'yes' : 'no'}
+Number of functions: ~${(previousCode.match(/function\s+\w+/g) || []).length}
+`
+        
+        finalPrompt = `You are MODIFYING a large existing HTML application.
+
+CODE STRUCTURE:
+${codeStructure}
+
+USER REQUEST: ${prompt}
+
+${apiDocumentation}
+${componentDocumentation}
+
+CRITICAL INSTRUCTIONS - OPTIMIZED FOR LARGE FILES:
+1. Analyze what needs to change based on the user request
+2. Return the COMPLETE modified HTML document
+3. KEEP ALL existing functionality unless explicitly asked to remove it
+4. Make ONLY the changes requested - don't rewrite unchanged sections unnecessarily
+5. Return ONLY the HTML code - no explanations, no markdown
+6. MUST end with </html> - never truncate
+
+FULL CODE TO MODIFY:
+\`\`\`html
+${previousCode}
+\`\`\`
+
+Return ONLY the complete modified HTML code, nothing else.`
+      } else {
+        // For smaller codebases, standard approach
+        finalPrompt = `You are MODIFYING an existing HTML application.
 
 EXISTING CODE:
 \`\`\`html
@@ -6639,13 +6766,15 @@ CRITICAL INSTRUCTIONS:
 Example: If user says "add pagination", you keep 100% of existing code and add pagination features to it.
 
 Return ONLY the complete HTML code, nothing else.`
+      }
     } else {
       // NEW APP MODE - Creating from scratch
       finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
 
+${componentDocumentation}
+
 User Request: ${prompt}
 
-${componentDocumentation}
 ${apiDocumentation}
 
 CRITICAL REQUIREMENTS:
@@ -6653,7 +6782,7 @@ CRITICAL REQUIREMENTS:
 2. Start with <!DOCTYPE html>
 3. Include ALL styles in <style> tags
 4. Include ALL JavaScript in <script> tags - MUST close with </script>
-5. EXCEPTION: You MUST use CDN script tags for any enabled Web Components listed above
+5. 🚨 MANDATORY: If Web Components are listed above, you MUST include their script tags in <head> and use the elements - DO NOT create your own implementation
 6. NO Cloudflare Worker code
 7. NO addEventListener('fetch')
 8. NO server-side code
@@ -6661,25 +6790,13 @@ CRITICAL REQUIREMENTS:
 10. IMPORTANT: Define ALL functions BEFORE they are referenced in onclick handlers
 11. Make sure every onclick="functionName()" has a corresponding function functionName() defined in the script
 12. NEVER TRUNCATE CODE - always finish all functions and close all tags
-13. 🚨 IF A WEB COMPONENT IS PROVIDED ABOVE, YOU MUST USE IT - DO NOT CREATE YOUR OWN VERSION
 
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
-If the user asks for AI, chat, or assistant functionality, use this REAL endpoint:
+❌ DO NOT define askAI(), getPortfolioImages(), or searchPexels() functions - they are auto-injected!
+✅ Simply call await askAI(question) directly in your code
+✅ Simply call await searchPexels(query) or await getPortfolioImages() directly
 
-async function askAI(question) {
-  const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: [{ role: 'user', content: question }],
-      userEmail: 'superadmin'
-    })
-  });
-  const data = await response.json();
-  return data.message; // Returns the AI response as a string
-}
-
-DO NOT create mock/fake AI responses. Always use the real askAI() function above for AI functionality.
+These functions are globally available and ready to use. DO NOT redefine them.
 
 🚨 MANDATORY CLOUD STORAGE - USE HELPER FUNCTIONS 🚨
 ❌ FORBIDDEN: localStorage, sessionStorage, IndexedDB, WebSQL, raw fetch() calls
@@ -6687,7 +6804,8 @@ DO NOT create mock/fake AI responses. Always use the real askAI() function above
 
 🔹 SAVE DATA - CALL THIS:
 await saveData(key, value)
-// Example: await saveData('task_' + Date.now(), { title: 'Buy groceries', done: false })
+// For versioned data (todo items, messages): await saveData('task_' + Date.now(), { title: 'Buy groceries', done: false })
+// For single-instance data (graph, settings): await saveData('graph_data', graphObject) - this UPDATES existing data
 
 🔹 LOAD SPECIFIC DATA - CALL THIS:
 const data = await loadData(key)
@@ -6707,6 +6825,8 @@ await deleteData(key)
 3. DO NOT hardcode userId, appId, or API tokens
 4. The functions handle all authentication automatically
 5. Always use try/catch when calling these async functions
+6. FOR GRAPH/CANVAS/SETTINGS: Use a FIXED key like 'graph_data' to UPDATE (not create versions)
+7. FOR LIST ITEMS: Use unique keys like 'task_' + Date.now() to create separate entries
 
 CONCRETE IMPLEMENTATION EXAMPLE FOR TODO APP:
 <script>
@@ -6786,22 +6906,73 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           baseURL: 'https://api.x.ai/v1',
         })
 
-        const grokCompletion = await grokClient.chat.completions.create({
-          model: 'grok-3-beta',
-          temperature: 0.3,
-          max_tokens: 131072,
-          messages: [
-            {
-              role: 'system',
-              content: previousCode
-                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
-                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            },
-            { role: 'user', content: finalPrompt },
-          ],
-        })
+        if (enableStreaming) {
+          // Return streaming response
+          const stream = await grokClient.chat.completions.create({
+            model: 'grok-code-fast-1',
+            temperature: 0.1,
+            max_tokens: 131072,
+            stream: true,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
 
-        result = grokCompletion.choices[0].message.content.trim()
+          // Create SSE response
+          const { readable, writable } = new TransformStream()
+          const writer = writable.getWriter()
+          const encoder = new TextEncoder()
+
+          // Process stream in background
+          ;(async () => {
+            try {
+              for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content || ''
+                if (content) {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
+                }
+              }
+              await writer.write(encoder.encode(`data: [DONE]\n\n`))
+            } catch (error) {
+              console.error('Streaming error:', error)
+            } finally {
+              await writer.close()
+            }
+          })()
+
+          return new Response(readable, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        } else {
+          // Non-streaming response (fallback)
+          const grokCompletion = await grokClient.chat.completions.create({
+            model: 'grok-code-fast-1',
+            temperature: 0.1,
+            max_tokens: 131072,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
+
+          result = grokCompletion.choices[0].message.content.trim()
+        }
         break
       }
 
@@ -6816,22 +6987,73 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           baseURL: 'https://api.openai.com/v1',
         })
 
-        const openaiCompletion = await openaiClient.chat.completions.create({
-          model: 'gpt-4o',
-          temperature: 0.3,
-          max_tokens: 16384,
-          messages: [
-            {
-              role: 'system',
-              content: previousCode
-                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
-                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            },
-            { role: 'user', content: finalPrompt },
-          ],
-        })
+        if (enableStreaming) {
+          // Return streaming response
+          const stream = await openaiClient.chat.completions.create({
+            model: 'gpt-4o',
+            temperature: 0.3,
+            max_tokens: 16384,
+            stream: true,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
 
-        result = openaiCompletion.choices[0].message.content.trim()
+          // Create SSE response
+          const { readable, writable } = new TransformStream()
+          const writer = writable.getWriter()
+          const encoder = new TextEncoder()
+
+          // Process stream in background
+          ;(async () => {
+            try {
+              for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content || ''
+                if (content) {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
+                }
+              }
+              await writer.write(encoder.encode(`data: [DONE]\n\n`))
+            } catch (error) {
+              console.error('Streaming error:', error)
+            } finally {
+              await writer.close()
+            }
+          })()
+
+          return new Response(readable, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        } else {
+          // Non-streaming response (fallback)
+          const openaiCompletion = await openaiClient.chat.completions.create({
+            model: 'gpt-4o',
+            temperature: 0.3,
+            max_tokens: 16384,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
+
+          result = openaiCompletion.choices[0].message.content.trim()
+        }
         break
       }
 
@@ -6846,14 +7068,71 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           baseURL: 'https://api.openai.com/v1',
         })
 
-        const completion = await client.responses.create({
-          model: 'gpt-5',
-          input: finalPrompt,
-          reasoning: { effort: 'medium' },
-          text: { verbosity: 'medium' },
-        })
+        if (enableStreaming) {
+          // Return streaming response for GPT-5
+          const stream = await client.chat.completions.create({
+            model: 'gpt-5.1',
+            temperature: 0.3,
+            stream: true,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
 
-        result = completion.output_text.trim()
+          // Create SSE response
+          const { readable, writable } = new TransformStream()
+          const writer = writable.getWriter()
+          const encoder = new TextEncoder()
+
+          // Process stream in background
+          ;(async () => {
+            try {
+              for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content || ''
+                if (content) {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
+                }
+              }
+              await writer.write(encoder.encode(`data: [DONE]\n\n`))
+            } catch (error) {
+              console.error('GPT-5 streaming error:', error)
+            } finally {
+              await writer.close()
+            }
+          })()
+
+          return new Response(readable, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        } else {
+          // Non-streaming response (fallback)
+          const completion = await client.chat.completions.create({
+            model: 'gpt-5.1',
+            temperature: 0.3,
+            messages: [
+              {
+                role: 'system',
+                content: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              },
+              { role: 'user', content: finalPrompt },
+            ],
+          })
+
+          result = completion.choices[0].message.content.trim()
+        }
         break
       }
 
@@ -6863,38 +7142,70 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           return createErrorResponse('Anthropic API key not configured', 500)
         }
 
-        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-opus-20240229',
-            max_tokens: 4096,
-            system: previousCode
-              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
-              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            messages: [
-              {
-                role: 'user',
-                content: finalPrompt,
-              },
-            ],
-          }),
-        })
+        // Use conversation to continue if truncated
+        let fullResult = ''
+        let conversationMessages = [{ role: 'user', content: finalPrompt }]
+        let continueGeneration = true
+        let attemptCount = 0
+        const maxAttempts = 5
 
-        if (!anthropicResponse.ok) {
-          const errorText = await anthropicResponse.text()
-          return createErrorResponse(
-            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
-            500,
-          )
+        while (continueGeneration && attemptCount < maxAttempts) {
+          attemptCount++
+
+          const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 8192,
+              system: previousCode
+                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              messages: conversationMessages,
+            }),
+          })
+
+          if (!anthropicResponse.ok) {
+            const errorText = await anthropicResponse.text()
+            return createErrorResponse(
+              `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+              500,
+            )
+          }
+
+          const anthropicData = await anthropicResponse.json()
+          const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
+          const stopReason = anthropicData.stop_reason
+
+          console.log(`🔄 Claude attempt ${attemptCount}, stop_reason: ${stopReason}`)
+
+          if (attemptCount === 1) {
+            fullResult = partialResult
+          } else {
+            // Append continuation (remove any duplicate parts)
+            fullResult += partialResult
+          }
+
+          // Check if generation was truncated (stop_reason === 'max_tokens')
+          if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
+            console.log('⚠️ Claude truncated, continuing generation...')
+
+            // Add assistant response and continuation request to conversation
+            conversationMessages.push({ role: 'assistant', content: partialResult })
+            conversationMessages.push({
+              role: 'user',
+              content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+            })
+          } else {
+            continueGeneration = false
+          }
         }
 
-        const anthropicData = await anthropicResponse.json()
-        result = anthropicData.content?.[0]?.text?.trim() || ''
+        result = fullResult
         break
       }
 
@@ -6904,38 +7215,69 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           return createErrorResponse('Anthropic API key not configured', 500)
         }
 
-        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 8192,
-            system: previousCode
-              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
-              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            messages: [
-              {
-                role: 'user',
-                content: finalPrompt,
-              },
-            ],
-          }),
-        })
+        // Use conversation to continue if truncated
+        let fullResult = ''
+        let conversationMessages = [{ role: 'user', content: finalPrompt }]
+        let continueGeneration = true
+        let attemptCount = 0
+        const maxAttempts = 5
 
-        if (!anthropicResponse.ok) {
-          const errorText = await anthropicResponse.text()
-          return createErrorResponse(
-            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
-            500,
-          )
+        while (continueGeneration && attemptCount < maxAttempts) {
+          attemptCount++
+
+          const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 8192,
+              system: previousCode
+                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              messages: conversationMessages,
+            }),
+          })
+
+          if (!anthropicResponse.ok) {
+            const errorText = await anthropicResponse.text()
+            return createErrorResponse(
+              `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+              500,
+            )
+          }
+
+          const anthropicData = await anthropicResponse.json()
+          const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
+          const stopReason = anthropicData.stop_reason
+
+          console.log(`🔄 Claude Sonnet 4 attempt ${attemptCount}, stop_reason: ${stopReason}`)
+
+          if (attemptCount === 1) {
+            fullResult = partialResult
+          } else {
+            // Append continuation
+            fullResult += partialResult
+          }
+
+          // Check if generation was truncated
+          if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
+            console.log('⚠️ Claude Sonnet 4 truncated, continuing generation...')
+
+            conversationMessages.push({ role: 'assistant', content: partialResult })
+            conversationMessages.push({
+              role: 'user',
+              content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+            })
+          } else {
+            continueGeneration = false
+          }
         }
 
-        const anthropicData = await anthropicResponse.json()
-        result = anthropicData.content?.[0]?.text?.trim() || ''
+        result = fullResult
         break
       }
 
@@ -6945,38 +7287,69 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           return createErrorResponse('Anthropic API key not configured', 500)
         }
 
-        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-5',
-            max_tokens: 8192,
-            system: previousCode
-              ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
-              : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-            messages: [
-              {
-                role: 'user',
-                content: finalPrompt,
-              },
-            ],
-          }),
-        })
+        // Use conversation to continue if truncated
+        let fullResult = ''
+        let conversationMessages = [{ role: 'user', content: finalPrompt }]
+        let continueGeneration = true
+        let attemptCount = 0
+        const maxAttempts = 5
 
-        if (!anthropicResponse.ok) {
-          const errorText = await anthropicResponse.text()
-          return createErrorResponse(
-            `Claude API error: ${anthropicResponse.status} - ${errorText}`,
-            500,
-          )
+        while (continueGeneration && attemptCount < maxAttempts) {
+          attemptCount++
+
+          const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5',
+              max_tokens: 8192,
+              system: previousCode
+                ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+              messages: conversationMessages,
+            }),
+          })
+
+          if (!anthropicResponse.ok) {
+            const errorText = await anthropicResponse.text()
+            return createErrorResponse(
+              `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+              500,
+            )
+          }
+
+          const anthropicData = await anthropicResponse.json()
+          const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
+          const stopReason = anthropicData.stop_reason
+
+          console.log(`🔄 Claude 4.5 Sonnet attempt ${attemptCount}, stop_reason: ${stopReason}`)
+
+          if (attemptCount === 1) {
+            fullResult = partialResult
+          } else {
+            // Append continuation
+            fullResult += partialResult
+          }
+
+          // Check if generation was truncated
+          if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
+            console.log('⚠️ Claude 4.5 Sonnet truncated, continuing generation...')
+
+            conversationMessages.push({ role: 'assistant', content: partialResult })
+            conversationMessages.push({
+              role: 'user',
+              content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+            })
+          } else {
+            continueGeneration = false
+          }
         }
 
-        const anthropicData = await anthropicResponse.json()
-        result = anthropicData.content?.[0]?.text?.trim() || ''
+        result = fullResult
         break
       }
 
@@ -7017,7 +7390,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 const handleUserAIChat = async (request, env) => {
   try {
     // Parse request body
-    const { messages, max_tokens = 500, graph_id, userEmail = 'anonymous' } = await request.json()
+    const { messages, max_tokens = 4096, graph_id, userEmail = 'anonymous' } = await request.json()
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return createErrorResponse('Messages array is required', 400)
@@ -7564,6 +7937,49 @@ ${text}`
   }
 }
 
+// POST /ai-analyze - Analyze code changes using Llama
+const handleAIAnalyze = async (request, env) => {
+  try {
+    const { prompt, code } = await request.json()
+
+    if (!prompt) {
+      return createErrorResponse('Missing required parameter: prompt', 400)
+    }
+
+    console.log('🤖 AI Analysis request:', {
+      promptLength: prompt.length,
+      codeLength: code?.length || 0,
+      model: '@cf/meta/llama-3.1-8b-instruct'
+    })
+
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 1024,
+      temperature: 0.2
+    })
+
+    const response = aiResponse.response
+
+    console.log('✅ AI Analysis completed:', {
+      responseLength: response.length
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      response: response,
+      model: '@cf/meta/llama-3.1-8b-instruct'
+    }))
+  } catch (error) {
+    console.error('AI Analysis error:', error)
+    return createErrorResponse('AI Analysis failed: ' + error.message, 500)
+  }
+}
+
 /**
  * Secure endpoint to provide API keys to authenticated users
  * Returns available API keys without exposing values in logs
@@ -7846,6 +8262,11 @@ export default {
     // AI Translation endpoint using Cloudflare Workers AI (Llama)
     if (pathname === '/ai-translate' && request.method === 'POST') {
       return await handleAITranslate(request, env)
+    }
+
+    // AI Analysis endpoint using Llama
+    if (pathname === '/ai-analyze' && request.method === 'POST') {
+      return await handleAIAnalyze(request, env)
     }
 
     if (pathname === '/youtube-search' && request.method === 'GET') {
