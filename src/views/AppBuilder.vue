@@ -3264,6 +3264,45 @@ const handleIframeMessage = async (event) => {
 
   console.log('📨 Received message:', { type, origin: event.origin, requestId, isPreviewFrame })
 
+  // Handle SMS requests separately
+  if (type === 'sendSMS') {
+    console.log('📱 SMS request received:', payload)
+    try {
+      const result = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          to: payload.phoneNumber,
+          message: payload.message,
+          sender: payload.appName || 'Vegvisr'
+        })
+      })
+
+      const data = await result.json()
+      console.log('📱 SMS result:', data)
+
+      const smsOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
+      event.source.postMessage({
+        type: 'SMS_RESPONSE',
+        requestId,
+        success: data.success || result.ok,
+        result: data
+      }, smsOrigin)
+    } catch (error) {
+      console.error('📱 SMS error:', error)
+      const smsOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
+      event.source.postMessage({
+        type: 'SMS_RESPONSE',
+        requestId,
+        success: false,
+        error: error.message
+      }, smsOrigin)
+    }
+    return
+  }
+
   if (type === 'CLOUD_STORAGE_REQUEST') {
     const userId = userStore.user_id
     const apiToken = userStore.emailVerificationToken
@@ -3332,30 +3371,6 @@ const handleIframeMessage = async (event) => {
             })
           }).then(r => r.json())
           break
-
-        case 'sendSMS': {
-          result = await fetch('https://sms-worker.torarnehave.workers.dev/api/sms', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              to: payload.phoneNumber,
-              message: payload.message,
-              sender: payload.appName || 'Vegvisr'
-            })
-          }).then(r => r.json())
-
-          // Send SMS-specific response
-          const smsOrigin = event.origin.startsWith('blob:') || event.origin === 'null' ? '*' : event.origin
-          event.source.postMessage({
-            type: 'SMS_RESPONSE',
-            requestId,
-            success: true,
-            result: result
-          }, smsOrigin)
-          return // Exit early, don't send CLOUD_STORAGE_RESPONSE
-        }
 
         default:
           throw new Error(`Unknown action: ${payload.action}`)
