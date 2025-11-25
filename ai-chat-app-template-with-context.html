@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat App - Context Aware</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .graph-info {
+            padding: 10px 20px;
+            background-color: #e3f2fd;
+            border-bottom: 2px solid #2196F3;
+            font-size: 12px;
+        }
+        .graph-info strong {
+            color: #1976D2;
+        }
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            border-bottom: 1px solid #ddd;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .message.user {
+            background-color: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .message.ai {
+            background-color: #e9ecef;
+            color: black;
+        }
+        .chat-input {
+            display: flex;
+            padding: 20px;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+        .chat-input button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .chat-input button:hover {
+            background-color: #0056b3;
+        }
+        .chat-input button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            text-align: center;
+            padding: 10px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="graph-info" id="graphInfo">
+            <strong>📊 Loading graph context...</strong>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+            <input type="text" id="userInput" placeholder="Ask the AI something..." onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()" id="sendBtn">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let GRAPH_ID = null;
+        let GRAPH_CONTEXT = null;
+        let messages = [];
+
+        // Fetch graph context on load
+        async function fetchGraphContext() {
+            return new Promise((resolve) => {
+                const requestId = Date.now();
+                console.log('📊 Requesting graph context from parent...');
+                
+                const handler = (event) => {
+                    if (event.data.type === 'GRAPH_CONTEXT_RESPONSE' && event.data.requestId === requestId) {
+                        window.removeEventListener('message', handler);
+                        console.log('✅ Graph context received:', event.data.context);
+                        
+                        GRAPH_ID = event.data.context.graphId;
+                        GRAPH_CONTEXT = event.data.context;
+                        
+                        // Update UI with graph info
+                        const graphName = event.data.context.metadata?.name || 'Unknown Graph';
+                        const nodeCount = event.data.context.nodes?.length || 0;
+                        document.getElementById('graphInfo').innerHTML = 
+                            `<strong>📊 Knowledge Graph:</strong> ${graphName} (${nodeCount} nodes)`;
+                        
+                        resolve(event.data.context);
+                    }
+                };
+                
+                window.addEventListener('message', handler);
+                window.parent.postMessage({ type: 'GET_GRAPH_CONTEXT', requestId }, '*');
+                
+                // Timeout after 5 seconds
+                setTimeout(() => {
+                    window.removeEventListener('message', handler);
+                    console.log('⚠️ Graph context request timeout');
+                    document.getElementById('graphInfo').innerHTML = 
+                        '<strong>⚠️ No graph context available</strong> (running standalone)';
+                    resolve(null);
+                }, 5000);
+            });
+        }
+
+        // Initialize on page load
+        window.onload = async function() {
+            console.log('🚀 AI Chat App initializing...');
+            
+            // Fetch graph context first
+            await fetchGraphContext();
+            
+            // Load saved messages
+            try {
+                const items = await loadAllData();
+                messages = items.filter(item => item.key.startsWith('message_'));
+                messages.forEach(item => {
+                    displayMessage(item.value.sender, item.value.text, false);
+                });
+                console.log('✅ Loaded', messages.length, 'messages');
+            } catch (error) {
+                console.error('❌ Failed to load messages:', error);
+            }
+        };
+
+        // Send message to AI
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const question = input.value.trim();
+            
+            if (!question) return;
+
+            // Disable input while processing
+            input.disabled = true;
+            sendBtn.disabled = true;
+
+            displayMessage('user', question);
+            input.value = '';
+
+            // Show loading indicator
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.id = 'loading';
+            loadingDiv.textContent = '🤖 AI is thinking...';
+            document.getElementById('chatMessages').appendChild(loadingDiv);
+
+            try {
+                console.log('🤖 Calling askAI with graph_id:', GRAPH_ID);
+                const response = await askAI(question);
+                
+                // Remove loading indicator
+                document.getElementById('loading')?.remove();
+                
+                displayMessage('ai', response);
+                await saveMessage('user', question);
+                await saveMessage('ai', response);
+            } catch (error) {
+                document.getElementById('loading')?.remove();
+                displayMessage('ai', 'Sorry, I couldn\'t process your request. ' + error.message);
+                console.error('❌ AI error:', error);
+            } finally {
+                // Re-enable input
+                input.disabled = false;
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        // Display message
+        function displayMessage(sender, text, scroll = true) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + sender;
+            messageDiv.textContent = text;
+            messagesDiv.appendChild(messageDiv);
+            
+            if (scroll) {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        }
+
+        // Save message
+        async function saveMessage(sender, text) {
+            const key = 'message_' + Date.now();
+            const message = { sender, text };
+            try {
+                await saveData(key, message);
+            } catch (error) {
+                console.error('❌ Failed to save message:', error);
+            }
+        }
+
+        // ============================================
+        // AUTO-INJECTED HELPER FUNCTIONS
+        // ============================================
+
+        // AI Chat function - CONTEXT AWARE
+        async function askAI(question, options = {}) {
+            console.log('🤖 askAI called with question:', question);
+            console.log('🤖 Using graph_id:', GRAPH_ID);
+
+            // Fetch graph context if not yet loaded
+            if (GRAPH_ID === null && GRAPH_CONTEXT === null) {
+                console.log('⚠️ Graph context not loaded, fetching now...');
+                await fetchGraphContext();
+            }
+
+            try {
+                const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: question }],
+                        max_tokens: options.max_tokens || 4096,
+                        graph_id: GRAPH_ID,  // ← PASSES GRAPH CONTEXT!
+                        userEmail: 'superadmin'
+                    })
+                });
+
+                console.log('🤖 AI Response status:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('🤖 AI Error response:', errorText);
+                    throw new Error('AI request failed: ' + response.status);
+                }
+
+                const data = await response.json();
+                console.log('🤖 AI Response data:', data);
+
+                // Send node to parent if it needs to be added to graph
+                if (window.parent !== window && data.node) {
+                    console.log('🤖 Sending node to parent window:', data.node);
+                    window.parent.postMessage({
+                        type: 'ADD_AI_NODE',
+                        node: data.node
+                    }, '*');
+                }
+
+                // Return the message string
+                return data.message || 'No response from AI';
+            } catch (error) {
+                console.error('🤖 AI Error:', error);
+                throw error;
+            }
+        }
+
+        // Cloud Storage API Helper
+        const APP_ID = 'ai-chat-app-' + Date.now();
+        let requestCounter = 0;
+
+        function sendToParent(action, payload) {
+            return new Promise((resolve, reject) => {
+                const requestId = ++requestCounter;
+
+                const handler = (event) => {
+                    if (event.data.type === 'CLOUD_STORAGE_RESPONSE' && event.data.requestId === requestId) {
+                        window.removeEventListener('message', handler);
+                        if (event.data.success) {
+                            resolve(event.data.data);
+                        } else {
+                            reject(new Error(event.data.error || 'Request failed'));
+                        }
+                    }
+                };
+
+                window.addEventListener('message', handler);
+
+                setTimeout(() => {
+                    window.removeEventListener('message', handler);
+                    reject(new Error('Request timeout'));
+                }, 10000);
+
+                window.parent.postMessage({
+                    type: 'CLOUD_STORAGE_REQUEST',
+                    requestId,
+                    payload: { action, appId: APP_ID, ...payload }
+                }, '*');
+            });
+        }
+
+        async function saveData(key, value) {
+            try {
+                const result = await sendToParent('save', { key, value });
+                return result.success ? result : null;
+            } catch (error) {
+                console.error('Error saving data:', error);
+                return null;
+            }
+        }
+
+        async function loadData(key) {
+            try {
+                const result = await sendToParent('load', { key });
+                return result.success ? result.data.value : null;
+            } catch (error) {
+                console.error('Error loading data:', error);
+                return null;
+            }
+        }
+
+        async function loadAllData() {
+            try {
+                const result = await sendToParent('loadAll', {});
+                return result.success ? result.data : [];
+            } catch (error) {
+                console.error('Error loading all data:', error);
+                return [];
+            }
+        }
+
+        async function deleteData(key) {
+            try {
+                const result = await sendToParent('delete', { key });
+                return result.success;
+            } catch (error) {
+                console.error('Error deleting data:', error);
+                return false;
+            }
+        }
+
+        // Make functions globally accessible
+        window.askAI = askAI;
+        window.saveData = saveData;
+        window.loadData = loadData;
+        window.loadAllData = loadAllData;
+        window.deleteData = deleteData;
+        
+        console.log('✅ All helper functions loaded and ready');
+    </script>
+</body>
+</html>

@@ -1981,28 +1981,68 @@ const injectAIHelper = (htmlCode) => {
 
   const aiHelper = `
   <script>
-    // Vegvisr AI Helper - Auto-injected for Superadmin users
-    // This will override any mock askAI function that was generated
-    console.log('🤖 Vegvisr AI Helper loaded!');
+    // ============================================
+    // VEGVISR AUTO-INJECTED HELPER FUNCTIONS
+    // ============================================
+    console.log('🤖 Vegvisr Helper Functions loaded!');
 
+    // Global variables for graph context
+    let GRAPH_ID = null;
+    let GRAPH_CONTEXT = null;
+
+    // Fetch graph context from parent window
+    async function fetchGraphContext() {
+      return new Promise((resolve) => {
+        const requestId = Date.now();
+        console.log('📊 [App] Requesting graph context from parent...');
+
+        const handler = (event) => {
+          if (event.data.type === 'GRAPH_CONTEXT_RESPONSE' && event.data.requestId === requestId) {
+            window.removeEventListener('message', handler);
+            console.log('✅ [App] Graph context received:', event.data.context);
+
+            GRAPH_ID = event.data.context.graphId;
+            GRAPH_CONTEXT = event.data.context;
+
+            resolve(event.data.context);
+          }
+        };
+
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'GET_GRAPH_CONTEXT', requestId }, '*');
+
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+          console.log('⚠️ [App] Graph context request timeout');
+          resolve(null);
+        }, 5000);
+      });
+    }
+
+    // AI Chat function - AUTOMATICALLY CONTEXT AWARE
     async function askAI(question, options = {}) {
       console.log('🤖 askAI called with question:', question);
+
+      // Fetch graph context on first call if not yet loaded
+      if (GRAPH_ID === null && GRAPH_CONTEXT === null) {
+        console.log('📊 Graph context not loaded, fetching now...');
+        await fetchGraphContext();
+      }
+
+      console.log('🤖 Using graph_id:', GRAPH_ID);
 
       try {
         const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             messages: [{ role: 'user', content: question }],
             max_tokens: options.max_tokens || 4096,
-            graph_id: options.graph_id || null,
-            userEmail: 'superadmin'
+            graph_id: GRAPH_ID,
+            userEmail: options.userEmail || 'superadmin'
           })
         });
-
-        console.log('🤖 AI Response status:', response.status);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -2011,10 +2051,9 @@ const injectAIHelper = (htmlCode) => {
         }
 
         const data = await response.json();
-        console.log('🤖 AI Response data:', data);
+        console.log('🤖 AI Response:', data);
 
-        // Return the message string directly for easy display
-        // Also return node if it needs to be added to graph
+        // Send node to parent if needed
         if (window.parent !== window && data.node) {
           console.log('🤖 Sending node to parent window:', data.node);
           window.parent.postMessage({
@@ -2023,15 +2062,88 @@ const injectAIHelper = (htmlCode) => {
           }, '*');
         }
 
-        // Return just the message string for simple usage
         return data.message || 'No response from AI';
       } catch (error) {
         console.error('🤖 AI Error:', error);
-        throw error; // Let the caller handle the error
+        throw error;
       }
     }
 
-    // Portfolio image fetcher function
+    // Cloud Storage Helper
+    const APP_ID = '${appId}';
+    let requestCounter = 0;
+
+    function sendToParent(action, payload) {
+      return new Promise((resolve, reject) => {
+        const requestId = ++requestCounter;
+
+        const handler = (event) => {
+          if (event.data.type === 'CLOUD_STORAGE_RESPONSE' && event.data.requestId === requestId) {
+            window.removeEventListener('message', handler);
+            if (event.data.success) {
+              resolve(event.data.data);
+            } else {
+              reject(new Error(event.data.error || 'Request failed'));
+            }
+          }
+        };
+
+        window.addEventListener('message', handler);
+
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+          reject(new Error('Request timeout'));
+        }, 10000);
+
+        window.parent.postMessage({
+          type: 'CLOUD_STORAGE_REQUEST',
+          requestId,
+          payload: { action, appId: APP_ID, ...payload }
+        }, '*');
+      });
+    }
+
+    async function saveData(key, value) {
+      try {
+        const result = await sendToParent('save', { key, value });
+        return result.success ? result : null;
+      } catch (error) {
+        console.error('Error saving data:', error);
+        return null;
+      }
+    }
+
+    async function loadData(key) {
+      try {
+        const result = await sendToParent('load', { key });
+        return result.success ? result.data.value : null;
+      } catch (error) {
+        console.error('Error loading data:', error);
+        return null;
+      }
+    }
+
+    async function loadAllData() {
+      try {
+        const result = await sendToParent('loadAll', {});
+        return result.success ? result.data : [];
+      } catch (error) {
+        console.error('Error loading all data:', error);
+        return [];
+      }
+    }
+
+    async function deleteData(key) {
+      try {
+        const result = await sendToParent('delete', { key });
+        return result.success;
+      } catch (error) {
+        console.error('Error deleting data:', error);
+        return false;
+      }
+    }
+
+    // Portfolio Images function
     async function getPortfolioImages(quality = 'balanced') {
       console.log('🎨 Fetching portfolio images with quality:', quality);
 
@@ -2066,127 +2178,31 @@ const injectAIHelper = (htmlCode) => {
       }
     }
 
-    // Pexels image search function
+    // Pexels search function
     async function searchPexels(query, perPage = 15, page = 1) {
-      console.log('🖼️ Searching Pexels:', { query, perPage, page });
-
       try {
         const response = await fetch(\`https://api.vegvisr.org/api/pexels/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}&page=\${page}\`);
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch images from Pexels');
-        }
+        if (!response.ok) throw new Error('Failed to search Pexels');
 
         const result = await response.json();
-        console.log('✅ Pexels search successful:', result.data.photos.length, 'photos');
-        return result.data.photos; // Returns array of photo objects
+        return result.data.photos;
       } catch (error) {
-        console.error('🖼️ Pexels search error:', error);
+        console.error('Pexels search error:', error);
         throw error;
       }
     }
 
-    // Cloud Storage API Helper
-    // Define APP_ID if not already defined by generated code
-    if (typeof APP_ID === 'undefined') {
-      var APP_ID = '${appId}';
-    }
-    let requestCounter = 0;
-
-    // Helper to send request to parent window via postMessage
-    function sendToParent(action, payload) {
-      return new Promise((resolve, reject) => {
-        const requestId = ++requestCounter;
-
-        // Listen for response
-        const handler = (event) => {
-          if (event.data.type === 'CLOUD_STORAGE_RESPONSE' && event.data.requestId === requestId) {
-            window.removeEventListener('message', handler);
-            if (event.data.success) {
-              resolve(event.data.data);
-            } else {
-              reject(new Error(event.data.error || 'Request failed'));
-            }
-          }
-        };
-
-        window.addEventListener('message', handler);
-
-        // Timeout after 10 seconds
-        setTimeout(() => {
-          window.removeEventListener('message', handler);
-          reject(new Error('Request timeout'));
-        }, 10000);
-
-        // Send request to parent
-        window.parent.postMessage({
-          type: 'CLOUD_STORAGE_REQUEST',
-          requestId,
-          payload: { action, appId: APP_ID, ...payload }
-        }, '*');
-      });
-    }
-
-    // Save data to cloud
-    async function saveData(key, value) {
-      try {
-        const result = await sendToParent('save', { key, value });
-        return result.success ? result : null;
-      } catch (error) {
-        console.error('Error saving data:', error);
-        return null;
-      }
-    }
-
-    // Load data from cloud
-    async function loadData(key) {
-      try {
-        const result = await sendToParent('load', { key });
-        return result.success ? result.data.value : null;
-      } catch (error) {
-        console.error('Error loading data:', error);
-        return null;
-      }
-    }
-
-    // Load all data for this app
-    async function loadAllData() {
-      try {
-        const result = await sendToParent('loadAll', {});
-        return result.success ? result.data : [];
-      } catch (error) {
-        console.error('Error loading all data:', error);
-        return [];
-      }
-    }
-
-    // Delete data from cloud
-    async function deleteData(key) {
-      try {
-        const result = await sendToParent('delete', { key });
-        return result.success;
-      } catch (error) {
-        console.error('Error deleting data:', error);
-        return false;
-      }
-    }
-
-    // SMS Sending function
+    // SMS sending function
     async function sendSMS(to, message, sender = 'Vegvisr') {
-      console.log('📱 Sending SMS to:', to);
-
       return new Promise((resolve, reject) => {
         const requestId = Date.now() + Math.random();
 
-        // Listen for response from parent
         const handler = (event) => {
           if (event.data.type === 'SMS_RESPONSE' && event.data.requestId === requestId) {
             window.removeEventListener('message', handler);
             if (event.data.success) {
-              console.log('✅ SMS sent successfully:', event.data.result);
               resolve(event.data.result);
             } else {
-              console.error('📱 SMS send error:', event.data.error);
               reject(new Error(event.data.error || 'Failed to send SMS'));
             }
           }
@@ -2194,13 +2210,11 @@ const injectAIHelper = (htmlCode) => {
 
         window.addEventListener('message', handler);
 
-        // Timeout after 30 seconds
         setTimeout(() => {
           window.removeEventListener('message', handler);
           reject(new Error('SMS request timeout'));
         }, 30000);
 
-        // Send request to parent window
         window.parent.postMessage({
           type: 'sendSMS',
           requestId,
@@ -2215,14 +2229,16 @@ const injectAIHelper = (htmlCode) => {
 
     // Make functions globally accessible
     window.askAI = askAI;
-    window.getPortfolioImages = getPortfolioImages;
-    window.searchPexels = searchPexels;
-    window.sendSMS = sendSMS;
     window.saveData = saveData;
     window.loadData = loadData;
     window.loadAllData = loadAllData;
     window.deleteData = deleteData;
-    console.log('🤖 Real askAI, getPortfolioImages, searchPexels, and sendSMS functions are now available globally');
+    window.getPortfolioImages = getPortfolioImages;
+    window.searchPexels = searchPexels;
+    window.sendSMS = sendSMS;
+    window.fetchGraphContext = fetchGraphContext;
+
+    console.log('✅ Helper functions ready: askAI (with auto-context), saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels, sendSMS');
     console.log('☁️ Cloud Storage enabled for app:', APP_ID);
   </scr` + `ipt>
   `

@@ -251,15 +251,15 @@
               </button>
             </div>
 
-            <!-- Import from CSV/Excel -->
+            <!-- Import from CSV/Excel/Markdown -->
             <div class="import-section mb-3">
               <h6>Import from File</h6>
-              <div class="input-group">
+              <div class="input-group mb-2">
                 <input
                   ref="fileInput"
                   type="file"
                   class="form-control"
-                  accept=".csv,.xlsx,.xls"
+                  accept=".csv,.xlsx,.xls,.md,.txt"
                   @change="handleFileUpload"
                 />
                 <button @click="importFile" class="btn btn-info" :disabled="!selectedFile || importing">
@@ -271,9 +271,21 @@
                   </span>
                 </button>
               </div>
-              <small class="text-muted">
-                Supported: CSV, Excel (.xlsx, .xls). Expected columns: Name, Phone (or Phone Number)
+              <small class="text-muted d-block mb-2">
+                Supported: CSV, Excel (.xlsx, .xls), Markdown (.md), Text (.txt)
               </small>
+
+              <!-- Paste Text Area -->
+              <h6 class="mt-3">Or Paste Data</h6>
+              <textarea
+                v-model="pasteText"
+                class="form-control mb-2"
+                rows="4"
+                placeholder="Paste phone numbers here (one per line) or Name, Phone format"
+              ></textarea>
+              <button @click="importFromPaste" class="btn btn-info w-100" :disabled="!pasteText.trim() || importing">
+                <i class="bi bi-clipboard-check"></i> Import from Paste
+              </button>
             </div>
 
             <!-- Load to Send Form -->
@@ -415,6 +427,7 @@ const selectedFile = ref(null)
 const fileInput = ref(null)
 const importing = ref(false)
 const selectedListForSend = ref('')
+const pasteText = ref('')
 
 // History data
 const smsHistory = ref([])
@@ -546,7 +559,7 @@ const createList = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userEmail: userStore.email,
-        userId: userStore.userId,
+        userId: userStore.user_id || userStore.email,
         name: newListName.value.trim(),
         description: newListDescription.value.trim()
       })
@@ -684,8 +697,10 @@ const importFile = async () => {
       parsedData = await parseCSV(selectedFile.value)
     } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
       parsedData = await parseExcel(selectedFile.value)
+    } else if (fileName.endsWith('.md') || fileName.endsWith('.txt')) {
+      parsedData = await parseMarkdownOrText(selectedFile.value)
     } else {
-      alert('Unsupported file format. Please use CSV or Excel files.')
+      alert('Unsupported file format. Please use CSV, Excel, Markdown, or Text files.')
       return
     }
 
@@ -747,6 +762,119 @@ const parseCSV = (file) => {
       error: (error) => reject(error)
     })
   })
+}
+
+const parseMarkdownOrText = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result
+        const parsedData = parseTextContent(text)
+        resolve(parsedData)
+      } catch (error) {
+        reject(error)
+      }
+    }
+    reader.onerror = (error) => reject(error)
+    reader.readAsText(file)
+  })
+}
+
+const parseTextContent = (text) => {
+  const lines = text.split('\n').filter(line => line.trim())
+  const data = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Skip markdown headers, bullets, or empty lines
+    if (trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('-') || !trimmed) {
+      continue
+    }
+
+    // Try to parse "Name, Phone" or "Name: Phone" or "Name - Phone"
+    const separators = [',', ':', '-', '\t', '|']
+    let parsed = false
+
+    for (const sep of separators) {
+      if (trimmed.includes(sep)) {
+        const parts = trimmed.split(sep).map(p => p.trim())
+        if (parts.length >= 2) {
+          const phone = parts[parts.length - 1].replace(/[^\d+]/g, '')
+          const name = parts.slice(0, -1).join(' ')
+          if (phone.length >= 8) {
+            data.push({ name, phone })
+            parsed = true
+            break
+          }
+        }
+      }
+    }
+
+    // If no separator found, assume it's just a phone number
+    if (!parsed) {
+      const phone = trimmed.replace(/[^\d+]/g, '')
+      if (phone.length >= 8) {
+        data.push({ name: '', phone })
+      }
+    }
+  }
+
+  return data
+}
+
+const importFromPaste = async () => {
+  if (!pasteText.value.trim() || !selectedList.value) return
+
+  importing.value = true
+  try {
+    const parsedData = parseTextContent(pasteText.value)
+
+    if (parsedData.length === 0) {
+      alert('No valid phone numbers found in pasted text.')
+      importing.value = false
+      return
+    }
+
+    // Import recipients in batch
+    let imported = 0
+    for (const recipient of parsedData) {
+      if (recipient.phone) {
+        try {
+          const response = await fetch(
+            `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: recipient.name || '',
+                phoneNumber: recipient.phone
+              })
+            }
+          )
+          if ((await response.json()).success) {
+            imported++
+          }
+        } catch (error) {
+          console.error('Error importing recipient:', error)
+        }
+      }
+    }
+
+    // Refresh the list
+    await selectList(selectedList.value)
+
+    // Clear paste text
+    pasteText.value = ''
+
+    alert(`Successfully imported ${imported} out of ${parsedData.length} recipients`)
+  } catch (error) {
+    console.error('Error importing pasted text:', error)
+    alert('Error importing pasted text. Please check the format and try again.')
+  } finally {
+    importing.value = false
+  }
 }
 
 const parseExcel = (file) => {
