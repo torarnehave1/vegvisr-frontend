@@ -1014,7 +1014,7 @@ const parsedContent = computed(() => {
             const processedBefore = parseFormattedElements(beforeText)
             let finalContent = marked(processedBefore)
 
-            if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+            if (props.showControls && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')) {
               finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
               finalContent = addImagequoteChangeButtons(
                 finalContent,
@@ -1067,7 +1067,7 @@ const parsedContent = computed(() => {
           const processedAfter = parseFormattedElements(afterText)
           let finalContent = marked(processedAfter)
 
-          if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+          if (props.showControls && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')) {
             finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
             finalContent = addImagequoteChangeButtons(
               finalContent,
@@ -1097,7 +1097,7 @@ const parsedContent = computed(() => {
           let finalContent = marked(processedBefore)
 
           // Add image edit buttons for Superadmin users
-          if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+          if (props.showControls && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')) {
             // First add regular image buttons (excluding IMAGEQUOTE images)
             finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
             // Then add IMAGEQUOTE-specific buttons
@@ -1170,7 +1170,7 @@ const parsedContent = computed(() => {
         let finalContent = marked(processedAfter)
 
         // Add image edit buttons for Superadmin users
-        if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+        if (props.showControls && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')) {
           // First add regular image buttons (excluding IMAGEQUOTE images)
           finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
           // Then add IMAGEQUOTE-specific buttons
@@ -1191,7 +1191,7 @@ const parsedContent = computed(() => {
         : marked(processedHtml)
 
       // Add image edit buttons for Superadmin users
-      if (props.showControls && userStore.loggedIn && userStore.role === 'Superadmin') {
+      if (props.showControls && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')) {
         // First add regular image buttons (excluding IMAGEQUOTE images)
         finalContent = addChangeImageButtons(finalContent, props.node.id, nodeContent.value)
         // Then add IMAGEQUOTE-specific buttons
