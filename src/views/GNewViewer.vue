@@ -2588,8 +2588,8 @@ onMounted(() => {
     const { type, requestId } = event.data
 
     if (type === 'GET_GRAPH_CONTEXT') {
-      console.log('📊 [GNewViewer] Graph context requested:', { 
-        requestId, 
+      console.log('📊 [GNewViewer] Graph context requested:', {
+        requestId,
         source: event.source,
         sourceIsWindow: event.source === window,
         sourceIsDifferent: event.source !== window

@@ -1,9 +1,9 @@
 /**
  * Vegvisr Graph Context Helper
- * 
+ *
  * Drop this into any app to easily access Knowledge Graph context.
  * Works automatically when app runs inside GNewViewer.
- * 
+ *
  * Usage:
  *   <script src="graph-context-helper.js"></script>
  *   <script>
@@ -116,7 +116,7 @@ const GraphContext = (() => {
         connections[edge.from] = (connections[edge.from] || 0) + 1
         connections[edge.to] = (connections[edge.to] || 0) + 1
       })
-      
+
       return Object.entries(connections)
         .map(([nodeId, count]) => ({ nodeId, connections: count }))
         .sort((a, b) => b.connections - a.connections)
@@ -161,7 +161,7 @@ const GraphContext = (() => {
       const nodes = this.getNodes()
       const edges = this.getEdges()
       const metadata = this.getMetadata()
-      
+
       return `
 Knowledge Graph: ${metadata.name || 'Untitled'}
 Category: ${metadata.category || 'Uncategorized'}
