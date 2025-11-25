@@ -70,7 +70,7 @@ const createAppUrl = () => {
     URL.revokeObjectURL(appUrl.value)
   }
 
-  // Create new blob URL from HTML content
+  // Create blob URL from HTML content
   const blob = new Blob([props.node.info], { type: 'text/html' })
   appUrl.value = URL.createObjectURL(blob)
 }

@@ -1279,7 +1279,7 @@ const fetchGraphs = async () => {
         })
 
         // Filter by publication state based on user role (NEW)
-        if (userStore.role !== 'Superadmin') {
+        if (userStore.role !== 'Superadmin' && userStore.role !== 'Admin') {
           // Regular users only see published graphs
           // Graphs with SEO slugs are automatically considered published
           graphs.value = graphs.value.filter(graph =>
@@ -1287,7 +1287,7 @@ const fetchGraphs = async () => {
             graph.metadata?.seoSlug
           )
         }
-        // Superadmin sees everything (no filtering needed)
+        // Superadmin and Admin see everything (no filtering needed)
 
         // Update meta areas in the store
         portfolioStore.updateMetaAreas(graphs.value)
