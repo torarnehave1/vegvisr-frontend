@@ -353,17 +353,17 @@ class CanvasDrawing extends HTMLElement {
 
 // Register the custom element
 customElements.define('canvas-drawing', CanvasDrawing)`,
-    
+
     'mermaid-diagram': `/**
  * Mermaid Diagram Web Component
  * Context-Aware diagram generator for knowledge graphs
- * 
+ *
  * Usage:
- * <mermaid-diagram 
+ * <mermaid-diagram
  *   diagram-type="gantt"
  *   user-question="Create a timeline of events">
  * </mermaid-diagram>
- * 
+ *
  * Features:
  * - All Mermaid diagram types (Gantt, Timeline, Flowchart, Sequence, etc.)
  * - AI generation from graph context
@@ -376,7 +376,7 @@ class MermaidDiagram extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    
+
     // State
     this.mermaidCode = ''
     this.graphContext = null
@@ -392,10 +392,10 @@ class MermaidDiagram extends HTMLElement {
     this.loadMermaidLibrary().then(() => {
       this.render()
       this.setupEventListeners()
-      
+
       // Request graph context from parent (if in GNewViewer)
       this.requestGraphContext()
-      
+
       // Initialize with any provided code
       if (this.mermaidCode) {
         this.renderDiagram()
@@ -406,7 +406,7 @@ class MermaidDiagram extends HTMLElement {
   async loadMermaidLibrary() {
     // Check if Mermaid is already loaded
     if (window.mermaid) {
-      window.mermaid.initialize({ 
+      window.mermaid.initialize({
         startOnLoad: false,
         theme: 'default',
         securityLevel: 'loose'
@@ -419,7 +419,7 @@ class MermaidDiagram extends HTMLElement {
       const script = document.createElement('script')
       script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'
       script.onload = () => {
-        window.mermaid.initialize({ 
+        window.mermaid.initialize({
           startOnLoad: false,
           theme: 'default',
           securityLevel: 'loose'
@@ -445,7 +445,7 @@ class MermaidDiagram extends HTMLElement {
 
   requestGraphContext() {
     console.log('🔍 Requesting graph context...')
-    
+
     // Wait a tick to allow inline scripts to execute first
     // This ensures the injected __GRAPH_CONTEXT__ script has run
     setTimeout(() => {
@@ -456,27 +456,27 @@ class MermaidDiagram extends HTMLElement {
         this.updateGenerateButton()
         return
       }
-      
+
       console.log('📡 No injected context found, trying postMessage...')
       this.requestViaPostMessage()
     }, 0)
   }
-  
+
   requestViaPostMessage() {
     console.log('📡 Requesting via postMessage...')
-    
+
   requestViaPostMessage() {
     console.log('📡 Requesting via postMessage...')
-    
+
     // Fallback to postMessage for compatibility
     let requestCounter = 0
     const requestId = ++requestCounter
-    
+
     console.log('🔍 Requesting graph context via postMessage with requestId:', requestId)
-    
+
     const handler = (event) => {
       console.log('📬 Component received message:', { type: event.data.type, requestId: event.data.requestId, expectedId: requestId })
-      
+
       if (event.data.type === 'GRAPH_CONTEXT_RESPONSE' && event.data.requestId === requestId) {
         window.removeEventListener('message', handler)
         this.graphContext = event.data.context
@@ -484,9 +484,9 @@ class MermaidDiagram extends HTMLElement {
         this.updateGenerateButton()
       }
     }
-    
+
     window.addEventListener('message', handler)
-    
+
     // Timeout after 2 seconds (not in GNewViewer context)
     setTimeout(() => {
       window.removeEventListener('message', handler)
@@ -494,7 +494,7 @@ class MermaidDiagram extends HTMLElement {
         console.log('⚠️ No graph context available (running standalone)')
       }
     }, 2000)
-    
+
     // Send request to parent
     if (window.parent !== window) {
       console.log('📤 Sending GET_GRAPH_CONTEXT to parent window')
@@ -768,9 +768,9 @@ class MermaidDiagram extends HTMLElement {
 
           <div class="control-group">
             <label for="user-question-input">What do you want to visualize?</label>
-            <input 
-              type="text" 
-              id="user-question-input" 
+            <input
+              type="text"
+              id="user-question-input"
               placeholder="e.g., Create a timeline of all events in this graph"
               value="\${this.userQuestion}"
             />
@@ -856,10 +856,10 @@ class MermaidDiagram extends HTMLElement {
     this.isGenerating = true
     const generateBtn = this.shadowRoot.querySelector('.generate-btn')
     const output = this.shadowRoot.getElementById('diagram-output')
-    
+
     generateBtn.disabled = true
     generateBtn.textContent = '⏳ Generating...'
-    
+
     output.innerHTML = '<div class="loading"><div class="spinner"></div>Analyzing graph and generating diagram...</div>'
 
     try {
@@ -870,7 +870,7 @@ class MermaidDiagram extends HTMLElement {
 
       // Build context for AI
       const context = this.buildGraphContextPrompt()
-      
+
       // Ask AI to generate Mermaid syntax
       const aiPrompt = \`\${context}
 
@@ -899,28 +899,28 @@ gantt
 Return ONLY the Mermaid code, nothing else.\`
 
       console.log('🤖 Sending to AI:', aiPrompt)
-      
+
       const mermaidSyntax = await askAI(aiPrompt)
-      
+
       console.log('✅ AI Response:', mermaidSyntax)
-      
+
       // Clean up the response (remove markdown code blocks if present)
       let cleanedSyntax = mermaidSyntax.trim()
       if (cleanedSyntax.startsWith('\`\`\`')) {
         cleanedSyntax = cleanedSyntax.replace(/\`\`\`mermaid\\n?/g, '').replace(/\`\`\`\\n?/g, '')
       }
-      
+
       // Update editor and render
       const editor = this.shadowRoot.getElementById('mermaid-editor')
       editor.value = cleanedSyntax
       this.mermaidCode = cleanedSyntax
-      
+
       await this.renderDiagram()
-      
+
       this.dispatchEvent(new CustomEvent('diagram-generated', {
         detail: { code: cleanedSyntax, type: this.diagramType }
       }))
-      
+
     } catch (error) {
       console.error('❌ Generate error:', error)
       output.innerHTML = \`<div class="error-message">
@@ -937,7 +937,7 @@ Return ONLY the Mermaid code, nothing else.\`
     const { nodes = [], edges = [], metadata = {} } = this.graphContext
 
     let context = \`KNOWLEDGE GRAPH CONTEXT:\\n\\n\`
-    
+
     // Graph metadata
     if (metadata.name) {
       context += \`Graph Name: \${metadata.name}\\n\`
@@ -975,7 +975,7 @@ Return ONLY the Mermaid code, nothing else.\`
 
   async renderDiagram() {
     const output = this.shadowRoot.getElementById('diagram-output')
-    
+
     if (!this.mermaidCode || !this.mermaidCode.trim()) {
       output.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 2rem;">Enter Mermaid syntax or click "Generate from Graph"</div>'
       return
@@ -984,24 +984,24 @@ Return ONLY the Mermaid code, nothing else.\`
     try {
       // Clear previous diagram
       output.innerHTML = ''
-      
+
       // Create temp element for Mermaid to render into
       const tempDiv = document.createElement('div')
       tempDiv.className = 'mermaid'
       tempDiv.textContent = this.mermaidCode
       output.appendChild(tempDiv)
-      
+
       // Render with Mermaid
       await window.mermaid.run({
         nodes: [tempDiv]
       })
-      
+
       console.log('✅ Diagram rendered successfully')
-      
+
       this.dispatchEvent(new CustomEvent('diagram-rendered', {
         detail: { type: this.diagramType }
       }))
-      
+
     } catch (error) {
       console.error('❌ Mermaid render error:', error)
       output.innerHTML = \`<div class="error-message">
@@ -1023,21 +1023,21 @@ Return ONLY the Mermaid code, nothing else.\`
       const svgData = new XMLSerializer().serializeToString(svg)
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
       const svgUrl = URL.createObjectURL(svgBlob)
-      
+
       // Download
       const link = document.createElement('a')
       link.href = svgUrl
       link.download = \`mermaid-\${this.diagramType}-\${Date.now()}.svg\`
       link.click()
-      
+
       URL.revokeObjectURL(svgUrl)
-      
+
       console.log('✅ Diagram exported')
-      
+
       this.dispatchEvent(new CustomEvent('export-complete', {
         detail: { type: 'svg', filename: link.download }
       }))
-      
+
     } catch (error) {
       console.error('❌ Export error:', error)
       alert('Failed to export diagram')

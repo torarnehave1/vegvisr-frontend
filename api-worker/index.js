@@ -6590,7 +6590,7 @@ const handleGenerateHTMLApp = async (request, env) => {
         componentDocumentation += 'DO NOT use npm, unpkg, jsdelivr, or any other CDN.\n'
         componentDocumentation += 'DO NOT invent or guess CDN URLs.\n'
         componentDocumentation += 'ONLY use the EXACT URLs provided below:\n\n'
-        
+
         componentDocumentation += '📊 GRAPH CONTEXT ARCHITECTURE:\n'
         componentDocumentation += 'When apps run inside the Knowledge Graph viewer, they automatically have access to:\n'
         componentDocumentation += '  window.__GRAPH_CONTEXT__ = {\n'
@@ -6785,7 +6785,7 @@ Return ONLY the complete HTML code, nothing else.`
       // NEW APP MODE - Creating from scratch
       console.log('🆕 NEW APP MODE - Creating from scratch')
       console.log('📦 Component documentation included:', componentDocumentation.length > 0 ? 'YES' : 'NO')
-      
+
       finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
 
 ${componentDocumentation}
