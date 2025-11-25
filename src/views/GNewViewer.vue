@@ -194,7 +194,7 @@
             📊 Professional Feed
           </button>
           <button
-            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            v-if="userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
             @click="duplicateGraphAndClose"
             class="btn btn-outline-info w-100 mb-2"
             :disabled="!graphData.nodes.length || duplicatingGraph"
@@ -416,7 +416,7 @@
             📊 Professional Feed
           </button>
           <button
-            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            v-if="userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
             @click="duplicateKnowledgeGraph"
             class="btn btn-outline-info"
             :disabled="!graphData.nodes.length || duplicatingGraph"
@@ -470,7 +470,7 @@
 
         <!-- Node Edit Modal (Admin Only) -->
         <div
-          v-if="showNodeEditModal && userStore.loggedIn && userStore.role === 'Superadmin'"
+          v-if="showNodeEditModal && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
           class="modal-overlay"
         >
           <div class="node-edit-modal">
@@ -726,7 +726,7 @@
 
         <!-- IMAGEQUOTE Creator Modal (Admin Only) -->
         <div
-          v-if="showImageQuoteCreator && userStore.loggedIn && userStore.role === 'Superadmin'"
+          v-if="showImageQuoteCreator && userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
           class="modal-overlay"
         >
           <div class="imagequote-creator-modal">
@@ -1512,7 +1512,7 @@
 
     <!-- Image Editing Modals (Admin Only) -->
     <ImageSelector
-      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      v-if="userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
       :is-open="isImageSelectorOpen"
       :current-image-url="currentImageData.url"
       :current-image-alt="currentImageData.alt"
@@ -1524,7 +1524,7 @@
     />
 
     <GooglePhotosSelector
-      v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+      v-if="userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
       :is-open="isGooglePhotosSelectorOpen"
       :google-photos-data="currentGooglePhotosData"
       @close="closeGooglePhotosSelector"
@@ -2595,12 +2595,30 @@ onMounted(() => {
         sourceIsDifferent: event.source !== window
       })
 
+      // Create clean, serializable copies of nodes and edges
+      const cleanNodes = (graphData.value.nodes || []).map(node => ({
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        info: node.info,
+        color: node.color,
+        visible: node.visible
+      }))
+
+      const cleanEdges = (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label
+      }))
+
       const responseData = {
         type: 'GRAPH_CONTEXT_RESPONSE',
         requestId,
         context: {
-          nodes: graphData.value.nodes || [],
-          edges: graphData.value.edges || [],
+          graphId: currentGraphId.value,
+          nodes: cleanNodes,
+          edges: cleanEdges,
           metadata: {
             name: graphData.value.name,
             category: graphData.value.category,
@@ -2613,16 +2631,24 @@ onMounted(() => {
       // Always send to event.source (the iframe window that sent the request)
       if (event.source) {
         console.log('📤 [GNewViewer] Sending response to event.source')
-        event.source.postMessage(responseData, '*')
+        try {
+          event.source.postMessage(responseData, '*')
+          console.log('✅ [GNewViewer] Graph context sent:', {
+            graphId: currentGraphId.value,
+            nodeCount: cleanNodes.length,
+            edgeCount: cleanEdges.length
+          })
+        } catch (error) {
+          console.error('❌ [GNewViewer] Failed to send graph context:', error)
+        }
       } else {
         console.log('⚠️ [GNewViewer] No event.source, broadcasting to window')
-        window.postMessage(responseData, '*')
+        try {
+          window.postMessage(responseData, '*')
+        } catch (error) {
+          console.error('❌ [GNewViewer] Failed to broadcast graph context:', error)
+        }
       }
-
-      console.log('✅ [GNewViewer] Graph context sent:', {
-        nodeCount: graphData.value.nodes?.length || 0,
-        edgeCount: graphData.value.edges?.length || 0
-      })
     }
   }
 
@@ -7049,8 +7075,8 @@ const getNodePosition = (node) => {
 
 // Image editing modal functions
 const openImageSelector = (imageData) => {
-  if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
-    console.log('Image editing access denied - requires Superadmin role')
+  if (!userStore.loggedIn || (userStore.role !== 'Superadmin' && userStore.role !== 'Admin')) {
+    console.log('Image editing access denied - requires Superadmin or Admin role')
     return
   }
 
@@ -7083,8 +7109,8 @@ const closeImageSelector = () => {
 }
 
 const openGooglePhotosSelector = (googlePhotosData) => {
-  if (!userStore.loggedIn || userStore.role !== 'Superadmin') {
-    console.log('Google Photos access denied - requires Superadmin role')
+  if (!userStore.loggedIn || (userStore.role !== 'Superadmin' && userStore.role !== 'Admin')) {
+    console.log('Google Photos access denied - requires Superadmin or Admin role')
     return
   }
 

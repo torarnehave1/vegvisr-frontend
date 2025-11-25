@@ -6820,7 +6820,14 @@ CRITICAL REQUIREMENTS:
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
 ❌ DO NOT define askAI(), getPortfolioImages(), or searchPexels() functions - they are auto-injected!
 ✅ Simply call await askAI(question) directly in your code
+✅ The askAI function automatically receives the Knowledge Graph context when used inside GNewViewer
 ✅ Simply call await searchPexels(query) or await getPortfolioImages() directly
+
+IMPORTANT: The askAI() function is context-aware!
+- When your app is embedded in a Knowledge Graph, askAI() automatically knows about the graph content
+- You don't need to fetch or pass the graph context manually
+- Just call: const answer = await askAI("What is this graph about?")
+- The AI will understand the current Knowledge Graph and answer questions about it
 
 These functions are globally available and ready to use. DO NOT redefine them.
 
@@ -7405,6 +7412,237 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       )
     }
 
+    // 🤖 INJECT HELPER FUNCTIONS if AI Chat or Cloud Storage APIs are enabled
+    const needsHelpers = enabledAPIs.includes('ai-chat') || enabledAPIs.some(api => api.startsWith('cloud-storage-'))
+    
+    if (needsHelpers) {
+      console.log('🔧 Injecting helper functions for:', enabledAPIs.filter(api => api === 'ai-chat' || api.startsWith('cloud-storage-')))
+      
+      const helperScript = `
+  <script>
+    // ============================================
+    // VEGVISR AUTO-INJECTED HELPER FUNCTIONS
+    // ============================================
+    console.log('🤖 Vegvisr Helper Functions loaded!');
+
+    // Global variables for graph context
+    let GRAPH_ID = null;
+    let GRAPH_CONTEXT = null;
+
+    // Fetch graph context from parent window
+    async function fetchGraphContext() {
+      return new Promise((resolve) => {
+        const requestId = Date.now();
+        console.log('📊 [App] Requesting graph context from parent...');
+        
+        const handler = (event) => {
+          if (event.data.type === 'GRAPH_CONTEXT_RESPONSE' && event.data.requestId === requestId) {
+            window.removeEventListener('message', handler);
+            console.log('✅ [App] Graph context received:', event.data.context);
+            
+            GRAPH_ID = event.data.context.graphId;
+            GRAPH_CONTEXT = event.data.context;
+            
+            resolve(event.data.context);
+          }
+        };
+        
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'GET_GRAPH_CONTEXT', requestId }, '*');
+        
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+          console.log('⚠️ [App] Graph context request timeout');
+          resolve(null);
+        }, 5000);
+      });
+    }
+
+    // AI Chat function - AUTOMATICALLY CONTEXT AWARE
+    async function askAI(question, options = {}) {
+      console.log('🤖 askAI called with question:', question);
+
+      // Fetch graph context on first call if not yet loaded
+      if (GRAPH_ID === null && GRAPH_CONTEXT === null) {
+        console.log('📊 Graph context not loaded, fetching now...');
+        await fetchGraphContext();
+      }
+
+      console.log('🤖 Using graph_id:', GRAPH_ID);
+
+      try {
+        const response = await fetch('https://api.vegvisr.org/user-ai-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: question }],
+            max_tokens: options.max_tokens || 4096,
+            graph_id: GRAPH_ID,
+            userEmail: options.userEmail || 'app-user'
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('🤖 AI Error response:', errorText);
+          throw new Error('AI request failed: ' + response.status);
+        }
+
+        const data = await response.json();
+        console.log('🤖 AI Response:', data);
+
+        // Send node to parent if needed
+        if (window.parent !== window && data.node) {
+          console.log('🤖 Sending node to parent window:', data.node);
+          window.parent.postMessage({
+            type: 'ADD_AI_NODE',
+            node: data.node
+          }, '*');
+        }
+
+        return data.message || 'No response from AI';
+      } catch (error) {
+        console.error('🤖 AI Error:', error);
+        throw error;
+      }
+    }
+
+    // Cloud Storage Helper
+    const APP_ID = 'app_' + Date.now();
+    let requestCounter = 0;
+
+    function sendToParent(action, payload) {
+      return new Promise((resolve, reject) => {
+        const requestId = ++requestCounter;
+
+        const handler = (event) => {
+          if (event.data.type === 'CLOUD_STORAGE_RESPONSE' && event.data.requestId === requestId) {
+            window.removeEventListener('message', handler);
+            if (event.data.success) {
+              resolve(event.data.data);
+            } else {
+              reject(new Error(event.data.error || 'Request failed'));
+            }
+          }
+        };
+
+        window.addEventListener('message', handler);
+
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+          reject(new Error('Request timeout'));
+        }, 10000);
+
+        window.parent.postMessage({
+          type: 'CLOUD_STORAGE_REQUEST',
+          requestId,
+          payload: { action, appId: APP_ID, ...payload }
+        }, '*');
+      });
+    }
+
+    async function saveData(key, value) {
+      try {
+        const result = await sendToParent('save', { key, value });
+        return result.success ? result : null;
+      } catch (error) {
+        console.error('Error saving data:', error);
+        return null;
+      }
+    }
+
+    async function loadData(key) {
+      try {
+        const result = await sendToParent('load', { key });
+        return result.success ? result.data.value : null;
+      } catch (error) {
+        console.error('Error loading data:', error);
+        return null;
+      }
+    }
+
+    async function loadAllData() {
+      try {
+        const result = await sendToParent('loadAll', {});
+        return result.success ? result.data : [];
+      } catch (error) {
+        console.error('Error loading all data:', error);
+        return [];
+      }
+    }
+
+    async function deleteData(key) {
+      try {
+        const result = await sendToParent('delete', { key });
+        return result.success;
+      } catch (error) {
+        console.error('Error deleting data:', error);
+        return false;
+      }
+    }
+
+    // Portfolio Images function
+    async function getPortfolioImages(quality = 'balanced') {
+      try {
+        const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small');
+        if (!response.ok) throw new Error('Failed to fetch images');
+        
+        const data = await response.json();
+        const images = data.images || [];
+        
+        const qualityPresets = {
+          ultraFast: '?w=150&h=94&fit=crop&auto=format,compress&q=30',
+          balanced: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2',
+          highQuality: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5',
+          original: ''
+        };
+        
+        const params = qualityPresets[quality] || qualityPresets.balanced;
+        return images.map(img => ({
+          ...img,
+          url: img.url.includes('?') ? img.url.split('?')[0] + params : img.url + params,
+          originalUrl: img.url
+        }));
+      } catch (error) {
+        console.error('Portfolio images error:', error);
+        return [];
+      }
+    }
+
+    // Pexels search function
+    async function searchPexels(query, perPage = 15, page = 1) {
+      try {
+        const response = await fetch(\`https://api.vegvisr.org/api/pexels/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}&page=\${page}\`);
+        if (!response.ok) throw new Error('Failed to search Pexels');
+        
+        const result = await response.json();
+        return result.data.photos;
+      } catch (error) {
+        console.error('Pexels search error:', error);
+        throw error;
+      }
+    }
+
+    // Make functions globally accessible
+    window.askAI = askAI;
+    window.saveData = saveData;
+    window.loadData = loadData;
+    window.loadAllData = loadAllData;
+    window.deleteData = deleteData;
+    window.getPortfolioImages = getPortfolioImages;
+    window.searchPexels = searchPexels;
+    window.fetchGraphContext = fetchGraphContext;
+    
+    console.log('✅ Helper functions ready: askAI, saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels');
+  </script>
+`
+      
+      // Inject before closing </body> tag
+      cleanHTML = cleanHTML.replace(/<\/body>/i, helperScript + '\n</body>')
+      console.log('✅ Helper functions injected into HTML')
+    }
+
     return createResponse(
       JSON.stringify({
         success: true,
@@ -7430,6 +7668,78 @@ const handleUserAIChat = async (request, env) => {
       return createErrorResponse('Messages array is required', 400)
     }
 
+    // Fetch graph context if graph_id is provided
+    let graphContext = ''
+    if (graph_id) {
+      console.log('📊 [AI Chat] graph_id received:', graph_id)
+      try {
+        const db = env.vegvisr_org
+        console.log('🔍 [AI Chat] Querying D1 for graph:', graph_id)
+        
+        const graphRow = await db
+          .prepare('SELECT * FROM knowledge_graphs WHERE id = ?')
+          .bind(graph_id)
+          .first()
+
+        console.log('📦 [AI Chat] Graph row found:', graphRow ? 'YES' : 'NO')
+
+        if (graphRow && graphRow.data) {
+          const graphData = JSON.parse(graphRow.data)
+          console.log('✅ [AI Chat] Graph data parsed successfully')
+          
+          // Build context from graph data
+          const graphTitle = graphData.name || graphRow.title || 'Unknown Graph'
+          const nodeCount = graphData.nodes?.length || 0
+          const edgeCount = graphData.edges?.length || 0
+          
+          console.log('📊 [AI Chat] Graph stats:', { title: graphTitle, nodeCount, edgeCount })
+          
+          // Extract node information
+          const nodeSummaries = (graphData.nodes || []).map(node => {
+            const label = node.label || 'Untitled'
+            const type = node.type || 'default'
+            const info = node.info || ''
+            // Truncate long content to avoid token limits
+            const truncatedInfo = info.length > 500 ? info.substring(0, 500) + '...' : info
+            return `- ${label} (${type}): ${truncatedInfo}`
+          }).join('\n')
+
+          graphContext = `
+KNOWLEDGE GRAPH CONTEXT:
+Title: ${graphTitle}
+Nodes: ${nodeCount}
+Edges: ${edgeCount}
+
+GRAPH CONTENT:
+${nodeSummaries}
+
+This is the Knowledge Graph you are currently viewing. Use this information to answer questions about this specific graph.`
+
+          console.log('✅ [AI Chat] Graph context built, length:', graphContext.length, 'characters')
+        } else {
+          console.log('⚠️ [AI Chat] No graph_data found in row')
+        }
+      } catch (error) {
+        console.error('❌ [AI Chat] Error fetching graph context:', error)
+        // Continue without graph context rather than failing
+      }
+    } else {
+      console.log('ℹ️ [AI Chat] No graph_id provided in request')
+    }
+
+    // Prepare messages with graph context if available
+    const aiMessages = [...messages]
+    if (graphContext) {
+      console.log('🎯 [AI Chat] Injecting graph context as system message')
+      // Insert graph context as a system message before user messages
+      aiMessages.unshift({
+        role: 'system',
+        content: graphContext
+      })
+    } else {
+      console.log('⚠️ [AI Chat] No graph context to inject')
+    }
+
     // Call Grok AI
     const apiKey = env.XAI_API_KEY
     const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -7440,7 +7750,7 @@ const handleUserAIChat = async (request, env) => {
       },
       body: JSON.stringify({
         model: 'grok-3-beta',
-        messages: messages,
+        messages: aiMessages,
         max_tokens: max_tokens,
         temperature: 0.7,
       }),
