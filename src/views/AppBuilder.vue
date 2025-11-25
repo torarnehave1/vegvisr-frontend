@@ -897,6 +897,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/userStore'
 import { useAppBuilderStore } from '@/stores/appBuilderStore'
 
@@ -965,8 +966,8 @@ const portfolioImages = ref([])
 const loadingPortfolioImages = ref(false)
 const selectedPortfolioImages = ref([])
 
-// Get API and Component state from store
-const { enabledAPIs, enabledComponents } = appBuilderStore
+// Get API and Component state from store (use storeToRefs for reactivity)
+const { enabledAPIs, enabledComponents } = storeToRefs(appBuilderStore)
 
 // AI API Creator state
 const showAPICreator = ref(false)

@@ -2262,6 +2262,7 @@ const getApiEndpoint = (endpoint) => {
 
 // Reactive data
 const graphData = ref({ nodes: [], edges: [] })
+
 const loading = ref(false)
 const error = ref(null)
 const statusMessage = ref('')
@@ -2582,8 +2583,52 @@ onMounted(() => {
     }
   }
 
+  // Handle graph context requests from embedded components (like Mermaid diagram)
+  const handleGraphContextMessage = (event) => {
+    const { type, requestId } = event.data
+
+    if (type === 'GET_GRAPH_CONTEXT') {
+      console.log('📊 [GNewViewer] Graph context requested:', { 
+        requestId, 
+        source: event.source,
+        sourceIsWindow: event.source === window,
+        sourceIsDifferent: event.source !== window
+      })
+
+      const responseData = {
+        type: 'GRAPH_CONTEXT_RESPONSE',
+        requestId,
+        context: {
+          nodes: graphData.value.nodes || [],
+          edges: graphData.value.edges || [],
+          metadata: {
+            name: graphData.value.name,
+            category: graphData.value.category,
+            created_date: graphData.value.created_date,
+            modified_date: graphData.value.modified_date
+          }
+        }
+      }
+
+      // Always send to event.source (the iframe window that sent the request)
+      if (event.source) {
+        console.log('📤 [GNewViewer] Sending response to event.source')
+        event.source.postMessage(responseData, '*')
+      } else {
+        console.log('⚠️ [GNewViewer] No event.source, broadcasting to window')
+        window.postMessage(responseData, '*')
+      }
+
+      console.log('✅ [GNewViewer] Graph context sent:', {
+        nodeCount: graphData.value.nodes?.length || 0,
+        edgeCount: graphData.value.edges?.length || 0
+      })
+    }
+  }
+
   window.addEventListener('message', handleAINodeMessage)
   window.addEventListener('message', handleCloudStorageMessage)
+  window.addEventListener('message', handleGraphContextMessage)
 
   // Cleanup on unmount
   onUnmounted(() => {
@@ -2591,6 +2636,7 @@ onMounted(() => {
     window.removeEventListener('beforeunload', handleBeforeUnload)
     window.removeEventListener('message', handleAINodeMessage)
     window.removeEventListener('message', handleCloudStorageMessage)
+    window.removeEventListener('message', handleGraphContextMessage)
   })
 })
 watch(

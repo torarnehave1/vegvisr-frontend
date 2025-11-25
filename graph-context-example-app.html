@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graph Context Example App</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    
+    .card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    h1 {
+      margin: 0 0 16px 0;
+      font-size: 24px;
+    }
+    
+    .status {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    
+    .status.connected {
+      background: rgba(16, 185, 129, 0.3);
+      border: 2px solid #10b981;
+    }
+    
+    .status.standalone {
+      background: rgba(245, 158, 11, 0.3);
+      border: 2px solid #f59e0b;
+    }
+    
+    .stat {
+      margin: 12px 0;
+      font-size: 18px;
+    }
+    
+    .stat strong {
+      color: #fbbf24;
+    }
+    
+    button {
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid white;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+    
+    button:hover {
+      background: white;
+      color: #667eea;
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .node-list {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 16px;
+    }
+    
+    .node-item {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 8px;
+      border-left: 4px solid #fbbf24;
+    }
+    
+    .node-item strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    
+    pre {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📊 Graph Context Example App</h1>
+    <div id="status"></div>
+    <div id="stats"></div>
+  </div>
+
+  <div class="card">
+    <h1>🎯 Actions</h1>
+    <button onclick="showNodes()">Show All Nodes</button>
+    <button onclick="showConnections()">Show Connections</button>
+    <button onclick="generateSummary()" id="aiButton">🤖 Generate AI Summary</button>
+    <button onclick="showRawData()">Show Raw Data</button>
+  </div>
+
+  <div class="card" id="output"></div>
+
+  <script>
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', initApp)
+
+    function initApp() {
+      updateStatus()
+      
+      // Enable AI button only if askAI is available
+      const aiButton = document.getElementById('aiButton')
+      if (typeof askAI !== 'function') {
+        aiButton.disabled = true
+        aiButton.title = 'AI helper not available'
+      }
+    }
+
+    function updateStatus() {
+      const statusEl = document.getElementById('status')
+      const statsEl = document.getElementById('stats')
+      
+      if (window.__GRAPH_CONTEXT__) {
+        const ctx = window.__GRAPH_CONTEXT__
+        const nodeCount = ctx.nodes?.length || 0
+        const edgeCount = ctx.edges?.length || 0
+        
+        statusEl.innerHTML = '<div class="status connected">✅ Connected to Knowledge Graph</div>'
+        statsEl.innerHTML = `
+          <div class="stat"><strong>Graph Name:</strong> ${ctx.metadata?.name || 'Untitled'}</div>
+          <div class="stat"><strong>Nodes:</strong> ${nodeCount}</div>
+          <div class="stat"><strong>Edges:</strong> ${edgeCount}</div>
+          <div class="stat"><strong>Category:</strong> ${ctx.metadata?.category || 'Uncategorized'}</div>
+        `
+      } else {
+        statusEl.innerHTML = '<div class="status standalone">⚠️ Running in Standalone Mode</div>'
+        statsEl.innerHTML = `
+          <div class="stat">No graph context available</div>
+          <div class="stat">This app works best when opened inside a Knowledge Graph in GNewViewer</div>
+        `
+      }
+    }
+
+    function showNodes() {
+      const output = document.getElementById('output')
+      const ctx = window.__GRAPH_CONTEXT__
+      
+      if (!ctx) {
+        output.innerHTML = '<h1>⚠️ No Graph Context</h1><p>Open this app in GNewViewer to see nodes</p>'
+        return
+      }
+      
+      const nodes = ctx.nodes || []
+      let html = `<h1>📝 All Nodes (${nodes.length})</h1><div class="node-list">`
+      
+      nodes.forEach(node => {
+        const preview = (node.content || '').substring(0, 100)
+        html += `
+          <div class="node-item">
+            <strong>${node.label || 'Untitled'}</strong>
+            <div style="opacity: 0.8; font-size: 14px;">Type: ${node.type || 'default'}</div>
+            ${preview ? `<div style="margin-top: 8px; opacity: 0.7;">${preview}...</div>` : ''}
+          </div>
+        `
+      })
+      
+      html += '</div>'
+      output.innerHTML = html
+    }
+
+    function showConnections() {
+      const output = document.getElementById('output')
+      const ctx = window.__GRAPH_CONTEXT__
+      
+      if (!ctx) {
+        output.innerHTML = '<h1>⚠️ No Graph Context</h1>'
+        return
+      }
+      
+      const edges = ctx.edges || []
+      const connections = {}
+      
+      edges.forEach(edge => {
+        connections[edge.from] = (connections[edge.from] || 0) + 1
+        connections[edge.to] = (connections[edge.to] || 0) + 1
+      })
+      
+      const sorted = Object.entries(connections)
+        .map(([nodeId, count]) => {
+          const node = ctx.nodes.find(n => n.id === nodeId)
+          return { nodeId, label: node?.label || nodeId, count }
+        })
+        .sort((a, b) => b.count - a.count)
+      
+      let html = `<h1>🔗 Most Connected Nodes</h1><div class="node-list">`
+      
+      sorted.forEach(item => {
+        html += `
+          <div class="node-item">
+            <strong>${item.label}</strong>
+            <div style="opacity: 0.8;">${item.count} connection${item.count !== 1 ? 's' : ''}</div>
+          </div>
+        `
+      })
+      
+      html += '</div>'
+      output.innerHTML = html
+    }
+
+    async function generateSummary() {
+      const output = document.getElementById('output')
+      const ctx = window.__GRAPH_CONTEXT__
+      
+      if (!ctx) {
+        output.innerHTML = '<h1>⚠️ No Graph Context</h1>'
+        return
+      }
+      
+      if (typeof askAI !== 'function') {
+        output.innerHTML = '<h1>⚠️ AI Helper Not Available</h1>'
+        return
+      }
+      
+      output.innerHTML = '<h1>🤖 Generating AI Summary...</h1><p>Please wait...</p>'
+      
+      try {
+        const nodeTitles = ctx.nodes.map(n => n.label).join(', ')
+        const prompt = `
+          I have a knowledge graph with the following information:
+          
+          Graph Name: ${ctx.metadata?.name || 'Untitled'}
+          Category: ${ctx.metadata?.category || 'General'}
+          Number of Nodes: ${ctx.nodes.length}
+          Number of Edges: ${ctx.edges.length}
+          
+          Node Titles: ${nodeTitles}
+          
+          Please provide a concise summary of what this knowledge graph is about and its main topics.
+        `
+        
+        const summary = await askAI(prompt)
+        
+        output.innerHTML = `
+          <h1>🤖 AI Summary</h1>
+          <div style="line-height: 1.6; opacity: 0.9;">
+            ${summary}
+          </div>
+        `
+      } catch (error) {
+        output.innerHTML = `
+          <h1>❌ Error</h1>
+          <p>${error.message}</p>
+        `
+      }
+    }
+
+    function showRawData() {
+      const output = document.getElementById('output')
+      const ctx = window.__GRAPH_CONTEXT__
+      
+      if (!ctx) {
+        output.innerHTML = '<h1>⚠️ No Graph Context</h1>'
+        return
+      }
+      
+      output.innerHTML = `
+        <h1>📦 Raw Data</h1>
+        <pre>${JSON.stringify(ctx, null, 2)}</pre>
+      `
+    }
+  </script>
+</body>
+</html>

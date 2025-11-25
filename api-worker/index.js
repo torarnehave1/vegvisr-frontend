@@ -6573,7 +6573,7 @@ const handleGenerateHTMLApp = async (request, env) => {
 
         const placeholders = enabledComponents.map(() => '?').join(',')
         const componentsStmt = env.vegvisr_org.prepare(`
-          SELECT name, slug, description, component_props, component_events, component_slots, tags, cdn_url, function_code, example_code
+          SELECT name, slug, description, component_props, component_events, component_slots, cdn_url, function_code, example_code
           FROM apiForApps
           WHERE slug IN (${placeholders}) AND capability_type = 'component' AND status = 'active'
           ORDER BY name
@@ -6584,8 +6584,22 @@ const handleGenerateHTMLApp = async (request, env) => {
         console.log('✅ Found enabled components:', components?.length || 0, components?.map(c => c.slug))
 
       if (components && components.length > 0) {
-        componentDocumentation = '\n\n🧩 AVAILABLE WEB COMPONENTS:\n\n'
-        componentDocumentation += '🚨 MANDATORY: Include these EXACT script tags in your <head> section:\n\n'
+        componentDocumentation += '\n\n🧩 AVAILABLE WEB COMPONENTS:\n\n'
+        componentDocumentation += '🚨 CRITICAL - READ CAREFULLY 🚨\n'
+        componentDocumentation += 'These are CUSTOM web components that ONLY exist at the URLs below.\n'
+        componentDocumentation += 'DO NOT use npm, unpkg, jsdelivr, or any other CDN.\n'
+        componentDocumentation += 'DO NOT invent or guess CDN URLs.\n'
+        componentDocumentation += 'ONLY use the EXACT URLs provided below:\n\n'
+        
+        componentDocumentation += '📊 GRAPH CONTEXT ARCHITECTURE:\n'
+        componentDocumentation += 'When apps run inside the Knowledge Graph viewer, they automatically have access to:\n'
+        componentDocumentation += '  window.__GRAPH_CONTEXT__ = {\n'
+        componentDocumentation += '    nodes: [...],  // All graph nodes\n'
+        componentDocumentation += '    edges: [...],  // All graph edges\n'
+        componentDocumentation += '    metadata: { name, category, dates, ... }\n'
+        componentDocumentation += '  }\n'
+        componentDocumentation += 'Use this in components to make them context-aware.\n'
+        componentDocumentation += 'Check availability: if (window.__GRAPH_CONTEXT__) { ... }\n\n'
 
         // First, list all the required script tags
         components.forEach(component => {
@@ -6769,9 +6783,21 @@ Return ONLY the complete HTML code, nothing else.`
       }
     } else {
       // NEW APP MODE - Creating from scratch
+      console.log('🆕 NEW APP MODE - Creating from scratch')
+      console.log('📦 Component documentation included:', componentDocumentation.length > 0 ? 'YES' : 'NO')
+      
       finalPrompt = `You are creating a STANDALONE HTML APPLICATION FILE.
 
 ${componentDocumentation}
+
+🚨🚨🚨 CRITICAL - WEB COMPONENTS 🚨🚨🚨
+${componentDocumentation ? 'WEB COMPONENTS ARE AVAILABLE ABOVE. YOU MUST USE THEM.' : ''}
+If components are listed above with CDN URLs:
+1. You MUST copy the EXACT <script src="..."> tags into your HTML <head>
+2. You MUST use the custom elements (e.g., <mermaid-diagram></mermaid-diagram>)
+3. You MUST NOT create your own implementation of these features
+4. You MUST NOT use npm, unpkg, jsdelivr, or any other CDN for these components
+5. ONLY use the exact CDN URLs provided in the component documentation above
 
 User Request: ${prompt}
 
@@ -6889,6 +6915,14 @@ The application should be:
 - Use REAL API endpoints, not mock data (for AI features)
 
 Return ONLY the HTML code, nothing else. No explanations, no markdown, just the HTML.`
+    }
+
+    // Log final prompt details before sending to AI
+    console.log('📝 Final prompt character count:', finalPrompt.length)
+    console.log('🧩 Component docs in prompt:', finalPrompt.includes('mermaid-diagram') ? 'YES ✅' : 'NO ❌')
+    console.log('📍 CDN URL in prompt:', finalPrompt.includes('api.vegvisr.org/components/mermaid-diagram.js') ? 'YES ✅' : 'NO ❌')
+    if (finalPrompt.includes('mermaid-diagram')) {
+      console.log('🔍 Component section preview:', finalPrompt.substring(finalPrompt.indexOf('AVAILABLE WEB COMPONENTS'), finalPrompt.indexOf('AVAILABLE WEB COMPONENTS') + 500))
     }
 
     let apiKey, result
