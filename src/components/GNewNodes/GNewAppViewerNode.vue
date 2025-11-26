@@ -1,7 +1,29 @@
 <template>
   <div class="gnew-app-viewer-node">
     <div class="app-header">
-      <h3 class="app-title">{{ node.label || 'Interactive App' }}</h3>
+      <div class="title-section">
+        <h3 v-if="!isEditingLabel" class="app-title" @dblclick="startEditingLabel">
+          {{ node.label || 'Interactive App' }}
+        </h3>
+        <input
+          v-else
+          ref="labelInput"
+          v-model="editedLabel"
+          @blur="saveLabel"
+          @keyup.enter="saveLabel"
+          @keyup.esc="cancelEditLabel"
+          class="label-input"
+          type="text"
+        />
+        <button
+          v-if="!isEditingLabel"
+          @click="startEditingLabel"
+          class="btn-edit-label"
+          title="Edit label (or double-click title)"
+        >
+          ✏️
+        </button>
+      </div>
       <div class="app-controls">
         <button @click="toggleFullscreen" class="btn-control" title="Toggle Fullscreen">
           {{ isFullscreen ? '🗗 Exit Fullscreen' : '⛶ Fullscreen' }}
@@ -48,8 +70,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import { useUserStore } from '@/stores/user'
+import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
+import { useUserStore } from '../../stores/userStore'
 
 const userStore = useUserStore()
 
@@ -64,12 +86,15 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['node-deleted'])
+const emit = defineEmits(['node-deleted', 'node-updated'])
 
 const appFrame = ref(null)
 const appContainer = ref(null)
 const appUrl = ref('')
 const isFullscreen = ref(false)
+const labelInput = ref(null)
+const isEditingLabel = ref(false)
+const editedLabel = ref('')
 
 // Check if user is Superadmin
 const isSuperadmin = computed(() => {
@@ -129,6 +154,34 @@ const deleteNode = () => {
   emit('node-deleted', props.node.id)
 }
 
+// Label editing functions
+const startEditingLabel = () => {
+  isEditingLabel.value = true
+  editedLabel.value = props.node.label || 'Interactive App'
+  nextTick(() => {
+    if (labelInput.value) {
+      labelInput.value.focus()
+      labelInput.value.select()
+    }
+  })
+}
+
+const saveLabel = () => {
+  if (editedLabel.value.trim()) {
+    const updatedNode = {
+      ...props.node,
+      label: editedLabel.value.trim()
+    }
+    emit('node-updated', updatedNode)
+  }
+  isEditingLabel.value = false
+}
+
+const cancelEditLabel = () => {
+  isEditingLabel.value = false
+  editedLabel.value = ''
+}
+
 // Watch for node content changes and update the app
 watch(() => props.node.info, () => {
   createAppUrl()
@@ -186,10 +239,56 @@ onBeforeUnmount(() => {
   border-bottom: 2px solid rgba(255, 255, 255, 0.2);
 }
 
+.title-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
 .app-title {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-title:hover {
+  opacity: 0.9;
+}
+
+.label-input {
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  outline: none;
+  flex: 1;
+  max-width: 400px;
+}
+
+.label-input:focus {
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+}
+
+.btn-edit-label {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-edit-label:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .app-controls {
