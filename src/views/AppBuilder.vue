@@ -1969,13 +1969,11 @@ const needsAIHelper = (prompt) => {
 
 // Inject AI helper function into HTML
 const injectAIHelper = (htmlCode) => {
-  // Check if cloud storage helpers are already defined in the generated code
-  // If they are, don't inject to avoid duplicate declarations
-  if (htmlCode.includes('function saveData(') ||
-      htmlCode.includes('async function saveData(') ||
-      htmlCode.includes('function loadAllData(') ||
-      htmlCode.includes('let requestCounter')) {
-    console.log('☁️ Cloud storage helpers already in generated code - skipping injection')
+  // Check if the FULL auto-injection script is already present
+  // Look for a unique marker that only appears in our complete injection
+  if (htmlCode.includes('VEGVISR AUTO-INJECTED HELPER FUNCTIONS') ||
+      htmlCode.includes('window.analyzeImage = analyzeImage')) {
+    console.log('✅ Vegvisr helper functions already injected - skipping')
     return htmlCode
   }
 
@@ -2194,6 +2192,20 @@ const injectAIHelper = (htmlCode) => {
       }
     }
 
+    // Pixabay search function
+    async function searchPixabay(query, perPage = 15, page = 1) {
+      try {
+        const response = await fetch(\`https://api.vegvisr.org/api/pixabay/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}&page=\${page}\`);
+        if (!response.ok) throw new Error('Failed to search Pixabay');
+
+        const result = await response.json();
+        return result.data.hits;
+      } catch (error) {
+        console.error('Pixabay search error:', error);
+        throw error;
+      }
+    }
+
     // Image analysis function
     async function analyzeImage(imageUrl, prompt = 'Analyze this image in detail') {
       try {
@@ -2264,11 +2276,12 @@ const injectAIHelper = (htmlCode) => {
     window.deleteData = deleteData;
     window.getPortfolioImages = getPortfolioImages;
     window.searchPexels = searchPexels;
+    window.searchPixabay = searchPixabay;
     window.analyzeImage = analyzeImage;
     window.sendSMS = sendSMS;
     window.fetchGraphContext = fetchGraphContext;
 
-    console.log('✅ Helper functions ready: askAI (with auto-context), saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels, analyzeImage, sendSMS');
+    console.log('✅ Helper functions ready: askAI (with auto-context), saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels, searchPixabay, analyzeImage, sendSMS');
     console.log('☁️ Cloud Storage enabled for app:', APP_ID);
   </scr` + `ipt>
   `
