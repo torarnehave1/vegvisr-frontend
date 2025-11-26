@@ -7020,7 +7020,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         })
 
         if (enableStreaming) {
-          // Return streaming response
+          // Buffer stream, apply injection, then stream final result
           const stream = await grokClient.chat.completions.create({
             model: 'grok-code-fast-1',
             temperature: 0.1,
@@ -7037,36 +7037,15 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             ],
           })
 
-          // Create SSE response
-          const { readable, writable } = new TransformStream()
-          const writer = writable.getWriter()
-          const encoder = new TextEncoder()
+          // Buffer the complete response
+          let fullContent = ''
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || ''
+            fullContent += content
+          }
 
-          // Process stream in background
-          ;(async () => {
-            try {
-              for await (const chunk of stream) {
-                const content = chunk.choices[0]?.delta?.content || ''
-                if (content) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
-                }
-              }
-              await writer.write(encoder.encode(`data: [DONE]\n\n`))
-            } catch (error) {
-              console.error('Streaming error:', error)
-            } finally {
-              await writer.close()
-            }
-          })()
-
-          return new Response(readable, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
+          // Store in result for injection processing below
+          result = fullContent.trim()
         } else {
           // Non-streaming response (fallback)
           const grokCompletion = await grokClient.chat.completions.create({
@@ -7101,7 +7080,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         })
 
         if (enableStreaming) {
-          // Return streaming response
+          // Buffer stream, apply injection, then return final result
           const stream = await openaiClient.chat.completions.create({
             model: 'gpt-4o',
             temperature: 0.3,
@@ -7118,36 +7097,15 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             ],
           })
 
-          // Create SSE response
-          const { readable, writable } = new TransformStream()
-          const writer = writable.getWriter()
-          const encoder = new TextEncoder()
+          // Buffer the complete response
+          let fullContent = ''
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || ''
+            fullContent += content
+          }
 
-          // Process stream in background
-          ;(async () => {
-            try {
-              for await (const chunk of stream) {
-                const content = chunk.choices[0]?.delta?.content || ''
-                if (content) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
-                }
-              }
-              await writer.write(encoder.encode(`data: [DONE]\n\n`))
-            } catch (error) {
-              console.error('Streaming error:', error)
-            } finally {
-              await writer.close()
-            }
-          })()
-
-          return new Response(readable, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
+          // Store in result for injection processing below
+          result = fullContent.trim()
         } else {
           // Non-streaming response (fallback)
           const openaiCompletion = await openaiClient.chat.completions.create({
@@ -7182,7 +7140,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         })
 
         if (enableStreaming) {
-          // Return streaming response for GPT-5
+          // Buffer stream, apply injection, then return final result
           const stream = await client.chat.completions.create({
             model: 'gpt-5.1',
             temperature: 0.3,
@@ -7198,36 +7156,15 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             ],
           })
 
-          // Create SSE response
-          const { readable, writable } = new TransformStream()
-          const writer = writable.getWriter()
-          const encoder = new TextEncoder()
+          // Buffer the complete response
+          let fullContent = ''
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || ''
+            fullContent += content
+          }
 
-          // Process stream in background
-          ;(async () => {
-            try {
-              for await (const chunk of stream) {
-                const content = chunk.choices[0]?.delta?.content || ''
-                if (content) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ chunk: content })}\n\n`))
-                }
-              }
-              await writer.write(encoder.encode(`data: [DONE]\n\n`))
-            } catch (error) {
-              console.error('GPT-5 streaming error:', error)
-            } finally {
-              await writer.close()
-            }
-          })()
-
-          return new Response(readable, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
+          // Store in result for injection processing below
+          result = fullContent.trim()
         } else {
           // Non-streaming response (fallback)
           const completion = await client.chat.completions.create({
@@ -7329,7 +7266,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         }
 
         if (enableStreaming) {
-          // Return streaming response for Claude Sonnet 4
+          // Buffer stream, apply injection, then return final result
           const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -7357,81 +7294,45 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             )
           }
 
-          // Create SSE response
-          const { readable, writable } = new TransformStream()
-          const writer = writable.getWriter()
-          const encoder = new TextEncoder()
+          // Buffer the complete response
+          const reader = anthropicResponse.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let fullContent = ''
 
-          // Process stream in background
-          ;(async () => {
-            try {
-              const reader = anthropicResponse.body.getReader()
-              const decoder = new TextDecoder()
-              let buffer = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
 
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
 
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split('\n')
+            for (const line of lines) {
+              const trimmedLine = line.trim()
+              if (!trimmedLine || trimmedLine.startsWith('event:')) continue
 
-                // Keep the last incomplete line in buffer
-                buffer = lines.pop() || ''
+              if (trimmedLine.startsWith('data:')) {
+                const data = trimmedLine.slice(5).trim()
+                if (!data) continue
 
-                for (const line of lines) {
-                  const trimmedLine = line.trim()
-                  if (!trimmedLine) continue
-
-                  // Skip event: lines (Anthropic format has separate event and data lines)
-                  if (trimmedLine.startsWith('event:')) {
-                    continue
+                try {
+                  const parsed = JSON.parse(data)
+                  if (parsed.type === 'content_block_delta' &&
+                      parsed.delta?.type === 'text_delta' &&
+                      parsed.delta?.text) {
+                    fullContent += parsed.delta.text
                   }
-
-                  // Parse data: lines
-                  if (trimmedLine.startsWith('data:')) {
-                    const data = trimmedLine.slice(5).trim()
-                    if (!data) continue
-
-                    try {
-                      const parsed = JSON.parse(data)
-
-                      // Only process content_block_delta events with text_delta type
-                      if (parsed.type === 'content_block_delta' &&
-                          parsed.delta?.type === 'text_delta' &&
-                          parsed.delta?.text) {
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
-                        )
-                      }
-
-                      // Stream ends with message_stop
-                      if (parsed.type === 'message_stop') {
-                        break
-                      }
-                    } catch (e) {
-                      console.error('Failed to parse Anthropic SSE:', e.message)
-                    }
-                  }
+                  if (parsed.type === 'message_stop') break
+                } catch (e) {
+                  console.error('Failed to parse Anthropic SSE:', e.message)
                 }
               }
-
-              await writer.write(encoder.encode(`data: [DONE]\n\n`))
-            } catch (error) {
-              console.error('Claude Sonnet 4 streaming error:', error)
-            } finally {
-              await writer.close()
             }
-          })()
+          }
 
-          return new Response(readable, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
+          // Store in result for injection processing below
+          result = fullContent.trim()
         } else {
           // Non-streaming fallback - Use conversation to continue if truncated
           let fullResult = ''
@@ -7508,7 +7409,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
         }
 
         if (enableStreaming) {
-          // Return streaming response for Claude 4.5
+          // Buffer stream, apply injection, then return final result
           const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -7535,81 +7436,45 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             )
           }
 
-          // Create SSE response
-          const { readable, writable } = new TransformStream()
-          const writer = writable.getWriter()
-          const encoder = new TextEncoder()
+          // Buffer the complete response
+          const reader = anthropicResponse.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let fullContent = ''
 
-          // Process stream in background
-          ;(async () => {
-            try {
-              const reader = anthropicResponse.body.getReader()
-              const decoder = new TextDecoder()
-              let buffer = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
 
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
 
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split('\n')
+            for (const line of lines) {
+              const trimmedLine = line.trim()
+              if (!trimmedLine || trimmedLine.startsWith('event:')) continue
 
-                // Keep the last incomplete line in buffer
-                buffer = lines.pop() || ''
+              if (trimmedLine.startsWith('data:')) {
+                const data = trimmedLine.slice(5).trim()
+                if (!data) continue
 
-                for (const line of lines) {
-                  const trimmedLine = line.trim()
-                  if (!trimmedLine) continue
-
-                  // Skip event: lines (Anthropic format has separate event and data lines)
-                  if (trimmedLine.startsWith('event:')) {
-                    continue
+                try {
+                  const parsed = JSON.parse(data)
+                  if (parsed.type === 'content_block_delta' &&
+                      parsed.delta?.type === 'text_delta' &&
+                      parsed.delta?.text) {
+                    fullContent += parsed.delta.text
                   }
-
-                  // Parse data: lines
-                  if (trimmedLine.startsWith('data:')) {
-                    const data = trimmedLine.slice(5).trim()
-                    if (!data) continue
-
-                    try {
-                      const parsed = JSON.parse(data)
-
-                      // Only process content_block_delta events with text_delta type
-                      if (parsed.type === 'content_block_delta' &&
-                          parsed.delta?.type === 'text_delta' &&
-                          parsed.delta?.text) {
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
-                        )
-                      }
-
-                      // Stream ends with message_stop
-                      if (parsed.type === 'message_stop') {
-                        break
-                      }
-                    } catch (e) {
-                      console.error('Failed to parse Anthropic SSE:', e.message)
-                    }
-                  }
+                  if (parsed.type === 'message_stop') break
+                } catch (e) {
+                  console.error('Failed to parse Anthropic SSE:', e.message)
                 }
               }
-
-              await writer.write(encoder.encode(`data: [DONE]\n\n`))
-            } catch (error) {
-              console.error('Claude 4.5 streaming error:', error)
-            } finally {
-              await writer.close()
             }
-          })()
+          }
 
-          return new Response(readable, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
+          // Store in result for injection processing below
+          result = fullContent.trim()
         } else {
           // Non-streaming fallback - Use conversation to continue if truncated
           let fullResult = ''
@@ -8890,6 +8755,95 @@ const handlePexelsSearch = async (request, env) => {
   }
 }
 
+/**
+ * YouCanBook.me API proxy - query bookings
+ * Endpoint: GET /v1/accounts/{accountId}/bookings/query
+ * Uses HTTP Basic Auth with accountId as username and API key as password
+ */
+const handleYouCanBookBookings = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    
+    // Extract query parameters
+    const from = url.searchParams.get('from') // Required: ISO date format
+    const to = url.searchParams.get('to') // Optional: ISO date format
+    const statuses = url.searchParams.get('statuses') // Optional: tentative, rejected, cancelled, upcoming, inProgress, finished, noShow
+    const bookingPageIds = url.searchParams.get('bookingPageIds') // Optional
+    const searchText = url.searchParams.get('searchText') // Optional
+    const searchTextCriteria = url.searchParams.get('searchTextCriteria') // Optional: title, form, ref
+    const direction = url.searchParams.get('direction') || 'forwards' // forwards or backwards
+    const sortBy = url.searchParams.get('sortBy') || 'startsAt' // Default: startsAt
+    const pageSize = url.searchParams.get('pageSize') || '50' // 10-500
+    
+    if (!env.YOUCANBOOK_ACCOUNT_ID || !env.YOUCANBOOK_API_KEY) {
+      return createErrorResponse('YouCanBook.me credentials not configured', 500)
+    }
+
+    // If 'from' is not provided, default to 30 days ago
+    let fromDate = from
+    if (!fromDate) {
+      const defaultFrom = new Date()
+      defaultFrom.setDate(defaultFrom.getDate() - 30)
+      fromDate = defaultFrom.toISOString()
+    }
+
+    console.log('📅 YouCanBook.me bookings query:', { 
+      accountId: env.YOUCANBOOK_ACCOUNT_ID.substring(0, 8) + '...',
+      from: fromDate,
+      to: to || 'not specified',
+      statuses: statuses || 'all'
+    })
+
+    // Create Basic Auth header
+    const credentials = btoa(`${env.YOUCANBOOK_ACCOUNT_ID}:${env.YOUCANBOOK_API_KEY}`)
+    
+    // Build query URL
+    const queryParams = new URLSearchParams({
+      from: fromDate,
+      direction,
+      sortBy,
+      pageSize
+    })
+    
+    if (to) queryParams.append('to', to)
+    if (statuses) queryParams.append('statuses', statuses)
+    if (bookingPageIds) queryParams.append('bookingPageIds', bookingPageIds)
+    if (searchText) queryParams.append('searchText', searchText)
+    if (searchTextCriteria) queryParams.append('searchTextCriteria', searchTextCriteria)
+    
+    const apiUrl = `https://api.youcanbook.me/v1/accounts/${env.YOUCANBOOK_ACCOUNT_ID}/bookings/query?${queryParams.toString()}`
+
+    // Call YouCanBook.me API
+    const ycbmResponse = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Accept': 'application/json'
+      }
+    })
+
+    if (!ycbmResponse.ok) {
+      const errorText = await ycbmResponse.text()
+      console.error('❌ YouCanBook.me API error:', errorText)
+      return createErrorResponse(`YouCanBook.me API error: ${ycbmResponse.status}`, ycbmResponse.status)
+    }
+
+    const data = await ycbmResponse.json()
+
+    console.log('✅ YouCanBook.me bookings successful:', {
+      bookingsReturned: Array.isArray(data) ? data.length : 'unknown'
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      bookings: data
+    }))
+
+  } catch (error) {
+    console.error('❌ Error in handleYouCanBookBookings:', error)
+    return createErrorResponse('YouCanBook.me bookings failed: ' + error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -9380,6 +9334,11 @@ export default {
     // Pixabay API proxy - keeps API key secure on server
     if (pathname === '/api/pixabay/search' && request.method === 'GET') {
       return await handlePixabayImageSearch(request, env)
+    }
+
+    // YouCanBook.me API proxy - list bookings
+    if (pathname === '/api/youcanbook/bookings' && request.method === 'GET') {
+      return await handleYouCanBookBookings(request, env)
     }
 
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
