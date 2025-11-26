@@ -131,8 +131,8 @@
                 <option value="gpt5">GPT-5.1 (Advanced reasoning - 16K output)</option>
                 <option value="openai">GPT-4o (Fast & balanced - 16K output)</option>
                 <option value="claude">Claude 4 Opus (Detailed - 8K output)</option>
-                <option value="claude-4">Claude Sonnet 4 (Fast - 8K output)</option>
-                <option value="claude-4.5">Claude 4.5 Sonnet (Balanced - 8K output)</option>
+                <option value="claude-4">Claude Sonnet 4 (Fast - 128K output)</option>
+                <option value="claude-4.5">Claude 4.5 Sonnet (Balanced - 64K output)</option>
               </select>
             </label>
             <small class="model-hint">{{ getModelDescription(selectedAIModel) }}</small>
@@ -993,8 +993,8 @@ const getModelDescription = (model) => {
     gpt5: '⚠️ SLOW (60s+) - Advanced reasoning, 16K output. May timeout on complex apps.',
     openai: 'Fast & reliable, 16K output. Good for medium-sized apps with quick iterations.',
     claude: 'High quality but 8K output - may truncate large apps. Use Grok for complex projects.',
-    'claude-4': 'Fast but 8K output limit - may truncate. Best for small/simple apps or use conversation mode.',
-    'claude-4.5': 'Balanced quality, 8K output - may truncate. Consider Grok for full-featured apps.'
+    'claude-4': '🚀 Claude Sonnet 4 - 128K output limit with streaming. Fast, high-quality code generation.',
+    'claude-4.5': '🚀 Claude 4.5 Sonnet - 64K output limit with streaming. Balanced quality and speed.'
   }
   return descriptions[model] || 'Select an AI model to generate your app'
 }
