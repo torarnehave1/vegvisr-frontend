@@ -7582,10 +7582,10 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
     // 🤖 INJECT HELPER FUNCTIONS if AI Chat or Cloud Storage APIs are enabled
     const needsHelpers = enabledAPIs.includes('ai-chat') || enabledAPIs.some(api => api.startsWith('cloud-storage-'))
-    
+
     if (needsHelpers) {
       console.log('🔧 Injecting helper functions for:', enabledAPIs.filter(api => api === 'ai-chat' || api.startsWith('cloud-storage-')))
-      
+
       const helperScript = `
   <script>
     // ============================================
@@ -7602,22 +7602,22 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       return new Promise((resolve) => {
         const requestId = Date.now();
         console.log('📊 [App] Requesting graph context from parent...');
-        
+
         const handler = (event) => {
           if (event.data.type === 'GRAPH_CONTEXT_RESPONSE' && event.data.requestId === requestId) {
             window.removeEventListener('message', handler);
             console.log('✅ [App] Graph context received:', event.data.context);
-            
+
             GRAPH_ID = event.data.context.graphId;
             GRAPH_CONTEXT = event.data.context;
-            
+
             resolve(event.data.context);
           }
         };
-        
+
         window.addEventListener('message', handler);
         window.parent.postMessage({ type: 'GET_GRAPH_CONTEXT', requestId }, '*');
-        
+
         // Timeout after 5 seconds
         setTimeout(() => {
           window.removeEventListener('message', handler);
@@ -7755,17 +7755,17 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       try {
         const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small');
         if (!response.ok) throw new Error('Failed to fetch images');
-        
+
         const data = await response.json();
         const images = data.images || [];
-        
+
         const qualityPresets = {
           ultraFast: '?w=150&h=94&fit=crop&auto=format,compress&q=30',
           balanced: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance,compress&q=65&dpr=2',
           highQuality: '?w=150&h=94&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5',
           original: ''
         };
-        
+
         const params = qualityPresets[quality] || qualityPresets.balanced;
         return images.map(img => ({
           ...img,
@@ -7783,7 +7783,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       try {
         const response = await fetch(\`https://api.vegvisr.org/api/pexels/search?query=\${encodeURIComponent(query)}&per_page=\${perPage}&page=\${page}\`);
         if (!response.ok) throw new Error('Failed to search Pexels');
-        
+
         const result = await response.json();
         return result.data.photos;
       } catch (error) {
@@ -7801,11 +7801,11 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
     window.getPortfolioImages = getPortfolioImages;
     window.searchPexels = searchPexels;
     window.fetchGraphContext = fetchGraphContext;
-    
+
     console.log('✅ Helper functions ready: askAI, saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels');
   </script>
 `
-      
+
       // Inject before closing </body> tag
       cleanHTML = cleanHTML.replace(/<\/body>/i, helperScript + '\n</body>')
       console.log('✅ Helper functions injected into HTML')
@@ -7843,7 +7843,7 @@ const handleUserAIChat = async (request, env) => {
       try {
         const db = env.vegvisr_org
         console.log('🔍 [AI Chat] Querying D1 for graph:', graph_id)
-        
+
         const graphRow = await db
           .prepare('SELECT * FROM knowledge_graphs WHERE id = ?')
           .bind(graph_id)
@@ -7854,14 +7854,14 @@ const handleUserAIChat = async (request, env) => {
         if (graphRow && graphRow.data) {
           const graphData = JSON.parse(graphRow.data)
           console.log('✅ [AI Chat] Graph data parsed successfully')
-          
+
           // Build context from graph data
           const graphTitle = graphData.name || graphRow.title || 'Unknown Graph'
           const nodeCount = graphData.nodes?.length || 0
           const edgeCount = graphData.edges?.length || 0
-          
+
           console.log('📊 [AI Chat] Graph stats:', { title: graphTitle, nodeCount, edgeCount })
-          
+
           // Extract node information
           const nodeSummaries = (graphData.nodes || []).map(node => {
             const label = node.label || 'Untitled'
