@@ -7295,28 +7295,50 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             try {
               const reader = anthropicResponse.body.getReader()
               const decoder = new TextDecoder()
+              let buffer = ''
 
               while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
 
-                const chunk = decoder.decode(value)
-                const lines = chunk.split('\n')
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                
+                // Keep the last incomplete line in buffer
+                buffer = lines.pop() || ''
 
                 for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    const data = line.slice(6)
-                    if (data === '[DONE]') continue
+                  const trimmedLine = line.trim()
+                  if (!trimmedLine) continue
+                  
+                  // Skip event: lines (Anthropic format has separate event and data lines)
+                  if (trimmedLine.startsWith('event:')) {
+                    continue
+                  }
+                  
+                  // Parse data: lines
+                  if (trimmedLine.startsWith('data:')) {
+                    const data = trimmedLine.slice(5).trim()
+                    if (!data) continue
 
                     try {
                       const parsed = JSON.parse(data)
-                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                      
+                      // Only process content_block_delta events with text_delta type
+                      if (parsed.type === 'content_block_delta' && 
+                          parsed.delta?.type === 'text_delta' && 
+                          parsed.delta?.text) {
                         await writer.write(
                           encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
                         )
                       }
+                      
+                      // Stream ends with message_stop
+                      if (parsed.type === 'message_stop') {
+                        break
+                      }
                     } catch (e) {
-                      // Skip invalid JSON
+                      console.error('Failed to parse Anthropic SSE:', e.message)
                     }
                   }
                 }
@@ -7324,7 +7346,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
               await writer.write(encoder.encode(`data: [DONE]\n\n`))
             } catch (error) {
-              console.error('Streaming error:', error)
+              console.error('Claude Sonnet 4 streaming error:', error)
             } finally {
               await writer.close()
             }
@@ -7424,7 +7446,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-5',
-              max_tokens: 65536,
+              max_tokens: 64000,
               stream: true,
               system: previousCode
                 ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
@@ -7451,28 +7473,50 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             try {
               const reader = anthropicResponse.body.getReader()
               const decoder = new TextDecoder()
+              let buffer = ''
 
               while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
 
-                const chunk = decoder.decode(value)
-                const lines = chunk.split('\n')
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                
+                // Keep the last incomplete line in buffer
+                buffer = lines.pop() || ''
 
                 for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    const data = line.slice(6)
-                    if (data === '[DONE]') continue
+                  const trimmedLine = line.trim()
+                  if (!trimmedLine) continue
+                  
+                  // Skip event: lines (Anthropic format has separate event and data lines)
+                  if (trimmedLine.startsWith('event:')) {
+                    continue
+                  }
+                  
+                  // Parse data: lines
+                  if (trimmedLine.startsWith('data:')) {
+                    const data = trimmedLine.slice(5).trim()
+                    if (!data) continue
 
                     try {
                       const parsed = JSON.parse(data)
-                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                      
+                      // Only process content_block_delta events with text_delta type
+                      if (parsed.type === 'content_block_delta' && 
+                          parsed.delta?.type === 'text_delta' && 
+                          parsed.delta?.text) {
                         await writer.write(
                           encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
                         )
                       }
-                    } catch {
-                      // Skip invalid JSON
+                      
+                      // Stream ends with message_stop
+                      if (parsed.type === 'message_stop') {
+                        break
+                      }
+                    } catch (e) {
+                      console.error('Failed to parse Anthropic SSE:', e.message)
                     }
                   }
                 }
@@ -7480,7 +7524,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
               await writer.write(encoder.encode(`data: [DONE]\n\n`))
             } catch (error) {
-              console.error('Streaming error:', error)
+              console.error('Claude 4.5 streaming error:', error)
             } finally {
               await writer.close()
             }
@@ -7514,7 +7558,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
               },
               body: JSON.stringify({
                 model: 'claude-sonnet-4-5',
-                max_tokens: 65536,
+                max_tokens: 64000,
                 system: previousCode
                   ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
                   : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
