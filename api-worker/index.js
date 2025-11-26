@@ -6609,6 +6609,10 @@ const handleGenerateHTMLApp = async (request, env) => {
 
           if (apis && apis.length > 0) {
             apiDocumentation = '\n\n🔌 AVAILABLE APIs - USE THESE FUNCTIONS:\n\n'
+            apiDocumentation += '⚠️⚠️⚠️ DO NOT IMPLEMENT THESE FUNCTIONS - THEY ARE AUTO-INJECTED! ⚠️⚠️⚠️\n'
+            apiDocumentation += 'The functions below are ALREADY defined globally in your HTML.\n'
+            apiDocumentation += 'JUST CALL THEM - Do NOT copy their implementation into your code.\n'
+            apiDocumentation += 'Example: await analyzeImage(url, prompt) - NO function definition needed!\n\n'
 
           apis.forEach(api => {
             apiDocumentation += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
@@ -6891,6 +6895,39 @@ CRITICAL REQUIREMENTS:
 11. Make sure every onclick="functionName()" has a corresponding function functionName() defined in the script
 12. NEVER TRUNCATE CODE - always finish all functions and close all tags
 
+⛔⛔⛔ CRITICAL: DO NOT IMPLEMENT HELPER FUNCTIONS ⛔⛔⛔
+The following functions are AUTO-INJECTED into every app:
+- askAI(question)
+- saveData(key, value)
+- loadData(key)
+- loadAllData()
+- deleteData(key)
+- getPortfolioImages(quality)
+- searchPexels(query, perPage, page)
+- searchPixabay(query, perPage, page) (if enabled)
+- analyzeImage(imageUrl, prompt) (if enabled)
+- fetchGraphContext()
+
+YOU MUST ONLY *CALL* THESE FUNCTIONS - NEVER DEFINE THEM!
+If you see <!-- Cloud Storage API Helper --> in existing code, REMOVE IT - it's partial/outdated.
+The complete, correct implementations are injected automatically.
+
+Example of CORRECT usage (just call the function):
+<script>
+window.onload = async function() {
+  const images = await getPortfolioImages(20);  // ✅ CORRECT - just call it
+  const result = await analyzeImage(images[0].url, 'Describe this');  // ✅ CORRECT
+  await saveData('result', result);  // ✅ CORRECT
+}
+</script>
+
+Example of WRONG usage (defining the function):
+<script>
+async function getPortfolioImages() {  // ❌ WRONG - DO NOT DEFINE
+  // DO NOT DO THIS!
+}
+</script>
+
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
 ❌ DO NOT define askAI(), getPortfolioImages(), searchPexels(), searchPixabay(), or analyzeImage() functions - they are auto-injected!
 ✅ Simply call await askAI(question) directly in your code
@@ -6906,79 +6943,24 @@ IMPORTANT: The askAI() function is context-aware!
 
 These functions are globally available and ready to use. DO NOT redefine them.
 
-🚨 MANDATORY CLOUD STORAGE - USE HELPER FUNCTIONS 🚨
-❌ FORBIDDEN: localStorage, sessionStorage, IndexedDB, WebSQL, raw fetch() calls
-✅ REQUIRED: Use ONLY these pre-defined global functions (DO NOT define them yourself):
+🚨 CLOUD STORAGE - AVAILABLE FUNCTIONS 🚨
+❌ FORBIDDEN: localStorage, sessionStorage, IndexedDB, WebSQL
+✅ AVAILABLE: These functions are auto-injected and ready to use:
 
-🔹 SAVE DATA - CALL THIS:
-await saveData(key, value)
-// For versioned data (todo items, messages): await saveData('task_' + Date.now(), { title: 'Buy groceries', done: false })
-// For single-instance data (graph, settings): await saveData('graph_data', graphObject) - this UPDATES existing data
+  await saveData(key, value)      // Save data to cloud
+  await loadData(key)              // Load specific data
+  await loadAllData()              // Load all app data
+  await deleteData(key)            // Delete data
 
-🔹 LOAD SPECIFIC DATA - CALL THIS:
-const data = await loadData(key)
-// Example: const task = await loadData('task_123')
-
-🔹 LOAD ALL DATA - CALL THIS:
-const items = await loadAllData()
-// Returns: [{key: 'task_1', value: {title: '...'}}, {key: 'task_2', value: {...}}]
-
-🔹 DELETE DATA - CALL THIS:
-await deleteData(key)
-// Example: await deleteData('task_123')
-
-🚨 CRITICAL RULES:
-1. These functions are ALREADY DEFINED globally - DO NOT redefine them
-2. DO NOT use fetch() for storage - ONLY use these helper functions
-3. DO NOT hardcode userId, appId, or API tokens
-4. The functions handle all authentication automatically
-5. Always use try/catch when calling these async functions
-6. FOR GRAPH/CANVAS/SETTINGS: Use a FIXED key like 'graph_data' to UPDATE (not create versions)
-7. FOR LIST ITEMS: Use unique keys like 'task_' + Date.now() to create separate entries
-
-CONCRETE IMPLEMENTATION EXAMPLE FOR TODO APP:
-<script>
-let tasks = [];
-
-// Load tasks on page load
-window.onload = async function() {
-  try {
-    const items = await loadAllData(); // Returns [{key, value}, ...]
-    tasks = items;
-    items.forEach(item => {
-      displayTask(item.key, item.value);
-    });
-  } catch (error) {
-    console.error('Failed to load tasks:', error);
+Usage pattern:
+  window.onload = async function() {
+    const items = await loadAllData();  // Just call it - already defined!
+    items.forEach(item => displayItem(item));
   }
-}
 
-// Add new task
-async function addTask() {
-  const title = document.getElementById('taskInput').value;
-  const key = 'task_' + Date.now();
-  const task = { title: title, done: false };
-
-  try {
-    await saveData(key, task); // Use helper function
-    tasks.push({ key, value: task });
-    displayTask(key, task);
-  } catch (error) {
-    alert('Failed to save task');
+  async function addItem() {
+    await saveData('item_' + Date.now(), { text: 'Hello' });  // Just call it!
   }
-}
-
-// Delete task
-async function deleteTask(key) {
-  try {
-    await deleteData(key); // Use helper function
-    tasks = tasks.filter(t => t.key !== key);
-    removeTaskFromDOM(key);
-  } catch (error) {
-    alert('Failed to delete task');
-  }
-}
-</script>
 
 REMEMBER:
 - Call loadAllData() in window.onload to restore data
@@ -7354,11 +7336,11 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
               'Content-Type': 'application/json',
               'x-api-key': apiKey,
               'anthropic-version': '2023-06-01',
-              'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
+              'anthropic-beta': 'output-128k-2025-02-19',
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-20250514',
-              max_tokens: 128000,
+              max_tokens: 64000,
               stream: true,
               system: previousCode
                 ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
@@ -7467,11 +7449,11 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
                 'anthropic-version': '2023-06-01',
-                'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
+                'anthropic-beta': 'output-128k-2025-02-19',
               },
               body: JSON.stringify({
                 model: 'claude-sonnet-4-20250514',
-                max_tokens: 128000,
+                max_tokens: 64000,
                 system: previousCode
                   ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
                   : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
@@ -7714,13 +7696,12 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       )
     }
 
-    // 🤖 INJECT HELPER FUNCTIONS if AI Chat or Cloud Storage APIs are enabled
-    const needsHelpers = enabledAPIs.includes('ai-chat') || enabledAPIs.some(api => api.startsWith('cloud-storage-'))
+    // 🤖 ALWAYS INJECT CORE HELPER FUNCTIONS
+    // These include: askAI, saveData, loadData, getPortfolioImages, searchPexels, etc.
+    // Even if AI generated partial helpers, we ensure complete, correct implementations
+    console.log('🔧 Injecting core helper functions...')
 
-    if (needsHelpers) {
-      console.log('🔧 Injecting helper functions for:', enabledAPIs.filter(api => api === 'ai-chat' || api.startsWith('cloud-storage-')))
-
-      const helperScript = `
+    const helperScript = `
   <script>
     // ============================================
     // VEGVISR AUTO-INJECTED HELPER FUNCTIONS
@@ -7940,10 +7921,9 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
   </script>
 `
 
-      // Inject before closing </body> tag
-      cleanHTML = cleanHTML.replace(/<\/body>/i, helperScript + '\n</body>')
-      console.log('✅ Helper functions injected into HTML')
-    }
+    // Inject before closing </body> tag
+    cleanHTML = cleanHTML.replace(/<\/body>/i, helperScript + '\n</body>')
+    console.log('✅ Core helper functions injected into HTML')
 
     // 🔌 BUILD GUARANTEED API INJECTION SCRIPT
     const apiInjectionScript = await buildAPIInjectionScript(enabledAPIs, env)
