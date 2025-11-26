@@ -4,11 +4,18 @@
       <div class="sms-share-card">
         <!-- Header -->
         <div class="page-header">
-          <h1>
-            <i class="bi bi-chat-dots-fill"></i>
-            Share via SMS
-          </h1>
-          <p class="subtitle">Send this knowledge graph to your contacts</p>
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h1>
+                <i class="bi bi-chat-dots-fill"></i>
+                Share via SMS
+              </h1>
+              <p class="subtitle">Send this knowledge graph to your contacts</p>
+            </div>
+            <button @click="goBack" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
         </div>
 
         <!-- Tab Navigation -->

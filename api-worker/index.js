@@ -8844,6 +8844,121 @@ const handleYouCanBookBookings = async (request, env) => {
   }
 }
 
+/**
+ * YouCanBook.me API proxy - check availability
+ * Multi-step process: Create intent → PATCH selections → Get availability key → Fetch slots
+ */
+const handleYouCanBookAvailability = async (request, env) => {
+  try {
+    const url = new URL(request.url)
+    const body = await request.json()
+    
+    // Extract parameters
+    const { subdomain, timeZone, appointmentTypeIds, teamMemberId, duration, units } = body
+    
+    if (!subdomain) {
+      return createErrorResponse('subdomain is required', 400)
+    }
+    
+    if (!env.YOUCANBOOK_ACCOUNT_ID || !env.YOUCANBOOK_API_KEY) {
+      return createErrorResponse('YouCanBook.me credentials not configured', 500)
+    }
+
+    console.log('📅 YouCanBook.me availability request:', { 
+      subdomain,
+      timeZone: timeZone || 'not specified',
+      appointmentTypeIds: appointmentTypeIds || 'not specified'
+    })
+
+    // Create Basic Auth header
+    const credentials = btoa(`${env.YOUCANBOOK_ACCOUNT_ID}:${env.YOUCANBOOK_API_KEY}`)
+    const authHeaders = {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
+    
+    // Step 1: Create intent
+    const intentPayload = {
+      subdomain,
+      selections: {}
+    }
+    
+    // Only add selections that are actually editable in the booking page
+    // NOTE: 'units' is NOT a selection - it causes "units_non_editable" error
+    // Units controls how many days ahead to check, but it's a query parameter, not a selection
+    if (timeZone) intentPayload.selections.timeZone = timeZone
+    if (duration) intentPayload.selections.duration = duration
+    // DO NOT add units to selections - it's not editable via API
+    if (appointmentTypeIds && appointmentTypeIds.length > 0) {
+      intentPayload.selections.appointmentTypeIds = appointmentTypeIds
+    }
+    if (teamMemberId) intentPayload.selections.teamMemberId = teamMemberId
+    
+    console.log('📅 Creating intent with payload:', JSON.stringify(intentPayload, null, 2))
+    
+    const intentResponse = await fetch('https://api.youcanbook.me/v1/intents', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(intentPayload)
+    })
+
+    if (!intentResponse.ok) {
+      const errorText = await intentResponse.text()
+      console.error('❌ Intent creation failed:', errorText)
+      return createErrorResponse(`Intent creation failed: ${intentResponse.status}`, intentResponse.status)
+    }
+
+    const intentData = await intentResponse.json()
+    const intentId = intentData.id
+    
+    console.log('✅ Intent created:', intentId)
+
+    // Step 2: Get availability key
+    const availKeyResponse = await fetch(`https://api.youcanbook.me/v1/intents/${intentId}/availabilitykey`, {
+      headers: authHeaders
+    })
+
+    if (!availKeyResponse.ok) {
+      const errorText = await availKeyResponse.text()
+      console.error('❌ Availability key fetch failed:', errorText)
+      return createErrorResponse(`Availability key failed: ${availKeyResponse.status}`, availKeyResponse.status)
+    }
+
+    const { key: availabilityKey } = await availKeyResponse.json()
+    
+    console.log('✅ Availability key obtained')
+
+    // Step 3: Get available slots
+    const slotsResponse = await fetch(`https://api.youcanbook.me/v1/availabilities/${availabilityKey}`, {
+      headers: authHeaders
+    })
+
+    if (!slotsResponse.ok) {
+      const errorText = await slotsResponse.text()
+      console.error('❌ Slots fetch failed:', errorText)
+      return createErrorResponse(`Slots fetch failed: ${slotsResponse.status}`, slotsResponse.status)
+    }
+
+    const slotsData = await slotsResponse.json()
+
+    console.log('✅ Available slots retrieved:', {
+      slotsCount: slotsData.slots?.length || 0
+    })
+
+    return createResponse(JSON.stringify({
+      success: true,
+      intentId,
+      availabilityKey,
+      slots: slotsData.slots || []
+    }))
+
+  } catch (error) {
+    console.error('❌ Error in handleYouCanBookAvailability:', error)
+    return createErrorResponse('Availability check failed: ' + error.message, 500)
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -9339,6 +9454,11 @@ export default {
     // YouCanBook.me API proxy - list bookings
     if (pathname === '/api/youcanbook/bookings' && request.method === 'GET') {
       return await handleYouCanBookBookings(request, env)
+    }
+
+    // YouCanBook.me API proxy - check availability
+    if (pathname === '/api/youcanbook/availability' && request.method === 'POST') {
+      return await handleYouCanBookAvailability(request, env)
     }
 
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
