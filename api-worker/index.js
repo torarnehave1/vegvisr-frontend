@@ -8852,19 +8852,19 @@ const handleYouCanBookAvailability = async (request, env) => {
   try {
     const url = new URL(request.url)
     const body = await request.json()
-    
+
     // Extract parameters
     const { subdomain, timeZone, appointmentTypeIds, teamMemberId, duration, units } = body
-    
+
     if (!subdomain) {
       return createErrorResponse('subdomain is required', 400)
     }
-    
+
     if (!env.YOUCANBOOK_ACCOUNT_ID || !env.YOUCANBOOK_API_KEY) {
       return createErrorResponse('YouCanBook.me credentials not configured', 500)
     }
 
-    console.log('📅 YouCanBook.me availability request:', { 
+    console.log('📅 YouCanBook.me availability request:', {
       subdomain,
       timeZone: timeZone || 'not specified',
       appointmentTypeIds: appointmentTypeIds || 'not specified'
@@ -8877,13 +8877,13 @@ const handleYouCanBookAvailability = async (request, env) => {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
-    
+
     // Step 1: Create intent
     const intentPayload = {
       subdomain,
       selections: {}
     }
-    
+
     // Only add selections that are actually editable in the booking page
     // NOTE: 'units' is NOT a selection - it causes "units_non_editable" error
     // Units controls how many days ahead to check, but it's a query parameter, not a selection
@@ -8894,9 +8894,9 @@ const handleYouCanBookAvailability = async (request, env) => {
       intentPayload.selections.appointmentTypeIds = appointmentTypeIds
     }
     if (teamMemberId) intentPayload.selections.teamMemberId = teamMemberId
-    
+
     console.log('📅 Creating intent with payload:', JSON.stringify(intentPayload, null, 2))
-    
+
     const intentResponse = await fetch('https://api.youcanbook.me/v1/intents', {
       method: 'POST',
       headers: authHeaders,
@@ -8911,7 +8911,7 @@ const handleYouCanBookAvailability = async (request, env) => {
 
     const intentData = await intentResponse.json()
     const intentId = intentData.id
-    
+
     console.log('✅ Intent created:', intentId)
 
     // Step 2: Get availability key
@@ -8926,7 +8926,7 @@ const handleYouCanBookAvailability = async (request, env) => {
     }
 
     const { key: availabilityKey } = await availKeyResponse.json()
-    
+
     console.log('✅ Availability key obtained')
 
     // Step 3: Get available slots
