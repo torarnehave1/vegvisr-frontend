@@ -8763,7 +8763,7 @@ const handlePexelsSearch = async (request, env) => {
 const handleYouCanBookBookings = async (request, env) => {
   try {
     const url = new URL(request.url)
-    
+
     // Extract query parameters
     const from = url.searchParams.get('from') // Required: ISO date format
     const to = url.searchParams.get('to') // Optional: ISO date format
@@ -8774,7 +8774,7 @@ const handleYouCanBookBookings = async (request, env) => {
     const direction = url.searchParams.get('direction') || 'forwards' // forwards or backwards
     const sortBy = url.searchParams.get('sortBy') || 'startsAt' // Default: startsAt
     const pageSize = url.searchParams.get('pageSize') || '50' // 10-500
-    
+
     if (!env.YOUCANBOOK_ACCOUNT_ID || !env.YOUCANBOOK_API_KEY) {
       return createErrorResponse('YouCanBook.me credentials not configured', 500)
     }
@@ -8787,7 +8787,7 @@ const handleYouCanBookBookings = async (request, env) => {
       fromDate = defaultFrom.toISOString()
     }
 
-    console.log('📅 YouCanBook.me bookings query:', { 
+    console.log('📅 YouCanBook.me bookings query:', {
       accountId: env.YOUCANBOOK_ACCOUNT_ID.substring(0, 8) + '...',
       from: fromDate,
       to: to || 'not specified',
@@ -8796,7 +8796,7 @@ const handleYouCanBookBookings = async (request, env) => {
 
     // Create Basic Auth header
     const credentials = btoa(`${env.YOUCANBOOK_ACCOUNT_ID}:${env.YOUCANBOOK_API_KEY}`)
-    
+
     // Build query URL
     const queryParams = new URLSearchParams({
       from: fromDate,
@@ -8804,13 +8804,13 @@ const handleYouCanBookBookings = async (request, env) => {
       sortBy,
       pageSize
     })
-    
+
     if (to) queryParams.append('to', to)
     if (statuses) queryParams.append('statuses', statuses)
     if (bookingPageIds) queryParams.append('bookingPageIds', bookingPageIds)
     if (searchText) queryParams.append('searchText', searchText)
     if (searchTextCriteria) queryParams.append('searchTextCriteria', searchTextCriteria)
-    
+
     const apiUrl = `https://api.youcanbook.me/v1/accounts/${env.YOUCANBOOK_ACCOUNT_ID}/bookings/query?${queryParams.toString()}`
 
     // Call YouCanBook.me API
