@@ -8019,6 +8019,99 @@ This is the Knowledge Graph you are currently viewing. Use this information to a
   }
 }
 
+// --- Image Analysis with Claude Vision API ---
+const handleImageAnalysis = async (request, env) => {
+  try {
+    const { imageUrl, prompt = 'Analyze this image in detail' } = await request.json()
+
+    if (!imageUrl) {
+      return createErrorResponse('imageUrl is required', 400)
+    }
+
+    // Validate URL format
+    try {
+      new URL(imageUrl)
+    } catch (e) {
+      return createErrorResponse('Invalid image URL', 400)
+    }
+
+    const apiKey = env.ANTHROPIC_API_KEY
+    if (!apiKey) {
+      return createErrorResponse('Anthropic API key not configured', 500)
+    }
+
+    console.log('🔍 [Image Analysis] Analyzing image:', imageUrl)
+    console.log('📝 [Image Analysis] Prompt:', prompt)
+
+    // Call Anthropic Messages API with vision
+    const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', // Claude 4 with vision
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'url',
+                  url: imageUrl,
+                },
+              },
+              {
+                type: 'text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    if (!anthropicResponse.ok) {
+      const errorText = await anthropicResponse.text()
+      console.error('❌ [Image Analysis] Anthropic API error:', errorText)
+      return createErrorResponse(
+        `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+        500,
+      )
+    }
+
+    const data = await anthropicResponse.json()
+    const analysis = data.content?.[0]?.text
+
+    if (!analysis) {
+      console.error('❌ [Image Analysis] No analysis text in response')
+      return createErrorResponse('No analysis returned from AI', 500)
+    }
+
+    console.log('✅ [Image Analysis] Success, tokens used:', data.usage?.total_tokens || 0)
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        analysis,
+        model: 'claude-sonnet-4-20250514',
+        usage: {
+          input_tokens: data.usage?.input_tokens || 0,
+          output_tokens: data.usage?.output_tokens || 0,
+          total_tokens: data.usage?.total_tokens || 0,
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('❌ [Image Analysis] Error:', error)
+    return createErrorResponse(`Image analysis failed: ${error.message}`, 500)
+  }
+}
+
 // Removed handleCreateSandboxBrandDomain - using direct API calls instead
 
 // --- Update Sandman Worker Endpoint ---
@@ -9211,6 +9304,10 @@ export default {
 
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
       return await handleUserAIChat(request, env)
+    }
+
+    if (pathname === '/api/analyze-image' && request.method === 'POST') {
+      return await handleImageAnalysis(request, env)
     }
 
     if (pathname === '/update-sandman' && request.method === 'POST') {
