@@ -976,6 +976,7 @@ const enableMultiRowStorage = ref(false) // Multi-row storage mode for database-
 
 // App History Management
 const showSaveDialog = ref(false)
+const isSavingAsTemplate = ref(false) // Track if saving as template vs history
 const showNewAppDialog = ref(false)
 const saveAppName = ref('')
 const saveAppDescription = ref('')
@@ -2465,7 +2466,8 @@ const resetAppBuilder = () => {
 const deployApp = async () => {
   if (!currentApp.value || !generatedCode.value) return
 
-  // Show save dialog instead of prompt
+  // Show save dialog for template save
+  isSavingAsTemplate.value = true
   saveAppName.value = appPrompt.value.substring(0, 50)
   saveAppDescription.value = ''
   saveAppTags.value = ''
@@ -2724,6 +2726,9 @@ const openSaveDialog = () => {
     return
   }
 
+  // Saving to history (not template)
+  isSavingAsTemplate.value = false
+  
   // Pre-fill app name from prompt or use default
   const promptWords = appPrompt.value.trim().split(' ')
   saveAppName.value = promptWords.slice(0, 3).join(' ').replace(/[^a-zA-Z0-9\s]/g, '') || 'My App'
@@ -2818,54 +2823,62 @@ const saveAppToHistory = async () => {
         }
       }
 
-      // Also save to GraphTemplates for Canvas/GNewViewer
-      try {
-        const templateData = {
-          name: saveAppName.value.trim(),
-          category: 'My Apps',
-          userId: userStore.email || 'anonymous',
-          node: {
-            id: `app-${Date.now()}`,
-            type: 'app-viewer',
-            label: saveAppName.value.trim(),
-            info: generatedCode.value,
-            color: '#11998e',
-            visible: true,
-            bibl: [],
-            imageWidth: '100%',
-            imageHeight: '100%',
-            path: saveAppThumbnail.value || null, // Use path field for thumbnail URL
-            ai_prompt: appPrompt.value,
-            ai_model: selectedAIModel.value,
-            generated_at: new Date().toISOString()
-          },
-          ai_instructions: JSON.stringify({
-            prompt: appPrompt.value,
-            model: selectedAIModel.value,
-            generated_at: new Date().toISOString(),
-            generated_by: 'AI App Builder',
-            user_email: userStore.email || 'anonymous',
-            description: saveAppDescription.value.trim(),
-            tags
-          })
-        }
-
-        await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/addTemplate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(templateData)
-        })
-      } catch (templateError) {
-        console.error('Failed to save to GraphTemplates:', templateError)
-        // Don't fail the whole save if template save fails
-      }
-
       deploymentStatus.value = {
         type: 'success',
         message: isVersionSave
           ? `✅ Version ${result.versionNumber} saved!`
-          : `✅ "${result.appName}" v${result.versionNumber || '1.00'} saved to history and templates!`
+          : `✅ "${result.appName}" v${result.versionNumber || '1.00'} saved to history!`
       }
+
+      // Also save to GraphTemplates if this is a template save
+      if (isSavingAsTemplate.value) {
+        try {
+          const templateData = {
+            name: saveAppName.value.trim(),
+            category: 'My Apps',
+            userId: userStore.email || 'anonymous',
+            node: {
+              id: `app-${Date.now()}`,
+              type: 'app-viewer',
+              label: saveAppName.value.trim(),
+              info: generatedCode.value,
+              color: '#11998e',
+              visible: true,
+              bibl: [],
+              imageWidth: '100%',
+              imageHeight: '100%',
+              path: saveAppThumbnail.value || null, // Use path field for thumbnail URL
+              ai_prompt: appPrompt.value,
+              ai_model: selectedAIModel.value,
+              generated_at: new Date().toISOString()
+            },
+            ai_instructions: JSON.stringify({
+              prompt: appPrompt.value,
+              model: selectedAIModel.value,
+              generated_at: new Date().toISOString(),
+              generated_by: 'AI App Builder',
+              user_email: userStore.email || 'anonymous',
+              description: saveAppDescription.value.trim(),
+              tags
+            })
+          }
+
+          await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/addTemplate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(templateData)
+          })
+
+          deploymentStatus.value = {
+            type: 'success',
+            message: `✅ "${result.appName}" saved to history and templates!`
+          }
+        } catch (templateError) {
+          console.error('Failed to save to GraphTemplates:', templateError)
+          // Don't fail - history save succeeded
+        }
+      }
+
       setTimeout(() => {
         deploymentStatus.value = null
       }, 3000)
