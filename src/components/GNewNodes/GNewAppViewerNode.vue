@@ -9,7 +9,7 @@
         <button @click="refreshApp" class="btn-control" title="Refresh App">
           🔄 Refresh
         </button>
-        <button @click="downloadApp" class="btn-control" title="Download HTML">
+        <button v-if="isSuperadmin" @click="downloadApp" class="btn-control" title="Download HTML">
           📥 Download
         </button>
         <button @click="deleteNode" class="btn-control btn-delete" title="Delete App">
@@ -48,7 +48,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
 
 const props = defineProps({
   node: {
@@ -67,6 +70,11 @@ const appFrame = ref(null)
 const appContainer = ref(null)
 const appUrl = ref('')
 const isFullscreen = ref(false)
+
+// Check if user is Superadmin
+const isSuperadmin = computed(() => {
+  return userStore.role === 'Superadmin'
+})
 
 // Create blob URL from HTML content
 const createAppUrl = () => {
