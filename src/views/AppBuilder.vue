@@ -402,6 +402,9 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
         <div class="modal-footer">
           <div class="selection-info">
             <strong>{{ selectedPortfolioImages.length }}</strong> image(s) selected
+            <span v-if="portfolioSelectionMode === 'thumbnail'" class="mode-hint">
+              (select one for thumbnail)
+            </span>
           </div>
           <div class="modal-actions">
             <button @click="closePortfolioModal" class="btn-secondary">Cancel</button>
@@ -410,7 +413,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
               class="btn-primary"
               :disabled="selectedPortfolioImages.length === 0"
             >
-              Add to Prompt
+              {{ portfolioSelectionMode === 'thumbnail' ? 'Set as Thumbnail' : 'Add to Prompt' }}
             </button>
           </div>
         </div>
@@ -559,15 +562,30 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
           </div>
           <div class="form-group">
             <label>App Thumbnail URL (optional)</label>
-            <input
-              v-model="saveAppThumbnail"
-              type="url"
-              placeholder="https://example.com/screenshot.png or paste image URL"
-              class="form-control"
-            />
-            <small class="form-text">This image will be shown in the Canvas view. You can paste an image URL or upload to Imgur/ImgBB</small>
+            <div class="thumbnail-upload-area">
+              <input
+                v-model="saveAppThumbnail"
+                type="url"
+                placeholder="https://example.com/screenshot.png or paste image below"
+                class="form-control"
+              />
+              <div class="upload-buttons">
+                <button type="button" @click="openPortfolioImagePicker" class="btn-secondary btn-sm">
+                  🖼️ Choose from Portfolio
+                </button>
+                <button type="button" @click="pasteImageForThumbnail" class="btn-secondary btn-sm">
+                  📋 Paste Image (Ctrl+V)
+                </button>
+              </div>
+            </div>
+            <small class="form-text">Paste an image from clipboard or choose from your portfolio</small>
+            <div v-if="uploadingThumbnail" class="uploading-indicator">
+              <div class="spinner-small"></div>
+              <span>Uploading image...</span>
+            </div>
             <div v-if="saveAppThumbnail" class="thumbnail-preview">
-              <img :src="saveAppThumbnail" alt="App thumbnail" @error="() => saveAppThumbnail = ''" />
+              <img :src="saveAppThumbnail" alt="App thumbnail" @error="saveAppThumbnail = ''" />
+              <button type="button" @click="saveAppThumbnail = ''" class="remove-thumbnail">✕</button>
             </div>
           </div>
           <div class="form-group">
@@ -962,7 +980,8 @@ const showNewAppDialog = ref(false)
 const saveAppName = ref('')
 const saveAppDescription = ref('')
 const saveAppTags = ref('')
-const saveAppThumbnail = ref('') // App thumbnail/screenshot URL
+const saveAppThumbnail = ref('')
+const uploadingThumbnail = ref(false) // App thumbnail/screenshot URL
 const isSuggestingAppMetadata = ref(false)
 
 // Prompt Library state
@@ -981,6 +1000,7 @@ const showPortfolioModal = ref(false)
 const portfolioImages = ref([])
 const loadingPortfolioImages = ref(false)
 const selectedPortfolioImages = ref([])
+const portfolioSelectionMode = ref('prompt') // 'prompt' or 'thumbnail'
 
 // Get API and Component state from store (use storeToRefs for reactivity)
 const { enabledAPIs, enabledComponents } = storeToRefs(appBuilderStore)
@@ -2480,6 +2500,7 @@ const downloadApp = () => {
 
 // Portfolio Image Functions
 const openPortfolioModal = async () => {
+  portfolioSelectionMode.value = 'prompt'
   showPortfolioModal.value = true
   loadingPortfolioImages.value = true
 
@@ -2533,20 +2554,34 @@ const getOptimizedImageUrl = (baseUrl, preset = null) => {
 const addSelectedImagesToPrompt = () => {
   if (selectedPortfolioImages.value.length === 0) return
 
-  const imageUrls = selectedPortfolioImages.value
-    .map(img => getOptimizedImageUrl(img.url, 'highQuality'))
-    .join(', ')
+  // Check if we're selecting for thumbnail or prompt
+  if (portfolioSelectionMode.value === 'thumbnail') {
+    // Use first selected image as thumbnail
+    const selectedImage = selectedPortfolioImages.value[0]
+    saveAppThumbnail.value = getOptimizedImageUrl(selectedImage.url, 'highQuality')
+    
+    deploymentStatus.value = {
+      type: 'success',
+      message: '✅ Thumbnail set!'
+    }
+  } else {
+    // Add to prompt (original behavior)
+    const imageUrls = selectedPortfolioImages.value
+      .map(img => getOptimizedImageUrl(img.url, 'highQuality'))
+      .join(', ')
 
-  const imageSection = `\n\nAvailable portfolio images to use in the app:\n${imageUrls}`
+    const imageSection = `\n\nAvailable portfolio images to use in the app:\n${imageUrls}`
 
-  if (!appPrompt.value.includes('Available portfolio images')) {
-    appPrompt.value += imageSection
+    if (!appPrompt.value.includes('Available portfolio images')) {
+      appPrompt.value += imageSection
+    }
+
+    deploymentStatus.value = {
+      type: 'success',
+      message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!`
+    }
   }
-
-  deploymentStatus.value = {
-    type: 'success',
-    message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!`
-  }
+  
   setTimeout(() => {
     deploymentStatus.value = null
   }, 2000)
@@ -2557,6 +2592,78 @@ const addSelectedImagesToPrompt = () => {
 const clearSelectedImages = () => {
   selectedPortfolioImages.value = []
 }
+
+// Thumbnail Upload Functions
+// ==========================
+
+const pasteImageForThumbnail = async () => {
+  try {
+    const items = await navigator.clipboard.read()
+    for (const item of items) {
+      for (const type of item.types) {
+        if (type.startsWith('image/')) {
+          const blob = await item.getType(type)
+          await uploadThumbnailImage(blob)
+          return
+        }
+      }
+    }
+    deploymentStatus.value = { type: 'error', message: '❌ No image found in clipboard' }
+    setTimeout(() => deploymentStatus.value = null, 3000)
+  } catch (error) {
+    console.error('Error pasting image:', error)
+    deploymentStatus.value = { type: 'error', message: '❌ Failed to paste image' }
+    setTimeout(() => deploymentStatus.value = null, 3000)
+  }
+}
+
+const uploadThumbnailImage = async (file) => {
+  try {
+    uploadingThumbnail.value = true
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('https://api.vegvisr.org/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    saveAppThumbnail.value = data.url
+
+    deploymentStatus.value = { type: 'success', message: '✅ Thumbnail uploaded!' }
+    setTimeout(() => deploymentStatus.value = null, 2000)
+  } catch (error) {
+    console.error('Error uploading thumbnail:', error)
+    deploymentStatus.value = { type: 'error', message: `❌ Upload failed: ${error.message}` }
+    setTimeout(() => deploymentStatus.value = null, 5000)
+  } finally {
+    uploadingThumbnail.value = false
+  }
+}
+
+const openPortfolioImagePicker = async () => {
+  portfolioSelectionMode.value = 'thumbnail'
+  showPortfolioModal.value = true
+  loadingPortfolioImages.value = true
+  selectedPortfolioImages.value = [] // Clear previous selections
+  
+  try {
+    const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
+    const data = await response.json()
+    portfolioImages.value = data.images || []
+  } catch (error) {
+    console.error('Error fetching portfolio images:', error)
+    portfolioImages.value = []
+  } finally {
+    loadingPortfolioImages.value = false
+  }
+}
+
 // App History Management Functions
 // =================================
 
@@ -4524,12 +4631,84 @@ textarea.form-control {
   border-radius: 8px;
   overflow: hidden;
   max-width: 300px;
+  position: relative;
 }
 
 .thumbnail-preview img {
   width: 100%;
   height: auto;
   display: block;
+}
+
+.remove-thumbnail {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.remove-thumbnail:hover {
+  background: rgba(220, 38, 38, 1);
+}
+
+.thumbnail-upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.upload-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-sm:hover {
+  background: #f3f4f6;
+  border-color: #11998e;
+  color: #11998e;
+}
+
+.uploading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  color: #11998e;
+  font-size: 0.875rem;
+}
+
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #11998e;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
 .loading-state {
