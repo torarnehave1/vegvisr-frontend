@@ -7947,7 +7947,7 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
     // 🔌 BUILD GUARANTEED API INJECTION SCRIPT
     const apiInjectionScript = await buildAPIInjectionScript(enabledAPIs, env)
-    
+
     if (apiInjectionScript) {
       // Inject guaranteed API functions before closing </body> tag
       cleanHTML = cleanHTML.replace(/<\/body>/i, apiInjectionScript + '\n</body>')
