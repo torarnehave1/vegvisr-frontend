@@ -6412,6 +6412,80 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
   }
 }
 
+// --- Build Guaranteed API Injection Script ---
+const buildAPIInjectionScript = async (enabledAPIs, env) => {
+  if (!enabledAPIs || enabledAPIs.length === 0) {
+    return null
+  }
+
+  console.log('🔧 Building guaranteed API injection for:', enabledAPIs)
+
+  // Filter APIs - exclude system ones handled separately
+  const externalAPIs = enabledAPIs.filter(slug =>
+    !slug.startsWith('cloud-storage-') && slug !== 'ai-chat'
+  )
+
+  if (externalAPIs.length === 0) {
+    return null
+  }
+
+  try {
+    // Query database for function_code of all enabled APIs
+    const placeholders = externalAPIs.map(() => '?').join(',')
+    const stmt = env.vegvisr_org.prepare(`
+      SELECT name, slug, function_name, function_code
+      FROM apiForApps
+      WHERE slug IN (${placeholders}) AND status = 'active'
+      ORDER BY category, name
+    `).bind(...externalAPIs)
+
+    const { results: apis } = await stmt.all()
+
+    if (!apis || apis.length === 0) {
+      console.log('⚠️ No APIs found in database for:', externalAPIs)
+      return null
+    }
+
+    console.log('✅ Building injection script for APIs:', apis.map(a => a.slug))
+
+    // Build the injection script
+    let injectionScript = `
+  <script>
+    // ============================================
+    // VEGVISR GUARANTEED API INJECTION
+    // Selected APIs: ${apis.map(a => a.function_name).join(', ')}
+    // ============================================
+    console.log('🔌 Loading guaranteed API functions...');
+
+`
+
+    // Inject each API's function_code
+    apis.forEach(api => {
+      if (api.function_code) {
+        injectionScript += `    // ${api.name}\n`
+        injectionScript += `    ${api.function_code}\n\n`
+      }
+    })
+
+    // Make all functions globally available
+    injectionScript += `    // Make functions globally accessible\n`
+    apis.forEach(api => {
+      if (api.function_name) {
+        injectionScript += `    window.${api.function_name} = ${api.function_name};\n`
+      }
+    })
+
+    injectionScript += `\n    console.log('✅ API functions loaded:', [${apis.map(a => `'${a.function_name}'`).join(', ')}]);\n`
+    injectionScript += `  </script>\n`
+
+    return injectionScript
+
+  } catch (error) {
+    console.error('❌ Error building API injection script:', error)
+    return null
+  }
+}
+
 // --- Generate HTML App Handler ---
 const handleGenerateHTMLApp = async (request, env) => {
   try {
@@ -6818,10 +6892,11 @@ CRITICAL REQUIREMENTS:
 12. NEVER TRUNCATE CODE - always finish all functions and close all tags
 
 SPECIAL INSTRUCTIONS FOR AI/CHAT APPS:
-❌ DO NOT define askAI(), getPortfolioImages(), or searchPexels() functions - they are auto-injected!
+❌ DO NOT define askAI(), getPortfolioImages(), searchPexels(), searchPixabay(), or analyzeImage() functions - they are auto-injected!
 ✅ Simply call await askAI(question) directly in your code
 ✅ The askAI function automatically receives the Knowledge Graph context when used inside GNewViewer
-✅ Simply call await searchPexels(query) or await getPortfolioImages() directly
+✅ Simply call await searchPexels(query), await searchPixabay(query), or await getPortfolioImages() directly
+✅ For image analysis, call await analyzeImage(imageUrl, prompt) directly
 
 IMPORTANT: The askAI() function is context-aware!
 - When your app is embedded in a Knowledge Graph, askAI() automatically knows about the graph content
@@ -6911,6 +6986,21 @@ REMEMBER:
 - Use deleteData(key) to remove items
 - Add try/catch blocks for error handling
 - DO NOT define saveData, loadData, loadAllData, or deleteData yourself!
+
+🖼️ IMAGE SEARCH & ANALYSIS - AUTO-INJECTED FUNCTIONS 🖼️
+❌ DO NOT define searchPexels(), searchPixabay(), or analyzeImage() - they're already available globally!
+✅ Just call: const photos = await searchPexels('nature', 12);
+✅ Just call: const images = await searchPixabay('sunset', 12);
+✅ Just call: const result = await analyzeImage(imageUrl, 'Describe this image');
+
+EXAMPLE - Image gallery with search:
+const photos = await searchPexels('ocean', 20);
+photos.forEach(photo => {
+  const img = document.createElement('img');
+  img.src = photo.src.medium;
+  img.onclick = () => analyzeImage(photo.src.large, 'What is in this image?');
+  gallery.appendChild(img);
+});
 
 The application should be:
 - Self-contained in a single HTML file
@@ -7855,12 +7945,22 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
       console.log('✅ Helper functions injected into HTML')
     }
 
+    // 🔌 BUILD GUARANTEED API INJECTION SCRIPT
+    const apiInjectionScript = await buildAPIInjectionScript(enabledAPIs, env)
+    
+    if (apiInjectionScript) {
+      // Inject guaranteed API functions before closing </body> tag
+      cleanHTML = cleanHTML.replace(/<\/body>/i, apiInjectionScript + '\n</body>')
+      console.log('✅ Guaranteed API functions injected into HTML')
+    }
+
     return createResponse(
       JSON.stringify({
         success: true,
         code: cleanHTML,
         model: aiModel,
         timestamp: new Date().toISOString(),
+        injectedAPIs: apiInjectionScript ? enabledAPIs.filter(api => !api.startsWith('cloud-storage-') && api !== 'ai-chat') : []
       }),
     )
   } catch (error) {
