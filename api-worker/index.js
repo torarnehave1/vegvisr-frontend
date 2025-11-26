@@ -7303,19 +7303,19 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
                 buffer += decoder.decode(value, { stream: true })
                 const lines = buffer.split('\n')
-                
+
                 // Keep the last incomplete line in buffer
                 buffer = lines.pop() || ''
 
                 for (const line of lines) {
                   const trimmedLine = line.trim()
                   if (!trimmedLine) continue
-                  
+
                   // Skip event: lines (Anthropic format has separate event and data lines)
                   if (trimmedLine.startsWith('event:')) {
                     continue
                   }
-                  
+
                   // Parse data: lines
                   if (trimmedLine.startsWith('data:')) {
                     const data = trimmedLine.slice(5).trim()
@@ -7323,16 +7323,16 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
                     try {
                       const parsed = JSON.parse(data)
-                      
+
                       // Only process content_block_delta events with text_delta type
-                      if (parsed.type === 'content_block_delta' && 
-                          parsed.delta?.type === 'text_delta' && 
+                      if (parsed.type === 'content_block_delta' &&
+                          parsed.delta?.type === 'text_delta' &&
                           parsed.delta?.text) {
                         await writer.write(
                           encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
                         )
                       }
-                      
+
                       // Stream ends with message_stop
                       if (parsed.type === 'message_stop') {
                         break
@@ -7481,19 +7481,19 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
                 buffer += decoder.decode(value, { stream: true })
                 const lines = buffer.split('\n')
-                
+
                 // Keep the last incomplete line in buffer
                 buffer = lines.pop() || ''
 
                 for (const line of lines) {
                   const trimmedLine = line.trim()
                   if (!trimmedLine) continue
-                  
+
                   // Skip event: lines (Anthropic format has separate event and data lines)
                   if (trimmedLine.startsWith('event:')) {
                     continue
                   }
-                  
+
                   // Parse data: lines
                   if (trimmedLine.startsWith('data:')) {
                     const data = trimmedLine.slice(5).trim()
@@ -7501,16 +7501,16 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 
                     try {
                       const parsed = JSON.parse(data)
-                      
+
                       // Only process content_block_delta events with text_delta type
-                      if (parsed.type === 'content_block_delta' && 
-                          parsed.delta?.type === 'text_delta' && 
+                      if (parsed.type === 'content_block_delta' &&
+                          parsed.delta?.type === 'text_delta' &&
                           parsed.delta?.text) {
                         await writer.write(
                           encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
                         )
                       }
-                      
+
                       // Stream ends with message_stop
                       if (parsed.type === 'message_stop') {
                         break
