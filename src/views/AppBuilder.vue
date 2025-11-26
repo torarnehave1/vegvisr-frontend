@@ -558,6 +558,19 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
             />
           </div>
           <div class="form-group">
+            <label>App Thumbnail URL (optional)</label>
+            <input
+              v-model="saveAppThumbnail"
+              type="url"
+              placeholder="https://example.com/screenshot.png or paste image URL"
+              class="form-control"
+            />
+            <small class="form-text">This image will be shown in the Canvas view. You can paste an image URL or upload to Imgur/ImgBB</small>
+            <div v-if="saveAppThumbnail" class="thumbnail-preview">
+              <img :src="saveAppThumbnail" alt="App thumbnail" @error="() => saveAppThumbnail = ''" />
+            </div>
+          </div>
+          <div class="form-group">
             <button
               @click="suggestAppMetadata"
               class="btn-secondary"
@@ -949,6 +962,7 @@ const showNewAppDialog = ref(false)
 const saveAppName = ref('')
 const saveAppDescription = ref('')
 const saveAppTags = ref('')
+const saveAppThumbnail = ref('') // App thumbnail/screenshot URL
 const isSuggestingAppMetadata = ref(false)
 
 // Prompt Library state
@@ -2431,89 +2445,12 @@ const resetAppBuilder = () => {
 const deployApp = async () => {
   if (!currentApp.value || !generatedCode.value) return
 
-  isDeploying.value = true
-  deploymentStatus.value = { type: 'info', message: 'Saving app as template...' }
-
-  try {
-    // Get app name from user
-    const appName = prompt('Enter a name for this app:', appPrompt.value.substring(0, 50))
-    if (!appName || !appName.trim()) {
-      deploymentStatus.value = null
-      isDeploying.value = false
-      return
-    }
-
-    // API expects: { name, node, ai_instructions, category, userId }
-    // ai_instructions must be a JSON STRING, not object
-    const templateData = {
-      name: appName.trim(),
-      category: 'My Apps', // User-specific category
-      userId: userStore.email || 'anonymous', // Store user's email
-      node: {
-        id: `app-${Date.now()}`,
-        type: 'app-viewer',
-        label: appName.trim(),
-        info: generatedCode.value, // Store the complete HTML code
-        color: '#11998e',
-        visible: true,
-        bibl: [],
-        imageWidth: '100%',
-        imageHeight: '100%',
-        path: null,
-        // Store AI instructions in node data as fallback since API doesn't return ai_instructions field
-        ai_prompt: appPrompt.value,
-        ai_model: 'claude',
-        generated_at: new Date().toISOString()
-      },
-      ai_instructions: JSON.stringify({
-        prompt: appPrompt.value,
-        model: 'claude',
-        generated_at: new Date().toISOString(),
-        generated_by: 'AI App Builder',
-        user_email: userStore.email || 'anonymous'
-      })
-    }
-
-    const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/addTemplate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(templateData)
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Server response:', errorText)
-      try {
-        const errorData = JSON.parse(errorText)
-        throw new Error(errorData.error || errorData.details || `Save failed: ${response.status}`)
-      } catch {
-        throw new Error(errorText || `Save failed: ${response.status}`)
-      }
-    }
-
-    const result = await response.json()
-    console.log('Template saved:', result)
-
-    deploymentStatus.value = {
-      type: 'success',
-      message: `✅ "${appName}" saved to My Apps! You can find it in GNewViewer under My Apps category.`
-    }
-
-    setTimeout(() => {
-      deploymentStatus.value = null
-    }, 5000)
-
-  } catch (error) {
-    console.error('Save error:', error)
-    deploymentStatus.value = { type: 'error', message: `❌ Save failed: ${error.message}` }
-    setTimeout(() => {
-      deploymentStatus.value = null
-    }, 5000)
-  } finally {
-    isDeploying.value = false
-  }
+  // Show save dialog instead of prompt
+  saveAppName.value = appPrompt.value.substring(0, 50)
+  saveAppDescription.value = ''
+  saveAppTags.value = ''
+  saveAppThumbnail.value = ''
+  showSaveDialog.value = true
 }
 
 const openInNewTab = () => {
@@ -2774,11 +2711,53 @@ const saveAppToHistory = async () => {
         }
       }
 
+      // Also save to GraphTemplates for Canvas/GNewViewer
+      try {
+        const templateData = {
+          name: saveAppName.value.trim(),
+          category: 'My Apps',
+          userId: userStore.email || 'anonymous',
+          node: {
+            id: `app-${Date.now()}`,
+            type: 'app-viewer',
+            label: saveAppName.value.trim(),
+            info: generatedCode.value,
+            color: '#11998e',
+            visible: true,
+            bibl: [],
+            imageWidth: '100%',
+            imageHeight: '100%',
+            path: saveAppThumbnail.value || null, // Use path field for thumbnail URL
+            ai_prompt: appPrompt.value,
+            ai_model: selectedAIModel.value,
+            generated_at: new Date().toISOString()
+          },
+          ai_instructions: JSON.stringify({
+            prompt: appPrompt.value,
+            model: selectedAIModel.value,
+            generated_at: new Date().toISOString(),
+            generated_by: 'AI App Builder',
+            user_email: userStore.email || 'anonymous',
+            description: saveAppDescription.value.trim(),
+            tags
+          })
+        }
+
+        await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/addTemplate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(templateData)
+        })
+      } catch (templateError) {
+        console.error('Failed to save to GraphTemplates:', templateError)
+        // Don't fail the whole save if template save fails
+      }
+
       deploymentStatus.value = {
         type: 'success',
         message: isVersionSave
           ? `✅ Version ${result.versionNumber} saved!`
-          : `✅ "${result.appName}" v${result.versionNumber || '1.00'} saved to history!`
+          : `✅ "${result.appName}" v${result.versionNumber || '1.00'} saved to history and templates!`
       }
       setTimeout(() => {
         deploymentStatus.value = null
@@ -4530,6 +4509,27 @@ const handleIframeMessage = async (event) => {
 textarea.form-control {
   resize: vertical;
   min-height: 80px;
+}
+
+.form-text {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.thumbnail-preview {
+  margin-top: 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 300px;
+}
+
+.thumbnail-preview img {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .loading-state {
