@@ -2559,7 +2559,7 @@ const addSelectedImagesToPrompt = () => {
     // Use first selected image as thumbnail
     const selectedImage = selectedPortfolioImages.value[0]
     saveAppThumbnail.value = getOptimizedImageUrl(selectedImage.url, 'highQuality')
-    
+
     deploymentStatus.value = {
       type: 'success',
       message: '✅ Thumbnail set!'
@@ -2581,7 +2581,7 @@ const addSelectedImagesToPrompt = () => {
       message: `✅ Added ${selectedPortfolioImages.value.length} image(s) to prompt!`
     }
   }
-  
+
   setTimeout(() => {
     deploymentStatus.value = null
   }, 2000)
@@ -2651,7 +2651,7 @@ const openPortfolioImagePicker = async () => {
   showPortfolioModal.value = true
   loadingPortfolioImages.value = true
   selectedPortfolioImages.value = [] // Clear previous selections
-  
+
   try {
     const response = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
     const data = await response.json()
