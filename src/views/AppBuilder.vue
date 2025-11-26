@@ -278,6 +278,7 @@
 
           <textarea
             v-if="editCode"
+            ref="codeEditorTextarea"
             v-model="generatedCode"
             @input="onCodeEdit"
             @keydown="onEditorKeydown"
@@ -896,7 +897,7 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/userStore'
 import { useAppBuilderStore } from '@/stores/appBuilderStore'
@@ -914,6 +915,7 @@ const isGenerating = ref(false)
 const isDeploying = ref(false)
 const isEnhancingPrompt = ref(false)
 const editCode = ref(false)
+const codeEditorTextarea = ref(null) // Reference to the code editor textarea
 const isUpdatingPreview = ref(false)
 const previewUrl = ref('')
 const deployedUrl = ref('')
@@ -3199,6 +3201,14 @@ watch(editCode, (newValue) => {
       createPreview(generatedCode.value)
       console.log('🎨 Preview refreshed after exiting edit mode')
     }, 100)
+  } else if (newValue) {
+    // Switched to edit mode, focus the textarea
+    nextTick(() => {
+      if (codeEditorTextarea.value) {
+        codeEditorTextarea.value.focus()
+        console.log('✏️ Code editor focused')
+      }
+    })
   }
 })
 
@@ -3829,6 +3839,12 @@ const handleIframeMessage = async (event) => {
   white-space: pre;
   overflow-wrap: normal;
   overflow-x: auto;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  user-select: text;
+  opacity: 1 !important;
+  filter: none !important;
 }
 
 .code-editor:focus {
@@ -4047,6 +4063,8 @@ const handleIframeMessage = async (event) => {
 
 .code-section {
   margin-top: 2rem;
+  position: relative;
+  z-index: 1;
 }
 
 .code-header {
