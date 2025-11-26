@@ -23,6 +23,16 @@
       :class="{ 'fullscreen': isFullscreen }"
       ref="appContainer"
     >
+      <!-- Floating exit button when in fullscreen -->
+      <button
+        v-if="isFullscreen"
+        @click="toggleFullscreen"
+        class="exit-fullscreen-btn"
+        title="Exit Fullscreen (Esc)"
+      >
+        ✕ Exit Fullscreen
+      </button>
+
       <iframe
         ref="appFrame"
         :src="appUrl"
@@ -234,6 +244,35 @@ onBeforeUnmount(() => {
   height: 100%;
   border: none;
   display: block;
+}
+
+.exit-fullscreen-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10002;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.exit-fullscreen-btn:hover {
+  background: rgba(244, 67, 54, 0.9);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.exit-fullscreen-btn:active {
+  transform: translateY(0);
 }
 
 .fullscreen-backdrop {
