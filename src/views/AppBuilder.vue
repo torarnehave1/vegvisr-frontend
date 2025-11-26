@@ -2194,6 +2194,33 @@ const injectAIHelper = (htmlCode) => {
       }
     }
 
+    // Image analysis function
+    async function analyzeImage(imageUrl, prompt = 'Analyze this image in detail') {
+      try {
+        console.log('🔍 Analyzing image:', imageUrl);
+        const response = await fetch('https://api.vegvisr.org/api/analyze-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrl, prompt })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Image analysis failed');
+        }
+        
+        const data = await response.json();
+        return {
+          analysis: data.analysis,
+          model: data.model,
+          tokens: data.usage?.input_tokens || 0
+        };
+      } catch (error) {
+        console.error('🔍 Image analysis error:', error);
+        throw error;
+      }
+    }
+
     // SMS sending function
     async function sendSMS(to, message, sender = 'Vegvisr') {
       return new Promise((resolve, reject) => {
@@ -2237,10 +2264,11 @@ const injectAIHelper = (htmlCode) => {
     window.deleteData = deleteData;
     window.getPortfolioImages = getPortfolioImages;
     window.searchPexels = searchPexels;
+    window.analyzeImage = analyzeImage;
     window.sendSMS = sendSMS;
     window.fetchGraphContext = fetchGraphContext;
 
-    console.log('✅ Helper functions ready: askAI (with auto-context), saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels, sendSMS');
+    console.log('✅ Helper functions ready: askAI (with auto-context), saveData, loadData, loadAllData, deleteData, getPortfolioImages, searchPexels, analyzeImage, sendSMS');
     console.log('☁️ Cloud Storage enabled for app:', APP_ID);
   </scr` + `ipt>
   `
