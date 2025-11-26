@@ -7256,30 +7256,24 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           return createErrorResponse('Anthropic API key not configured', 500)
         }
 
-        // Use conversation to continue if truncated
-        let fullResult = ''
-        let conversationMessages = [{ role: 'user', content: finalPrompt }]
-        let continueGeneration = true
-        let attemptCount = 0
-        const maxAttempts = 5
-
-        while (continueGeneration && attemptCount < maxAttempts) {
-          attemptCount++
-
+        if (enableStreaming) {
+          // Return streaming response for Claude Sonnet 4
           const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'x-api-key': apiKey,
               'anthropic-version': '2023-06-01',
+              'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-20250514',
-              max_tokens: 8192,
+              max_tokens: 128000,
+              stream: true,
               system: previousCode
                 ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
                 : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-              messages: conversationMessages,
+              messages: [{ role: 'user', content: finalPrompt }],
             }),
           })
 
@@ -7291,34 +7285,125 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             )
           }
 
-          const anthropicData = await anthropicResponse.json()
-          const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
-          const stopReason = anthropicData.stop_reason
+          // Create SSE response
+          const { readable, writable } = new TransformStream()
+          const writer = writable.getWriter()
+          const encoder = new TextEncoder()
 
-          console.log(`🔄 Claude Sonnet 4 attempt ${attemptCount}, stop_reason: ${stopReason}`)
+          // Process stream in background
+          ;(async () => {
+            try {
+              const reader = anthropicResponse.body.getReader()
+              const decoder = new TextDecoder()
 
-          if (attemptCount === 1) {
-            fullResult = partialResult
-          } else {
-            // Append continuation
-            fullResult += partialResult
-          }
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
 
-          // Check if generation was truncated
-          if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
-            console.log('⚠️ Claude Sonnet 4 truncated, continuing generation...')
+                const chunk = decoder.decode(value)
+                const lines = chunk.split('\n')
 
-            conversationMessages.push({ role: 'assistant', content: partialResult })
-            conversationMessages.push({
-              role: 'user',
-              content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    const data = line.slice(6)
+                    if (data === '[DONE]') continue
+
+                    try {
+                      const parsed = JSON.parse(data)
+                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                        await writer.write(
+                          encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
+                        )
+                      }
+                    } catch (e) {
+                      // Skip invalid JSON
+                    }
+                  }
+                }
+              }
+
+              await writer.write(encoder.encode(`data: [DONE]\n\n`))
+            } catch (error) {
+              console.error('Streaming error:', error)
+            } finally {
+              await writer.close()
+            }
+          })()
+
+          return new Response(readable, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        } else {
+          // Non-streaming fallback - Use conversation to continue if truncated
+          let fullResult = ''
+          let conversationMessages = [{ role: 'user', content: finalPrompt }]
+          let continueGeneration = true
+          let attemptCount = 0
+          const maxAttempts = 5
+
+          while (continueGeneration && attemptCount < maxAttempts) {
+            attemptCount++
+
+            const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 128000,
+                system: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+                messages: conversationMessages,
+              }),
             })
-          } else {
-            continueGeneration = false
-          }
-        }
 
-        result = fullResult
+            if (!anthropicResponse.ok) {
+              const errorText = await anthropicResponse.text()
+              return createErrorResponse(
+                `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+                500,
+              )
+            }
+
+            const anthropicData = await anthropicResponse.json()
+            const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
+            const stopReason = anthropicData.stop_reason
+
+            console.log(`🔄 Claude Sonnet 4 attempt ${attemptCount}, stop_reason: ${stopReason}`)
+
+            if (attemptCount === 1) {
+              fullResult = partialResult
+            } else {
+              // Append continuation
+              fullResult += partialResult
+            }
+
+            // Check if generation was truncated
+            if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
+              console.log('⚠️ Claude Sonnet 4 truncated, continuing generation...')
+
+              conversationMessages.push({ role: 'assistant', content: partialResult })
+              conversationMessages.push({
+                role: 'user',
+                content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+              })
+            } else {
+              continueGeneration = false
+            }
+          }
+
+          result = fullResult
+        }
         break
       }
 
@@ -7328,16 +7413,8 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
           return createErrorResponse('Anthropic API key not configured', 500)
         }
 
-        // Use conversation to continue if truncated
-        let fullResult = ''
-        let conversationMessages = [{ role: 'user', content: finalPrompt }]
-        let continueGeneration = true
-        let attemptCount = 0
-        const maxAttempts = 5
-
-        while (continueGeneration && attemptCount < maxAttempts) {
-          attemptCount++
-
+        if (enableStreaming) {
+          // Return streaming response for Claude 4.5
           const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -7347,11 +7424,12 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-5',
-              max_tokens: 8192,
+              max_tokens: 65536,
+              stream: true,
               system: previousCode
                 ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
                 : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
-              messages: conversationMessages,
+              messages: [{ role: 'user', content: finalPrompt }],
             }),
           })
 
@@ -7363,34 +7441,124 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
             )
           }
 
-          const anthropicData = await anthropicResponse.json()
-          const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
-          const stopReason = anthropicData.stop_reason
+          // Create SSE response
+          const { readable, writable } = new TransformStream()
+          const writer = writable.getWriter()
+          const encoder = new TextEncoder()
 
-          console.log(`🔄 Claude 4.5 Sonnet attempt ${attemptCount}, stop_reason: ${stopReason}`)
+          // Process stream in background
+          ;(async () => {
+            try {
+              const reader = anthropicResponse.body.getReader()
+              const decoder = new TextDecoder()
 
-          if (attemptCount === 1) {
-            fullResult = partialResult
-          } else {
-            // Append continuation
-            fullResult += partialResult
-          }
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
 
-          // Check if generation was truncated
-          if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
-            console.log('⚠️ Claude 4.5 Sonnet truncated, continuing generation...')
+                const chunk = decoder.decode(value)
+                const lines = chunk.split('\n')
 
-            conversationMessages.push({ role: 'assistant', content: partialResult })
-            conversationMessages.push({
-              role: 'user',
-              content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    const data = line.slice(6)
+                    if (data === '[DONE]') continue
+
+                    try {
+                      const parsed = JSON.parse(data)
+                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                        await writer.write(
+                          encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`)
+                        )
+                      }
+                    } catch {
+                      // Skip invalid JSON
+                    }
+                  }
+                }
+              }
+
+              await writer.write(encoder.encode(`data: [DONE]\n\n`))
+            } catch (error) {
+              console.error('Streaming error:', error)
+            } finally {
+              await writer.close()
+            }
+          })()
+
+          return new Response(readable, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        } else {
+          // Non-streaming fallback - Use conversation to continue if truncated
+          let fullResult = ''
+          let conversationMessages = [{ role: 'user', content: finalPrompt }]
+          let continueGeneration = true
+          let attemptCount = 0
+          const maxAttempts = 5
+
+          while (continueGeneration && attemptCount < maxAttempts) {
+            attemptCount++
+
+            const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-5',
+                max_tokens: 65536,
+                system: previousCode
+                  ? 'You are an expert HTML/CSS/JavaScript developer modifying existing code. Return ONLY the complete modified HTML - no explanations, no markdown. PRESERVE all existing functionality unless explicitly asked to remove it.'
+                  : 'You are an expert HTML/CSS/JavaScript developer creating new applications. Generate clean, self-contained HTML applications. Return ONLY the HTML code without any markdown formatting or explanations.',
+                messages: conversationMessages,
+              }),
             })
-          } else {
-            continueGeneration = false
-          }
-        }
 
-        result = fullResult
+            if (!anthropicResponse.ok) {
+              const errorText = await anthropicResponse.text()
+              return createErrorResponse(
+                `Claude API error: ${anthropicResponse.status} - ${errorText}`,
+                500,
+              )
+            }
+
+            const anthropicData = await anthropicResponse.json()
+            const partialResult = anthropicData.content?.[0]?.text?.trim() || ''
+            const stopReason = anthropicData.stop_reason
+
+            console.log(`🔄 Claude 4.5 Sonnet attempt ${attemptCount}, stop_reason: ${stopReason}`)
+
+            if (attemptCount === 1) {
+              fullResult = partialResult
+            } else {
+              // Append continuation
+              fullResult += partialResult
+            }
+
+            // Check if generation was truncated
+            if (stopReason === 'max_tokens' && !fullResult.includes('</html>')) {
+              console.log('⚠️ Claude 4.5 Sonnet truncated, continuing generation...')
+
+              conversationMessages.push({ role: 'assistant', content: partialResult })
+              conversationMessages.push({
+                role: 'user',
+                content: 'Continue exactly where you left off. Complete the remaining code. Do not repeat what you already wrote.'
+              })
+            } else {
+              continueGeneration = false
+            }
+          }
+
+          result = fullResult
+        }
         break
       }
 
