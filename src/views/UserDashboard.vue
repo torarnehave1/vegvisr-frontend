@@ -114,6 +114,40 @@
           </div>
         </div>
 
+        <!-- YouCanBook.me Booking Link Section -->
+        <div class="mb-3 mt-4">
+          <label for="youCanBookMeLink" class="form-label"
+            ><strong>YouCanBook.me Booking Link:</strong></label
+          >
+          <input
+            type="text"
+            id="youCanBookMeLink"
+            name="youCanBookMeLink"
+            class="form-control"
+            v-model="newYouCanBookMeLink"
+            placeholder="https://yourname.youcanbook.me"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+          />
+          <div class="form-text text-start">Your personal YouCanBook.me booking page URL.</div>
+          <button
+            v-if="newYouCanBookMeLink"
+            class="btn btn-primary btn-sm mt-2"
+            @click="saveYouCanBookMeLink"
+          >
+            Save
+          </button>
+          <div v-if="youCanBookMeLink" class="d-flex align-items-center mt-2 gap-2">
+            <a :href="youCanBookMeLink" target="_blank" class="btn btn-success btn-sm">
+              📅 Book a Meeting
+            </a>
+            <button class="btn btn-outline-secondary btn-sm" @click="copyYouCanBookMeLink">
+              Copy Link
+            </button>
+          </div>
+        </div>
+
         <!-- Custom Domain Branding Section - Available to User, Admin, and Superadmin -->
         <div v-if="hasBrandingAccess" class="mt-4">
           <div
@@ -823,6 +857,8 @@ export default {
       mystmkraUserId: '',
       editingMystmkraUserId: false,
       newMystmkraUserId: '',
+      youCanBookMeLink: '',
+      newYouCanBookMeLink: '',
       mySite: '', // Legacy - kept for backward compatibility
       myLogo: '', // Legacy - kept for backward compatibility
       logoError: false,
@@ -1055,6 +1091,16 @@ export default {
             this.newMystmkraUserId = ''
           }
 
+          // Extract youCanBookMeLink from meta data structure
+          if (result.data && result.data.profile && result.data.profile.youCanBookMeLink) {
+            this.youCanBookMeLink = result.data.profile.youCanBookMeLink
+            console.log('Loaded YouCanBook.me link:', this.youCanBookMeLink)
+            this.newYouCanBookMeLink = ''
+          } else {
+            this.youCanBookMeLink = ''
+            this.newYouCanBookMeLink = ''
+          }
+
           // Extract subscription data for subscribers
           if (result.data && result.data.subscriptions) {
             this.data.subscriptions = result.data.subscriptions
@@ -1145,6 +1191,7 @@ export default {
               user_id: this.userStore.user_id,
               email: this.email,
               mystmkraUserId: this.mystmkraUserId,
+              youCanBookMeLink: this.youCanBookMeLink,
             },
             settings: {
               darkMode: this.data.settings.darkMode,
@@ -1276,6 +1323,22 @@ export default {
         this.userStore.setMystmkraUserId(this.newMystmkraUserId)
         this.newMystmkraUserId = ''
         // Optionally, call saveAllData() here if you want to persist immediately
+      }
+    },
+    saveYouCanBookMeLink() {
+      if (this.newYouCanBookMeLink) {
+        this.youCanBookMeLink = this.newYouCanBookMeLink
+        this.newYouCanBookMeLink = ''
+        this.saveAllData() // Persist to database
+      }
+    },
+    copyYouCanBookMeLink() {
+      if (this.youCanBookMeLink) {
+        navigator.clipboard.writeText(this.youCanBookMeLink).then(() => {
+          alert('Booking link copied to clipboard!')
+        }).catch(err => {
+          console.error('Failed to copy:', err)
+        })
       }
     },
     openBrandingModal() {
