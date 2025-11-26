@@ -2728,7 +2728,7 @@ const openSaveDialog = () => {
 
   // Saving to history (not template)
   isSavingAsTemplate.value = false
-  
+
   // Pre-fill app name from prompt or use default
   const promptWords = appPrompt.value.trim().split(' ')
   saveAppName.value = promptWords.slice(0, 3).join(' ').replace(/[^a-zA-Z0-9\s]/g, '') || 'My App'
