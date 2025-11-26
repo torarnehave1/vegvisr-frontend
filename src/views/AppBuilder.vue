@@ -2203,12 +2203,12 @@ const injectAIHelper = (htmlCode) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imageUrl, prompt })
         });
-        
+
         if (!response.ok) {
           const error = await response.json();
           throw new Error(error.error || 'Image analysis failed');
         }
-        
+
         const data = await response.json();
         return {
           analysis: data.analysis,
