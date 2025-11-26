@@ -226,9 +226,14 @@
           <div v-if="selectedList" class="mt-4">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <h5>{{ selectedList.name }} - Recipients</h5>
-              <button @click="selectedList = null; loadFromList = false" class="btn btn-sm btn-secondary">
-                <i class="bi bi-x"></i> Close
-              </button>
+              <div class="d-flex" style="gap: 0.5rem;">
+                <button @click="exportListToCSV" class="btn btn-sm btn-success" :disabled="listRecipients.length === 0">
+                  <i class="bi bi-download"></i> Export CSV
+                </button>
+                <button @click="selectedList = null; loadFromList = false" class="btn btn-sm btn-secondary">
+                  <i class="bi bi-x"></i> Close
+                </button>
+              </div>
             </div>
 
             <!-- Add Recipient to List -->
@@ -947,6 +952,37 @@ const getStatusClass = (status) => {
   if (statusLower === 'sent') return 'status-info'
   if (statusLower === 'failed') return 'status-danger'
   return 'status-default'
+}
+
+const exportListToCSV = () => {
+  if (!selectedList.value || listRecipients.value.length === 0) return
+
+  // Create CSV content
+  const headers = ['Name', 'Phone Number']
+  const rows = listRecipients.value.map(recipient => [
+    recipient.name || '',
+    recipient.phone_number || ''
+  ])
+
+  // Combine headers and rows
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n')
+
+  // Create blob and download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${selectedList.value.name.replace(/[^a-z0-9]/gi, '_')}_recipients.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+
+  successMessage.value = `Exported ${listRecipients.value.length} recipients to CSV`
+  setTimeout(() => { successMessage.value = '' }, 3000)
 }
 
 // Load content from URL parameters
