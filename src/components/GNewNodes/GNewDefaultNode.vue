@@ -1696,6 +1696,12 @@ const convertStylesToString = (styleObj) => {
   width: 100%;
 }
 
+.node-content :deep(.image-change-wrapper img) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 .node-content :deep(.image-button-container) {
   display: flex;
   gap: 8px;
