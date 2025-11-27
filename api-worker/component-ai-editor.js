@@ -51,7 +51,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
     // 5. Create new version in R2
     const newVersion = metadata.current_version + 1
     const versionPath = `${componentName}/v${newVersion}_${Date.now()}.js`
-    
+
     await env.WEB_COMPONENTS.put(versionPath, aiResult.newCode, {
       httpMetadata: {
         contentType: 'application/javascript',
@@ -73,7 +73,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
 
     // 7. Record version in D1
     await env.vegvisr_org.prepare(`
-      INSERT INTO component_versions 
+      INSERT INTO component_versions
       (component_id, version_number, r2_path, change_description, changed_by, ai_model, ai_prompt, code_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
@@ -89,7 +89,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
 
     // 8. Update current version
     await env.vegvisr_org.prepare(`
-      UPDATE web_components 
+      UPDATE web_components
       SET current_version = ?, updated_at = datetime('now'), r2_path = ?
       WHERE id = ?
     `).bind(newVersion, `${componentName}.js`, componentName).run()
@@ -284,13 +284,13 @@ export async function restoreComponentVersion({ componentName, versionNumber, en
 
     // Create new version (restoration)
     const restorationPath = `${componentName}/v${newVersion}_restored_from_v${versionNumber}_${Date.now()}.js`
-    
+
     await env.WEB_COMPONENTS.put(restorationPath, code)
     await env.WEB_COMPONENTS.put(`${componentName}.js`, code)
 
     // Record restoration
     await env.vegvisr_org.prepare(`
-      INSERT INTO component_versions 
+      INSERT INTO component_versions
       (component_id, version_number, r2_path, change_description, changed_by)
       VALUES (?, ?, ?, ?, ?)
     `).bind(
@@ -302,7 +302,7 @@ export async function restoreComponentVersion({ componentName, versionNumber, en
     ).run()
 
     await env.vegvisr_org.prepare(`
-      UPDATE web_components 
+      UPDATE web_components
       SET current_version = ?, updated_at = datetime('now')
       WHERE id = ?
     `).bind(newVersion, componentName).run()
