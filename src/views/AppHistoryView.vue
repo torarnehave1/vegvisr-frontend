@@ -309,7 +309,7 @@ const handlePaste = (event, appId, versionNumber) => {
   setTimeout(() => {
     const key = `${appId}-${versionNumber}`
     const pastedText = updateCode.value[key]
-    
+
     if (pastedText) {
       const cleanedHtml = cleanHtmlFromJson(pastedText)
       updateCode.value[key] = cleanedHtml
