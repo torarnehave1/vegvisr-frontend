@@ -485,6 +485,7 @@ const handleUpload = async (request, env) => {
   const { MY_R2_BUCKET } = env
   const formData = await request.formData()
   const file = formData.get('file')
+  const customFilename = formData.get('filename') // Optional descriptive name
 
   if (!file) {
     return createErrorResponse('Missing file', 400)
@@ -495,14 +496,16 @@ const handleUpload = async (request, env) => {
     return createErrorResponse('Invalid file name or extension', 400)
   }
 
-  const fileName = `${Date.now()}.${fileExtension}`
+  // Use custom filename if provided, otherwise use timestamp
+  const baseName = customFilename || Date.now().toString()
+  const fileName = `${baseName}.${fileExtension}`
   const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
 
   await MY_R2_BUCKET.put(fileName, file.stream(), {
     httpMetadata: { contentType },
   })
 
-  const fileUrl = `https://blog.vegvisr.org/${fileName}`
+  const fileUrl = `https://vegvisr.imgix.net/${fileName}`
   return createResponse(JSON.stringify({ url: fileUrl }))
 }
 

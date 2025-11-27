@@ -924,6 +924,17 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
         </div>
       </div>
     </div>
+
+    <!-- ImageSelector Modal for Thumbnail -->
+    <ImageSelector
+      :is-open="isImageSelectorOpen"
+      :current-image-url="currentThumbnailData.url"
+      :current-image-alt="currentThumbnailData.alt"
+      :image-type="currentThumbnailData.type"
+      :image-context="currentThumbnailData.context"
+      @close="closeImageSelector"
+      @image-replaced="handleThumbnailReplaced"
+    />
   </div>
 </template>
 
@@ -932,6 +943,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/userStore'
 import { useAppBuilderStore } from '@/stores/appBuilderStore'
+import ImageSelector from '@/components/ImageSelector.vue'
 
 const userStore = useUserStore()
 const appBuilderStore = useAppBuilderStore()
@@ -2598,54 +2610,39 @@ const clearSelectedImages = () => {
 // Thumbnail Upload Functions
 // ==========================
 
-const pasteImageForThumbnail = async () => {
-  try {
-    const items = await navigator.clipboard.read()
-    for (const item of items) {
-      for (const type of item.types) {
-        if (type.startsWith('image/')) {
-          const blob = await item.getType(type)
-          await uploadThumbnailImage(blob)
-          return
-        }
-      }
-    }
-    deploymentStatus.value = { type: 'error', message: '❌ No image found in clipboard' }
-    setTimeout(() => deploymentStatus.value = null, 3000)
-  } catch (error) {
-    console.error('Error pasting image:', error)
-    deploymentStatus.value = { type: 'error', message: '❌ Failed to paste image' }
-    setTimeout(() => deploymentStatus.value = null, 3000)
+// ImageSelector state
+const isImageSelectorOpen = ref(false)
+const currentThumbnailData = ref({ url: '', alt: 'App Thumbnail', type: 'thumbnail', context: 'app-thumbnail' })
+
+const openImageSelectorForThumbnail = () => {
+  currentThumbnailData.value = {
+    url: saveAppThumbnail.value || '',
+    alt: 'App Thumbnail',
+    type: 'thumbnail',
+    context: 'app-thumbnail'
   }
+  isImageSelectorOpen.value = true
+}
+
+const closeImageSelector = () => {
+  isImageSelectorOpen.value = false
+}
+
+const handleThumbnailReplaced = (replacementData) => {
+  saveAppThumbnail.value = replacementData.newUrl
+  closeImageSelector()
+  deploymentStatus.value = { type: 'success', message: '✅ Thumbnail uploaded!' }
+  setTimeout(() => deploymentStatus.value = null, 2000)
+}
+
+const pasteImageForThumbnail = () => {
+  openImageSelectorForThumbnail()
 }
 
 const uploadThumbnailImage = async (file) => {
-  try {
-    uploadingThumbnail.value = true
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('https://api.vegvisr.org/upload', {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status}`)
-    }
-
-    const data = await response.json()
-    saveAppThumbnail.value = data.url
-
-    deploymentStatus.value = { type: 'success', message: '✅ Thumbnail uploaded!' }
-    setTimeout(() => deploymentStatus.value = null, 2000)
-  } catch (error) {
-    console.error('Error uploading thumbnail:', error)
-    deploymentStatus.value = { type: 'error', message: `❌ Upload failed: ${error.message}` }
-    setTimeout(() => deploymentStatus.value = null, 5000)
-  } finally {
-    uploadingThumbnail.value = false
-  }
+  // This function is now handled by ImageSelector component
+  // Keeping for backward compatibility if called from file input
+  openImageSelectorForThumbnail()
 }
 
 const openPortfolioImagePicker = async () => {
@@ -2847,7 +2844,7 @@ const saveAppToHistory = async () => {
               bibl: [],
               imageWidth: '100%',
               imageHeight: '100%',
-              path: saveAppThumbnail.value || null, // Use path field for thumbnail URL
+              path: saveAppThumbnail.value || null, // Use descriptive thumbnail URL
               ai_prompt: appPrompt.value,
               ai_model: selectedAIModel.value,
               generated_at: new Date().toISOString()
