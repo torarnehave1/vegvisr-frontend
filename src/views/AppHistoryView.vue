@@ -112,6 +112,35 @@
                   <button @click="loadVersion(version, app)" class="btn-primary btn-load">
                     Load Version
                   </button>
+                  <button @click="toggleVersionUpdate(app.id, version.version_number)" class="btn-secondary">
+                    {{ showUpdateForm[`${app.id}-${version.version_number}`] ? 'Cancel' : 'Update Code' }}
+                  </button>
+                </div>
+                
+                <!-- Update Form -->
+                <div v-if="showUpdateForm[`${app.id}-${version.version_number}`]" class="update-form">
+                  <div class="form-group">
+                    <label for="updateCode">Paste New HTML Code:</label>
+                    <textarea
+                      v-model="updateCode[`${app.id}-${version.version_number}`]"
+                      id="updateCode"
+                      class="code-textarea"
+                      rows="10"
+                      placeholder="Paste your HTML code here..."
+                    ></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button 
+                      @click="updateVersionCode(app.id, version.version_number, version.prompt, version.ai_model)"
+                      class="btn-primary"
+                      :disabled="!updateCode[`${app.id}-${version.version_number}`] || updatingVersion"
+                    >
+                      {{ updatingVersion ? 'Updating...' : 'Create New Version' }}
+                    </button>
+                    <button @click="cancelUpdate(app.id, version.version_number)" class="btn-secondary">
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -143,6 +172,11 @@ const loadingVersions = ref(false)
 const currentLoadingAppId = ref(null)
 const expandedApps = ref(new Set())
 const appVersionsByApp = ref({})
+
+// Update functionality state
+const showUpdateForm = ref({})
+const updateCode = ref({})
+const updatingVersion = ref(false)
 
 // Load app history on mount
 onMounted(() => {
@@ -233,6 +267,70 @@ const loadVersion = (version, app) => {
   })
 
   router.push('/app-builder')
+}
+
+// Update functionality
+const toggleVersionUpdate = (appId, versionNumber) => {
+  const key = `${appId}-${versionNumber}`
+  showUpdateForm.value[key] = !showUpdateForm.value[key]
+  
+  // Clear code when hiding form
+  if (!showUpdateForm.value[key]) {
+    updateCode.value[key] = ''
+  }
+}
+
+const cancelUpdate = (appId, versionNumber) => {
+  const key = `${appId}-${versionNumber}`
+  showUpdateForm.value[key] = false
+  updateCode.value[key] = ''
+}
+
+const updateVersionCode = async (appHistoryId, currentVersionNumber, originalPrompt, aiModel) => {
+  const key = `${appHistoryId}-${currentVersionNumber}`
+  const newCode = updateCode.value[key]
+  
+  if (!newCode.trim()) {
+    alert('Please paste some HTML code to update')
+    return
+  }
+
+  updatingVersion.value = true
+
+  try {
+    const response = await fetch('https://api.vegvisr.org/api/app-history/new-version', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: userStore.user_id,
+        appHistoryId: appHistoryId,
+        prompt: `Updated version based on v${currentVersionNumber}: ${originalPrompt}`,
+        aiModel: aiModel,
+        generatedCode: newCode,
+        conversationHistory: []
+      })
+    })
+
+    const result = await response.json()
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to create new version')
+    }
+
+    alert(`Successfully created version ${result.versionNumber}!`)
+    
+    // Clear the form
+    cancelUpdate(appHistoryId, currentVersionNumber)
+    
+    // Reload versions for this app
+    await loadVersionsForApp(appHistoryId)
+    
+  } catch (error) {
+    console.error('Error creating new version:', error)
+    alert(`Error creating new version: ${error.message}`)
+  } finally {
+    updatingVersion.value = false
+  }
 }
 
 const deleteApp = async (appId, appName) => {
@@ -632,5 +730,56 @@ const getModelName = (model) => {
 
 .btn-danger:hover {
   background: #f56565;
+}
+
+/* Update Form Styles */
+.update-form {
+  margin-top: 1rem;
+  padding: 1.5rem;
+  background: #f7fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.code-textarea {
+  width: 100%;
+  padding: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 200px;
+  background: white;
+  transition: border-color 0.2s;
+}
+
+.code-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.form-actions .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
