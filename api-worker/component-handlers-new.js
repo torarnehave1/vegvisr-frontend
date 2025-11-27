@@ -21,7 +21,7 @@ export async function handleServeComponent(request, env, pathname) {
     // In production (Cloudflare Workers), read from R2 or import directly
     // For now, we'll keep the legacy approach for other components
     // but serve knowledge-graph-viewer from a cleaner source
-    
+
     if (componentName === 'knowledge-graph-viewer') {
       // This will be bundled by wrangler
       const componentCode = await import('./components/knowledge-graph-viewer.js')

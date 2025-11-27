@@ -1,7 +1,7 @@
 /**
  * Knowledge Graph Viewer Web Component
  * A standalone Cytoscape-based knowledge graph visualization component
- * 
+ *
  * Usage:
  * <knowledge-graph-viewer
  *   graph-id="graph_123"
@@ -10,7 +10,7 @@
  *   layout="cose"
  *   api-endpoint="https://knowledge.vegvisr.org/getknowgraph">
  * </knowledge-graph-viewer>
- * 
+ *
  * Features:
  * - Loads and displays knowledge graphs from database
  * - Multiple layout algorithms (cose, circle, grid, breadthfirst, etc.)
@@ -53,7 +53,7 @@ class KnowledgeGraphViewer extends HTMLElement {
     this.loadCytoscapeLibrary().then(() => {
       this.render()
       this.setupEventListeners()
-      
+
       // Try to get graph context from GNewViewer
       this.requestGraphContext()
 
@@ -358,7 +358,7 @@ class KnowledgeGraphViewer extends HTMLElement {
             placeholder="Search nodes..."
             value="${this.searchQuery}"
           />
-          
+
           <select id="layoutSelect">
             <option value="cose" ${this.layout === 'cose' ? 'selected' : ''}>Force-Directed (COSE)</option>
             <option value="circle" ${this.layout === 'circle' ? 'selected' : ''}>Circle</option>
@@ -385,7 +385,7 @@ class KnowledgeGraphViewer extends HTMLElement {
         </div>
 
         <div id="cy"></div>
-        
+
         <div id="loading" class="loading hidden">
           Loading graph...
         </div>
@@ -439,7 +439,7 @@ class KnowledgeGraphViewer extends HTMLElement {
 
     try {
       const response = await fetch(`${this.apiEndpoint}?id=${encodeURIComponent(graphId)}`)
-      
+
       if (!response.ok) {
         throw new Error(`Failed to load graph: ${response.status}`)
       }
@@ -453,8 +453,8 @@ class KnowledgeGraphViewer extends HTMLElement {
 
       // Extract data if it's nested
       if (graphData.data) {
-        graphData = typeof graphData.data === 'string' 
-          ? JSON.parse(graphData.data) 
+        graphData = typeof graphData.data === 'string'
+          ? JSON.parse(graphData.data)
           : graphData.data
       }
 
@@ -508,7 +508,7 @@ class KnowledgeGraphViewer extends HTMLElement {
 
     // Create Cytoscape instance
     const container = this.shadowRoot.getElementById('cy')
-    
+
     this.cyInstance = cytoscape({
       container: container,
       elements: elements,
@@ -612,7 +612,7 @@ class KnowledgeGraphViewer extends HTMLElement {
     this.cyInstance.nodes().forEach(node => {
       const label = (node.data('label') || '').toLowerCase()
       const id = (node.data('id') || '').toLowerCase()
-      
+
       if (label.includes(queryLower) || id.includes(queryLower)) {
         node.removeClass('dimmed')
         node.addClass('highlighted')
@@ -627,7 +627,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       .selector('.dimmed')
       .style({ 'opacity': 0.3 })
       .selector('.highlighted')
-      .style({ 
+      .style({
         'opacity': 1,
         'border-width': 4,
         'border-color': '#f39c12'
@@ -645,9 +645,9 @@ class KnowledgeGraphViewer extends HTMLElement {
     const currentZoom = this.cyInstance.zoom()
     this.cyInstance.zoom({
       level: currentZoom * factor,
-      renderedPosition: { 
-        x: this.cyInstance.width() / 2, 
-        y: this.cyInstance.height() / 2 
+      renderedPosition: {
+        x: this.cyInstance.width() / 2,
+        y: this.cyInstance.height() / 2
       }
     })
   }
@@ -740,7 +740,7 @@ class KnowledgeGraphViewer extends HTMLElement {
   // Public API methods
   getGraphData() {
     if (!this.cyInstance) return null
-    
+
     return {
       nodes: this.cyInstance.nodes().map(n => ({
         ...n.data(),

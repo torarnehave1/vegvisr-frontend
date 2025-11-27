@@ -1,19 +1,19 @@
 /**
  * Component Manager Web Component
  * AI-powered web component editor with version control
- * 
+ *
  * Usage:
  * <component-manager
  *   api-endpoint="https://api.vegvisr.org"
  *   user-id="user@example.com">
  * </component-manager>
- * 
+ *
  * Public API Methods:
  * - manager.refreshComponents() - Reload component list
  * - manager.selectComponent(name) - Select a component to view/edit
  * - manager.editWithAI(componentName, request) - Edit component with AI
  * - manager.restoreVersion(componentName, versionNumber) - Restore a version
- * 
+ *
  * Events:
  * - componentSelected: {componentName, component}
  * - versionCreated: {componentName, newVersion, changes}
@@ -25,7 +25,7 @@ class ComponentManager extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    
+
     // State
     this.components = []
     this.selectedComponent = null
@@ -53,8 +53,8 @@ class ComponentManager extends HTMLElement {
   render() {
     this.shadowRoot.innerHTML = `
       <style>
-        :host { 
-          display: block; 
+        :host {
+          display: block;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           --primary-color: #667eea;
           --primary-dark: #5568d3;
@@ -65,13 +65,13 @@ class ComponentManager extends HTMLElement {
           --danger-color: #ef4444;
           --warning-color: #f59e0b;
         }
-        
+
         :host([theme="dark"]) {
           --bg-color: #1a1a1a;
           --text-color: #e0e0e0;
           --border-color: #333;
         }
-        
+
         .container {
           background: var(--bg-color);
           color: var(--text-color);
@@ -79,7 +79,7 @@ class ComponentManager extends HTMLElement {
           border-radius: 12px;
           overflow: hidden;
         }
-        
+
         .header {
           background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
           color: white;
@@ -88,18 +88,18 @@ class ComponentManager extends HTMLElement {
           justify-content: space-between;
           align-items: center;
         }
-        
+
         .header h1 {
           margin: 0;
           font-size: 24px;
           font-weight: 600;
         }
-        
+
         .header-actions {
           display: flex;
           gap: 12px;
         }
-        
+
         .btn {
           padding: 8px 16px;
           border: none;
@@ -109,43 +109,43 @@ class ComponentManager extends HTMLElement {
           transition: all 0.2s;
           font-weight: 500;
         }
-        
+
         .btn-primary {
           background: white;
           color: var(--primary-color);
         }
-        
+
         .btn-primary:hover {
           transform: translateY(-1px);
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
-        
+
         .btn-secondary {
           background: rgba(255,255,255,0.2);
           color: white;
           border: 1px solid rgba(255,255,255,0.3);
         }
-        
+
         .btn-success {
           background: var(--success-color);
           color: white;
         }
-        
+
         .btn-danger {
           background: var(--danger-color);
           color: white;
         }
-        
+
         .content {
           padding: 24px;
         }
-        
+
         .component-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 16px;
         }
-        
+
         .component-card {
           border: 1px solid var(--border-color);
           border-radius: 8px;
@@ -153,40 +153,40 @@ class ComponentManager extends HTMLElement {
           cursor: pointer;
           transition: all 0.2s;
         }
-        
+
         .component-card:hover {
           border-color: var(--primary-color);
           box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
           transform: translateY(-2px);
         }
-        
+
         .component-name {
           font-weight: 600;
           font-size: 16px;
           margin-bottom: 8px;
           color: var(--primary-color);
         }
-        
+
         .component-meta {
           font-size: 12px;
           color: #666;
           margin-top: 8px;
         }
-        
+
         .component-description {
           font-size: 14px;
           color: var(--text-color);
           margin: 8px 0;
           line-height: 1.5;
         }
-        
+
         .component-tags {
           display: flex;
           flex-wrap: wrap;
           gap: 6px;
           margin-top: 8px;
         }
-        
+
         .tag {
           background: #f3f4f6;
           padding: 4px 8px;
@@ -194,19 +194,19 @@ class ComponentManager extends HTMLElement {
           font-size: 11px;
           color: #666;
         }
-        
+
         .edit-view {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 24px;
         }
-        
+
         .panel {
           border: 1px solid var(--border-color);
           border-radius: 8px;
           overflow: hidden;
         }
-        
+
         .panel-header {
           background: #f9fafb;
           padding: 12px 16px;
@@ -216,11 +216,11 @@ class ComponentManager extends HTMLElement {
           justify-content: space-between;
           align-items: center;
         }
-        
+
         .panel-content {
           padding: 16px;
         }
-        
+
         textarea {
           width: 100%;
           min-height: 150px;
@@ -231,7 +231,7 @@ class ComponentManager extends HTMLElement {
           font-size: 13px;
           resize: vertical;
         }
-        
+
         .code-view {
           background: #1e1e1e;
           color: #d4d4d4;
@@ -243,45 +243,45 @@ class ComponentManager extends HTMLElement {
           max-height: 400px;
           overflow-y: auto;
         }
-        
+
         .version-list {
           max-height: 500px;
           overflow-y: auto;
         }
-        
+
         .version-item {
           border-bottom: 1px solid var(--border-color);
           padding: 12px;
           cursor: pointer;
           transition: background 0.2s;
         }
-        
+
         .version-item:hover {
           background: #f9fafb;
         }
-        
+
         .version-number {
           font-weight: 600;
           color: var(--primary-color);
           margin-bottom: 4px;
         }
-        
+
         .version-date {
           font-size: 12px;
           color: #666;
         }
-        
+
         .version-change {
           font-size: 13px;
           margin-top: 6px;
         }
-        
+
         .loading {
           text-align: center;
           padding: 40px;
           color: #666;
         }
-        
+
         .spinner {
           border: 3px solid #f3f3f3;
           border-top: 3px solid var(--primary-color);
@@ -291,12 +291,12 @@ class ComponentManager extends HTMLElement {
           animation: spin 1s linear infinite;
           margin: 0 auto;
         }
-        
+
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
-        
+
         .error {
           background: #fee;
           border: 1px solid #fcc;
@@ -305,7 +305,7 @@ class ComponentManager extends HTMLElement {
           border-radius: 6px;
           margin-bottom: 16px;
         }
-        
+
         .success {
           background: #d1fae5;
           border: 1px solid #a7f3d0;
@@ -314,7 +314,7 @@ class ComponentManager extends HTMLElement {
           border-radius: 6px;
           margin-bottom: 16px;
         }
-        
+
         .breadcrumb {
           display: flex;
           align-items: center;
@@ -322,42 +322,42 @@ class ComponentManager extends HTMLElement {
           margin-bottom: 16px;
           font-size: 14px;
         }
-        
+
         .breadcrumb a {
           color: var(--primary-color);
           text-decoration: none;
           cursor: pointer;
         }
-        
+
         .breadcrumb a:hover {
           text-decoration: underline;
         }
-        
+
         .stats {
           display: flex;
           gap: 24px;
           margin-bottom: 16px;
         }
-        
+
         .stat {
           background: #f9fafb;
           padding: 12px 16px;
           border-radius: 6px;
         }
-        
+
         .stat-label {
           font-size: 12px;
           color: #666;
           margin-bottom: 4px;
         }
-        
+
         .stat-value {
           font-size: 20px;
           font-weight: 600;
           color: var(--primary-color);
         }
       </style>
-      
+
       <div class="container">
         <div class="header">
           <h1>⚡ Component Manager</h1>
@@ -365,16 +365,16 @@ class ComponentManager extends HTMLElement {
             <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
           </div>
         </div>
-        
+
         <div class="content">
           <div id="loadingView" class="loading" style="display: none;">
             <div class="spinner"></div>
             <p>Loading...</p>
           </div>
-          
+
           <div id="errorView" style="display: none;"></div>
           <div id="successView" style="display: none;"></div>
-          
+
           <div id="listView" style="display: none;">
             <div class="stats">
               <div class="stat">
@@ -388,14 +388,14 @@ class ComponentManager extends HTMLElement {
             </div>
             <div class="component-grid" id="componentGrid"></div>
           </div>
-          
+
           <div id="editView" style="display: none;">
             <div class="breadcrumb">
               <a id="backToList">← Back to List</a>
               <span>/</span>
               <span id="currentComponentName"></span>
             </div>
-            
+
             <div class="edit-view">
               <div class="panel">
                 <div class="panel-header">
@@ -411,7 +411,7 @@ class ComponentManager extends HTMLElement {
                   </button>
                 </div>
               </div>
-              
+
               <div class="panel">
                 <div class="panel-header">
                   <span>📚 Version History</span>
@@ -422,7 +422,7 @@ class ComponentManager extends HTMLElement {
                 </div>
               </div>
             </div>
-            
+
             <div class="panel" style="margin-top: 24px;">
               <div class="panel-header">
                 <span>💻 Current Code</span>
@@ -453,11 +453,11 @@ class ComponentManager extends HTMLElement {
   async refreshComponents() {
     this.showLoading(true)
     this.hideMessages()
-    
+
     try {
       const response = await fetch(`${this.apiEndpoint}/api/components`)
       const data = await response.json()
-      
+
       if (data.success) {
         this.components = data.components
         this.showListView()
@@ -475,12 +475,12 @@ class ComponentManager extends HTMLElement {
     this.currentView = 'list'
     this.shadowRoot.getElementById('listView').style.display = 'block'
     this.shadowRoot.getElementById('editView').style.display = 'none'
-    
+
     const grid = this.shadowRoot.getElementById('componentGrid')
     const totalComponents = this.shadowRoot.getElementById('totalComponents')
-    
+
     totalComponents.textContent = this.components.length
-    
+
     grid.innerHTML = this.components.map(comp => `
       <div class="component-card" data-name="${comp.name}">
         <div class="component-name">${comp.name}</div>
@@ -493,7 +493,7 @@ class ComponentManager extends HTMLElement {
         </div>
       </div>
     `).join('')
-    
+
     // Add click handlers
     grid.querySelectorAll('.component-card').forEach(card => {
       card.addEventListener('click', () => {
@@ -505,34 +505,34 @@ class ComponentManager extends HTMLElement {
   async selectComponent(name) {
     this.showLoading(true)
     this.hideMessages()
-    
+
     try {
       // Get component details
       const detailsResponse = await fetch(`${this.apiEndpoint}/api/components/${name}`)
       const detailsData = await detailsResponse.json()
-      
+
       if (!detailsData.success) {
         this.showError(detailsData.error)
         return
       }
-      
+
       this.selectedComponent = detailsData.component
       this.selectedCode = detailsData.code
-      
+
       // Get versions
       const versionsResponse = await fetch(`${this.apiEndpoint}/api/components/${name}/versions`)
       const versionsData = await versionsResponse.json()
-      
+
       if (versionsData.success) {
         this.versions = versionsData.versions
       }
-      
+
       this.showEditView()
-      
+
       this.dispatchEvent(new CustomEvent('componentSelected', {
         detail: { componentName: name, component: this.selectedComponent }
       }))
-      
+
     } catch (error) {
       this.showError(`Error: ${error.message}`)
     } finally {
@@ -544,16 +544,16 @@ class ComponentManager extends HTMLElement {
     this.currentView = 'edit'
     this.shadowRoot.getElementById('listView').style.display = 'none'
     this.shadowRoot.getElementById('editView').style.display = 'block'
-    
+
     const currentName = this.shadowRoot.getElementById('currentComponentName')
     const codePreview = this.shadowRoot.getElementById('codePreview')
     const versionList = this.shadowRoot.getElementById('versionList')
     const versionCount = this.shadowRoot.getElementById('versionCount')
-    
+
     currentName.textContent = this.selectedComponent.name
     codePreview.textContent = this.selectedCode.substring(0, 1000) + '...'
     versionCount.textContent = `${this.versions.length} versions`
-    
+
     versionList.innerHTML = this.versions.map(v => `
       <div class="version-item" data-version="${v.version_number}">
         <div class="version-number">Version ${v.version_number}</div>
@@ -565,7 +565,7 @@ class ComponentManager extends HTMLElement {
         </button>
       </div>
     `).join('')
-    
+
     // Add restore handlers
     versionList.querySelectorAll('[data-restore]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -579,15 +579,15 @@ class ComponentManager extends HTMLElement {
   async handleAIEdit() {
     const input = this.shadowRoot.getElementById('aiRequestInput')
     const request = input.value.trim()
-    
+
     if (!request) {
       this.showError('Please describe what you want to change')
       return
     }
-    
+
     this.showLoading(true)
     this.hideMessages()
-    
+
     try {
       const response = await fetch(`${this.apiEndpoint}/api/components/${this.selectedComponent.name}/edit`, {
         method: 'POST',
@@ -597,16 +597,16 @@ class ComponentManager extends HTMLElement {
           userId: this.userId
         })
       })
-      
+
       const data = await response.json()
-      
+
       if (data.success) {
         this.showSuccess(`✅ Component updated to version ${data.newVersion}!\n\n${data.changes}`)
         input.value = ''
-        
+
         // Refresh component details
         await this.selectComponent(this.selectedComponent.name)
-        
+
         this.dispatchEvent(new CustomEvent('versionCreated', {
           detail: {
             componentName: this.selectedComponent.name,
@@ -617,7 +617,7 @@ class ComponentManager extends HTMLElement {
       } else {
         this.showError(data.error)
       }
-      
+
     } catch (error) {
       this.showError(`Error: ${error.message}`)
     } finally {
@@ -629,10 +629,10 @@ class ComponentManager extends HTMLElement {
     if (!confirm(`Restore ${componentName} to version ${versionNumber}?`)) {
       return
     }
-    
+
     this.showLoading(true)
     this.hideMessages()
-    
+
     try {
       const response = await fetch(`${this.apiEndpoint}/api/components/${componentName}/restore`, {
         method: 'POST',
@@ -642,22 +642,22 @@ class ComponentManager extends HTMLElement {
           userId: this.userId
         })
       })
-      
+
       const data = await response.json()
-      
+
       if (data.success) {
         this.showSuccess(`✅ Restored to version ${versionNumber} (created new version ${data.newVersion})`)
-        
+
         // Refresh component details
         await this.selectComponent(componentName)
-        
+
         this.dispatchEvent(new CustomEvent('versionRestored', {
           detail: { componentName, versionNumber }
         }))
       } else {
         this.showError(data.error)
       }
-      
+
     } catch (error) {
       this.showError(`Error: ${error.message}`)
     } finally {
@@ -688,7 +688,7 @@ class ComponentManager extends HTMLElement {
     errorView.className = 'error'
     errorView.textContent = message
     errorView.style.display = 'block'
-    
+
     this.dispatchEvent(new CustomEvent('error', {
       detail: { message }
     }))

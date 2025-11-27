@@ -1,7 +1,7 @@
 /**
  * Knowledge Graph Viewer Web Component
  * A standalone Cytoscape-based knowledge graph visualization component
- * 
+ *
  * Usage:
  * <knowledge-graph-viewer
  *   graph-id="graph_123"
@@ -10,7 +10,7 @@
  *   layout="cose"
  *   api-endpoint="https://knowledge.vegvisr.org/getknowgraph">
  * </knowledge-graph-viewer>
- * 
+ *
  * Public API Methods (call these from JavaScript):
  * - viewer.loadGraph(graphId) - Load a graph by ID from the API
  * - viewer.setGraphData(data) - Set graph data directly (nodes, edges)
@@ -21,7 +21,7 @@
  * - viewer.applyLayout(layoutName) - Apply layout: 'cose', 'circle', 'grid', etc.
  * - viewer.selectNode(nodeId) - Select a node by ID
  * - viewer.deselectAll() - Deselect all nodes
- * 
+ *
  * Features:
  * - Loads and displays knowledge graphs from database
  * - Multiple layout algorithms (cose, circle, grid, breadthfirst, etc.)
@@ -118,7 +118,7 @@ class KnowledgeGraphViewer extends HTMLElement {
 
   async loadCytoscapeLibrary() {
     if (window.cytoscape) return
-    
+
     return new Promise((resolve, reject) => {
       const script = document.createElement('script')
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js'
@@ -241,27 +241,27 @@ class KnowledgeGraphViewer extends HTMLElement {
       console.warn('No graph data provided')
       graphData = { nodes: [], edges: [] }
     }
-    
+
     // Check if all nodes have the same position (common issue with new graphs)
     const positions = graphData.nodes.map(n => n.position).filter(Boolean)
-    const allSamePosition = positions.length > 1 && positions.every(p => 
+    const allSamePosition = positions.length > 1 && positions.every(p =>
       p.x === positions[0].x && p.y === positions[0].y
     )
-    
+
     // If all positions are the same, don't use them (let layout algorithm handle it)
     const elements = [
-      ...graphData.nodes.map(node => ({ 
-        data: { id: node.id, label: node.label || node.id, ...node }, 
-        position: (allSamePosition ? undefined : node.position) 
+      ...graphData.nodes.map(node => ({
+        data: { id: node.id, label: node.label || node.id, ...node },
+        position: (allSamePosition ? undefined : node.position)
       })),
-      ...(graphData.edges || []).map(edge => ({ 
-        data: { 
-          id: edge.id || `${edge.source}_${edge.target}`, 
-          source: edge.source, 
-          target: edge.target, 
-          label: edge.label, 
-          ...edge 
-        } 
+      ...(graphData.edges || []).map(edge => ({
+        data: {
+          id: edge.id || `${edge.source}_${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label,
+          ...edge
+        }
       }))
     ]
 
@@ -368,7 +368,7 @@ class KnowledgeGraphViewer extends HTMLElement {
    */
   exportGraph(format = 'png') {
     if (!this.cyInstance) return
-    
+
     if (format === 'png') {
       const png = this.cyInstance.png({ full: true, scale: 2 })
       const link = document.createElement('a')
@@ -431,12 +431,12 @@ class KnowledgeGraphViewer extends HTMLElement {
   handleSearch(query) {
     this.searchQuery = query
     if (!this.cyInstance) return
-    
+
     if (!query) {
       this.cyInstance.nodes().style('opacity', 1)
       return
     }
-    
+
     const lowerQuery = query.toLowerCase()
     this.cyInstance.nodes().forEach(node => {
       const label = (node.data('label') || '').toLowerCase()

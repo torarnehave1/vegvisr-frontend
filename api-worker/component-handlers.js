@@ -1082,11 +1082,11 @@ customElements.define('mermaid-diagram', MermaidDiagram)
 
 console.log('✅ Mermaid Diagram component loaded')
 `,
-      
+
     'knowledge-graph-viewer': `/**
  * Knowledge Graph Viewer Web Component
  * A standalone Cytoscape-based knowledge graph visualization component
- * 
+ *
  * Usage:
  * <knowledge-graph-viewer
  *   graph-id="graph_123"
@@ -1095,7 +1095,7 @@ console.log('✅ Mermaid Diagram component loaded')
  *   layout="cose"
  *   api-endpoint="https://knowledge.vegvisr.org/getknowgraph">
  * </knowledge-graph-viewer>
- * 
+ *
  * Public API Methods (call these from JavaScript):
  * - viewer.loadGraph(graphId) - Load a graph by ID from the API
  * - viewer.setGraphData(data) - Set graph data directly (nodes, edges)
@@ -1106,7 +1106,7 @@ console.log('✅ Mermaid Diagram component loaded')
  * - viewer.applyLayout(layoutName) - Apply layout: 'cose', 'circle', 'grid', etc.
  * - viewer.selectNode(nodeId) - Select a node by ID
  * - viewer.deselectAll() - Deselect all nodes
- * 
+ *
  * Features:
  * - Loads and displays knowledge graphs from database
  * - Multiple layout algorithms (cose, circle, grid, breadthfirst, etc.)
@@ -1203,7 +1203,7 @@ class KnowledgeGraphViewer extends HTMLElement {
 
   async loadCytoscapeLibrary() {
     if (window.cytoscape) return
-    
+
     return new Promise((resolve, reject) => {
       const script = document.createElement('script')
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js'
@@ -1321,30 +1321,30 @@ class KnowledgeGraphViewer extends HTMLElement {
       console.warn('No graph data provided')
       graphData = { nodes: [], edges: [] }
     }
-    
+
     // Check if all nodes have the same position (common issue with new graphs)
     const positions = graphData.nodes.map(n => n.position).filter(Boolean)
-    const allSamePosition = positions.length > 1 && positions.every(p => 
+    const allSamePosition = positions.length > 1 && positions.every(p =>
       p.x === positions[0].x && p.y === positions[0].y
     )
-    
+
     // If all positions are the same, don't use them (let layout algorithm handle it)
     const elements = [
-      ...graphData.nodes.map(node => ({ 
-        data: { id: node.id, label: node.label || node.id, ...node }, 
-        position: (allSamePosition ? undefined : node.position) 
+      ...graphData.nodes.map(node => ({
+        data: { id: node.id, label: node.label || node.id, ...node },
+        position: (allSamePosition ? undefined : node.position)
       })),
-      ...(graphData.edges || []).map(edge => ({ 
-        data: { 
-          id: edge.id || \\\`\\${edge.source}_\\${edge.target}\\\`, 
-          source: edge.source, 
-          target: edge.target, 
-          label: edge.label, 
-          ...edge 
-        } 
+      ...(graphData.edges || []).map(edge => ({
+        data: {
+          id: edge.id || \\\`\\${edge.source}_\\${edge.target}\\\`,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label,
+          ...edge
+        }
       }))
     ]
-    
+
     if (this.cyInstance) this.cyInstance.destroy()
     const container = this.shadowRoot.getElementById('cy')
     this.cyInstance = cytoscape({
@@ -1359,7 +1359,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       layout: { name: this.layout },
       wheelSensitivity: 0.2
     })
-    
+
     // Always run layout after initialization to ensure proper positioning
     setTimeout(() => {
       if (this.cyInstance) {
@@ -1367,7 +1367,7 @@ class KnowledgeGraphViewer extends HTMLElement {
         this.cyInstance.fit(null, 50)
       }
     }, 100)
-    
+
     this.cyInstance.on('tap', 'node', (evt) => { const node = evt.target; this.dispatchEvent(new CustomEvent('nodeClick', { detail: { node: node.data() } })) })
     this.cyInstance.on('select', 'node', () => { this.selectedNodes = this.cyInstance.\\\$('node:selected').map(n => n.data()); this.updateStats() })
     this.cyInstance.on('unselect', 'node', () => { this.selectedNodes = this.cyInstance.\\\$('node:selected').map(n => n.data()); this.updateStats() })
@@ -1440,7 +1440,7 @@ class KnowledgeGraphViewer extends HTMLElement {
   // ============================================
   // PUBLIC API - Call these methods from JavaScript
   // ============================================
-  
+
   /**
    * Load a graph by ID from the API endpoint
    * @param {string} graphId - The graph ID to load
@@ -1448,45 +1448,45 @@ class KnowledgeGraphViewer extends HTMLElement {
    * @example viewer.loadGraph('graph_123')
    */
   // loadGraph(graphId) - defined above
-  
+
   /**
    * Set graph data directly (bypasses API)
    * @param {Object} data - Graph data with nodes and edges arrays
    * @example viewer.setGraphData({ nodes: [...], edges: [...] })
    */
-  setGraphData(data) { 
+  setGraphData(data) {
     if (!this.isComponentReady) {
       console.warn('Component not ready yet, queuing setGraphData')
       setTimeout(() => this.setGraphData(data), 100)
       return
     }
-    this.initializeGraph(data) 
+    this.initializeGraph(data)
   }
-  
+
   /**
    * Get current graph data
    * @returns {Object|null} Graph data with nodes and edges
    */
-  getGraphData() { 
+  getGraphData() {
     if (!this.cyInstance) return null
-    return { 
-      nodes: this.cyInstance.nodes().map(n => ({ ...n.data(), position: n.position() })), 
-      edges: this.cyInstance.edges().map(e => e.data()) 
-    } 
+    return {
+      nodes: this.cyInstance.nodes().map(n => ({ ...n.data(), position: n.position() })),
+      edges: this.cyInstance.edges().map(e => e.data())
+    }
   }
-  
+
   /**
    * Get currently selected nodes
    * @returns {Array} Array of selected node data
    */
   getSelectedNodes() { return this.selectedNodes }
-  
+
   /**
    * Select a node by ID
    * @param {string} nodeId - The node ID to select
    */
   selectNode(nodeId) { if (!this.cyInstance) return; this.cyInstance.\\\$(\\\`#\\${nodeId}\\\`).select() }
-  
+
   /**
    * Deselect all nodes
    */
@@ -1499,9 +1499,9 @@ console.log('✅ Knowledge Graph Viewer component loaded')
     }
 
     const componentCode = components[componentKey]
-    
+
     if (!componentCode) {
-      return new Response('Component not found', { 
+      return new Response('Component not found', {
         status: 404,
         headers: {
           'Content-Type': 'text/plain',

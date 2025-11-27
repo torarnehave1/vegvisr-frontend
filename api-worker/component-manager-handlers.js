@@ -6,36 +6,36 @@ import { editComponentWithAI, restoreComponentVersion } from './component-ai-edi
  */
 export async function handleComponentManagerAPI(request, env, pathname) {
   const url = new URL(request.url)
-  
+
   // GET /api/components - List all components
   if (pathname === '/api/components' && request.method === 'GET') {
     return listComponents(env)
   }
-  
+
   // GET /api/components/:name - Get component details
   if (pathname.match(/^\/api\/components\/[^\/]+$/) && request.method === 'GET') {
     const componentName = pathname.split('/').pop()
     return getComponentDetails(componentName, env)
   }
-  
+
   // GET /api/components/:name/versions - Get version history
   if (pathname.match(/^\/api\/components\/[^\/]+\/versions$/) && request.method === 'GET') {
     const componentName = pathname.split('/')[3]
     return getComponentVersions(componentName, env)
   }
-  
+
   // POST /api/components/:name/edit - AI edit component
   if (pathname.match(/^\/api\/components\/[^\/]+\/edit$/) && request.method === 'POST') {
     const componentName = pathname.split('/')[3]
     return handleAIEdit(request, componentName, env)
   }
-  
+
   // POST /api/components/:name/restore - Restore version
   if (pathname.match(/^\/api\/components\/[^\/]+\/restore$/) && request.method === 'POST') {
     const componentName = pathname.split('/')[3]
     return handleRestore(request, componentName, env)
   }
-  
+
   // GET /api/components/:name/diff/:from/:to - Get diff between versions
   if (pathname.match(/^\/api\/components\/[^\/]+\/diff\/\d+\/\d+$/) && request.method === 'GET') {
     const parts = pathname.split('/')
@@ -44,7 +44,7 @@ export async function handleComponentManagerAPI(request, env, pathname) {
     const toVersion = parseInt(parts[6])
     return getVersionDiff(componentName, fromVersion, toVersion, env)
   }
-  
+
   return new Response('Not found', { status: 404 })
 }
 
@@ -54,7 +54,7 @@ export async function handleComponentManagerAPI(request, env, pathname) {
 async function listComponents(env) {
   try {
     const result = await env.vegvisr_org.prepare(`
-      SELECT c.*, 
+      SELECT c.*,
              (SELECT COUNT(*) FROM component_versions WHERE component_id = c.id) as version_count,
              (SELECT created_at FROM component_ai_edits WHERE component_id = c.id ORDER BY created_at DESC LIMIT 1) as last_ai_edit
       FROM web_components c
@@ -66,7 +66,7 @@ async function listComponents(env) {
       success: true,
       components: result.results
     }), {
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
@@ -104,7 +104,7 @@ async function getComponentDetails(componentName, env) {
       component,
       code
     }), {
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
@@ -137,7 +137,7 @@ async function getComponentVersions(componentName, env) {
       success: true,
       versions: versions.results
     }), {
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
@@ -174,7 +174,7 @@ async function handleAIEdit(request, componentName, env) {
 
     return new Response(JSON.stringify(result), {
       status: result.success ? 200 : 400,
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
@@ -211,7 +211,7 @@ async function handleRestore(request, componentName, env) {
 
     return new Response(JSON.stringify(result), {
       status: result.success ? 200 : 400,
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
@@ -252,7 +252,7 @@ async function getVersionDiff(componentName, fromVersion, toVersion, env) {
       from: { version: fromVersion, code: fromCode },
       to: { version: toVersion, code: toCode }
     }), {
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
