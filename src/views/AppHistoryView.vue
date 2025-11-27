@@ -127,7 +127,11 @@
                       class="code-textarea"
                       rows="10"
                       placeholder="Paste your HTML code here..."
+                      @paste="handlePaste($event, app.id, version.version_number)"
                     ></textarea>
+                    <div class="paste-help">
+                      <small>💡 Tip: You can paste HTML directly or JSON-escaped HTML (will be automatically cleaned)</small>
+                    </div>
                   </div>
                   <div class="form-actions">
                     <button
@@ -278,6 +282,39 @@ const toggleVersionUpdate = (appId, versionNumber) => {
   if (!showUpdateForm.value[key]) {
     updateCode.value[key] = ''
   }
+}
+
+// Clean HTML from JSON-escaped format
+const cleanHtmlFromJson = (text) => {
+  // Check if this looks like JSON-escaped HTML
+  if (text.includes('\\n') && text.includes('\\"')) {
+    try {
+      // First try to parse as JSON string
+      const cleaned = JSON.parse(`"${text.replace(/"/g, '\\"')}"`)
+      return cleaned
+    } catch (e) {
+      // If that fails, manually unescape common patterns
+      return text
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\\\/g, '\\')
+    }
+  }
+  return text
+}
+
+const handlePaste = (event, appId, versionNumber) => {
+  // Let the paste happen first
+  setTimeout(() => {
+    const key = `${appId}-${versionNumber}`
+    const pastedText = updateCode.value[key]
+    
+    if (pastedText) {
+      const cleanedHtml = cleanHtmlFromJson(pastedText)
+      updateCode.value[key] = cleanedHtml
+    }
+  }, 10)
 }
 
 const cancelUpdate = (appId, versionNumber) => {
@@ -750,6 +787,15 @@ const getModelName = (model) => {
   margin-bottom: 0.5rem;
   font-weight: 600;
   color: #2d3748;
+}
+
+.paste-help {
+  margin-top: 0.5rem;
+}
+
+.paste-help small {
+  color: #718096;
+  font-style: italic;
 }
 
 .code-textarea {
