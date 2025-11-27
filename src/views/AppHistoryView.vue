@@ -116,7 +116,7 @@
                     {{ showUpdateForm[`${app.id}-${version.version_number}`] ? 'Cancel' : 'Update Code' }}
                   </button>
                 </div>
-                
+
                 <!-- Update Form -->
                 <div v-if="showUpdateForm[`${app.id}-${version.version_number}`]" class="update-form">
                   <div class="form-group">
@@ -130,7 +130,7 @@
                     ></textarea>
                   </div>
                   <div class="form-actions">
-                    <button 
+                    <button
                       @click="updateVersionCode(app.id, version.version_number, version.prompt, version.ai_model)"
                       class="btn-primary"
                       :disabled="!updateCode[`${app.id}-${version.version_number}`] || updatingVersion"
@@ -273,7 +273,7 @@ const loadVersion = (version, app) => {
 const toggleVersionUpdate = (appId, versionNumber) => {
   const key = `${appId}-${versionNumber}`
   showUpdateForm.value[key] = !showUpdateForm.value[key]
-  
+
   // Clear code when hiding form
   if (!showUpdateForm.value[key]) {
     updateCode.value[key] = ''
@@ -289,7 +289,7 @@ const cancelUpdate = (appId, versionNumber) => {
 const updateVersionCode = async (appHistoryId, currentVersionNumber, originalPrompt, aiModel) => {
   const key = `${appHistoryId}-${currentVersionNumber}`
   const newCode = updateCode.value[key]
-  
+
   if (!newCode.trim()) {
     alert('Please paste some HTML code to update')
     return
@@ -312,19 +312,19 @@ const updateVersionCode = async (appHistoryId, currentVersionNumber, originalPro
     })
 
     const result = await response.json()
-    
+
     if (!result.success) {
       throw new Error(result.error || 'Failed to create new version')
     }
 
     alert(`Successfully created version ${result.versionNumber}!`)
-    
+
     // Clear the form
     cancelUpdate(appHistoryId, currentVersionNumber)
-    
+
     // Reload versions for this app
     await loadVersionsForApp(appHistoryId)
-    
+
   } catch (error) {
     console.error('Error creating new version:', error)
     alert(`Error creating new version: ${error.message}`)
