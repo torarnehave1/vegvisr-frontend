@@ -1,10 +1,29 @@
 // Component serving handler
 export async function handleServeComponent(request, env, pathname) {
   try {
-    // Extract component name from path: /components/canvas-drawing.js -> canvas-drawing
-    const componentName = pathname.replace('/components/', '').replace('.js', '')
+    // Extract component name from path: /components/knowledge-graph-viewer.js
+    const componentName = pathname.replace('/components/', '')
 
-    // Map of available components
+    // Try to serve from R2 first (for components stored separately)
+    if (env.WEB_COMPONENTS) {
+      try {
+        const object = await env.WEB_COMPONENTS.get(componentName)
+        if (object) {
+          return new Response(object.body, {
+            headers: {
+              'Content-Type': 'application/javascript',
+              'Cache-Control': 'public, max-age=3600',
+              'Access-Control-Allow-Origin': '*'
+            }
+          })
+        }
+      } catch (r2Error) {
+        console.log('R2 fetch failed, falling back to legacy components:', r2Error.message)
+      }
+    }
+
+    // Fallback to legacy string-based components
+    const componentKey = componentName.replace('.js', '')
     const components = {
       'canvas-drawing': `/**
  * Canvas Drawing Web Component
@@ -1062,17 +1081,431 @@ Return ONLY the Mermaid code, nothing else.\`
 customElements.define('mermaid-diagram', MermaidDiagram)
 
 console.log('✅ Mermaid Diagram component loaded')
+`,
+      
+    'knowledge-graph-viewer': `/**
+ * Knowledge Graph Viewer Web Component
+ * A standalone Cytoscape-based knowledge graph visualization component
+ * 
+ * Usage:
+ * <knowledge-graph-viewer
+ *   graph-id="graph_123"
+ *   width="800px"
+ *   height="600px"
+ *   layout="cose"
+ *   api-endpoint="https://knowledge.vegvisr.org/getknowgraph">
+ * </knowledge-graph-viewer>
+ * 
+ * Public API Methods (call these from JavaScript):
+ * - viewer.loadGraph(graphId) - Load a graph by ID from the API
+ * - viewer.setGraphData(data) - Set graph data directly (nodes, edges)
+ * - viewer.getGraphContext() - Get current graph context (if in GNewViewer)
+ * - viewer.isInGNewViewer() - Check if component is inside GNewViewer
+ * - viewer.exportGraph(format) - Export as 'png' or 'json'
+ * - viewer.centerGraph() - Center and fit graph to view
+ * - viewer.applyLayout(layoutName) - Apply layout: 'cose', 'circle', 'grid', etc.
+ * - viewer.selectNode(nodeId) - Select a node by ID
+ * - viewer.deselectAll() - Deselect all nodes
+ * 
+ * Features:
+ * - Loads and displays knowledge graphs from database
+ * - Multiple layout algorithms (cose, circle, grid, breadthfirst, etc.)
+ * - Interactive node selection and manipulation
+ * - Search functionality
+ * - Export to PNG/JSON
+ * - Customizable styling
+ * - GNewViewer integration support
+ */
+
+class KnowledgeGraphViewer extends HTMLElement {
+  constructor() {
+    super()
+    this.attachShadow({ mode: 'open' })
+
+    // State
+    this.cyInstance = null
+    this.graphData = null
+    this.selectedNodes = []
+    this.searchQuery = ''
+    this.isLoading = false
+    this.isComponentReady = false
+    this.pendingGraphId = null
+  }
+
+  static get observedAttributes() {
+    return [
+      'graph-id',
+      'graph-data',
+      'width',
+      'height',
+      'layout',
+      'api-endpoint',
+      'show-controls',
+      'node-color',
+      'edge-color',
+      'background-color'
+    ]
+  }
+
+  connectedCallback() {
+    this.loadCytoscapeLibrary().then(() => {
+      this.render()
+      this.setupEventListeners()
+      this.isComponentReady = true
+
+      // Handle pending loadGraph call
+      if (this.pendingGraphId) {
+        const graphId = this.pendingGraphId
+        this.pendingGraphId = null
+        this.loadGraph(graphId)
+        return
+      }
+
+      const graphId = this.getAttribute('graph-id')
+      if (graphId) {
+        this.loadGraph(graphId)
+      } else if (this.getAttribute('graph-data')) {
+        try {
+          const data = JSON.parse(this.getAttribute('graph-data'))
+          this.initializeGraph(data)
+        } catch (error) {
+          console.error('Failed to parse graph-data:', error)
+          this.showError('Invalid graph data format')
+        }
+      } else {
+        this.initializeGraph({ nodes: [], edges: [] })
+      }
+    })
+  }
+
+  disconnectedCallback() {
+    if (this.cyInstance) {
+      this.cyInstance.destroy()
+    }
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (oldValue !== newValue && this.shadowRoot.innerHTML) {
+      if (name === 'graph-id' && newValue) {
+        this.loadGraph(newValue)
+      } else if (name === 'graph-data' && newValue) {
+        try {
+          const data = JSON.parse(newValue)
+          this.initializeGraph(data)
+        } catch (error) {
+          console.error('Failed to parse graph-data:', error)
+        }
+      } else if (name === 'layout' && this.cyInstance) {
+        this.applyLayout(newValue)
+      }
+    }
+  }
+
+  async loadCytoscapeLibrary() {
+    if (window.cytoscape) return
+    
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js'
+      script.onload = resolve
+      script.onerror = reject
+      document.head.appendChild(script)
+    })
+  }
+
+  get width() { return this.getAttribute('width') || '100%' }
+  get height() { return this.getAttribute('height') || '600px' }
+  get layout() { return this.getAttribute('layout') || 'cose' }
+  get apiEndpoint() { return this.getAttribute('api-endpoint') || 'https://knowledge.vegvisr.org/getknowgraph' }
+  get showControls() { return this.getAttribute('show-controls') !== 'false' }
+  get nodeColor() { return this.getAttribute('node-color') || '#667eea' }
+  get edgeColor() { return this.getAttribute('edge-color') || '#999' }
+  get backgroundColor() { return this.getAttribute('background-color') || '#ffffff' }
+
+  render() {
+    this.shadowRoot.innerHTML = \\\`
+      <style>
+        :host { display: block; font-family: system-ui, -apple-system, sans-serif; }
+        .graph-container { width: \\\${this.width}; height: \\\${this.height}; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background: \\\${this.backgroundColor}; position: relative; }
+        #cy { width: 100%; height: 100%; }
+        .controls { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); display: \\\${this.showControls ? 'flex' : 'none'}; flex-direction: column; gap: 8px; z-index: 1000; max-width: 250px; }
+        .control-group { display: flex; gap: 6px; flex-wrap: wrap; }
+        button { padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+        button:hover { background: #f5f5f5; border-color: #667eea; }
+        button:active { transform: scale(0.98); }
+        button.primary { background: #667eea; color: white; border-color: #667eea; }
+        button.primary:hover { background: #5568d3; }
+        input[type="text"] { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; width: 100%; }
+        select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; width: 100%; background: white; }
+        .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 2000; }
+        .error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fee; color: #c00; padding: 20px; border-radius: 8px; border: 1px solid #fcc; z-index: 2000; }
+        .stats { font-size: 11px; color: #666; padding: 4px 0; border-top: 1px solid #eee; margin-top: 4px; }
+        .hidden { display: none; }
+      </style>
+      <div class="graph-container">
+        <div class="controls">
+          <input type="text" id="searchBox" placeholder="Search nodes..." value="\\\${this.searchQuery}" />
+          <select id="layoutSelect">
+            <option value="cose" \\\${this.layout === 'cose' ? 'selected' : ''}>Force-Directed (COSE)</option>
+            <option value="circle" \\\${this.layout === 'circle' ? 'selected' : ''}>Circle</option>
+            <option value="grid" \\\${this.layout === 'grid' ? 'selected' : ''}>Grid</option>
+            <option value="breadthfirst" \\\${this.layout === 'breadthfirst' ? 'selected' : ''}>Breadth-First</option>
+            <option value="concentric" \\\${this.layout === 'concentric' ? 'selected' : ''}>Concentric</option>
+            <option value="random" \\\${this.layout === 'random' ? 'selected' : ''}>Random</option>
+          </select>
+          <div class="control-group">
+            <button id="centerBtn" title="Center & Fit">🎯 Center</button>
+            <button id="zoomInBtn" title="Zoom In">➕</button>
+            <button id="zoomOutBtn" title="Zoom Out">➖</button>
+          </div>
+          <div class="control-group">
+            <button id="exportPNGBtn" title="Export as PNG">📷 PNG</button>
+            <button id="exportJSONBtn" title="Export as JSON">💾 JSON</button>
+          </div>
+          <div class="stats" id="stats">Nodes: 0 | Edges: 0</div>
+        </div>
+        <div id="cy"></div>
+        <div id="loading" class="loading hidden">Loading graph...</div>
+        <div id="error" class="error hidden"></div>
+      </div>
+    \\\`
+  }
+
+  setupEventListeners() {
+    const searchBox = this.shadowRoot.getElementById('searchBox')
+    const layoutSelect = this.shadowRoot.getElementById('layoutSelect')
+    const centerBtn = this.shadowRoot.getElementById('centerBtn')
+    const zoomInBtn = this.shadowRoot.getElementById('zoomInBtn')
+    const zoomOutBtn = this.shadowRoot.getElementById('zoomOutBtn')
+    const exportPNGBtn = this.shadowRoot.getElementById('exportPNGBtn')
+    const exportJSONBtn = this.shadowRoot.getElementById('exportJSONBtn')
+    if (searchBox) searchBox.addEventListener('input', (e) => this.handleSearch(e.target.value))
+    if (layoutSelect) layoutSelect.addEventListener('change', (e) => this.applyLayout(e.target.value))
+    if (centerBtn) centerBtn.addEventListener('click', () => this.centerGraph())
+    if (zoomInBtn) zoomInBtn.addEventListener('click', () => this.zoom(1.2))
+    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => this.zoom(0.8))
+    if (exportPNGBtn) exportPNGBtn.addEventListener('click', () => this.exportPNG())
+    if (exportJSONBtn) exportJSONBtn.addEventListener('click', () => this.exportJSON())
+  }
+
+  async loadGraph(graphId) {
+    // If component not ready yet, queue the request
+    if (!this.isComponentReady) {
+      console.log('Component not ready, queuing graph load:', graphId)
+      this.pendingGraphId = graphId
+      return
+    }
+
+    this.showLoading(true)
+    this.hideError()
+    try {
+      const response = await fetch(\\\`\\${this.apiEndpoint}?id=\\${encodeURIComponent(graphId)}\\\`)
+      if (!response.ok) throw new Error(\\\`Failed to load graph: \\${response.status}\\\`)
+      let graphData = await response.json()
+      if (typeof graphData === 'string') graphData = JSON.parse(graphData)
+      if (graphData.data) graphData = typeof graphData.data === 'string' ? JSON.parse(graphData.data) : graphData.data
+      this.graphData = graphData
+      this.initializeGraph(graphData)
+      this.dispatchEvent(new CustomEvent('graphLoaded', { detail: { graphId, data: graphData, nodes: graphData.nodes, edges: graphData.edges, metadata: graphData.metadata } }))
+    } catch (error) {
+      console.error('Error loading graph:', error)
+      this.showError(\\\`Failed to load graph: \\${error.message}\\\`)
+      this.dispatchEvent(new CustomEvent('error', { detail: { message: error.message, error } }))
+    } finally {
+      this.showLoading(false)
+    }
+  }
+
+  initializeGraph(graphData) {
+    if (!graphData || !graphData.nodes) {
+      console.warn('No graph data provided')
+      graphData = { nodes: [], edges: [] }
+    }
+    
+    // Check if all nodes have the same position (common issue with new graphs)
+    const positions = graphData.nodes.map(n => n.position).filter(Boolean)
+    const allSamePosition = positions.length > 1 && positions.every(p => 
+      p.x === positions[0].x && p.y === positions[0].y
+    )
+    
+    // If all positions are the same, don't use them (let layout algorithm handle it)
+    const elements = [
+      ...graphData.nodes.map(node => ({ 
+        data: { id: node.id, label: node.label || node.id, ...node }, 
+        position: (allSamePosition ? undefined : node.position) 
+      })),
+      ...(graphData.edges || []).map(edge => ({ 
+        data: { 
+          id: edge.id || \\\`\\${edge.source}_\\${edge.target}\\\`, 
+          source: edge.source, 
+          target: edge.target, 
+          label: edge.label, 
+          ...edge 
+        } 
+      }))
+    ]
+    
+    if (this.cyInstance) this.cyInstance.destroy()
+    const container = this.shadowRoot.getElementById('cy')
+    this.cyInstance = cytoscape({
+      container: container,
+      elements: elements,
+      style: [
+        { selector: 'node', style: { 'label': 'data(label)', 'background-color': (ele) => ele.data('color') || this.nodeColor, 'color': '#000', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '12px', 'width': 40, 'height': 40, 'border-width': 2, 'border-color': '#555' } },
+        { selector: 'node:selected', style: { 'border-width': 4, 'border-color': '#667eea' } },
+        { selector: 'edge', style: { 'width': 2, 'line-color': this.edgeColor, 'target-arrow-color': this.edgeColor, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': '10px', 'text-rotation': 'autorotate' } },
+        { selector: 'edge:selected', style: { 'line-color': '#667eea', 'target-arrow-color': '#667eea', 'width': 3 } }
+      ],
+      layout: { name: this.layout },
+      wheelSensitivity: 0.2
+    })
+    
+    // Always run layout after initialization to ensure proper positioning
+    setTimeout(() => {
+      if (this.cyInstance) {
+        this.cyInstance.layout({ name: this.layout, animate: true }).run()
+        this.cyInstance.fit(null, 50)
+      }
+    }, 100)
+    
+    this.cyInstance.on('tap', 'node', (evt) => { const node = evt.target; this.dispatchEvent(new CustomEvent('nodeClick', { detail: { node: node.data() } })) })
+    this.cyInstance.on('select', 'node', () => { this.selectedNodes = this.cyInstance.\\\$('node:selected').map(n => n.data()); this.updateStats() })
+    this.cyInstance.on('unselect', 'node', () => { this.selectedNodes = this.cyInstance.\\\$('node:selected').map(n => n.data()); this.updateStats() })
+    this.updateStats()
+  }
+
+  applyLayout(layoutName) {
+    if (!this.cyInstance) return
+    const layout = this.cyInstance.layout({ name: layoutName, animate: true, animationDuration: 500 })
+    layout.run()
+  }
+
+  handleSearch(query) {
+    this.searchQuery = query
+    if (!this.cyInstance) return
+    if (!query) { this.cyInstance.nodes().removeClass('dimmed'); return }
+    const queryLower = query.toLowerCase()
+    this.cyInstance.nodes().forEach(node => {
+      const label = (node.data('label') || '').toLowerCase()
+      const id = (node.data('id') || '').toLowerCase()
+      if (label.includes(queryLower) || id.includes(queryLower)) { node.removeClass('dimmed'); node.addClass('highlighted') }
+      else { node.addClass('dimmed'); node.removeClass('highlighted') }
+    })
+    this.cyInstance.style().selector('.dimmed').style({ 'opacity': 0.3 }).selector('.highlighted').style({ 'opacity': 1, 'border-width': 4, 'border-color': '#f39c12' }).update()
+  }
+
+  centerGraph() { if (!this.cyInstance) return; this.cyInstance.fit(null, 50) }
+  zoom(factor) { if (!this.cyInstance) return; const currentZoom = this.cyInstance.zoom(); this.cyInstance.zoom({ level: currentZoom * factor, renderedPosition: { x: this.cyInstance.width() / 2, y: this.cyInstance.height() / 2 } }) }
+
+  exportPNG() {
+    if (!this.cyInstance) return
+    const png = this.cyInstance.png({ output: 'blob', bg: this.backgroundColor, full: true, scale: 2 })
+    const url = URL.createObjectURL(png)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = \\\`knowledge-graph-\\${Date.now()}.png\\\`
+    a.click()
+    URL.revokeObjectURL(url)
+    this.dispatchEvent(new CustomEvent('export', { detail: { type: 'png' } }))
+  }
+
+  exportJSON() {
+    if (!this.cyInstance) return
+    const data = { nodes: this.cyInstance.nodes().map(n => ({ ...n.data(), position: n.position() })), edges: this.cyInstance.edges().map(e => e.data()) }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = \\\`knowledge-graph-\\${Date.now()}.json\\\`
+    a.click()
+    URL.revokeObjectURL(url)
+    this.dispatchEvent(new CustomEvent('export', { detail: { type: 'json', data } }))
+  }
+
+  updateStats() {
+    const statsEl = this.shadowRoot.getElementById('stats')
+    if (!statsEl || !this.cyInstance) return
+    const nodeCount = this.cyInstance.nodes().length
+    const edgeCount = this.cyInstance.edges().length
+    const selectedCount = this.selectedNodes.length
+    let text = \\\`Nodes: \\${nodeCount} | Edges: \\${edgeCount}\\\`
+    if (selectedCount > 0) text += \\\` | Selected: \\${selectedCount}\\\`
+    statsEl.textContent = text
+  }
+
+  showLoading(show) { const loadingEl = this.shadowRoot.getElementById('loading'); if (loadingEl) loadingEl.classList.toggle('hidden', !show); this.isLoading = show }
+  showError(message) { const errorEl = this.shadowRoot.getElementById('error'); if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden') } }
+  hideError() { const errorEl = this.shadowRoot.getElementById('error'); if (errorEl) errorEl.classList.add('hidden') }
+
+  // ============================================
+  // PUBLIC API - Call these methods from JavaScript
+  // ============================================
+  
+  /**
+   * Load a graph by ID from the API endpoint
+   * @param {string} graphId - The graph ID to load
+   * @returns {Promise<void>}
+   * @example viewer.loadGraph('graph_123')
+   */
+  // loadGraph(graphId) - defined above
+  
+  /**
+   * Set graph data directly (bypasses API)
+   * @param {Object} data - Graph data with nodes and edges arrays
+   * @example viewer.setGraphData({ nodes: [...], edges: [...] })
+   */
+  setGraphData(data) { 
+    if (!this.isComponentReady) {
+      console.warn('Component not ready yet, queuing setGraphData')
+      setTimeout(() => this.setGraphData(data), 100)
+      return
+    }
+    this.initializeGraph(data) 
+  }
+  
+  /**
+   * Get current graph data
+   * @returns {Object|null} Graph data with nodes and edges
+   */
+  getGraphData() { 
+    if (!this.cyInstance) return null
+    return { 
+      nodes: this.cyInstance.nodes().map(n => ({ ...n.data(), position: n.position() })), 
+      edges: this.cyInstance.edges().map(e => e.data()) 
+    } 
+  }
+  
+  /**
+   * Get currently selected nodes
+   * @returns {Array} Array of selected node data
+   */
+  getSelectedNodes() { return this.selectedNodes }
+  
+  /**
+   * Select a node by ID
+   * @param {string} nodeId - The node ID to select
+   */
+  selectNode(nodeId) { if (!this.cyInstance) return; this.cyInstance.\\\$(\\\`#\\${nodeId}\\\`).select() }
+  
+  /**
+   * Deselect all nodes
+   */
+  deselectAll() { if (!this.cyInstance) return; this.cyInstance.\\\$(':selected').unselect() }
+}
+
+customElements.define('knowledge-graph-viewer', KnowledgeGraphViewer)
+console.log('✅ Knowledge Graph Viewer component loaded')
 `
     }
 
-    const componentCode = components[componentName]
-
+    const componentCode = components[componentKey]
+    
     if (!componentCode) {
-      return new Response('Component not found', {
+      return new Response('Component not found', { 
         status: 404,
         headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'text/plain'
+          'Content-Type': 'text/plain',
+          'Access-Control-Allow-Origin': '*'
         }
       })
     }

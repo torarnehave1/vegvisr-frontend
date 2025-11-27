@@ -42,6 +42,7 @@ import {
   loadPrompt,
   deletePrompt
 } from './prompt-library-handlers.js'
+import { handleComponentManagerAPI } from './component-manager-handlers.js'
 import {
   listAPIs,
   getAPI,
@@ -8983,6 +8984,11 @@ export default {
           'Access-Control-Max-Age': '86400',
         },
       })
+    }
+
+    // Component Manager API routes
+    if (pathname.startsWith('/api/components')) {
+      return await handleComponentManagerAPI(request, env, pathname)
     }
 
     if (pathname === '/createknowledgegraph' && request.method === 'GET') {
