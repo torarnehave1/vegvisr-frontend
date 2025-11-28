@@ -16,6 +16,7 @@ class KnowledgeGraphViewer extends HTMLElement {
     this.pendingEdgeFrom = null
     this.isFullscreen = false
     this.currentGraphId = null
+    this.versionNumber = 'v.unknown'
   }
 
   static get observedAttributes() {
@@ -34,12 +35,10 @@ class KnowledgeGraphViewer extends HTMLElement {
     ]
   }
 
-  static get version() {
-    return '1.1.0'
-  }
-
-  connectedCallback() {
-    this.loadCytoscapeLibrary().then(async () => {
+  async connectedCallback() {
+    try {
+      await this.fetchVersion()
+      await this.loadCytoscapeLibrary()
       this.render()
       this.setupEventListeners()
       this.isComponentReady = true
@@ -75,12 +74,14 @@ class KnowledgeGraphViewer extends HTMLElement {
           this.initializeGraph(data)
         } catch (error) {
           console.error('Failed to parse graph-data:', error)
-          this.showError('Invalid graph data format')
         }
       } else {
         this.initializeGraph({ nodes: [], edges: [] })
       }
-    })
+    } catch (error) {
+      console.error('Error in connectedCallback:', error)
+      this.showError(`Failed to initialize component: ${error.message}`)
+    }
   }
 
   disconnectedCallback() {
@@ -109,16 +110,61 @@ class KnowledgeGraphViewer extends HTMLElement {
     }
   }
 
+  async fetchVersion() {
+    try {
+      const response = await fetch('/api/components/knowledge-graph-viewer/version')
+      if (response.ok) {
+        const data = await response.json()
+        this.versionNumber = `v.${data.version}`
+      } else {
+        this.versionNumber = 'v.unknown'
+      }
+    } catch (error) {
+      console.error('Failed to fetch version:', error)
+      this.versionNumber = 'v.unknown'
+    }
+  }
+
   async loadCytoscapeLibrary() {
-    if (window.cytoscape) return
-    
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script')
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js'
-      script.onload = resolve
-      script.onerror = reject
-      document.head.appendChild(script)
-    })
+    if (window.cytoscape) {
+      console.log('Cytoscape already loaded')
+      return
+    }
+
+    const urls = [
+      'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js',
+      'https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js'
+    ]
+
+    for (const url of urls) {
+      try {
+        console.log(`Attempting to load Cytoscape from ${url}`)
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+          script.src = url
+          script.onload = () => {
+            console.log(`Cytoscape loaded successfully from ${url}`)
+            resolve()
+          }
+          script.onerror = (e) => {
+            console.error(`Failed to load Cytoscape from ${url}:`, e)
+            reject(new Error(`Failed to load from ${url}`))
+          }
+          document.head.appendChild(script)
+        })
+        // Check if cytoscape is now available
+        if (window.cytoscape) {
+          return
+        } else {
+          throw new Error('Cytoscape not available after script load')
+        }
+      } catch (error) {
+        console.warn(`Cytoscape load attempt failed for ${url}:`, error.message)
+        // Continue to next URL
+      }
+    }
+
+    throw new Error('All Cytoscape load attempts failed')
   }
 
   get width() { return this.getAttribute('width') || '100%' }
@@ -198,11 +244,12 @@ class KnowledgeGraphViewer extends HTMLElement {
             <button id="saveJSONBtn" title="Save Graph as JSON">💾 Save JSON</button>
             <button id="saveHistoryBtn" title="Save with History">📚 Save with History</button>
             <button id="addEdgeBtn" title="Toggle Add Edge Mode" class="${this.addEdgeMode ? 'active' : ''}">➕ Add Edge</button>
+            <button id="addNodeBtn" title="Add Fulltext Node" ${!this.currentGraphId ? 'style="display:none"' : ''}>📝 Add Fulltext Node</button>
             <button id="exportPNGBtn" title="Export as PNG">📷 Export PNG</button>
             <button id="exportSVGBtn" title="Export as SVG">🖼️ Export SVG</button>
             <button id="exportJSONBtn" title="Export as JSON">💾 Export JSON</button>
           </div>
-          <div class="stats" id="stats">Nodes: 0 | Edges: 0 | Version: ${this.constructor.version}</div>
+          <div class="stats" id="stats">Nodes: 0 | Edges: 0 | Version: ${this.versionNumber}</div>
         </div>
         <div id="cy"></div>
         <div id="loading" class="loading hidden">Loading graph...</div>
@@ -251,6 +298,8 @@ class KnowledgeGraphViewer extends HTMLElement {
     if (saveSVGBtn) saveSVGBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'svg'))
     if (saveJSONBtn) saveJSONBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'json'))
     if (saveHistoryBtn) saveHistoryBtn.addEventListener('click', () => this.saveGraphWithHistory())
+    const addNodeBtn = this.shadowRoot.getElementById('addNodeBtn')
+    if (addNodeBtn) addNodeBtn.addEventListener('click', () => this.createFulltextNode())
     if (addEdgeBtn) addEdgeBtn.addEventListener('click', () => this.toggleAddEdgeMode())
     if (exportPNGBtn) exportPNGBtn.addEventListener('click', () => this.exportGraph('png'))
     if (exportSVGBtn) exportSVGBtn.addEventListener('click', () => this.exportGraph('svg'))
@@ -310,6 +359,13 @@ class KnowledgeGraphViewer extends HTMLElement {
       this.graphData = graphData
       this.currentGraphId = graphId
       this.initializeGraph(graphData)
+      
+      // Show the Add Node button when graph is loaded
+      const addNodeBtn = this.shadowRoot.getElementById('addNodeBtn')
+      if (addNodeBtn) {
+        addNodeBtn.style.display = 'inline-block'
+      }
+      
       this.dispatchEvent(new CustomEvent('graphLoaded', { detail: { graphId, data: graphData, nodes: graphData.nodes, edges: graphData.edges, metadata: graphData.metadata } }))
     } catch (error) {
       console.error('Error loading graph:', error)
@@ -420,6 +476,8 @@ class KnowledgeGraphViewer extends HTMLElement {
       })
       if (!response.ok) throw new Error(`Failed to save graph with history: ${response.status}`)
       this.dispatchEvent(new CustomEvent('graphSavedWithHistory', { detail: { graphId, payload } }))
+      await this.fetchVersion() // Update version display
+      this.updateStats() // Update stats
     } catch (error) {
       console.error('Error saving graph with history:', error)
       this.showError(`Failed to save graph with history: ${error.message}`)
@@ -429,7 +487,112 @@ class KnowledgeGraphViewer extends HTMLElement {
     }
   }
 
-  initializeGraph(graphData) {
+  /**
+   * PUBLIC API: Create a new fulltext node
+   */
+  async createFulltextNode() {
+    if (!this.currentGraphId) {
+      this.showError('No graph ID available for creating nodes')
+      return
+    }
+    if (!this.cyInstance) {
+      this.showError('Graph not initialized')
+      return
+    }
+
+    try {
+      this.showLoading(true)
+      this.hideError()
+
+      // Generate UUID using the standard pattern from GNewViewer
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = (Math.random() * 16) | 0
+          const v = c == 'x' ? r : (r & 0x3) | 0x8
+          return v.toString(16)
+        })
+      }
+
+      const newNodeId = generateUUID()
+      
+      // Create new fulltext node following GNewViewer pattern
+      const newNode = {
+        id: newNodeId,
+        label: 'New Fulltext Node',
+        color: '#f8f9fa',
+        type: 'fulltext',
+        info: 'This is a new fulltext node. Click to edit and add your content.',
+        bibl: [],
+        visible: true
+      }
+
+      // Find good position for the new node (center or empty space)
+      const viewport = this.cyInstance.extent()
+      const centerX = (viewport.x1 + viewport.x2) / 2
+      const centerY = (viewport.y1 + viewport.y2) / 2
+      
+      // Add the node to Cytoscape
+      this.cyInstance.add({
+        data: newNode,
+        position: { x: centerX, y: centerY }
+      })
+
+      // Collect current data from Cytoscape
+      const nodes = this.cyInstance.nodes().map(node => node.data())
+      const edges = this.cyInstance.edges().map(edge => edge.data())
+      
+      // Create updated graph data
+      const updatedGraphData = {
+        metadata: this.graphData.metadata || {},
+        nodes,
+        edges
+      }
+
+      // Save to backend using the same pattern as GNewViewer
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: this.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to save graph with new node: ${response.status}`)
+      }
+
+      await response.json()
+      
+      // Update local graph data
+      this.graphData = updatedGraphData
+      
+      // Update version and stats
+      await this.fetchVersion()
+      this.updateStats()
+      
+      // Dispatch success event
+      this.dispatchEvent(new CustomEvent('nodeCreated', { 
+        detail: { nodeId: newNodeId, node: newNode } 
+      }))
+      
+      console.log('✅ New fulltext node created successfully:', newNodeId)
+
+    } catch (error) {
+      console.error('❌ Error creating fulltext node:', error)
+      this.showError(`Failed to create fulltext node: ${error.message}`)
+      this.dispatchEvent(new CustomEvent('error', { detail: { message: error.message, error } }))
+    } finally {
+      this.showLoading(false)
+    }
+  }
+
+  async initializeGraph(graphData) {
+    await this.loadCytoscapeLibrary()
+    if (!window.cytoscape) {
+      throw new Error('Cytoscape library not available')
+    }
     if (!graphData || !graphData.nodes) {
       console.warn('No graph data provided')
       graphData = { nodes: [], edges: [] }
@@ -827,7 +990,7 @@ class KnowledgeGraphViewer extends HTMLElement {
     if (stats && this.cyInstance) {
       const nodeCount = this.cyInstance.nodes().length
       const edgeCount = this.cyInstance.edges().length
-      stats.textContent = `Nodes: ${nodeCount} | Edges: ${edgeCount} | Version: ${this.constructor.version}`
+      stats.textContent = `Nodes: ${nodeCount} | Edges: ${edgeCount} | Version: ${this.versionNumber}`
     }
   }
 
