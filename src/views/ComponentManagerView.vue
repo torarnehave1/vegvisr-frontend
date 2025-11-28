@@ -14,7 +14,7 @@
 
     <div class="content">
       <!-- Component Manager Web Component - exactly like the working HTML -->
-      <component-manager 
+      <component-manager
         api-endpoint="https://api.vegvisr.org"
         user-id="demo-user@example.com"
         theme="light">
@@ -60,9 +60,9 @@ onMounted(() => {
 function setupEventListeners() {
   const manager = document.querySelector('component-manager')
   const eventLog = document.getElementById('eventLog')
-  
+
   if (!manager || !eventLog) return
-  
+
   function logEvent(message, type = 'info') {
     const entry = document.createElement('div')
     entry.className = `log-entry log-${type}`
@@ -70,25 +70,25 @@ function setupEventListeners() {
     eventLog.appendChild(entry)
     eventLog.scrollTop = eventLog.scrollHeight
   }
-  
+
   // Listen to component events - exactly like working HTML
   manager.addEventListener('componentSelected', (e) => {
     logEvent(`Selected component: ${e.detail.componentName}`, 'info')
   })
-  
+
   manager.addEventListener('versionCreated', (e) => {
     logEvent(`✅ New version ${e.detail.newVersion} created for ${e.detail.componentName}`, 'success')
     logEvent(`Changes: ${e.detail.changes}`, 'success')
   })
-  
+
   manager.addEventListener('versionRestored', (e) => {
     logEvent(`↩️ Restored ${e.detail.componentName} to version ${e.detail.versionNumber}`, 'success')
   })
-  
+
   manager.addEventListener('error', (e) => {
     logEvent(`❌ Error: ${e.detail.message}`, 'error')
   })
-  
+
   // Wait for component to load
   customElements.whenDefined('component-manager').then(() => {
     logEvent('Component manager loaded successfully!', 'success')

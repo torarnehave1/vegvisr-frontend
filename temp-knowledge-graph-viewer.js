@@ -90,7 +90,7 @@ class KnowledgeGraphViewer extends HTMLElement {
 
   async loadCytoscapeLibrary() {
     if (window.cytoscape) return
-    
+
     return new Promise((resolve, reject) => {
       const script = document.createElement('script')
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js'
@@ -360,7 +360,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       console.warn('No graph data provided')
       graphData = { nodes: [], edges: [] }
     }
-    
+
     const elements = [
       ...graphData.nodes.map(node => {
         const hasPosition = node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number'
@@ -578,7 +578,7 @@ class KnowledgeGraphViewer extends HTMLElement {
    */
   exportGraph(format = 'png') {
     if (!this.cyInstance) return
-    
+
     if (format === 'png') {
       const png = this.cyInstance.png({ full: true, scale: 2 })
       const link = document.createElement('a')
@@ -717,12 +717,12 @@ class KnowledgeGraphViewer extends HTMLElement {
   handleSearch(query) {
     this.searchQuery = query
     if (!this.cyInstance) return
-    
+
     if (!query) {
       this.cyInstance.nodes().style('opacity', 1)
       return
     }
-    
+
     const lowerQuery = query.toLowerCase()
     this.cyInstance.nodes().forEach(node => {
       const label = (node.data('label') || '').toLowerCase()
