@@ -8989,6 +8989,375 @@ export default {
       })
     }
 
+    // OpenAPI 3.0 compliant documentation endpoint
+    if (pathname === '/api/docs' && request.method === 'GET') {
+      const openApiSpec = {
+        openapi: '3.0.0',
+        info: {
+          title: 'Vegvisr API Documentation',
+          version: '1.0.0',
+          description: 'Comprehensive API documentation for component management and external services'
+        },
+        servers: [
+          {
+            url: 'https://api.vegvisr.org',
+            description: 'API Server'
+          },
+          {
+            url: 'https://knowledge.vegvisr.org',
+            description: 'Knowledge Graph Server'
+          }
+        ],
+        paths: {
+          '/api/components/{name}/edit': {
+            post: {
+              summary: 'Edit web component with AI',
+              description: 'Uses AI to modify web components stored in R2 and update version tracking',
+              parameters: [
+                {
+                  name: 'name',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' },
+                  description: 'Component name (e.g., knowledge-graph-viewer)'
+                }
+              ],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['userRequest', 'userId'],
+                      properties: {
+                        userRequest: {
+                          type: 'string',
+                          description: 'Detailed description of changes wanted. Include dependency documentation for external APIs.'
+                        },
+                        userId: {
+                          type: 'string',
+                          description: 'User identifier for tracking changes'
+                        },
+                        includeDocs: {
+                          type: 'boolean',
+                          description: 'Optional: Whether to fetch full API documentation. Auto-detected if userRequest mentions APIs, endpoints, saving, loading, conflicts, versions, or dependencies.',
+                          default: false
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              responses: {
+                '200': {
+                  description: 'Component updated successfully',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          newVersion: { type: 'number' },
+                          changes: { type: 'string' },
+                          diffUrl: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js': {
+            get: {
+              summary: 'Cytoscape.js Library (External CDN)',
+              description: 'JavaScript graph visualization library. Component automatically loads this if not already available.',
+              externalDocs: {
+                description: 'Cytoscape.js Documentation',
+                url: 'https://js.cytoscape.org/'
+              },
+              responses: {
+                '200': {
+                  description: 'JavaScript library loaded',
+                  content: {
+                    'application/javascript': {
+                      schema: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://knowledge.vegvisr.org/getknowgraph': {
+            get: {
+              summary: 'Load knowledge graph by ID',
+              description: 'External API: Retrieves a specific knowledge graph by ID. Default api-endpoint for knowledge-graph-viewer component.',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'query',
+                  required: true,
+                  schema: { type: 'string' },
+                  description: 'Graph ID to retrieve'
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Graph data retrieved successfully',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          metadata: { type: 'object' },
+                          nodes: { type: 'array' },
+                          edges: { type: 'array' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://knowledge.vegvisr.org/getknowgraphs': {
+            get: {
+              summary: 'List all knowledge graphs',
+              description: 'External API: Retrieves list of all available knowledge graphs',
+              responses: {
+                '200': {
+                  description: 'List of graphs',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            title: { type: 'string' },
+                            description: { type: 'string' },
+                            created_date: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://knowledge.vegvisr.org/saveknowgraph': {
+            post: {
+              summary: 'Save knowledge graph (legacy)',
+              description: 'External API: Legacy save endpoint. Consider using saveGraphWithHistory instead for version control.',
+              deprecated: true,
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        graphData: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://knowledge.vegvisr.org/updateknowgraph': {
+            post: {
+              summary: 'Update existing knowledge graph',
+              description: 'External API: Updates an existing knowledge graph',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        graphData: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          'https://knowledge.vegvisr.org/saveGraphWithHistory': {
+            post: {
+              summary: 'Save knowledge graph with version history',
+              description: 'External API: Saves knowledge graph to knowledge_graphs and knowledge_graph_history tables. Auto-handles versioning, maintains max 20 versions.',
+              externalDocs: {
+                description: 'Hosted on knowledge.vegvisr.org (dev-worker)',
+                url: 'https://knowledge.vegvisr.org'
+              },
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['id', 'graphData'],
+                      properties: {
+                        id: {
+                          type: 'string',
+                          description: 'Unique graph identifier',
+                          example: 'graph_1234567890'
+                        },
+                        graphData: {
+                          type: 'object',
+                          required: ['metadata', 'nodes', 'edges'],
+                          properties: {
+                            metadata: {
+                              type: 'object',
+                              required: ['title', 'description', 'createdBy'],
+                              properties: {
+                                title: { type: 'string' },
+                                description: { type: 'string' },
+                                createdBy: { type: 'string' },
+                                metaArea: { type: 'string' }
+                              },
+                              description: 'CRITICAL: Do NOT include version field - backend auto-handles versioning'
+                            },
+                            nodes: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  id: { type: 'string' },
+                                  data: {
+                                    type: 'object',
+                                    properties: {
+                                      label: { type: 'string' },
+                                      content: { type: 'string' },
+                                      type: { 
+                                        type: 'string',
+                                        enum: ['markdown', 'image', 'background-image', 'iframe']
+                                      }
+                                    }
+                                  },
+                                  position: { type: 'object' },
+                                  bibl: { type: 'array', items: { type: 'string' } },
+                                  visible: { type: 'boolean', default: true }
+                                }
+                              }
+                            },
+                            edges: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  source: { type: 'string' },
+                                  target: { type: 'string' }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        override: {
+                          type: 'boolean',
+                          default: false,
+                          description: 'RECOMMENDED: Set to true to bypass version conflicts (like GnewViewer does)'
+                        }
+                      }
+                    },
+                    example: {
+                      id: 'component_knowledge-graph-viewer_1732787123456',
+                      graphData: {
+                        metadata: {
+                          title: 'Knowledge Graph Viewer Component',
+                          description: 'Component development graph with versions and AI edits',
+                          createdBy: 'anonymous',
+                          metaArea: 'component-management'
+                        },
+                        nodes: [
+                          {
+                            id: 'main-component',
+                            data: {
+                              label: 'knowledge-graph-viewer',
+                              content: 'Web component for viewing knowledge graphs with save history',
+                              type: 'markdown'
+                            },
+                            position: { x: 300, y: 200 },
+                            bibl: ['R2: web-components/knowledge-graph-viewer.js'],
+                            visible: true
+                          }
+                        ],
+                        edges: []
+                      },
+                      override: true
+                    }
+                  }
+                }
+              },
+              responses: {
+                '200': {
+                  description: 'Success',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          message: { type: 'string' },
+                          id: { type: 'string' },
+                          newVersion: { type: 'number' }
+                        }
+                      }
+                    }
+                  }
+                },
+                '409': {
+                  description: 'Version conflict - SOLUTION: Set override: true',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          error: { type: 'string' },
+                          currentVersion: { type: 'number' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        components: {
+          schemas: {
+            ComponentEditRequest: {
+              type: 'object',
+              required: ['userRequest', 'userId'],
+              properties: {
+                userRequest: {
+                  type: 'string',
+                  description: 'Include external API documentation in request for proper dependency handling'
+                },
+                userId: { type: 'string' }
+              }
+            }
+          }
+        }
+      }
+
+      return new Response(JSON.stringify(openApiSpec, null, 2), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
+    }
+
     // Component Manager API routes
     if (pathname.startsWith('/api/components')) {
       return await handleComponentManagerAPI(request, env, pathname)

@@ -2617,6 +2617,7 @@ onMounted(() => {
         requestId,
         context: {
           graphId: currentGraphId.value,
+          currentGraphId: currentGraphId.value, // Added for knowledge-graph-viewer compatibility
           nodes: cleanNodes,
           edges: cleanEdges,
           metadata: {
@@ -2624,6 +2625,14 @@ onMounted(() => {
             category: graphData.value.category,
             created_date: graphData.value.created_date,
             modified_date: graphData.value.modified_date
+          },
+          // Additional context for app-viewer components
+          graphTitle: graphData.value.name,
+          userId: userStore.email,
+          userRole: userStore.role,
+          graphData: {
+            nodes: cleanNodes,
+            edges: cleanEdges
           }
         }
       }
