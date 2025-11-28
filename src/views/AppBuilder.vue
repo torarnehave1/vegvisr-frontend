@@ -205,6 +205,14 @@
               📚 App History
             </button>
             <button
+              v-if="userStore.user_id"
+              @click="openComponentManager"
+              class="btn-outline"
+              title="Manage your web components"
+            >
+              ⚡ Component Manager
+            </button>
+            <button
               v-if="conversationHistory.length === 0 && appPrompt.trim()"
               @click="enhancePromptWithAI"
               :disabled="isEnhancingPrompt"
@@ -941,10 +949,12 @@ Shortcut: Press Ctrl+E (Cmd+E on Mac) to toggle between Edit and Preview mode."
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useAppBuilderStore } from '@/stores/appBuilderStore'
 import ImageSelector from '@/components/ImageSelector.vue'
 
+const router = useRouter()
 const userStore = useUserStore()
 const appBuilderStore = useAppBuilderStore()
 
@@ -2732,6 +2742,16 @@ const openSaveDialog = () => {
   saveAppDescription.value = ''
   saveAppTags.value = ''
   showSaveDialog.value = true
+}
+
+const openComponentManager = () => {
+  // Navigate to component manager view
+  router.push('/component-manager')
+}
+
+const openComponentManagerFor = (componentName) => {
+  // Navigate to component manager view for specific component
+  router.push(`/component-manager/${componentName}`)
 }
 
 const saveAppToHistory = async () => {

@@ -396,6 +396,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/component-manager/:componentName?',
+      name: 'component-manager',
+      component: () => import('../views/ComponentManagerView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
       path: '/app-history',
       name: 'app-history',
       component: () => import('../views/AppHistoryView.vue'),

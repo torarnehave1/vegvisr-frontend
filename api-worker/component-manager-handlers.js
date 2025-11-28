@@ -156,7 +156,7 @@ async function getComponentVersions(componentName, env) {
 async function handleAIEdit(request, componentName, env) {
   try {
     const body = await request.json()
-    const { userRequest, userId } = body
+    const { userRequest, userId, includeDocs } = body
 
     if (!userRequest) {
       return new Response(JSON.stringify({ success: false, error: 'userRequest is required' }), {
@@ -169,7 +169,8 @@ async function handleAIEdit(request, componentName, env) {
       componentName,
       userRequest,
       env,
-      userId: userId || 'anonymous'
+      userId: userId || 'anonymous',
+      includeDocs: includeDocs || false
     })
 
     return new Response(JSON.stringify(result), {
