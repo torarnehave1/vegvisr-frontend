@@ -45,6 +45,12 @@ export async function handleComponentManagerAPI(request, env, pathname) {
     return getVersionDiff(componentName, fromVersion, toVersion, env)
   }
 
+  // GET /api/components/:name/version - Get current version number
+  if (pathname.match(/^\/api\/components\/[^\/]+\/version$/) && request.method === 'GET') {
+    const componentName = pathname.split('/')[3]
+    return getComponentCurrentVersion(componentName, env)
+  }
+
   return new Response('Not found', { status: 404 })
 }
 
@@ -189,8 +195,38 @@ async function handleAIEdit(request, componentName, env) {
 }
 
 /**
- * Handle restore request
+ * Get current version number for a component
  */
+async function getComponentCurrentVersion(componentName, env) {
+  try {
+    const component = await env.vegvisr_org.prepare(
+      'SELECT current_version FROM web_components WHERE name = ?'
+    ).bind(componentName).first()
+
+    if (!component) {
+      return new Response(JSON.stringify({ success: false, error: 'Component not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      })
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      componentName,
+      version: component.current_version
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+}
 async function handleRestore(request, componentName, env) {
   try {
     const body = await request.json()

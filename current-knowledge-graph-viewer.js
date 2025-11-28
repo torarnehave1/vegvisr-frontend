@@ -29,12 +29,17 @@ class KnowledgeGraphViewer extends HTMLElement {
       'show-controls',
       'node-color',
       'edge-color',
-      'background-color'
+      'background-color',
+      'title'
     ]
   }
 
+  static get version() {
+    return '1.1.0'
+  }
+
   connectedCallback() {
-    this.loadCytoscapeLibrary().then(() => {
+    this.loadCytoscapeLibrary().then(async () => {
       this.render()
       this.setupEventListeners()
       this.isComponentReady = true
@@ -50,6 +55,20 @@ class KnowledgeGraphViewer extends HTMLElement {
       const graphId = this.getAttribute('graph-id')
       if (graphId) {
         this.loadGraph(graphId)
+      } else if (this.isInGNewViewer()) {
+        // Automatically get graph ID from parent when embedded in GNewViewer
+        try {
+          const context = await this.getGraphContext()
+          if (context && context.graphId) {
+            this.setAttribute('graph-id', context.graphId)
+            this.loadGraph(context.graphId)
+          } else {
+            this.initializeGraph({ nodes: [], edges: [] })
+          }
+        } catch (error) {
+          console.error('Failed to get graph context:', error)
+          this.initializeGraph({ nodes: [], edges: [] })
+        }
       } else if (this.getAttribute('graph-data')) {
         try {
           const data = JSON.parse(this.getAttribute('graph-data'))
@@ -84,6 +103,8 @@ class KnowledgeGraphViewer extends HTMLElement {
         }
       } else if (name === 'layout' && this.cyInstance) {
         this.applyLayout(newValue)
+      } else if (name === 'title') {
+        this.render()
       }
     }
   }
@@ -108,6 +129,7 @@ class KnowledgeGraphViewer extends HTMLElement {
   get nodeColor() { return this.getAttribute('node-color') || '#667eea' }
   get edgeColor() { return this.getAttribute('edge-color') || '#999' }
   get backgroundColor() { return this.getAttribute('background-color') || '#ffffff' }
+  get title() { return this.getAttribute('title') || 'Canvas' }
 
   /**
    * Helper method to check if a URL is a valid image URL
@@ -130,8 +152,9 @@ class KnowledgeGraphViewer extends HTMLElement {
         :host { display: block; font-family: system-ui, -apple-system, sans-serif; }
         .graph-container { width: ${this.width}; height: ${this.height}; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background: ${this.backgroundColor}; position: relative; }
         .graph-container.fullscreen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; border: none; border-radius: 0; }
+        .title { position: absolute; top: 10px; left: 10px; background: white; padding: 5px 10px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); font-weight: bold; z-index: 1001; }
         #cy { width: 100%; height: 100%; }
-        .controls { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); display: ${this.showControls ? 'flex' : 'none'}; flex-direction: column; gap: 8px; z-index: 1000; max-width: 250px; }
+        .controls { position: absolute; top: ${this.title ? '50px' : '10px'}; left: 10px; background: white; padding: 10px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); display: ${this.showControls ? 'flex' : 'none'}; flex-direction: column; gap: 8px; z-index: 1000; max-width: 250px; }
         .control-group { display: flex; gap: 6px; flex-wrap: wrap; }
         button { padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
         button:hover { background: #f5f5f5; border-color: #667eea; }
@@ -152,6 +175,7 @@ class KnowledgeGraphViewer extends HTMLElement {
         .shape-buttons button { flex: 1; padding: 4px 8px; font-size: 10px; }
       </style>
       <div class="graph-container">
+        ${this.title ? `<div class="title">${this.title}</div>` : ''}
         <div class="controls">
           <input type="text" id="searchBox" placeholder="Search nodes..." value="${this.searchQuery}" />
           <select id="layoutSelect">
@@ -169,15 +193,16 @@ class KnowledgeGraphViewer extends HTMLElement {
             <button id="fullscreenBtn" title="Toggle Fullscreen" class="${this.isFullscreen ? 'active' : ''}">⛶ Fullscreen</button>
           </div>
           <div class="control-group">
-            <button id="saveJSONBtn" title="Save Graph as JSON">💾 Save JSON</button>
             <button id="savePNGBtn" title="Save Graph as PNG">📷 Save PNG</button>
             <button id="saveSVGBtn" title="Save Graph as SVG">🖼️ Save SVG</button>
+            <button id="saveJSONBtn" title="Save Graph as JSON">💾 Save JSON</button>
+            <button id="saveHistoryBtn" title="Save with History">📚 Save with History</button>
             <button id="addEdgeBtn" title="Toggle Add Edge Mode" class="${this.addEdgeMode ? 'active' : ''}">➕ Add Edge</button>
             <button id="exportPNGBtn" title="Export as PNG">📷 Export PNG</button>
             <button id="exportSVGBtn" title="Export as SVG">🖼️ Export SVG</button>
             <button id="exportJSONBtn" title="Export as JSON">💾 Export JSON</button>
           </div>
-          <div class="stats" id="stats">Nodes: 0 | Edges: 0</div>
+          <div class="stats" id="stats">Nodes: 0 | Edges: 0 | Version: ${this.constructor.version}</div>
         </div>
         <div id="cy"></div>
         <div id="loading" class="loading hidden">Loading graph...</div>
@@ -202,9 +227,10 @@ class KnowledgeGraphViewer extends HTMLElement {
     const zoomInBtn = this.shadowRoot.getElementById('zoomInBtn')
     const zoomOutBtn = this.shadowRoot.getElementById('zoomOutBtn')
     const fullscreenBtn = this.shadowRoot.getElementById('fullscreenBtn')
-    const saveJSONBtn = this.shadowRoot.getElementById('saveJSONBtn')
     const savePNGBtn = this.shadowRoot.getElementById('savePNGBtn')
     const saveSVGBtn = this.shadowRoot.getElementById('saveSVGBtn')
+    const saveJSONBtn = this.shadowRoot.getElementById('saveJSONBtn')
+    const saveHistoryBtn = this.shadowRoot.getElementById('saveHistoryBtn')
     const addEdgeBtn = this.shadowRoot.getElementById('addEdgeBtn')
     const exportPNGBtn = this.shadowRoot.getElementById('exportPNGBtn')
     const exportSVGBtn = this.shadowRoot.getElementById('exportSVGBtn')
@@ -221,9 +247,10 @@ class KnowledgeGraphViewer extends HTMLElement {
     if (zoomInBtn) zoomInBtn.addEventListener('click', () => this.cyInstance?.zoom(this.cyInstance.zoom() * 1.2))
     if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => this.cyInstance?.zoom(this.cyInstance.zoom() * 0.8))
     if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => this.toggleFullscreen())
-    if (saveJSONBtn) saveJSONBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'json'))
     if (savePNGBtn) savePNGBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'png'))
     if (saveSVGBtn) saveSVGBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'svg'))
+    if (saveJSONBtn) saveJSONBtn.addEventListener('click', () => this.saveGraph(this.getAttribute('graph-id'), 'json'))
+    if (saveHistoryBtn) saveHistoryBtn.addEventListener('click', () => this.saveGraphWithHistory())
     if (addEdgeBtn) addEdgeBtn.addEventListener('click', () => this.toggleAddEdgeMode())
     if (exportPNGBtn) exportPNGBtn.addEventListener('click', () => this.exportGraph('png'))
     if (exportSVGBtn) exportSVGBtn.addEventListener('click', () => this.exportGraph('svg'))
@@ -310,11 +337,14 @@ class KnowledgeGraphViewer extends HTMLElement {
 
     let data
     if (format === 'json') {
-      if (!this.graphData) {
-        this.showError('No graph data to save')
+      if (!this.cyInstance) {
+        this.showError('No graph instance to save')
         return
       }
-      data = this.graphData
+      // Collect current data from Cytoscape to ensure all changes (including shapes, colors, positions) are saved
+      const nodes = this.cyInstance.nodes().map(node => node.data())
+      const edges = this.cyInstance.edges().map(edge => edge.data())
+      data = { nodes, edges, metadata: this.graphData?.metadata || {} }
     } else if (format === 'png') {
       if (!this.cyInstance) {
         this.showError('No graph instance to export')
@@ -352,6 +382,53 @@ class KnowledgeGraphViewer extends HTMLElement {
     }
   }
 
+  /**
+   * PUBLIC API: Save the current graph data with version history
+   * @returns {Promise<void>}
+   */
+  async saveGraphWithHistory() {
+    const graphId = this.currentGraphId
+    if (!graphId) {
+      this.showError('No graph ID available for saving with history')
+      return
+    }
+    if (!this.graphData) {
+      this.showError('No graph data to save')
+      return
+    }
+
+    // Collect current data from Cytoscape to ensure all changes are saved
+    const nodes = this.cyInstance.nodes().map(node => node.data())
+    const edges = this.cyInstance.edges().map(edge => edge.data())
+    const payload = {
+      id: graphId,
+      graphData: {
+        metadata: this.graphData.metadata || {},
+        nodes,
+        edges
+      },
+      override: true
+    }
+
+    this.showLoading(true)
+    this.hideError()
+    try {
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!response.ok) throw new Error(`Failed to save graph with history: ${response.status}`)
+      this.dispatchEvent(new CustomEvent('graphSavedWithHistory', { detail: { graphId, payload } }))
+    } catch (error) {
+      console.error('Error saving graph with history:', error)
+      this.showError(`Failed to save graph with history: ${error.message}`)
+      this.dispatchEvent(new CustomEvent('error', { detail: { message: error.message, error } }))
+    } finally {
+      this.showLoading(false)
+    }
+  }
+
   initializeGraph(graphData) {
     if (!graphData || !graphData.nodes) {
       console.warn('No graph data provided')
@@ -362,7 +439,15 @@ class KnowledgeGraphViewer extends HTMLElement {
       ...graphData.nodes.map(node => {
         const hasPosition = node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number'
         return {
-          data: { id: node.id, label: node.label || node.id, ...node },
+          data: {
+            id: node.id,
+            label: node.label || node.id,
+            shape: node.shape || 'ellipse',
+            color: node.color || this.nodeColor,
+            width: node.width || (node.shape === 'rectangle' ? 80 : 40),
+            height: node.height || (node.shape === 'rectangle' ? 40 : 40),
+            ...node
+          },
           position: hasPosition ? node.position : undefined
         }
       }),
@@ -393,7 +478,7 @@ class KnowledgeGraphViewer extends HTMLElement {
         {
           selector: 'node',
           style: {
-            'background-color': this.nodeColor,
+            'background-color': 'data(color)',
             'background-image': (ele) => {
               const path = ele.data('path')
               return this.isValidImageUrl(path) ? path : undefined
@@ -408,9 +493,9 @@ class KnowledgeGraphViewer extends HTMLElement {
             'color': '#333',
             'text-outline-color': '#fff',
             'text-outline-width': 2,
-            'width': '40px',
-            'height': '40px',
-            'shape': 'ellipse'
+            'width': 'data(width)',
+            'height': 'data(height)',
+            'shape': 'data(shape)'
           }
         },
         {
@@ -653,7 +738,12 @@ class KnowledgeGraphViewer extends HTMLElement {
     if (this.cyInstance) {
       const node = this.cyInstance.getElementById(nodeId)
       if (node && node.isNode()) {
-        node.style('background-color', color)
+        node.data('color', color)
+        // Update graphData
+        const graphNode = this.graphData.nodes.find(n => n.id === nodeId)
+        if (graphNode) {
+          graphNode.color = color
+        }
       }
     }
   }
@@ -691,13 +781,17 @@ class KnowledgeGraphViewer extends HTMLElement {
 
   handleShapeChange(shape) {
     if (this.contextMenuTarget) {
-      this.contextMenuTarget.style('shape', shape)
-      if (shape === 'rectangle') {
-        this.contextMenuTarget.style('width', '80px')
-        this.contextMenuTarget.style('height', '40px')
-      } else {
-        this.contextMenuTarget.style('width', '40px')
-        this.contextMenuTarget.style('height', '40px')
+      const width = shape === 'rectangle' ? 80 : 40
+      const height = shape === 'rectangle' ? 40 : 40
+      this.contextMenuTarget.data('shape', shape)
+      this.contextMenuTarget.data('width', width)
+      this.contextMenuTarget.data('height', height)
+      // Update graphData
+      const graphNode = this.graphData.nodes.find(n => n.id === this.contextMenuTarget.id())
+      if (graphNode) {
+        graphNode.shape = shape
+        graphNode.width = width
+        graphNode.height = height
       }
       this.hideContextMenu()
     }
@@ -733,7 +827,7 @@ class KnowledgeGraphViewer extends HTMLElement {
     if (stats && this.cyInstance) {
       const nodeCount = this.cyInstance.nodes().length
       const edgeCount = this.cyInstance.edges().length
-      stats.textContent = `Nodes: ${nodeCount} | Edges: ${edgeCount}`
+      stats.textContent = `Nodes: ${nodeCount} | Edges: ${edgeCount} | Version: ${this.constructor.version}`
     }
   }
 
