@@ -144,12 +144,12 @@ function extractRelevantDocs(docsData, userRequest, componentName, currentCode) 
   if (docsData.paths) {
     Object.entries(docsData.paths).forEach(([path, methods]) => {
       const pathLower = path.toLowerCase()
-      
+
       // Include if path matches keywords or component name
-      const isRelevant = allKeywords.some(keyword => 
-        pathLower.includes(keyword) || 
+      const isRelevant = allKeywords.some(keyword =>
+        pathLower.includes(keyword) ||
         pathLower.includes(componentName.toLowerCase())
-      ) || 
+      ) ||
       // Always include component edit endpoint
       pathLower.includes('/api/components/') ||
       // Include if mentioned in user request
@@ -176,15 +176,15 @@ function extractRelevantDocs(docsData, userRequest, componentName, currentCode) 
     if (allKeywords.some(keyword => apiLower.includes(keyword)) ||
         currentCode.includes(api) ||
         userRequest.toLowerCase().includes(apiKey.toLowerCase())) {
-      
+
       if (docsData.paths && docsData.paths[api]) {
         relevantDocs.externalAPIs[api] = docsData.paths[api]
       }
     }
   })
 
-  return Object.keys(relevantDocs.paths).length > 0 || Object.keys(relevantDocs.externalAPIs).length > 0 
-    ? relevantDocs 
+  return Object.keys(relevantDocs.paths).length > 0 || Object.keys(relevantDocs.externalAPIs).length > 0
+    ? relevantDocs
     : null
 }
 
@@ -193,7 +193,7 @@ function extractRelevantDocs(docsData, userRequest, componentName, currentCode) 
  */
 function extractKeywords(text) {
   const keywords = []
-  
+
   // API-related keywords
   const apiPatterns = [
     /save[a-z]*/g, /load[a-z]*/g, /fetch[a-z]*/g, /get[a-z]*/g, /post[a-z]*/g,
@@ -229,18 +229,18 @@ async function generateImprovedComponent({ currentCode, userRequest, componentNa
 
   // Fetch API documentation only if requested or if userRequest mentions API/dependencies
   let apiDocumentation = ''
-  const needsDocs = includeDocs || 
+  const needsDocs = includeDocs ||
     /\b(api|endpoint|fetch|save|load|conflict|version|override|dependency|cdn)\b/i.test(userRequest)
-  
+
   if (needsDocs) {
     try {
       const docsResponse = await fetch('https://api.vegvisr.org/api/docs')
       if (docsResponse.ok) {
         const docsData = await docsResponse.json()
-        
+
         // Extract relevant documentation based on user request and component
         const relevantDocs = extractRelevantDocs(docsData, userRequest, componentName, currentCode)
-        
+
         if (relevantDocs) {
           apiDocumentation = `
 

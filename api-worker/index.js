@@ -9236,7 +9236,7 @@ export default {
                                     properties: {
                                       label: { type: 'string' },
                                       content: { type: 'string' },
-                                      type: { 
+                                      type: {
                                         type: 'string',
                                         enum: ['markdown', 'image', 'background-image', 'iframe']
                                       }

@@ -703,7 +703,7 @@ class ComponentManager extends HTMLElement {
     const loadingView = this.shadowRoot.getElementById('loadingView')
     const listView = this.shadowRoot.getElementById('listView')
     const editView = this.shadowRoot.getElementById('editView')
-    
+
     if (show) {
       loadingView.style.display = 'block'
       listView.style.display = 'none'
