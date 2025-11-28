@@ -359,13 +359,13 @@ class KnowledgeGraphViewer extends HTMLElement {
       this.graphData = graphData
       this.currentGraphId = graphId
       this.initializeGraph(graphData)
-      
+
       // Show the Add Node button when graph is loaded
       const addNodeBtn = this.shadowRoot.getElementById('addNodeBtn')
       if (addNodeBtn) {
         addNodeBtn.style.display = 'inline-block'
       }
-      
+
       this.dispatchEvent(new CustomEvent('graphLoaded', { detail: { graphId, data: graphData, nodes: graphData.nodes, edges: graphData.edges, metadata: graphData.metadata } }))
     } catch (error) {
       console.error('Error loading graph:', error)
@@ -514,7 +514,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       }
 
       const newNodeId = generateUUID()
-      
+
       // Create new fulltext node following GNewViewer pattern
       const newNode = {
         id: newNodeId,
@@ -530,7 +530,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       const viewport = this.cyInstance.extent()
       const centerX = (viewport.x1 + viewport.x2) / 2
       const centerY = (viewport.y1 + viewport.y2) / 2
-      
+
       // Add the node to Cytoscape
       this.cyInstance.add({
         data: newNode,
@@ -540,7 +540,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       // Collect current data from Cytoscape
       const nodes = this.cyInstance.nodes().map(node => node.data())
       const edges = this.cyInstance.edges().map(edge => edge.data())
-      
+
       // Create updated graph data
       const updatedGraphData = {
         metadata: this.graphData.metadata || {},
@@ -564,19 +564,19 @@ class KnowledgeGraphViewer extends HTMLElement {
       }
 
       await response.json()
-      
+
       // Update local graph data
       this.graphData = updatedGraphData
-      
+
       // Update version and stats
       await this.fetchVersion()
       this.updateStats()
-      
+
       // Dispatch success event
-      this.dispatchEvent(new CustomEvent('nodeCreated', { 
-        detail: { nodeId: newNodeId, node: newNode } 
+      this.dispatchEvent(new CustomEvent('nodeCreated', {
+        detail: { nodeId: newNodeId, node: newNode }
       }))
-      
+
       console.log('✅ New fulltext node created successfully:', newNodeId)
 
     } catch (error) {
@@ -597,7 +597,7 @@ class KnowledgeGraphViewer extends HTMLElement {
       console.warn('No graph data provided')
       graphData = { nodes: [], edges: [] }
     }
-    
+
     const elements = [
       ...graphData.nodes.map(node => {
         const hasPosition = node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number'
@@ -823,7 +823,7 @@ class KnowledgeGraphViewer extends HTMLElement {
    */
   exportGraph(format = 'png') {
     if (!this.cyInstance) return
-    
+
     if (format === 'png') {
       const png = this.cyInstance.png({ full: true, scale: 2 })
       const link = document.createElement('a')
@@ -971,12 +971,12 @@ class KnowledgeGraphViewer extends HTMLElement {
   handleSearch(query) {
     this.searchQuery = query
     if (!this.cyInstance) return
-    
+
     if (!query) {
       this.cyInstance.nodes().style('opacity', 1)
       return
     }
-    
+
     const lowerQuery = query.toLowerCase()
     this.cyInstance.nodes().forEach(node => {
       const label = (node.data('label') || '').toLowerCase()
