@@ -405,6 +405,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/component-docs/:componentName/:version?',
+      name: 'component-docs',
+      component: () => import('../views/ComponentDocsView.vue'),
+      meta: {
+        requiresAuth: false,
+        layout: null,
+      },
+    },
+    {
       path: '/app-history',
       name: 'app-history',
       component: () => import('../views/AppHistoryView.vue'),

@@ -61,7 +61,10 @@ function setupEventListeners() {
   const manager = document.querySelector('component-manager')
   const eventLog = document.getElementById('eventLog')
 
-  if (!manager || !eventLog) return
+  if (!manager || !eventLog) {
+    setTimeout(setupEventListeners, 100)
+    return
+  }
 
   function logEvent(message, type = 'info') {
     const entry = document.createElement('div')
@@ -196,10 +199,312 @@ function setupEventListeners() {
   gap: 5px;
 }
 
-/* Manager Container */
-.manager-container {
+/* Tab Navigation */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
   margin-bottom: 30px;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-button:hover:not(:disabled) {
+  color: #475569;
+  background: #f8fafc;
+}
+
+.tab-button.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  background: #f0f4ff;
+}
+
+.tab-button:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* Tab Content */
+.tab-content {
   min-height: 400px;
+}
+
+.tab-pane {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Component Manager Web Component */
+component-manager {
+  display: block;
+  width: 100%;
+  min-height: 500px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* No Selection State */
+.no-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.no-selection-content h3 {
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.no-selection-content p {
+  color: #94a3b8;
+  font-size: 1.1rem;
+}
+
+/* Loading State */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-content p {
+  color: #64748b;
+  font-size: 1.1rem;
+}
+
+/* Error State */
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.error-content h3 {
+  color: #dc2626;
+  margin-bottom: 10px;
+}
+
+.error-content p {
+  color: #7f1d1d;
+  margin-bottom: 20px;
+  background: #fef2f2;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+}
+
+/* Primary Button */
+.btn-primary {
+  background: #667eea;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* Tab Navigation */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 30px;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-button:hover:not(:disabled) {
+  color: #475569;
+  background: #f8fafc;
+}
+
+.tab-button.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  background: #f0f4ff;
+}
+
+.tab-button:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* Tab Content */
+.tab-content {
+  min-height: 400px;
+}
+
+.tab-pane {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Component Manager Web Component */
+component-manager {
+  display: block;
+  width: 100%;
+  min-height: 500px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* No Selection State */
+.no-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.no-selection-content h3 {
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.no-selection-content p {
+  color: #94a3b8;
+  font-size: 1.1rem;
+}
+
+/* Loading State */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-content p {
+  color: #64748b;
+  font-size: 1.1rem;
+}
+
+/* Error State */
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.error-content h3 {
+  color: #dc2626;
+  margin-bottom: 10px;
+}
+
+.error-content p {
+  color: #7f1d1d;
+  margin-bottom: 20px;
+  background: #fef2f2;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+}
+
+/* Primary Button */
+.btn-primary {
+  background: #667eea;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 /* Event Log */

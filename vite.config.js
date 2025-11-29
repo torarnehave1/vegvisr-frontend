@@ -10,8 +10,11 @@ export default defineConfig({
     vue({
       template: {
         compilerOptions: {
-          // Treat elements starting with 'gmp-' as custom elements
-          isCustomElement: (tag) => tag.startsWith('gmp-'),
+          // Treat these as custom elements (Web Components)
+          isCustomElement: (tag) => 
+            tag.startsWith('gmp-') || 
+            tag === 'component-manager' || 
+            tag === 'knowledge-graph-viewer',
         },
       },
     }),
