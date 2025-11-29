@@ -95,29 +95,44 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
       WHERE id = ?
     `).bind(newVersion, `${componentName}.js`, componentName).run()
 
-    // 9. Record AI edit
-    await env.vegvisr_org.prepare(`
-      INSERT INTO component_ai_edits
-      (component_id, from_version, to_version, user_request, ai_response, ai_model, success, changes_summary, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
+    // 10. Generate and store component documentation
+    const documentation = await generateComponentDocumentation({
       componentName,
-      metadata.current_version,
-      newVersion,
-      userRequest,
-      aiResult.reasoning,
-      aiResult.model,
-      1,
-      aiResult.changeDescription,
-      userId
-    ).run()
+      componentCode: aiResult.newCode,
+      version: newVersion,
+      userId,
+      env
+    })
+
+    if (documentation.success) {
+      // Store documentation in R2
+      await env.WEB_COMPONENTS.put(`${componentName}-docs-v${newVersion}.json`, JSON.stringify(documentation.data), {
+        httpMetadata: {
+          contentType: 'application/json',
+        },
+        customMetadata: {
+          componentName,
+          version: newVersion.toString(),
+          generatedBy: 'ai',
+          timestamp: new Date().toISOString()
+        }
+      })
+
+      // Also update the current documentation
+      await env.WEB_COMPONENTS.put(`${componentName}-docs.json`, JSON.stringify(documentation.data), {
+        httpMetadata: {
+          contentType: 'application/json',
+        }
+      })
+    }
 
     return {
       success: true,
       newVersion,
       changes: aiResult.changeDescription,
       reasoning: aiResult.reasoning,
-      diffUrl: `/api/components/${componentName}/diff/${metadata.current_version}/${newVersion}`
+      diffUrl: `/api/components/${componentName}/diff/${metadata.current_version}/${newVersion}`,
+      documentationGenerated: documentation.success
     }
 
   } catch (error) {
@@ -441,5 +456,178 @@ export async function restoreComponentVersion({ componentName, versionNumber, en
 
   } catch (error) {
     return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Regenerate documentation for an existing component
+ * @param {Object} params
+ * @param {string} params.componentName - Name of the component
+ * @param {Object} params.env - Worker environment bindings
+ * @param {string} params.userId - User requesting regeneration
+ * @returns {Object} {success, data, error}
+ */
+export async function regenerateComponentDocumentation({ componentName, env, userId = 'system' }) {
+  try {
+    // Get current component code
+    const componentCode = await getComponentCode(componentName, env)
+    if (!componentCode) {
+      return { success: false, error: 'Component not found' }
+    }
+
+    // Get component metadata
+    const metadata = await env.vegvisr_org.prepare(
+      'SELECT * FROM web_components WHERE name = ?'
+    ).bind(componentName).first()
+
+    if (!metadata) {
+      return { success: false, error: 'Component metadata not found' }
+    }
+
+    // Generate documentation
+    const documentation = await generateComponentDocumentation({
+      componentName,
+      componentCode,
+      version: metadata.current_version,
+      userId,
+      env
+    })
+
+    if (!documentation.success) {
+      return documentation
+    }
+
+    // Store documentation in R2
+    const version = metadata.current_version
+    await env.WEB_COMPONENTS.put(`${componentName}-docs-v${version}.json`, JSON.stringify(documentation.data), {
+      httpMetadata: {
+        contentType: 'application/json',
+      },
+      customMetadata: {
+        componentName,
+        version: version.toString(),
+        generatedBy: 'ai',
+        timestamp: new Date().toISOString()
+      }
+    })
+
+    // Update current documentation
+    await env.WEB_COMPONENTS.put(`${componentName}-docs.json`, JSON.stringify(documentation.data), {
+      httpMetadata: {
+        contentType: 'application/json',
+      }
+    })
+
+    return {
+      success: true,
+      data: documentation.data,
+      message: `Documentation regenerated for ${componentName} v${version}`
+    }
+
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+async function generateComponentDocumentation({ componentName, componentCode, version, userId, env }) {
+  const client = new OpenAI({
+    apiKey: env.XAI_API_KEY,
+    baseURL: 'https://api.x.ai/v1',
+  })
+
+  const systemPrompt = `You are a technical documentation specialist. Analyze the provided web component code and generate comprehensive, structured documentation in JSON format.
+
+Focus on:
+- Extracting all observedAttributes and their usage
+- Identifying custom events dispatched by the component
+- Finding public methods and their signatures
+- Determining dependencies and external libraries
+- Understanding the component's purpose and functionality
+- Providing practical usage examples
+
+Output only valid JSON with no additional text or formatting.`
+
+  const userPrompt = `Analyze this web component and generate documentation:
+
+Component Name: ${componentName}
+Version: ${version}
+
+Component Code:
+${componentCode}
+
+Generate a JSON object with this exact structure:
+{
+  "component": {
+    "name": "string",
+    "version": "string",
+    "description": "string",
+    "category": "string",
+    "lastUpdated": "ISO date string"
+  },
+  "attributes": {
+    "attributeName": {
+      "type": "string (String|Number|Boolean|Object)",
+      "required": boolean,
+      "default": "any",
+      "description": "string"
+    }
+  },
+  "events": {
+    "eventName": {
+      "description": "string",
+      "detail": {
+        "propertyName": "type"
+      }
+    }
+  },
+  "methods": {
+    "methodName": {
+      "signature": "string",
+      "description": "string",
+      "parameters": {
+        "paramName": "description"
+      },
+      "returns": "string"
+    }
+  },
+  "dependencies": ["array of external dependencies"],
+  "usage": {
+    "basic": "HTML usage example",
+    "javascript": "JavaScript integration example"
+  },
+  "aiGenerated": true,
+  "lastAIGeneration": "ISO date string"
+}`
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'grok-code-fast-1',
+      max_tokens: 16384,
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+
+    const documentationJson = response.choices[0].message.content.trim()
+
+    // Validate JSON
+    const documentation = JSON.parse(documentationJson)
+
+    // Ensure required fields
+    documentation.aiGenerated = true
+    documentation.lastAIGeneration = new Date().toISOString()
+
+    return {
+      success: true,
+      data: documentation
+    }
+
+  } catch (error) {
+    console.error('Documentation generation failed:', error)
+    return {
+      success: false,
+      error: `Documentation generation failed: ${error.message}`
+    }
   }
 }

@@ -1,5 +1,5 @@
 // Component Manager API Handlers
-import { editComponentWithAI, restoreComponentVersion } from './component-ai-editor.js'
+import { editComponentWithAI, restoreComponentVersion, regenerateComponentDocumentation } from './component-ai-editor.js'
 
 /**
  * Handle component manager API requests
@@ -49,6 +49,26 @@ export async function handleComponentManagerAPI(request, env, pathname) {
   if (pathname.match(/^\/api\/components\/[^\/]+\/version$/) && request.method === 'GET') {
     const componentName = pathname.split('/')[3]
     return getComponentCurrentVersion(componentName, env)
+  }
+
+  // GET /api/components/:name/docs - Get current component documentation
+  if (pathname.match(/^\/api\/components\/[^\/]+\/docs$/) && request.method === 'GET') {
+    const componentName = pathname.split('/')[3]
+    return getComponentDocumentation(componentName, env)
+  }
+
+  // GET /api/components/:name/docs/:version - Get version-specific documentation
+  if (pathname.match(/^\/api\/components\/[^\/]+\/docs\/\d+$/) && request.method === 'GET') {
+    const parts = pathname.split('/')
+    const componentName = parts[3]
+    const version = parseInt(parts[5])
+    return getComponentDocumentation(componentName, env, version)
+  }
+
+  // POST /api/components/:name/regenerate-docs - Regenerate documentation
+  if (pathname.match(/^\/api\/components\/[^\/]+\/regenerate-docs$/) && request.method === 'POST') {
+    const componentName = pathname.split('/')[3]
+    return handleRegenerateDocs(request, componentName, env)
   }
 
   return new Response('Not found', { status: 404 })
@@ -139,9 +159,21 @@ async function getComponentVersions(componentName, env) {
       ORDER BY v.version_number DESC
     `).bind(componentName).all()
 
+    // Check if documentation exists for each version
+    const versionsWithDocs = await Promise.all(
+      versions.results.map(async (version) => {
+        const docPath = `${componentName}-docs-v${version.version_number}.json`
+        const docExists = await env.WEB_COMPONENTS.head(docPath)
+        return {
+          ...version,
+          has_docs: docExists !== null
+        }
+      })
+    )
+
     return new Response(JSON.stringify({
       success: true,
-      versions: versions.results
+      versions: versionsWithDocs
     }), {
       headers: {
         'Content-Type': 'application/json',
@@ -288,6 +320,86 @@ async function getVersionDiff(componentName, fromVersion, toVersion, env) {
       success: true,
       from: { version: fromVersion, code: fromCode },
       to: { version: toVersion, code: toCode }
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+}
+
+/**
+ * Get component documentation
+ */
+async function getComponentDocumentation(componentName, env, version = null) {
+  try {
+    const docPath = version
+      ? `${componentName}-docs-v${version}.json`
+      : `${componentName}-docs.json`
+
+    const docObject = await env.WEB_COMPONENTS.get(docPath)
+
+    if (!docObject) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Documentation not found. Try regenerating documentation.'
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    const documentation = await docObject.json()
+
+    return new Response(JSON.stringify({
+      success: true,
+      documentation,
+      version: version || 'current'
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+}
+
+/**
+ * Handle documentation regeneration request
+ */
+async function handleRegenerateDocs(request, componentName, env) {
+  try {
+    const body = await request.json()
+    const userId = body.userId || 'system'
+
+    const result = await regenerateComponentDocumentation({
+      componentName,
+      env,
+      userId
+    })
+
+    if (!result.success) {
+      return new Response(JSON.stringify(result), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: result.message,
+      documentation: result.data
     }), {
       headers: {
         'Content-Type': 'application/json',
