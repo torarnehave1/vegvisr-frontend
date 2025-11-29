@@ -418,7 +418,8 @@ const router = createRouter({
       name: 'ai-chat',
       component: () => import('../views/AIChatView.vue'),
       meta: {
-        requiresAuth: false,
+        requiresAuth: true,
+        requiredRole: 'Superadmin',
         layout: null,
       },
     },
