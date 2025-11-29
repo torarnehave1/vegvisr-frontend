@@ -414,6 +414,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/ai-chat',
+      name: 'ai-chat',
+      component: () => import('../views/AIChatView.vue'),
+      meta: {
+        requiresAuth: false,
+        layout: null,
+      },
+    },
+    {
       path: '/app-history',
       name: 'app-history',
       component: () => import('../views/AppHistoryView.vue'),

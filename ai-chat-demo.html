@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Chat Component Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .demo-container {
+      width: 100%;
+      max-width: 900px;
+      height: 700px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .demo-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 24px;
+      text-align: center;
+    }
+    
+    .demo-header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    
+    .demo-header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    
+    .chat-wrapper {
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .controls {
+      padding: 16px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .control-group label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+    }
+    
+    .control-group select,
+    .control-group input {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+    }
+    
+    .btn-secondary {
+      background: #e0e0e0;
+      color: #333;
+    }
+    
+    .btn-secondary:hover {
+      background: #d0d0d0;
+    }
+    
+    .status {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: none;
+    }
+    
+    .status.show {
+      display: block;
+    }
+    
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <div class="demo-header">
+      <h1>🤖 AI Chat Component</h1>
+      <p>Multi-model AI chat with Grok, GPT-5.1, and Claude</p>
+    </div>
+    
+    <div class="chat-wrapper">
+      <ai-chat-component
+        id="chatComponent"
+        api-endpoint="https://api.vegvisr.org"
+        user-id="demo-user@example.com"
+        theme="light"
+        model="grok">
+      </ai-chat-component>
+    </div>
+    
+    <div class="controls">
+      <div class="control-group">
+        <label>Theme:</label>
+        <select id="themeSelector">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>Model:</label>
+        <select id="modelSelector">
+          <option value="grok">Grok 3 Beta</option>
+          <option value="gpt5">GPT-5.1</option>
+          <option value="claude">Claude 3.5</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>Graph Context:</label>
+        <input type="text" id="graphIdInput" placeholder="Optional graph ID">
+        <button class="btn-secondary" id="setGraphBtn">Set Context</button>
+      </div>
+      
+      <button class="btn-primary" id="testPromptBtn">
+        Send Test Message
+      </button>
+      
+      <button class="btn-secondary" id="clearHistoryBtn">
+        Clear History
+      </button>
+      
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+  
+  <!-- Load the AI Chat component from R2 -->
+  <script src="https://api.vegvisr.org/components/ai-chat-component.js"></script>
+  
+  <script>
+    const chatComponent = document.getElementById('chatComponent')
+    const themeSelector = document.getElementById('themeSelector')
+    const modelSelector = document.getElementById('modelSelector')
+    const graphIdInput = document.getElementById('graphIdInput')
+    const setGraphBtn = document.getElementById('setGraphBtn')
+    const testPromptBtn = document.getElementById('testPromptBtn')
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn')
+    const status = document.getElementById('status')
+    
+    // Show status message
+    function showStatus(message, type = 'success') {
+      status.textContent = message
+      status.className = `status show ${type}`
+      setTimeout(() => {
+        status.classList.remove('show')
+      }, 3000)
+    }
+    
+    // Theme selector
+    themeSelector.addEventListener('change', (e) => {
+      chatComponent.setAttribute('theme', e.target.value)
+      showStatus(`Theme changed to ${e.target.value}`)
+    })
+    
+    // Model selector
+    modelSelector.addEventListener('change', (e) => {
+      chatComponent.setModel(e.target.value)
+      showStatus(`Model changed to ${e.target.options[e.target.selectedIndex].text}`)
+    })
+    
+    // Set graph context
+    setGraphBtn.addEventListener('click', () => {
+      const graphId = graphIdInput.value.trim()
+      if (graphId) {
+        chatComponent.setGraphContext(graphId)
+        showStatus(`Graph context set: ${graphId}`)
+      } else {
+        chatComponent.setGraphContext(null)
+        showStatus('Graph context cleared')
+      }
+    })
+    
+    // Send test message
+    testPromptBtn.addEventListener('click', () => {
+      const testPrompts = [
+        "Explain the concept of knowledge graphs in simple terms",
+        "What are the benefits of using AI in web applications?",
+        "How does multi-model AI chat work?",
+        "Tell me about the future of AI assistants"
+      ]
+      const randomPrompt = testPrompts[Math.floor(Math.random() * testPrompts.length)]
+      chatComponent.sendMessage(randomPrompt)
+    })
+    
+    // Clear history
+    clearHistoryBtn.addEventListener('click', () => {
+      chatComponent.clearHistory()
+      showStatus('Chat history cleared')
+    })
+    
+    // Listen to component events
+    chatComponent.addEventListener('messageSent', (e) => {
+      console.log('Message sent:', e.detail)
+    })
+    
+    chatComponent.addEventListener('responseReceived', (e) => {
+      console.log('Response received:', e.detail)
+      showStatus(`Response from ${e.detail.model}`)
+    })
+    
+    chatComponent.addEventListener('modelChanged', (e) => {
+      console.log('Model changed:', e.detail)
+      // Update the selector to match
+      modelSelector.value = e.detail.newModel
+    })
+    
+    chatComponent.addEventListener('error', (e) => {
+      console.error('Chat error:', e.detail)
+      showStatus(`Error: ${e.detail.error}`, 'error')
+    })
+    
+    // Initial message
+    console.log('AI Chat Component Demo loaded')
+    console.log('Available methods:', {
+      sendMessage: 'chatComponent.sendMessage(text)',
+      setModel: 'chatComponent.setModel(model)',
+      clearHistory: 'chatComponent.clearHistory()',
+      exportConversation: 'chatComponent.exportConversation()',
+      setGraphContext: 'chatComponent.setGraphContext(graphId)'
+    })
+  </script>
+</body>
+</html>

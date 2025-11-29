@@ -14,7 +14,8 @@ export default defineConfig({
           isCustomElement: (tag) =>
             tag.startsWith('gmp-') ||
             tag === 'component-manager' ||
-            tag === 'knowledge-graph-viewer',
+            tag === 'knowledge-graph-viewer' ||
+            tag === 'ai-chat-component',
         },
       },
     }),
