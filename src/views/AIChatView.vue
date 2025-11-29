@@ -70,7 +70,7 @@ onMounted(() => {
       theme.value = 'dark'
     }
   }
-  
+
   // Load the component script
   loadComponentScript()
 })
@@ -81,7 +81,7 @@ const loadComponentScript = () => {
   if (customElements.get('ai-chat-component')) {
     return
   }
-  
+
   const script = document.createElement('script')
   script.src = `${apiEndpoint.value}/components/ai-chat-component.js`
   script.async = true
