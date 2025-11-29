@@ -23,7 +23,7 @@
 
     <!-- Documentation Content -->
     <div v-else-if="documentation" class="docs-content">
-      <ComponentDocumentation 
+      <ComponentDocumentation
         :component="{ name: componentName, version: version || 'current' }"
         :documentation="documentation"
         @refresh="loadDocumentation" />
@@ -56,7 +56,7 @@ const loadDocumentation = async () => {
       : `https://api.vegvisr.org/api/components/${componentName}/docs`
 
     const response = await fetch(url)
-    
+
     if (!response.ok) {
       throw new Error(`Failed to load documentation (${response.status})`)
     }

@@ -11,9 +11,9 @@ export default defineConfig({
       template: {
         compilerOptions: {
           // Treat these as custom elements (Web Components)
-          isCustomElement: (tag) => 
-            tag.startsWith('gmp-') || 
-            tag === 'component-manager' || 
+          isCustomElement: (tag) =>
+            tag.startsWith('gmp-') ||
+            tag === 'component-manager' ||
             tag === 'knowledge-graph-viewer',
         },
       },
