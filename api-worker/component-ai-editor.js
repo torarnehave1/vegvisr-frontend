@@ -10,9 +10,11 @@ import OpenAI from 'openai'
  * @param {string} params.userRequest - What the user wants to change
  * @param {Object} params.env - Worker environment bindings
  * @param {string} params.userId - User making the request
+ * @param {boolean} params.generateDocs - Whether to generate documentation (default: false)
+ * @param {boolean} params.includeDocs - Whether to include API docs in AI context (default: false)
  * @returns {Object} {success, newVersion, changes, error}
  */
-export async function editComponentWithAI({ componentName, userRequest, env, userId = 'anonymous', includeDocs = false }) {
+export async function editComponentWithAI({ componentName, userRequest, env, userId = 'anonymous', generateDocs = false, includeDocs = false }) {
   try {
     // 1. Get current component from R2
     const currentCode = await getComponentCode(componentName, env)
@@ -95,35 +97,39 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
       WHERE id = ?
     `).bind(newVersion, `${componentName}.js`, componentName).run()
 
-    // 10. Generate and store component documentation
-    const documentation = await generateComponentDocumentation({
-      componentName,
-      componentCode: aiResult.newCode,
-      version: newVersion,
-      userId,
-      env
-    })
-
-    if (documentation.success) {
-      // Store documentation in R2
-      await env.WEB_COMPONENTS.put(`${componentName}-docs-v${newVersion}.json`, JSON.stringify(documentation.data), {
-        httpMetadata: {
-          contentType: 'application/json',
-        },
-        customMetadata: {
-          componentName,
-          version: newVersion.toString(),
-          generatedBy: 'ai',
-          timestamp: new Date().toISOString()
-        }
+    // 9. Optionally generate and store component documentation
+    let documentationGenerated = false
+    if (generateDocs) {
+      const documentation = await generateComponentDocumentation({
+        componentName,
+        componentCode: aiResult.newCode,
+        version: newVersion,
+        userId,
+        env
       })
 
-      // Also update the current documentation
-      await env.WEB_COMPONENTS.put(`${componentName}-docs.json`, JSON.stringify(documentation.data), {
-        httpMetadata: {
-          contentType: 'application/json',
-        }
-      })
+      if (documentation.success) {
+        // Store documentation in R2
+        await env.WEB_COMPONENTS.put(`${componentName}-docs-v${newVersion}.json`, JSON.stringify(documentation.data), {
+          httpMetadata: {
+            contentType: 'application/json',
+          },
+          customMetadata: {
+            componentName,
+            version: newVersion.toString(),
+            generatedBy: 'ai',
+            timestamp: new Date().toISOString()
+          }
+        })
+
+        // Also update the current documentation
+        await env.WEB_COMPONENTS.put(`${componentName}-docs.json`, JSON.stringify(documentation.data), {
+          httpMetadata: {
+            contentType: 'application/json',
+          }
+        })
+        documentationGenerated = true
+      }
     }
 
     return {
@@ -132,7 +138,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
       changes: aiResult.changeDescription,
       reasoning: aiResult.reasoning,
       diffUrl: `/api/components/${componentName}/diff/${metadata.current_version}/${newVersion}`,
-      documentationGenerated: documentation.success
+      documentationGenerated
     }
 
   } catch (error) {
