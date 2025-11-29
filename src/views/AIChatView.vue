@@ -18,17 +18,17 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useKnowledgeGraphStore } from '@/stores/knowledgeGraph'
-import { useAuthStore } from '@/stores/auth'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useUserStore } from '@/stores/userStore'
 
 const graphStore = useKnowledgeGraphStore()
-const authStore = useAuthStore()
+const userStore = useUserStore()
 
 // API configuration
 const apiEndpoint = ref('https://api.vegvisr.org')
 
 // User ID from auth store or default
-const userId = computed(() => authStore.userEmail || 'demo-user@example.com')
+const userId = computed(() => userStore.email || 'demo-user@example.com')
 
 // Graph context from store (if viewing a graph)
 const graphId = computed(() => graphStore.currentGraphId || null)
