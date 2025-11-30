@@ -67,7 +67,7 @@ class AIChatComponent extends HTMLElement {
 
   connectedCallback() {
     console.log('🟢 [AI Chat Component] connectedCallback called')
-    
+
     // Set graph context if provided
     const graphAttr = this.getAttribute('graph-id')
     console.log('🟢 [AI Chat Component] graph-id attribute:', graphAttr)
@@ -75,7 +75,7 @@ class AIChatComponent extends HTMLElement {
       this.graphId = graphAttr
       console.log('🟢 [AI Chat Component] graphId set to:', this.graphId)
     }
-    
+
     this.render()
     this.setupEventListeners()
 
@@ -757,14 +757,14 @@ class AIChatComponent extends HTMLElement {
       console.log('🔵 [Graph Toggle] Button clicked!')
       console.log('🔵 [Graph Toggle] Current state:', this.useGraphContext ? 'ON' : 'OFF')
       console.log('🔵 [Graph Toggle] Graph ID:', this.graphId)
-      
+
       this.useGraphContext = !this.useGraphContext
-      
+
       console.log('🔵 [Graph Toggle] New state:', this.useGraphContext ? 'ON' : 'OFF')
       console.log('🔵 [Graph Toggle] Will use endpoint:', this.useGraphContext ? '/user-ai-chat' : '/simple-chat')
-      
+
       this.render()
-      
+
       // Dispatch event
       this.dispatchEvent(new CustomEvent('graphContextToggled', {
         detail: { enabled: this.useGraphContext, graphId: this.graphId }
@@ -866,7 +866,7 @@ class AIChatComponent extends HTMLElement {
     console.log('🟢 [AI Chat] callAI - userId:', userId)
     console.log('🟢 [AI Chat] callAI - useGraphContext:', this.useGraphContext)
     console.log('🟢 [AI Chat] callAI - graphId:', this.graphId)
-    
+
     if (this.graphId && this.useGraphContext) {
       console.log('📊 [AI Chat] GRAPH CONTEXT ENABLED - Using graph:', this.graphId)
       console.log('📊 [AI Chat] Will call /user-ai-chat endpoint with graph_id parameter')
@@ -875,7 +875,7 @@ class AIChatComponent extends HTMLElement {
     } else {
       console.log('⚪ [AI Chat] No graph context - Using simple chat')
     }
-    
+
     console.log('🟢 [AI Chat] callAI - messages in history:', this.messages.length)
 
     // Build messages array with history (user message already added to this.messages)
@@ -1022,7 +1022,7 @@ class AIChatComponent extends HTMLElement {
       // First, fetch current graph data
       const apiEndpoint = this.getAttribute('api-endpoint') || 'https://api.vegvisr.org'
       const fetchResponse = await fetch(`${apiEndpoint}/knowledge-graph/${this.graphId}`)
-      
+
       if (!fetchResponse.ok) {
         throw new Error('Failed to fetch graph data')
       }

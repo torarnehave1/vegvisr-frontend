@@ -7854,9 +7854,9 @@ const handleSimpleAIChat = async (request, env) => {
     const { messages } = await request.json()
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return createResponse(JSON.stringify({ 
-        success: false, 
-        error: 'Messages array is required' 
+      return createResponse(JSON.stringify({
+        success: false,
+        error: 'Messages array is required'
       }), 400)
     }
 
@@ -7880,9 +7880,9 @@ const handleSimpleAIChat = async (request, env) => {
     if (!grokResponse.ok) {
       const errorText = await grokResponse.text()
       console.error('❌ [Simple AI] Grok error:', grokResponse.status, errorText)
-      return createResponse(JSON.stringify({ 
-        success: false, 
-        error: `AI error: ${grokResponse.status}` 
+      return createResponse(JSON.stringify({
+        success: false,
+        error: `AI error: ${grokResponse.status}`
       }), 500)
     }
 
@@ -7891,9 +7891,9 @@ const handleSimpleAIChat = async (request, env) => {
 
     if (!aiMessage) {
       console.error('❌ [Simple AI] No response from Grok')
-      return createResponse(JSON.stringify({ 
-        success: false, 
-        error: 'No response from AI' 
+      return createResponse(JSON.stringify({
+        success: false,
+        error: 'No response from AI'
       }), 500)
     }
 
@@ -7909,9 +7909,9 @@ const handleSimpleAIChat = async (request, env) => {
     }))
   } catch (error) {
     console.error('❌ [Simple AI] Error:', error)
-    return createResponse(JSON.stringify({ 
-      success: false, 
-      error: error.message 
+    return createResponse(JSON.stringify({
+      success: false,
+      error: error.message
     }), 500)
   }
 }
