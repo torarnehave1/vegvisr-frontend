@@ -39,7 +39,7 @@ const graphId = computed(() => {
     route.query.id ||
     graphStore.currentGraphId ||
     'test-graph-123' // Temporary fallback for testing
-  
+
   console.log('🔍 [AIChatView] graphId computed:', id)
   return id
 })
