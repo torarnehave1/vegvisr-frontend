@@ -414,12 +414,11 @@ const router = createRouter({
       },
     },
     {
-      path: '/ai-chat',
-      name: 'ai-chat',
+      path: '/chatexpert',
+      name: 'chatexpert',
       component: () => import('../views/AIChatView.vue'),
       meta: {
-        requiresAuth: true,
-        requiredRole: 'Superadmin',
+        requiresAuth: false,
         layout: null,
       },
     },

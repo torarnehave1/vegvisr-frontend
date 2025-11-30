@@ -10,6 +10,7 @@
         @message-sent="handleMessageSent"
         @response-received="handleResponseReceived"
         @model-changed="handleModelChanged"
+        @graph-context-toggled="handleGraphContextToggled"
         @error="handleError">
       </ai-chat-component>
     </div>
@@ -17,10 +18,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useUserStore } from '@/stores/userStore'
 
+const route = useRoute()
 const graphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
 
@@ -30,8 +33,33 @@ const apiEndpoint = ref('https://api.vegvisr.org')
 // User ID from auth store or default
 const userId = computed(() => userStore.email || 'demo-user@example.com')
 
-// Graph context from store (if viewing a graph)
-const graphId = computed(() => graphStore.currentGraphId || null)
+// Graph context from route params, query, or store (same pattern as GNewViewer)
+const graphId = computed(() => {
+  const id = route.params.graphId ||
+    route.query.id ||
+    graphStore.currentGraphId ||
+    'test-graph-123' // Temporary fallback for testing
+  
+  console.log('🔍 [AIChatView] graphId computed:', id)
+  return id
+})
+
+// Watch for graph changes and notify user
+watch(() => graphStore.currentGraphId, (newId, oldId) => {
+  if (newId !== oldId) {
+    console.log('Graph context changed:', { from: oldId, to: newId })
+  }
+})
+
+// Debug: log graphId on mount and changes
+onMounted(() => {
+  console.log('🔍 [AIChatView] Mounted - graphId:', graphId.value)
+  console.log('🔍 [AIChatView] graphStore.currentGraphId:', graphStore.currentGraphId)
+})
+
+watch(() => graphId.value, (newVal) => {
+  console.log('🔍 [AIChatView] graphId changed to:', newVal)
+})
 
 // Theme from user preferences or system
 const theme = ref('light')
@@ -57,6 +85,12 @@ const handleModelChanged = (event) => {
 const handleError = (event) => {
   console.error('Chat error:', event.detail)
   // Could show an error notification here
+}
+
+const handleGraphContextToggled = (event) => {
+  console.log('Graph context toggled:', event.detail)
+  // The component will handle the endpoint switch automatically
+  // We just log it here for debugging
 }
 
 // Load theme from localStorage or system preference

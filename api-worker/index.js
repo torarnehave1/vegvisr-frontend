@@ -778,7 +778,7 @@ const handleGrokTest = async (request, env) => {
 
     // Generate main content
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 4000,
       messages: [
@@ -799,7 +799,7 @@ const handleGrokTest = async (request, env) => {
 
     // Generate bibliographic references in APA format
     const biblCompletion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 500,
       messages: [
@@ -842,7 +842,7 @@ const handleGrokTest = async (request, env) => {
     } else if (returnType === 'both') {
       // Generate follow-up question
       const followUpCompletion = await client.chat.completions.create({
-        model: 'grok-3-beta',
+        model: 'grok-3',
         temperature: 0.8,
         max_tokens: 200,
         messages: [
@@ -980,7 +980,7 @@ FORMAT YOUR RESPONSE:
 Return ONLY the enhanced prompt text - no conversation, no meta-commentary. Make it detailed and clear with code examples showing how to use the helper functions. Keep it concise but comprehensive.`
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 2000,
       messages: [
@@ -1723,7 +1723,7 @@ const handleSuggestTitle = async (request, env) => {
     console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 50,
       messages: [
@@ -1792,7 +1792,7 @@ const handleSuggestDescription = async (request, env) => {
     console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 150,
       messages: [
@@ -1861,7 +1861,7 @@ const handleSuggestCategories = async (request, env) => {
     console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 100,
       messages: [
@@ -1936,7 +1936,7 @@ Return only valid JSON, no additional text.`
     console.log('Sending prompt to Grok for metadata suggestion')
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.3,
       max_tokens: 300,
       messages: [
@@ -2043,7 +2043,7 @@ const handleGrokIssueDescription = async (request, env) => {
     }
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: maxTokens,
       messages: [
@@ -2104,7 +2104,7 @@ const handleGenerateMetaAreas = async (request, env) => {
         baseURL: 'https://api.x.ai/v1',
       })
       const completion = await client.chat.completions.create({
-        model: 'grok-3-beta',
+        model: 'grok-3',
         temperature: 0.7,
         max_tokens: 20,
         messages: [
@@ -2207,7 +2207,7 @@ const handleGrokAsk = async (request, env) => {
 
   try {
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 800,
       messages: [
@@ -3153,7 +3153,7 @@ Return only JSON: {"nodes": [...], "edges": []}`
     })
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: maxTokens,
       messages: [
@@ -3281,7 +3281,7 @@ Return a well-formatted markdown analysis that captures the essence of the theme
     })
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.5, // Lower temperature for more faithful reproduction
       max_tokens: 8000,
       messages: [
@@ -3428,7 +3428,7 @@ Return a JSON object with the following structure:
 
     // Multi-model support with fallback to existing Grok behavior
     const modelConfigs = {
-      grok: { apiKey: env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1', model: 'grok-3-beta' },
+      grok: { apiKey: env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1', model: 'grok-3' },
       gpt4: { apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-4' },
       gpt5: { apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: 'gpt-5' },
       claude: { apiKey: env.ANTHROPIC_API_KEY, baseURL: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20240620' },
@@ -3761,7 +3761,7 @@ Return a JSON object with this structure:
     })
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 2000,
       messages: [
@@ -3882,7 +3882,7 @@ Return a JSON object with this structure:
           analysedCategories: categories,
           analysedMetaAreas: metaAreas,
           generatedAt: new Date().toISOString(),
-          model: 'grok-3-beta',
+          model: 'grok-3',
         },
       }),
     )
@@ -3954,7 +3954,7 @@ Return a JSON object with the following structure:
     })
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.8, // Higher temperature for more creative quotes
       max_tokens: 1500,
       messages: [
@@ -3991,7 +3991,7 @@ Return a JSON object with the following structure:
         metadata: {
           sourceNodes: graphContext.length,
           generatedAt: new Date().toISOString(),
-          model: 'grok-3-beta',
+          model: 'grok-3',
         },
       }),
     )
@@ -4331,7 +4331,7 @@ Use the placeholder URLs exactly as specified (HEADER_IMAGE_PLACEHOLDER, LEFTSID
     console.log('Sending prompt to Grok:', prompt)
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 3000,
       messages: [
@@ -4572,7 +4572,7 @@ Content: ${content.substring(0, 500)}...
 Return only the keywords, separated by commas. Examples: "nature, forest, trees" or "technology, computers, digital" or "business, meeting, office"`
 
     const completion = await client.chat.completions.create({
-      model: 'grok-3-beta',
+      model: 'grok-3',
       temperature: 0.7,
       max_tokens: 100,
       messages: [
@@ -6125,7 +6125,7 @@ Please generate only the JavaScript code for the worker, without any markdown fo
         })
 
         const grokCompletion = await grokClient.chat.completions.create({
-          model: 'grok-3-beta',
+          model: 'grok-3',
           temperature: 0.7,
           max_tokens: 3000,
           messages: [
@@ -6347,7 +6347,7 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
         })
 
         const grokCompletion = await grokClient.chat.completions.create({
-          model: 'grok-3-beta',
+          model: 'grok-3',
           temperature: 0.7,
           max_tokens: 2000,
           messages: [
@@ -7848,6 +7848,74 @@ const handleUserAIChat = async (request, env) => {
           const graphData = JSON.parse(graphRow.data)
           console.log('✅ [AI Chat] Graph data parsed successfully')
 
+// Simple AI Chat endpoint - no graph context, just simple chat
+const handleSimpleAIChat = async (request, env) => {
+  try {
+    const { messages } = await request.json()
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return createResponse(JSON.stringify({ 
+        success: false, 
+        error: 'Messages array is required' 
+      }), 400)
+    }
+
+    console.log('💬 [Simple AI] Received', messages.length, 'messages')
+
+    // Call Grok
+    const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.XAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3',
+        messages: messages,
+        max_tokens: 4096,
+        temperature: 0.7,
+      }),
+    })
+
+    if (!grokResponse.ok) {
+      const errorText = await grokResponse.text()
+      console.error('❌ [Simple AI] Grok error:', grokResponse.status, errorText)
+      return createResponse(JSON.stringify({ 
+        success: false, 
+        error: `AI error: ${grokResponse.status}` 
+      }), 500)
+    }
+
+    const grokData = await grokResponse.json()
+    const aiMessage = grokData.choices?.[0]?.message?.content
+
+    if (!aiMessage) {
+      console.error('❌ [Simple AI] No response from Grok')
+      return createResponse(JSON.stringify({ 
+        success: false, 
+        error: 'No response from AI' 
+      }), 500)
+    }
+
+    console.log('✅ [Simple AI] Success, tokens:', grokData.usage?.total_tokens || 0)
+
+    return createResponse(JSON.stringify({
+      success: true,
+      message: aiMessage,
+      usage: {
+        tokens: grokData.usage?.total_tokens || 0,
+        model: 'grok-3',
+      },
+    }))
+  } catch (error) {
+    console.error('❌ [Simple AI] Error:', error)
+    return createResponse(JSON.stringify({ 
+      success: false, 
+      error: error.message 
+    }), 500)
+  }
+}
+
           // Build context from graph data
           const graphTitle = graphData.name || graphRow.title || 'Unknown Graph'
           const nodeCount = graphData.nodes?.length || 0
@@ -7910,7 +7978,7 @@ This is the Knowledge Graph you are currently viewing. Use this information to a
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-3-beta',
+        model: 'grok-3',
         messages: aiMessages,
         max_tokens: max_tokens,
         temperature: 0.7,
@@ -7965,6 +8033,58 @@ This is the Knowledge Graph you are currently viewing. Use this information to a
   } catch (error) {
     console.error('User AI chat error:', error)
     return createErrorResponse(`AI chat failed: ${error.message}`, 500)
+  }
+}
+
+// --- Simple Chat Endpoint (for ai-chat component) ---
+const handleSimpleChat = async (request, env) => {
+  try {
+    const { messages } = await request.json()
+
+    if (!messages || !Array.isArray(messages)) {
+      return createErrorResponse('messages array required', 400)
+    }
+
+    console.log('💬 Simple Chat:', messages.length, 'messages')
+
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${env.XAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'grok-3',
+        messages: messages,
+        max_tokens: 4096,
+        temperature: 0.7
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      console.error('Grok error:', error)
+      return createErrorResponse('AI request failed', 500)
+    }
+
+    const data = await response.json()
+    const message = data.choices?.[0]?.message?.content
+
+    if (!message) {
+      return createErrorResponse('No response from AI', 500)
+    }
+
+    console.log('✅ Simple Chat success')
+
+    return createResponse(JSON.stringify({
+      success: true,
+      message: message,
+      usage: { tokens: data.usage?.total_tokens || 0 }
+    }))
+
+  } catch (error) {
+    console.error('Simple chat error:', error)
+    return createErrorResponse(error.message, 500)
   }
 }
 
@@ -9841,6 +9961,14 @@ export default {
 
     if (pathname === '/user-ai-chat' && request.method === 'POST') {
       return await handleUserAIChat(request, env)
+    }
+
+    if (pathname === '/simple-ai-chat' && request.method === 'POST') {
+      return await handleSimpleAIChat(request, env)
+    }
+
+    if (pathname === '/simple-chat' && request.method === 'POST') {
+      return await handleSimpleChat(request, env)
     }
 
     if (pathname === '/api/analyze-image' && request.method === 'POST') {
