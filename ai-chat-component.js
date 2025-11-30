@@ -5,8 +5,8 @@
  *
  * Features:
  * - Multi-model support (Grok, GPT-5.1, Claude)
- * - Knowledge graph context integration
- * - Message history
+ * - Knowledge graph context integration with toggle
+ * - Message history with localStorage persistence
  * - Markdown rendering
  * - Export conversation
  * - Responsive design
@@ -22,7 +22,7 @@
  * Attributes:
  * - api-endpoint: Base URL for API calls
  * - user-id: User email/identifier
- * - graph-id: Optional knowledge graph ID for context
+ * - graph-id: Optional knowledge graph ID for context (shows toggle when present)
  * - theme: "light" or "dark"
  * - model: Default model ("grok", "gpt5", "claude")
  *
@@ -37,6 +37,7 @@
  * - messageSent - Fired when user sends a message
  * - responseReceived - Fired when AI responds
  * - modelChanged - Fired when model is changed
+ * - graphContextToggled - Fired when graph context is toggled
  * - error - Fired on errors
  */
 
@@ -50,6 +51,7 @@ class AIChatComponent extends HTMLElement {
     this.currentModel = 'grok'
     this.isLoading = false
     this.graphId = null
+    this.useGraphContext = false
 
     // Available models
     this.models = {
@@ -64,6 +66,16 @@ class AIChatComponent extends HTMLElement {
   }
 
   connectedCallback() {
+    console.log('🟢 [AI Chat Component] connectedCallback called')
+    
+    // Set graph context if provided
+    const graphAttr = this.getAttribute('graph-id')
+    console.log('🟢 [AI Chat Component] graph-id attribute:', graphAttr)
+    if (graphAttr) {
+      this.graphId = graphAttr
+      console.log('🟢 [AI Chat Component] graphId set to:', this.graphId)
+    }
+    
     this.render()
     this.setupEventListeners()
 
@@ -74,12 +86,6 @@ class AIChatComponent extends HTMLElement {
     const modelAttr = this.getAttribute('model')
     if (modelAttr && this.models[modelAttr]) {
       this.currentModel = modelAttr
-    }
-
-    // Set graph context if provided
-    const graphAttr = this.getAttribute('graph-id')
-    if (graphAttr) {
-      this.graphId = graphAttr
     }
   }
 
@@ -182,6 +188,34 @@ class AIChatComponent extends HTMLElement {
           background: rgba(255,255,255,0.3);
         }
 
+        .toggle-btn {
+          background: rgba(255,255,255,0.2);
+          color: white;
+          border: 1px solid rgba(255,255,255,0.3);
+          padding: 6px 12px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+        }
+
+        .toggle-btn.active {
+          background: rgba(255,255,255,0.4);
+          border-color: rgba(255,255,255,0.6);
+        }
+
+        .toggle-btn:hover {
+          background: rgba(255,255,255,0.3);
+        }
+
+        .graph-badge {
+          background: rgba(255,255,255,0.2);
+          padding: 4px 12px;
+          border-radius: 16px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+
         .messages-container {
           flex: 1;
           overflow-y: auto;
@@ -264,6 +298,44 @@ class AIChatComponent extends HTMLElement {
           color: #999;
           margin-top: 4px;
           padding: 0 4px;
+        }
+
+        .message-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 8px;
+          padding: 0 4px;
+        }
+
+        .btn-save-to-graph {
+          background: #28a745;
+          color: white;
+          border: none;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-size: 11px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          transition: all 0.2s;
+        }
+
+        .btn-save-to-graph:hover {
+          background: #218838;
+          transform: translateY(-1px);
+        }
+
+        .btn-save-to-graph:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+          opacity: 0.6;
+        }
+
+        .save-status {
+          font-size: 11px;
+          color: #28a745;
+          padding: 4px 0;
         }
 
         .empty-state {
@@ -518,11 +590,19 @@ class AIChatComponent extends HTMLElement {
           <div class="header-left">
             <h1>💬 AI Chat</h1>
             <div class="model-badge">
-              ${this.models[this.currentModel].icon} ${this.models[this.currentModel].name}
+              🤖 Grok 3
             </div>
-            ${this.graphId ? '<div class="graph-badge">📊 Graph Context Active</div>' : ''}
+            ${this.graphId && this.useGraphContext ? '<div class="graph-badge">📊 Context: ON</div>' : ''}
           </div>
           <div class="header-actions">
+            ${this.graphId ? `
+              <button class="btn toggle-btn ${this.useGraphContext ? 'active' : ''}" id="graphToggleBtn" title="Toggle Knowledge Graph Context">
+                📊 Graph Context ${this.useGraphContext ? 'ON' : 'OFF'}
+              </button>
+            ` : ''}
+            <button class="btn btn-icon" id="refreshBtn" title="Refresh Component">
+              🔄
+            </button>
             <button class="btn btn-icon" id="exportBtn" title="Export Conversation">
               📥
             </button>
@@ -538,21 +618,6 @@ class AIChatComponent extends HTMLElement {
 
         <div class="input-container">
           <div class="input-wrapper">
-            <div class="model-selector">
-              <button class="model-button" id="modelButton">
-                ${this.models[this.currentModel].icon}
-                <span>▼</span>
-              </button>
-              <div class="model-dropdown" id="modelDropdown">
-                ${Object.entries(this.models).map(([key, model]) => `
-                  <div class="model-option ${key === this.currentModel ? 'active' : ''}" data-model="${key}">
-                    <span>${model.icon}</span>
-                    <span>${model.name}</span>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-
             <textarea
               class="input-field"
               id="messageInput"
@@ -569,14 +634,15 @@ class AIChatComponent extends HTMLElement {
     `
 
     this.updateMessagesScroll()
+    this.setupEventListeners()
   }
 
   renderEmptyState() {
     return `
       <div class="empty-state">
-        <div class="empty-state-icon">${this.models[this.currentModel].icon}</div>
+        <div class="empty-state-icon">🤖</div>
         <h3>Start a conversation</h3>
-        <p>Ask me anything! I'm powered by ${this.models[this.currentModel].name}</p>
+        <p>Ask me anything!</p>
         <div class="suggestions">
           <div class="suggestion" data-prompt="Explain quantum computing in simple terms">
             Explain quantum computing
@@ -593,7 +659,11 @@ class AIChatComponent extends HTMLElement {
   }
 
   renderMessages() {
-    return this.messages.map(msg => `
+    const lastAiMessageIndex = this.messages.map((m, i) => ({ m, i }))
+      .reverse()
+      .find(({m}) => m.role === 'assistant')?.i
+
+    return this.messages.map((msg, index) => `
       <div class="message ${msg.role}">
         <div class="message-avatar">
           ${msg.role === 'user' ? '👤' : this.models[msg.model || this.currentModel].icon}
@@ -605,6 +675,13 @@ class AIChatComponent extends HTMLElement {
             </div>
           </div>
           <div class="message-time">${msg.timestamp}</div>
+          ${msg.role === 'assistant' && index === lastAiMessageIndex && this.graphId ? `
+            <div class="message-actions">
+              <button class="btn-save-to-graph" data-message-index="${index}" ${msg.savedToGraph ? 'disabled' : ''}>
+                ${msg.savedToGraph ? '✅ Saved to Graph' : '💾 Save to Graph'}
+              </button>
+            </div>
+          ` : ''}
         </div>
       </div>
     `).join('')
@@ -620,6 +697,7 @@ class AIChatComponent extends HTMLElement {
   }
 
   setupEventListeners() {
+    console.log('🟢 [AI Chat] Setting up event listeners')
     const sendButton = this.shadowRoot.getElementById('sendButton')
     const messageInput = this.shadowRoot.getElementById('messageInput')
     const clearBtn = this.shadowRoot.getElementById('clearBtn')
@@ -628,11 +706,15 @@ class AIChatComponent extends HTMLElement {
     const modelDropdown = this.shadowRoot.getElementById('modelDropdown')
 
     // Send message
-    sendButton?.addEventListener('click', () => this.handleSendMessage())
+    sendButton?.addEventListener('click', () => {
+      console.log('🟢 [AI Chat] Send button clicked')
+      this.handleSendMessage()
+    })
 
     // Enter to send, Shift+Enter for new line
     messageInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
+        console.log('🟢 [AI Chat] Enter key pressed')
         e.preventDefault()
         this.handleSendMessage()
       }
@@ -647,8 +729,47 @@ class AIChatComponent extends HTMLElement {
     // Clear history
     clearBtn?.addEventListener('click', () => this.clearHistory())
 
+    // Refresh component
+    const refreshBtn = this.shadowRoot.getElementById('refreshBtn')
+    refreshBtn?.addEventListener('click', () => {
+      const userId = this.getAttribute('user-id') || 'demo-user'
+      const storageKey = `ai-chat-history-${userId}`
+      localStorage.removeItem(storageKey)
+      this.messages = []
+      this.render()
+    })
+
     // Export conversation
     exportBtn?.addEventListener('click', () => this.exportConversation())
+
+    // Save to graph buttons
+    const saveButtons = this.shadowRoot.querySelectorAll('.btn-save-to-graph')
+    saveButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const messageIndex = parseInt(e.target.getAttribute('data-message-index'))
+        this.saveMessageToGraph(messageIndex)
+      })
+    })
+
+    // Graph context toggle
+    const graphToggleBtn = this.shadowRoot.getElementById('graphToggleBtn')
+    graphToggleBtn?.addEventListener('click', () => {
+      console.log('🔵 [Graph Toggle] Button clicked!')
+      console.log('🔵 [Graph Toggle] Current state:', this.useGraphContext ? 'ON' : 'OFF')
+      console.log('🔵 [Graph Toggle] Graph ID:', this.graphId)
+      
+      this.useGraphContext = !this.useGraphContext
+      
+      console.log('🔵 [Graph Toggle] New state:', this.useGraphContext ? 'ON' : 'OFF')
+      console.log('🔵 [Graph Toggle] Will use endpoint:', this.useGraphContext ? '/user-ai-chat' : '/simple-chat')
+      
+      this.render()
+      
+      // Dispatch event
+      this.dispatchEvent(new CustomEvent('graphContextToggled', {
+        detail: { enabled: this.useGraphContext, graphId: this.graphId }
+      }))
+    })
 
     // Model selector
     modelButton?.addEventListener('click', (e) => {
@@ -681,38 +802,52 @@ class AIChatComponent extends HTMLElement {
   }
 
   async handleSendMessage() {
+    console.log('🟢 [AI Chat] handleSendMessage called')
     const input = this.shadowRoot.getElementById('messageInput')
     const message = input.value.trim()
 
-    if (!message || this.isLoading) return
+    console.log('🟢 [AI Chat] Message:', message)
+    console.log('🟢 [AI Chat] isLoading:', this.isLoading)
+
+    if (!message || this.isLoading) {
+      console.log('🔴 [AI Chat] Blocked - empty message or already loading')
+      return
+    }
 
     // Add user message
+    console.log('🟢 [AI Chat] Adding user message to array')
     this.addMessage('user', message)
     input.value = ''
     input.style.height = 'auto'
 
     // Set loading state
     this.isLoading = true
+    console.log('🟢 [AI Chat] Set loading state, re-rendering')
     this.render()
 
     try {
       // Send to AI
+      console.log('🟢 [AI Chat] Calling AI...')
       const response = await this.callAI(message)
+      console.log('🟢 [AI Chat] Got AI response:', response)
 
       // Add AI response
+      console.log('🟢 [AI Chat] Adding AI response to messages')
       this.addMessage('ai', response)
 
       this.dispatchEvent(new CustomEvent('responseReceived', {
         detail: { message: response, model: this.currentModel }
       }))
     } catch (error) {
-      console.error('AI Chat error:', error)
+      console.error('🔴 [AI Chat] ERROR:', error)
+      console.error('🔴 [AI Chat] Error stack:', error.stack)
       this.showError(error.message || 'Failed to get AI response')
 
       this.dispatchEvent(new CustomEvent('error', {
         detail: { error: error.message }
       }))
     } finally {
+      console.log('🟢 [AI Chat] Finally block - clearing loading state')
       this.isLoading = false
       this.render()
 
@@ -727,30 +862,44 @@ class AIChatComponent extends HTMLElement {
     const apiEndpoint = this.getAttribute('api-endpoint') || 'https://api.vegvisr.org'
     const userId = this.getAttribute('user-id') || 'anonymous'
 
-    // Build messages array with history
+    console.log('🟢 [AI Chat] callAI - apiEndpoint:', apiEndpoint)
+    console.log('🟢 [AI Chat] callAI - userId:', userId)
+    console.log('🟢 [AI Chat] callAI - useGraphContext:', this.useGraphContext)
+    console.log('🟢 [AI Chat] callAI - graphId:', this.graphId)
+    
+    if (this.graphId && this.useGraphContext) {
+      console.log('📊 [AI Chat] GRAPH CONTEXT ENABLED - Using graph:', this.graphId)
+      console.log('📊 [AI Chat] Will call /user-ai-chat endpoint with graph_id parameter')
+    } else if (this.graphId && !this.useGraphContext) {
+      console.log('⚪ [AI Chat] Graph available but CONTEXT DISABLED - Using simple chat')
+    } else {
+      console.log('⚪ [AI Chat] No graph context - Using simple chat')
+    }
+    
+    console.log('🟢 [AI Chat] callAI - messages in history:', this.messages.length)
+
+    // Build messages array with history (user message already added to this.messages)
     const messages = this.messages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
     }))
 
-    // Add current message
-    messages.push({
-      role: 'user',
-      content: userMessage
-    })
+    console.log('🟢 [AI Chat] callAI - sending messages:', JSON.stringify(messages, null, 2))
 
-    const requestBody = {
-      messages,
-      max_tokens: 4096,
-      userEmail: userId
-    }
+    // Use user-ai-chat endpoint if graph context is enabled, otherwise simple-chat
+    const endpoint = (this.useGraphContext && this.graphId) ? 'user-ai-chat' : 'simple-chat'
+    const url = `${apiEndpoint}/${endpoint}`
+    console.log('🟢 [AI Chat] callAI - fetching:', url, '(endpoint:', endpoint, ')')
 
-    // Add graph context if available
-    if (this.graphId) {
+    // Build request body
+    const requestBody = { messages }
+    if (this.useGraphContext && this.graphId) {
       requestBody.graph_id = this.graphId
+      requestBody.userEmail = userId
+      console.log('🟢 [AI Chat] callAI - including graph_id:', this.graphId)
     }
 
-    const response = await fetch(`${apiEndpoint}/user-ai-chat`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -758,21 +907,28 @@ class AIChatComponent extends HTMLElement {
       body: JSON.stringify(requestBody)
     })
 
+    console.log('🟢 [AI Chat] callAI - response status:', response.status)
+
     if (!response.ok) {
       const errorText = await response.text()
+      console.error('🔴 [AI Chat] callAI - API error:', response.status, errorText)
       throw new Error(`AI API error: ${response.status} - ${errorText}`)
     }
 
     const data = await response.json()
+    console.log('🟢 [AI Chat] callAI - response data:', data)
 
     if (!data.success || !data.message) {
+      console.error('🔴 [AI Chat] callAI - invalid response:', data)
       throw new Error('Invalid response from AI')
     }
 
+    console.log('🟢 [AI Chat] callAI - returning message')
     return data.message
   }
 
   addMessage(role, content) {
+    console.log('🟢 [AI Chat] addMessage - role:', role, 'content length:', content.length)
     const message = {
       role,
       content,
@@ -784,6 +940,7 @@ class AIChatComponent extends HTMLElement {
     }
 
     this.messages.push(message)
+    console.log('🟢 [AI Chat] addMessage - total messages now:', this.messages.length)
     this.saveHistory()
     this.render()
 
@@ -839,6 +996,96 @@ class AIChatComponent extends HTMLElement {
     a.download = `ai-chat-${Date.now()}.json`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async saveMessageToGraph(messageIndex) {
+    const message = this.messages[messageIndex]
+    if (!message || message.role !== 'assistant') return
+    if (!this.graphId) {
+      console.error('❌ No graph ID available')
+      return
+    }
+
+    console.log('💾 [Save to Graph] Saving message:', messageIndex)
+    console.log('💾 [Save to Graph] Graph ID:', this.graphId)
+
+    try {
+      // Generate UUID for new node
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = (Math.random() * 16) | 0
+          const v = c == 'x' ? r : (r & 0x3) | 0x8
+          return v.toString(16)
+        })
+      }
+
+      // First, fetch current graph data
+      const apiEndpoint = this.getAttribute('api-endpoint') || 'https://api.vegvisr.org'
+      const fetchResponse = await fetch(`${apiEndpoint}/knowledge-graph/${this.graphId}`)
+      
+      if (!fetchResponse.ok) {
+        throw new Error('Failed to fetch graph data')
+      }
+
+      const graphResponse = await fetchResponse.json()
+      const currentGraphData = JSON.parse(graphResponse.data)
+
+      console.log('💾 [Save to Graph] Current graph has', currentGraphData.nodes?.length || 0, 'nodes')
+
+      // Create new fulltext node
+      const newNode = {
+        id: generateUUID(),
+        label: 'AI Chat Response',
+        color: '#e3f2fd',
+        type: 'fulltext',
+        info: message.content,
+        bibl: ['AI Generated', new Date().toISOString()],
+        visible: true,
+        position: { x: 0, y: 0 }
+      }
+
+      // Add new node to graph data
+      const updatedGraphData = {
+        ...currentGraphData,
+        nodes: [...(currentGraphData.nodes || []), newNode],
+        edges: currentGraphData.edges || []
+      }
+
+      console.log('💾 [Save to Graph] Saving updated graph with', updatedGraphData.nodes.length, 'nodes')
+
+      // Save to backend with override: true
+      const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: this.graphId,
+          graphData: updatedGraphData,
+          override: true
+        })
+      })
+
+      if (!saveResponse.ok) {
+        const errorText = await saveResponse.text()
+        throw new Error(`Save failed: ${saveResponse.status} - ${errorText}`)
+      }
+
+      const result = await saveResponse.json()
+      console.log('✅ [Save to Graph] Success:', result)
+
+      // Mark message as saved
+      this.messages[messageIndex].savedToGraph = true
+      this.saveHistory()
+      this.render()
+
+      // Dispatch event
+      this.dispatchEvent(new CustomEvent('messageSavedToGraph', {
+        detail: { messageIndex, nodeId: newNode.id, graphId: this.graphId }
+      }))
+
+    } catch (error) {
+      console.error('❌ [Save to Graph] Error:', error)
+      alert(`Failed to save to graph: ${error.message}`)
+    }
   }
 
   saveHistory() {
