@@ -57,7 +57,7 @@ import { handleServeComponent } from './component-handlers.js'
 // Utility functions
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
     'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email',
 }
@@ -7823,12 +7823,211 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 const handleUserAIChat = async (request, env) => {
   try {
     // Parse request body
-    const { messages, max_tokens = 4096, graph_id, userEmail = 'anonymous' } = await request.json()
+    const { 
+      messages, 
+      max_tokens = 4096, 
+      graph_id, 
+      userEmail = 'anonymous',
+      useUserModel = false,  // NEW: Flag to use user's own API key
+      userId = null,         // NEW: User ID for key lookup
+      provider = 'xai',      // NEW: Provider (openai, anthropic, google, xai)
+      model = null           // NEW: Specific model to use
+    } = await request.json()
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return createErrorResponse('Messages array is required', 400)
     }
 
+    // NEW: If user wants to use their own API key
+    if (useUserModel) {
+      if (!userId) {
+        return createErrorResponse('userId required when useUserModel=true', 400)
+      }
+
+      try {
+        // Import utilities for user API key handling
+        const { getUserApiKey } = await import('./src/utils/secretsManager.js')
+        const { updateKeyLastUsed } = await import('./src/utils/r2Metadata.js')
+        
+        console.log(`🔐 [User AI Chat] Using user's ${provider} API key for user ${userId}`)
+        
+        // Get and decrypt user's API key
+        const userApiKey = await getUserApiKey(env, userId, provider)
+        
+        // Call the appropriate provider with user's key
+        let aiResponse, tokensUsed, modelUsed
+        
+        if (provider === 'openai') {
+          const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${userApiKey}`,
+            },
+            body: JSON.stringify({
+              model: model || 'gpt-4',
+              messages: messages,
+              max_tokens: max_tokens,
+              temperature: 0.7,
+            }),
+          })
+          
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text()
+            console.error('❌ OpenAI error:', errorText)
+            return createErrorResponse(`OpenAI error: ${openaiResponse.status}`, 500)
+          }
+          
+          const data = await openaiResponse.json()
+          aiResponse = data.choices?.[0]?.message?.content
+          tokensUsed = data.usage?.total_tokens || 0
+          modelUsed = data.model || model || 'gpt-4'
+          
+        } else if (provider === 'anthropic') {
+          // Convert messages to Anthropic format
+          const anthropicMessages = messages.filter(m => m.role !== 'system')
+          const systemMessage = messages.find(m => m.role === 'system')?.content
+          
+          // Map frontend model names to Anthropic API model identifiers
+          let anthropicModel = 'claude-sonnet-4-20250514' // Default to Claude Sonnet 4
+          if (model === 'claude-4.5') {
+            anthropicModel = 'claude-sonnet-4-5-20250929' // Claude Sonnet 4.5 (Sep 29, 2025)
+          } else if (model === 'claude-4') {
+            anthropicModel = 'claude-sonnet-4-20250514' // Claude Sonnet 4 (May 14, 2025)
+          } else if (model === 'claude') {
+            anthropicModel = 'claude-3-opus-20240229' // Claude 3 Opus
+          } else if (model) {
+            anthropicModel = model // Allow direct model specification
+          }
+          
+          const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': userApiKey,
+              'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+              model: anthropicModel,
+              max_tokens: max_tokens,
+              system: systemMessage,
+              messages: anthropicMessages,
+            }),
+          })
+          
+          if (!anthropicResponse.ok) {
+            const errorText = await anthropicResponse.text()
+            console.error('❌ Anthropic error:', errorText)
+            return createErrorResponse(`Anthropic error: ${anthropicResponse.status}`, 500)
+          }
+          
+          const data = await anthropicResponse.json()
+          aiResponse = data.content?.[0]?.text
+          tokensUsed = data.usage?.input_tokens + data.usage?.output_tokens || 0
+          modelUsed = data.model || anthropicModel
+
+          
+        } else if (provider === 'google') {
+          const googleResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.0-flash-exp'}:generateContent?key=${userApiKey}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: messages.map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }]
+              })),
+              generationConfig: {
+                maxOutputTokens: max_tokens,
+                temperature: 0.7,
+              },
+            }),
+          })
+          
+          if (!googleResponse.ok) {
+            const errorText = await googleResponse.text()
+            console.error('❌ Google error:', errorText)
+            return createErrorResponse(`Google error: ${googleResponse.status}`, 500)
+          }
+          
+          const data = await googleResponse.json()
+          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text
+          tokensUsed = data.usageMetadata?.totalTokenCount || 0
+          modelUsed = model || 'gemini-2.0-flash-exp'
+          
+        } else if (provider === 'grok' || provider === 'xai') {
+          // Grok uses OpenAI-compatible API format
+          const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${userApiKey}`,
+            },
+            body: JSON.stringify({
+              model: model || 'grok-beta',
+              messages: messages,
+              max_tokens: max_tokens,
+              temperature: 0.7,
+            }),
+          })
+          
+          if (!grokResponse.ok) {
+            const errorText = await grokResponse.text()
+            console.error('❌ Grok error:', errorText)
+            return createErrorResponse(`Grok error: ${grokResponse.status}`, 500)
+          }
+          
+          const data = await grokResponse.json()
+          aiResponse = data.choices?.[0]?.message?.content
+          tokensUsed = data.usage?.total_tokens || 0
+          modelUsed = data.model || model || 'grok-beta'
+          
+        } else {
+          return createErrorResponse(`Unsupported provider: ${provider}`, 400)
+        }
+        
+        // Update last used timestamp for this API key
+        await updateKeyLastUsed(env, userId, provider)
+        
+        // Create response node
+        const nodeId = `ai_response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const fulltextNode = {
+          id: nodeId,
+          label: `AI Response (${provider})`,
+          type: 'fulltext',
+          info: aiResponse,
+          color: '#2ecc71',
+          bibl: [],
+          imageWidth: '100%',
+          imageHeight: '100%',
+          visible: true,
+          path: null,
+        }
+        
+        console.log(`✅ [User AI Chat] Success - User: ${userId}, Provider: ${provider}, Model: ${modelUsed}, Tokens: ${tokensUsed}`)
+        
+        return createResponse(
+          JSON.stringify({
+            success: true,
+            node: fulltextNode,
+            message: aiResponse,
+            usage: {
+              tokens: tokensUsed,
+              model: modelUsed,
+              provider: provider,
+              userKey: true  // Indicates this used user's own key
+            },
+          }),
+        )
+        
+      } catch (error) {
+        console.error('❌ [User AI Chat] Error with user API key:', error)
+        return createErrorResponse(`Failed to use user API key: ${error.message}`, 500)
+      }
+    }
+
+    // DEFAULT: Use system API keys (original behavior below)
     // Fetch graph context if graph_id is provided
     let graphContext = ''
     if (graph_id) {
@@ -9476,6 +9675,449 @@ export default {
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       })
+    }
+
+    // Test endpoint for Cloudflare Secrets API
+    if (pathname === '/api/test-secrets' && request.method === 'POST') {
+      try {
+        const body = await request.json()
+        const { userId, provider, apiKey, action = 'create' } = body
+
+        if (!userId || !provider) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing userId or provider'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        const secretName = `USER_${userId}_${provider}_KEY`
+        const accountId = env.CF_ACCOUNT_ID
+        const apiToken = env.CF_API_TOKEN
+        const scriptName = 'vegvisr-api-worker'
+
+        if (action === 'create' && apiKey) {
+          // Create/update secret via Cloudflare API
+          // Based on testing: endpoint uses JSON body, not FormData
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/secrets`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                name: secretName,
+                text: apiKey,
+                type: 'secret_text'
+              })
+            }
+          )
+
+          const result = await response.json()
+
+          return new Response(JSON.stringify({
+            success: result.success,
+            secretName,
+            cloudflareResponse: result,
+            message: result.success 
+              ? `Secret ${secretName} created successfully` 
+              : 'Failed to create secret'
+          }), {
+            status: result.success ? 200 : 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        if (action === 'read') {
+          // Try to read the secret (from environment)
+          const secretValue = env[secretName]
+          
+          return new Response(JSON.stringify({
+            success: true,
+            secretName,
+            exists: !!secretValue,
+            // Never expose the actual value, just confirm it exists
+            message: secretValue 
+              ? `Secret ${secretName} exists and is accessible` 
+              : `Secret ${secretName} not found in environment`
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        if (action === 'delete') {
+          // Delete secret via Cloudflare API
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/secrets/${secretName}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`
+              }
+            }
+          )
+
+          const result = await response.json()
+
+          return new Response(JSON.stringify({
+            success: result.success,
+            secretName,
+            cloudflareResponse: result,
+            message: result.success 
+              ? `Secret ${secretName} deleted successfully` 
+              : 'Failed to delete secret'
+          }), {
+            status: result.success ? 200 : 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid action. Use: create, read, or delete'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+
+      } catch (error) {
+        console.error('❌ Test secrets error:', error)
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message,
+          stack: error.stack
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
+    // Test endpoint for encryption cycle (double-layer encryption)
+    if (pathname === '/api/test-encryption-cycle' && request.method === 'POST') {
+      try {
+        // Import utilities (ES module style)
+        const { encryptApiKey, decryptApiKey } = await import('./src/utils/encryption.js')
+        const { storeUserApiKey, getUserApiKey, deleteUserApiKey, listUserApiKeys } = await import('./src/utils/secretsManager.js')
+        
+        const body = await request.json()
+        const { action, userId, provider, apiKey } = body
+
+        if (!action || !userId) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing action or userId'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Action: STORE - Encrypt and store API key
+        if (action === 'store') {
+          if (!provider || !apiKey) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Missing provider or apiKey'
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+
+          // Encrypt the key first (for preview)
+          const encrypted = await encryptApiKey(apiKey, env.ENCRYPTION_MASTER_KEY)
+          
+          // Store encrypted key as Cloudflare secret
+          const result = await storeUserApiKey(env, userId, provider, apiKey)
+
+          return new Response(JSON.stringify({
+            success: true,
+            secretName: result.secretName,
+            encryptedPreview: encrypted.substring(0, 20) + '...',
+            message: 'API key encrypted and stored successfully'
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Action: RETRIEVE - Decrypt and return API key
+        if (action === 'retrieve') {
+          if (!provider) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Missing provider'
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+
+          // Get and decrypt API key
+          const decryptedKey = await getUserApiKey(env, userId, provider)
+
+          return new Response(JSON.stringify({
+            success: true,
+            apiKey: decryptedKey,
+            message: 'API key retrieved and decrypted successfully'
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Action: LIST - List user's API keys
+        if (action === 'list') {
+          const keys = await listUserApiKeys(env, userId)
+
+          return new Response(JSON.stringify({
+            success: true,
+            keys,
+            message: `Found ${keys.length} API key(s)`
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Action: DELETE - Delete API key
+        if (action === 'delete') {
+          if (!provider) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Missing provider'
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+
+          await deleteUserApiKey(env, userId, provider)
+
+          return new Response(JSON.stringify({
+            success: true,
+            message: 'API key deleted successfully'
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Invalid action
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid action. Use: store, retrieve, list, or delete'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+
+      } catch (error) {
+        console.error('❌ Encryption cycle test error:', error)
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message,
+          stack: error.stack
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
+    // ============================================================================
+    // PRODUCTION API: User API Keys Management
+    // ============================================================================
+
+    // PUT /user-api-keys - Store user's API key (encrypted)
+    if (pathname === '/user-api-keys' && request.method === 'PUT') {
+      try {
+        const { storeUserApiKey } = await import('./src/utils/secretsManager.js')
+        const { saveUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
+        
+        const body = await request.json()
+        const { userId, provider, apiKey, keyName, models } = body
+
+        // Validation
+        if (!userId || typeof userId !== 'string') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing or invalid userId'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        if (!provider || typeof provider !== 'string') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing or invalid provider (e.g., openai, anthropic, google, grok)'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        if (!apiKey || typeof apiKey !== 'string') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing or invalid apiKey'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // STEP 1: Encrypt and store API key as Cloudflare secret
+        const storeResult = await storeUserApiKey(env, userId, provider, apiKey)
+
+        // STEP 2: Save metadata to R2 (NOT the actual key)
+        const metadata = await saveUserKeyMetadata(env, userId, provider, {
+          keyName: keyName || `${provider} API Key`,
+          models: models || [],
+          enabled: true
+        })
+
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'API key stored successfully',
+          provider,
+          metadata: {
+            keyName: metadata.keyName,
+            provider: metadata.provider,
+            enabled: metadata.enabled,
+            createdAt: metadata.createdAt,
+            updatedAt: metadata.updatedAt
+          }
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+
+      } catch (error) {
+        console.error('❌ Error storing user API key:', error)
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
+    // GET /user-api-keys - List user's API keys (metadata only)
+    if (pathname === '/user-api-keys' && request.method === 'GET') {
+      try {
+        const { getUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
+        
+        const url = new URL(request.url)
+        const userId = url.searchParams.get('userId')
+
+        if (!userId) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing userId query parameter'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // Get metadata from R2 (never returns actual API keys)
+        const userMetadata = await getUserKeyMetadata(env, userId)
+
+        return new Response(JSON.stringify({
+          success: true,
+          userId: userMetadata.userId,
+          keys: userMetadata.keys.map(key => ({
+            provider: key.provider,
+            keyName: key.keyName,
+            displayName: key.displayName,
+            enabled: key.enabled,
+            models: key.models,
+            createdAt: key.createdAt,
+            lastUsed: key.lastUsed,
+            isActive: key.isActive
+          }))
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+
+      } catch (error) {
+        console.error('❌ Error listing user API keys:', error)
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
+    // DELETE /user-api-keys/:provider - Delete user's API key
+    if (pathname.startsWith('/user-api-keys/') && request.method === 'DELETE') {
+      try {
+        const { deleteUserApiKey } = await import('./src/utils/secretsManager.js')
+        const { deleteUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
+        
+        const provider = pathname.split('/').pop()
+        const url = new URL(request.url)
+        const userId = url.searchParams.get('userId')
+
+        if (!userId) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing userId query parameter'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        if (!provider) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Missing provider in URL path'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+
+        // STEP 1: Delete from Cloudflare Secrets
+        await deleteUserApiKey(env, userId, provider)
+
+        // STEP 2: Delete metadata from R2
+        await deleteUserKeyMetadata(env, userId, provider)
+
+        return new Response(JSON.stringify({
+          success: true,
+          message: `API key for ${provider} deleted successfully`
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+
+      } catch (error) {
+        console.error('❌ Error deleting user API key:', error)
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
     }
 
     // Component Manager API routes
