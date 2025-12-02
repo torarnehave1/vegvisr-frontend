@@ -7823,10 +7823,10 @@ Return ONLY the HTML code, nothing else. No explanations, no markdown, just the 
 const handleUserAIChat = async (request, env) => {
   try {
     // Parse request body
-    const { 
-      messages, 
-      max_tokens = 4096, 
-      graph_id, 
+    const {
+      messages,
+      max_tokens = 4096,
+      graph_id,
       userEmail = 'anonymous',
       useUserModel = false,  // NEW: Flag to use user's own API key
       userId = null,         // NEW: User ID for key lookup
@@ -7848,15 +7848,15 @@ const handleUserAIChat = async (request, env) => {
         // Import utilities for user API key handling
         const { getUserApiKey } = await import('./src/utils/secretsManager.js')
         const { updateKeyLastUsed } = await import('./src/utils/r2Metadata.js')
-        
+
         console.log(`🔐 [User AI Chat] Using user's ${provider} API key for user ${userId}`)
-        
+
         // Get and decrypt user's API key
         const userApiKey = await getUserApiKey(env, userId, provider)
-        
+
         // Call the appropriate provider with user's key
         let aiResponse, tokensUsed, modelUsed
-        
+
         if (provider === 'openai') {
           const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -7871,23 +7871,23 @@ const handleUserAIChat = async (request, env) => {
               temperature: 0.7,
             }),
           })
-          
+
           if (!openaiResponse.ok) {
             const errorText = await openaiResponse.text()
             console.error('❌ OpenAI error:', errorText)
             return createErrorResponse(`OpenAI error: ${openaiResponse.status}`, 500)
           }
-          
+
           const data = await openaiResponse.json()
           aiResponse = data.choices?.[0]?.message?.content
           tokensUsed = data.usage?.total_tokens || 0
           modelUsed = data.model || model || 'gpt-4'
-          
+
         } else if (provider === 'anthropic') {
           // Convert messages to Anthropic format
           const anthropicMessages = messages.filter(m => m.role !== 'system')
           const systemMessage = messages.find(m => m.role === 'system')?.content
-          
+
           // Map frontend model names to Anthropic API model identifiers
           let anthropicModel = 'claude-sonnet-4-20250514' // Default to Claude Sonnet 4
           if (model === 'claude-4.5') {
@@ -7899,7 +7899,7 @@ const handleUserAIChat = async (request, env) => {
           } else if (model) {
             anthropicModel = model // Allow direct model specification
           }
-          
+
           const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -7914,19 +7914,19 @@ const handleUserAIChat = async (request, env) => {
               messages: anthropicMessages,
             }),
           })
-          
+
           if (!anthropicResponse.ok) {
             const errorText = await anthropicResponse.text()
             console.error('❌ Anthropic error:', errorText)
             return createErrorResponse(`Anthropic error: ${anthropicResponse.status}`, 500)
           }
-          
+
           const data = await anthropicResponse.json()
           aiResponse = data.content?.[0]?.text
           tokensUsed = data.usage?.input_tokens + data.usage?.output_tokens || 0
           modelUsed = data.model || anthropicModel
 
-          
+
         } else if (provider === 'google') {
           const googleResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.0-flash-exp'}:generateContent?key=${userApiKey}`, {
             method: 'POST',
@@ -7944,18 +7944,18 @@ const handleUserAIChat = async (request, env) => {
               },
             }),
           })
-          
+
           if (!googleResponse.ok) {
             const errorText = await googleResponse.text()
             console.error('❌ Google error:', errorText)
             return createErrorResponse(`Google error: ${googleResponse.status}`, 500)
           }
-          
+
           const data = await googleResponse.json()
           aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text
           tokensUsed = data.usageMetadata?.totalTokenCount || 0
           modelUsed = model || 'gemini-2.0-flash-exp'
-          
+
         } else if (provider === 'grok' || provider === 'xai') {
           // Grok uses OpenAI-compatible API format
           const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -7971,25 +7971,25 @@ const handleUserAIChat = async (request, env) => {
               temperature: 0.7,
             }),
           })
-          
+
           if (!grokResponse.ok) {
             const errorText = await grokResponse.text()
             console.error('❌ Grok error:', errorText)
             return createErrorResponse(`Grok error: ${grokResponse.status}`, 500)
           }
-          
+
           const data = await grokResponse.json()
           aiResponse = data.choices?.[0]?.message?.content
           tokensUsed = data.usage?.total_tokens || 0
           modelUsed = data.model || model || 'grok-beta'
-          
+
         } else {
           return createErrorResponse(`Unsupported provider: ${provider}`, 400)
         }
-        
+
         // Update last used timestamp for this API key
         await updateKeyLastUsed(env, userId, provider)
-        
+
         // Create response node
         const nodeId = `ai_response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         const fulltextNode = {
@@ -8004,9 +8004,9 @@ const handleUserAIChat = async (request, env) => {
           visible: true,
           path: null,
         }
-        
+
         console.log(`✅ [User AI Chat] Success - User: ${userId}, Provider: ${provider}, Model: ${modelUsed}, Tokens: ${tokensUsed}`)
-        
+
         return createResponse(
           JSON.stringify({
             success: true,
@@ -8020,7 +8020,7 @@ const handleUserAIChat = async (request, env) => {
             },
           }),
         )
-        
+
       } catch (error) {
         console.error('❌ [User AI Chat] Error with user API key:', error)
         return createErrorResponse(`Failed to use user API key: ${error.message}`, 500)
@@ -9723,8 +9723,8 @@ export default {
             success: result.success,
             secretName,
             cloudflareResponse: result,
-            message: result.success 
-              ? `Secret ${secretName} created successfully` 
+            message: result.success
+              ? `Secret ${secretName} created successfully`
               : 'Failed to create secret'
           }), {
             status: result.success ? 200 : 500,
@@ -9735,14 +9735,14 @@ export default {
         if (action === 'read') {
           // Try to read the secret (from environment)
           const secretValue = env[secretName]
-          
+
           return new Response(JSON.stringify({
             success: true,
             secretName,
             exists: !!secretValue,
             // Never expose the actual value, just confirm it exists
-            message: secretValue 
-              ? `Secret ${secretName} exists and is accessible` 
+            message: secretValue
+              ? `Secret ${secretName} exists and is accessible`
               : `Secret ${secretName} not found in environment`
           }), {
             status: 200,
@@ -9768,8 +9768,8 @@ export default {
             success: result.success,
             secretName,
             cloudflareResponse: result,
-            message: result.success 
-              ? `Secret ${secretName} deleted successfully` 
+            message: result.success
+              ? `Secret ${secretName} deleted successfully`
               : 'Failed to delete secret'
           }), {
             status: result.success ? 200 : 500,
@@ -9804,7 +9804,7 @@ export default {
         // Import utilities (ES module style)
         const { encryptApiKey, decryptApiKey } = await import('./src/utils/encryption.js')
         const { storeUserApiKey, getUserApiKey, deleteUserApiKey, listUserApiKeys } = await import('./src/utils/secretsManager.js')
-        
+
         const body = await request.json()
         const { action, userId, provider, apiKey } = body
 
@@ -9832,7 +9832,7 @@ export default {
 
           // Encrypt the key first (for preview)
           const encrypted = await encryptApiKey(apiKey, env.ENCRYPTION_MASTER_KEY)
-          
+
           // Store encrypted key as Cloudflare secret
           const result = await storeUserApiKey(env, userId, provider, apiKey)
 
@@ -9940,7 +9940,7 @@ export default {
       try {
         const { storeUserApiKey } = await import('./src/utils/secretsManager.js')
         const { saveUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
-        
+
         const body = await request.json()
         const { userId, provider, apiKey, keyName, models } = body
 
@@ -10017,7 +10017,7 @@ export default {
     if (pathname === '/user-api-keys' && request.method === 'GET') {
       try {
         const { getUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
-        
+
         const url = new URL(request.url)
         const userId = url.searchParams.get('userId')
 
@@ -10069,7 +10069,7 @@ export default {
       try {
         const { deleteUserApiKey } = await import('./src/utils/secretsManager.js')
         const { deleteUserKeyMetadata } = await import('./src/utils/r2Metadata.js')
-        
+
         const provider = pathname.split('/').pop()
         const url = new URL(request.url)
         const userId = url.searchParams.get('userId')
