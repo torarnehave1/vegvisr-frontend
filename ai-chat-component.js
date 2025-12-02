@@ -56,7 +56,7 @@ class AIChatComponent extends HTMLElement {
 
   connectedCallback() {
     console.log('🟢 [AI Chat Component] connectedCallback called')
-    
+
     // Set graph context if provided
     const graphAttr = this.getAttribute('graph-id')
     console.log('🟢 [AI Chat Component] graph-id attribute:', graphAttr)
@@ -64,7 +64,7 @@ class AIChatComponent extends HTMLElement {
       this.graphId = graphAttr
       console.log('🟢 [AI Chat Component] graphId set to:', this.graphId)
     }
-    
+
     this.render()
     this.setupEventListeners()
 
@@ -1150,7 +1150,7 @@ class AIChatComponent extends HTMLElement {
                   <span class="toggle-label">Use My Own API Key</span>
                 </label>
               </div>
-              
+
               ${this.userApiKeys.length > 0 ? `
                 <div class="api-keys-list">
                   ${this.userApiKeys.map(key => `
@@ -1172,7 +1172,7 @@ class AIChatComponent extends HTMLElement {
                   <label for="providerSelect">Provider:</label>
                   <select id="providerSelect">
                     <option value="">Select Provider</option>
-                    ${Object.keys(this.providers).map(key => 
+                    ${Object.keys(this.providers).map(key =>
                       `<option value="${key}">${this.providers[key].icon} ${this.providers[key].name}</option>`
                     ).join('')}
                   </select>
@@ -1378,14 +1378,14 @@ class AIChatComponent extends HTMLElement {
       console.log('🔵 [Graph Toggle] Button clicked!')
       console.log('🔵 [Graph Toggle] Current state:', this.useGraphContext ? 'ON' : 'OFF')
       console.log('🔵 [Graph Toggle] Graph ID:', this.graphId)
-      
+
       this.useGraphContext = e.target.checked
-      
+
       console.log('🔵 [Graph Toggle] New state:', this.useGraphContext ? 'ON' : 'OFF')
       console.log('🔵 [Graph Toggle] Will use endpoint:', this.useGraphContext ? '/user-ai-chat' : '/simple-chat')
-      
+
       this.render()
-      
+
       // Dispatch event
       this.dispatchEvent(new CustomEvent('graphContextToggled', {
         detail: { enabled: this.useGraphContext, graphId: this.graphId }
@@ -1406,13 +1406,13 @@ class AIChatComponent extends HTMLElement {
     useUserModelToggle?.addEventListener('change', (e) => {
       this.useUserModel = e.target.checked
       console.log('🔑 [User API] Toggle user model:', this.useUserModel)
-      
+
       // Update selectedProvider if we have keys
       if (this.useUserModel && this.userApiKeys.length > 0) {
         this.selectedProvider = this.userApiKeys[0].provider
         console.log('🔑 [User API] Auto-selected provider:', this.selectedProvider)
       }
-      
+
       this.render()
     })
 
@@ -1467,20 +1467,20 @@ class AIChatComponent extends HTMLElement {
       try {
         await this.saveApiKey(provider, apiKey, keyName)
         this.showFormFeedback('success', '✅ API key saved successfully!')
-        
+
         // Clear form
         providerSelect.value = ''
         apiKeyInput.value = ''
         keyNameInput.value = ''
         apiKeyInput.type = 'password'
         toggleKeyVisibility.textContent = '👁️'
-        
+
         // If this is the first key, enable user model toggle
         if (this.userApiKeys.length === 1) {
           this.useUserModel = true
           this.selectedProvider = this.userApiKeys[0].provider
         }
-        
+
         setTimeout(() => {
           formFeedback.style.display = 'none'
         }, 3000)
@@ -1497,7 +1497,7 @@ class AIChatComponent extends HTMLElement {
     deleteKeyButtons.forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const provider = e.target.dataset.provider
-        
+
         if (!confirm(`Are you sure you want to delete your ${this.providers[provider]?.name || provider} API key?`)) {
           return
         }
@@ -1505,7 +1505,7 @@ class AIChatComponent extends HTMLElement {
         try {
           await this.deleteApiKey(provider)
           console.log('✅ [User API] Deleted key for provider:', provider)
-          
+
           // If we deleted the selected provider, disable user model
           if (this.selectedProvider === provider) {
             this.useUserModel = false
@@ -1742,7 +1742,7 @@ For full documentation, including usage examples, API reference, and implementat
 
       const apiEndpoint = this.getAttribute('api-endpoint') || 'https://api.vegvisr.org'
       const response = await fetch(`${apiEndpoint}/user-api-keys?userId=${userId}`)
-      
+
       if (!response.ok) {
         throw new Error(`Failed to load API keys: ${response.status}`)
       }
@@ -1777,10 +1777,10 @@ For full documentation, including usage examples, API reference, and implementat
 
       const data = await response.json()
       console.log('✅ [API Keys] Saved successfully:', provider)
-      
+
       // Reload API keys list
       await this.loadUserApiKeys()
-      
+
       return data
     } catch (error) {
       console.error('❌ [API Keys] Error saving:', error)
@@ -1805,10 +1805,10 @@ For full documentation, including usage examples, API reference, and implementat
       }
 
       console.log('🗑️ [API Keys] Deleted:', provider)
-      
+
       // Reload API keys list
       await this.loadUserApiKeys()
-      
+
       return true
     } catch (error) {
       console.error('❌ [API Keys] Error deleting:', error)
@@ -1818,7 +1818,7 @@ For full documentation, including usage examples, API reference, and implementat
 
   formatLastUsed(timestamp) {
     if (!timestamp) return 'Never'
-    
+
     const now = new Date()
     const used = new Date(timestamp)
     const diffMs = now - used
@@ -1851,7 +1851,7 @@ For full documentation, including usage examples, API reference, and implementat
     console.log('🟢 [AI Chat] callAI - graphId:', this.graphId)
     console.log('🔑 [AI Chat] callAI - useUserModel:', this.useUserModel)
     console.log('🔑 [AI Chat] callAI - selectedProvider:', this.selectedProvider)
-    
+
     if (this.graphId && this.useGraphContext) {
       console.log('📊 [AI Chat] GRAPH CONTEXT ENABLED - Using graph:', this.graphId)
       console.log('📊 [AI Chat] Will call /user-ai-chat endpoint with graph_id parameter')
@@ -1860,7 +1860,7 @@ For full documentation, including usage examples, API reference, and implementat
     } else {
       console.log('⚪ [AI Chat] No graph context - Using simple chat')
     }
-    
+
     console.log('🟢 [AI Chat] callAI - messages in history:', this.messages.length)
 
     // Build messages array with history (user message already added to this.messages)
@@ -1878,7 +1878,7 @@ For full documentation, including usage examples, API reference, and implementat
 
     // Build request body
     const requestBody = { messages }
-    
+
     // Add graph context if enabled
     if (this.useGraphContext && this.graphId) {
       requestBody.graph_id = this.graphId
@@ -2018,7 +2018,7 @@ For full documentation, including usage examples, API reference, and implementat
       // First, fetch current graph data
       const apiEndpoint = this.getAttribute('api-endpoint') || 'https://api.vegvisr.org'
       const fetchResponse = await fetch(`${apiEndpoint}/knowledge-graph/${this.graphId}`)
-      
+
       if (!fetchResponse.ok) {
         throw new Error('Failed to fetch graph data')
       }

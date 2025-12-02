@@ -2,7 +2,7 @@
 
 /**
  * Test script for Cloudflare Secrets API integration
- * 
+ *
  * Tests three operations:
  * 1. CREATE - Store a user API key as a Cloudflare secret
  * 2. READ - Verify the secret exists in the worker environment
@@ -16,7 +16,7 @@ const TEST_API_KEY = 'sk-test-1234567890abcdef' // Fake key for testing
 
 async function testSecretAPI(action, payload) {
   console.log(`\n🧪 Testing ${action.toUpperCase()} operation...`)
-  
+
   const response = await fetch(`${API_BASE}/api/test-secrets`, {
     method: 'POST',
     headers: {
@@ -26,10 +26,10 @@ async function testSecretAPI(action, payload) {
   })
 
   const result = await response.json()
-  
+
   console.log(`Status: ${response.status}`)
   console.log('Response:', JSON.stringify(result, null, 2))
-  
+
   return result
 }
 
