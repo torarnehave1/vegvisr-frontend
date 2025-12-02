@@ -24,16 +24,14 @@ class AIChatComponent extends HTMLElement {
     this.models = {
       grok: { name: 'Grok 3 Beta', icon: '🤖', color: '#667eea' },
       gpt5: { name: 'GPT-5.1', icon: '🧠', color: '#10a37f' },
-      claude: { name: 'Claude 4 Opus', icon: '🎭', color: '#cc785c' },
-      'claude-4': { name: 'Claude Sonnet 4', icon: '🎭', color: '#cc785c' },
-      'claude-4.5': { name: 'Claude 4.5 Sonnet', icon: '🎭', color: '#9f7aea' }
+      claude: { name: 'Claude 3.5 Sonnet', icon: '🎭', color: '#cc785c' }
     }
 
     // Provider configurations for user API keys
     this.providers = {
-      openai: { name: 'OpenAI', icon: '🧠', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'] },
-      anthropic: { name: 'Anthropic', icon: '🎭', models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'] },
-      google: { name: 'Google', icon: '🔮', models: ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'] },
+      openai: { name: 'OpenAI', icon: '🧠', models: ['gpt-4', 'gpt-4-turbo', 'gpt-4-vision-preview', 'gpt-3.5-turbo'] },
+      anthropic: { name: 'Anthropic', icon: '🎭', models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'] },
+      google: { name: 'Google', icon: '🔮', models: ['gemini-pro', 'gemini-pro-vision'] },
       grok: { name: 'Grok (X.AI)', icon: '🤖', models: ['grok-beta', 'grok-vision-beta'] }
     }
 
