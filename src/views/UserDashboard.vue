@@ -148,6 +148,142 @@
           </div>
         </div>
 
+        <!-- AI Provider API Keys Section -->
+        <div class="mb-3 mt-4">
+          <label class="form-label"><strong>🔑 AI Provider API Keys:</strong></label>
+          <div class="form-text text-start mb-3">
+            Add your own API keys to use your personal accounts with AI providers. Your keys are encrypted and stored securely.
+          </div>
+          
+          <!-- Existing Keys List -->
+          <div v-if="userApiKeys.length > 0" class="mb-3">
+            <div class="list-group">
+              <div 
+                v-for="key in userApiKeys" 
+                :key="key.provider"
+                class="list-group-item d-flex justify-content-between align-items-center"
+              >
+                <div>
+                  <strong>{{ providerDisplayName(key.provider) }}</strong>
+                  <small class="text-muted d-block">
+                    {{ key.key_name || key.provider + ' API Key' }}
+                  </small>
+                  <small class="text-muted">
+                    Last used: {{ key.last_used ? new Date(key.last_used).toLocaleDateString() : 'Never' }}
+                  </small>
+                </div>
+                <div>
+                  <span 
+                    :class="['badge', key.enabled ? 'bg-success' : 'bg-secondary']"
+                    class="me-2"
+                  >
+                    {{ key.enabled ? 'Active' : 'Disabled' }}
+                  </span>
+                  <button 
+                    @click="deleteApiKey(key.provider)"
+                    class="btn btn-outline-danger btn-sm"
+                    :disabled="isDeletingKey"
+                  >
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-else class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            No API keys configured. Add your first API key below to use your own AI provider accounts.
+          </div>
+
+          <!-- Add New Key Form -->
+          <div v-if="showAddApiKey" class="card mt-3">
+            <div class="card-body">
+              <h6>Add New API Key</h6>
+              
+              <div class="mb-3">
+                <label class="form-label">Provider</label>
+                <select 
+                  class="form-select" 
+                  v-model="newApiKey.provider"
+                >
+                  <option value="">Select a provider...</option>
+                  <option value="openai">OpenAI (GPT, DALL-E, Whisper)</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="grok">xAI (Grok)</option>
+                  <option value="perplexity">Perplexity</option>
+                  <option value="google">Google (Gemini)</option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">API Key</label>
+                <input 
+                  type="password" 
+                  class="form-control" 
+                  v-model="newApiKey.apiKey"
+                  placeholder="sk-proj-... or your provider's API key"
+                  autocomplete="off"
+                />
+                <small class="form-text text-muted">
+                  Your key is encrypted before storage. We never log or expose plaintext keys.
+                </small>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Display Name (Optional)</label>
+                <input 
+                  type="text" 
+                  class="form-control" 
+                  v-model="newApiKey.displayName"
+                  placeholder="e.g., My Personal OpenAI Key"
+                />
+              </div>
+
+              <div class="d-flex gap-2">
+                <button 
+                  @click="saveApiKey"
+                  class="btn btn-primary"
+                  :disabled="!newApiKey.provider || !newApiKey.apiKey || isSavingApiKey"
+                >
+                  <span v-if="isSavingApiKey">
+                    <i class="fas fa-spinner fa-spin me-1"></i>
+                    Saving...
+                  </span>
+                  <span v-else>
+                    <i class="fas fa-save me-1"></i>
+                    Save API Key
+                  </span>
+                </button>
+                <button 
+                  @click="cancelAddApiKey"
+                  class="btn btn-outline-secondary"
+                  :disabled="isSavingApiKey"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div v-if="apiKeyMessage" class="mt-3">
+                <div 
+                  :class="['alert', apiKeyMessage.type === 'success' ? 'alert-success' : 'alert-danger']"
+                >
+                  {{ apiKeyMessage.text }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            v-if="!showAddApiKey"
+            @click="showAddApiKey = true"
+            class="btn btn-outline-primary btn-sm mt-2"
+          >
+            <i class="fas fa-plus me-1"></i>
+            Add API Key
+          </button>
+        </div>
+
         <!-- Custom Domain Branding Section - Available to User, Admin, and Superadmin -->
         <div v-if="hasBrandingAccess" class="mt-4">
           <div
@@ -883,6 +1019,17 @@ export default {
       isUnsubscribing: false,
       subscriptionError: '',
       subscriptionSuccess: '',
+      // API Keys management
+      userApiKeys: [],
+      showAddApiKey: false,
+      newApiKey: {
+        provider: '',
+        apiKey: '',
+        displayName: '',
+      },
+      isSavingApiKey: false,
+      isDeletingKey: false,
+      apiKeyMessage: null,
     }
   },
   computed: {
@@ -1002,6 +1149,7 @@ export default {
     this.waitForStore()
     this.fetchUserData() // Fetch user data on mount
     this.newMystmkraUserId = ''
+    this.loadUserApiKeys() // Load user's API keys
 
     // Load affiliate stats for Superadmins
     if (this.userRole === 'Superadmin') {
@@ -1937,6 +2085,167 @@ export default {
       } finally {
         this.isUnsubscribing = false
       }
+    },
+
+    // API Keys Management Methods
+    async loadUserApiKeys() {
+      try {
+        const userId = this.userStore.user_id
+        if (!userId) {
+          console.error('User ID not available')
+          return
+        }
+
+        const response = await fetch(
+          `https://user-keys-worker.torarnehave.workers.dev/user-api-keys?userId=${encodeURIComponent(userId)}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+
+        if (!response.ok) {
+          throw new Error(`Failed to load API keys: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+        this.userApiKeys = data.keys || []
+      } catch (error) {
+        console.error('Error loading user API keys:', error)
+      }
+    },
+
+    async saveApiKey() {
+      this.isSavingApiKey = true
+      this.apiKeyMessage = null
+
+      try {
+        const userId = this.userStore.user_id
+        if (!userId) {
+          throw new Error('User ID not available')
+        }
+
+        const response = await fetch('https://user-keys-worker.torarnehave.workers.dev/user-api-keys', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: userId,
+            provider: this.newApiKey.provider,
+            apiKey: this.newApiKey.apiKey,
+            metadata: {
+              displayName: this.newApiKey.displayName || this.providerDisplayName(this.newApiKey.provider),
+              keyName: this.newApiKey.displayName || `${this.providerDisplayName(this.newApiKey.provider)} API Key`,
+            },
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to save API key')
+        }
+
+        this.apiKeyMessage = {
+          type: 'success',
+          text: `✅ ${this.providerDisplayName(this.newApiKey.provider)} API key saved successfully!`,
+        }
+
+        // Reset form
+        this.newApiKey = {
+          provider: '',
+          apiKey: '',
+          displayName: '',
+        }
+
+        // Reload keys
+        await this.loadUserApiKeys()
+
+        // Hide form after 2 seconds
+        setTimeout(() => {
+          this.showAddApiKey = false
+          this.apiKeyMessage = null
+        }, 2000)
+      } catch (error) {
+        console.error('Error saving API key:', error)
+        this.apiKeyMessage = {
+          type: 'error',
+          text: `❌ Failed to save API key: ${error.message}`,
+        }
+      } finally {
+        this.isSavingApiKey = false
+      }
+    },
+
+    async deleteApiKey(provider) {
+      if (!confirm(`Are you sure you want to delete your ${this.providerDisplayName(provider)} API key?`)) {
+        return
+      }
+
+      this.isDeletingKey = true
+
+      try {
+        const userId = this.userStore.user_id
+        if (!userId) {
+          throw new Error('User ID not available')
+        }
+
+        const response = await fetch(
+          `https://user-keys-worker.torarnehave.workers.dev/user-api-keys/${provider}?userId=${encodeURIComponent(userId)}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to delete API key')
+        }
+
+        this.saveMessage = `✅ ${this.providerDisplayName(provider)} API key deleted successfully`
+        this.isSaving = true
+
+        // Reload keys
+        await this.loadUserApiKeys()
+
+        setTimeout(() => {
+          this.isSaving = false
+          this.saveMessage = ''
+        }, 2000)
+      } catch (error) {
+        console.error('Error deleting API key:', error)
+        alert(`Failed to delete API key: ${error.message}`)
+      } finally {
+        this.isDeletingKey = false
+      }
+    },
+
+    cancelAddApiKey() {
+      this.showAddApiKey = false
+      this.newApiKey = {
+        provider: '',
+        apiKey: '',
+        displayName: '',
+      }
+      this.apiKeyMessage = null
+    },
+
+    providerDisplayName(provider) {
+      const names = {
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        grok: 'xAI (Grok)',
+        perplexity: 'Perplexity',
+        google: 'Google',
+      }
+      return names[provider] || provider
     },
   },
 }
