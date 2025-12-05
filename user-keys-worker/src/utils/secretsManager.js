@@ -69,10 +69,10 @@ export async function storeUserApiKey(env, userId, provider, plaintextApiKey, me
 
     // STEP 2: Store ENCRYPTED blob in D1
     console.log(`[SecretsManager] Storing encrypted key in D1 for user ${userId}, provider ${provider}`)
-    
+
     const keyName = metadata.keyName || `${provider} API Key`
     const displayName = metadata.displayName || provider
-    
+
     const result = await env.DB.prepare(`
       INSERT INTO user_api_keys (user_id, provider, encrypted_key, key_name, display_name)
       VALUES (?1, ?2, ?3, ?4, ?5)
@@ -139,7 +139,7 @@ export async function getUserApiKey(env, userId, provider) {
   try {
     // STEP 1: Read ENCRYPTED blob from D1
     console.log(`[SecretsManager] Reading encrypted key from D1 for user ${userId}, provider ${provider}`)
-    
+
     const result = await env.DB.prepare(`
       SELECT encrypted_key FROM user_api_keys
       WHERE user_id = ?1 AND provider = ?2 AND enabled = 1
@@ -198,7 +198,7 @@ export async function deleteUserApiKey(env, userId, provider) {
 
   try {
     console.log(`[SecretsManager] Deleting key from D1 for user ${userId}, provider ${provider}`)
-    
+
     await env.DB.prepare(`
       DELETE FROM user_api_keys
       WHERE user_id = ?1 AND provider = ?2
@@ -237,9 +237,9 @@ export async function listUserApiKeys(env, userId) {
 
   try {
     console.log(`[SecretsManager] Listing keys from D1 for user ${userId}`)
-    
+
     const result = await env.DB.prepare(`
-      SELECT 
+      SELECT
         user_id, provider, key_name, display_name, enabled,
         created_at, updated_at, last_used
       FROM user_api_keys
