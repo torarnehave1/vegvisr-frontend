@@ -9,10 +9,10 @@
 async function decryptApiKey(encryptedBase64, masterKey) {
   const encoder = new TextEncoder()
   const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0))
-  
+
   const iv = combined.slice(0, 12)
   const encrypted = combined.slice(12)
-  
+
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     encoder.encode(masterKey),
@@ -20,7 +20,7 @@ async function decryptApiKey(encryptedBase64, masterKey) {
     false,
     ['deriveBits', 'deriveKey']
   )
-  
+
   const key = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -33,9 +33,9 @@ async function decryptApiKey(encryptedBase64, masterKey) {
     false,
     ['encrypt', 'decrypt']
   )
-  
+
   const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted)
-  
+
   const decoder = new TextDecoder()
   return decoder.decode(decrypted)
 }
@@ -49,21 +49,21 @@ async function getUserApiKey(userId, provider, env) {
       SELECT encrypted_key FROM user_api_keys
       WHERE user_id = ?1 AND provider = ?2 AND enabled = 1
     `).bind(userId, provider).first()
-    
+
     if (!result || !result.encrypted_key) {
       return null
     }
-    
+
     const plaintextApiKey = await decryptApiKey(result.encrypted_key, env.ENCRYPTION_MASTER_KEY)
-    
+
     // Update last_used timestamp
     await env.DB.prepare(`
       UPDATE user_api_keys SET last_used = CURRENT_TIMESTAMP
       WHERE user_id = ?1 AND provider = ?2
     `).bind(userId, provider).run()
-    
+
     return plaintextApiKey
-    
+
   } catch (error) {
     console.error(`Failed to get user API key: ${error.message}`)
     return null
@@ -153,22 +153,22 @@ export default {
         try {
           const userId = 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b'
           const provider = 'grok'
-          
+
           // Test basic query
           const basicResult = await env.DB.prepare(`
             SELECT provider, key_name, enabled FROM user_api_keys
             WHERE user_id = ?1 AND provider = ?2
           `).bind(userId, provider).first()
-          
+
           // Test encrypted_key query
           const encryptedResult = await env.DB.prepare(`
             SELECT encrypted_key FROM user_api_keys
             WHERE user_id = ?1 AND provider = ?2 AND enabled = 1
           `).bind(userId, provider).first()
-          
+
           // Try to get via function
           const apiKey = await getUserApiKey(userId, provider, env)
-          
+
           return new Response(JSON.stringify({
             basicQuery: basicResult,
             encryptedQuery: {
@@ -231,7 +231,7 @@ async function handleProcessTranscript(request, env, corsHeaders) {
     if (userId) {
       apiKey = await getUserApiKey(userId, 'grok', env)
     }
-    
+
     // Fallback to environment Grok API key
     if (!apiKey) {
       apiKey = env.GROK_API_KEY || env.XAI_API_KEY
@@ -808,23 +808,23 @@ function handleApiDocs(corsHeaders) {
                   type: 'object',
                   required: ['transcript'],
                   properties: {
-                    transcript: { 
-                      type: 'string', 
-                      description: 'Full transcript text from YouTube video' 
+                    transcript: {
+                      type: 'string',
+                      description: 'Full transcript text from YouTube video'
                     },
-                    sourceLanguage: { 
-                      type: 'string', 
+                    sourceLanguage: {
+                      type: 'string',
                       default: 'auto',
-                      description: 'Source language of transcript (e.g., "en", "no", "auto")' 
+                      description: 'Source language of transcript (e.g., "en", "no", "auto")'
                     },
-                    targetLanguage: { 
-                      type: 'string', 
+                    targetLanguage: {
+                      type: 'string',
                       default: 'norwegian',
-                      description: 'Target language for translation. Use "original" to keep source language, or "norwegian" for Norwegian translation' 
+                      description: 'Target language for translation. Use "original" to keep source language, or "norwegian" for Norwegian translation'
                     },
-                    userId: { 
-                      type: 'string', 
-                      description: 'Optional user ID for D1 key lookup. Falls back to env.GROK_API_KEY if not provided' 
+                    userId: {
+                      type: 'string',
+                      description: 'Optional user ID for D1 key lookup. Falls back to env.GROK_API_KEY if not provided'
                     }
                   }
                 },

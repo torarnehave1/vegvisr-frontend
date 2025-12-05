@@ -803,7 +803,7 @@
         >
           {{ transcribing ? 'Transcribing...' : '🇳🇴 Norwegian Service' }}
         </button>
-        
+
         <button
           @click="transcribeWithWhisper"
           :disabled="(!selectedFile && !recordedBlob) || whisperTranscribing || transcribing"
@@ -823,7 +823,7 @@
             ⚡ Processing with Norwegian transcription service...
           </small>
         </div>
-        
+
         <div v-if="whisperTranscribing" class="processing-info">
           <small class="text-muted">
             🤖 Processing with OpenAI Whisper-1...

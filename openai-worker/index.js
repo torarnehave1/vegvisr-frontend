@@ -8,10 +8,10 @@
 async function decryptApiKey(encryptedBase64, masterKey) {
   const encoder = new TextEncoder()
   const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0))
-  
+
   const iv = combined.slice(0, 12)
   const encrypted = combined.slice(12)
-  
+
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     encoder.encode(masterKey),
@@ -19,7 +19,7 @@ async function decryptApiKey(encryptedBase64, masterKey) {
     false,
     ['deriveBits', 'deriveKey']
   )
-  
+
   const key = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -32,9 +32,9 @@ async function decryptApiKey(encryptedBase64, masterKey) {
     false,
     ['encrypt', 'decrypt']
   )
-  
+
   const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted)
-  
+
   const decoder = new TextDecoder()
   return decoder.decode(decrypted)
 }
@@ -43,27 +43,27 @@ async function getUserApiKey(env, userId, provider) {
   if (!userId) return null
   if (!env.DB) return null
   if (!env.ENCRYPTION_MASTER_KEY) return null
-  
+
   try {
     const result = await env.DB.prepare(`
       SELECT encrypted_key FROM user_api_keys
       WHERE user_id = ?1 AND provider = ?2 AND enabled = 1
     `).bind(userId, provider).first()
-    
+
     if (!result || !result.encrypted_key) {
       return null
     }
-    
+
     const plaintextApiKey = await decryptApiKey(result.encrypted_key, env.ENCRYPTION_MASTER_KEY)
-    
+
     // Update last_used timestamp
     await env.DB.prepare(`
       UPDATE user_api_keys SET last_used = CURRENT_TIMESTAMP
       WHERE user_id = ?1 AND provider = ?2
     `).bind(userId, provider).run()
-    
+
     return plaintextApiKey
-    
+
   } catch (error) {
     console.error(`Failed to get user API key: ${error.message}`)
     return null
@@ -196,7 +196,7 @@ async function handleChat(request, env, corsHeaders) {
       model,
       messages
     };
-    
+
     // Add optional parameters only if provided
     // GPT-5+ uses max_completion_tokens, older models use max_tokens
     if (temperature !== undefined && temperature !== 0.7) requestBody.temperature = temperature;
@@ -279,7 +279,7 @@ async function handleModelEndpoint(request, env, corsHeaders, modelName) {
       model: modelName,
       messages
     };
-    
+
     if (temperature !== undefined && temperature !== 0.7) requestBody.temperature = temperature;
     // GPT-5+ uses max_completion_tokens, older models use max_tokens
     if (max_completion_tokens !== undefined) {
@@ -466,7 +466,7 @@ async function handleAudio(request, env, corsHeaders) {
     });
 
     const result = await openaiResponse.text();
-    
+
     return new Response(result, {
       status: openaiResponse.status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
