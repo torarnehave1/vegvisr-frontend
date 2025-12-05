@@ -411,7 +411,7 @@ onMounted(async () => {
   }
 
   // Load code-block web component from CDN with cache-buster
-  const CODE_BLOCK_SRC = 'https://api.vegvisr.org/components/code-block.js?v=20251205-3'
+  const CODE_BLOCK_SRC = 'https://api.vegvisr.org/components/code-block.js?v=20251205-4'
   if (!document.querySelector(`script[data-code-block-src="${CODE_BLOCK_SRC}"]`)) {
     console.log('📥 Loading code-block component script with cache-buster...')
     const script = document.createElement('script')
