@@ -260,7 +260,7 @@ const highlightCodeBlocks = () => {
   nextTick(() => {
     // Find all pre > code elements in the node content
     const codeBlocks = document.querySelectorAll('.gnew-default-node pre code')
-    
+
     codeBlocks.forEach((codeBlock) => {
       // Skip if already highlighted
       if (codeBlock.classList.contains('language-')) {
@@ -269,7 +269,7 @@ const highlightCodeBlocks = () => {
 
       // Try to detect language from class or content
       let language = 'javascript' // Default language
-      
+
       // Check if marked already added a language class
       const existingLang = Array.from(codeBlock.classList).find(cls => cls.startsWith('language-'))
       if (existingLang) {
@@ -292,7 +292,7 @@ const highlightCodeBlocks = () => {
 
       // Add language class
       codeBlock.classList.add(`language-${language}`)
-      
+
       // Add line-numbers class to the pre element
       const preElement = codeBlock.parentElement
       if (preElement && preElement.tagName === 'PRE') {
