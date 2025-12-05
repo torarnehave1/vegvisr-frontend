@@ -46,12 +46,12 @@ const codeClasses = ref(['language-' + props.language])
 
 const highlight = () => {
   if (!codeElement.value) return
-  
+
   // Add line-numbers class if enabled
   if (props.lineNumbers && preElement.value) {
     preElement.value.classList.add('line-numbers')
   }
-  
+
   // Let Prism do its magic
   Prism.highlightElement(codeElement.value)
 }
