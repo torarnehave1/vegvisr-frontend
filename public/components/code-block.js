@@ -87,7 +87,7 @@ class CodeBlock extends HTMLElement {
     const lang = this.getLanguage()
     const showLineNumbers = this.hasAttribute('line-numbers')
     const theme = this.getAttribute('theme') || 'dark'
-    const code = (this.textContent || '').trimEnd()
+    const code = (this.textContent || '').trim()
     const { html, colors } = this.highlight(code, lang)
 
     const bg = theme === 'light' ? '#f7f7f7' : '#2d2d2d'
