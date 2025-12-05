@@ -1487,10 +1487,11 @@ const processTranscript = async () => {
       transcript: transcriptText.value,
       sourceLanguage: sourceLanguage.value,
       targetLanguage: keepOriginalLanguage.value ? 'original' : 'norwegian',
+      userId: userStore.user_id, // Add userId for API key retrieval from D1
     }
 
     console.log('=== TRANSCRIPT API REQUEST ===')
-    console.log('URL:', 'https://api.vegvisr.org/process-transcript')
+    console.log('URL:', 'https://grok.vegvisr.org/process-transcript')
     console.log('Method:', 'POST')
     console.log('API Token:', userStore.emailVerificationToken ? 'Present' : 'MISSING')
     console.log('API Token Length:', userStore.emailVerificationToken?.length || 0)
@@ -1500,7 +1501,7 @@ const processTranscript = async () => {
     console.log('Full Payload:', JSON.stringify(requestPayload, null, 2))
     console.log('===============================')
 
-    const response = await fetch('https://api.vegvisr.org/process-transcript', {
+    const response = await fetch('https://grok.vegvisr.org/process-transcript', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1539,7 +1540,7 @@ const processTranscript = async () => {
       }
 
       console.error('=== FULL ERROR CONTEXT ===')
-      console.error('Request URL:', 'https://api.vegvisr.org/process-transcript')
+      console.error('Request URL:', 'https://grok.vegvisr.org/process-transcript')
       console.error('Request Headers:', {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken,

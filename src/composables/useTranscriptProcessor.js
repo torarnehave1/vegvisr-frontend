@@ -534,16 +534,17 @@ ${description ? `**Description:**\n${description.length > 500 ? description.subs
         transcript: transcriptText.value,
         sourceLanguage: sourceLanguage.value,
         targetLanguage: keepOriginalLanguage.value ? 'original' : 'norwegian',
+        userId: userStore.user_id, // Add userId for API key retrieval from D1
       }
 
       console.log('=== TRANSCRIPT API REQUEST ===')
-      console.log('URL:', 'https://api.vegvisr.org/process-transcript')
+      console.log('URL:', 'https://grok.vegvisr.org/process-transcript')
       console.log('Transcript Length:', transcriptText.value.length)
       console.log('Source Language:', sourceLanguage.value)
       console.log('Target Language:', keepOriginalLanguage.value ? 'original' : 'norwegian')
       console.log('===============================')
 
-      const response = await fetch('https://api.vegvisr.org/process-transcript', {
+      const response = await fetch('https://grok.vegvisr.org/process-transcript', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
