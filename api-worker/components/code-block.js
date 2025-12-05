@@ -50,9 +50,12 @@ class CodeBlock extends HTMLElement {
       sql: {
         comment: /(\/\*[^]*?\*\/|--[^\n]*)/g,
         string: /('(?:''|[^'])*')/g,
-        keyword: /\b(SELECT|FROM|WHERE|AND|OR|INSERT|INTO|VALUES|UPDATE|SET|DELETE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|LIMIT|OFFSET|AS)\b/gi,
+        keyword: /\b(SELECT|FROM|WHERE|AND|OR|INSERT|INTO|VALUES|UPDATE|SET|DELETE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|LIMIT|OFFSET|AS|WITH|CREATE|ALTER|TABLE|INDEX)\b/gi,
+        function: /\b(coalesce|count|sum|avg|min|max|now|date_trunc)\b/gi,
+        parameter: /(\$[0-9]+|\?|:([a-zA-Z_][a-zA-Z0-9_]*))/g,
         number: /\b(-?\d*\.\d+|-?\d+)\b/g,
-        operator: /([+\-*/%=<>!&|^~?:;,.(){}[\]])/g
+        operator: /(?:\|\||&&|<>|[+\-*/%=<>&|^~?:;,.(){}[\]])/g,
+        identifier: /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g
       },
       bash: {
         comment: /(#[^\n]*)/g,
@@ -86,7 +89,10 @@ class CodeBlock extends HTMLElement {
       operator: '#d4d4d4',
       tag: '#569cd6',
       attribute: '#9cdcfe',
-      property: '#9cdcfe'
+      property: '#9cdcfe',
+      function: '#569cd6',
+      parameter: '#d4d4d4',
+      identifier: '#9cdcfe'
     }
 
     const lightColors = {
@@ -99,7 +105,10 @@ class CodeBlock extends HTMLElement {
       operator: '#000000',
       tag: '#800000',
       attribute: '#ff0000',
-      property: '#ff0000'
+      property: '#ff0000',
+      function: '#0000ff',
+      parameter: '#000000',
+      identifier: '#ff0000'
     }
 
     const colors = theme === 'light' ? lightColors : darkColors
@@ -111,6 +120,8 @@ class CodeBlock extends HTMLElement {
     if (rules.comment) result = apply(result, rules.comment, 'cb-comment')
     if (rules.string) result = apply(result, rules.string, 'cb-string')
     if (rules.keyword) result = apply(result, rules.keyword, 'cb-keyword')
+    if (rules.function) result = apply(result, rules.function, 'cb-function')
+    if (rules.parameter) result = apply(result, rules.parameter, 'cb-parameter')
     if (rules.type) result = apply(result, rules.type, 'cb-type')
     if (rules.number) result = apply(result, rules.number, 'cb-number')
     if (rules.literal) result = apply(result, rules.literal, 'cb-literal')
@@ -118,6 +129,7 @@ class CodeBlock extends HTMLElement {
     if (rules.attribute) result = apply(result, rules.attribute, 'cb-attribute')
     if (rules.property) result = apply(result, rules.property, 'cb-property')
     if (rules.operator) result = apply(result, rules.operator, 'cb-operator')
+    if (rules.identifier) result = apply(result, rules.identifier, 'cb-identifier')
 
     return { html: result, colors }
   }
@@ -192,6 +204,9 @@ class CodeBlock extends HTMLElement {
         .cb-tag { color: ${colors.tag}; }
         .cb-attribute { color: ${colors.attribute}; }
         .cb-property { color: ${colors.property}; }
+        .cb-function { color: ${colors.function}; }
+        .cb-parameter { color: ${colors.parameter}; }
+        .cb-identifier { color: ${colors.identifier}; }
       </style>
       <pre class="${showLineNumbers ? 'line-numbers' : ''}">
         ${showLineNumbers ? this.renderLineNumbers(code) : ''}
