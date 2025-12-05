@@ -15,6 +15,17 @@
         <button @click="showTemplates = !showTemplates" class="btn-secondary">
           {{ showTemplates ? '📝 Create Custom' : '📚 Browse Templates' }}
         </button>
+        <button
+          v-if="userStore.user_id"
+          @click="showComponentSelector = !showComponentSelector; if (showComponentSelector) { showTemplates = false; appBuilderStore.fetchComponents(); }"
+          class="btn-secondary"
+          :class="{ 'btn-active': showComponentSelector }"
+        >
+          {{ showComponentSelector ? '✖ Close Components' : '🧩 Select Components' }}
+          <span v-if="appBuilderStore.enabledComponents.length > 0" class="badge">
+            {{ appBuilderStore.enabledComponents.length }}
+          </span>
+        </button>
         <router-link to="/api-library" class="btn-secondary btn-link">
           🔌 API Library
         </router-link>
@@ -45,6 +56,97 @@
             <span v-for="tag in template.tags" :key="tag" class="tag">{{ tag }}</span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Component Selector Panel -->
+    <div v-if="showComponentSelector" class="component-selector-panel">
+      <div class="component-selector-header">
+        <h2>🧩 Select Components</h2>
+        <div class="component-actions">
+          <button @click="openComponentManager" class="btn-component-manager">
+            ⚡ Open Component Manager
+          </button>
+          <input
+            v-model="componentSearchQuery"
+            type="text"
+            placeholder="🔍 Search components..."
+            class="component-search"
+          />
+          <button @click="appBuilderStore.fetchComponents()" :disabled="appBuilderStore.componentsFetching" class="btn-refresh">
+            {{ appBuilderStore.componentsFetching ? '🔄 Syncing...' : '🔄 Refresh' }}
+          </button>
+          <button @click="showComponentSelector = false" class="btn-close-panel">✖ Close</button>
+        </div>
+      </div>
+
+      <div v-if="appBuilderStore.componentsFetchError" class="error-message">
+        ⚠️ {{ appBuilderStore.componentsFetchError }}
+      </div>
+
+      <div v-if="appBuilderStore.componentsFetching" class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading components from Component Manager...</p>
+      </div>
+
+      <div v-else-if="filteredComponents.length === 0" class="empty-state">
+        <p>{{ componentSearchQuery ? '🔍 No components match your search' : '📦 No components available.' }}</p>
+        <button v-if="!componentSearchQuery" @click="openComponentManager" class="btn-primary btn-create-component">
+          ⚡ Create Component in Component Manager
+        </button>
+      </div>
+
+      <div v-else class="components-grid">
+        <div
+          v-for="component in filteredComponents"
+          :key="component.id"
+          class="component-card"
+          :class="{ selected: appBuilderStore.enabledComponents.includes(component.slug || component.name) }"
+        >
+          <div class="component-card-clickable" @click="appBuilderStore.toggleComponent(component.slug || component.name)">
+            <div class="component-header">
+              <h3>{{ component.name }}</h3>
+              <span class="component-version">v{{ component.current_version || component.version_count || 1 }}</span>
+            </div>
+            <p class="component-description">{{ component.description }}</p>
+            <div class="component-meta">
+              <span v-if="component.category" class="component-category">{{ component.category }}</span>
+              <span v-if="component.version_count" class="component-versions">{{ component.version_count }} versions</span>
+              <span v-if="component.last_ai_edit" class="component-updated" :title="`Last AI edit: ${new Date(component.last_ai_edit).toLocaleString()}`">
+                🤖 {{ formatRelativeTime(component.last_ai_edit) }}
+              </span>
+            </div>
+            <div v-if="component.tags" class="component-tags">
+              <span v-for="tag in parseTags(component.tags)" :key="tag" class="tag">{{ tag }}</span>
+            </div>
+          </div>
+          <div class="component-actions">
+            <a
+              :href="`https://api.vegvisr.org/api/components/${component.slug || component.name}`"
+              target="_blank"
+              class="btn-component-docs"
+              @click.stop
+              title="View component documentation and API details"
+            >
+              📖 Docs
+            </a>
+            <button
+              @click.stop="openComponentManagerFor(component.slug || component.name)"
+              class="btn-component-edit"
+              title="Edit this component in Component Manager"
+            >
+              ✏️ Edit
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="component-summary">
+        <strong>{{ appBuilderStore.enabledComponents.length }}</strong> components enabled
+        <span class="component-info">
+          • Click components to enable/disable
+          • Click "📖 Docs" to view API documentation
+        </span>
       </div>
     </div>
 
@@ -211,6 +313,20 @@
               title="Manage your web components"
             >
               ⚡ Component Manager
+            </button>
+            <button
+              v-if="userStore.user_id"
+              @click="appBuilderStore.fetchComponents()"
+              :disabled="appBuilderStore.componentsFetching"
+              class="btn-outline"
+              :title="appBuilderStore.componentsLastFetch
+                ? `Last synced: ${new Date(appBuilderStore.componentsLastFetch).toLocaleTimeString()}`
+                : 'Sync components from Component Manager'"
+            >
+              {{ appBuilderStore.componentsFetching ? '🔄 Syncing...' : '🔄 Sync Components' }}
+              <span v-if="appBuilderStore.availableComponents.length > 0" class="badge">
+                {{ appBuilderStore.availableComponents.length }}
+              </span>
             </button>
             <button
               v-if="conversationHistory.length === 0 && appPrompt.trim()"
@@ -960,6 +1076,8 @@ const appBuilderStore = useAppBuilderStore()
 
 // State
 const showTemplates = ref(true)
+const showComponentSelector = ref(false) // Component selection panel
+const componentSearchQuery = ref('') // Search filter for components
 const appPrompt = ref('')
 const generatedCode = ref('')
 const selectedTemplate = ref(null)
@@ -1042,6 +1160,21 @@ const shortcutKey = computed(() => {
   return navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'
 })
 const imageQualityPreset = ref('balanced')
+
+// Filtered components based on search query
+const filteredComponents = computed(() => {
+  if (!componentSearchQuery.value) {
+    return appBuilderStore.availableComponents
+  }
+
+  const query = componentSearchQuery.value.toLowerCase()
+  return appBuilderStore.availableComponents.filter(comp =>
+    comp.name?.toLowerCase().includes(query) ||
+    comp.description?.toLowerCase().includes(query) ||
+    comp.category?.toLowerCase().includes(query) ||
+    (comp.tags && JSON.parse(comp.tags || '[]').some(tag => tag.toLowerCase().includes(query)))
+  )
+})
 
 // Get model description helper
 const getModelDescription = (model) => {
@@ -1362,6 +1495,28 @@ const formatTime = (timestamp) => {
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
   return date.toLocaleDateString()
+}
+
+const formatRelativeTime = (timestamp) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diff = now - date
+
+  if (diff < 60000) return 'just now'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`
+  return date.toLocaleDateString()
+}
+
+const parseTags = (tagsJson) => {
+  if (!tagsJson) return []
+  try {
+    return JSON.parse(tagsJson)
+  } catch (e) {
+    return tagsJson.split(',').map(t => t.trim()).filter(Boolean)
+  }
 }
 
 const formatDate = (timestamp) => {
@@ -3377,6 +3532,15 @@ watch(conversationHistory, (newValue) => {
 // Load apps on mount
 onMounted(() => {
   // enabledAPIs and enabledComponents are loaded from store automatically
+
+  // Fetch fresh components from Component Manager
+  appBuilderStore.fetchComponents().then(result => {
+    if (result.success) {
+      console.log('🔄 Component Manager sync complete:', result.components.length, 'components available')
+    } else {
+      console.warn('⚠️ Component Manager sync failed:', result.error)
+    }
+  })
 
   // Check if a version was loaded from App History view (via store)
   if (appBuilderStore.currentVersionInfo) {
@@ -6227,5 +6391,252 @@ textarea.form-control {
     grid-template-columns: 1fr;
   }
 }
-</style>
 
+/* Component Selector Panel */
+.component-selector-panel {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.component-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.component-selector-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.component-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.component-search {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  min-width: 250px;
+}
+
+.component-search:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.btn-refresh {
+  padding: 0.5rem 1rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-close-panel {
+  padding: 0.5rem 1rem;
+  background: #f5f5f5;
+  color: #333;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.components-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.component-card {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef3 100%);
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.component-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  border-color: #667eea;
+}
+
+.component-card.selected {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.component-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.component-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.component-version {
+  background: rgba(255, 255, 255, 0.3);
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.component-card.selected .component-version {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.component-description {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+  line-height: 1.4;
+}
+
+.component-meta {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.component-category,
+.component-versions,
+.component-updated {
+  background: rgba(255, 255, 255, 0.5);
+  padding: 0.2rem 0.6rem;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.component-card.selected .component-category,
+.component-card.selected .component-versions,
+.component-card.selected .component-updated {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.component-card-clickable {
+  cursor: pointer;
+}
+
+.component-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  gap: 0.5rem;
+}
+
+.component-card.selected .component-actions {
+  border-top-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-component-docs {
+  padding: 0.4rem 0.8rem;
+  background: rgba(102, 126, 234, 0.1);
+  color: #667eea;
+  border: 1px solid #667eea;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.btn-component-docs:hover {
+  background: #667eea;
+  color: white;
+  transform: translateY(-1px);
+}
+
+.component-card.selected .btn-component-docs {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.component-card.selected .btn-component-docs:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: white;
+}
+
+.component-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.component-summary {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #f5f7fa;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.component-info {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #777;
+  font-style: italic;
+}
+
+.badge {
+  background: #667eea;
+  color: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  font-weight: 600;
+}
+
+.btn-active {
+  background: #667eea;
+  color: white;
+}
+
+.error-message {
+  background: #fee;
+  color: #c33;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #999;
+}
+</style>

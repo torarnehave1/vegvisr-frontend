@@ -145,6 +145,76 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
     return `${currentVersionInfo.value.appName} v${currentVersionInfo.value.versionNumber}`
   }
 
+  // Fetch fresh components from Component Manager API
+  const componentsFetchError = ref(null)
+  const componentsFetching = ref(false)
+  const componentsLastFetch = ref(null)
+  const availableComponents = ref([]) // Full component list from Component Manager
+
+  const fetchComponents = async () => {
+    componentsFetching.value = true
+    componentsFetchError.value = null
+
+    try {
+      const response = await fetch('https://api.vegvisr.org/api/components')
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch components: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (!data.success || !data.components) {
+        throw new Error(data.error || 'Invalid response from Component Manager')
+      }
+
+      availableComponents.value = data.components
+      componentsLastFetch.value = new Date().toISOString()
+
+      console.log('✅ Fetched fresh components from Component Manager:', data.components.length)
+
+      // Auto-enable components that were previously enabled but may have been updated
+      // This preserves user's selection while showing fresh data
+      const previouslyEnabledSlugs = enabledComponents.value.map(c =>
+        typeof c === 'string' ? c : c.slug
+      )
+
+      // Filter available components to only those that were previously enabled
+      const freshEnabledComponents = data.components
+        .filter(comp => previouslyEnabledSlugs.includes(comp.slug || comp.name))
+        .map(comp => comp.slug || comp.name)
+
+      if (freshEnabledComponents.length > 0) {
+        enabledComponents.value = freshEnabledComponents
+        console.log('🔄 Updated enabled components with fresh data:', freshEnabledComponents)
+      }
+
+      return { success: true, components: data.components }
+    } catch (error) {
+      console.error('❌ Failed to fetch components:', error)
+      componentsFetchError.value = error.message
+
+      // Fallback to localStorage if API fails
+      console.log('📦 Using localStorage fallback for components')
+
+      return { success: false, error: error.message }
+    } finally {
+      componentsFetching.value = false
+    }
+  }
+
+  // Toggle component enabled state
+  const toggleComponent = (componentSlug) => {
+    const index = enabledComponents.value.indexOf(componentSlug)
+    if (index > -1) {
+      enabledComponents.value.splice(index, 1)
+      console.log('❌ Disabled component:', componentSlug)
+    } else {
+      enabledComponents.value.push(componentSlug)
+      console.log('✅ Enabled component:', componentSlug)
+    }
+  }
+
   return {
     // State
     currentApp,
@@ -156,12 +226,18 @@ export const useAppBuilderStore = defineStore('appBuilder', () => {
     conversationHistory,
     enabledAPIs,
     enabledComponents,
+    availableComponents,
+    componentsFetching,
+    componentsFetchError,
+    componentsLastFetch,
 
     // Actions
     loadVersion,
     clearApp,
     updateApp,
     isLoadedVersion,
-    getVersionDisplayName
+    getVersionDisplayName,
+    fetchComponents,
+    toggleComponent
   }
 })

@@ -188,12 +188,28 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUpdated, nextTick } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import FlexboxGrid from '@/components/FlexboxGrid.vue'
 import FlexboxCards from '@/components/FlexboxCards.vue'
 import FlexboxGallery from '@/components/FlexboxGallery.vue'
+
+// Import Prism.js for syntax highlighting
+import Prism from 'prismjs'
+import 'prismjs/themes/prism-tomorrow.css' // Dark theme for code
+import 'prismjs/plugins/line-numbers/prism-line-numbers.css'
+import 'prismjs/plugins/line-numbers/prism-line-numbers.js'
+
+// Import common languages
+import 'prismjs/components/prism-javascript.js'
+import 'prismjs/components/prism-typescript.js'
+import 'prismjs/components/prism-css.js'
+import 'prismjs/components/prism-markup.js' // HTML
+import 'prismjs/components/prism-json.js'
+import 'prismjs/components/prism-python.js'
+import 'prismjs/components/prism-bash.js'
+import 'prismjs/components/prism-sql.js'
 
 // Configure marked to support GitHub Flavored Markdown (GFM) including tables
 // For marked v15+, tables are included by default with gfm: true
@@ -238,6 +254,65 @@ const props = defineProps({
 
 // Emits
 const emit = defineEmits(['node-updated', 'node-deleted', 'open-node-seo', 'open-node-share'])
+
+// Apply syntax highlighting to code blocks
+const highlightCodeBlocks = () => {
+  nextTick(() => {
+    // Find all pre > code elements in the node content
+    const codeBlocks = document.querySelectorAll('.gnew-default-node pre code')
+    
+    codeBlocks.forEach((codeBlock) => {
+      // Skip if already highlighted
+      if (codeBlock.classList.contains('language-')) {
+        return
+      }
+
+      // Try to detect language from class or content
+      let language = 'javascript' // Default language
+      
+      // Check if marked already added a language class
+      const existingLang = Array.from(codeBlock.classList).find(cls => cls.startsWith('language-'))
+      if (existingLang) {
+        language = existingLang.replace('language-', '')
+      } else {
+        // Auto-detect based on content patterns
+        const code = codeBlock.textContent || ''
+        if (code.includes('const ') || code.includes('let ') || code.includes('=>') || code.includes('function')) {
+          language = 'javascript'
+        } else if (code.includes('def ') || code.includes('import ') && code.includes('from ')) {
+          language = 'python'
+        } else if (code.includes('SELECT ') || code.includes('FROM ') || code.includes('WHERE ')) {
+          language = 'sql'
+        } else if (code.includes('<html') || code.includes('<div') || code.includes('</')) {
+          language = 'markup'
+        } else if (code.includes('{') && code.includes(':') && code.includes('}')) {
+          language = 'json'
+        }
+      }
+
+      // Add language class
+      codeBlock.classList.add(`language-${language}`)
+      
+      // Add line-numbers class to the pre element
+      const preElement = codeBlock.parentElement
+      if (preElement && preElement.tagName === 'PRE') {
+        preElement.classList.add('line-numbers')
+      }
+
+      // Highlight the code
+      Prism.highlightElement(codeBlock)
+    })
+  })
+}
+
+// Run highlighting when component mounts and updates
+onMounted(() => {
+  highlightCodeBlocks()
+})
+
+onUpdated(() => {
+  highlightCodeBlocks()
+})
 
 // Content parsing function - matches GraphViewer preprocessMarkdown
 const parseFormattedElements = (text) => {
@@ -1399,21 +1474,92 @@ const convertStylesToString = (styleObj) => {
   font-style: italic;
 }
 
+/* Enhanced Code Block Styling with Prism.js */
 .node-content :deep(code) {
-  background: #f8f9fa;
-  padding: 0.2em 0.4em;
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 0.2em 0.5em;
   border-radius: 4px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
+  font-weight: 400;
 }
 
 .node-content :deep(pre) {
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  background: #2d2d2d;
+  border: 1px solid #444;
   border-radius: 8px;
-  padding: 1em;
+  padding: 1.5em;
   overflow-x: auto;
-  margin: 1em 0;
+  margin: 1.5em 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.node-content :deep(pre code) {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.95em;
+  line-height: 1.6;
+  display: block;
+  white-space: pre;
+  word-wrap: normal;
+}
+
+/* Line numbers styling */
+.node-content :deep(pre.line-numbers) {
+  padding-left: 3.8em;
+  counter-reset: linenumber;
+}
+
+.node-content :deep(pre.line-numbers > code) {
+  position: relative;
+  white-space: inherit;
+}
+
+.node-content :deep(.line-numbers .line-numbers-rows) {
+  position: absolute;
+  pointer-events: none;
+  top: 1.5em;
+  left: 0;
+  width: 3em;
+  letter-spacing: -1px;
+  border-right: 1px solid #555;
+  user-select: none;
+  counter-reset: linenumber;
+}
+
+.node-content :deep(.line-numbers-rows > span) {
+  display: block;
+  counter-increment: linenumber;
+  padding-right: 0.8em;
+  text-align: right;
+  color: #858585;
+}
+
+.node-content :deep(.line-numbers-rows > span:before) {
+  content: counter(linenumber);
+}
+
+/* Scrollbar styling for code blocks */
+.node-content :deep(pre::-webkit-scrollbar) {
+  height: 8px;
+}
+
+.node-content :deep(pre::-webkit-scrollbar-track) {
+  background: #1e1e1e;
+  border-radius: 4px;
+}
+
+.node-content :deep(pre::-webkit-scrollbar-thumb) {
+  background: #555;
+  border-radius: 4px;
+}
+
+.node-content :deep(pre::-webkit-scrollbar-thumb:hover) {
+  background: #777;
 }
 
 .node-empty-state {

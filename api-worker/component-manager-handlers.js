@@ -1,11 +1,17 @@
 // Component Manager API Handlers
 import { editComponentWithAI, restoreComponentVersion, regenerateComponentDocumentation } from './component-ai-editor.js'
+import { syncComponentsToAPIRegistry } from './component-sync.js'
 
 /**
  * Handle component manager API requests
  */
 export async function handleComponentManagerAPI(request, env, pathname) {
   const url = new URL(request.url)
+
+  // POST /api/components/sync - Sync web_components to apiForApps
+  if (pathname === '/api/components/sync' && request.method === 'POST') {
+    return syncComponentsToAPIRegistry(env)
+  }
 
   // GET /api/components - List all components
   if (pathname === '/api/components' && request.method === 'GET') {
