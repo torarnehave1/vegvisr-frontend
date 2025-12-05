@@ -1,5 +1,5 @@
 <template>
-  <div class="gnew-default-node" :class="nodeTypeClass">
+  <div ref="nodeContainer" class="gnew-default-node" :class="nodeTypeClass">
     <!-- Hover Toolbar for Fulltext Nodes -->
     <div v-if="node.type === 'fulltext'" class="node-hover-toolbar">
       <button
@@ -188,28 +188,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUpdated, nextTick } from 'vue'
+import { computed, onMounted, onBeforeUnmount, nextTick, ref } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import FlexboxGrid from '@/components/FlexboxGrid.vue'
 import FlexboxCards from '@/components/FlexboxCards.vue'
 import FlexboxGallery from '@/components/FlexboxGallery.vue'
 
-// Import Prism.js for syntax highlighting
-import Prism from 'prismjs'
-import 'prismjs/themes/prism-tomorrow.css' // Dark theme for code
-import 'prismjs/plugins/line-numbers/prism-line-numbers.css'
-import 'prismjs/plugins/line-numbers/prism-line-numbers.js'
-
-// Import common languages
-import 'prismjs/components/prism-javascript.js'
-import 'prismjs/components/prism-typescript.js'
-import 'prismjs/components/prism-css.js'
-import 'prismjs/components/prism-markup.js' // HTML
-import 'prismjs/components/prism-json.js'
-import 'prismjs/components/prism-python.js'
-import 'prismjs/components/prism-bash.js'
-import 'prismjs/components/prism-sql.js'
+// Template ref for scoped querySelector
+const nodeContainer = ref(null)
 
 // Configure marked to support GitHub Flavored Markdown (GFM) including tables
 // For marked v15+, tables are included by default with gfm: true
@@ -255,63 +242,207 @@ const props = defineProps({
 // Emits
 const emit = defineEmits(['node-updated', 'node-deleted', 'open-node-seo', 'open-node-share'])
 
-// Apply syntax highlighting to code blocks
-const highlightCodeBlocks = () => {
-  nextTick(() => {
-    // Find all pre > code elements in the node content
-    const codeBlocks = document.querySelectorAll('.gnew-default-node pre code')
+// Convert a single code block to web component
+const convertCodeBlock = (codeElement) => {
+  console.log('🔧 convertCodeBlock called for element:', codeElement)
 
-    codeBlocks.forEach((codeBlock) => {
-      // Skip if already highlighted
-      if (codeBlock.classList.contains('language-')) {
-        return
-      }
+  const preElement = codeElement.parentElement
+  if (!preElement || preElement.tagName !== 'PRE') {
+    console.log('ℹ️ Skipping non-block code element (no PRE parent)')
+    return
+  }
 
-      // Try to detect language from class or content
-      let language = 'javascript' // Default language
+  // Skip if already converted
+  if (preElement.closest('code-block')) {
+    console.log('⚠️ Already converted, skipping')
+    return
+  }
 
-      // Check if marked already added a language class
-      const existingLang = Array.from(codeBlock.classList).find(cls => cls.startsWith('language-'))
-      if (existingLang) {
-        language = existingLang.replace('language-', '')
-      } else {
-        // Auto-detect based on content patterns
-        const code = codeBlock.textContent || ''
-        if (code.includes('const ') || code.includes('let ') || code.includes('=>') || code.includes('function')) {
-          language = 'javascript'
-        } else if (code.includes('def ') || code.includes('import ') && code.includes('from ')) {
-          language = 'python'
-        } else if (code.includes('SELECT ') || code.includes('FROM ') || code.includes('WHERE ')) {
-          language = 'sql'
-        } else if (code.includes('<html') || code.includes('<div') || code.includes('</')) {
-          language = 'markup'
-        } else if (code.includes('{') && code.includes(':') && code.includes('}')) {
-          language = 'json'
-        }
-      }
+  // Try to detect language from class or content
+  let language = 'javascript'
 
-      // Add language class
-      codeBlock.classList.add(`language-${language}`)
+  const existingLang = Array.from(codeElement.classList).find(cls => cls.startsWith('language-'))
+  if (existingLang) {
+    language = existingLang.replace('language-', '')
+  } else {
+    // Auto-detect based on content patterns
+    const code = codeElement.textContent || ''
+    if (code.includes('const ') || code.includes('let ') || code.includes('=>') || code.includes('function')) {
+      language = 'javascript'
+    } else if (code.includes('def ') || code.includes('import ') && code.includes('from ')) {
+      language = 'python'
+    } else if (code.includes('SELECT ') || code.includes('FROM ') || code.includes('WHERE ')) {
+      language = 'sql'
+    } else if (code.includes('<html') || code.includes('<div') || code.includes('</')) {
+      language = 'html'
+    } else if (code.includes('{') && code.includes(':') && code.includes('}')) {
+      language = 'json'
+    } else if (code.includes('npm install') || code.includes('bash') || code.includes('#!/')) {
+      language = 'bash'
+    }
+  }
 
-      // Add line-numbers class to the pre element
-      const preElement = codeBlock.parentElement
-      if (preElement && preElement.tagName === 'PRE') {
-        preElement.classList.add('line-numbers')
-      }
+  console.log('🎯 Detected language:', language)
 
-      // Highlight the code
-      Prism.highlightElement(codeBlock)
-    })
-  })
+  // Get code content
+  const code = codeElement.textContent
+  console.log('📝 Code content length:', code.length)
+
+  // Create code-block element
+  const codeBlockElement = document.createElement('code-block')
+  codeBlockElement.setAttribute('language', language)
+  codeBlockElement.setAttribute('line-numbers', '')
+  codeBlockElement.textContent = code
+
+  console.log('🏗️ Created code-block element:', codeBlockElement, 'with code length:', code.length)
+
+  // Replace pre element with code-block
+  preElement.parentNode.replaceChild(codeBlockElement, preElement)
+  console.log('✅ Converted code block to web component:', language)
 }
 
-// Run highlighting when component mounts and updates
-onMounted(() => {
-  highlightCodeBlocks()
+// Track if component is ready
+const componentReady = ref(false)
+let mutationObserver = null
+let pendingConversion = false
+
+// Convert all existing code blocks within this component instance
+const convertCodeBlocksToWebComponent = () => {
+  console.log('🔄 convertCodeBlocksToWebComponent called')
+  console.log('  componentReady:', componentReady.value)
+  console.log('  nodeContainer exists:', !!nodeContainer.value)
+
+  if (!nodeContainer.value) {
+    console.log('❌ Skipping conversion - container missing')
+    return
+  }
+
+  const elementDefined = componentReady.value || !!customElements.get('code-block')
+  if (!elementDefined) {
+    console.log('⏳ code-block not ready yet, will retry after definition')
+    pendingConversion = true
+    return
+  }
+
+  const codeBlocks = nodeContainer.value.querySelectorAll('pre code:not([data-converted])')
+  console.log('🔍 Found code blocks:', codeBlocks.length)
+
+  if (codeBlocks.length > 0) {
+    console.log(`🔄 Converting ${codeBlocks.length} code blocks`)
+    codeBlocks.forEach((block, index) => {
+      console.log(`  Converting block ${index + 1}/${codeBlocks.length}`)
+      block.setAttribute('data-converted', 'true') // Prevent re-conversion
+      convertCodeBlock(block)
+    })
+    pendingConversion = false
+  } else {
+    console.log('ℹ️ No unconverted code blocks found')
+  }
+}
+
+// Setup MutationObserver to watch for code blocks added by v-html
+const setupCodeBlockObserver = () => {
+  if (!nodeContainer.value || mutationObserver) return
+
+  console.log('👀 Setting up MutationObserver for code blocks')
+
+  mutationObserver = new MutationObserver((mutations) => {
+    console.log('🔍 MutationObserver detected', mutations.length, 'mutations')
+
+    // Check if any mutations added <pre><code> elements
+    let hasNewCodeBlocks = false
+    for (const mutation of mutations) {
+      console.log('  Mutation type:', mutation.type, 'added nodes:', mutation.addedNodes.length)
+
+      if (mutation.addedNodes.length > 0) {
+        // Look for pre>code elements in added nodes
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            console.log('  Checking element:', node.tagName)
+
+            if (node.tagName === 'PRE' && node.querySelector('code')) {
+              console.log('  ✅ Found PRE with CODE element')
+              hasNewCodeBlocks = true
+              break
+            }
+            // Also check descendants
+            if (node.querySelector && node.querySelector('pre code')) {
+              console.log('  ✅ Found PRE>CODE in descendants')
+              hasNewCodeBlocks = true
+              break
+            }
+          }
+        }
+        if (hasNewCodeBlocks) break
+      }
+    }
+
+    if (hasNewCodeBlocks) {
+      console.log('🎯 Triggering code block conversion')
+      // Small delay to ensure DOM is fully settled
+      setTimeout(() => convertCodeBlocksToWebComponent(), 10)
+    }
+  })
+
+  mutationObserver.observe(nodeContainer.value, {
+    childList: true,
+    subtree: true
+  })
+
+  console.log('👀 MutationObserver watching for code blocks')
+}
+
+// Run when component mounts
+onMounted(async () => {
+  console.log('🚀 GNewDefaultNode onMounted started')
+
+  // Setup MutationObserver first - this will catch when v-html adds code blocks
+  await nextTick()
+  console.log('📋 nextTick completed, setting up observer')
+  setupCodeBlockObserver()
+
+  // Check if custom element is already defined
+  if (customElements.get('code-block')) {
+    console.log('✅ code-block already registered')
+    componentReady.value = true
+    // Convert any existing code blocks that might already be there
+    convertCodeBlocksToWebComponent()
+    return
+  }
+
+  // Load local code-block web component if not already loading
+  if (!document.querySelector('script[src="/components/code-block.js"]')) {
+    console.log('📥 Loading local code-block component script...')
+    const script = document.createElement('script')
+    script.src = '/components/code-block.js'
+    document.head.appendChild(script)
+  }
+
+  // Wait for the custom element to be defined
+  try {
+    console.log('⏳ Waiting for code-block component to be defined...')
+    await customElements.whenDefined('code-block')
+    console.log('✅ code-block component registered')
+    componentReady.value = true
+    // Convert any code blocks that were added while loading
+    convertCodeBlocksToWebComponent()
+  } catch (error) {
+    console.error('❌ Failed to load code-block component:', error)
+  }
+  
+    // If DOM mutations happened before definition, run conversion now
+    if (pendingConversion) {
+      console.log('🔁 Running pending conversion after code-block definition')
+      convertCodeBlocksToWebComponent()
+    }
 })
 
-onUpdated(() => {
-  highlightCodeBlocks()
+// Cleanup observer on unmount
+onBeforeUnmount(() => {
+  if (mutationObserver) {
+    mutationObserver.disconnect()
+    mutationObserver = null
+  }
 })
 
 // Content parsing function - matches GraphViewer preprocessMarkdown
@@ -1305,6 +1436,9 @@ const nodeTypeDisplay = computed(() => {
   return typeLabels[type] || type.charAt(0).toUpperCase() + type.slice(1)
 })
 
+// MutationObserver handles all DOM changes automatically
+// No need for parsedContent watch - observer detects v-html updates
+
 // Methods
 const editNode = () => {
   // Emit event for parent to handle
@@ -1474,7 +1608,7 @@ const convertStylesToString = (styleObj) => {
   font-style: italic;
 }
 
-/* Enhanced Code Block Styling with Prism.js */
+/* Enhanced Code Block Styling - Let Prism handle line numbers */
 .node-content :deep(code) {
   background: #2d2d2d;
   color: #f8f8f2;
@@ -1489,11 +1623,9 @@ const convertStylesToString = (styleObj) => {
   background: #2d2d2d;
   border: 1px solid #444;
   border-radius: 8px;
-  padding: 1.5em;
   overflow-x: auto;
   margin: 1.5em 0;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  position: relative;
 }
 
 .node-content :deep(pre code) {
@@ -1505,42 +1637,6 @@ const convertStylesToString = (styleObj) => {
   line-height: 1.6;
   display: block;
   white-space: pre;
-  word-wrap: normal;
-}
-
-/* Line numbers styling */
-.node-content :deep(pre.line-numbers) {
-  padding-left: 3.8em;
-  counter-reset: linenumber;
-}
-
-.node-content :deep(pre.line-numbers > code) {
-  position: relative;
-  white-space: inherit;
-}
-
-.node-content :deep(.line-numbers .line-numbers-rows) {
-  position: absolute;
-  pointer-events: none;
-  top: 1.5em;
-  left: 0;
-  width: 3em;
-  letter-spacing: -1px;
-  border-right: 1px solid #555;
-  user-select: none;
-  counter-reset: linenumber;
-}
-
-.node-content :deep(.line-numbers-rows > span) {
-  display: block;
-  counter-increment: linenumber;
-  padding-right: 0.8em;
-  text-align: right;
-  color: #858585;
-}
-
-.node-content :deep(.line-numbers-rows > span:before) {
-  content: counter(linenumber);
 }
 
 /* Scrollbar styling for code blocks */

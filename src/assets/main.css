@@ -2249,3 +2249,19 @@ ul ul ul {
     padding-left: 25px;
   }
 }
+
+/* ========================================
+   Code Block Styling (Inline code only)
+   Code blocks handled by code-block web component
+   ======================================== */
+
+/* Inline code */
+code:not([class*="language-"]) {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 0.2em 0.5em;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+}
+
