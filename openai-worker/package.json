@@ -1,0 +1,27 @@
+{
+  "name": "openai-worker",
+  "version": "1.0.0",
+  "description": "OpenAI API integration worker with support for chat, image generation, and audio transcription",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "keywords": [
+    "openai",
+    "gpt",
+    "dall-e",
+    "whisper",
+    "cloudflare-workers",
+    "ai",
+    "chat",
+    "image-generation",
+    "speech-recognition"
+  ],
+  "author": "Vegvisr",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

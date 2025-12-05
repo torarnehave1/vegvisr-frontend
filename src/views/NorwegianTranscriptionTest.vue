@@ -795,15 +795,25 @@
         </div>
       </div>
 
-      <button
-        @click="transcribeAudio"
-        :disabled="(!selectedFile && !recordedBlob) || transcribing"
-        class="btn btn-success transcribe-btn"
-      >
-        {{ transcribing ? 'Transcribing...' : '🇳🇴 Start Norwegian Transcription' }}
-      </button>
+      <div class="transcription-buttons">
+        <button
+          @click="transcribeAudio"
+          :disabled="(!selectedFile && !recordedBlob) || transcribing || whisperTranscribing"
+          class="btn btn-success transcribe-btn"
+        >
+          {{ transcribing ? 'Transcribing...' : '🇳🇴 Norwegian Service' }}
+        </button>
+        
+        <button
+          @click="transcribeWithWhisper"
+          :disabled="(!selectedFile && !recordedBlob) || whisperTranscribing || transcribing"
+          class="btn btn-primary transcribe-btn"
+        >
+          {{ whisperTranscribing ? 'Processing...' : '🤖 Whisper-1' }}
+        </button>
+      </div>
 
-      <div v-if="transcribing" class="loading">
+      <div v-if="transcribing || whisperTranscribing" class="loading">
         <div class="loading-spinner"></div>
         <p>{{ loadingMessage || 'Processing audio...' }}</p>
 
@@ -811,6 +821,12 @@
         <div v-if="transcribing" class="processing-info">
           <small class="text-muted">
             ⚡ Processing with Norwegian transcription service...
+          </small>
+        </div>
+        
+        <div v-if="whisperTranscribing" class="processing-info">
+          <small class="text-muted">
+            🤖 Processing with OpenAI Whisper-1...
           </small>
         </div>
 
@@ -1129,6 +1145,8 @@ const endpointStatusCPU = ref(null)
 const wakeUpProgressCPU = ref('')
 
 const transcribing = ref(false)
+const whisperTranscribing = ref(false) // For Whisper endpoint
+const whisperResult = ref(null) // Store Whisper transcription result
 const loadingMessage = ref('')
 const transcriptionResult = ref(null)
 const error = ref(null)
@@ -3207,6 +3225,242 @@ const clearError = () => {
   portfolioError.value = null
 }
 
+// Whisper-1 transcription using OpenAI endpoint
+const transcribeWithWhisper = async () => {
+  if (!selectedFile.value && !recordedBlob.value) {
+    error.value = { message: 'Please select an audio file or record audio first' }
+    return
+  }
+
+  whisperTranscribing.value = true
+  error.value = null
+  whisperResult.value = null
+
+  // Reset portfolio save state for new transcription
+  portfolioSaved.value = false
+  portfolioError.value = null
+
+  resetChunkedState()
+
+  const audioBlob = selectedFile.value || recordedBlob.value
+  const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+
+  try {
+    console.log('🤖 Starting Whisper-1 transcription:', {
+      fileName,
+      size: audioBlob.size,
+      type: audioBlob.type,
+    })
+
+    // Check audio duration to determine if chunking is needed
+    loadingMessage.value = 'Analyzing audio file...'
+    const audioDuration = await getAudioDuration(audioBlob)
+    const CHUNK_THRESHOLD = 120 // 2 minutes
+
+    console.log(`📊 Audio duration: ${Math.round(audioDuration)}s (${formatTime(audioDuration)})`)
+
+    if (audioDuration > CHUNK_THRESHOLD) {
+      // Use chunked processing for files > 2 minutes
+      await processWhisperInChunks(audioBlob, fileName, audioDuration)
+    } else {
+      // Use single file processing for smaller files
+      await processSingleWhisperFile(audioBlob, fileName)
+    }
+  } catch (err) {
+    console.error('Whisper transcription error:', err)
+    error.value = {
+      message: 'Whisper transcription failed',
+      details: err.message,
+    }
+  } finally {
+    whisperTranscribing.value = false
+    loadingMessage.value = ''
+    isChunkedProcessing.value = false
+  }
+}
+
+const processSingleWhisperFile = async (audioBlob, fileName) => {
+  loadingMessage.value = '🤖 Transcribing with Whisper-1...'
+
+  console.log('📄 Processing single file with Whisper-1')
+
+  const formData = new FormData()
+  formData.append('file', audioBlob, fileName)
+  formData.append('model', 'whisper-1')
+  formData.append('language', 'no') // Norwegian
+  formData.append('userId', 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b')
+
+  const startTime = performance.now()
+
+  try {
+    const response = await fetch('https://openai.vegvisr.org/audio', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { error: errorText }
+      }
+      throw new Error(errorData.error || `Whisper API error: ${response.status}`)
+    }
+
+    const result = await response.json()
+    const processingTime = ((performance.now() - startTime) / 1000).toFixed(2)
+
+    console.log('✅ Whisper transcription completed:', result)
+
+    whisperResult.value = {
+      success: true,
+      transcription: {
+        raw_text: result.text,
+        improved_text: null,
+        language: 'no',
+        processing_time: parseFloat(processingTime),
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        filename: fileName,
+        model: 'whisper-1',
+        total_processing_time: parseFloat(processingTime),
+        transcription_server: 'OpenAI Whisper API',
+      },
+    }
+
+    transcriptionResult.value = whisperResult.value
+
+    loadingMessage.value = `✅ Whisper completed in ${processingTime}s`
+    setTimeout(() => { loadingMessage.value = '' }, 3000)
+  } catch (error) {
+    throw error
+  }
+}
+
+const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
+  loadingMessage.value = '📊 Analyzing audio file...'
+  isChunkedProcessing.value = true
+
+  console.log('🧩 Processing Whisper in chunks - splitting audio...')
+
+  const chunks = await splitAudioIntoChunks(audioBlob, 120, (progress) => {
+    if (progress.phase === 'info') {
+      loadingMessage.value = `📊 Audio: ${progress.numChunks} chunks needed (${progress.sampleRate}Hz)`
+    } else if (progress.phase === 'creating') {
+      loadingMessage.value = `🎵 Creating chunk ${progress.current}/${progress.total}...`
+    }
+  })
+
+  totalChunks.value = chunks.length
+  console.log(`📊 Split into ${chunks.length} chunks of ~2 minutes each`)
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (processingAborted.value) {
+      console.log('🛑 Processing aborted by user')
+      break
+    }
+
+    currentChunk.value = i + 1
+    loadingMessage.value = `🤖 Processing chunk ${i + 1}/${chunks.length} with Whisper-1 (${formatTime(chunks[i].startTime)} - ${formatTime(chunks[i].endTime)})...`
+
+    try {
+      const chunkStart = performance.now()
+
+      const formData = new FormData()
+      formData.append('file', chunks[i].blob, `chunk_${i + 1}_${fileName}`)
+      formData.append('model', 'whisper-1')
+      formData.append('language', 'no')
+      formData.append('userId', 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b')
+
+      const response = await fetch('https://openai.vegvisr.org/audio', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch {
+          errorData = { error: errorText }
+        }
+        throw new Error(errorData.error || `Whisper API error: ${response.status}`)
+      }
+
+      const result = await response.json()
+      const chunkTime = ((performance.now() - chunkStart) / 1000).toFixed(2)
+
+      console.log(`✅ Chunk ${i + 1} completed in ${chunkTime}s`)
+
+      chunkResults.value.push({
+        index: i,
+        startTime: chunks[i].startTime,
+        endTime: chunks[i].endTime,
+        raw_text: result.text || '',
+        improved_text: null,
+        processingTime: parseFloat(chunkTime),
+        silent: !result.text || result.text.trim().length === 0,
+        error: false,
+      })
+    } catch (err) {
+      console.error(`❌ Chunk ${i + 1} error:`, err)
+      chunkResults.value.push({
+        index: i,
+        startTime: chunks[i].startTime,
+        endTime: chunks[i].endTime,
+        raw_text: `[Error processing chunk ${i + 1}: ${err.message}]`,
+        improved_text: null,
+        processingTime: 0,
+        error: true,
+      })
+    }
+  }
+
+  if (!processingAborted.value) {
+    const successfulChunks = chunkResults.value.filter(c => !c.error && !c.silent).length
+    const silentChunks = chunkResults.value.filter(c => c.silent).length
+    const errorChunks = chunkResults.value.filter(c => c.error).length
+
+    let summary = `✅ Processed ${chunkResults.value.length} chunks`
+    if (silentChunks > 0) summary += ` (${silentChunks} silent)`
+    if (errorChunks > 0) summary += ` (${errorChunks} errors)`
+
+    loadingMessage.value = summary
+    console.log(`🎉 Whisper chunk processing complete: ${successfulChunks} successful, ${silentChunks} silent, ${errorChunks} errors`)
+
+    const combinedText = chunkResults.value
+      .filter(c => !c.silent && !c.error)
+      .map((chunk) => chunk.raw_text)
+      .join(' ')
+
+    transcriptionResult.value = {
+      success: true,
+      transcription: {
+        raw_text: combinedText,
+        improved_text: null,
+        language: 'no',
+        chunks: chunkResults.value.length,
+        processing_time: chunkResults.value.reduce((total, chunk) => total + (chunk.processingTime || 0), 0),
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        total_chunks: chunkResults.value.length,
+        transcription_server: 'OpenAI Whisper-1 (Chunked)',
+        processing_method: 'chunked',
+        model: 'whisper-1'
+      }
+    }
+
+    whisperResult.value = transcriptionResult.value
+
+    setTimeout(() => { loadingMessage.value = '' }, 3000)
+  }
+}
+
 // Utility functions
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60)
@@ -3664,7 +3918,7 @@ const createNewGraph = async () => {
     console.log('🔍 Processing transcription through API for knowledge graph creation...')
 
     // Process the transcription through the same API as Process Transcript modal
-    const apiResponse = await fetch('https://api.vegvisr.org/process-transcript', {
+    const apiResponse = await fetch('https://grok.vegvisr.org/process-transcript', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3674,6 +3928,7 @@ const createNewGraph = async () => {
         transcript: transcriptionText,
         sourceLanguage: 'norwegian',
         targetLanguage: 'norwegian',
+        userId: userStore.user_id, // Add userId for API key retrieval from D1
       }),
     })
 
@@ -4510,9 +4765,16 @@ const createChunkedGraph = async () => {
   margin-bottom: 8px;
 }
 
+.transcription-buttons {
+  display: flex;
+  gap: 15px;
+  margin-top: 20px;
+}
+
 .transcribe-btn {
   font-size: 1.1rem;
   padding: 15px 30px;
+  flex: 1;
 }
 
 .loading {

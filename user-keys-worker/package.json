@@ -1,0 +1,25 @@
+{
+  "name": "user-keys-worker",
+  "version": "1.0.0",
+  "description": "Centralized user API key management worker for Vegvisr",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "logs": "wrangler tail --format pretty"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "api-keys",
+    "encryption",
+    "security"
+  ],
+  "author": "Vegvisr",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

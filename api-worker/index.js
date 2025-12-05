@@ -3070,19 +3070,34 @@ const handleProcessTranscript = async (request, env) => {
       console.log('Processing in original language.')
       maxTokens = 16000
 
-      prompt = `Transform this transcript into a comprehensive knowledge graph in its ORIGINAL language. DO NOT TRANSLATE. Create 8-15 detailed thematic sections as nodes.
+      prompt = `Transform this transcript into a rich, emotionally engaging knowledge graph in its ORIGINAL language. DO NOT TRANSLATE. Create 8-15 detailed chapters as nodes.
 
 SOURCE LANGUAGE: ${sourceLanguage === 'auto' ? 'auto-detect' : sourceLanguage}
 TARGET LANGUAGE: Original (No Translation)
 
-RULES:
-1.  DO NOT TRANSLATE the content. Keep it in the original language.
-2.  Create nodes with structure: {"id": "del_X", "label": "PART X: [Descriptive Title in Original Language]", "color": "#f9f9f9", "type": "fulltext", "info": "comprehensive content in original language", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
-3.  Split into logical thematic sections. Be thorough.
-4.  Use rich markdown formatting in the "info" field with headers, lists, and emphasis.
-5.  Each node should contain substantial content (200-800 words).
-6.  Include key quotes, important details, and context from the original text.
-7.  Create a comprehensive knowledge graph that captures the full essence of the original transcript.
+STYLE & TONE:
+- Preserve the NATURAL DIALOGUE and conversational flow from the video
+- Capture EMOTIONAL TONE, enthusiasm, humor, emphasis, and personality
+- Include direct quotes with their emotional context (excitement, concern, passion, etc.)
+- Show connections between ideas as they naturally flow in conversation
+- Use expressive language that reflects how things were actually said
+- Include timestamps where relevant to show progression
+
+STRUCTURE:
+1. DO NOT TRANSLATE the content. Keep it in the original language.
+2. Create nodes with structure: {"id": "del_X", "label": "CHAPTER X: [Engaging Chapter Title]", "color": "#f9f9f9", "type": "fulltext", "info": "rich content with dialogue, emotion, and context", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
+3. Organize into thematic chapters that follow the natural flow of conversation
+4. Use rich markdown with:
+   - **Bold** for emphasis and key points
+   - *Italics* for emotional tone, thoughts, or reflection
+   - > Blockquotes for important direct quotes
+   - Bullet lists for related ideas
+   - Headers (###) for subsections within chapters
+5. Include extensive dialogue and examples from the transcript
+6. Show HOW ideas connect and build on each other
+7. Add timestamps [00:00] where helpful for context
+8. DO NOT include word counts in the output
+9. Be generous with content - capture the richness of the conversation
 
 TRANSCRIPT (full content):
 ${transcript}
@@ -3107,7 +3122,7 @@ RULES:
 2. Create nodes with structure: {"id": "del_X", "label": "DEL X: [Descriptive Title]", "color": "#f9f9f9", "type": "fulltext", "info": "comprehensive content", "bibl": [], "imageWidth": "100%", "imageHeight": "100%", "visible": true, "path": null}
 3. Split into logical thematic sections - be thorough, don't skip content
 4. Use rich markdown formatting in "info" field with headers, lists, emphasis
-5. Each node should contain substantial content (200-800 words)
+5. Each node should contain substantial, detailed content.
 6. Include key quotes, important details, and context
 7. Create a comprehensive knowledge graph that captures the full essence
 
@@ -3134,7 +3149,7 @@ Rules:
 - Split into 6-12 comprehensive thematic sections
 - Use rich markdown formatting in "info" field
 - Preserve cultural context and nuanced meaning
-- Each node should be substantial (150-600 words)
+- Each node should be substantial and detailed.
 - Include important quotes, examples, and detailed explanations
 - Don't summarize - be comprehensive and detailed
 
@@ -3198,7 +3213,7 @@ Return only JSON: {"nodes": [...], "edges": []}`
             processingTime: Date.now(),
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
-            modelUsed: 'grok-3-beta',
+            modelUsed: 'grok-3',
             transcriptWords: transcriptWords,
           },
         }),

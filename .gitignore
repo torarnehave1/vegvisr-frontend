@@ -52,5 +52,11 @@ test*.html
 
 # Markdown documentation files - keep locally only
 *.md
-!README.md
+README.md
 
+# Audio files
+*.m4a
+
+# HTML files
+*.html
+!index.html
