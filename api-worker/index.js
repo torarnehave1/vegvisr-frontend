@@ -6669,16 +6669,29 @@ const handleGenerateHTMLApp = async (request, env) => {
         console.log('🧩 Fetching component details for:', enabledComponents)
 
         const placeholders = enabledComponents.map(() => '?').join(',')
+
+        // Query web_components table directly for fresh data, fallback to apiForApps
         const componentsStmt = env.vegvisr_org.prepare(`
-          SELECT name, slug, description, component_props, component_events, component_slots, cdn_url, function_code, example_code
-          FROM apiForApps
-          WHERE slug IN (${placeholders}) AND capability_type = 'component' AND status = 'active'
-          ORDER BY name
+          SELECT
+            wc.name,
+            wc.slug,
+            wc.description,
+            wc.category,
+            wc.current_version,
+            'https://api.vegvisr.org/components/' || wc.slug || '.js' as cdn_url,
+            api.component_props,
+            api.component_events,
+            api.component_slots,
+            api.example_code
+          FROM web_components wc
+          LEFT JOIN apiForApps api ON wc.slug = api.slug AND api.capability_type = 'component'
+          WHERE wc.slug IN (${placeholders}) AND wc.status = 'active'
+          ORDER BY wc.name
         `).bind(...enabledComponents)
 
         const { results: components } = await componentsStmt.all()
 
-        console.log('✅ Found enabled components:', components?.length || 0, components?.map(c => c.slug))
+        console.log('✅ Found enabled components from web_components:', components?.length || 0, components?.map(c => c.slug))
 
       if (components && components.length > 0) {
         componentDocumentation += '\n\n🧩 AVAILABLE WEB COMPONENTS:\n\n'
