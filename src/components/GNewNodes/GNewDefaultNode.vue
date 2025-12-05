@@ -429,7 +429,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('❌ Failed to load code-block component:', error)
   }
-  
+
     // If DOM mutations happened before definition, run conversion now
     if (pendingConversion) {
       console.log('🔁 Running pending conversion after code-block definition')
