@@ -154,12 +154,12 @@
           <div class="form-text text-start mb-3">
             Add your own API keys to use your personal accounts with AI providers. Your keys are encrypted and stored securely.
           </div>
-          
+
           <!-- Existing Keys List -->
           <div v-if="userApiKeys.length > 0" class="mb-3">
             <div class="list-group">
-              <div 
-                v-for="key in userApiKeys" 
+              <div
+                v-for="key in userApiKeys"
                 :key="key.provider"
                 class="list-group-item d-flex justify-content-between align-items-center"
               >
@@ -173,13 +173,13 @@
                   </small>
                 </div>
                 <div>
-                  <span 
+                  <span
                     :class="['badge', key.enabled ? 'bg-success' : 'bg-secondary']"
                     class="me-2"
                   >
                     {{ key.enabled ? 'Active' : 'Disabled' }}
                   </span>
-                  <button 
+                  <button
                     @click="deleteApiKey(key.provider)"
                     class="btn btn-outline-danger btn-sm"
                     :disabled="isDeletingKey"
@@ -190,7 +190,7 @@
               </div>
             </div>
           </div>
-          
+
           <div v-else class="alert alert-info">
             <i class="fas fa-info-circle me-2"></i>
             No API keys configured. Add your first API key below to use your own AI provider accounts.
@@ -200,11 +200,11 @@
           <div v-if="showAddApiKey" class="card mt-3">
             <div class="card-body">
               <h6>Add New API Key</h6>
-              
+
               <div class="mb-3">
                 <label class="form-label">Provider</label>
-                <select 
-                  class="form-select" 
+                <select
+                  class="form-select"
                   v-model="newApiKey.provider"
                 >
                   <option value="">Select a provider...</option>
@@ -218,9 +218,9 @@
 
               <div class="mb-3">
                 <label class="form-label">API Key</label>
-                <input 
-                  type="password" 
-                  class="form-control" 
+                <input
+                  type="password"
+                  class="form-control"
                   v-model="newApiKey.apiKey"
                   placeholder="sk-proj-... or your provider's API key"
                   autocomplete="off"
@@ -232,16 +232,16 @@
 
               <div class="mb-3">
                 <label class="form-label">Display Name (Optional)</label>
-                <input 
-                  type="text" 
-                  class="form-control" 
+                <input
+                  type="text"
+                  class="form-control"
                   v-model="newApiKey.displayName"
                   placeholder="e.g., My Personal OpenAI Key"
                 />
               </div>
 
               <div class="d-flex gap-2">
-                <button 
+                <button
                   @click="saveApiKey"
                   class="btn btn-primary"
                   :disabled="!newApiKey.provider || !newApiKey.apiKey || isSavingApiKey"
@@ -255,7 +255,7 @@
                     Save API Key
                   </span>
                 </button>
-                <button 
+                <button
                   @click="cancelAddApiKey"
                   class="btn btn-outline-secondary"
                   :disabled="isSavingApiKey"
@@ -265,7 +265,7 @@
               </div>
 
               <div v-if="apiKeyMessage" class="mt-3">
-                <div 
+                <div
                   :class="['alert', apiKeyMessage.type === 'success' ? 'alert-success' : 'alert-danger']"
                 >
                   {{ apiKeyMessage.text }}
@@ -274,7 +274,7 @@
             </div>
           </div>
 
-          <button 
+          <button
             v-if="!showAddApiKey"
             @click="showAddApiKey = true"
             class="btn btn-outline-primary btn-sm mt-2"
