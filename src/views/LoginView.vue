@@ -47,20 +47,34 @@
       <p class="small text-muted">Enter the 6-digit code we sent to {{ phoneDisplay }}.</p>
       <form @submit.prevent="handleVerifyCode">
         <div class="mb-3">
-          <label for="code" class="form-label">Verification code</label>
-          <input
-            type="text"
-            class="form-control"
-            id="code"
-            v-model="code"
-            inputmode="numeric"
-            pattern="[0-9]{6}"
-            maxlength="6"
-            :disabled="verifyingCode"
-            required
-          />
+          <label class="form-label">Verification code</label>
+          <div class="otp-inputs" @paste.prevent="handleOtpPaste">
+            <input
+              v-for="(digit, index) in otpDigits"
+              :key="index"
+              class="otp-input"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="one-time-code"
+              name="one-time-code"
+              maxlength="1"
+              :value="digit"
+              :disabled="verifyingCode"
+              @input="(e) => handleOtpInput(index, e)"
+              @keydown.backspace="handleOtpBackspace(index, $event)"
+              @focus="selectOnFocus($event)"
+              :ref="(el) => setOtpRef(index, el)"
+            />
+          </div>
+          <div class="otp-actions">
+            <button type="button" class="btn btn-outline-secondary btn-sm" @click="pasteFromClipboard" :disabled="verifyingCode">
+              Paste code
+            </button>
+            <span class="small text-muted">Paste or let your device autofill SMS codes.</span>
+          </div>
         </div>
-        <button type="submit" class="btn btn-success w-100" :disabled="verifyingCode">
+        <button type="submit" class="btn btn-success w-100" :disabled="verifyingCode || code.length !== OTP_LENGTH">
           {{ verifyingCode ? 'Verifying...' : 'Verify & continue' }}
         </button>
       </form>
@@ -85,6 +99,9 @@ import { useUserStore } from '../stores/userStore'
 const email = ref('')
 const phone = ref('')
 const code = ref('')
+const OTP_LENGTH = 6
+const otpDigits = ref(Array(OTP_LENGTH).fill(''))
+const otpRefs = []
 const theme = ref('light')
 const step = ref('email')
 const loadingEmail = ref(false)
@@ -144,6 +161,84 @@ onBeforeUnmount(() => {
 function resetMessages() {
   statusMessage.value = ''
   errorMessage.value = ''
+}
+
+function clearOtp() {
+  otpDigits.value = Array(OTP_LENGTH).fill('')
+  code.value = ''
+}
+
+function syncCodeFromDigits() {
+  code.value = otpDigits.value.join('')
+}
+
+function setOtpRef(index, el) {
+  if (el) otpRefs[index] = el
+}
+
+function selectOnFocus(event) {
+  event.target.select()
+}
+
+function handleOtpInput(index, event) {
+  const val = (event.target.value || '').replace(/\D/g, '').slice(-1)
+  otpDigits.value.splice(index, 1, val)
+  syncCodeFromDigits()
+  if (val && index < OTP_LENGTH - 1) {
+    otpRefs[index + 1]?.focus()
+  }
+  maybeAutoVerify()
+}
+
+function handleOtpBackspace(index, event) {
+  if (event.key !== 'Backspace') return
+  if (otpDigits.value[index]) {
+    otpDigits.value.splice(index, 1, '')
+    syncCodeFromDigits()
+    return
+  }
+  if (index > 0) {
+    otpRefs[index - 1]?.focus()
+  }
+}
+
+function handleOtpPaste(event) {
+  const pasted = (event.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, OTP_LENGTH)
+  if (!pasted) return
+  for (let i = 0; i < OTP_LENGTH; i++) {
+    otpDigits.value[i] = pasted[i] || ''
+  }
+  syncCodeFromDigits()
+  focusLastFilled()
+  maybeAutoVerify()
+}
+
+async function pasteFromClipboard() {
+  try {
+    const text = (await navigator.clipboard.readText()) || ''
+    const cleaned = text.replace(/\D/g, '').slice(0, OTP_LENGTH)
+    if (!cleaned) return
+    for (let i = 0; i < OTP_LENGTH; i++) {
+      otpDigits.value[i] = cleaned[i] || ''
+    }
+    syncCodeFromDigits()
+    focusLastFilled()
+    maybeAutoVerify()
+  } catch (err) {
+    console.warn('Clipboard read failed:', err)
+  }
+}
+
+function focusLastFilled() {
+  const filled = otpDigits.value.findIndex((d) => !d)
+  const targetIndex = filled === -1 ? OTP_LENGTH - 1 : filled
+  otpRefs[targetIndex]?.focus()
+}
+
+function maybeAutoVerify() {
+  if (code.value.length === OTP_LENGTH && !verifyingCode.value) {
+    handleVerifyCode()
+  }
 }
 
 async function handleEmailSubmit() {
@@ -234,6 +329,7 @@ async function handleSendCode() {
     statusMessage.value = 'Code sent. Check your phone.'
     expiresAt.value = data.expires_at || null
     step.value = 'code'
+    clearOtp()
     startResendTimer()
   } catch (err) {
     console.error('handleSendCode error:', err)
@@ -245,6 +341,10 @@ async function handleSendCode() {
 
 async function handleVerifyCode() {
   resetMessages()
+  if (code.value.length !== OTP_LENGTH) {
+    errorMessage.value = 'Enter the 6-digit code.'
+    return
+  }
   verifyingCode.value = true
   try {
     const payload = { email: email.value, code: code.value }
@@ -322,5 +422,36 @@ function startResendTimer() {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+}
+
+.otp-inputs {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 12px 0;
+}
+
+.otp-input {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.otp-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.otp-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
 }
 </style>

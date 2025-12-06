@@ -441,6 +441,14 @@ const router = createRouter({
         layout: null,
       },
     },
+    {
+      path: '/send-gmail-email',
+      name: 'send-gmail-email',
+      component: () => import('../views/SendGmailEmail.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+    },
   ],
 })
 
