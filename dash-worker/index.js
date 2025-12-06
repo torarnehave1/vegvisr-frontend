@@ -14,6 +14,37 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders })
     }
 
+    // Helper: load/derive crypto key for app password encryption
+    const getAppPassCryptoKey = async () => {
+      const secret = env.APP_PASSWORD_KEY
+      if (!secret) return null
+      const raw = Uint8Array.from(atob(secret), c => c.charCodeAt(0))
+      return await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
+    }
+
+    const encryptAppPassword = async (plaintext) => {
+      const key = await getAppPassCryptoKey()
+      if (!key) return null
+      const iv = crypto.getRandomValues(new Uint8Array(12))
+      const enc = new TextEncoder().encode(plaintext)
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc)
+      return {
+        iv: btoa(String.fromCharCode(...iv)),
+        ct: btoa(String.fromCharCode(...new Uint8Array(ct))),
+      }
+    }
+
+    const decryptAppPassword = async (bundle) => {
+      const key = await getAppPassCryptoKey()
+      if (!key || !bundle?.iv || !bundle?.ct) return null
+      const iv = Uint8Array.from(atob(bundle.iv), c => c.charCodeAt(0))
+      const ct = Uint8Array.from(atob(bundle.ct), c => c.charCodeAt(0))
+      const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct)
+      return new TextDecoder().decode(plainBuf)
+    }
+
+    const emailWorkerUrl = env.EMAIL_WORKER_URL || 'https://email-worker.torarnehave.workers.dev'
+
     if (pathname === '/userdata' && request.method === 'GET') {
       try {
         console.log('Received GET /userdata request with query:', url.searchParams.toString())
@@ -143,7 +174,7 @@ export default {
         const db = env.vegvisr_org
         const body = await request.json()
         console.log('Received PUT /userdata request:', JSON.stringify(body, null, 2))
-        const { email, data, profileimage } = body
+        const { email, data, profileimage, appPassword, saveAppPassword } = body
 
         // Validate required fields
         if (!email || !data) {
@@ -161,6 +192,18 @@ export default {
           ...data,
           profile: data.profile && typeof data.profile === 'object' ? data.profile : {},
           settings: data.settings && typeof data.settings === 'object' ? data.settings : {},
+        }
+
+        // Handle optional app password encryption and storage
+        if (appPassword && saveAppPassword) {
+          const encrypted = await encryptAppPassword(appPassword)
+          if (!encrypted) {
+            return new Response(JSON.stringify({ error: 'Encryption key not configured' }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+          normalizedData.settings.emailAppPasswordEnc = encrypted
         }
 
         const resolvedProfileImage = profileimage || ''
@@ -217,6 +260,101 @@ export default {
         })
       } catch (error) {
         console.error('Error in GET /get-role:', error)
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    if (pathname === '/send-gmail-email' && request.method === 'POST') {
+      try {
+        const { email, authEmail, fromEmail, toEmail, subject, html, appPassword, savePassword } = await request.json()
+
+        if (!email || !authEmail || !toEmail || !subject || !html) {
+          return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Resolve app password: use provided, else decrypt stored
+        let resolvedPassword = appPassword || null
+        let userDataRow = null
+
+        if (!resolvedPassword) {
+          userDataRow = await env.vegvisr_org
+            .prepare('SELECT data, profileimage FROM config WHERE email = ?')
+            .bind(email)
+            .first()
+          const storedData = userDataRow?.data ? JSON.parse(userDataRow.data) : {}
+          const bundle = storedData?.settings?.emailAppPasswordEnc
+          resolvedPassword = await decryptAppPassword(bundle)
+        }
+
+        if (!resolvedPassword) {
+          return new Response(JSON.stringify({ error: 'App password not found. Please provide and save it.' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Optionally persist new password
+        if (appPassword && savePassword) {
+          const encrypted = await encryptAppPassword(appPassword)
+          if (encrypted) {
+            const currentData = userDataRow?.data ? JSON.parse(userDataRow.data) : {}
+            const merged = {
+              ...currentData,
+              settings: {
+                ...(currentData.settings || {}),
+                emailAppPasswordEnc: encrypted,
+              },
+            }
+            await env.vegvisr_org
+              .prepare('UPDATE config SET data = ? WHERE email = ?')
+              .bind(JSON.stringify(merged), email)
+              .run()
+          }
+        }
+
+        const payload = {
+          authEmail,
+          senderEmail: authEmail,
+          fromEmail: fromEmail || authEmail,
+          toEmail,
+          subject,
+          html,
+          appPassword: resolvedPassword,
+        }
+
+        const ewResponse = await fetch(`${emailWorkerUrl}/send-gmail-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+
+        const ewText = await ewResponse.text()
+        let ewJson = null
+        try {
+          ewJson = JSON.parse(ewText)
+        } catch {
+          ewJson = { raw: ewText }
+        }
+
+        if (!ewResponse.ok || !ewJson.success) {
+          return new Response(JSON.stringify({ error: ewJson.error || 'Email send failed', details: ewJson }), {
+            status: ewResponse.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        return new Response(JSON.stringify({ success: true, result: ewJson }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error in /send-gmail-email proxy:', error)
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
