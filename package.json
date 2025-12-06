@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^1.16.8",
+    "@openauthjs/openauth": "^0.4.3",
     "ai": "^4.3.15",
     "axios": "^1.8.3",
     "bootstrap": "^5.3.3",
@@ -41,6 +42,7 @@
     "prismjs": "^1.30.0",
     "sql.js": "^1.13.0",
     "uuid": "^11.1.0",
+    "valibot": "^1.2.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "vue3-markdown-it": "^1.0.10",
