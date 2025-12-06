@@ -288,14 +288,16 @@ export default {
       if (path === '/send-gmail-email' && method === 'POST') {
         try {
           const body = await request.json()
-          const { senderEmail, appPassword, toEmail, subject, html } = body || {}
+          const { senderEmail, authEmail, fromEmail, appPassword, toEmail, subject, html } = body || {}
 
-          if (!senderEmail || !appPassword || !toEmail || !subject || !html) {
+          const smtpUser = authEmail || senderEmail
+
+          if (!smtpUser || !appPassword || !toEmail || !subject || !html) {
             return addCorsHeaders(
               new Response(
                 JSON.stringify({
                   success: false,
-                  error: 'senderEmail, appPassword, toEmail, subject, and html are required',
+                  error: 'senderEmail (or authEmail), appPassword, toEmail, subject, and html are required',
                 }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } },
               ),
@@ -315,7 +317,7 @@ export default {
             env.SLOWYOU_SEND_EMAIL_URL || 'https://slowyou.io/api/send-email-custom-credentials'
 
           // Basic auth with user-provided app password
-          const basicAuth = btoa(`${senderEmail}:${appPassword}`)
+          const basicAuth = btoa(`${smtpUser}:${appPassword}`)
 
           const slowyouResponse = await fetch(slowyouUrl, {
             method: 'POST',
@@ -324,7 +326,14 @@ export default {
               'X-API-Token': env.SLOWYOU_API_TOKEN,
               Authorization: `Basic ${basicAuth}`,
             },
-            body: JSON.stringify({ senderEmail, toEmail, subject, body: html }),
+            body: JSON.stringify({
+              senderEmail: smtpUser,
+              authEmail: smtpUser,
+              fromEmail: fromEmail || senderEmail,
+              toEmail,
+              subject,
+              body: html,
+            }),
           })
 
           const responseText = await slowyouResponse.text()

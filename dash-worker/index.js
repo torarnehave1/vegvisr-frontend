@@ -27,7 +27,7 @@ export default {
         }
 
         const db = env.vegvisr_org
-        const query = `SELECT user_id, bio, profileimage, emailVerificationToken, role FROM config WHERE email = ?;`
+        const query = `SELECT user_id, bio, profileimage, emailVerificationToken, role, data FROM config WHERE email = ?;`
         console.log('Executing database query:', query, 'with email:', email)
         const row = await db.prepare(query).bind(email).first()
 
@@ -48,6 +48,7 @@ export default {
           })
         }
 
+        const parsedData = row.data ? JSON.parse(row.data) : {}
         const response = {
           email,
           user_id: row.user_id,
@@ -55,6 +56,7 @@ export default {
           profileimage: row.profileimage,
           emailVerificationToken: row.emailVerificationToken,
           role: row.role,
+          data: parsedData,
         }
         console.log('Returning response for GET /userdata:', JSON.stringify(response, null, 2))
         return new Response(JSON.stringify(response), {
@@ -144,9 +146,9 @@ export default {
         const { email, data, profileimage } = body
 
         // Validate required fields
-        if (!email || !data || !profileimage) {
+        if (!email || !data) {
           return new Response(
-            JSON.stringify({ error: 'Missing required fields: email, data, or profileimage' }),
+            JSON.stringify({ error: 'Missing required fields: email or data' }),
             {
               status: 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -154,27 +156,22 @@ export default {
           )
         }
 
-        // Ensure `data` contains valid structure
-        if (
-          typeof data !== 'object' ||
-          !data.profile ||
-          !data.settings ||
-          typeof data.profile !== 'object' ||
-          typeof data.settings !== 'object'
-        ) {
-          return new Response(JSON.stringify({ error: 'Invalid data structure' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          })
+        // Normalize structure to avoid hard failures when optional keys are missing
+        const normalizedData = {
+          ...data,
+          profile: data.profile && typeof data.profile === 'object' ? data.profile : {},
+          settings: data.settings && typeof data.settings === 'object' ? data.settings : {},
         }
 
-        const dataJson = JSON.stringify(data)
+        const resolvedProfileImage = profileimage || ''
+
+        const dataJson = JSON.stringify(normalizedData)
         const query = `
           INSERT INTO config (email, data, profileimage)
           VALUES (?, ?, ?)
           ON CONFLICT(email) DO UPDATE SET data = ?, profileimage = ?;
         `
-        await db.prepare(query).bind(email, dataJson, profileimage, dataJson, profileimage).run()
+        await db.prepare(query).bind(email, dataJson, resolvedProfileImage, dataJson, resolvedProfileImage).run()
         return new Response(
           JSON.stringify({ success: true, message: 'User data updated successfully' }),
           {
