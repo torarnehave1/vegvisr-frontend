@@ -26,8 +26,14 @@
             v-model="form.appPassword"
             type="password"
             autocomplete="current-password"
-            required
+            :required="savePassword"
           />
+          <div class="save-row">
+            <label class="checkbox">
+              <input type="checkbox" v-model="savePassword" />
+              Save this app password to my account (encrypted)
+            </label>
+          </div>
           <p class="hint">Use a Google App Password, not your main password.</p>
         </div>
 
@@ -111,8 +117,8 @@ const showAliasInput = ref(false)
 const newAlias = ref('')
 const aliases = ref([])
 const userData = ref(null)
+const savePassword = ref(false)
 
-const endpointBase = import.meta.env.VITE_EMAIL_WORKER_URL || 'https://email-worker.torarnehave.workers.dev'
 const dashboardBase = import.meta.env.VITE_DASHBOARD_URL || 'https://dashboard.vegvisr.org'
 
 onMounted(() => {
@@ -224,14 +230,19 @@ async function sendEmail() {
   error.value = ''
   success.value = ''
 
-  if (!form.authEmail || !form.fromEmail || !form.appPassword || !form.toEmail || !form.subject || !form.html) {
+  if (!form.authEmail || !form.fromEmail || !form.toEmail || !form.subject || !form.html) {
     error.value = 'All fields are required.'
+    return
+  }
+
+  if (savePassword.value && !form.appPassword) {
+    error.value = 'Provide the app password to save it.'
     return
   }
 
   loading.value = true
   try {
-    const response = await fetch(`${endpointBase}/send-gmail-email`, {
+    const response = await fetch(`${dashboardBase}/send-gmail-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -239,6 +250,8 @@ async function sendEmail() {
         senderEmail: form.authEmail,
         fromEmail: form.fromEmail,
         appPassword: form.appPassword,
+        savePassword: savePassword.value,
+        email: userStore.email,
         toEmail: form.toEmail,
         subject: form.subject,
         html: form.html,
@@ -253,6 +266,10 @@ async function sendEmail() {
     }
 
     success.value = 'Email sent successfully.'
+    if (savePassword.value && form.appPassword) {
+      form.appPassword = ''
+      savePassword.value = false
+    }
   } catch (err) {
     console.error('sendEmail error', err)
     error.value = err.message || 'Unexpected error'
