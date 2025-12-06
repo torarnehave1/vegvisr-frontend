@@ -5,7 +5,10 @@ export const useUserStore = defineStore('user', {
     email: null,
     role: null,
     user_id: null,
+    oauth_id: null,
     emailVerificationToken: null,
+    phone: null,
+    phoneVerifiedAt: null,
     loggedIn: false,
     mystmkraUserId: null,
     googlePhotosConnected: false,
@@ -14,6 +17,8 @@ export const useUserStore = defineStore('user', {
       mySite: null,
       myLogo: null,
     },
+    loginUrl: 'https://auth.vegvisr.org/auth/openauth/login',
+    logoutUrl: 'https://auth.vegvisr.org/auth/openauth/logout',
   }),
   actions: {
     setUser(user) {
@@ -22,7 +27,12 @@ export const useUserStore = defineStore('user', {
       this.email = user.email
       this.role = user.role
       this.user_id = user.user_id
+        // Store OpenAuth id separately; also mirror into user_id for compatibility
+            this.oauth_id = user.oauth_id || user.user_id || null
+            if (!this.user_id && this.oauth_id) this.user_id = this.oauth_id
       this.emailVerificationToken = user.emailVerificationToken
+      this.phone = user.phone || null
+      this.phoneVerifiedAt = user.phoneVerifiedAt || null
       this.mystmkraUserId = user.mystmkraUserId || null
       this.branding = user.branding || { mySite: null, myLogo: null }
       this.loggedIn = true
@@ -31,7 +41,10 @@ export const useUserStore = defineStore('user', {
         email: user.email,
         role: user.role,
         user_id: user.user_id,
+        oauth_id: user.oauth_id || user.user_id || null,
         emailVerificationToken: user.emailVerificationToken,
+        phone: user.phone || null,
+        phoneVerifiedAt: user.phoneVerifiedAt || null,
         mystmkraUserId: user.mystmkraUserId || null,
         branding: user.branding || { mySite: null, myLogo: null },
       }
@@ -49,6 +62,14 @@ export const useUserStore = defineStore('user', {
       this.user_id = user_id
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
       storedUser.user_id = user_id
+      localStorage.setItem('user', JSON.stringify(storedUser))
+    },
+    setOauthId(oauth_id) {
+      this.oauth_id = oauth_id
+      if (!this.user_id) this.user_id = oauth_id
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+      storedUser.oauth_id = oauth_id
+      if (!storedUser.user_id) storedUser.user_id = oauth_id
       localStorage.setItem('user', JSON.stringify(storedUser))
     },
     setMystmkraUserId(mystmkraUserId) {
@@ -69,17 +90,26 @@ export const useUserStore = defineStore('user', {
       storedUser.emailVerificationToken = token
       localStorage.setItem('user', JSON.stringify(storedUser))
     },
-    logout() {
+    async logout() {
+      try {
+        await fetch(this.logoutUrl, { method: 'GET', credentials: 'include' })
+      } catch (err) {
+        console.warn('Logout request failed (continuing local logout):', err)
+      }
       this.email = null
       this.role = null
       this.user_id = null
+      this.oauth_id = null
       this.emailVerificationToken = null
+      this.phone = null
+      this.phoneVerifiedAt = null
       this.mystmkraUserId = null
       this.branding = { mySite: null, myLogo: null }
       this.loggedIn = false
       this.googlePhotosConnected = false
       this.googlePhotosCredentials = null
       localStorage.removeItem('user')
+        sessionStorage.removeItem('phone_session_verified')
 
       // Clear all password verification sessions for security
       this.clearPasswordSessions()
@@ -207,6 +237,41 @@ export const useUserStore = defineStore('user', {
       this.googlePhotosCredentials = null
       console.log('🔌 Disconnected from Google Photos (credentials remain in KV storage)')
     },
+    async fetchSession() {
+      try {
+        const res = await fetch('https://auth.vegvisr.org/auth/openauth/session', {
+          credentials: 'include',
+        })
+
+        if (!res.ok) {
+          this.logout()
+          return false
+        }
+
+        const data = await res.json()
+        if (!data.success || !data.subject) {
+          this.logout()
+          return false
+        }
+
+        const subject = data.subject
+        const user = {
+          email: subject.email || null,
+          role: subject.role || null,
+          user_id: subject.id || null,
+          oauth_id: subject.id || null,
+          emailVerificationToken: null,
+          mystmkraUserId: null,
+          branding: subject.branding || { mySite: null, myLogo: null },
+        }
+        this.setUser(user)
+        return true
+      } catch (err) {
+        console.error('❌ fetchSession error:', err)
+        this.logout()
+        return false
+      }
+    },
     loadUserFromStorage() {
       console.log('🔄 loadUserFromStorage called')
       const storedUser = JSON.parse(localStorage.getItem('user'))
@@ -216,7 +281,10 @@ export const useUserStore = defineStore('user', {
         this.email = storedUser.email
         this.role = storedUser.role
         this.user_id = storedUser.user_id
+        this.oauth_id = storedUser.oauth_id || storedUser.user_id || null
         this.emailVerificationToken = storedUser.emailVerificationToken
+        this.phone = storedUser.phone || null
+        this.phoneVerifiedAt = storedUser.phoneVerifiedAt || null
         this.mystmkraUserId = storedUser.mystmkraUserId || null
         this.branding = storedUser.branding || { mySite: null, myLogo: null }
         this.loggedIn = true
@@ -226,6 +294,7 @@ export const useUserStore = defineStore('user', {
           loggedIn: this.loggedIn,
           email: this.email,
           user_id: this.user_id,
+          oauth_id: this.oauth_id,
           role: this.role,
         })
       } else {
@@ -233,6 +302,7 @@ export const useUserStore = defineStore('user', {
         this.email = null
         this.role = null
         this.user_id = null
+        this.oauth_id = null
         this.emailVerificationToken = null
         this.mystmkraUserId = null
         this.branding = { mySite: null, myLogo: null }

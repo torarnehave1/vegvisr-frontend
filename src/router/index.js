@@ -80,6 +80,7 @@ const router = createRouter({
         next()
       },
     },
+
     {
       path: '/lpage',
       name: 'LandingPage',
@@ -462,10 +463,17 @@ router.beforeEach(async (to, from, next) => {
     email: userStore.email,
     user_id: userStore.user_id,
     role: userStore.role,
+    phoneVerifiedAt: userStore.phoneVerifiedAt,
   })
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {
+      const sessionOtp = typeof window !== 'undefined' && sessionStorage.getItem('phone_session_verified') === '1'
+      if (!sessionOtp) {
+        console.warn('[Router] Phone OTP not validated this session. Redirecting to login.')
+        return next({ path: '/login', query: { requirePhone: '1', email: userStore.email || '' } })
+      }
+
       // Check for Superadmin requirement (allow Admin and Superadmin)
       if (to.meta.requiresSuperadmin && userStore.role !== 'Superadmin' && userStore.role !== 'Admin') {
         console.warn('[Router] User is not Admin or Superadmin. Access denied.')
