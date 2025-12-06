@@ -41,45 +41,6 @@ const setCookie = (name, value, opts = {}) => {
   return parts.join('; ')
 }
 
-const generateVerificationCode = () => {
-  const digits = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000
-  return digits.toString().padStart(6, '0')
-}
-
-const sha256Hex = async (input) => {
-  const data = new TextEncoder().encode(input)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-const normalizePhoneNumber = (phone) => {
-  if (!phone) return null
-
-  let phoneStr = String(phone).trim()
-  if (!phoneStr) return null
-
-  const cleaned = phoneStr.replace(/[()\s-]/g, '')
-  const digits = cleaned.replace(/\D/g, '')
-
-  if (cleaned.startsWith('+')) {
-    if (cleaned.startsWith('+47')) return '+' + digits
-    return null
-  }
-
-  if (cleaned.startsWith('00')) {
-    const after00 = digits.replace(/^00/, '')
-    if (after00.startsWith('47')) return '+' + after00
-    return null
-  }
-
-  if (digits.length === 8) return '+47' + digits
-  if (digits.length === 10 && digits.startsWith('47')) return '+' + digits
-
-  return null
-}
-
 const createResponse = (body, status = 200, headers = {}) => {
   return new Response(body, {
     status,
@@ -132,157 +93,6 @@ export default {
         200,
         headers,
       )
-    }
-
-    if (url.pathname === '/auth/phone/status' && request.method === 'GET') {
-      try {
-        const email = (url.searchParams.get('email') || '').trim().toLowerCase()
-        if (!email) {
-          return createResponse(JSON.stringify({ error: 'Email is required' }), 400)
-        }
-
-        const row = await env.VEGVISR_DB.prepare(
-          'SELECT phone, phone_verified_at FROM config WHERE email = ?1',
-        )
-          .bind(email)
-          .first()
-
-        if (!row) {
-          return createResponse(JSON.stringify({ success: false, error: 'User not found' }), 404)
-        }
-
-        return createResponse(
-          JSON.stringify({
-            success: true,
-            phone: row.phone || null,
-            phone_verified_at: row.phone_verified_at || null,
-            verified: !!row.phone_verified_at,
-          }),
-        )
-      } catch (error) {
-        console.error('Error in /auth/phone/status', error)
-        return createResponse(JSON.stringify({ error: error.message }), 500)
-      }
-    }
-
-    if (url.pathname === '/auth/phone/send-code' && request.method === 'POST') {
-      try {
-        const body = await request.json()
-        const email = (body.email || '').trim().toLowerCase()
-        const phone = normalizePhoneNumber(body.phone)
-
-        if (!email || !phone) {
-          return createResponse(JSON.stringify({ error: 'Email and a Norwegian phone number are required' }), 400)
-        }
-
-        const code = generateVerificationCode()
-        const codeHash = await sha256Hex(code)
-        const expiresAt = Math.floor((Date.now() + 5 * 60 * 1000) / 1000)
-
-        const existing = await env.VEGVISR_DB.prepare('SELECT email FROM config WHERE email = ?1')
-          .bind(email)
-          .first()
-
-        if (existing) {
-          await env.VEGVISR_DB.prepare(
-            'UPDATE config SET phone = ?1, phone_verified_at = NULL, phone_verification_code = ?2, phone_verification_expires_at = ?3 WHERE email = ?4',
-          )
-            .bind(phone, codeHash, expiresAt, email)
-            .run()
-        } else {
-          await env.VEGVISR_DB.prepare(
-            "INSERT INTO config (email, data, phone, phone_verified_at, phone_verification_code, phone_verification_expires_at) VALUES (?1, '{}', ?2, NULL, ?3, ?4)",
-          )
-            .bind(email, phone, codeHash, expiresAt)
-            .run()
-        }
-
-        const smsPayload = {
-          to: phone,
-          message: `Vegvisr verification code: ${code}`,
-          sender: 'Vegvisr',
-        }
-
-        const smsBinding = env.SMS_GATEWAY || env.SMS_WORKER
-        if (!smsBinding) {
-          return createResponse(JSON.stringify({ error: 'SMS service binding missing' }), 500)
-        }
-
-        const smsResponse = await smsBinding.fetch('https://sms-gateway.internal/api/sms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(smsPayload),
-        })
-
-        let smsData = null
-        try {
-          smsData = await smsResponse.json()
-        } catch (err) {
-          console.error('Failed to parse SMS response', err)
-        }
-
-        if (!smsResponse.ok || !smsData?.success) {
-          return createResponse(
-            JSON.stringify({ error: 'Failed to send verification SMS', details: smsData?.error || smsData }),
-            502,
-          )
-        }
-
-        return createResponse(
-          JSON.stringify({ success: true, phone, expires_at: expiresAt }),
-          200,
-        )
-      } catch (error) {
-        console.error('Error in /auth/phone/send-code', error)
-        return createResponse(JSON.stringify({ error: error.message }), 500)
-      }
-    }
-
-    if (url.pathname === '/auth/phone/verify-code' && request.method === 'POST') {
-      try {
-        const body = await request.json()
-        const email = (body.email || '').trim().toLowerCase()
-        const code = String(body.code || '').trim()
-
-        if (!email || !code || !/^\d{6}$/.test(code)) {
-          return createResponse(JSON.stringify({ error: 'Email and a 6-digit code are required' }), 400)
-        }
-
-        const row = await env.VEGVISR_DB.prepare(
-          'SELECT phone, phone_verification_code, phone_verification_expires_at FROM config WHERE email = ?1',
-        )
-          .bind(email)
-          .first()
-
-        if (!row || !row.phone) {
-          return createResponse(JSON.stringify({ error: 'No phone on record for this user' }), 404)
-        }
-
-        if (!row.phone_verification_code || !row.phone_verification_expires_at) {
-          return createResponse(JSON.stringify({ error: 'No active verification code' }), 400)
-        }
-
-        const now = Math.floor(Date.now() / 1000)
-        if (row.phone_verification_expires_at < now) {
-          return createResponse(JSON.stringify({ error: 'Verification code expired' }), 400)
-        }
-
-        const codeHash = await sha256Hex(code)
-        if (codeHash !== row.phone_verification_code) {
-          return createResponse(JSON.stringify({ error: 'Invalid verification code' }), 401)
-        }
-
-        await env.VEGVISR_DB.prepare(
-          'UPDATE config SET phone_verified_at = ?1, phone_verification_code = NULL, phone_verification_expires_at = NULL WHERE email = ?2',
-        )
-          .bind(now, email)
-          .run()
-
-        return createResponse(JSON.stringify({ success: true, phone: row.phone }), 200)
-      } catch (error) {
-        console.error('Error in /auth/phone/verify-code', error)
-        return createResponse(JSON.stringify({ error: error.message }), 500)
-      }
     }
 
     // 1. Login endpoint: /auth/google/login
@@ -411,13 +221,14 @@ export default {
 
     // OpenAuth-protected endpoint and callback
     if (url.pathname === '/auth/openauth/login') {
-      return new Response(null, {
-        status: 302,
-        headers: {
-          ...corsHeaders,
-          Location: '/auth/openauth/protected',
-        },
-      })
+      return new Response(
+        `<!doctype html><html><head><title>Vegvisr Login</title></head><body style="font-family: sans-serif; padding: 32px;">
+          <h2>Vegvisr Login</h2>
+          <p>Continue to sign in with Vegvisr.</p>
+          <a href="/auth/openauth/protected" style="display:inline-block;padding:10px 16px;background:#0f62fe;color:#fff;text-decoration:none;border-radius:6px;">Continue</a>
+        </body></html>`,
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders } },
+      )
     }
 
     if (url.pathname === '/auth/openauth/protected') {
@@ -490,7 +301,7 @@ export default {
         }
       }
 
-      const headers = new Headers({ ...corsHeaders })
+      const headers = new Headers({ ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' })
       const accessCookie = setCookie('oa_access', exchanged.tokens.access, {
         maxAge: exchanged.tokens.expiresIn || 3600,
       })
@@ -503,19 +314,13 @@ export default {
       headers.append('Set-Cookie', accessCookie)
       if (refreshCookie) headers.append('Set-Cookie', refreshCookie)
 
-      const dashboardUrl = env.DASHBOARD_URL || 'https://www.vegvisr.org/user'
-      headers.set('Location', dashboardUrl)
+      const body = `<!doctype html><html><head><title>Vegvisr Auth</title></head><body style="font-family: sans-serif; padding: 32px;">
+        <h2>Signed in</h2>
+        <p>You are signed in as <strong>${subject.id || 'user'}</strong>.</p>
+        <p>You can close this tab or return to the app.</p>
+      </body></html>`
 
-      return new Response(null, { status: 302, headers })
-    }
-
-    if (url.pathname === '/auth/openauth/logout') {
-      const headers = new Headers({ ...corsHeaders })
-      headers.append('Set-Cookie', clearCookie('oa_access'))
-      headers.append('Set-Cookie', clearCookie('oa_refresh'))
-      const loginUrl = 'https://auth.vegvisr.org/auth/openauth/login'
-      headers.set('Location', loginUrl)
-      return new Response(null, { status: 302, headers })
+      return new Response(body, { status: 200, headers })
     }
 
     // 4. Health check or fallback
