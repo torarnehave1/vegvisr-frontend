@@ -284,6 +284,92 @@ export default {
         }
       }
 
+      // Send email through slowyou.io using user-provided Gmail app password
+      if (path === '/send-gmail-email' && method === 'POST') {
+        try {
+          const body = await request.json()
+          const { senderEmail, appPassword, toEmail, subject, html } = body || {}
+
+          if (!senderEmail || !appPassword || !toEmail || !subject || !html) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'senderEmail, appPassword, toEmail, subject, and html are required',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          if (!env.SLOWYOU_API_TOKEN) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'SLOWYOU_API_TOKEN not configured' }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const slowyouUrl =
+            env.SLOWYOU_SEND_EMAIL_URL || 'https://slowyou.io/api/send-email-custom-credentials'
+
+          // Basic auth with user-provided app password
+          const basicAuth = btoa(`${senderEmail}:${appPassword}`)
+
+          const slowyouResponse = await fetch(slowyouUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Token': env.SLOWYOU_API_TOKEN,
+              Authorization: `Basic ${basicAuth}`,
+            },
+            body: JSON.stringify({ senderEmail, toEmail, subject, body: html }),
+          })
+
+          const responseText = await slowyouResponse.text()
+
+          if (!slowyouResponse.ok) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Failed to send email via slowyou.io',
+                  status: slowyouResponse.status,
+                  details: responseText,
+                }),
+                { status: slowyouResponse.status, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          let parsed
+          try {
+            parsed = JSON.parse(responseText)
+          } catch {
+            parsed = { raw: responseText }
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                result: parsed,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('❌ Error sending Gmail email via slowyou:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: false, error: 'Internal error', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
       // List templates endpoint
       if (path === '/templates' && method === 'GET') {
         try {
