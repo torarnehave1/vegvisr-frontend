@@ -9,10 +9,10 @@
 
       <form @submit.prevent="sendEmail">
         <div class="field">
-          <label for="senderEmail">Your Gmail address</label>
+          <label for="senderEmail">Your primary Gmail (auth user)</label>
           <input
             id="senderEmail"
-            v-model="form.senderEmail"
+            v-model="form.authEmail"
             type="email"
             autocomplete="email"
             required
@@ -29,6 +29,36 @@
             required
           />
           <p class="hint">Use a Google App Password, not your main password.</p>
+        </div>
+
+        <div class="field">
+          <label for="fromEmail">From address (alias)</label>
+          <div class="from-row">
+            <select id="fromEmail" v-model="form.fromEmail">
+              <option :value="form.authEmail">{{ form.authEmail }} (primary)</option>
+              <option v-for="alias in aliases" :key="alias" :value="alias">{{ alias }}</option>
+            </select>
+            <button type="button" class="ghost" @click="addAlias">Add alias</button>
+          </div>
+          <div class="alias-input" v-if="showAliasInput">
+            <input
+              v-model="newAlias"
+              type="email"
+              placeholder="alias@example.com"
+              autocomplete="off"
+            />
+            <button type="button" class="primary" @click="saveAlias" :disabled="aliasSaving">
+              {{ aliasSaving ? 'Saving...' : 'Save alias' }}
+            </button>
+            <button type="button" class="ghost" @click="cancelAlias" :disabled="aliasSaving">Cancel</button>
+          </div>
+          <div class="alias-chips" v-if="aliases.length">
+            <span class="chip" v-for="alias in aliases" :key="alias">
+              {{ alias }}
+              <button type="button" @click="removeAlias(alias)" :disabled="aliasSaving">×</button>
+            </span>
+          </div>
+          <p class="hint">Aliases must be verified in Gmail “Send mail as”.</p>
         </div>
 
         <div class="field">
@@ -59,13 +89,14 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 
 const userStore = useUserStore()
 
 const form = reactive({
-  senderEmail: userStore.email || '',
+  authEmail: userStore.email || '',
+  fromEmail: userStore.email || '',
   appPassword: '',
   toEmail: '',
   subject: '',
@@ -75,14 +106,125 @@ const form = reactive({
 const loading = ref(false)
 const error = ref('')
 const success = ref('')
+const aliasSaving = ref(false)
+const showAliasInput = ref(false)
+const newAlias = ref('')
+const aliases = ref([])
+const userData = ref(null)
 
 const endpointBase = import.meta.env.VITE_EMAIL_WORKER_URL || 'https://email-worker.torarnehave.workers.dev'
+const dashboardBase = import.meta.env.VITE_DASHBOARD_URL || 'https://dashboard.vegvisr.org'
+
+onMounted(() => {
+  loadUserData()
+})
+
+async function loadUserData() {
+  if (!userStore.email) return
+  try {
+    const res = await fetch(`${dashboardBase}/userdata?email=${encodeURIComponent(userStore.email)}`)
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to load user data')
+    userData.value = data
+    const storedAliases = data.data?.settings?.emailAliases || []
+    aliases.value = Array.isArray(storedAliases) ? storedAliases : []
+    if (!form.fromEmail && form.authEmail) form.fromEmail = form.authEmail
+  } catch (err) {
+    console.error('loadUserData error', err)
+  }
+}
+
+function addAlias() {
+  showAliasInput.value = true
+  newAlias.value = ''
+}
+
+function cancelAlias() {
+  showAliasInput.value = false
+  newAlias.value = ''
+}
+
+function validateEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+async function saveAlias() {
+  if (!newAlias.value || !validateEmail(newAlias.value)) {
+    error.value = 'Enter a valid alias email.'
+    return
+  }
+  const cleaned = newAlias.value.trim().toLowerCase()
+  if (aliases.value.includes(cleaned)) {
+    error.value = 'Alias already added.'
+    return
+  }
+  error.value = ''
+  aliasSaving.value = true
+  try {
+    const updated = [...aliases.value, cleaned]
+    await persistAliases(updated)
+    aliases.value = updated
+    form.fromEmail = cleaned
+    success.value = 'Alias saved.'
+    showAliasInput.value = false
+    newAlias.value = ''
+  } catch (err) {
+    console.error('saveAlias error', err)
+    error.value = err.message || 'Failed to save alias'
+  } finally {
+    aliasSaving.value = false
+  }
+}
+
+async function removeAlias(alias) {
+  aliasSaving.value = true
+  try {
+    const updated = aliases.value.filter((a) => a !== alias)
+    await persistAliases(updated)
+    aliases.value = updated
+    if (form.fromEmail === alias) {
+      form.fromEmail = form.authEmail
+    }
+  } catch (err) {
+    console.error('removeAlias error', err)
+    error.value = err.message || 'Failed to update aliases'
+  } finally {
+    aliasSaving.value = false
+  }
+}
+
+async function persistAliases(updatedAliases) {
+  if (!userStore.email) throw new Error('User email missing')
+  const current = userData.value?.data || {}
+  const merged = {
+    ...current,
+    settings: {
+      ...(current.settings || {}),
+      emailAliases: updatedAliases,
+    },
+  }
+  const payload = {
+    email: userStore.email,
+    data: merged,
+    profileimage: userData.value?.profileimage || '',
+  }
+  const res = await fetch(`${dashboardBase}/userdata`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const result = await res.json().catch(() => ({}))
+  if (!res.ok || result.error) {
+    throw new Error(result.error || 'Failed to save aliases')
+  }
+  userData.value = { ...(userData.value || {}), data: merged }
+}
 
 async function sendEmail() {
   error.value = ''
   success.value = ''
 
-  if (!form.senderEmail || !form.appPassword || !form.toEmail || !form.subject || !form.html) {
+  if (!form.authEmail || !form.fromEmail || !form.appPassword || !form.toEmail || !form.subject || !form.html) {
     error.value = 'All fields are required.'
     return
   }
@@ -93,7 +235,9 @@ async function sendEmail() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        senderEmail: form.senderEmail,
+        authEmail: form.authEmail,
+        senderEmail: form.authEmail,
+        fromEmail: form.fromEmail,
         appPassword: form.appPassword,
         toEmail: form.toEmail,
         subject: form.subject,
@@ -220,5 +364,58 @@ textarea:focus {
   color: #6b7280;
   font-size: 12px;
   margin: 0;
+}
+
+.from-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+select {
+  min-width: 260px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.ghost {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.alias-input {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.alias-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.chip button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
 }
 </style>
