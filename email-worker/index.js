@@ -105,10 +105,15 @@ async function markMagicLinkUsed(env, token) {
 }
 
 async function sendMagicLinkEmail(env, toEmail, magicLink) {
-  const smtpUser = 'vegvisr.org@gmail.com'
-  const appPassword = env.TAHGMAIL
-  if (!appPassword) {
+  const smtpUser = env.MAGIC_SMTP_USER || 'torarnehave@gmail.com'
+  const rawAppPassword = env.MAGIC_SMTP_APP_PASSWORD || env.TAHGMAIL
+  if (!rawAppPassword) {
     throw new Error('TAHGMAIL app password is not configured')
+  }
+  // Gmail app passwords are often stored with spaces for readability; strip them before use
+  const appPassword = rawAppPassword.replace(/\s+/g, '')
+  if (!appPassword) {
+    throw new Error('Magic link app password resolved to an empty value after sanitization')
   }
   if (!env.SLOWYOU_API_TOKEN) {
     throw new Error('SLOWYOU_API_TOKEN is not configured')
@@ -526,9 +531,10 @@ export default {
 
           await sendMagicLinkEmail(env, targetEmail, magicLink)
 
+          // Do not return the token to the client; the user must click the emailed link
           return addCorsHeaders(
             new Response(
-              JSON.stringify({ success: true, email: targetEmail, expiresAt, token }),
+              JSON.stringify({ success: true, email: targetEmail, expiresAt }),
               { status: 200, headers: { 'Content-Type': 'application/json' } },
             ),
           )

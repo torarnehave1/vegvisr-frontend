@@ -121,7 +121,6 @@ const otpRefs = []
 const theme = ref('light')
 const step = ref('email')
 const magicLinkSent = ref(false)
-const magicToken = ref(null)
 const loadingEmail = ref(false)
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
@@ -131,7 +130,6 @@ const resendCooldown = ref(30)
 const resendTimer = ref(null)
 const expiresAt = ref(null)
 const pendingUser = ref(null)
-const magicPollTimer = ref(null)
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -170,11 +168,16 @@ onMounted(() => {
     }
     sendMagicLink()
   }
+
+  // If arriving from emailed magic link, verify the token immediately
+  if (route.query.magic) {
+    step.value = 'magic'
+    verifyMagicToken(route.query.magic)
+  }
 })
 
 onBeforeUnmount(() => {
   if (resendTimer.value) clearInterval(resendTimer.value)
-  if (magicPollTimer.value) clearInterval(magicPollTimer.value)
 })
 
 function resetMessages() {
@@ -254,6 +257,33 @@ function focusLastFilled() {
   otpRefs[targetIndex]?.focus()
 }
 
+async function fetchUserContext(targetEmail) {
+  const roleRes = await fetch(
+    `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(targetEmail)}`,
+  )
+  const roleData = await roleRes.json()
+
+  if (!roleData || !roleData.role) {
+    throw new Error('Unable to retrieve user role. Please contact support.')
+  }
+
+  const userDataRes = await fetch(
+    `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(targetEmail)}`,
+  )
+  const userData = await userDataRes.json()
+
+  return {
+    email: targetEmail,
+    role: roleData.role,
+    user_id: userData.user_id,
+    emailVerificationToken: userData.emailVerificationToken,
+    oauth_id: userData.oauth_id,
+    phone: userData.phone,
+    phoneVerifiedAt: userData.phoneVerifiedAt,
+    branding: userData.branding,
+  }
+}
+
 function maybeAutoVerify() {
   if (code.value.length === OTP_LENGTH && !verifyingCode.value) {
     handleVerifyCode()
@@ -274,27 +304,7 @@ async function handleEmailSubmit() {
       return
     }
 
-    const roleRes = await fetch(
-      `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(email.value)}`,
-    )
-    const roleData = await roleRes.json()
-
-    if (!roleData || !roleData.role) {
-      errorMessage.value = 'Unable to retrieve user role. Please contact support.'
-      return
-    }
-
-    const userDataRes = await fetch(
-      `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(email.value)}`,
-    )
-    const userData = await userDataRes.json()
-
-    pendingUser.value = {
-      email: email.value,
-      role: roleData.role,
-      user_id: userData.user_id,
-      emailVerificationToken: userData.emailVerificationToken,
-    }
+    pendingUser.value = await fetchUserContext(email.value)
 
     await sendMagicLink()
   } catch (err) {
@@ -317,10 +327,8 @@ async function sendMagicLink() {
       throw new Error(data.error || 'Failed to send magic link')
     }
     magicLinkSent.value = true
-    magicToken.value = data.token || null
     statusMessage.value = 'Magic link sent. Check your email to continue.'
     step.value = 'magic'
-    startMagicPoll()
   } catch (err) {
     console.error('sendMagicLink error:', err)
     errorMessage.value = err.message || 'Failed to send magic link. You can use SMS instead.'
@@ -329,42 +337,35 @@ async function sendMagicLink() {
   }
 }
 
-function startMagicPoll() {
-  if (magicPollTimer.value) clearInterval(magicPollTimer.value)
-  if (!magicToken.value) return
-  magicPollTimer.value = setInterval(async () => {
-    try {
-      const res = await fetch(
-        `${MAGIC_BASE}/login/magic/verify?token=${encodeURIComponent(magicToken.value)}`,
-        {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-      const data = await res.json()
-      if (res.ok && data.success && data.email === email.value) {
-        completeLoginFromMagic(data)
-      }
-    } catch (err) {
-      console.warn('Magic poll failed:', err)
+async function verifyMagicToken(token) {
+  resetMessages()
+  try {
+    const res = await fetch(
+      `${MAGIC_BASE}/login/magic/verify?token=${encodeURIComponent(token)}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )
+    const data = await res.json()
+    if (!res.ok || !data.success || !data.email) {
+      throw new Error(data.error || 'Invalid or expired magic link.')
     }
-  }, 4000)
-}
 
-async function completeLoginFromMagic(data) {
-  if (magicPollTimer.value) {
-    clearInterval(magicPollTimer.value)
-    magicPollTimer.value = null
+    email.value = data.email
+    const userContext = await fetchUserContext(data.email)
+
+    userStore.setUser(userContext)
+    sessionStorage.setItem('email_session_verified', '1')
+    statusMessage.value = 'Email verified. Redirecting...'
+
+    const destination = data.redirectUrl || '/user'
+    router.replace(destination)
+  } catch (err) {
+    console.error('verifyMagicToken error:', err)
+    errorMessage.value = err.message || 'Magic link verification failed. Please request a new link.'
+    step.value = 'email'
   }
-  sessionStorage.setItem('email_session_verified', '1')
-  userStore.setUser({
-    email: email.value,
-    role: pendingUser.value?.role,
-    user_id: pendingUser.value?.user_id,
-    emailVerificationToken: pendingUser.value?.emailVerificationToken,
-  })
-  statusMessage.value = 'Email verified. Redirecting...'
-  router.push('/user')
 }
 
 function goToPhone() {
