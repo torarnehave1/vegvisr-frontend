@@ -111,6 +111,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 
+const MAGIC_BASE = 'https://email-worker.torarnehave.workers.dev'
 const email = ref('')
 const phone = ref('')
 const code = ref('')
@@ -120,6 +121,7 @@ const otpRefs = []
 const theme = ref('light')
 const step = ref('email')
 const magicLinkSent = ref(false)
+const magicToken = ref(null)
 const loadingEmail = ref(false)
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
@@ -305,7 +307,7 @@ async function handleEmailSubmit() {
 
 async function sendMagicLink() {
   try {
-    const res = await fetch('https://email.vegvisr.org/login/magic/send', {
+    const res = await fetch(`${MAGIC_BASE}/login/magic/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.value }),
@@ -315,6 +317,7 @@ async function sendMagicLink() {
       throw new Error(data.error || 'Failed to send magic link')
     }
     magicLinkSent.value = true
+    magicToken.value = data.token || null
     statusMessage.value = 'Magic link sent. Check your email to continue.'
     step.value = 'magic'
     startMagicPoll()
@@ -328,12 +331,16 @@ async function sendMagicLink() {
 
 function startMagicPoll() {
   if (magicPollTimer.value) clearInterval(magicPollTimer.value)
+  if (!magicToken.value) return
   magicPollTimer.value = setInterval(async () => {
     try {
-      const res = await fetch('https://email.vegvisr.org/login/magic/verify', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      })
+      const res = await fetch(
+        `${MAGIC_BASE}/login/magic/verify?token=${encodeURIComponent(magicToken.value)}`,
+        {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
       const data = await res.json()
       if (res.ok && data.success && data.email === email.value) {
         completeLoginFromMagic(data)
@@ -358,6 +365,11 @@ async function completeLoginFromMagic(data) {
   })
   statusMessage.value = 'Email verified. Redirecting...'
   router.push('/user')
+}
+
+function goToPhone() {
+  step.value = 'phone'
+  checkPhoneStatus()
 }
 
 async function checkPhoneStatus() {

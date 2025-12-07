@@ -528,7 +528,7 @@ export default {
 
           return addCorsHeaders(
             new Response(
-              JSON.stringify({ success: true, email: targetEmail, expiresAt }),
+              JSON.stringify({ success: true, email: targetEmail, expiresAt, token }),
               { status: 200, headers: { 'Content-Type': 'application/json' } },
             ),
           )
