@@ -476,10 +476,11 @@ router.beforeEach(async (to, from, next) => {
 
   if (to.meta.requiresAuth) {
     if (userStore.loggedIn) {
+      const sessionEmail = typeof window !== 'undefined' && sessionStorage.getItem('email_session_verified') === '1'
       const sessionOtp = typeof window !== 'undefined' && sessionStorage.getItem('phone_session_verified') === '1'
-      if (!sessionOtp) {
-        console.warn('[Router] Phone OTP not validated this session. Redirecting to login.')
-        return next({ path: '/login', query: { requirePhone: '1', email: userStore.email || '' } })
+      if (!sessionEmail && !sessionOtp) {
+        console.warn('[Router] No active verification session. Redirecting to login.')
+        return next({ path: '/login', query: { email: userStore.email || '' } })
       }
 
       // Check for Superadmin requirement (allow Admin and Superadmin)

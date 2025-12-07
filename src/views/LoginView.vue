@@ -21,6 +21,21 @@
       </form>
     </div>
 
+    <div v-else-if="step === 'magic'" class="card">
+      <p class="small text-muted">
+        We emailed you a magic login link. Open the link on this device to continue.
+      </p>
+      <p class="small text-muted mb-2">Email: {{ email }}</p>
+      <button class="btn btn-primary w-100" @click="sendMagicLink" :disabled="loadingEmail">
+        Resend link
+      </button>
+      <div class="mt-3">
+        <button class="btn btn-outline-secondary w-100" @click="goToPhone" :disabled="sendingCode">
+          Use SMS instead
+        </button>
+      </div>
+    </div>
+
     <div v-else-if="step === 'phone'" class="card">
       <p class="small text-muted">We need to verify your phone before continuing.</p>
       <form @submit.prevent="handleSendCode">
@@ -104,6 +119,7 @@ const otpDigits = ref(Array(OTP_LENGTH).fill(''))
 const otpRefs = []
 const theme = ref('light')
 const step = ref('email')
+const magicLinkSent = ref(false)
 const loadingEmail = ref(false)
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
@@ -113,6 +129,7 @@ const resendCooldown = ref(30)
 const resendTimer = ref(null)
 const expiresAt = ref(null)
 const pendingUser = ref(null)
+const magicPollTimer = ref(null)
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -135,7 +152,7 @@ onMounted(() => {
   }
   theme.value = localStorage.getItem('theme') || 'light'
 
-  // If redirected for phone requirement and user already logged in, skip email step
+  // If redirected while already logged in, keep email default and fall back to phone if needed
   if (route.query.requirePhone === '1' && userStore.loggedIn && userStore.email) {
     email.value = userStore.email
     pendingUser.value = {
@@ -149,13 +166,13 @@ onMounted(() => {
       mystmkraUserId: userStore.mystmkraUserId,
       branding: userStore.branding,
     }
-    // Prefetch phone and go straight to phone/code flow
-    checkPhoneStatus()
+    sendMagicLink()
   }
 })
 
 onBeforeUnmount(() => {
   if (resendTimer.value) clearInterval(resendTimer.value)
+  if (magicPollTimer.value) clearInterval(magicPollTimer.value)
 })
 
 function resetMessages() {
@@ -277,13 +294,70 @@ async function handleEmailSubmit() {
       emailVerificationToken: userData.emailVerificationToken,
     }
 
-    await checkPhoneStatus()
+    await sendMagicLink()
   } catch (err) {
     errorMessage.value = 'An error occurred during login. Please try again later.'
     console.error('handleEmailSubmit error:', err)
   } finally {
     loadingEmail.value = false
   }
+}
+
+async function sendMagicLink() {
+  try {
+    const res = await fetch('https://email.vegvisr.org/login/magic/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value }),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to send magic link')
+    }
+    magicLinkSent.value = true
+    statusMessage.value = 'Magic link sent. Check your email to continue.'
+    step.value = 'magic'
+    startMagicPoll()
+  } catch (err) {
+    console.error('sendMagicLink error:', err)
+    errorMessage.value = err.message || 'Failed to send magic link. You can use SMS instead.'
+    step.value = 'phone'
+    await checkPhoneStatus()
+  }
+}
+
+function startMagicPoll() {
+  if (magicPollTimer.value) clearInterval(magicPollTimer.value)
+  magicPollTimer.value = setInterval(async () => {
+    try {
+      const res = await fetch('https://email.vegvisr.org/login/magic/verify', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      if (res.ok && data.success && data.email === email.value) {
+        completeLoginFromMagic(data)
+      }
+    } catch (err) {
+      console.warn('Magic poll failed:', err)
+    }
+  }, 4000)
+}
+
+async function completeLoginFromMagic(data) {
+  if (magicPollTimer.value) {
+    clearInterval(magicPollTimer.value)
+    magicPollTimer.value = null
+  }
+  sessionStorage.setItem('email_session_verified', '1')
+  userStore.setUser({
+    email: email.value,
+    role: pendingUser.value?.role,
+    user_id: pendingUser.value?.user_id,
+    emailVerificationToken: pendingUser.value?.emailVerificationToken,
+  })
+  statusMessage.value = 'Email verified. Redirecting...'
+  router.push('/user')
 }
 
 async function checkPhoneStatus() {

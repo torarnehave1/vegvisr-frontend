@@ -51,6 +51,109 @@ function renderTemplate(template, variables) {
   }
 }
 
+// Magic link helpers
+const MAGIC_LINK_TABLE = 'login_magic_links'
+const MAGIC_LINK_EXPIRY_MINUTES = 30
+const MAGIC_LINK_BASE = 'https://www.vegvisr.org/login'
+
+function isValidEmail(email) {
+  return typeof email === 'string' && /.+@.+\..+/.test(email)
+}
+
+function buildMagicLink(token) {
+  return `${MAGIC_LINK_BASE}?magic=${encodeURIComponent(token)}`
+}
+
+async function ensureMagicLinkTable(env) {
+  await env.vegvisr_org
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS ${MAGIC_LINK_TABLE} (
+        token TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used INTEGER DEFAULT 0,
+        used_at TEXT,
+        redirect_url TEXT
+      )`,
+    )
+    .run()
+}
+
+async function storeMagicLink(env, email, token, expiresAt, redirectUrl) {
+  await env.vegvisr_org
+    .prepare(
+      `INSERT INTO ${MAGIC_LINK_TABLE} (token, email, created_at, expires_at, used, redirect_url)
+       VALUES (?1, ?2, ?3, ?4, 0, ?5)`,
+    )
+    .bind(token, email, new Date().toISOString(), expiresAt, redirectUrl || null)
+    .run()
+}
+
+async function getMagicLink(env, token) {
+  return env.vegvisr_org
+    .prepare(`SELECT * FROM ${MAGIC_LINK_TABLE} WHERE token = ?1`)
+    .bind(token)
+    .first()
+}
+
+async function markMagicLinkUsed(env, token) {
+  await env.vegvisr_org
+    .prepare(`UPDATE ${MAGIC_LINK_TABLE} SET used = 1, used_at = ?1 WHERE token = ?2`)
+    .bind(new Date().toISOString(), token)
+    .run()
+}
+
+async function sendMagicLinkEmail(env, toEmail, magicLink) {
+  const smtpUser = 'vegvisr.org@gmail.com'
+  const appPassword = env.TAHGMAIL
+  if (!appPassword) {
+    throw new Error('TAHGMAIL app password is not configured')
+  }
+  if (!env.SLOWYOU_API_TOKEN) {
+    throw new Error('SLOWYOU_API_TOKEN is not configured')
+  }
+
+  const subject = 'Your Vegvisr login link'
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+      <h2>Sign in to Vegvisr</h2>
+      <p>Click the button below to finish signing in. This link expires in ${MAGIC_LINK_EXPIRY_MINUTES} minutes.</p>
+      <p style="text-align: center; margin: 24px 0;">
+        <a href="${magicLink}" style="background:#2563eb;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Continue to Vegvisr</a>
+      </p>
+      <p>If you did not request this, you can ignore this email.</p>
+      <p style="font-size: 12px; color: #555;">Link: ${magicLink}</p>
+    </div>
+  `
+
+  const slowyouUrl =
+    env.SLOWYOU_SEND_EMAIL_URL || 'https://slowyou.io/api/send-email-custom-credentials'
+  const basicAuth = btoa(`${smtpUser}:${appPassword}`)
+
+  const response = await fetch(slowyouUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Token': env.SLOWYOU_API_TOKEN,
+      Authorization: `Basic ${basicAuth}`,
+    },
+    body: JSON.stringify({
+      senderEmail: smtpUser,
+      authEmail: smtpUser,
+      fromEmail: smtpUser,
+      toEmail,
+      subject,
+      body: html,
+    }),
+  })
+
+  const responseText = await response.text()
+  if (!response.ok) {
+    throw new Error(`Failed to send magic link email: ${response.status} ${responseText}`)
+  }
+}
+
 // Generate invitation token
 function generateInvitationToken() {
   return crypto.randomUUID()
@@ -391,6 +494,127 @@ export default {
           return addCorsHeaders(
             new Response(
               JSON.stringify({ success: false, error: 'Internal error', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
+      // Magic link login: send link to user email
+      if (path === '/login/magic/send' && method === 'POST') {
+        try {
+          const body = await request.json()
+          const targetEmail = body?.email
+          const redirectUrl = body?.redirectUrl
+
+          if (!isValidEmail(targetEmail)) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'A valid email is required' }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          await ensureMagicLinkTable(env)
+
+          const token = crypto.randomUUID()
+          const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString()
+
+          await storeMagicLink(env, targetEmail, token, expiresAt, redirectUrl)
+          const magicLink = buildMagicLink(token)
+
+          await sendMagicLinkEmail(env, targetEmail, magicLink)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: true, email: targetEmail, expiresAt }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Magic link send error:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: false, error: error.message || 'Failed to send magic link' }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
+      // Magic link login: verify/consume token
+      if (path === '/login/magic/verify' && (method === 'POST' || method === 'GET')) {
+        try {
+          let token = url.searchParams.get('token')
+          if (method === 'POST') {
+            try {
+              const body = await request.json()
+              token = body?.token || token
+            } catch (err) {
+              console.warn('Failed to parse magic verify body:', err)
+            }
+          }
+
+          if (!token) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'Token is required' }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          await ensureMagicLinkTable(env)
+          const record = await getMagicLink(env, token)
+
+          if (!record) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'Token not found' }),
+                { status: 404, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const now = Date.now()
+          const expires = Date.parse(record.expires_at)
+          if (Number(record.used) === 1) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'Token already used' }),
+                { status: 410, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          if (Number.isFinite(expires) && expires < now) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'Token expired' }),
+                { status: 410, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          await markMagicLinkUsed(env, token)
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                email: record.email,
+                expiresAt: record.expires_at,
+                redirectUrl: record.redirect_url || null,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('Magic link verify error:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: false, error: error.message || 'Verification failed' }),
               { status: 500, headers: { 'Content-Type': 'application/json' } },
             ),
           )
