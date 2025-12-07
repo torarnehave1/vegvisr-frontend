@@ -44,20 +44,43 @@ const goToAppBuilder = () => {
 
 // Load script and setup exactly like the working HTML
 onMounted(() => {
-  // Load the Component Manager script
-  if (!document.querySelector('script[src*="component-manager.js"]')) {
-    const script = document.createElement('script')
-    // Cache-bust to ensure fresh component-manager after AI edits
-    const cacheBust = `?v=${Date.now()}`
+  // Load the Component Manager script with explicit cache-busting using current version when available
+  const existing = document.getElementById('component-manager-script')
+  if (existing) {
+    setupEventListeners()
+    return
+  }
+
+  const script = document.createElement('script')
+  script.id = 'component-manager-script'
+
+  const loadScript = async () => {
+    const cacheBust = await fetchComponentManagerVersion()
     script.src = `https://api.vegvisr.org/components/component-manager.js${cacheBust}`
     script.onload = () => {
       setupEventListeners()
     }
+    script.onerror = () => {
+      console.error('Failed to load component-manager.js')
+    }
     document.head.appendChild(script)
-  } else {
-    setupEventListeners()
   }
+
+  loadScript()
 })
+
+async function fetchComponentManagerVersion() {
+  try {
+    const res = await fetch('https://api.vegvisr.org/api/components/component-manager')
+    const data = await res.json()
+    if (data?.success && data?.component?.current_version) {
+      return `?v=${data.component.current_version}`
+    }
+  } catch (error) {
+    console.warn('Unable to fetch component-manager version for cache busting:', error)
+  }
+  return `?t=${Date.now()}`
+}
 
 function setupEventListeners() {
   const manager = document.querySelector('component-manager')
