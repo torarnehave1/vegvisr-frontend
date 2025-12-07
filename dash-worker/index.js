@@ -187,11 +187,27 @@ export default {
           )
         }
 
-        // Normalize structure to avoid hard failures when optional keys are missing
+        // Load existing data to avoid wiping unrelated fields when only a subset is sent
+        const existingRow = await db
+          .prepare('SELECT data, profileimage FROM config WHERE email = ?')
+          .bind(email)
+          .first()
+        const existingData = existingRow?.data ? JSON.parse(existingRow.data) : {}
+
+        const incomingProfile = data.profile && typeof data.profile === 'object' ? data.profile : {}
+        const incomingSettings = data.settings && typeof data.settings === 'object' ? data.settings : {}
+
         const normalizedData = {
+          ...existingData,
           ...data,
-          profile: data.profile && typeof data.profile === 'object' ? data.profile : {},
-          settings: data.settings && typeof data.settings === 'object' ? data.settings : {},
+          profile: {
+            ...(existingData.profile || {}),
+            ...incomingProfile,
+          },
+          settings: {
+            ...(existingData.settings || {}),
+            ...incomingSettings,
+          },
         }
 
         // Handle optional app password encryption and storage
@@ -278,6 +294,17 @@ export default {
           })
         }
 
+        // Debug logging (redacted password)
+        console.log('[dash-worker /send-gmail-email] incoming', {
+          email,
+          authEmail,
+          fromEmail,
+          toEmail,
+          subject,
+          savePassword: !!savePassword,
+          appPasswordLength: appPassword ? appPassword.length : 0,
+        })
+
         // Resolve app password: use provided, else decrypt stored
         let resolvedPassword = appPassword || null
         let userDataRow = null
@@ -327,6 +354,15 @@ export default {
           html,
           appPassword: resolvedPassword,
         }
+
+        console.log('[dash-worker /send-gmail-email] forwarding to email-worker', {
+          authEmail: payload.authEmail,
+          senderEmail: payload.senderEmail,
+          fromEmail: payload.fromEmail,
+          toEmail: payload.toEmail,
+          subject: payload.subject,
+          appPasswordLength: payload.appPassword ? payload.appPassword.length : 0,
+        })
 
         const ewResponse = await fetch(`${emailWorkerUrl}/send-gmail-email`, {
           method: 'POST',

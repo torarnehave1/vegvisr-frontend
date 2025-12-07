@@ -47,7 +47,9 @@ onMounted(() => {
   // Load the Component Manager script
   if (!document.querySelector('script[src*="component-manager.js"]')) {
     const script = document.createElement('script')
-    script.src = 'https://api.vegvisr.org/components/component-manager.js'
+    // Cache-bust to ensure fresh component-manager after AI edits
+    const cacheBust = `?v=${Date.now()}`
+    script.src = `https://api.vegvisr.org/components/component-manager.js${cacheBust}`
     script.onload = () => {
       setupEventListeners()
     }

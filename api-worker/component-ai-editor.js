@@ -58,6 +58,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
     await env.WEB_COMPONENTS.put(versionPath, aiResult.newCode, {
       httpMetadata: {
         contentType: 'application/javascript',
+        cacheControl: 'no-store'
       },
       customMetadata: {
         version: newVersion.toString(),
@@ -71,6 +72,7 @@ export async function editComponentWithAI({ componentName, userRequest, env, use
     await env.WEB_COMPONENTS.put(`${componentName}.js`, aiResult.newCode, {
       httpMetadata: {
         contentType: 'application/javascript',
+        cacheControl: 'no-store'
       }
     })
 

@@ -292,6 +292,15 @@ export default {
 
           const smtpUser = authEmail || senderEmail
 
+          console.log('[email-worker /send-gmail-email] incoming', {
+            senderEmail,
+            authEmail,
+            fromEmail,
+            toEmail,
+            subject,
+            appPasswordLength: appPassword ? appPassword.length : 0,
+          })
+
           if (!smtpUser || !appPassword || !toEmail || !subject || !html) {
             return addCorsHeaders(
               new Response(
@@ -334,6 +343,15 @@ export default {
               subject,
               body: html,
             }),
+          })
+
+          console.log('[email-worker /send-gmail-email] forwarded to slowyou', {
+            senderEmail: smtpUser,
+            authEmail: smtpUser,
+            fromEmail: fromEmail || smtpUser,
+            toEmail,
+            subject,
+            htmlLength: html ? html.length : 0,
           })
 
           const responseText = await slowyouResponse.text()

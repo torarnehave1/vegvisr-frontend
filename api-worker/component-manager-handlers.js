@@ -13,6 +13,12 @@ export async function handleComponentManagerAPI(request, env, pathname) {
     return syncComponentsToAPIRegistry(env)
   }
 
+  // POST /api/components/:name/create - Create a new component (R2 + D1 seed)
+  if (pathname.match(/^\/api\/components\/[^\/]+\/create$/) && request.method === 'POST') {
+    const componentName = pathname.split('/')[3]
+    return handleCreateComponent(request, componentName, env)
+  }
+
   // GET /api/components - List all components
   if (pathname === '/api/components' && request.method === 'GET') {
     return listComponents(env)
@@ -78,6 +84,122 @@ export async function handleComponentManagerAPI(request, env, pathname) {
   }
 
   return new Response('Not found', { status: 404 })
+}
+
+/**
+ * Create a new component (initial R2 object + D1 rows)
+ */
+async function handleCreateComponent(request, componentName, env) {
+  try {
+    const body = await request.json()
+    const {
+      code,
+      description = 'Custom web component',
+      category = 'components',
+      tags = [],
+      status = 'active',
+      userId = 'anonymous',
+      sync = false
+    } = body
+
+    // Basic validation: custom elements must include a dash
+    if (!/^([a-z0-9]+-)+[a-z0-9-]+$/.test(componentName)) {
+      return new Response(JSON.stringify({ success: false, error: 'componentName must be kebab-case and include a dash' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      })
+    }
+
+    // Prevent duplicates
+    const existing = await env.vegvisr_org.prepare(
+      'SELECT id FROM web_components WHERE id = ? OR name = ? OR slug = ?'
+    ).bind(componentName, componentName, componentName).first()
+
+    if (existing) {
+      return new Response(JSON.stringify({ success: false, error: 'Component already exists' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      })
+    }
+
+    const initialCode = (typeof code === 'string' && code.trim().length > 0)
+      ? code
+      : generateHelloWorldComponent(componentName)
+
+    // Write initial files to R2
+    const version = 1
+    const versionPath = `${componentName}/v${version}_${Date.now()}.js`
+
+    await env.WEB_COMPONENTS.put(versionPath, initialCode, {
+      httpMetadata: { contentType: 'application/javascript' },
+      customMetadata: {
+        version: version.toString(),
+        createdBy: userId,
+        source: 'create-endpoint'
+      }
+    })
+
+    await env.WEB_COMPONENTS.put(`${componentName}.js`, initialCode, {
+      httpMetadata: { contentType: 'application/javascript' }
+    })
+
+    // Insert into web_components
+    await env.vegvisr_org.prepare(`
+      INSERT INTO web_components (id, name, slug, description, category, tags, r2_path, current_version, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).bind(
+      componentName,
+      componentName,
+      componentName,
+      description,
+      category,
+      Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]'),
+      `${componentName}.js`,
+      version,
+      status
+    ).run()
+
+    // Insert initial version row
+    await env.vegvisr_org.prepare(`
+      INSERT INTO component_versions (component_id, version_number, r2_path, change_description, changed_by)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(
+      componentName,
+      version,
+      versionPath,
+      'Initial version (created via API)',
+      userId
+    ).run()
+
+    let syncResult = null
+    if (sync) {
+      // Run sync to apiForApps; unwrap JSON for inclusion
+      const syncResponse = await syncComponentsToAPIRegistry(env)
+      syncResult = await syncResponse.json()
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      component: componentName,
+      version,
+      message: 'Component created in R2 and D1',
+      r2: {
+        currentPath: `${componentName}.js`,
+        versionPath
+      },
+      sync: syncResult
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    })
+
+  } catch (error) {
+    console.error('❌ Error creating component:', error)
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    })
+  }
 }
 
 /**
@@ -419,4 +541,45 @@ async function handleRegenerateDocs(request, componentName, env) {
       headers: { 'Content-Type': 'application/json' }
     })
   }
+}
+
+/**
+ * Generate a minimal Hello World component as a fallback
+ */
+function generateHelloWorldComponent(componentName) {
+  const className = componentName
+    .split('-')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+
+  return `class ${className} extends HTMLElement {
+  constructor() {
+    super()
+    this.attachShadow({ mode: 'open' })
+  }
+
+  connectedCallback() {
+    if (!this.shadowRoot) return
+    this.shadowRoot.innerHTML = '
+      <style>
+        :host {
+          display: block;
+          padding: 16px;
+          border: 1px solid #e0e0e0;
+          border-radius: 8px;
+          font-family: system-ui, -apple-system, sans-serif;
+          text-align: center;
+          background: #fafafa;
+          color: #111827;
+        }
+      </style>
+      <div>Hello World</div>
+    '
+  }
+}
+
+if (!customElements.get('${componentName}')) {
+  customElements.define('${componentName}', ${className})
+}
+`
 }
