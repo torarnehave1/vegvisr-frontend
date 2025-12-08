@@ -422,7 +422,7 @@ async function handleAudio(request, env, corsHeaders) {
     console.log('🎤 Audio transcription request received');
     const formData = await request.formData();
     console.log('📋 FormData keys:', Array.from(formData.keys()));
-    
+
     const file = formData.get('file');
     const model = formData.get('model') || 'whisper-1';
     const language = formData.get('language');
