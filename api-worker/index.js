@@ -2209,7 +2209,7 @@ const handleGrokAsk = async (request, env) => {
     const completion = await client.chat.completions.create({
       model: 'grok-3',
       temperature: 0.7,
-      max_tokens: 800,
+      max_tokens: 32000,
       messages: [
         { role: 'system', content: systemContent },
         { role: 'user', content: prompt },

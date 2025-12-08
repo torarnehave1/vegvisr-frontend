@@ -419,7 +419,10 @@ async function handleImages(request, env, corsHeaders) {
 // Handle audio transcription endpoint
 async function handleAudio(request, env, corsHeaders) {
   try {
+    console.log('🎤 Audio transcription request received');
     const formData = await request.formData();
+    console.log('📋 FormData keys:', Array.from(formData.keys()));
+    
     const file = formData.get('file');
     const model = formData.get('model') || 'whisper-1';
     const language = formData.get('language');
@@ -428,7 +431,10 @@ async function handleAudio(request, env, corsHeaders) {
     const temperature = formData.get('temperature');
     const userId = formData.get('userId');
 
+    console.log('📊 Request params:', { model, language, userId, hasFile: !!file });
+
     if (!file) {
+      console.error('❌ Missing file in FormData');
       return new Response(JSON.stringify({
         error: 'Missing required field: file'
       }), {
@@ -450,7 +456,17 @@ async function handleAudio(request, env, corsHeaders) {
 
     // Forward to OpenAI Audio API
     const openaiFormData = new FormData();
-    openaiFormData.append('file', file);
+
+    // Normalize .opus uploads to .ogg for OpenAI compatibility
+    let outgoingFile = file;
+    if (file && file.name && file.name.toLowerCase().endsWith('.opus')) {
+      const blob = file; // File extends Blob in Workers runtime
+      outgoingFile = new File([blob], file.name.replace(/\.opus$/i, '.ogg'), {
+        type: blob.type || 'audio/ogg'
+      });
+    }
+
+    openaiFormData.append('file', outgoingFile);
     openaiFormData.append('model', model);
     if (language) openaiFormData.append('language', language);
     if (prompt) openaiFormData.append('prompt', prompt);

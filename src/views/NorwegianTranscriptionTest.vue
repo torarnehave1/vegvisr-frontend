@@ -795,6 +795,30 @@
         </div>
       </div>
 
+      <div class="whisper-language-settings">
+        <label class="form-check-label">
+          <input
+            type="checkbox"
+            class="form-check-input me-2"
+            v-model="whisperAutoDetect"
+          />
+          Enable automatic language detection (Whisper chooses language)
+        </label>
+        <div v-if="!whisperAutoDetect" class="manual-language-select mt-2">
+          <label class="form-label">Whisper language code:</label>
+          <select v-model="whisperLanguage" class="form-select form-select-sm">
+            <option
+              v-for="lang in whisperLanguageOptions"
+              :key="lang.code"
+              :value="lang.code"
+            >
+              {{ lang.label }} ({{ lang.code }})
+            </option>
+          </select>
+          <small class="text-muted">OpenAI Whisper will use the selected language code.</small>
+        </div>
+      </div>
+
       <div class="transcription-buttons">
         <button
           @click="transcribeAudio"
@@ -1152,6 +1176,18 @@ const transcriptionResult = ref(null)
 const error = ref(null)
 const transcriptionContext = ref('')
 const statusMessage = ref('') // For general status messages
+const whisperAutoDetect = ref(true)
+const whisperLanguage = ref('no')
+const whisperLanguageOptions = [
+  { code: 'no', label: 'Norwegian' },
+  { code: 'en', label: 'English' },
+  { code: 'sv', label: 'Swedish' },
+  { code: 'da', label: 'Danish' },
+  { code: 'de', label: 'German' },
+  { code: 'fr', label: 'French' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'it', label: 'Italian' }
+]
 
 // Chunked processing state
 const isChunkedProcessing = ref(false)
@@ -3287,7 +3323,9 @@ const processSingleWhisperFile = async (audioBlob, fileName) => {
   const formData = new FormData()
   formData.append('file', audioBlob, fileName)
   formData.append('model', 'whisper-1')
-  formData.append('language', 'no') // Norwegian
+  if (!whisperAutoDetect.value && whisperLanguage.value) {
+    formData.append('language', whisperLanguage.value)
+  }
   formData.append('userId', 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b')
 
   const startTime = performance.now()
@@ -3314,12 +3352,14 @@ const processSingleWhisperFile = async (audioBlob, fileName) => {
 
     console.log('✅ Whisper transcription completed:', result)
 
+    const detectedLanguage = result.language || (whisperAutoDetect.value ? 'auto-detected' : whisperLanguage.value)
+
     whisperResult.value = {
       success: true,
       transcription: {
         raw_text: result.text,
         improved_text: null,
-        language: 'no',
+        language: detectedLanguage,
         processing_time: parseFloat(processingTime),
         timestamp: new Date().toISOString(),
       },
@@ -3331,6 +3371,7 @@ const processSingleWhisperFile = async (audioBlob, fileName) => {
       },
     }
 
+    // Store primary result for downstream actions
     transcriptionResult.value = whisperResult.value
 
     loadingMessage.value = `✅ Whisper completed in ${processingTime}s`
@@ -3372,7 +3413,9 @@ const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
       const formData = new FormData()
       formData.append('file', chunks[i].blob, `chunk_${i + 1}_${fileName}`)
       formData.append('model', 'whisper-1')
-      formData.append('language', 'no')
+      if (!whisperAutoDetect.value && whisperLanguage.value) {
+        formData.append('language', whisperLanguage.value)
+      }
       formData.append('userId', 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b')
 
       const response = await fetch('https://openai.vegvisr.org/audio', {
@@ -3405,6 +3448,7 @@ const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
         processingTime: parseFloat(chunkTime),
         silent: !result.text || result.text.trim().length === 0,
         error: false,
+        detectedLanguage: result.language || null,
       })
     } catch (err) {
       console.error(`❌ Chunk ${i + 1} error:`, err)
@@ -3416,6 +3460,7 @@ const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
         improved_text: null,
         processingTime: 0,
         error: true,
+        detectedLanguage: null,
       })
     }
   }
@@ -3437,12 +3482,14 @@ const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
       .map((chunk) => chunk.raw_text)
       .join(' ')
 
+    const detectedLanguage = chunkResults.value.find(c => c.detectedLanguage)?.detectedLanguage || (whisperAutoDetect.value ? 'auto-detected' : whisperLanguage.value)
+
     transcriptionResult.value = {
       success: true,
       transcription: {
         raw_text: combinedText,
         improved_text: null,
-        language: 'no',
+        language: detectedLanguage,
         chunks: chunkResults.value.length,
         processing_time: chunkResults.value.reduce((total, chunk) => total + (chunk.processingTime || 0), 0),
         timestamp: new Date().toISOString(),

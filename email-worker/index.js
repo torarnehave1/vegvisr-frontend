@@ -106,6 +106,7 @@ async function markMagicLinkUsed(env, token) {
 
 async function sendMagicLinkEmail(env, toEmail, magicLink) {
   const smtpUser = env.MAGIC_SMTP_USER || 'torarnehave@gmail.com'
+  const fromEmail = env.MAGIC_SMTP_FROM || smtpUser // allows alias like vegvisr.org@gmail.com while authenticating as owner
   const rawAppPassword = env.MAGIC_SMTP_APP_PASSWORD || env.TAHGMAIL
   if (!rawAppPassword) {
     throw new Error('TAHGMAIL app password is not configured')
@@ -146,7 +147,7 @@ async function sendMagicLinkEmail(env, toEmail, magicLink) {
     body: JSON.stringify({
       senderEmail: smtpUser,
       authEmail: smtpUser,
-      fromEmail: smtpUser,
+      fromEmail,
       toEmail,
       subject,
       body: html,

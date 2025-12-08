@@ -98,8 +98,10 @@ const isValidAudioFormat = (contentType, fileName) => {
     'audio/mp4',
     'audio/flac',
     'audio/webm',
+    'audio/ogg',
+    'audio/ogg; codecs=opus',
   ]
-  const validExtensions = ['.wav', '.mp3', '.m4a', '.flac', '.webm']
+  const validExtensions = ['.wav', '.mp3', '.m4a', '.flac', '.webm', '.ogg', '.opus']
 
   // Check MIME type
   if (contentType && validMimeTypes.includes(contentType.toLowerCase())) {
@@ -125,6 +127,11 @@ const detectAudioFormat = (audioBuffer) => {
   // WebM container (EBML header)
   if (header.startsWith('1a45dfa3')) {
     return { contentType: 'audio/webm', extension: '.webm', format: 'WebM' }
+  }
+
+  // OGG/Opus container (OggS header)
+  if (header.startsWith('4f676753')) {
+    return { contentType: 'audio/ogg', extension: '.ogg', format: 'OGG/Opus' }
   }
 
   // WAV format (RIFF header)
