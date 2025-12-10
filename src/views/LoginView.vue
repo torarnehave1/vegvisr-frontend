@@ -145,12 +145,33 @@ const phoneDisplay = computed(() => {
 const resendDisabled = computed(() => resendCooldown.value > 0)
 const resendCountdown = computed(() => Math.max(resendCooldown.value, 0))
 
-onMounted(() => {
+onMounted(async () => {
   const storedUser = JSON.parse(localStorage.getItem('user'))
   if (storedUser && storedUser.email) {
     email.value = storedUser.email
   }
   theme.value = localStorage.getItem('theme') || 'light'
+
+  // Dev mode: Auto-login on localhost with email parameter
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  if (isLocalhost && route.query.email) {
+    console.log('[LoginView] Dev mode: Auto-login with email:', route.query.email)
+    email.value = route.query.email
+    try {
+      const userContext = await fetchUserContext(route.query.email)
+      userStore.setUser(userContext)
+      sessionStorage.setItem('email_session_verified', '1')
+      statusMessage.value = 'Dev mode: Auto-logged in'
+      
+      // Redirect to intended destination or default to /user
+      const destination = route.query.redirect || '/user'
+      router.replace(destination)
+      return
+    } catch (err) {
+      console.error('[LoginView] Dev auto-login failed:', err)
+      errorMessage.value = 'Auto-login failed. Please login manually.'
+    }
+  }
 
   // If redirected while already logged in, keep email default and fall back to phone if needed
   if (route.query.requirePhone === '1' && userStore.loggedIn && userStore.email) {

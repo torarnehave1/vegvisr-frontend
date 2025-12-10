@@ -3,18 +3,10 @@ import { createSubjects } from '@openauthjs/openauth/subject'
 import { object, string } from 'valibot'
 
 // CORS headers
-const baseCorsHeaders = {
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Credentials': 'true',
-}
-
-const getCorsHeaders = (request) => {
-  const origin = request?.headers?.get('Origin')
-  return {
-    ...baseCorsHeaders,
-    'Access-Control-Allow-Origin': origin || '*',
-  }
 }
 
 const buildOpenAuthClient = (env) => {
@@ -49,10 +41,10 @@ const setCookie = (name, value, opts = {}) => {
   return parts.join('; ')
 }
 
-const createResponse = (body, status = 200, headers = {}, request) => {
+const createResponse = (body, status = 200, headers = {}) => {
   return new Response(body, {
     status,
-    headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request), ...headers },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders, ...headers },
   })
 }
 
@@ -68,7 +60,7 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          ...getCorsHeaders(request),
+          ...corsHeaders,
           'Access-Control-Max-Age': '86400',
         },
       })
@@ -89,7 +81,7 @@ export default {
         return createResponse(JSON.stringify({ success: false, error: 'Invalid session' }), 401)
       }
 
-      const headers = { ...getCorsHeaders(request) }
+      const headers = { ...corsHeaders }
       if (verified.tokens?.access) {
         headers['Set-Cookie'] = setCookie('oa_access', verified.tokens.access, {
           maxAge: verified.tokens.expiresIn || 3600,
@@ -100,15 +92,7 @@ export default {
         JSON.stringify({ success: true, subject: verified.subject?.properties || {} }),
         200,
         headers,
-        request,
       )
-    }
-
-    if (url.pathname === '/auth/openauth/logout') {
-      const headers = new Headers({ ...getCorsHeaders(request), 'Content-Type': 'application/json' })
-      headers.append('Set-Cookie', clearCookie('oa_access'))
-      headers.append('Set-Cookie', clearCookie('oa_refresh'))
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers })
     }
 
     // 1. Login endpoint: /auth/google/login
@@ -243,7 +227,7 @@ export default {
           <p>Continue to sign in with Vegvisr.</p>
           <a href="/auth/openauth/protected" style="display:inline-block;padding:10px 16px;background:#0f62fe;color:#fff;text-decoration:none;border-radius:6px;">Continue</a>
         </body></html>`,
-        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...getCorsHeaders(request) } },
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders } },
       )
     }
 
@@ -267,7 +251,7 @@ export default {
       const verifier = cookies.oa_verifier
 
       if (!code || !verifier) {
-        return new Response('Missing code or verifier', { status: 400, headers: getCorsHeaders(request) })
+        return new Response('Missing code or verifier', { status: 400, headers: corsHeaders })
       }
 
       const exchanged = await client.exchange(
@@ -276,7 +260,7 @@ export default {
         verifier,
       )
       if (exchanged.err) {
-        return new Response('Authorization code invalid', { status: 401, headers: getCorsHeaders(request) })
+        return new Response('Authorization code invalid', { status: 401, headers: corsHeaders })
       }
 
       const verified = await client.verify(subjects, exchanged.tokens.access, {
@@ -284,7 +268,7 @@ export default {
       })
 
       if (verified.err) {
-        return new Response('Access token invalid', { status: 401, headers: getCorsHeaders(request) })
+        return new Response('Access token invalid', { status: 401, headers: corsHeaders })
       }
 
       const subject = verified.subject?.properties || {}
@@ -317,7 +301,7 @@ export default {
         }
       }
 
-      const headers = new Headers({ ...getCorsHeaders(request), 'Content-Type': 'text/html; charset=utf-8' })
+      const headers = new Headers({ ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' })
       const accessCookie = setCookie('oa_access', exchanged.tokens.access, {
         maxAge: exchanged.tokens.expiresIn || 3600,
       })
@@ -343,7 +327,7 @@ export default {
     if (url.pathname === '/' || url.pathname === '/health') {
       return new Response('Auth worker running', {
         status: 200,
-        headers: getCorsHeaders(request),
+        headers: corsHeaders,
       })
     }
 
@@ -637,7 +621,7 @@ export default {
           headers: {
             'Content-Type': contentType,
             'Cache-Control': 'public, max-age=3600',
-            ...getCorsHeaders(request),
+            ...corsHeaders,
           },
         })
       } catch (error) {
@@ -647,7 +631,7 @@ export default {
 
     return new Response('Not found', {
       status: 404,
-      headers: getCorsHeaders(request),
+      headers: corsHeaders,
     })
   },
 }

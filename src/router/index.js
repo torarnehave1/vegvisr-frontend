@@ -397,6 +397,31 @@ const router = createRouter({
       },
     },
     {
+      path: '/claude-code',
+      name: 'claude-code',
+      component: () => import('../views/ClaudeCodeInterface.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
+      path: '/mystmkra-portfolio',
+      name: 'mystmkra-portfolio',
+      component: () => import('../views/MystMkraPortfolio.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/mystmkra',
+      name: 'mystmkra-documents',
+      component: () => import('../views/MystMkraDocuments.vue'),
+      meta: {
+        requiresAuth: false,
+      },
+    },
+    {
       path: '/component-manager/:componentName?',
       name: 'component-manager',
       component: () => import('../views/ComponentManagerView.vue'),
