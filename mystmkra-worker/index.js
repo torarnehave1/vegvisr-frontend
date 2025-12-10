@@ -48,6 +48,10 @@ export default {
         return handleCount(request, env.MYSTMKRA_DB, corsHeaders)
       }
 
+      if (url.pathname === '/delete' && request.method === 'POST') {
+        return handleDelete(request, env.MYSTMKRA_DB, corsHeaders)
+      }
+
       if (url.pathname === '/health' && request.method === 'GET') {
         return new Response(
           JSON.stringify({ success: true, status: 'healthy', database: 'd1' }),
@@ -384,6 +388,40 @@ async function handleCount(request, db, corsHeaders) {
     )
   } catch (error) {
     console.error('Count error:', error)
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+}
+
+async function handleDelete(request, db, corsHeaders) {
+  try {
+    const body = await request.json()
+    const ids = body.ids
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Document IDs array is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Delete documents by IDs
+    const placeholders = ids.map(() => '?').join(',')
+    const stmt = db.prepare(`DELETE FROM documents WHERE id IN (${placeholders})`).bind(...ids)
+    const result = await stmt.run()
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        deleted: result.meta.changes || ids.length,
+        message: `Successfully deleted ${result.meta.changes || ids.length} document(s)` 
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  } catch (error) {
+    console.error('Delete error:', error)
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -113,6 +113,25 @@
               </div>
             </div>
 
+            <!-- Bulk Actions Toolbar -->
+            <div v-if="selectedDocs.size > 0" class="alert alert-info d-flex justify-content-between align-items-center mb-4">
+              <div>
+                <i class="bi bi-check-square"></i>
+                <strong>{{ selectedDocs.size }}</strong> document(s) selected
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-sm btn-outline-secondary" @click="selectAll">
+                  <i class="bi bi-check-all"></i> Select All
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @click="clearSelection">
+                  <i class="bi bi-x-circle"></i> Clear Selection
+                </button>
+                <button class="btn btn-sm btn-danger" @click="confirmBulkDelete">
+                  <i class="bi bi-trash"></i> Delete Selected
+                </button>
+              </div>
+            </div>
+
             <!-- Duplicate Analysis Results -->
             <div v-if="duplicateGroups.length > 0" class="alert alert-warning mb-4">
               <h5 class="alert-heading">
@@ -151,8 +170,18 @@
             <!-- Grid View -->
             <div v-if="viewMode === 'grid' && documents.length > 0" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
               <div v-for="doc in documents" :key="doc.id" class="col">
-                <div class="card h-100 document-card" @click="viewDocument(doc)">
-                  <img v-if="doc.firstImage" :src="doc.firstImage" class="card-img-top" alt="Document image" style="height: 200px; object-fit: cover;" />
+                <div class="card h-100 document-card" :class="{ 'border-primary border-3': selectedDocs.has(doc.id) }">
+                  <div class="position-absolute top-0 start-0 m-2" style="z-index: 10;" @click.stop>
+                    <input 
+                      type="checkbox" 
+                      class="form-check-input" 
+                      :checked="selectedDocs.has(doc.id)"
+                      @change="toggleSelection(doc.id)"
+                      style="width: 1.5rem; height: 1.5rem; cursor: pointer;"
+                    />
+                  </div>
+                  <div @click="viewDocument(doc)" style="cursor: pointer;">
+                    <img v-if="doc.firstImage" :src="doc.firstImage" class="card-img-top" alt="Document image" style="height: 200px; object-fit: cover;" />
                   <div class="card-body">
                     <h5 class="card-title">{{ doc.title || 'Untitled' }}</h5>
                     <h6 v-if="doc.firstHeading && doc.firstHeading !== doc.title" class="card-subtitle mb-2 text-muted small">
@@ -173,19 +202,29 @@
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
               </div>
             </div>
 
             <!-- List View -->
             <div v-if="viewMode === 'list' && documents.length > 0" class="list-view">
-              <div v-for="doc in documents" :key="doc.id" class="card mb-3 document-list-item" @click="viewDocument(doc)">
+              <div v-for="doc in documents" :key="doc.id" class="card mb-3 document-list-item" :class="{ 'border-primary border-3': selectedDocs.has(doc.id) }">
                 <div class="card-body">
                   <div class="row align-items-center">
-                    <div v-if="doc.firstImage" class="col-md-2">
+                    <div class="col-auto" @click.stop>
+                      <input 
+                        type="checkbox" 
+                        class="form-check-input" 
+                        :checked="selectedDocs.has(doc.id)"
+                        @change="toggleSelection(doc.id)"
+                        style="width: 1.5rem; height: 1.5rem; cursor: pointer;"
+                      />
+                    </div>
+                    <div v-if="doc.firstImage" class="col-md-2" @click="viewDocument(doc)" style="cursor: pointer;">
                       <img :src="doc.firstImage" class="img-fluid rounded" alt="Document preview" style="max-height: 100px; object-fit: cover; width: 100%;" />
                     </div>
-                    <div :class="doc.firstImage ? 'col-md-8' : 'col-md-9'">
+                    <div :class="doc.firstImage ? 'col-md-7' : 'col-md-8'" @click="viewDocument(doc)" style="cursor: pointer;">
                       <h5 class="mb-2">{{ doc.title || 'Untitled' }}</h5>
                       <h6 v-if="doc.firstHeading && doc.firstHeading !== doc.title" class="text-muted small mb-1">
                         {{ doc.firstHeading }}
@@ -221,6 +260,37 @@
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header bg-danger text-white">
+            <h5 class="modal-title">
+              <i class="bi bi-exclamation-triangle"></i>
+              Confirm Delete
+            </h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-0">
+              Are you sure you want to permanently delete <strong>{{ selectedDocs.size }}</strong> document(s)?
+            </p>
+            <p class="text-muted small mt-2 mb-0">
+              <i class="bi bi-info-circle"></i> This action cannot be undone.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" @click="bulkDelete" :disabled="deleting">
+              <span v-if="deleting" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="bi bi-trash"></i>
+              {{ deleting ? 'Deleting...' : 'Delete Permanently' }}
+            </button>
           </div>
         </div>
       </div>
@@ -303,6 +373,8 @@ const filteredTotalCount = ref(0) // For user_id filtered results
 const analyzingDuplicates = ref(false)
 const duplicateGroups = ref([])
 const allDocuments = ref([]) // For duplicate analysis
+const selectedDocs = ref(new Set()) // Selected document IDs
+const deleting = ref(false)
 
 // Computed
 const currentPage = computed(() => Math.floor(offset.value / limit.value) + 1)
@@ -313,6 +385,74 @@ const totalDuplicates = computed(() => {
 
 // Debounce
 let searchDebounceId = null
+
+// Selection functions
+const toggleSelection = (docId) => {
+  if (selectedDocs.value.has(docId)) {
+    selectedDocs.value.delete(docId)
+  } else {
+    selectedDocs.value.add(docId)
+  }
+  // Trigger reactivity
+  selectedDocs.value = new Set(selectedDocs.value)
+}
+
+const selectAll = () => {
+  documents.value.forEach(doc => selectedDocs.value.add(doc.id))
+  selectedDocs.value = new Set(selectedDocs.value)
+}
+
+const clearSelection = () => {
+  selectedDocs.value.clear()
+  selectedDocs.value = new Set(selectedDocs.value)
+}
+
+const confirmBulkDelete = () => {
+  const modal = new Modal(document.getElementById('deleteModal'))
+  modal.show()
+}
+
+const bulkDelete = async () => {
+  if (selectedDocs.value.size === 0) return
+
+  deleting.value = true
+
+  try {
+    const idsToDelete = Array.from(selectedDocs.value)
+    const response = await fetch(`${WORKER_URL}/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ids: idsToDelete })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to delete documents')
+    }
+
+    const data = await response.json()
+    
+    // Close modal
+    const modalEl = document.getElementById('deleteModal')
+    const modal = Modal.getInstance(modalEl)
+    if (modal) modal.hide()
+
+    // Clear selection
+    clearSelection()
+
+    // Refresh documents
+    await fetchDocuments(true)
+
+    // Show success message
+    alert(`Successfully deleted ${data.deleted} document(s)`)
+  } catch (err) {
+    console.error('Delete error:', err)
+    alert('Failed to delete documents: ' + err.message)
+  } finally {
+    deleting.value = false
+  }
+}
 
 // Fetch documents
 const fetchDocuments = async (forceRefresh = false) => {
