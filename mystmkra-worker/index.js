@@ -413,10 +413,10 @@ async function handleDelete(request, db, corsHeaders) {
     const result = await stmt.run()
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         deleted: result.meta.changes || ids.length,
-        message: `Successfully deleted ${result.meta.changes || ids.length} document(s)` 
+        message: `Successfully deleted ${result.meta.changes || ids.length} document(s)`
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

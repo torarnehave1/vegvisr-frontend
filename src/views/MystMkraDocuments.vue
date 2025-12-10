@@ -172,9 +172,9 @@
               <div v-for="doc in documents" :key="doc.id" class="col">
                 <div class="card h-100 document-card" :class="{ 'border-primary border-3': selectedDocs.has(doc.id) }">
                   <div class="position-absolute top-0 start-0 m-2" style="z-index: 10;" @click.stop>
-                    <input 
-                      type="checkbox" 
-                      class="form-check-input" 
+                    <input
+                      type="checkbox"
+                      class="form-check-input"
                       :checked="selectedDocs.has(doc.id)"
                       @change="toggleSelection(doc.id)"
                       style="width: 1.5rem; height: 1.5rem; cursor: pointer;"
@@ -213,9 +213,9 @@
                 <div class="card-body">
                   <div class="row align-items-center">
                     <div class="col-auto" @click.stop>
-                      <input 
-                        type="checkbox" 
-                        class="form-check-input" 
+                      <input
+                        type="checkbox"
+                        class="form-check-input"
                         :checked="selectedDocs.has(doc.id)"
                         @change="toggleSelection(doc.id)"
                         style="width: 1.5rem; height: 1.5rem; cursor: pointer;"
@@ -432,7 +432,7 @@ const bulkDelete = async () => {
     }
 
     const data = await response.json()
-    
+
     // Close modal
     const modalEl = document.getElementById('deleteModal')
     const modal = Modal.getInstance(modalEl)
