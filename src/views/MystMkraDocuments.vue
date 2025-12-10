@@ -441,7 +441,8 @@ const bulkDelete = async () => {
     // Clear selection
     clearSelection()
 
-    // Refresh documents
+    // Refresh total count and documents
+    await fetchTotalCount()
     await fetchDocuments(true)
 
     // Show success message
@@ -478,14 +479,13 @@ const fetchDocuments = async (forceRefresh = false) => {
     const data = await response.json()
     documents.value = data.files || []
 
-    // If filtering and this is the first page, fetch total count
-    if (isFiltering && offset.value === 0) {
-      fetchFilteredCount(userIdFilter.value.trim())
-    }
-
-    // Estimate total (D1 doesn't return count, so use limit to detect end)
-    if (!isFiltering && data.files.length < limit.value) {
-      totalCount.value = offset.value + data.files.length
+    // Fetch counts on first page
+    if (offset.value === 0) {
+      if (isFiltering) {
+        fetchFilteredCount(userIdFilter.value.trim())
+      } else {
+        fetchTotalCount()
+      }
     }
   } catch (err) {
     console.error('Fetch error:', err)
@@ -505,6 +505,19 @@ const fetchFilteredCount = async (userId) => {
     }
   } catch (err) {
     console.error('Failed to fetch filtered count:', err)
+  }
+}
+
+// Fetch total count (no filter)
+const fetchTotalCount = async () => {
+  try {
+    const response = await fetch(`${WORKER_URL}/count`)
+    if (response.ok) {
+      const data = await response.json()
+      totalCount.value = data.count || 0
+    }
+  } catch (err) {
+    console.error('Failed to fetch total count:', err)
   }
 }
 
