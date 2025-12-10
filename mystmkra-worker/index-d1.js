@@ -20,9 +20,9 @@ export default {
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { 
+      return new Response(null, {
         status: 204,
-        headers: corsHeaders 
+        headers: corsHeaders
       })
     }
 
@@ -89,9 +89,9 @@ async function handleSearch(request, db, corsHeaders) {
       console.log('Tag search:', query)
       const tag = query.trim()
       const stmt = db.prepare(`
-        SELECT * FROM documents 
-        WHERE tags LIKE ? 
-        ORDER BY updated_at DESC 
+        SELECT * FROM documents
+        WHERE tags LIKE ?
+        ORDER BY updated_at DESC
         LIMIT 50
       `).bind(`%${tag}%`)
       const { results: rows } = await stmt.all()
@@ -146,10 +146,10 @@ async function handleSearch(request, db, corsHeaders) {
     })
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         results: resultsWithAbstracts,
-        count: resultsWithAbstracts.length 
+        count: resultsWithAbstracts.length
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -220,13 +220,13 @@ async function handleListFiles(request, db, corsHeaders) {
 
   try {
     const stmt = db.prepare(`
-      SELECT id, title, tags, created_at, updated_at, published 
-      FROM documents 
+      SELECT id, title, tags, created_at, updated_at, published
+      FROM documents
       WHERE locked = 0
-      ORDER BY updated_at DESC 
+      ORDER BY updated_at DESC
       LIMIT ? OFFSET ?
     `).bind(limit, offset)
-    
+
     const { results } = await stmt.all()
 
     const files = (results || []).map(file => ({
@@ -240,8 +240,8 @@ async function handleListFiles(request, db, corsHeaders) {
     }))
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         files,
         count: files.length,
         limit,

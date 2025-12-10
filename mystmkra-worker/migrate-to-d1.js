@@ -20,18 +20,18 @@ async function migrate() {
   }
 
   const client = new MongoClient(MONGODB_URI)
-  
+
   try {
     console.log('🔌 Connecting to MongoDB...')
     await client.connect()
-    
+
     const db = client.db(DB_NAME)
     const collection = db.collection(COLLECTION)
-    
+
     console.log('📥 Fetching all documents...')
     const docs = await collection.find({}).toArray()
     console.log(`✅ Found ${docs.length} documents`)
-    
+
     // Generate SQL INSERT statements
     const inserts = docs.map(doc => {
       const id = doc._id.toString()
@@ -48,10 +48,10 @@ async function migrate() {
       const createdAt = doc.createdAt ? `'${new Date(doc.createdAt).toISOString()}'` : 'NULL'
       const updatedAt = doc.updatedAt ? `'${new Date(doc.updatedAt).toISOString()}'` : 'NULL'
       const publishedAt = doc.publishedAt ? `'${new Date(doc.publishedAt).toISOString()}'` : 'NULL'
-      
+
       return `INSERT INTO documents (id, title, content, user_id, locked, published, tags, part, total_parts, connected_assistant, url, created_at, updated_at, published_at) VALUES ('${id}', '${title}', '${content}', ${userId ? `'${userId}'` : 'NULL'}, ${locked}, ${published}, '${tags}', ${part}, ${totalParts}, ${connectedAssistant}, ${url}, ${createdAt}, ${updatedAt}, ${publishedAt});`
     })
-    
+
     // Write to file
     const outputPath = './migration-inserts.sql'
     fs.writeFileSync(outputPath, inserts.join('\n\n'))
@@ -62,7 +62,7 @@ async function migrate() {
     console.log('2. Update wrangler.toml with database binding')
     console.log('3. Run schema: wrangler d1 execute mystmkra-db --remote --file=d1-schema.sql')
     console.log('4. Run migration: wrangler d1 execute mystmkra-db --remote --file=migration-inserts.sql')
-    
+
   } catch (error) {
     console.error('❌ Migration failed:', error)
     process.exit(1)

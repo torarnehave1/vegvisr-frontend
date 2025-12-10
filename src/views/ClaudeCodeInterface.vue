@@ -18,7 +18,7 @@
             <option value="">torarnehave1/AppBuilder</option>
             <option value="vegvisr">torarnehave1/vegvisr-frontend</option>
           </select>
-          
+
           <select v-model="selectedBranch" class="selector">
             <option value="default">Default</option>
             <option value="main">Main</option>
@@ -34,8 +34,8 @@
           </div>
 
           <div class="session-list">
-            <div 
-              v-for="session in sessions" 
+            <div
+              v-for="session in sessions"
               :key="session.id"
               class="session-item"
               :class="{ active: session.id === activeSessionId }"
@@ -68,14 +68,14 @@
               @keydown.meta.enter="submitPrompt"
               @keydown.ctrl.enter="submitPrompt"
             ></textarea>
-            
+
             <div class="input-footer">
               <div class="input-actions">
                 <button class="attach-button" title="Attach files">
                   📎
                 </button>
               </div>
-              
+
               <div class="model-selector">
                 <button class="model-button">
                   Opus 4.5
@@ -104,8 +104,8 @@
       <!-- Right Panel - Suggestions -->
       <div class="right-panel">
         <div class="suggestions">
-          <div 
-            v-for="(suggestion, index) in suggestions" 
+          <div
+            v-for="(suggestion, index) in suggestions"
             :key="index"
             class="suggestion-card"
             @click="applySuggestion(suggestion)"
@@ -189,17 +189,17 @@ const selectSession = (id) => {
 
 const submitPrompt = () => {
   if (!userPrompt.value.trim()) return
-  
+
   // Add user message
   messages.value.push({
     role: 'user',
     content: userPrompt.value,
     timestamp: new Date().toLocaleTimeString()
   })
-  
+
   // TODO: Connect to AI endpoint here
   console.log('Submitting prompt:', userPrompt.value)
-  
+
   // Clear input
   userPrompt.value = ''
 }
@@ -619,7 +619,7 @@ onMounted(() => {
   .sidebar {
     width: 260px;
   }
-  
+
   .center-panel {
     padding: 20px;
   }

@@ -13,7 +13,7 @@
         <div class="col-12">
           <div class="portfolio-header">
             <h1 class="text-center mb-4">MystMkra Document Portfolio</h1>
-            
+
             <!-- Search and Filters -->
             <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
               <div class="search-box flex-grow-1 position-relative" style="max-width: 500px">
@@ -96,7 +96,7 @@
                   <div class="card-body">
                     <h5 class="card-title">{{ doc.title || 'Untitled' }}</h5>
                     <p class="card-text text-muted small">{{ truncateText(doc.abs, 100) }}</p>
-                    
+
                     <!-- Tags -->
                     <div v-if="doc.tags && doc.tags.length > 0" class="mb-2">
                       <span v-for="tag in doc.tags.slice(0, 3)" :key="tag" class="badge bg-secondary me-1">
@@ -125,13 +125,13 @@
                   </div>
                   <div class="card-footer bg-transparent">
                     <div class="d-flex gap-2">
-                      <button 
-                        class="btn btn-primary btn-sm flex-grow-1" 
+                      <button
+                        class="btn btn-primary btn-sm flex-grow-1"
                         @click="viewDocument(doc)"
                         :disabled="loadingDocId === doc.id"
                       >
                         <span v-if="loadingDocId === doc.id" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                        <i v-else class="bi bi-eye"></i> 
+                        <i v-else class="bi bi-eye"></i>
                         {{ loadingDocId === doc.id ? 'Loading...' : 'View' }}
                       </button>
                       <button class="btn btn-outline-secondary btn-sm" @click="shareDocument(doc)" title="Share">
@@ -167,13 +167,13 @@
                         </div>
                       </div>
                       <div class="d-flex gap-2 justify-content-end">
-                        <button 
-                          class="btn btn-primary btn-sm" 
+                        <button
+                          class="btn btn-primary btn-sm"
                           @click="viewDocument(doc)"
                           :disabled="loadingDocId === doc.id"
                         >
                           <span v-if="loadingDocId === doc.id" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                          <i v-else class="bi bi-eye"></i> 
+                          <i v-else class="bi bi-eye"></i>
                           {{ loadingDocId === doc.id ? 'Loading...' : 'View' }}
                         </button>
                         <button class="btn btn-outline-secondary btn-sm" @click="shareDocument(doc)">
@@ -384,50 +384,50 @@ const fetchWithRetry = async (url, options = {}, maxRetries = 3) => {
       const timeout = attempt === 1 ? 20000 : 15000
       const controller = new AbortController()
       timeoutId = setTimeout(() => controller.abort(), timeout)
-      
+
       // Merge abort signals if one exists
-      const signal = options.signal 
+      const signal = options.signal
         ? (() => {
             const parentSignal = options.signal
             if (parentSignal.aborted) throw new DOMException('Aborted', 'AbortError')
-            
+
             const listener = () => controller.abort()
             parentSignal.addEventListener('abort', listener)
-            
+
             return controller.signal
           })()
         : controller.signal
 
       console.log(`[fetchWithRetry] Attempt ${attempt}/${maxRetries}: ${url}`)
-      
+
       const response = await fetch(url, { ...options, signal })
       clearTimeout(timeoutId)
-      
+
       if (response.ok) {
         console.log(`[fetchWithRetry] Success on attempt ${attempt}`)
         return response
       }
-      
+
       // Don't retry on 4xx errors
       if (response.status >= 400 && response.status < 500) {
         throw new Error(`HTTP ${response.status}`)
       }
-      
+
       throw new Error(`HTTP ${response.status}`)
     } catch (err) {
       if (timeoutId) clearTimeout(timeoutId)
-      
+
       // Don't retry if parent aborted
       if (options.signal?.aborted || err.name === 'AbortError') {
         throw err
       }
-      
+
       console.warn(`[fetchWithRetry] Attempt ${attempt} failed:`, err.message)
-      
+
       if (attempt === maxRetries) {
         throw err
       }
-      
+
       // Exponential backoff: 1s, 2s, 4s
       const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000)
       console.log(`[fetchWithRetry] Retrying in ${delay}ms...`)
@@ -515,7 +515,7 @@ const runSearch = async () => {
 // Sort documents
 const sortDocuments = () => {
   const docs = [...documents.value]
-  
+
   switch (sortBy.value) {
     case 'date-desc':
       docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
@@ -530,7 +530,7 @@ const sortDocuments = () => {
       docs.sort((a, b) => (b.title || '').localeCompare(a.title || ''))
       break
   }
-  
+
   documents.value = docs
 }
 

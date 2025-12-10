@@ -12,7 +12,7 @@
         <div class="col-12">
           <div class="portfolio-header">
             <h1 class="text-center mb-4">MystMkra Documents</h1>
-            
+
             <!-- Search Box and Filters -->
             <div class="mb-4">
               <div class="row g-2" style="max-width: 900px; margin: 0 auto">
@@ -61,13 +61,13 @@
               <div class="text-muted">
                 <span v-if="searchQuery">Search results: {{ documents.length }} documents</span>
                 <span v-else-if="userIdFilter">
-                  Filtered: Showing {{ offset + 1 }}-{{ offset + documents.length }} 
+                  Filtered: Showing {{ offset + 1 }}-{{ offset + documents.length }}
                   <span v-if="filteredTotalCount > 0">of {{ filteredTotalCount }}</span>
                   documents for User ID: <code>{{ userIdFilter }}</code>
                 </span>
                 <span v-else>Showing {{ offset + 1 }}-{{ offset + documents.length }} of {{ totalCount }} documents</span>
               </div>
-              
+
               <div class="d-flex gap-2 align-items-center">
                 <button
                   class="btn btn-outline-warning"
@@ -81,8 +81,8 @@
 
                 <div class="input-group" style="max-width: 180px;">
                   <span class="input-group-text"><i class="bi bi-card-list"></i></span>
-                  <select 
-                    v-model.number="limit" 
+                  <select
+                    v-model.number="limit"
                     @change="handleLimitChange"
                     class="form-select"
                   >
@@ -93,7 +93,7 @@
                     <option :value="200">200 per page</option>
                   </select>
                 </div>
-                
+
                 <div class="btn-group" role="group">
                   <button
                     class="btn btn-outline-primary"
@@ -159,7 +159,7 @@
                       {{ doc.firstHeading }}
                     </h6>
                     <p class="card-text text-muted small">{{ doc.preview || doc.abs || 'No description' }}</p>
-                    
+
                     <div v-if="doc.tags && doc.tags.length > 0" class="mb-2">
                       <span v-for="tag in doc.tags.slice(0, 3)" :key="tag" class="badge bg-secondary me-1">
                         {{ tag }}
@@ -319,7 +319,7 @@ const fetchDocuments = async (forceRefresh = false) => {
   if (forceRefresh) {
     offset.value = 0
   }
-  
+
   loading.value = true
   error.value = null
 
@@ -337,12 +337,12 @@ const fetchDocuments = async (forceRefresh = false) => {
 
     const data = await response.json()
     documents.value = data.files || []
-    
+
     // If filtering and this is the first page, fetch total count
     if (isFiltering && offset.value === 0) {
       fetchFilteredCount(userIdFilter.value.trim())
     }
-    
+
     // Estimate total (D1 doesn't return count, so use limit to detect end)
     if (!isFiltering && data.files.length < limit.value) {
       totalCount.value = offset.value + data.files.length
@@ -468,7 +468,7 @@ const loadPrevious = () => {
 const analyzeDuplicates = async () => {
   analyzingDuplicates.value = true
   duplicateGroups.value = []
-  
+
   try {
     // Fetch ALL documents WITH CONTENT for analysis (respecting user_id filter)
     let url = `${WORKER_URL}/files-with-content?limit=1000&offset=0`
@@ -480,36 +480,36 @@ const analyzeDuplicates = async () => {
     }
     const response = await fetch(url)
     if (!response.ok) throw new Error('Failed to fetch all documents')
-    
+
     const data = await response.json()
     allDocuments.value = data.files || []
     console.log(`[Duplicate Analysis] Analyzing ${allDocuments.value.length} documents for content similarity...`)
-    
+
     // Content similarity detection
     const contentGroups = []
     const processed = new Set()
-    
+
     allDocuments.value.forEach((doc, i) => {
       if (processed.has(doc.id)) return
-      
+
       const group = [doc]
       const content1 = doc.content || ''
-      
+
       // Skip if content is too short
       if (content1.trim().length < 100) {
         return
       }
-      
+
       // Compare with remaining documents
       allDocuments.value.slice(i + 1).forEach(otherDoc => {
         if (processed.has(otherDoc.id)) return
-        
+
         const content2 = otherDoc.content || ''
         if (content2.trim().length < 100) return
-        
+
         // Calculate similarity
         const similarity = calculateContentSimilarity(content1, content2)
-        
+
         // If 85% or more similar, consider duplicate
         if (similarity >= 0.85) {
           group.push({
@@ -519,7 +519,7 @@ const analyzeDuplicates = async () => {
           processed.add(otherDoc.id)
         }
       })
-      
+
       if (group.length > 1) {
         processed.add(doc.id)
         const avgSimilarity = group.reduce((sum, d) => sum + (d.similarityScore || 1), 0) / group.length
@@ -530,10 +530,10 @@ const analyzeDuplicates = async () => {
         })
       }
     })
-    
+
     duplicateGroups.value = contentGroups.sort((a, b) => b.docs.length - a.docs.length)
     console.log(`[Duplicate Analysis] Found ${contentGroups.length} content duplicate groups`)
-    
+
     if (contentGroups.length === 0) {
       alert('No duplicate content found (85%+ similarity threshold)')
     } else {
@@ -555,27 +555,27 @@ const calculateContentSimilarity = (content1, content2) => {
   const normalize = (str) => str.toLowerCase().trim().replace(/\s+/g, ' ')
   const c1 = normalize(content1)
   const c2 = normalize(content2)
-  
+
   // Exact match
   if (c1 === c2) return 1.0
-  
+
   // Length-based quick filter - if lengths differ significantly, not similar
   const lengthRatio = Math.min(c1.length, c2.length) / Math.max(c1.length, c2.length)
   if (lengthRatio < 0.7) return 0
-  
+
   // Compare first 3000 characters for efficiency (most duplicates are identical at start)
   const sample1 = c1.substring(0, 3000)
   const sample2 = c2.substring(0, 3000)
-  
+
   if (sample1 === sample2) return 0.99 // Very high similarity
-  
+
   // Calculate Jaccard similarity using word sets
   const words1 = new Set(sample1.split(/\s+/).filter(w => w.length > 2))
   const words2 = new Set(sample2.split(/\s+/).filter(w => w.length > 2))
-  
+
   const intersection = new Set([...words1].filter(w => words2.has(w)))
   const union = new Set([...words1, ...words2])
-  
+
   return intersection.size / union.size
 }
 

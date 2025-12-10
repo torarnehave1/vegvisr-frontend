@@ -20,9 +20,9 @@ export default {
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { 
+      return new Response(null, {
         status: 204,
-        headers: corsHeaders 
+        headers: corsHeaders
       })
     }
 
@@ -97,9 +97,9 @@ async function handleSearch(request, db, corsHeaders) {
       console.log('Tag search:', query)
       const tag = query.trim()
       const stmt = db.prepare(`
-        SELECT * FROM documents 
-        WHERE tags LIKE ? 
-        ORDER BY updated_at DESC 
+        SELECT * FROM documents
+        WHERE tags LIKE ?
+        ORDER BY updated_at DESC
         LIMIT 50
       `).bind(`%${tag}%`)
       const { results: rows } = await stmt.all()
@@ -154,10 +154,10 @@ async function handleSearch(request, db, corsHeaders) {
     })
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         results: resultsWithAbstracts,
-        count: resultsWithAbstracts.length 
+        count: resultsWithAbstracts.length
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -231,35 +231,35 @@ async function handleListFiles(request, db, corsHeaders) {
     let stmt
     if (userId) {
       stmt = db.prepare(`
-        SELECT id, title, content, tags, created_at, updated_at, published, user_id 
-        FROM documents 
+        SELECT id, title, content, tags, created_at, updated_at, published, user_id
+        FROM documents
         WHERE locked = 0 AND user_id = ?
-        ORDER BY updated_at DESC 
+        ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
       `).bind(userId, limit, offset)
     } else {
       stmt = db.prepare(`
-        SELECT id, title, content, tags, created_at, updated_at, published, user_id 
-        FROM documents 
+        SELECT id, title, content, tags, created_at, updated_at, published, user_id
+        FROM documents
         WHERE locked = 0
-        ORDER BY updated_at DESC 
+        ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
       `).bind(limit, offset)
     }
-    
+
     const { results } = await stmt.all()
 
     const files = (results || []).map(file => {
       const content = file.content || ''
-      
+
       // Extract first heading
       const headingMatch = content.match(/^#{1,6}\s+(.+)$/m)
       const firstHeading = headingMatch ? headingMatch[1].trim() : null
-      
+
       // Extract first image
       const imageMatch = content.match(/!\[.*?\]\((.*?)\)/)
       const firstImage = imageMatch ? imageMatch[1].trim() : null
-      
+
       // Extract preview text (first 200 chars, excluding headings and images)
       let preview = content
         .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
@@ -267,7 +267,7 @@ async function handleListFiles(request, db, corsHeaders) {
         .trim()
         .substring(0, 200)
       preview = preview ? preview + '...' : 'No preview available'
-      
+
       return {
         id: file.id,
         _id: file.id,
@@ -284,8 +284,8 @@ async function handleListFiles(request, db, corsHeaders) {
     })
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         files,
         count: files.length,
         limit,
@@ -312,22 +312,22 @@ async function handleListFilesWithContent(request, db, corsHeaders) {
     let stmt
     if (userId) {
       stmt = db.prepare(`
-        SELECT id, title, content, tags, created_at, updated_at, published, user_id 
-        FROM documents 
+        SELECT id, title, content, tags, created_at, updated_at, published, user_id
+        FROM documents
         WHERE locked = 0 AND user_id = ?
-        ORDER BY updated_at DESC 
+        ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
       `).bind(userId, limit, offset)
     } else {
       stmt = db.prepare(`
-        SELECT id, title, content, tags, created_at, updated_at, published, user_id 
-        FROM documents 
+        SELECT id, title, content, tags, created_at, updated_at, published, user_id
+        FROM documents
         WHERE locked = 0
-        ORDER BY updated_at DESC 
+        ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
       `).bind(limit, offset)
     }
-    
+
     const { results } = await stmt.all()
 
     const files = (results || []).map(file => ({
@@ -343,8 +343,8 @@ async function handleListFilesWithContent(request, db, corsHeaders) {
     }))
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         files,
         count: files.length,
         limit,
@@ -372,12 +372,12 @@ async function handleCount(request, db, corsHeaders) {
     } else {
       stmt = db.prepare('SELECT COUNT(*) as count FROM documents WHERE locked = 0')
     }
-    
+
     const result = await stmt.first()
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         count: result?.count || 0
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -18,7 +18,7 @@ export const useMystMkraStore = defineStore('mystMkra', () => {
       for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         console.log(`[MystMkraStore] Attempt ${attempt}/${retries}`)
-        
+
         // Warmup with longer timeout on first attempt
         const healthTimeout = attempt === 1 ? 8000 : 5000
         await Promise.race([
@@ -32,7 +32,7 @@ export const useMystMkraStore = defineStore('mystMkra', () => {
           fetch(`${WORKER_URL}/files?limit=20&offset=0`),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Files fetch timeout')), fetchTimeout))
         ])
-        
+
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}: ${res.statusText}`)
         }
@@ -55,7 +55,7 @@ export const useMystMkraStore = defineStore('mystMkra', () => {
         return // Success - exit retry loop
       } catch (err) {
         console.error(`[MystMkraStore] Attempt ${attempt} failed:`, err.message)
-        
+
         if (attempt === retries) {
           // Final attempt failed
           console.error('[MystMkraStore] All retries exhausted')
@@ -63,7 +63,7 @@ export const useMystMkraStore = defineStore('mystMkra', () => {
           ready.value = true
           throw err
         }
-        
+
         // Wait before retry (exponential backoff)
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000)
         console.log(`[MystMkraStore] Retrying in ${delay}ms...`)

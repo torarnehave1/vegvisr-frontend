@@ -162,7 +162,7 @@ onMounted(async () => {
       userStore.setUser(userContext)
       sessionStorage.setItem('email_session_verified', '1')
       statusMessage.value = 'Dev mode: Auto-logged in'
-      
+
       // Redirect to intended destination or default to /user
       const destination = route.query.redirect || '/user'
       router.replace(destination)
