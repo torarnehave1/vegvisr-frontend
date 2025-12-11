@@ -109,7 +109,7 @@ export default {
         try {
           // Try to get user's API key from database
           let apiKey = null
-          
+
           if (userId && userId !== 'system') {
             apiKey = await getUserApiKey(userId, 'grok', env)
           }
@@ -120,7 +120,7 @@ export default {
           }
 
           if (!apiKey) {
-            return new Response(JSON.stringify({ 
+            return new Response(JSON.stringify({
               error: 'Error: X AI API key not configured. Please add your Grok API key.',
               hint: 'Go to User Dashboard → API Keys to add your Grok (X.AI) API key'
             }), {
@@ -158,8 +158,8 @@ export default {
 
         } catch (error) {
           console.error('Chat error:', error)
-          return new Response(JSON.stringify({ 
-            error: error.message 
+          return new Response(JSON.stringify({
+            error: error.message
           }), {
             status: 500,
             headers: corsHeaders
