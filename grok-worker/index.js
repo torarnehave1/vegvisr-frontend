@@ -94,9 +94,77 @@ export default {
         return handleApiDocs(corsHeaders)
       }
 
-      // POST /chat - Chat completion
+      // POST /chat - Chat completion (handles both user API keys and fallback)
       if (pathname === '/chat' && request.method === 'POST') {
-        return await handleChat(request, env, corsHeaders)
+        const body = await request.json()
+        const { userId, messages, model = 'grok-3', temperature = 0.7, max_tokens = 32000, stream = false } = body
+
+        if (!messages || !Array.isArray(messages)) {
+          return new Response(JSON.stringify({ error: 'Missing or invalid messages array' }), {
+            status: 400,
+            headers: corsHeaders
+          })
+        }
+
+        try {
+          // Try to get user's API key from database
+          let apiKey = null
+          
+          if (userId && userId !== 'system') {
+            apiKey = await getUserApiKey(userId, 'grok', env)
+          }
+
+          // Fallback to environment variable if no user key
+          if (!apiKey) {
+            apiKey = env.GROK_API_KEY
+          }
+
+          if (!apiKey) {
+            return new Response(JSON.stringify({ 
+              error: 'Error: X AI API key not configured. Please add your Grok API key.',
+              hint: 'Go to User Dashboard → API Keys to add your Grok (X.AI) API key'
+            }), {
+              status: 401,
+              headers: corsHeaders
+            })
+          }
+
+          // Call X.AI API
+          const xaiResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model,
+              messages,
+              temperature,
+              max_tokens,
+              stream
+            })
+          })
+
+          if (!xaiResponse.ok) {
+            const errorData = await xaiResponse.json().catch(() => ({}))
+            throw new Error(errorData.error?.message || `X.AI API error: ${xaiResponse.status}`)
+          }
+
+          // Return response as-is
+          const data = await xaiResponse.json()
+          return new Response(JSON.stringify(data), {
+            headers: corsHeaders
+          })
+
+        } catch (error) {
+          console.error('Chat error:', error)
+          return new Response(JSON.stringify({ 
+            error: error.message 
+          }), {
+            status: 500,
+            headers: corsHeaders
+          })
+        }
       }
 
       // POST /process-transcript - YouTube transcript to knowledge graph

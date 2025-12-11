@@ -101,6 +101,9 @@
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import { marked } from 'marked'
+import { useUserStore } from '@/stores/userStore'
+
+const userStore = useUserStore()
 
 const props = defineProps({
   graphData: {
@@ -248,7 +251,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        userId: 'system',
+        userId: userStore.userId || 'system', // Use actual user ID from store
         messages: grokMessages,
         model: 'grok-3',
         temperature: 0.7,
