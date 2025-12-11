@@ -388,22 +388,10 @@
         </div>
       </div>
 
-      <!-- Split Layout: Chat (Left) + Content (Right) -->
-      <div class="split-layout">
-        <!-- Grok Chat Panel (Left Side) -->
-        <div v-if="showGrokChat" class="chat-panel-left" :style="{ width: chatWidth + '%' }">
-          <GrokChatPanel :graphData="graphData" />
-        </div>
-
-        <!-- Resizable Divider -->
-        <div
-          v-if="showGrokChat"
-          class="resize-divider"
-          @mousedown="startResize"
-        ></div>
-
-        <!-- Main Content (Right Side) -->
-        <div class="gnew-content" :style="{ width: showGrokChat ? (100 - chatWidth) + '%' : '100%' }">
+      <!-- Content Wrapper with Chat Panel -->
+      <div class="content-wrapper">
+        <!-- Main Content -->
+        <div class="gnew-content" :class="{ 'with-chat': showGrokChat }">
         <!-- Graph Status Bar -->
         <GraphStatusBar
           :graphData="graphData"
@@ -1531,6 +1519,9 @@
           </p>
         </div>
       </div>
+
+      <!-- Grok Chat Panel -->
+      <GrokChatPanel v-if="showGrokChat" :graphData="graphData" />
     </div>
     </div>
 
@@ -2308,37 +2299,6 @@ const isPasswordVerified = ref(false)
 
 // Grok Chat Panel state
 const showGrokChat = ref(false)
-const chatWidth = ref(33) // Chat panel width as percentage
-const isResizing = ref(false)
-
-// Resize handler for chat panel
-const startResize = (e) => {
-  isResizing.value = true
-  const startX = e.clientX
-  const startWidth = chatWidth.value
-  const containerWidth = e.target.parentElement.offsetWidth
-
-  const onMouseMove = (e) => {
-    if (!isResizing.value) return
-    const deltaX = e.clientX - startX
-    const deltaPercent = (deltaX / containerWidth) * 100
-    const newWidth = startWidth + deltaPercent
-
-    // Limit width between 20% and 50%
-    if (newWidth >= 20 && newWidth <= 50) {
-      chatWidth.value = newWidth
-    }
-  }
-
-  const onMouseUp = () => {
-    isResizing.value = false
-    document.removeEventListener('mousemove', onMouseMove)
-    document.removeEventListener('mouseup', onMouseUp)
-  }
-
-  document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
-}
 
 // Computed properties
 const currentGraphId = computed(() => {
@@ -8680,55 +8640,6 @@ const saveAttribution = async () => {
 .ai-chat-toggle.btn-primary:hover {
   background-color: #5568d3;
   border-color: #5568d3;
-}
-
-/* Split Layout with Resizable Chat Panel */
-.split-layout {
-  display: flex;
-  width: 100%;
-  height: calc(100vh - 200px);
-  position: relative;
-}
-
-.chat-panel-left {
-  height: 100%;
-  overflow-y: auto;
-  background: #f8f9fa;
-  border-right: 1px solid #dee2e6;
-  flex-shrink: 0;
-}
-
-.resize-divider {
-  width: 6px;
-  background: #dee2e6;
-  cursor: col-resize;
-  flex-shrink: 0;
-  transition: background 0.2s;
-  position: relative;
-  user-select: none;
-}
-
-.resize-divider:hover {
-  background: #667eea;
-}
-
-.resize-divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 2px;
-  height: 40px;
-  background: #adb5bd;
-  border-radius: 2px;
-}
-
-.gnew-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  transition: width 0.1s;
 }
 
 .gnew-subtitle {
