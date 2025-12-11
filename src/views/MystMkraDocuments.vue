@@ -549,7 +549,7 @@ const convertSelectionToGraph = async () => {
 
     if (successCount > 0) {
       const firstGraph = results.success[0]
-      
+
       // Clear selection after successful conversion
       clearSelection()
 
