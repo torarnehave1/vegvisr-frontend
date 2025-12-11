@@ -52,6 +52,10 @@ export default {
         return handleDelete(request, env.MYSTMKRA_DB, corsHeaders)
       }
 
+      if (url.pathname === '/convert-to-graph' && request.method === 'POST') {
+        return handleConvertToGraph(request, env.MYSTMKRA_DB, env, corsHeaders)
+      }
+
       if (url.pathname === '/health' && request.method === 'GET') {
         return new Response(
           JSON.stringify({ success: true, status: 'healthy', database: 'd1' }),
@@ -422,6 +426,174 @@ async function handleDelete(request, db, corsHeaders) {
     )
   } catch (error) {
     console.error('Delete error:', error)
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+}
+
+async function handleConvertToGraph(request, db, env, corsHeaders) {
+  try {
+    const body = await request.json()
+    const { documentId, userEmail, generateAIMetadata = true } = body
+
+    if (!documentId || !userEmail) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'documentId and userEmail are required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // 1. Fetch document from MystMkra DB
+    const stmt = db.prepare('SELECT * FROM documents WHERE id = ?').bind(documentId)
+    const doc = await stmt.first()
+
+    if (!doc) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Document not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // 2. Generate AI metadata (title, description, categories)
+    let aiMetadata = {
+      title: doc.title || 'Untitled from MystMkra',
+      description: `Imported from MystMkra document: ${doc.id}`,
+      category: ''
+    }
+
+    if (generateAIMetadata && doc.content && doc.content.trim().length > 0) {
+      try {
+        console.log('Generating AI metadata for document:', documentId)
+        
+        // Call all three AI endpoints in parallel for speed
+        const metadataPromises = [
+          fetch('https://api.vegvisr.org/suggest-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nodes: [{ info: doc.content }],
+              edges: []
+            })
+          }),
+          fetch('https://api.vegvisr.org/suggest-description', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nodes: [{ info: doc.content }],
+              edges: []
+            })
+          }),
+          fetch('https://api.vegvisr.org/suggest-categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nodes: [{ info: doc.content }],
+              edges: []
+            })
+          })
+        ]
+
+        const [titleRes, descRes, catRes] = await Promise.all(metadataPromises)
+
+        if (titleRes.ok) {
+          const data = await titleRes.json()
+          aiMetadata.title = data.title
+          console.log('AI generated title:', data.title)
+        }
+
+        if (descRes.ok) {
+          const data = await descRes.json()
+          aiMetadata.description = data.description
+          console.log('AI generated description:', data.description)
+        }
+
+        if (catRes.ok) {
+          const data = await catRes.json()
+          aiMetadata.category = data.categories
+          console.log('AI generated categories:', data.categories)
+        }
+      } catch (error) {
+        console.error('AI metadata generation failed, using defaults:', error)
+        // Continue with default metadata (graceful degradation)
+      }
+    }
+
+    // 3. Create Knowledge Graph structure
+    const graphId = crypto.randomUUID()
+    const nodeId = crypto.randomUUID()
+
+    const graphData = {
+      metadata: {
+        title: aiMetadata.title,
+        description: aiMetadata.description,
+        category: aiMetadata.category,
+        createdBy: userEmail,
+        version: 0,
+        sourceDocument: doc.id,
+        sourceSystem: 'mystmkra'
+      },
+      nodes: [
+        {
+          id: nodeId,
+          label: aiMetadata.title,
+          type: 'markdown',
+          info: doc.content,
+          bibl: doc.tags ? JSON.parse(doc.tags) : [],
+          color: '#e3f2fd',
+          position: { x: 250, y: 100 },
+          visible: true,
+          path: null,
+          imageWidth: '100%',
+          imageHeight: 'auto'
+        }
+      ],
+      edges: []
+    }
+
+    // 4. Save to Knowledge Graph via service binding
+    console.log('Saving graph to dev-worker:', graphId)
+    
+    const saveResponse = await env.DEV_WORKER.fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': userEmail,
+        'Origin': 'https://mystmkra.io'
+      },
+      body: JSON.stringify({
+        id: graphId,
+        graphData: graphData,
+        override: true
+      })
+    })
+
+    const saveResult = await saveResponse.json()
+
+    if (!saveResponse.ok) {
+      console.error('Failed to save graph:', saveResult)
+      return new Response(
+        JSON.stringify({ success: false, error: saveResult.error || 'Failed to save graph' }),
+        { status: saveResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    console.log('Graph saved successfully:', graphId)
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        graphId: graphId,
+        documentId: doc.id,
+        metadata: aiMetadata,
+        viewUrl: `https://knowledge.vegvisr.org/public-graph?id=${graphId}`,
+        editUrl: `/gnew-viewer?graphId=${graphId}`
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  } catch (error) {
+    console.error('Conversion error:', error)
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -118,6 +118,17 @@
               <div>
                 <i class="bi bi-check-square"></i>
                 <strong>{{ selectedDocs.size }}</strong> document(s) selected
+                <div class="form-check form-check-inline ms-3">
+                  <input 
+                    class="form-check-input" 
+                    type="checkbox" 
+                    id="aiMetadataToggle" 
+                    v-model="generateAIMetadata"
+                  >
+                  <label class="form-check-label small" for="aiMetadataToggle">
+                    <i class="bi bi-robot"></i> AI metadata
+                  </label>
+                </div>
               </div>
               <div class="btn-group">
                 <button class="btn btn-sm btn-outline-secondary" @click="selectAll">
@@ -125,6 +136,16 @@
                 </button>
                 <button class="btn btn-sm btn-outline-secondary" @click="clearSelection">
                   <i class="bi bi-x-circle"></i> Clear Selection
+                </button>
+                <button 
+                  class="btn btn-sm btn-primary" 
+                  @click="convertSelectionToGraph"
+                  :disabled="selectedDocs.size === 0 || convertingToGraph"
+                  title="Convert selected documents to Knowledge Graph"
+                >
+                  <span v-if="convertingToGraph" class="spinner-border spinner-border-sm me-1"></span>
+                  <i v-else class="bi bi-diagram-3"></i>
+                  Create Graph
                 </button>
                 <button class="btn btn-sm btn-danger" @click="confirmBulkDelete">
                   <i class="bi bi-trash"></i> Delete Selected
@@ -353,8 +374,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import { marked } from 'marked'
+import { useUserStore } from '@/stores/userStore'
 
 const WORKER_URL = 'https://mystmkra-worker.torarnehave.workers.dev'
+const userStore = useUserStore()
 
 // State
 const loading = ref(false)
@@ -363,6 +386,8 @@ const error = ref(null)
 const documents = ref([])
 const currentDocument = ref(null)
 const searchQuery = ref('')
+const convertingToGraph = ref(false)
+const generateAIMetadata = ref(true)
 const searchLoading = ref(false)
 const userIdFilter = ref('')
 const viewMode = ref('grid')
@@ -452,6 +477,96 @@ const bulkDelete = async () => {
     alert('Failed to delete documents: ' + err.message)
   } finally {
     deleting.value = false
+  }
+}
+
+// Convert selected documents to Knowledge Graph
+const convertSelectionToGraph = async () => {
+  if (selectedDocs.value.size === 0) {
+    alert('Please select at least one document to convert')
+    return
+  }
+
+  if (!userStore.email) {
+    alert('User email not found. Please log in.')
+    return
+  }
+
+  const selectedCount = selectedDocs.value.size
+  const confirmMessage = selectedCount === 1 
+    ? `Convert this document to a Knowledge Graph?${generateAIMetadata.value ? '\n\nAI will generate title, description, and categories.' : ''}`
+    : `Convert ${selectedCount} documents to Knowledge Graphs?${generateAIMetadata.value ? '\n\nAI will generate metadata for each graph.' : ''}`
+
+  if (!confirm(confirmMessage)) {
+    return
+  }
+
+  convertingToGraph.value = true
+  const results = { success: [], failed: [] }
+
+  try {
+    const idsToConvert = Array.from(selectedDocs.value)
+
+    // Convert documents sequentially to avoid overwhelming the AI API
+    for (const docId of idsToConvert) {
+      try {
+        const response = await fetch(`${WORKER_URL}/convert-to-graph`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            documentId: docId,
+            userEmail: userStore.email,
+            generateAIMetadata: generateAIMetadata.value
+          })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Conversion failed')
+        }
+
+        const data = await response.json()
+        results.success.push({
+          docId,
+          graphId: data.graphId,
+          viewUrl: data.viewUrl,
+          editUrl: data.editUrl,
+          metadata: data.metadata
+        })
+
+        console.log(`✓ Converted document ${docId} to graph ${data.graphId}`)
+      } catch (err) {
+        console.error(`✗ Failed to convert document ${docId}:`, err)
+        results.failed.push({ docId, error: err.message })
+      }
+    }
+
+    // Show results
+    const successCount = results.success.length
+    const failedCount = results.failed.length
+
+    if (successCount > 0) {
+      const firstGraph = results.success[0]
+      const message = successCount === 1
+        ? `✓ Knowledge Graph created!\n\nTitle: ${firstGraph.metadata.title}\nView: ${firstGraph.viewUrl}\n\nOpen in new tab?`
+        : `✓ Created ${successCount} Knowledge Graph(s)!\n${failedCount > 0 ? `✗ ${failedCount} failed\n\n` : '\n'}Open first graph in new tab?`
+
+      if (confirm(message)) {
+        window.open(firstGraph.viewUrl, '_blank')
+      }
+
+      // Clear selection after successful conversion
+      clearSelection()
+    } else {
+      alert(`✗ All conversions failed:\n\n${results.failed.map(f => `${f.docId}: ${f.error}`).join('\n')}`)
+    }
+  } catch (err) {
+    console.error('Conversion error:', err)
+    alert('Failed to convert documents: ' + err.message)
+  } finally {
+    convertingToGraph.value = false
   }
 }
 
