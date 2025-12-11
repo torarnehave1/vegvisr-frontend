@@ -373,11 +373,25 @@
             <i class="bi bi-lightning-fill"></i>
             Graph Operations
           </button>
+
+          <!-- Grok AI Chat Toggle -->
+          <button
+            v-if="userStore.loggedIn"
+            @click="showGrokChat = !showGrokChat"
+            class="btn btn-sm ai-chat-toggle"
+            :class="showGrokChat ? 'btn-primary' : 'btn-outline-primary'"
+            title="Toggle Grok AI Assistant"
+          >
+            <i class="bi bi-robot"></i>
+            AI Chat
+          </button>
         </div>
       </div>
 
-      <!-- Main Content -->
-      <div class="gnew-content">
+      <!-- Content Wrapper with Chat Panel -->
+      <div class="content-wrapper">
+        <!-- Main Content -->
+        <div class="gnew-content" :class="{ 'with-chat': showGrokChat }">
         <!-- Graph Status Bar -->
         <GraphStatusBar
           :graphData="graphData"
@@ -1504,10 +1518,11 @@
             architecture for new features.
           </p>
         </div>
-
-
-
       </div>
+
+      <!-- Grok Chat Panel -->
+      <GrokChatPanel v-if="showGrokChat" :graphData="graphData" />
+    </div>
     </div>
 
     <!-- Image Editing Modals (Admin Only) -->
@@ -2213,6 +2228,7 @@ import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
 import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
+import GrokChatPanel from '@/components/GrokChatPanel.vue'
 
 // Props
 const props = defineProps({
@@ -2280,6 +2296,9 @@ const passwordInput = ref('')
 const passwordError = ref('')
 const passwordLoading = ref(false)
 const isPasswordVerified = ref(false)
+
+// Grok Chat Panel state
+const showGrokChat = ref(false)
 
 // Computed properties
 const currentGraphId = computed(() => {
@@ -8424,11 +8443,26 @@ const saveAttribution = async () => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Content Wrapper with Chat Panel */
+.content-wrapper {
+  display: flex;
+  gap: 0;
+  height: calc(100vh - 150px);
+  overflow: hidden;
+}
+
 .gnew-content {
-  transition: margin-left 0.3s ease;
+  transition: all 0.3s ease;
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.gnew-content.with-chat {
+  width: calc(100% - 400px);
+  max-width: calc(100% - 400px);
 }
 
 /* Public Viewer Styles - Ultra Clean */
@@ -8586,6 +8620,26 @@ const saveAttribution = async () => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-chat-toggle {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ai-chat-toggle i {
+  margin-right: 5px;
+}
+
+.ai-chat-toggle.btn-primary {
+  background-color: #667eea;
+  border-color: #667eea;
+}
+
+.ai-chat-toggle.btn-primary:hover {
+  background-color: #5568d3;
+  border-color: #5568d3;
 }
 
 .gnew-subtitle {
