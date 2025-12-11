@@ -1,21 +1,21 @@
 <template>
   <div class="grok-graph-container">
     <!-- Left Column: Grok Chat Panel (resizable) -->
-    <div 
-      class="grok-chat-column" 
+    <div
+      class="grok-chat-column"
       :style="{ width: chatWidth + '%' }"
     >
       <GrokChatPanel />
     </div>
 
     <!-- Resize Divider -->
-    <div 
+    <div
       class="resize-divider"
       @mousedown="startResize"
     ></div>
 
     <!-- Right Column: Knowledge Graph Viewer -->
-    <div 
+    <div
       class="graph-viewer-column"
       :style="{ width: (100 - chatWidth) + '%' }"
     >
