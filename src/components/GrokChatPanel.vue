@@ -251,7 +251,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        userId: userStore.userId || 'system', // Use actual user ID from store
+        userId: userStore.user_id || 'system', // Use actual user ID from store (note: user_id with underscore)
         messages: grokMessages,
         model: 'grok-3',
         temperature: 0.7,
