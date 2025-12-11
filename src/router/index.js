@@ -274,6 +274,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/grok-graph',
+      name: 'grok-graph',
+      component: () => import('@/views/GrokGraphView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
       path: '/sms-share',
       name: 'sms-share',
       component: SMSShare,
