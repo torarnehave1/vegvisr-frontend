@@ -119,10 +119,10 @@
                 <i class="bi bi-check-square"></i>
                 <strong>{{ selectedDocs.size }}</strong> document(s) selected
                 <div class="form-check form-check-inline ms-3">
-                  <input 
-                    class="form-check-input" 
-                    type="checkbox" 
-                    id="aiMetadataToggle" 
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="aiMetadataToggle"
                     v-model="generateAIMetadata"
                   >
                   <label class="form-check-label small" for="aiMetadataToggle">
@@ -137,8 +137,8 @@
                 <button class="btn btn-sm btn-outline-secondary" @click="clearSelection">
                   <i class="bi bi-x-circle"></i> Clear Selection
                 </button>
-                <button 
-                  class="btn btn-sm btn-primary" 
+                <button
+                  class="btn btn-sm btn-primary"
                   @click="convertSelectionToGraph"
                   :disabled="selectedDocs.size === 0 || convertingToGraph"
                   title="Convert selected documents to Knowledge Graph"
@@ -493,7 +493,7 @@ const convertSelectionToGraph = async () => {
   }
 
   const selectedCount = selectedDocs.value.size
-  const confirmMessage = selectedCount === 1 
+  const confirmMessage = selectedCount === 1
     ? `Convert this document to a Knowledge Graph?${generateAIMetadata.value ? '\n\nAI will generate title, description, and categories.' : ''}`
     : `Convert ${selectedCount} documents to Knowledge Graphs?${generateAIMetadata.value ? '\n\nAI will generate metadata for each graph.' : ''}`
 

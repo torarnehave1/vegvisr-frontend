@@ -466,7 +466,7 @@ async function handleConvertToGraph(request, db, env, corsHeaders) {
     if (generateAIMetadata && doc.content && doc.content.trim().length > 0) {
       try {
         console.log('Generating AI metadata for document:', documentId)
-        
+
         // Call all three AI endpoints in parallel for speed
         const metadataPromises = [
           fetch('https://api.vegvisr.org/suggest-title', {
@@ -554,7 +554,7 @@ async function handleConvertToGraph(request, db, env, corsHeaders) {
 
     // 4. Save to Knowledge Graph via service binding
     console.log('Saving graph to dev-worker:', graphId)
-    
+
     const saveResponse = await env.DEV_WORKER.fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: {
