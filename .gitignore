@@ -48,6 +48,22 @@ DIARIZATION_*.md
 # SQL files - all migrations and schemas handled locally
 *.sql
 
+# Worker directories - deployed via wrangler, not git
+mystmkra-worker/
+api-worker/
+main-worker/
+dev-worker/
+knowledge-graph-worker/
+anthropic-worker/
+openai-worker/
+grok-worker/
+perplexity-worker/
+user-keys-worker/
+email-worker/
+sms-worker/
+auth-worker/
+aff-worker/
+
 # Test HTML files
 test*.html
 
