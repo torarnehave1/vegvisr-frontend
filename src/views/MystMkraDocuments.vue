@@ -549,16 +549,20 @@ const convertSelectionToGraph = async () => {
 
     if (successCount > 0) {
       const firstGraph = results.success[0]
-      const message = successCount === 1
-        ? `✓ Knowledge Graph created!\n\nTitle: ${firstGraph.metadata.title}\nView: ${firstGraph.viewUrl}\n\nOpen in new tab?`
-        : `✓ Created ${successCount} Knowledge Graph(s)!\n${failedCount > 0 ? `✗ ${failedCount} failed\n\n` : '\n'}Open first graph in new tab?`
-
-      if (confirm(message)) {
-        window.open(firstGraph.viewUrl, '_blank')
-      }
-
+      
       // Clear selection after successful conversion
       clearSelection()
+
+      // Navigate directly to the graph (no popup blocker)
+      if (successCount === 1) {
+        alert(`✓ Knowledge Graph created!\n\nTitle: ${firstGraph.metadata.title}\n\nRedirecting to graph...`)
+        window.location.href = firstGraph.editUrl
+      } else {
+        const message = `✓ Created ${successCount} Knowledge Graph(s)!\n${failedCount > 0 ? `✗ ${failedCount} failed\n\n` : '\n'}Navigate to first graph?`
+        if (confirm(message)) {
+          window.location.href = firstGraph.editUrl
+        }
+      }
     } else {
       alert(`✗ All conversions failed:\n\n${results.failed.map(f => `${f.docId}: ${f.error}`).join('\n')}`)
     }
