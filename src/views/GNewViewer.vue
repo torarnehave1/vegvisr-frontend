@@ -396,8 +396,8 @@
         </div>
 
         <!-- Resizable Divider -->
-        <div 
-          v-if="showGrokChat" 
+        <div
+          v-if="showGrokChat"
           class="resize-divider"
           @mousedown="startResize"
         ></div>
@@ -2323,7 +2323,7 @@ const startResize = (e) => {
     const deltaX = e.clientX - startX
     const deltaPercent = (deltaX / containerWidth) * 100
     const newWidth = startWidth + deltaPercent
-    
+
     // Limit width between 20% and 50%
     if (newWidth >= 20 && newWidth <= 50) {
       chatWidth.value = newWidth
