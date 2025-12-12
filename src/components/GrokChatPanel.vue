@@ -3,10 +3,15 @@
     <!-- Header -->
     <div class="chat-header">
       <div class="header-title">
-        <img :src="grokIcon" alt="Grok AI" class="icon-img" />
-        <h3>Grok AI Assistant</h3>
+        <img :src="providerMeta(provider).icon || grokIcon" :alt="providerMeta(provider).label" class="icon-img" />
+        <h3>{{ providerMeta(provider).label }} Assistant</h3>
       </div>
       <div class="header-actions">
+        <select v-model="provider" class="provider-select" title="Select AI provider">
+          <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
         <button
           @click="toggleCollapse"
           class="btn btn-sm btn-ghost"
@@ -49,13 +54,16 @@
               />
               <span v-else class="message-avatar-initial">{{ userInitial }}</span>
             </div>
-            <img
-              v-else
-              :src="grokIcon"
-              alt="Grok"
-              class="message-icon-img"
-            />
-            <span class="message-role">{{ message.role === 'user' ? 'You' : 'Grok' }}</span>
+            <div v-else class="assistant-avatar" :title="providerMeta(message.provider || provider).label">
+              <img
+                v-if="providerMeta(message.provider || provider).icon"
+                :src="providerMeta(message.provider || provider).icon"
+                :alt="providerMeta(message.provider || provider).label"
+                class="message-icon-img"
+              />
+              <span v-else class="assistant-avatar-initial">{{ providerMeta(message.provider || provider).initials }}</span>
+            </div>
+            <span class="message-role">{{ message.role === 'user' ? 'You' : providerMeta(message.provider || provider).label }}</span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)"></div>
@@ -127,6 +135,8 @@ import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import grokIcon from '@/assets/grok.svg'
+import openaiIcon from '@/assets/openai.svg'
+import perplexityIcon from '@/assets/perplexity.svg'
 import graphContextIcon from '@/assets/graph-context.svg'
 
 const emit = defineEmits(['insert-fulltext'])
@@ -143,6 +153,12 @@ const props = defineProps({
 // State
 const isCollapsed = ref(false)
 const useGraphContext = ref(true)
+const provider = ref('grok')
+const providerOptions = [
+  { value: 'grok', label: 'Grok' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'perplexity', label: 'Perplexity' },
+]
 const messages = ref([])
 const userInput = ref('')
 const isStreaming = ref(false)
@@ -164,6 +180,12 @@ const userInitial = computed(() => {
   const source = userStore.email || userStore.user_id || 'You'
   return source.charAt(0).toUpperCase()
 })
+
+const providerMeta = (key) => {
+  if (key === 'openai') return { label: 'OpenAI', icon: openaiIcon, initials: 'OA' }
+  if (key === 'perplexity') return { label: 'Perplexity', icon: perplexityIcon, initials: 'PP' }
+  return { label: 'Grok', icon: grokIcon, initials: 'G' }
+}
 
 // Methods
 const toggleCollapse = () => {
@@ -244,11 +266,14 @@ const sendMessage = async () => {
   const message = userInput.value.trim()
   if (!message || isStreaming.value) return
 
+  const currentProvider = provider.value
+
   // Add user message
   messages.value.push({
     role: 'user',
     content: message,
     timestamp: Date.now(),
+    provider: currentProvider,
   })
 
   userInput.value = ''
@@ -291,18 +316,28 @@ Use this context to provide relevant insights and answers about the knowledge gr
       }
     }
 
-    // Call grok-worker directly
-    const response = await fetch('https://grok.vegvisr.org/chat', {
+    let endpoint = 'https://grok.vegvisr.org/chat'
+    let model = 'grok-3'
+
+    if (currentProvider === 'openai') {
+      endpoint = 'https://openai.vegvisr.org/chat'
+      model = 'gpt-4o'
+    } else if (currentProvider === 'perplexity') {
+      endpoint = 'https://perplexity.vegvisr.org/chat'
+      model = 'sonar'
+    }
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        userId: userStore.user_id || 'system', // Use actual user ID from store (note: user_id with underscore)
+        userId: userStore.user_id || 'system',
         messages: grokMessages,
-        model: 'grok-3',
+        model,
         temperature: 0.7,
-        max_tokens: 32000, // High token limit for detailed responses (grok-3 supports up to 131,072)
+        max_tokens: 32000,
         stream: false,
       }),
     })
@@ -333,6 +368,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
       role: 'assistant',
       content: aiMessage,
       timestamp: Date.now(),
+      provider: currentProvider,
     })
   } catch (error) {
     console.error('Chat error:', error)
@@ -401,6 +437,26 @@ watch(
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.provider-select {
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  padding: 0 0.5rem;
+  font-weight: 600;
+}
+
+.provider-select option {
+  color: #2c3e50;
 }
 
 .btn-ghost {
@@ -556,6 +612,23 @@ watch(
   height: 20px;
   object-fit: contain;
   display: block;
+}
+
+.assistant-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #eef2ff;
+  border: 1px solid #d7dcff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.assistant-avatar-initial {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4c51bf;
 }
 
 .message-role {
