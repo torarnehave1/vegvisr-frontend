@@ -40,7 +40,15 @@
           :class="message.role"
         >
           <div class="message-header">
-            <span class="message-icon" v-if="message.role === 'user'">👤</span>
+            <div v-if="message.role === 'user'" class="message-avatar" :title="userStore.email || 'You'">
+              <img
+                v-if="userAvatarUrl"
+                :src="userAvatarUrl"
+                alt="You"
+                class="message-avatar-img"
+              />
+              <span v-else class="message-avatar-initial">{{ userInitial }}</span>
+            </div>
             <img
               v-else
               :src="grokIcon"
@@ -115,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
 import grokIcon from '@/assets/grok.svg'
@@ -148,6 +156,13 @@ const graphContextSummary = computed(() => {
   const nodeCount = props.graphData.nodes.length
   const edgeCount = props.graphData.edges?.length || 0
   return `${nodeCount} nodes, ${edgeCount} edges`
+})
+
+// Prefer a user-provided profile image; fall back to an initial
+const userAvatarUrl = computed(() => userStore.profileimage || null)
+const userInitial = computed(() => {
+  const source = userStore.email || userStore.user_id || 'You'
+  return source.charAt(0).toUpperCase()
 })
 
 // Methods
@@ -189,6 +204,10 @@ const scrollToBottom = () => {
 const handleShiftEnter = () => {
   // Allow default behavior (new line)
 }
+
+onMounted(() => {
+  userStore.hydrateProfileImageFromConfig()
+})
 
 const buildGraphContext = () => {
   if (!useGraphContext.value || !props.graphData) return null
@@ -505,6 +524,31 @@ watch(
 
 .message-icon {
   font-size: 1.2rem;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.message-avatar-initial {
+  font-weight: 700;
+  color: #4a5568;
+  font-size: 0.9rem;
 }
 
 .message-icon-img {

@@ -491,6 +491,27 @@ router.beforeEach(async (to, from, next) => {
 
   const userStore = useUserStore() // Access the Pinia store
 
+  // Auto-login helper for localhost dev to simplify testing without auth backend
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
+  if (isLocalhost && !userStore.loggedIn) {
+    userStore.setUser({
+      email: 'dev@localhost',
+      role: 'Admin',
+      user_id: 'dev-localhost',
+      oauth_id: 'dev-localhost',
+      branding: { mySite: null, myLogo: null },
+      profileimage: null,
+    })
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('email_session_verified', '1')
+      sessionStorage.setItem('phone_session_verified', '1')
+    }
+    console.log('[Router] Localhost detected. Auto-logged in for dev testing.')
+  }
+
   // If store hasn't been loaded yet, load it first
   if (!userStore.loggedIn && !userStore.email) {
     console.log('[Router] Store not loaded, loading from localStorage...')

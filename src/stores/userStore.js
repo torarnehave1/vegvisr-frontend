@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { apiUrls } from '@/config/api'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -9,6 +10,7 @@ export const useUserStore = defineStore('user', {
     emailVerificationToken: null,
     phone: null,
     phoneVerifiedAt: null,
+    profileimage: null,
     loggedIn: false,
     mystmkraUserId: null,
     googlePhotosConnected: false,
@@ -33,6 +35,7 @@ export const useUserStore = defineStore('user', {
       this.emailVerificationToken = user.emailVerificationToken
       this.phone = user.phone || null
       this.phoneVerifiedAt = user.phoneVerifiedAt || null
+      this.profileimage = user.profileimage || null
       this.mystmkraUserId = user.mystmkraUserId || null
       this.branding = user.branding || { mySite: null, myLogo: null }
       this.loggedIn = true
@@ -45,6 +48,7 @@ export const useUserStore = defineStore('user', {
         emailVerificationToken: user.emailVerificationToken,
         phone: user.phone || null,
         phoneVerifiedAt: user.phoneVerifiedAt || null,
+        profileimage: user.profileimage || null,
         mystmkraUserId: user.mystmkraUserId || null,
         branding: user.branding || { mySite: null, myLogo: null },
       }
@@ -103,6 +107,7 @@ export const useUserStore = defineStore('user', {
       this.emailVerificationToken = null
       this.phone = null
       this.phoneVerifiedAt = null
+      this.profileimage = null
       this.mystmkraUserId = null
       this.branding = { mySite: null, myLogo: null }
       this.loggedIn = false
@@ -285,6 +290,7 @@ export const useUserStore = defineStore('user', {
         this.emailVerificationToken = storedUser.emailVerificationToken
         this.phone = storedUser.phone || null
         this.phoneVerifiedAt = storedUser.phoneVerifiedAt || null
+        this.profileimage = storedUser.profileimage || null
         this.mystmkraUserId = storedUser.mystmkraUserId || null
         this.branding = storedUser.branding || { mySite: null, myLogo: null }
         this.loggedIn = true
@@ -308,6 +314,29 @@ export const useUserStore = defineStore('user', {
         this.branding = { mySite: null, myLogo: null }
         this.loggedIn = false
       }
+    },
+
+    setProfileImage(url) {
+      this.profileimage = url
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+      storedUser.profileimage = url
+      localStorage.setItem('user', JSON.stringify(storedUser))
+    },
+
+    async hydrateProfileImageFromConfig() {
+      if (this.profileimage || !this.email) return null
+      try {
+        const response = await fetch(apiUrls.getUserData(this.email))
+        if (!response.ok) return null
+        const data = await response.json()
+        if (data?.profileimage) {
+          this.setProfileImage(data.profileimage)
+          return data.profileimage
+        }
+      } catch (error) {
+        console.warn('hydrateProfileImageFromConfig failed:', error)
+      }
+      return null
     },
   },
 })
