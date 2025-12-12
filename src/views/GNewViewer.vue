@@ -8437,9 +8437,11 @@ const saveAttribution = async () => {
 
 <style scoped>
 .gnew-viewer {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 12px 16px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -8447,14 +8449,14 @@ const saveAttribution = async () => {
 .content-wrapper {
   display: flex;
   gap: 0;
-  height: calc(100vh - 150px);
+  height: calc(100vh - 100px);
   overflow: hidden;
 }
 
 .gnew-content {
   transition: all 0.3s ease;
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
   width: 100%;
   overflow-y: auto;
   flex: 1;
