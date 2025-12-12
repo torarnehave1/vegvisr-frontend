@@ -1,5 +1,5 @@
 <template>
-  <div class="gnew-viewer">
+  <div class="gnew-viewer" :class="{ fullscreen: isFullscreen }">
     <!-- Ultra-Clean Interface for Non-Logged Users -->
     <div v-if="!userStore.loggedIn" class="public-viewer">
       <!-- Graph Content -->
@@ -374,6 +374,17 @@
             Graph Operations
           </button>
 
+          <!-- Fullscreen Toggle -->
+          <button
+            @click="toggleFullscreen"
+            class="btn btn-outline-secondary btn-sm"
+            :class="{ active: isFullscreen }"
+            title="Toggle fullscreen view"
+          >
+            <i :class="isFullscreen ? 'bi bi-fullscreen-exit' : 'bi bi-fullscreen'"></i>
+            Fullscreen
+          </button>
+
           <!-- Grok AI Chat Toggle -->
           <button
             v-if="userStore.loggedIn"
@@ -389,7 +400,7 @@
       </div>
 
       <!-- Content Wrapper with Chat Panel -->
-      <div class="content-wrapper">
+      <div class="content-wrapper" :class="{ 'chat-open': showGrokChat }">
         <!-- Main Content -->
         <div class="gnew-content" :class="{ 'with-chat': showGrokChat }">
         <!-- Graph Status Bar -->
@@ -567,7 +578,7 @@
 
                   <!-- Mobile fallback button when no text is selected but content exists -->
                   <button
-                    v-if="!hasSelectedText && editingNode?.info?.trim() && isMobileDevice"
+                    v-if="!hasSelectedText && String(editingNode?.info || '').trim() && isMobileDevice"
                     @click="showMobileAITools"
                     class="btn btn-sm btn-outline-secondary mobile-ai-tools-btn"
                     type="button"
@@ -1520,8 +1531,22 @@
         </div>
       </div>
 
-      <!-- Grok Chat Panel -->
-      <GrokChatPanel v-if="showGrokChat" :graphData="graphData" />
+      <!-- Grok Chat Panel (Resizable) -->
+      <div
+        v-if="showGrokChat"
+        class="chat-resize-handle"
+        @mousedown.prevent="startChatResize"
+      ></div>
+      <div
+        v-if="showGrokChat"
+        class="chat-panel-container"
+        :style="{ width: chatWidth + 'px' }"
+      >
+        <GrokChatPanel
+          :graphData="graphData"
+          @insert-fulltext="insertAIResponseAsFullText"
+        />
+      </div>
     </div>
     </div>
 
@@ -2299,6 +2324,59 @@ const isPasswordVerified = ref(false)
 
 // Grok Chat Panel state
 const showGrokChat = ref(false)
+const chatWidth = ref(420)
+const isResizingChat = ref(false)
+const isFullscreen = ref(false)
+const previousBodyOverflow = ref('')
+let chatResizeStartX = 0
+let chatResizeStartWidth = 0
+
+const clampChatWidthToViewport = () => {
+  const maxWidth = getMaxChatWidth()
+  if (chatWidth.value > maxWidth) {
+    chatWidth.value = maxWidth
+  }
+}
+
+const getMaxChatWidth = () => Math.max(400, window.innerWidth * 0.5)
+
+const startChatResize = (event) => {
+  isResizingChat.value = true
+  chatResizeStartX = event.clientX
+  chatResizeStartWidth = chatWidth.value
+  window.addEventListener('mousemove', handleChatResize)
+  window.addEventListener('mouseup', stopChatResize)
+}
+
+const handleChatResize = (event) => {
+  if (!isResizingChat.value) return
+  const delta = event.clientX - chatResizeStartX
+  const minWidth = 320
+  const maxWidth = getMaxChatWidth()
+  const nextWidth = Math.min(maxWidth, Math.max(minWidth, chatResizeStartWidth - delta))
+  chatWidth.value = nextWidth
+}
+
+const stopChatResize = () => {
+  if (!isResizingChat.value) return
+  isResizingChat.value = false
+  window.removeEventListener('mousemove', handleChatResize)
+  window.removeEventListener('mouseup', stopChatResize)
+}
+
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value
+  if (isFullscreen.value) {
+    previousBodyOverflow.value = document.body.style.overflow || ''
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = previousBodyOverflow.value
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('resize', clampChatWidthToViewport)
+})
 
 // Computed properties
 const currentGraphId = computed(() => {
@@ -2691,6 +2769,9 @@ onMounted(() => {
     window.removeEventListener('message', handleAINodeMessage)
     window.removeEventListener('message', handleCloudStorageMessage)
     window.removeEventListener('message', handleGraphContextMessage)
+    stopChatResize()
+    window.removeEventListener('resize', clampChatWidthToViewport)
+    document.body.style.overflow = previousBodyOverflow.value || ''
   })
 })
 watch(
@@ -4650,28 +4731,35 @@ const duplicateKnowledgeGraph = async () => {
   }
 }
 
-// FullText Node Creation
-const createNewFullTextNode = async () => {
-  console.log('🆕 Creating new FullText node...')
+// UUID helper (shared)
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0
+    const v = c == 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 
-  // Generate UUID using the existing pattern
-  const generateUUID = () => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = (Math.random() * 16) | 0
-      const v = c == 'x' ? r : (r & 0x3) | 0x8
-      return v.toString(16)
-    })
-  }
+// FullText Node Creation
+const createNewFullTextNode = async (content, labelOverride) => {
+  console.log('🆕 Creating new FullText node...')
 
   const newNodeId = generateUUID()
 
-  // Create new fulltext node with default content
+  const label = labelOverride || 'New FullText Node'
+  const infoContent = typeof content === 'string'
+    ? content
+    : content != null
+      ? String(content)
+      : 'This is a new FullText node. Click to edit and add your content here.'
+
+  // Create new fulltext node with provided or default content
   const newFullTextNode = {
     id: newNodeId,
-    label: 'New FullText Node',
+    label,
     color: '#f8f9fa',
     type: 'fulltext',
-    info: 'This is a new FullText node. Click to edit and add your content here.',
+    info: infoContent,
     bibl: [],
     visible: true,
     position: { x: 0, y: 0 }, // Will be positioned by the system
@@ -4729,6 +4817,22 @@ const createNewTitleNode = async () => {
     setTimeout(() => {
       statusMessage.value = ''
     }, 5000)
+  }
+}
+
+// Insert AI response into a new FullText node (from Grok chat)
+const insertAIResponseAsFullText = async (content) => {
+  if (!content || typeof content !== 'string') return
+  try {
+    await createNewFullTextNode(content, 'AI Response')
+    statusMessage.value = '✅ Inserted AI response into a new FullText node'
+  } catch (error) {
+    console.error('❌ Error inserting AI response into FullText node:', error)
+    statusMessage.value = `❌ Failed to insert AI response: ${error.message}`
+  } finally {
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 4000)
   }
 }
 
@@ -8445,6 +8549,18 @@ const saveAttribution = async () => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+.gnew-viewer.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: #ffffff;
+  padding: 8px 12px;
+  max-width: 100%;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
 /* Content Wrapper with Chat Panel */
 .content-wrapper {
   display: flex;
@@ -8453,18 +8569,59 @@ const saveAttribution = async () => {
   overflow: hidden;
 }
 
+.gnew-viewer.fullscreen .content-wrapper {
+  height: calc(100vh - 72px);
+}
+
 .gnew-content {
   transition: all 0.3s ease;
   max-width: 100%;
   margin: 0;
   width: 100%;
   overflow-y: auto;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .gnew-content.with-chat {
-  width: calc(100% - 400px);
-  max-width: calc(100% - 400px);
+  flex: 1 1 0;
+}
+
+.chat-resize-handle {
+  width: 8px;
+  cursor: col-resize;
+  background: linear-gradient(180deg, #f5f5f5 0%, #e9ecef 100%);
+  border-left: 1px solid #e0e0e0;
+  border-right: 1px solid #e0e0e0;
+  transition: background 0.2s ease;
+  position: relative;
+}
+
+.chat-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background: #c4c4c4;
+  border-radius: 2px;
+}
+
+.chat-resize-handle:hover {
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+}
+
+.chat-panel-container {
+  display: flex;
+  height: 100%;
+  max-height: 100%;
+  min-width: 320px;
+  max-width: 50vw;
+  background: #fff;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
 }
 
 /* Public Viewer Styles - Ultra Clean */
@@ -8745,6 +8902,21 @@ const saveAttribution = async () => {
   max-width: 1200px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.gnew-viewer.fullscreen .graph-content,
+.gnew-viewer.fullscreen .nodes-container {
+  max-width: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.gnew-viewer.fullscreen .admin-viewer,
+.gnew-viewer.fullscreen .public-viewer {
+  max-width: none;
+  width: 100%;
+  margin: 0;
 }
 
 .nodes-container {

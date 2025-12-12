@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="chat-header">
       <div class="header-title">
-        <span class="icon">🤖</span>
+        <img :src="grokIcon" alt="Grok AI" class="icon-img" />
         <h3>Grok AI Assistant</h3>
       </div>
       <div class="header-actions">
@@ -23,7 +23,8 @@
       <div class="context-controls">
         <label class="context-toggle">
           <input type="checkbox" v-model="useGraphContext" />
-          <span>📊 Use Graph Context</span>
+          <img :src="graphContextIcon" alt="Graph context" class="context-icon" />
+          <span>Use Graph Context</span>
         </label>
         <span v-if="useGraphContext" class="context-indicator">
           {{ graphContextSummary }}
@@ -39,17 +40,32 @@
           :class="message.role"
         >
           <div class="message-header">
-            <span class="message-icon">{{ message.role === 'user' ? '👤' : '🤖' }}</span>
+            <span class="message-icon" v-if="message.role === 'user'">👤</span>
+            <img
+              v-else
+              :src="grokIcon"
+              alt="Grok"
+              class="message-icon-img"
+            />
             <span class="message-role">{{ message.role === 'user' ? 'You' : 'Grok' }}</span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)"></div>
+          <div v-if="message.role === 'assistant'" class="message-actions">
+            <button
+              class="btn btn-link btn-sm insert-btn"
+              type="button"
+              @click="insertAsFullText(message.content)"
+            >
+              Insert as FullText node
+            </button>
+          </div>
         </div>
 
         <!-- Streaming Message -->
         <div v-if="isStreaming" class="message assistant streaming">
           <div class="message-header">
-            <span class="message-icon">🤖</span>
+            <img :src="grokIcon" alt="Grok" class="message-icon-img" />
             <span class="message-role">Grok</span>
             <span class="streaming-indicator">
               <span class="spinner"></span> Thinking...
@@ -102,6 +118,10 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/userStore'
+import grokIcon from '@/assets/grok.svg'
+import graphContextIcon from '@/assets/graph-context.svg'
+
+const emit = defineEmits(['insert-fulltext'])
 
 const userStore = useUserStore()
 
@@ -153,6 +173,11 @@ const renderMarkdown = (content) => {
   }
 }
 
+const insertAsFullText = (content) => {
+  if (!content) return
+  emit('insert-fulltext', content)
+}
+
 const scrollToBottom = () => {
   nextTick(() => {
     if (messagesContainer.value) {
@@ -178,12 +203,15 @@ const buildGraphContext = () => {
       nodeCount: nodes?.length || 0,
       edgeCount: edges?.length || 0,
     },
-    nodes: nodes?.slice(0, 20).map((node) => ({
-      id: node.id,
-      label: node.label || node.id,
-      type: node.type || 'unknown',
-      info: node.info ? node.info.substring(0, 500) : '',
-    })) || [],
+    nodes: nodes?.slice(0, 20).map((node) => {
+      const infoString = typeof node.info === 'string' ? node.info : String(node.info || '')
+      return {
+        id: node.id,
+        label: node.label || node.id,
+        type: node.type || 'unknown',
+        info: infoString ? infoString.substring(0, 500) : '',
+      }
+    }) || [],
     edges: edges?.slice(0, 30).map((edge) => ({
       from: edge.from,
       to: edge.to,
@@ -312,14 +340,19 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: white;
   border-left: 1px solid #e0e0e0;
   transition: width 0.3s ease;
-  width: 400px;
+  width: 100%;
+  min-width: 320px;
+  max-width: 100%;
+  padding-bottom: 12px;
 }
 
 .grok-chat-panel.collapsed {
-  width: 50px;
+  width: 72px;
+  min-width: 72px;
 }
 
 .chat-header {
@@ -338,8 +371,11 @@ watch(
   gap: 0.5rem;
 }
 
-.header-title .icon {
-  font-size: 1.5rem;
+.header-title .icon-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
 }
 
 .header-title h3 {
@@ -364,14 +400,15 @@ watch(
 }
 
 .collapsed .chat-header h3,
-.collapsed .header-title .icon {
+.collapsed .header-title .icon-img {
   display: none;
 }
 
 .chat-content {
   display: flex;
   flex-direction: column;
-  height: calc(100% - 60px);
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .context-controls {
@@ -388,6 +425,13 @@ watch(
   user-select: none;
 }
 
+.context-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
+}
+
 .context-toggle input[type='checkbox'] {
   cursor: pointer;
 }
@@ -400,7 +444,8 @@ watch(
 }
 
 .messages-container {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem;
   display: flex;
@@ -415,6 +460,16 @@ watch(
   padding: 0.75rem;
   border-radius: 8px;
   max-width: 90%;
+}
+
+.message-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.insert-btn {
+  padding: 0;
+  font-weight: 600;
 }
 
 .message.user {
@@ -450,6 +505,13 @@ watch(
 
 .message-icon {
   font-size: 1.2rem;
+}
+
+.message-icon-img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
 }
 
 .message-role {
@@ -513,6 +575,7 @@ watch(
 
 .chat-input-container {
   padding: 1rem;
+  padding-bottom: 1.5rem;
   border-top: 1px solid #e0e0e0;
   background: white;
 }

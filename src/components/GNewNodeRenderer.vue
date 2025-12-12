@@ -310,7 +310,7 @@ const getCollapsedPreview = () => {
   const info = props.node.info || ''
 
   // Show first 100 characters of content as preview
-  const preview = info.substring(0, 100)
+  const preview = (typeof info === 'string' ? info : String(info || '')).substring(0, 100)
   return preview ? `${label}: ${preview}${info.length > 100 ? '...' : ''}` : label
 }
 </script>

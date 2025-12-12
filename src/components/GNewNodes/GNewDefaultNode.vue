@@ -1198,7 +1198,7 @@ const addImagequoteChangeButtons = (html, nodeId, originalContent) => {
 
 // Computed properties
 const nodeContent = computed(() => {
-  return props.node.info || ''
+  return typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
 })
 
 const parsedContent = computed(() => {
@@ -1209,7 +1209,8 @@ const parsedContent = computed(() => {
 
     // Extract all FLEXBOX elements first (GRID, CARDS, GALLERY) to create structured objects
     const flexboxRegex = /\[FLEXBOX-(GRID|CARDS(?:-(\d+))?|GALLERY)\]([\s\S]*?)\[END\s+FLEXBOX\]/gs
-    const flexboxMatches = [...nodeContent.value.matchAll(flexboxRegex)]
+    const contentString = String(nodeContent.value || '')
+    const flexboxMatches = [...contentString.matchAll(flexboxRegex)]
 
     if (flexboxMatches.length > 0) {
       let lastIndex = 0
