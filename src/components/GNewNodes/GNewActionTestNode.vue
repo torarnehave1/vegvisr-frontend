@@ -206,7 +206,7 @@ const aiProviders = {
   },
   gemini: {
     name: '⚡ Google Gemini',
-    endpoint: 'https://api.vegvisr.org/gemini-test',
+    endpoint: 'https://gemini.vegvisr.org/chat',
     description: 'Fast Responses',
   },
   gpt4: {

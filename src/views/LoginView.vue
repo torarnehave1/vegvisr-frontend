@@ -154,11 +154,14 @@ onMounted(async () => {
 
   // Dev mode: Auto-login on localhost with email parameter
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  if (isLocalhost && route.query.email) {
-    console.log('[LoginView] Dev mode: Auto-login with email:', route.query.email)
-    email.value = route.query.email
+  const devEmail = route.query.email || 'torarnehave@gmail.com' // Default dev email
+  if (isLocalhost) {
+    console.log('[LoginView] Dev mode: Auto-login with email:', devEmail)
+    email.value = devEmail
     try {
-      const userContext = await fetchUserContext(route.query.email)
+      const userContext = await fetchUserContext(devEmail)
+      // Override user_id for dev mode to ensure API keys work (user with keys in D1)
+      userContext.user_id = 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b'
       userStore.setUser(userContext)
       sessionStorage.setItem('email_session_verified', '1')
       statusMessage.value = 'Dev mode: Auto-logged in'

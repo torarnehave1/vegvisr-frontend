@@ -71,7 +71,7 @@
           <option value="https://api.vegvisr.org/groktest">
             🤔 Grok AI (Philosophical Insights)
           </option>
-          <option value="https://api.vegvisr.org/gemini-test">
+          <option value="https://gemini.vegvisr.org/chat">
             ⚡ Google Gemini (Fast Responses)
           </option>
           <option value="https://api.vegvisr.org/gpt-4-test">

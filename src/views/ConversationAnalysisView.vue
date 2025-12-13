@@ -766,7 +766,7 @@ async function analyzeConversation() {
     const endpointMap = {
       grok: 'https://api.vegvisr.org/groktest',
       claude: 'https://api.vegvisr.org/claude-test',
-      gemini: 'https://api.vegvisr.org/gemini-test',
+      gemini: 'https://gemini.vegvisr.org/chat',
       gpt4: 'https://api.vegvisr.org/gpt-4-test',
       gpt5: 'https://api.vegvisr.org/gpt-5-test'
     }

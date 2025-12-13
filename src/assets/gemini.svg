@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gemini icon">
+  <defs>
+    <linearGradient id="geminiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5c6ac4" />
+      <stop offset="100%" stop-color="#2fd8c7" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0f172a" />
+  <path d="M18 16h28v6c0 7.18-5.82 13-13 13s-13 5.82-13 13v6H18" fill="none" stroke="url(#geminiGradient)" stroke-width="4" stroke-linecap="round" />
+  <path d="M46 48H18v-6c0-7.18 5.82-13 13-13s13-5.82 13-13v-6h2" fill="none" stroke="url(#geminiGradient)" stroke-width="4" stroke-linecap="round" />
+</svg>

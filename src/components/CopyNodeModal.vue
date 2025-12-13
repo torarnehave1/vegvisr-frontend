@@ -169,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 
 // Store access
@@ -202,6 +202,13 @@ const creatingNewGraph = ref(false)
 const newGraphTitle = ref('')
 const newGraphDescription = ref('')
 const newGraphError = ref('')
+const showNewGraphValidation = ref(false)
+
+watch(newGraphTitle, (value) => {
+  if (showNewGraphValidation.value && value.trim()) {
+    showNewGraphValidation.value = false
+  }
+})
 
 // Computed properties
 const filteredGraphs = computed(() => {
@@ -408,10 +415,17 @@ const copyNode = async () => {
 }
 
 const copyToNewGraph = async () => {
-  if (!props.nodeData || !newGraphTitle.value.trim()) {
+  if (!props.nodeData) {
+    return
+  }
+
+  if (!newGraphTitle.value.trim()) {
+    showNewGraphValidation.value = true
     newGraphError.value = 'Please enter a graph title'
     return
   }
+
+  showNewGraphValidation.value = false
 
   creatingNewGraph.value = true
   newGraphError.value = ''
@@ -492,6 +506,7 @@ const copyToNewGraph = async () => {
     newGraphTitle.value = ''
     newGraphDescription.value = ''
     selectedGraph.value = null
+    showNewGraphValidation.value = false
 
     // Close modal
     const modalElement = document.getElementById('copyNodeModal')
@@ -513,6 +528,7 @@ defineExpose({
     newGraphTitle.value = ''
     newGraphDescription.value = ''
     newGraphError.value = ''
+    showNewGraphValidation.value = false
   },
 })
 

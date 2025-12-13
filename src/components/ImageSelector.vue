@@ -491,7 +491,7 @@
     <!-- AI Image Modal -->
     <AIImageModal
       :isOpen="isAIImageModalOpen"
-      :graphContext="{ type: 'image', imageType: props.imageType, nodeContent: props.nodeContent }"
+      :graphContext="resolvedGraphContext"
       @close="closeAIImageModal"
       @image-inserted="handleAIImageGenerated"
     />
@@ -536,9 +536,28 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  graphContext: {
+    type: Object,
+    default: () => null,
+  },
+  currentImageAttribution: {
+    type: Object,
+    default: () => null,
+  },
 })
 
-const emit = defineEmits(['close', 'image-replaced'])
+const emit = defineEmits(['close', 'image-replaced', 'attribution-updated'])
+
+const resolvedGraphContext = computed(() => {
+  if (props.graphContext && Object.keys(props.graphContext).length > 0) {
+    return props.graphContext
+  }
+  return {
+    type: 'image',
+    imageType: props.imageType,
+    nodeContent: props.nodeContent,
+  }
+})
 
 // State
 const searchQuery = ref('')

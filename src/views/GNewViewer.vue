@@ -465,7 +465,7 @@
           />
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
-            @click="createNewFullTextNode"
+            @click="createNewFullTextNode()"
             class="btn btn-outline-primary"
           >
             📝 New FullText Node
@@ -4747,11 +4747,14 @@ const createNewFullTextNode = async (content, labelOverride) => {
   const newNodeId = generateUUID()
 
   const label = labelOverride || 'New FullText Node'
-  const infoContent = typeof content === 'string'
-    ? content
-    : content != null
-      ? String(content)
-      : 'This is a new FullText node. Click to edit and add your content here.'
+  const isEventPayload = typeof Event !== 'undefined' && content instanceof Event
+  const normalizedContent = isEventPayload ? undefined : content
+  const defaultInfo = 'This is a new FullText node. Click to edit and add your content here.'
+  const infoContent = typeof normalizedContent === 'string'
+    ? normalizedContent
+    : normalizedContent != null
+      ? String(normalizedContent)
+      : defaultInfo
 
   // Create new fulltext node with provided or default content
   const newFullTextNode = {
