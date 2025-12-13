@@ -402,7 +402,11 @@
       <!-- Content Wrapper with Chat Panel -->
       <div class="content-wrapper" :class="{ 'chat-open': showGrokChat }">
         <!-- Main Content -->
-        <div class="gnew-content" :class="{ 'with-chat': showGrokChat }">
+        <div
+          class="gnew-content"
+          :class="{ 'with-chat': showGrokChat }"
+          ref="graphContentRef"
+        >
         <!-- Graph Status Bar -->
         <GraphStatusBar
           :graphData="graphData"
@@ -1471,25 +1475,31 @@
 
           <h3>🔗 Graph Nodes</h3>
           <div class="nodes-container">
-            <GNewNodeRenderer
+            <div
               v-for="node in sortedNodes"
               :key="node.id"
-              :node="node"
-              :graphData="graphData"
-              :showControls="userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)"
-              @node-updated="handleNodeUpdated"
-              @node-deleted="handleNodeDeleted"
-              @node-created="handleNodeCreated"
-              @move-up="moveNodeUp"
-              @move-down="moveNodeDown"
-              @open-reorder="openReorderModal"
-              @format-node="handleFormatNode"
-              @quick-format="handleQuickFormat"
-              @open-node-seo="handleOpenNodeSEO"
-              @open-node-share="handleOpenNodeShare"
-              @copy-node="handleCopyNode"
-              @duplicate-node="handleDuplicateNode"
-            />
+              class="node-selection-wrapper"
+              :data-node-id="node.id"
+              :data-node-label="node.label || node.id"
+            >
+              <GNewNodeRenderer
+                :node="node"
+                :graphData="graphData"
+                :showControls="userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)"
+                @node-updated="handleNodeUpdated"
+                @node-deleted="handleNodeDeleted"
+                @node-created="handleNodeCreated"
+                @move-up="moveNodeUp"
+                @move-down="moveNodeDown"
+                @open-reorder="openReorderModal"
+                @format-node="handleFormatNode"
+                @quick-format="handleQuickFormat"
+                @open-node-seo="handleOpenNodeSEO"
+                @open-node-share="handleOpenNodeShare"
+                @copy-node="handleCopyNode"
+                @duplicate-node="handleDuplicateNode"
+              />
+            </div>
           </div>
 
           <!-- Bottom Slots -->
@@ -1544,6 +1554,7 @@
       >
         <GrokChatPanel
           :graphData="graphData"
+          :selection-context="grokSelectionContext"
           @insert-fulltext="insertAIResponseAsFullText"
         />
       </div>
@@ -2878,6 +2889,7 @@ const selectedTextEnd = ref(0)
 const rewriteInstructions = ref('')
 const rewrittenText = ref('')
 const isRewritingText = ref(false)
+const chatSelection = ref(null)
 
 // AI Challenge functionality
 const showAIChallengeModal = ref(false)
@@ -2961,6 +2973,133 @@ const hasSelectedText = computed(() => {
 const truncateSelectedText = computed(() => {
   if (selectedText.value.length <= 50) return selectedText.value
   return selectedText.value.substring(0, 50) + '...'
+})
+
+const grokSelectionContext = computed(() => {
+  if (!chatSelection.value?.text) return null
+
+  return {
+    text: chatSelection.value.text,
+    nodeId: chatSelection.value.nodeId || null,
+    nodeLabel: chatSelection.value.nodeLabel || null,
+    nodeType: chatSelection.value.nodeType || null,
+    source: chatSelection.value.source || 'graph-surface',
+    updatedAt: chatSelection.value.updatedAt,
+  }
+})
+
+const setChatSelection = (text, metadata = {}) => {
+  const trimmed = typeof text === 'string' ? text.trim() : ''
+
+  if (!trimmed) {
+    if (!metadata.source || chatSelection.value?.source === metadata.source) {
+      chatSelection.value = null
+    }
+    return
+  }
+
+  chatSelection.value = {
+    text: trimmed,
+    nodeId: metadata.nodeId || null,
+    nodeLabel: metadata.nodeLabel || null,
+    nodeType: metadata.nodeType || null,
+    source: metadata.source || 'graph-surface',
+    updatedAt: Date.now(),
+  }
+}
+
+const syncChatSelectionWithNode = (text) => {
+  setChatSelection(text, {
+    source: 'node-editor',
+    nodeId: editingNode.value?.id || null,
+    nodeLabel:
+      editingNode.value?.label ||
+      editingNode.value?.title ||
+      editingNode.value?.id ||
+      'Node content',
+    nodeType: editingNode.value?.type || null,
+  })
+}
+
+const normalizeSelectionNode = (node) => {
+  if (!node) return null
+  if (node.nodeType === 3) {
+    return node.parentElement || null
+  }
+  return node
+}
+
+let graphSelectionFrameId = null
+const runGraphSurfaceSelectionExtraction = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+  const selection = window.getSelection?.()
+  if (!graphContentRef.value) return
+
+  const anchorElement = normalizeSelectionNode(selection?.anchorNode)
+  const focusElement = normalizeSelectionNode(selection?.focusNode)
+  const isInsideGraph =
+    (anchorElement && graphContentRef.value.contains(anchorElement)) ||
+    (focusElement && graphContentRef.value.contains(focusElement))
+
+  if (!selection || selection.isCollapsed) {
+    if (isInsideGraph && chatSelection.value?.source === 'graph-surface') {
+      setChatSelection('', { source: 'graph-surface' })
+    }
+    return
+  }
+
+  if (document.activeElement === nodeContentTextarea.value) {
+    return
+  }
+
+  const selectedTextValue = selection.toString().trim()
+  if (!selectedTextValue) {
+    if (isInsideGraph && chatSelection.value?.source === 'graph-surface') {
+      setChatSelection('', { source: 'graph-surface' })
+    }
+    return
+  }
+
+  if (!isInsideGraph) {
+    return
+  }
+
+  const hostElement =
+    anchorElement?.closest?.('[data-node-id]') ||
+    focusElement?.closest?.('[data-node-id]') ||
+    null
+
+  setChatSelection(selectedTextValue, {
+    source: 'graph-surface',
+    nodeId: hostElement?.dataset?.nodeId || null,
+    nodeLabel: hostElement?.dataset?.nodeLabel || null,
+  })
+}
+
+const handleGraphSurfaceSelection = () => {
+  if (typeof window === 'undefined') return
+
+  if (graphSelectionFrameId) {
+    window.cancelAnimationFrame(graphSelectionFrameId)
+  }
+
+  graphSelectionFrameId = window.requestAnimationFrame(() => {
+    graphSelectionFrameId = null
+    runGraphSurfaceSelectionExtraction()
+  })
+}
+
+onMounted(() => {
+  if (typeof document !== 'undefined') {
+    document.addEventListener('selectionchange', handleGraphSurfaceSelection)
+  }
+})
+
+onUnmounted(() => {
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('selectionchange', handleGraphSurfaceSelection)
+  }
 })
 
 // Graph Operations computed property
@@ -3179,6 +3318,7 @@ const selectedElementIndex = ref(0)
 const autocompletePosition = ref({ top: 0, left: 0 })
 const currentTrigger = ref('')
 const nodeContentTextarea = ref(null)
+const graphContentRef = ref(null)
 
 // Mobile menu functionality (starts collapsed)
 const showMobileMenu = ref(false)
@@ -5718,6 +5858,7 @@ const handleTextSelection = () => {
       selectedText.value = selectedTextValue
       selectedTextStart.value = start
       selectedTextEnd.value = end
+      syncChatSelectionWithNode(selectedTextValue)
 
       console.log('🎯 Text selected:', selectedTextValue)
       console.log('🎯 hasSelectedText will be:', selectedTextValue.trim().length > 0)
@@ -5725,6 +5866,7 @@ const handleTextSelection = () => {
       selectedText.value = ''
       selectedTextStart.value = 0
       selectedTextEnd.value = 0
+      syncChatSelectionWithNode('')
       console.log('🎯 No text selected, cleared selection')
     }
   } else {
@@ -5756,6 +5898,7 @@ const showMobileAITools = () => {
     selectedText.value = editingNode.value.info.trim()
     selectedTextStart.value = 0
     selectedTextEnd.value = editingNode.value.info.length
+    syncChatSelectionWithNode(selectedText.value)
 
     console.log('🎯 Mobile: Selected all text for AI tools')
   }
@@ -5776,6 +5919,7 @@ const openAIRewriteModal = () => {
       selectedText.value = fullText
       selectedTextStart.value = 0
       selectedTextEnd.value = fullText.length
+      syncChatSelectionWithNode(fullText)
       console.log('🎯 No selection, using full text:', fullText.substring(0, 50) + '...')
     }
   }
@@ -5879,6 +6023,7 @@ const applyRewrittenText = () => {
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
+  syncChatSelectionWithNode('')
   closeAIRewriteModal()
 
   statusMessage.value = '✅ Text rewritten successfully!'
@@ -5999,6 +6144,7 @@ const applyAlternativeText = () => {
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
+  syncChatSelectionWithNode('')
   closeAIChallengeModal()
 
   statusMessage.value = '✅ Alternative text applied successfully!'
@@ -6024,6 +6170,7 @@ const openElaborateModal = () => {
       selectedText.value = fullText
       selectedTextStart.value = 0
       selectedTextEnd.value = fullText.length
+      syncChatSelectionWithNode(fullText)
       console.log('🎯 No selection, using full text for elaboration')
     }
   }
@@ -6152,6 +6299,7 @@ const applyElaboratedText = () => {
   selectedText.value = ''
   selectedTextStart.value = 0
   selectedTextEnd.value = 0
+  syncChatSelectionWithNode('')
   closeElaborateModal()
 
   statusMessage.value = '✅ Text enhanced successfully!'
@@ -8928,6 +9076,10 @@ const saveAttribution = async () => {
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+}
+
+.node-selection-wrapper {
+  display: contents;
 }
 
 .node-comments-section {

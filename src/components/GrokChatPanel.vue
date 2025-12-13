@@ -37,14 +37,153 @@
     >
       <!-- Context Toggle -->
       <div class="context-controls">
-        <label class="context-toggle">
-          <input type="checkbox" v-model="useGraphContext" />
-          <img :src="graphContextIcon" alt="Graph context" class="context-icon" />
-          <span>Use Graph Context</span>
-        </label>
-        <span v-if="useGraphContext" class="context-indicator">
-          {{ graphContextSummary }}
-        </span>
+        <div class="context-row">
+          <label class="context-toggle">
+            <input type="checkbox" v-model="useGraphContext" />
+            <img :src="graphContextIcon" alt="Graph context" class="context-icon" />
+            <span>Use Graph Context</span>
+          </label>
+          <span v-if="useGraphContext" class="context-indicator">
+            {{ graphContextSummary }}
+          </span>
+        </div>
+        <div
+          v-if="hasSelectionContext"
+          class="context-row selection-context"
+          :class="{ active: useSelectionContext }"
+        >
+          <label class="context-toggle">
+            <input type="checkbox" v-model="useSelectionContext" />
+            <span>Focus on Highlighted Text</span>
+          </label>
+          <span v-if="useSelectionContext" class="context-indicator selection">
+            <strong>{{ selectionContextLabel }}:</strong> {{ selectionContextSummary }}
+          </span>
+        </div>
+        <div v-else class="selection-hint">
+          Highlight text in the graph to share it with the assistant.
+        </div>
+        <div
+          v-if="canPersistHistory"
+          class="history-status"
+          :class="{ loading: historyLoading, error: historyError }"
+        >
+          <span v-if="historyLoading">
+            💾 Syncing chat history...
+          </span>
+          <span v-else-if="historyError">
+            ⚠️ {{ historyError }}
+            <button class="btn btn-link btn-sm" type="button" @click="retryHistoryLoad">
+              Retry
+            </button>
+          </span>
+          <span v-else-if="historyLastLoaded">
+            ✅ History synced at {{ historyLastLoadedLabel }}
+          </span>
+          <span v-else>
+            💾 History will be saved for this graph.
+          </span>
+        </div>
+        <div v-if="canPersistHistory" class="session-picker">
+          <button
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="toggleSessionList"
+          >
+            📁 Sessions ({{ availableSessions.length }})
+          </button>
+          <div v-if="sessionListOpen" class="session-dropdown">
+            <div class="session-dropdown__actions">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                @click="startNewChatSession"
+                :disabled="historyLoading || renameSaving"
+              >
+                ➕ New Session
+              </button>
+            </div>
+            <div v-if="sessionsLoading" class="session-dropdown__state">Loading sessions...</div>
+            <div v-else-if="sessionsError" class="session-dropdown__state error">
+              {{ sessionsError }}
+              <button class="btn btn-link btn-sm" type="button" @click="fetchChatSessions">Retry</button>
+            </div>
+            <div v-else-if="!availableSessions.length" class="session-dropdown__state">
+              No saved sessions yet.
+            </div>
+            <div v-else-if="deleteSessionError" class="session-dropdown__state error">
+              {{ deleteSessionError }}
+            </div>
+            <ul v-else class="session-list">
+              <li
+                v-for="session in availableSessions"
+                :key="session.id"
+                :class="{ active: session.id === chatSessionId }"
+              >
+                <div v-if="renamingSessionId === session.id" class="session-rename-form">
+                  <input
+                    class="session-rename-input"
+                    type="text"
+                    v-model="renameInput"
+                    maxlength="140"
+                    placeholder="Session title"
+                    :disabled="renameSaving"
+                  />
+                  <div class="session-rename-actions">
+                    <button
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      @click="confirmRenameSession(session.id)"
+                      :disabled="renameSaving"
+                    >
+                      {{ renameSaving ? 'Saving...' : 'Save' }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-sm"
+                      type="button"
+                      @click="cancelRenameSession"
+                      :disabled="renameSaving"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div v-if="renameError" class="session-rename-error">{{ renameError }}</div>
+                </div>
+                <template v-else>
+                  <div class="session-list__info">
+                    <strong>{{ session.title || 'Untitled session' }}</strong>
+                    <small>Updated {{ formatSessionTimestamp(session.updatedAt) }}</small>
+                  </div>
+                  <div class="session-list__actions">
+                    <button
+                      class="btn btn-link btn-sm"
+                      type="button"
+                      :disabled="session.id === chatSessionId || historyLoading"
+                      @click="selectChatSession(session.id)"
+                    >
+                      {{ session.id === chatSessionId ? 'Current' : 'Open' }}
+                    </button>
+                    <button
+                      class="btn btn-link btn-sm"
+                      type="button"
+                      @click="beginRenameSession(session)"
+                      :disabled="renameSaving"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      class="btn btn-link btn-sm text-danger"
+                      type="button"
+                      :disabled="deletingSessionId === session.id"
+                      @click="deleteChatSession(session)">
+                      {{ deletingSessionId === session.id ? 'Deleting…' : 'Delete' }}
+                    </button>
+                  </div>
+                </template>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -377,11 +516,17 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  selectionContext: {
+    type: Object,
+    required: false,
+    default: () => null,
+  },
 })
 
 // State
 const isCollapsed = ref(false)
 const useGraphContext = ref(true)
+const useSelectionContext = ref(false)
 const provider = ref('grok')
 const providerOptions = [
   { value: 'grok', label: 'Grok' },
@@ -457,6 +602,21 @@ const MAX_GRAPH_JOBS = 4
 
 const graphProcessingJobs = ref([])
 
+const CHAT_HISTORY_BASE_URL = 'https://api.vegvisr.org/chat-history'
+const RESUME_SESSION_ON_LOAD = false
+const chatSessionId = ref(null)
+const lastInitializedSessionKey = ref(null)
+let sessionInitPromise = null
+const historyLoading = ref(false)
+const historyError = ref('')
+const historyLastLoaded = ref(null)
+const availableSessions = ref([])
+const sessionsLoading = ref(false)
+const sessionsError = ref('')
+const sessionListOpen = ref(false)
+const deletingSessionId = ref(null)
+const deleteSessionError = ref('')
+
 // Computed
 const graphContextSummary = computed(() => {
   if (!props.graphData || !props.graphData.nodes) return 'No graph data'
@@ -464,6 +624,72 @@ const graphContextSummary = computed(() => {
   const edgeCount = props.graphData.edges?.length || 0
   return `${nodeCount} nodes, ${edgeCount} edges`
 })
+
+const hasSelectionContext = computed(() => {
+  const text = props.selectionContext?.text
+  return Boolean(text && text.trim().length > 0)
+})
+
+const selectionContextSummary = computed(() => {
+  if (!hasSelectionContext.value) return ''
+  const text = props.selectionContext.text.trim()
+  return text.length > 140 ? `${text.substring(0, 140)}…` : text
+})
+
+const selectionContextLabel = computed(() => {
+  if (!hasSelectionContext.value) return 'Highlighted text'
+  return props.selectionContext?.nodeLabel || 'Highlighted text'
+})
+
+const canPersistHistory = computed(() => Boolean(userStore.loggedIn && userStore.user_id))
+const graphIdentifier = computed(() => {
+  return (
+    knowledgeGraphStore.currentGraphId ||
+    props.graphData?.metadata?.id ||
+    props.graphData?.metadata?.graphId ||
+    props.graphData?.metadata?.slug ||
+    props.graphData?.metadata?.title ||
+    'grok-graph'
+  )
+})
+const sessionStorageKey = computed(() => {
+  if (!canPersistHistory.value || !userStore.user_id) return null
+  return `grok-chat-session:${userStore.user_id}:${graphIdentifier.value}`
+})
+
+const historyLastLoadedLabel = computed(() => {
+  if (!historyLastLoaded.value) return ''
+  try {
+    return new Date(historyLastLoaded.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } catch (_) {
+    return ''
+  }
+})
+
+const renamingSessionId = ref(null)
+const renameInput = ref('')
+const renameSaving = ref(false)
+const renameError = ref('')
+
+let lastSelectionFingerprint = ''
+watch(
+  () => props.selectionContext?.text,
+  (newText) => {
+    const trimmed = typeof newText === 'string' ? newText.trim() : ''
+    if (!trimmed) {
+      lastSelectionFingerprint = ''
+      useSelectionContext.value = false
+      return
+    }
+
+    const fingerprint = `${trimmed}::${props.selectionContext?.nodeId || ''}`
+    if (!lastSelectionFingerprint || fingerprint !== lastSelectionFingerprint) {
+      useSelectionContext.value = true
+      lastSelectionFingerprint = fingerprint
+    }
+  },
+  { immediate: true }
+)
 
 // Prefer a user-provided profile image; fall back to an initial
 const userAvatarUrl = computed(() => userStore.profileimage || null)
@@ -947,13 +1173,12 @@ const finalizeTranscriptionMessage = (result, fileName) => {
     .filter(Boolean)
     .join('\n\n')
 
-  messages.value.push({
+  appendChatMessage({
     role: 'assistant',
     content,
     timestamp: Date.now(),
     provider: 'openai',
   })
-  scrollToBottom()
 }
 
 const startAudioTranscription = async () => {
@@ -966,13 +1191,12 @@ const startAudioTranscription = async () => {
 
   const { file, name } = selectedAudioFile.value
 
-  messages.value.push({
+  appendChatMessage({
     role: 'user',
     content: `Uploaded audio "${name}" for transcription.`,
     timestamp: Date.now(),
     provider: provider.value,
   })
-  scrollToBottom()
 
   isStreaming.value = true
   streamingContent.value = ''
@@ -1337,6 +1561,479 @@ const scrollToBottom = () => {
   })
 }
 
+const authorizedHistoryFetch = async (path, options = {}) => {
+  if (!canPersistHistory.value) {
+    throw new Error('Chat history unavailable for anonymous users')
+  }
+  const headers = new Headers(options.headers || {})
+  headers.set('x-user-id', userStore.user_id)
+  headers.set('x-user-email', userStore.email || 'anonymous@vegvisr.org')
+  headers.set('x-user-role', userStore.role || 'User')
+
+  return fetch(`${CHAT_HISTORY_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  })
+}
+
+const getStoredSessionId = () => {
+  if (!sessionStorageKey.value || typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(sessionStorageKey.value)
+  } catch (_) {
+    return null
+  }
+}
+
+const persistSessionIdLocally = (sessionId) => {
+  if (!sessionId || !sessionStorageKey.value || typeof window === 'undefined') return
+  try {
+    localStorage.setItem(sessionStorageKey.value, sessionId)
+  } catch (_) {
+    /* ignore quota errors */
+  }
+}
+
+const clearStoredSessionId = () => {
+  if (!sessionStorageKey.value || typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(sessionStorageKey.value)
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+const beginRenameSession = (session) => {
+  if (!session) return
+  renamingSessionId.value = session.id
+  renameInput.value = session.title || 'Untitled session'
+  renameError.value = ''
+}
+
+const cancelRenameSession = () => {
+  renamingSessionId.value = null
+  renameInput.value = ''
+  renameError.value = ''
+}
+
+const confirmRenameSession = async (sessionId) => {
+  if (!sessionId || renamingSessionId.value !== sessionId) return
+  const trimmedTitle = (renameInput.value || '').trim()
+  if (!trimmedTitle) {
+    renameError.value = 'Please enter a session title.'
+    return
+  }
+
+  renameSaving.value = true
+  renameError.value = ''
+  try {
+    const preserveActive = chatSessionId.value !== sessionId
+    const session = await upsertChatSession({
+      sessionIdOverride: sessionId,
+      customTitle: trimmedTitle,
+      preserveActiveSession: preserveActive,
+    })
+    if (!session) {
+      upsertSessionPreview({
+        id: sessionId,
+        title: trimmedTitle,
+        updatedAt: new Date().toISOString(),
+      })
+    }
+    cancelRenameSession()
+  } catch (error) {
+    renameError.value = error.message || 'Failed to rename session'
+  } finally {
+    renameSaving.value = false
+  }
+}
+
+const buildSessionMetadata = () => ({
+  graphTitle: props.graphData?.metadata?.title || 'Untitled Graph',
+  graphDescription: props.graphData?.metadata?.description || '',
+  nodeCount: props.graphData?.nodes?.length || 0,
+  edgeCount: props.graphData?.edges?.length || 0,
+  selectionNodeId: props.selectionContext?.nodeId || null,
+})
+
+const upsertSessionPreview = (session) => {
+  if (!session) return
+  const existingIndex = availableSessions.value.findIndex((s) => s.id === session.id)
+  if (existingIndex >= 0) {
+    availableSessions.value[existingIndex] = {
+      ...availableSessions.value[existingIndex],
+      ...session,
+    }
+  } else {
+    availableSessions.value = [session, ...availableSessions.value].slice(0, 50)
+  }
+}
+
+const upsertChatSession = async (options = {}) => {
+  const {
+    sessionIdOverride = null,
+    customTitle = null,
+    skipStoredId = false,
+    preserveActiveSession = false,
+  } = options
+  if (!canPersistHistory.value || !graphIdentifier.value) return null
+
+  const previousSessionId = chatSessionId.value
+
+  const payload = {
+    graphId: graphIdentifier.value,
+    provider: provider.value,
+    metadata: buildSessionMetadata(),
+  }
+  const defaultSessionTitle = props.graphData?.metadata?.title || 'Graph Conversation'
+
+  const cachedSessionId = (skipStoredId || !RESUME_SESSION_ON_LOAD) ? null : getStoredSessionId()
+  const finalSessionId = sessionIdOverride || cachedSessionId
+  if (finalSessionId) {
+    payload.sessionId = finalSessionId
+  }
+
+  if (customTitle) {
+    payload.title = customTitle
+  } else if (!finalSessionId) {
+    payload.title = defaultSessionTitle
+  }
+
+  const response = await authorizedHistoryFetch('/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || 'Unable to create chat session')
+  }
+
+  const data = await response.json().catch(() => ({}))
+  if (data?.session?.id) {
+    const shouldPreserveActive = Boolean(
+      preserveActiveSession &&
+      sessionIdOverride &&
+      previousSessionId &&
+      sessionIdOverride !== previousSessionId
+    )
+
+    if (!shouldPreserveActive) {
+      chatSessionId.value = data.session.id
+      persistSessionIdLocally(data.session.id)
+    }
+    upsertSessionPreview(data.session)
+  }
+  return data.session || null
+}
+
+const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
+  if (!chatSessionId.value) return false
+
+  const params = new URLSearchParams({
+    sessionId: chatSessionId.value,
+    decrypt: '1',
+    limit: '200',
+  })
+
+  const response = await authorizedHistoryFetch(`/messages?${params.toString()}`, {
+    method: 'GET',
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || 'Unable to load chat history')
+  }
+
+  const data = await response.json().catch(() => ({}))
+  const normalized = (data.messages || []).map((message) => {
+    const timestamp = message.createdAt ? Date.parse(message.createdAt) : Date.now()
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content || '',
+      timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+      provider: message.role === 'assistant' ? (message.provider || 'grok') : (message.provider || provider.value),
+      selectionMeta: message.selectionMeta || null,
+    }
+  })
+
+  if (sessionStorageKey.value !== keySnapshot) {
+    return false
+  }
+
+  messages.value = normalized.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+  scrollToBottom()
+  historyLastLoaded.value = new Date().toISOString()
+  return true
+}
+
+const initializeChatHistory = async (forceReload = false, keySnapshot = sessionStorageKey.value) => {
+  if (!canPersistHistory.value || !sessionStorageKey.value) return null
+  if (sessionInitPromise && !forceReload) {
+    return sessionInitPromise
+  }
+
+  sessionInitPromise = (async () => {
+    historyLoading.value = true
+    historyError.value = ''
+    try {
+      await upsertChatSession()
+      if (chatSessionId.value) {
+        const loaded = await loadChatHistory(keySnapshot)
+        if (loaded) {
+          fetchChatSessions()
+        }
+      }
+    } catch (error) {
+      console.warn('Chat session init failed:', error)
+      historyError.value = error.message || 'Failed to load chat history'
+    } finally {
+      historyLoading.value = false
+      sessionInitPromise = null
+    }
+  })()
+
+  return sessionInitPromise
+}
+
+const startNewChatSession = async () => {
+  if (!canPersistHistory.value || historyLoading.value) return
+  historyLoading.value = true
+  historyError.value = ''
+  cancelRenameSession()
+  sessionListOpen.value = false
+  messages.value = []
+  historyLastLoaded.value = null
+  chatSessionId.value = null
+  clearStoredSessionId()
+  try {
+    const session = await upsertChatSession({ skipStoredId: true })
+    if (session?.id) {
+      chatSessionId.value = session.id
+      persistSessionIdLocally(session.id)
+      upsertSessionPreview(session)
+    }
+    await fetchChatSessions()
+  } catch (error) {
+    historyError.value = error.message || 'Failed to start new session'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const deleteChatSession = async (session) => {
+  const sessionId = session?.id
+  if (!sessionId || deletingSessionId.value === sessionId) return
+
+  if (typeof window !== 'undefined') {
+    const confirmed = window.confirm(`Delete session "${session.title || 'Untitled session'}"?`)
+    if (!confirmed) {
+      return
+    }
+  }
+
+  deleteSessionError.value = ''
+  deletingSessionId.value = sessionId
+  try {
+    const response = await authorizedHistoryFetch(`/sessions/${sessionId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Failed to delete session')
+    }
+
+    availableSessions.value = availableSessions.value.filter((s) => s.id !== sessionId)
+
+    if (chatSessionId.value === sessionId) {
+      chatSessionId.value = null
+      clearStoredSessionId()
+      messages.value = []
+      historyLastLoaded.value = null
+    }
+
+    await fetchChatSessions()
+  } catch (error) {
+    deleteSessionError.value = error.message || 'Failed to delete session'
+  } finally {
+    if (deletingSessionId.value === sessionId) {
+      deletingSessionId.value = null
+    }
+  }
+}
+const persistChatMessage = async (message) => {
+  if (!canPersistHistory.value || !message) return
+
+  if (!chatSessionId.value) {
+    await upsertChatSession()
+  }
+
+  if (!chatSessionId.value) return
+
+  try {
+    const payload = {
+      sessionId: chatSessionId.value,
+      role: message.role || 'user',
+    }
+
+    if (message.id) {
+      payload.messageId = message.id
+    }
+
+    if (message.selectionMeta) {
+      payload.selectionMeta = message.selectionMeta
+    }
+
+    if (message.ciphertext && message.iv && message.salt) {
+      payload.ciphertext = message.ciphertext
+      payload.iv = message.iv
+      payload.salt = message.salt
+    } else if (typeof message.content === 'string' && message.content.length) {
+      payload.content = message.content
+    } else {
+      return
+    }
+
+    const response = await authorizedHistoryFetch('/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}))
+      if (data?.message?.id && !message.id) {
+        message.id = data.message.id
+      }
+      const nowIso = new Date().toISOString()
+      upsertSessionPreview({
+        id: chatSessionId.value,
+        updatedAt: nowIso,
+      })
+    } else {
+      console.warn('Chat history persistence failed:', await response.text())
+    }
+  } catch (error) {
+    console.warn('Chat history persistence error:', error)
+  }
+}
+
+const appendChatMessage = (message, options = {}) => {
+  messages.value.push(message)
+  scrollToBottom()
+  if (options.persist === false) {
+    return
+  }
+  persistChatMessage(message)
+}
+
+const fetchChatSessions = async () => {
+  if (!canPersistHistory.value) return
+  sessionsLoading.value = true
+  sessionsError.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (graphIdentifier.value) {
+      params.set('graphId', graphIdentifier.value)
+    }
+    const query = params.toString()
+    const response = await authorizedHistoryFetch(`/sessions${query ? `?${query}` : ''}`, {
+      method: 'GET',
+    })
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Failed to load sessions')
+    }
+    const data = await response.json().catch(() => ({}))
+    availableSessions.value = data.sessions || []
+  } catch (error) {
+    sessionsError.value = error.message || 'Failed to load sessions'
+  } finally {
+    sessionsLoading.value = false
+  }
+}
+
+const formatSessionTimestamp = (isoString) => {
+  if (!isoString) return 'No activity yet'
+  try {
+    const date = new Date(isoString)
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch (_) {
+    return isoString
+  }
+}
+
+const selectChatSession = async (sessionId) => {
+  if (!sessionId || sessionId === chatSessionId.value) {
+    sessionListOpen.value = false
+    return
+  }
+
+  cancelRenameSession()
+  historyLoading.value = true
+  historyError.value = ''
+  chatSessionId.value = sessionId
+  persistSessionIdLocally(sessionId)
+  messages.value = []
+
+  try {
+    await loadChatHistory(sessionStorageKey.value)
+    sessionListOpen.value = false
+  } catch (error) {
+    historyError.value = error.message || 'Failed to load chat history'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const toggleSessionList = async () => {
+  if (!canPersistHistory.value) return
+  sessionListOpen.value = !sessionListOpen.value
+  if (sessionListOpen.value) {
+    deleteSessionError.value = ''
+  }
+  if (sessionListOpen.value) {
+    if (!sessionsLoading.value && availableSessions.value.length === 0) {
+      await fetchChatSessions()
+    }
+  } else {
+    cancelRenameSession()
+  }
+}
+
+const retryHistoryLoad = () => {
+  if (!canPersistHistory.value) return
+  initializeChatHistory(true, sessionStorageKey.value)
+}
+
+watch(
+  () => ({ key: sessionStorageKey.value, allow: canPersistHistory.value }),
+  async ({ key, allow }) => {
+    if (!allow || !key) {
+      if (!allow) {
+        chatSessionId.value = null
+        historyLoading.value = false
+        historyError.value = ''
+        availableSessions.value = []
+        sessionListOpen.value = false
+        cancelRenameSession()
+        deleteSessionError.value = ''
+      }
+      return
+    }
+
+    const shouldForceReload = lastInitializedSessionKey.value !== key
+    if (shouldForceReload) {
+      messages.value = []
+      availableSessions.value = []
+    }
+
+    lastInitializedSessionKey.value = key
+    await initializeChatHistory(shouldForceReload, key)
+  },
+  { immediate: true }
+)
+
 const handleShiftEnter = () => {
   // Allow default behavior (new line)
 }
@@ -1376,9 +2073,24 @@ const buildGraphContext = () => {
   return context
 }
 
+const buildSelectionContext = () => {
+  if (!useSelectionContext.value || !hasSelectionContext.value) return null
+
+  const selection = props.selectionContext
+  if (!selection?.text?.trim()) return null
+
+  return {
+    text: selection.text.trim().substring(0, 1500),
+    label: selection.nodeLabel || 'Highlighted text',
+    nodeId: selection.nodeId || null,
+    nodeType: selection.nodeType || null,
+    source: selection.source || 'graph',
+  }
+}
+
 const handleImageGeneration = async (imagePrompt, originalMessage) => {
   // Add user message showing the request
-  messages.value.push({
+  appendChatMessage({
     role: 'user',
     content: originalMessage,
     timestamp: Date.now(),
@@ -1439,7 +2151,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
     responseContent += `**Original prompt:** ${imagePrompt}`
 
     // Add assistant message with the image
-    messages.value.push({
+    appendChatMessage({
       role: 'assistant',
       content: responseContent,
       timestamp: Date.now(),
@@ -1451,7 +2163,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
     errorMessage.value = `Error: ${error.message}`
 
     // Add error message to chat
-    messages.value.push({
+    appendChatMessage({
       role: 'assistant',
       content: `❌ Image generation failed: ${error.message}`,
       timestamp: Date.now(),
@@ -1470,6 +2182,7 @@ const sendMessage = async () => {
 
   const currentProvider = provider.value
   const hasImage = uploadedImage.value && currentProvider !== 'grok'
+  const selectionFocus = buildSelectionContext()
 
   // Check for natural language image generation commands
   const imageGenPattern = /^(create|generate|make|draw|paint|design|produce)\s+(an?\s+)?(image|picture|photo|illustration|artwork)\s+(of\s+)?(.+)$/i
@@ -1482,12 +2195,13 @@ const sendMessage = async () => {
   }
 
   // Add user message
-  messages.value.push({
+  appendChatMessage({
     role: 'user',
     content: hasImage ? `${message} [Image attached]` : message,
     timestamp: Date.now(),
     provider: currentProvider,
-    hasImage: hasImage
+    hasImage,
+    selectionMeta: selectionFocus || null,
   })
 
   userInput.value = ''
@@ -1543,13 +2257,12 @@ const sendMessage = async () => {
       }
     })
 
-    // Inject graph context if enabled
+    const contextSections = []
+
     if (useGraphContext.value) {
       const graphContext = buildGraphContext()
       if (graphContext) {
-        const contextMessage = {
-          role: 'system',
-          content: `You are an AI assistant helping analyze a knowledge graph. Here is the current graph context:
+        contextSections.push(`You are an AI assistant helping analyze a knowledge graph. Here is the current graph context:
 
 Title: ${graphContext.metadata?.title || 'Untitled'}
 Description: ${graphContext.metadata?.description || 'No description'}
@@ -1563,11 +2276,27 @@ ${graphContext.nodes?.map(node => `- ${node.label} (${node.type}): ${node.info |
 Connections (up to 30):
 ${graphContext.edges?.map(edge => `- ${edge.from} → ${edge.to}`).join('\n') || 'No connections'}
 
-Use this context to provide relevant insights and answers about the knowledge graph.`
-        }
-        // Insert context before user messages
-        grokMessages = [contextMessage, ...grokMessages]
+Use this context to provide relevant insights and answers about the knowledge graph.`)
       }
+    }
+
+    if (selectionFocus) {
+      const typeLabel = selectionFocus.nodeType ? ` (${selectionFocus.nodeType})` : ''
+      const nodeIdLine = selectionFocus.nodeId ? `Node ID: ${selectionFocus.nodeId}\n\n` : ''
+      contextSections.push(`Highlighted Selection — ${selectionFocus.label}${typeLabel}
+    ${nodeIdLine}${selectionFocus.text}
+
+    Prioritize this highlighted passage when answering the user's next question, while still considering the broader graph context.`)
+    }
+
+    if (contextSections.length) {
+      grokMessages = [
+        {
+          role: 'system',
+          content: contextSections.join('\n\n---\n\n'),
+        },
+        ...grokMessages,
+      ]
     }
 
     let endpoint = 'https://grok.vegvisr.org/chat'
@@ -1673,7 +2402,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
     }
 
     // Add assistant message
-    messages.value.push({
+    appendChatMessage({
       role: 'assistant',
       content: aiMessage,
       timestamp: Date.now(),
@@ -1836,6 +2565,162 @@ watch(
   margin-top: 0.25rem;
   font-size: 0.85rem;
   color: #666;
+}
+
+.context-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.selection-context {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(102, 126, 234, 0.08);
+  border: 1px solid transparent;
+}
+
+.selection-context.active {
+  border-color: rgba(102, 126, 234, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.12);
+}
+
+.context-indicator.selection {
+  color: #5b4bff;
+  font-weight: 500;
+}
+
+.selection-hint {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: #7a7a8c;
+}
+
+.history-status {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: #4a4a4a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.history-status.loading {
+  color: #0c63e7;
+}
+
+.history-status.error {
+  color: #b3261e;
+}
+
+.session-picker {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.session-dropdown {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background: white;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.08);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.session-dropdown__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.session-dropdown__state {
+  font-size: 0.82rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.session-dropdown__state.error {
+  color: #b3261e;
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.session-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px dashed rgba(15, 23, 42, 0.08);
+}
+
+.session-list li:last-child {
+  border-bottom: none;
+}
+
+.session-list li.active {
+  background: rgba(102, 126, 234, 0.08);
+  border-radius: 6px;
+}
+
+.session-list__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.session-list__info strong {
+  font-size: 0.88rem;
+  color: #111827;
+}
+
+.session-list__info small {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.session-list__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.session-rename-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.session-rename-input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.session-rename-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.session-rename-error {
+  font-size: 0.78rem;
+  color: #b3261e;
 }
 
 .messages-container {
