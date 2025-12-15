@@ -284,15 +284,15 @@
         </div>
         <div class="modal-body">
           <label class="form-label">Node Label:</label>
-          <input 
-            v-model="editingNodeLabel" 
-            type="text" 
+          <input
+            v-model="editingNodeLabel"
+            type="text"
             class="form-control mb-3"
             placeholder="Node label"
           />
           <label class="form-label">Node Info Content:</label>
-          <textarea 
-            v-model="editingNodeInfo" 
+          <textarea
+            v-model="editingNodeInfo"
             class="form-control info-textarea"
             rows="15"
             placeholder="Enter node information..."
@@ -894,7 +894,7 @@ const initializeCytoscape = (graphData) => {
     if (node.data('customShape')) {
       node.style('shape', node.data('customShape'))
     }
-    
+
     // Apply background image if stored (using 'path' property)
     if (node.data('path')) {
       node.style({
@@ -903,7 +903,7 @@ const initializeCytoscape = (graphData) => {
         'background-opacity': 1,
       })
     }
-    
+
     // Apply custom font color if stored
     if (node.data('fontColor')) {
       node.style('color', node.data('fontColor'))
@@ -919,7 +919,7 @@ const handleCanvasTap = async (event) => {
 
   // Check if clicked on background (not a node or edge)
   const isBackgroundClick = !event.target.isNode || !event.target.isNode()
-  
+
   if (placementMode.value && isBackgroundClick) {
     console.log('Background clicked in placement mode, adding node at:', event.position)
     await addNodeAtPosition(placementMode.value, event.position)
@@ -944,16 +944,16 @@ const setupEventListeners = () => {
 
   // Close context menu on canvas click (but not immediately after opening)
   let contextMenuJustOpened = false
-  
+
   cyInstance.value.on('tap', (event) => {
     // If menu was just opened, don't close it
     if (contextMenuJustOpened) {
       return
     }
-    
+
     // Handle regular tap behavior
     handleCanvasTap(event)
-    
+
     // Close context menu if open
     if (contextMenu.value.show) {
       contextMenu.value.show = false
@@ -967,10 +967,10 @@ const setupEventListeners = () => {
     console.log('Context menu triggered on node:', event.target.data('label'))
     const node = event.target
     const renderedPosition = node.renderedPosition()
-    
+
     // Set flag to prevent tap handler from closing menu
     contextMenuJustOpened = true
-    
+
     // Small delay to prevent immediate closure from tap event
     setTimeout(() => {
       contextMenu.value = {
@@ -981,7 +981,7 @@ const setupEventListeners = () => {
         isCluster: node.isParent(),
         isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
       }
-      
+
       // Clear flag after a longer delay to ensure menu stays open
       setTimeout(() => {
         contextMenuJustOpened = false
@@ -993,12 +993,12 @@ const setupEventListeners = () => {
   cyInstance.value.on('dbltap', 'node', (event) => {
     event.originalEvent.preventDefault()
     event.originalEvent.stopPropagation()
-    
+
     const node = event.target
     if (!node.isParent()) {
       // Close context menu if open
       contextMenu.value.show = false
-      
+
       editingNode.value = node
       editingNodeLabel.value = node.data('label') || ''
       editingNodeInfo.value = node.data('info') || ''
@@ -1015,9 +1015,9 @@ const setupEventListeners = () => {
         e.preventDefault()
         e.stopPropagation()
         const renderedPosition = target.renderedPosition()
-        
+
         contextMenuJustOpened = true
-        
+
         setTimeout(() => {
           contextMenu.value = {
             show: true,
@@ -1028,7 +1028,7 @@ const setupEventListeners = () => {
             isImportedCluster: target.isParent() && Boolean(target.data('sourceGraphId')),
           }
           console.log('Context menu opened via browser contextmenu event')
-          
+
           setTimeout(() => {
             contextMenuJustOpened = false
           }, 200)
@@ -1041,9 +1041,9 @@ const setupEventListeners = () => {
   cyInstance.value.on('dblclick', 'node', (event) => {
     event.originalEvent.preventDefault()
     event.originalEvent.stopPropagation()
-    
+
     const node = event.target
-    
+
     // Check if it's a parent/cluster node
     if (node.isParent()) {
       toggleClusterCollapse(node)
@@ -1058,7 +1058,7 @@ const setupEventListeners = () => {
 // Handle keyboard shortcuts
 const handleKeyDown = (event) => {
   if (!cyInstance.value) return
-  
+
   // Ignore keyboard shortcuts if user is typing in an input field
   const activeElement = document.activeElement
   if (activeElement && (
@@ -1221,15 +1221,15 @@ const deleteClusterOnly = async () => {
 
   if (confirm(`Ungroup "${nodeName}"?\n\nChildren will be moved to root level.`)) {
     const children = node.children()
-    
+
     // Move children to root (remove parent reference)
     children.forEach((child) => {
       child.move({ parent: null })
     })
-    
+
     // Delete the cluster node itself
     node.remove()
-    
+
     await saveGraph()
     showStatus(`Ungrouped "${nodeName}" - ${children.length} nodes moved to root`, 'success')
   }
@@ -1244,7 +1244,7 @@ const changeNodeShape = async (shape) => {
 
   // Update node style
   node.style('shape', shape)
-  
+
   // Store shape in node data for persistence
   node.data('customShape', shape)
 
@@ -1255,7 +1255,7 @@ const changeNodeShape = async (shape) => {
 const openImageSelectorForNode = () => {
   targetNodeForImage.value = contextMenu.value.node
   contextMenu.value.show = false
-  
+
   const node = targetNodeForImage.value
   currentImageData.value = {
     url: node.data('path') || '',
@@ -1264,7 +1264,7 @@ const openImageSelectorForNode = () => {
     context: `Background image for node: ${node.data('label') || 'Untitled'}`,
     nodeContent: node.data('info') || node.data('label') || '',
   }
-  
+
   isImageSelectorOpen.value = true
 }
 
@@ -1298,7 +1298,7 @@ const handleBackgroundImageSelected = async (replacementData) => {
 
   await saveGraph()
   showStatus('Background image applied', 'success')
-  
+
   closeImageSelector()
 }
 
@@ -1334,12 +1334,12 @@ const renameNode = () => {
 
   const currentLabel = node.data('label') || ''
   const newLabel = prompt('Enter new name for node:', currentLabel)
-  
+
   if (newLabel !== null && newLabel.trim() !== '') {
     node.data('label', newLabel.trim())
     saveCytoscape()
   }
-  
+
   contextMenu.value.show = false
 }
 
@@ -1365,12 +1365,12 @@ const saveNodeInfo = async () => {
   if (!editingNode.value) return
 
   const node = editingNode.value
-  
+
   // Update label if changed
   if (editingNodeLabel.value.trim()) {
     node.data('label', editingNodeLabel.value.trim())
   }
-  
+
   // Update info
   node.data('info', editingNodeInfo.value)
 
@@ -1387,7 +1387,7 @@ const toggleFontColor = async () => {
   const selectedNodes = cyInstance.value.$('node:selected').filter(node => !node.isParent())
   console.log('Selected nodes count:', selectedNodes.length)
   console.log('Selected node IDs:', selectedNodes.map(n => n.id()).join(', '))
-  
+
   if (selectedNodes.length === 0) {
     showStatus('No nodes selected (or only clusters selected)', 'warning')
     return
@@ -1397,21 +1397,21 @@ const toggleFontColor = async () => {
     // Check if node has stored fontColor in data, otherwise get current computed color
     const storedColor = node.data('fontColor')
     const currentColor = storedColor || node.style('color')
-    
+
     console.log(`Node ${node.id()} - Current color:`, currentColor, 'Stored color:', storedColor)
-    
+
     // Determine new color - if it's white or contains white, switch to black, otherwise to white
     let newColor
-    if (currentColor === '#fff' || currentColor === '#ffffff' || 
+    if (currentColor === '#fff' || currentColor === '#ffffff' ||
         currentColor === 'rgb(255, 255, 255)' || currentColor === 'white' ||
         storedColor === '#fff' || storedColor === 'white') {
       newColor = '#000'
     } else {
       newColor = '#fff'
     }
-    
+
     console.log(`Node ${node.id()} - Setting new color:`, newColor)
-    
+
     // Apply the new color
     node.style('color', newColor)
     // Store color in node data for persistence
@@ -1815,7 +1815,7 @@ const showImportGraphDialog = async () => {
   }
 
   const availableGraphs = knowledgeGraphs.value.filter((g) => g.id !== graphStore.currentGraphId)
-  
+
   if (availableGraphs.length === 0) {
     showStatus('No other graphs available to import', 'warning')
     return
@@ -2084,7 +2084,7 @@ watch(() => graphStore.currentGraphId, handleGraphIdChange)
 // Lifecycle
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
-  
+
   // Close context menu when clicking outside
   document.addEventListener('click', (e) => {
     const contextMenuEl = document.querySelector('.context-menu')

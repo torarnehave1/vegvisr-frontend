@@ -506,7 +506,7 @@
         <h3>⚙️ Advanced Graph Creation</h3>
         <button class="btn-close" @click="closeAdvancedGraphModal">✕</button>
       </div>
-      
+
       <div class="modal-body">
         <div class="help-text">
           <p><strong>Select node templates</strong> to guide AI graph generation. Only selected types will be used.</p>
@@ -528,7 +528,7 @@
         <div v-else class="template-selector">
           <div v-for="(templates, category) in templatesByCategory" :key="category" class="category-group">
             <h4 class="category-header">{{ category }}</h4>
-            
+
             <div class="template-list">
               <label
                 v-for="template in templates"
@@ -1387,7 +1387,7 @@ const fetchGraphTemplates = async () => {
     }
 
     const data = await response.json()
-    
+
     if (data.results && Array.isArray(data.results)) {
       // Filter to only templates with nodes (exclude email templates, etc.)
       availableTemplates.value = data.results.filter(template => {
@@ -1434,7 +1434,7 @@ const openAdvancedGraphModal = async (message, index) => {
   selectedMessageIndex.value = index
   selectedTemplates.value = [] // Reset selection
   showAdvancedGraphModal.value = true
-  
+
   await fetchGraphTemplates()
 }
 
@@ -1449,7 +1449,7 @@ const generateAdvancedGraph = async () => {
   console.log('🚀 generateAdvancedGraph called')
   console.log('Selected templates:', selectedTemplates.value)
   console.log('Selected message:', selectedMessage.value)
-  
+
   if (selectedTemplates.value.length === 0) {
     errorMessage.value = 'Please select at least one node template.'
     console.error('❌ No templates selected')
@@ -1507,7 +1507,7 @@ const generateAdvancedGraph = async () => {
   }
 
   graphProcessingJobs.value = [job, ...graphProcessingJobs.value].slice(0, MAX_GRAPH_JOBS)
-  
+
   if (messages.value[messageIndex]) {
   console.log('✅ Job created:', job)
   console.log('🚀 Calling processGraphJob...')
@@ -1617,8 +1617,8 @@ const processGraphJob = async (job) => {
   console.log('📊 processGraphJob called with job:', job)
   if (!job) return
   job.status = 'processing'
-  job.stage = job.mode === 'advanced' 
-    ? '🔍 Analyzing with custom templates...' 
+  job.stage = job.mode === 'advanced'
+    ? '🔍 Analyzing with custom templates...'
     : '🔍 Analyzing transcript...'
   job.progress = 20
   job.error = ''
@@ -1684,7 +1684,7 @@ const processGraphJob = async (job) => {
     if (job.mode === 'advanced') {
       console.log('📦 Auto-saving graph from advanced mode')
       await createGraphFromJob(job)
-      
+
       // Auto-open the graph if save succeeded
       if (job.graphSaveState === 'success' && job.createdGraphId) {
         console.log('🎯 Opening newly created graph:', job.createdGraphId)
@@ -2325,7 +2325,7 @@ watch(
           console.warn('Failed to delete empty session:', error)
         }
       }
-      
+
       messages.value = []
       availableSessions.value = []
       chatSessionId.value = null

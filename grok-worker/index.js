@@ -85,9 +85,9 @@ export default {
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { 
+      return new Response(null, {
         status: 204,
-        headers: corsHeaders 
+        headers: corsHeaders
       })
     }
 
@@ -299,11 +299,11 @@ function buildAdvancedModeConstraint(allowedNodeTypes) {
   if (!allowedNodeTypes || allowedNodeTypes.length === 0) {
     return ''
   }
-  
+
   const typeDescriptions = allowedNodeTypes
     .map(type => `- ${type}: ${getNodeTypeDescription(type)}`)
     .join('\n')
-  
+
   return `
 
 IMPORTANT CONSTRAINT - ALLOWED NODE TYPES ONLY:
