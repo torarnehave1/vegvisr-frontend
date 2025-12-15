@@ -233,6 +233,15 @@
             >
               {{ graphJobButtonLabel(message) }}
             </button>
+            <button
+              class="btn btn-link btn-sm advanced-graph-btn"
+              type="button"
+              @click="openAdvancedGraphModal(message, index)"
+              :disabled="isMessageGraphJobProcessing(message)"
+              title="Create graph with custom node template selection"
+            >
+              ⚙️ Advanced Graph Creation
+            </button>
           </div>
         </div>
 
@@ -489,6 +498,83 @@
     @close="closeImageSelector"
     @image-replaced="handleBackgroundImageChange"
   />
+
+  <!-- Advanced Graph Creation Modal -->
+  <div v-if="showAdvancedGraphModal" class="modal-overlay" @click.self="closeAdvancedGraphModal">
+    <div class="advanced-graph-modal">
+      <div class="modal-header">
+        <h3>⚙️ Advanced Graph Creation</h3>
+        <button class="btn-close" @click="closeAdvancedGraphModal">✕</button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="help-text">
+          <p><strong>Select node templates</strong> to guide AI graph generation. Only selected types will be used.</p>
+          <p class="text-muted">Tip: Start with 2-4 templates for best results.</p>
+        </div>
+
+        <div v-if="templatesLoading" class="loading-state">
+          <div class="spinner"></div>
+          <p>Loading templates...</p>
+        </div>
+
+        <div v-else-if="templatesFetchError" class="error-state">
+          <p class="error-message">{{ templatesFetchError }}</p>
+          <button class="btn btn-secondary btn-sm" @click="fetchGraphTemplates">
+            Retry
+          </button>
+        </div>
+
+        <div v-else class="template-selector">
+          <div v-for="(templates, category) in templatesByCategory" :key="category" class="category-group">
+            <h4 class="category-header">{{ category }}</h4>
+            
+            <div class="template-list">
+              <label
+                v-for="template in templates"
+                :key="template.id"
+                class="template-item"
+                :class="{ selected: isTemplateSelected(template.id) }"
+              >
+                <input
+                  type="checkbox"
+                  :value="template.id"
+                  v-model="selectedTemplates"
+                  :disabled="getTemplateNodeType(template) === null"
+                />
+                <div class="template-info">
+                  <span class="template-name">{{ template.name }}</span>
+                  <span class="template-type" v-if="getTemplateNodeType(template)">
+                    Type: <code>{{ getTemplateNodeType(template) }}</code>
+                  </span>
+                  <span class="template-description" v-if="getTemplateAIInstructions(template)">
+                    {{ getTemplateAIInstructions(template) }}
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="selection-summary" v-if="!templatesLoading && !templatesFetchError">
+          <strong>Selected:</strong> {{ selectedTemplates.length }} template(s)
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="closeAdvancedGraphModal">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          @click="generateAdvancedGraph"
+          :disabled="selectedTemplates.length === 0"
+        >
+          🚀 Generate Graph
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -598,6 +684,15 @@ const AUDIO_ENDPOINT = 'https://openai.vegvisr.org/audio'
 const CHUNK_DURATION_SECONDS = 120
 const GRAPH_PROCESS_ENDPOINT = 'https://grok.vegvisr.org/process-transcript'
 const KNOWLEDGE_GRAPH_SAVE_ENDPOINT = 'https://knowledge.vegvisr.org/saveGraphWithHistory'
+
+// Advanced Graph Creation
+const showAdvancedGraphModal = ref(false)
+const selectedMessage = ref(null)
+const selectedMessageIndex = ref(null)
+const availableTemplates = ref([])
+const selectedTemplates = ref([])
+const templatesLoading = ref(false)
+const templatesFetchError = ref('')
 const MAX_GRAPH_JOBS = 4
 
 const graphProcessingJobs = ref([])
@@ -699,6 +794,17 @@ const userInitial = computed(() => {
 })
 
 const canCreateGraph = computed(() => Boolean(userStore.emailVerificationToken))
+
+// Group templates by category
+const templatesByCategory = computed(() => {
+  const grouped = {}
+  availableTemplates.value.forEach(template => {
+    const cat = template.category || 'Other'
+    if (!grouped[cat]) grouped[cat] = []
+    grouped[cat].push(template)
+  })
+  return grouped
+})
 
 const providerMeta = (key) => {
   if (key === 'openai') return { label: 'OpenAI', icon: openaiIcon, initials: 'OA' }
@@ -1260,6 +1366,157 @@ const insertAsFullText = (content) => {
   emit('insert-fulltext', content)
 }
 
+// Advanced Graph Creation Functions
+const fetchGraphTemplates = async () => {
+  if (availableTemplates.value.length > 0) return // Already loaded
+
+  templatesLoading.value = true
+  templatesFetchError.value = ''
+  try {
+    const response = await fetch('https://knowledge.vegvisr.org/getTemplates', {
+      headers: {
+        'X-API-Token': userStore.emailVerificationToken,
+        Accept: 'application/json',
+      },
+      mode: 'cors',
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (data.results && Array.isArray(data.results)) {
+      // Filter to only templates with nodes (exclude email templates, etc.)
+      availableTemplates.value = data.results.filter(template => {
+        try {
+          const nodes = JSON.parse(template.nodes || '[]')
+          return nodes.length > 0 && nodes[0].type
+        } catch {
+          return false
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Failed to fetch templates:', error)
+    templatesFetchError.value = 'Could not load node templates. Please try again.'
+  } finally {
+    templatesLoading.value = false
+  }
+}
+
+const getTemplateNodeType = (template) => {
+  try {
+    const nodes = JSON.parse(template.nodes || '[]')
+    return nodes[0]?.type || null
+  } catch {
+    return null
+  }
+}
+
+const getTemplateAIInstructions = (template) => {
+  try {
+    const instructions = JSON.parse(template.ai_instructions || '{}')
+    return instructions.purpose || instructions.usage || ''
+  } catch {
+    return ''
+  }
+}
+
+const isTemplateSelected = (templateId) => {
+  return selectedTemplates.value.includes(templateId)
+}
+
+const openAdvancedGraphModal = async (message, index) => {
+  selectedMessage.value = message
+  selectedMessageIndex.value = index
+  selectedTemplates.value = [] // Reset selection
+  showAdvancedGraphModal.value = true
+  
+  await fetchGraphTemplates()
+}
+
+const closeAdvancedGraphModal = () => {
+  showAdvancedGraphModal.value = false
+  selectedMessage.value = null
+  selectedMessageIndex.value = null
+  selectedTemplates.value = []
+}
+
+const generateAdvancedGraph = async () => {
+  console.log('🚀 generateAdvancedGraph called')
+  console.log('Selected templates:', selectedTemplates.value)
+  console.log('Selected message:', selectedMessage.value)
+  
+  if (selectedTemplates.value.length === 0) {
+    errorMessage.value = 'Please select at least one node template.'
+    console.error('❌ No templates selected')
+    return
+  }
+
+  if (!selectedMessage.value) {
+    errorMessage.value = 'No message selected. Please try again.'
+    console.error('❌ No message selected')
+    return
+  }
+
+  // Save message data before closing modal (which resets selectedMessage)
+  const message = selectedMessage.value
+  const messageIndex = selectedMessageIndex.value
+
+  // Map selected template IDs to node types
+  const allowedNodeTypes = selectedTemplates.value
+    .map(templateId => {
+      const template = availableTemplates.value.find(t => t.id === templateId)
+      return getTemplateNodeType(template)
+    })
+    .filter(Boolean) // Remove nulls
+
+  console.log('✅ Allowed node types:', allowedNodeTypes)
+
+  // Close modal
+  closeAdvancedGraphModal()
+  console.log('✅ Modal closed')
+
+  // Create graph job with advanced mode
+  const transcript = (message.content || '').trim()
+  if (!transcript) {
+    errorMessage.value = 'Assistant response is empty. Nothing to process.'
+    return
+  }
+
+  const job = {
+    id: generateGraphJobId(),
+    messageIndex: messageIndex,
+    provider: message.provider || provider.value,
+    createdAt: Date.now(),
+    status: 'queued',
+    stage: 'Queued (Advanced Mode)',
+    progress: 5,
+    transcript,
+    sourcePreview: sanitizeJobPreview(message.content || ''),
+    error: '',
+    result: null,
+    graphSaveState: 'idle',
+    graphSaveError: '',
+    copyState: 'idle',
+    mode: 'advanced',
+    allowedNodeTypes
+  }
+
+  graphProcessingJobs.value = [job, ...graphProcessingJobs.value].slice(0, MAX_GRAPH_JOBS)
+  
+  if (messages.value[messageIndex]) {
+  console.log('✅ Job created:', job)
+  console.log('🚀 Calling processGraphJob...')
+    messages.value[messageIndex].graphJobId = job.id
+  }
+
+  processGraphJob(job)
+}
+
 const generateGraphJobId = () => {
   if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
     return crypto.randomUUID()
@@ -1357,9 +1614,12 @@ const startGraphProcessingFromMessage = (message, messageIndex) => {
 }
 
 const processGraphJob = async (job) => {
+  console.log('📊 processGraphJob called with job:', job)
   if (!job) return
   job.status = 'processing'
-  job.stage = '🔍 Analyzing transcript...'
+  job.stage = job.mode === 'advanced' 
+    ? '🔍 Analyzing with custom templates...' 
+    : '🔍 Analyzing transcript...'
   job.progress = 20
   job.error = ''
 
@@ -1369,7 +1629,15 @@ const processGraphJob = async (job) => {
       sourceLanguage: 'auto',
       targetLanguage: 'norwegian',
       userId: userStore.user_id,
+      // Add advanced mode parameters
+      ...(job.mode === 'advanced' && {
+        mode: 'advanced',
+        allowedNodeTypes: job.allowedNodeTypes
+      })
     }
+
+    console.log('📤 Sending request to:', GRAPH_PROCESS_ENDPOINT)
+    console.log('📦 Payload:', payload)
 
     const response = await fetch(GRAPH_PROCESS_ENDPOINT, {
       method: 'POST',
@@ -1377,7 +1645,9 @@ const processGraphJob = async (job) => {
       body: JSON.stringify(payload),
     })
 
-    job.stage = '🧠 Generating knowledge graph...'
+    job.stage = job.mode === 'advanced'
+      ? '🧠 Generating graph with selected templates...'
+      : '🧠 Generating knowledge graph...'
     job.progress = 70
 
     if (!response.ok) {
@@ -1409,6 +1679,18 @@ const processGraphJob = async (job) => {
     job.stage = '✅ Ready for review'
     job.status = 'completed'
     job.progress = 100
+
+    // Auto-save graph if in advanced mode
+    if (job.mode === 'advanced') {
+      console.log('📦 Auto-saving graph from advanced mode')
+      await createGraphFromJob(job)
+      
+      // Auto-open the graph if save succeeded
+      if (job.graphSaveState === 'success' && job.createdGraphId) {
+        console.log('🎯 Opening newly created graph:', job.createdGraphId)
+        openGraphInViewer(job)
+      }
+    }
   } catch (error) {
     console.error('Graph processing failed:', error)
     job.status = 'failed'
@@ -1779,12 +2061,17 @@ const initializeChatHistory = async (forceReload = false, keySnapshot = sessionS
     historyLoading.value = true
     historyError.value = ''
     try {
-      await upsertChatSession()
-      if (chatSessionId.value) {
+      // Only try to load existing session, don't create a new one yet
+      const cachedSessionId = getStoredSessionId()
+      if (cachedSessionId) {
+        chatSessionId.value = cachedSessionId
         const loaded = await loadChatHistory(keySnapshot)
         if (loaded) {
           fetchChatSessions()
         }
+      } else {
+        // No existing session - will be created on first message
+        console.log('No existing session found - will create on first message')
       }
     } catch (error) {
       console.warn('Chat session init failed:', error)
@@ -1865,7 +2152,9 @@ const deleteChatSession = async (session) => {
 const persistChatMessage = async (message) => {
   if (!canPersistHistory.value || !message) return
 
+  // Create session on first message
   if (!chatSessionId.value) {
+    console.log('Creating chat session for first message')
     await upsertChatSession()
   }
 
@@ -2008,7 +2297,7 @@ const retryHistoryLoad = () => {
 
 watch(
   () => ({ key: sessionStorageKey.value, allow: canPersistHistory.value }),
-  async ({ key, allow }) => {
+  async ({ key, allow }, oldValue) => {
     if (!allow || !key) {
       if (!allow) {
         chatSessionId.value = null
@@ -2024,8 +2313,23 @@ watch(
 
     const shouldForceReload = lastInitializedSessionKey.value !== key
     if (shouldForceReload) {
+      // Clean up empty session from previous graph if it exists
+      const previousSessionId = chatSessionId.value
+      if (previousSessionId && messages.value.length === 0) {
+        console.log('Deleting empty session:', previousSessionId)
+        try {
+          await authorizedHistoryFetch(`/sessions/${previousSessionId}`, {
+            method: 'DELETE'
+          })
+        } catch (error) {
+          console.warn('Failed to delete empty session:', error)
+        }
+      }
+      
       messages.value = []
       availableSessions.value = []
+      chatSessionId.value = null
+      clearStoredSessionId()
     }
 
     lastInitializedSessionKey.value = key
@@ -3346,5 +3650,219 @@ watch(
   .message {
     max-width: 95%;
   }
+}
+
+/* Advanced Graph Creation Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.advanced-graph-modal {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.advanced-graph-modal .modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.advanced-graph-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.btn-close:hover {
+  background: #f8f9fa;
+}
+
+.advanced-graph-modal .modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.advanced-graph-modal .modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #dee2e6;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.help-text {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.help-text p {
+  margin: 0.5rem 0;
+}
+
+.text-muted {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.category-group {
+  margin-bottom: 1.5rem;
+}
+
+.category-header {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6c757d;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.template-item {
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.template-item:hover {
+  border-color: #0d6efd;
+  background: #f8f9fa;
+}
+
+.template-item.selected {
+  border-color: #0d6efd;
+  background: #e7f1ff;
+}
+
+.template-item input[type="checkbox"] {
+  margin-top: 0.25rem;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.template-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.template-name {
+  font-weight: 600;
+  color: #212529;
+}
+
+.template-type {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.template-type code {
+  background: #e9ecef;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.template-description {
+  font-size: 0.85rem;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.selection-summary {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #e7f1ff;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.advanced-graph-btn {
+  color: #6f42c1 !important;
+  font-weight: 500;
+}
+
+.advanced-graph-btn:hover {
+  color: #5a32a3 !important;
+  text-decoration: underline;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 3rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #0d6efd;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error-state {
+  text-align: center;
+  padding: 2rem;
+}
+
+.error-message {
+  color: #dc3545;
+  margin-bottom: 1rem;
 }
 </style>

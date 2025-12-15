@@ -1,18 +1,12 @@
 <template>
-  <div class="graph-canvas">
+  <div class="graph-canvas" ref="graphCanvasRoot">
     <!-- Top Toolbar -->
     <div class="canvas-toolbar">
       <div class="toolbar-section">
-        <h3 class="canvas-title">Graph Canvas</h3>
-        <select v-model="selectedGraphId" @change="loadGraph" class="form-select">
-          <option value="">Select a graph...</option>
-          <option v-for="graph in knowledgeGraphs" :key="graph.id" :value="graph.id">
-            {{ graph.title || graph.name || `Graph ${graph.id}` }}
-          </option>
-        </select>
-        <span v-if="knowledgeGraphs.length === 0" class="text-muted ms-2">
-          No graphs available
-        </span>
+        <h3 class="canvas-title">
+          Graph Canvas
+          <span v-if="currentGraphTitle" class="text-muted ms-2">- {{ currentGraphTitle }}</span>
+        </h3>
       </div>
 
       <div class="toolbar-section">
@@ -79,8 +73,12 @@
           <button @click="centerAndZoom" class="btn btn-outline-info" title="Center & Fit">
             🎯 Center
           </button>
-          <button @click="deleteSelected" class="btn btn-outline-danger" title="Delete Selected">
-            🗑️ Delete
+          <button
+            @click="toggleFullscreen"
+            class="btn btn-outline-info"
+            :title="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
+          >
+            {{ isFullscreen ? '⤢ Exit Fullscreen' : '⤢ Fullscreen' }}
           </button>
         </div>
       </div>
@@ -111,9 +109,235 @@
       <div id="graph-canvas" class="cytoscape-canvas"></div>
     </div>
 
+    <div class="floating-node-menu" v-if="canAddNodes">
+      <div class="menu-header">
+        <span>Nodes & Edges</span>
+        <span class="menu-status" v-if="placementMode || edgeMode">
+          {{ placementMode ? (placementMode === 'fulltext' ? 'Full Text mode' : 'Info mode') : edgeStartNode ? 'Select target node' : 'Select start node' }}
+        </span>
+      </div>
+      <button
+        class="btn btn-primary btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'info' }"
+        @click="startNodePlacement('info')"
+      >
+        ➕ Add Info Node
+      </button>
+      <button
+        class="btn btn-primary btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'fulltext' }"
+        @click="startNodePlacement('fulltext')"
+      >
+        📝 Add Full Text Node
+      </button>
+      <button
+        class="btn btn-outline-primary btn-sm"
+        type="button"
+        :class="{ active: edgeMode }"
+        @click="toggleEdgeMode"
+      >
+        {{ edgeMode ? 'Cancel Edge Mode' : '🔗 Create Edge' }}
+      </button>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        @click="createClusterFromSelected"
+        :disabled="selectedCount < 2"
+      >
+        📦 Create Cluster
+      </button>
+      <button
+        class="btn btn-outline-info btn-sm"
+        type="button"
+        @click="showImportGraphDialog"
+      >
+        🌐 Import Graph
+      </button>
+      <button
+        class="btn btn-outline-secondary btn-sm"
+        type="button"
+        @click="toggleFontColor"
+        :disabled="selectedCount === 0"
+        title="Toggle font color between black and white"
+      >
+        🎨 Toggle Font Color
+      </button>
+      <button
+        class="btn btn-outline-danger btn-sm"
+        type="button"
+        @click="deleteSelected"
+        :disabled="selectedCount === 0"
+        title="Delete selected elements"
+      >
+        🗑️ Delete Selected
+      </button>
+      <button
+        class="btn btn-link btn-sm"
+        type="button"
+        v-if="placementMode || edgeMode"
+        @click="cancelInteractionModes"
+      >
+        Cancel Operation
+      </button>
+      <p class="menu-hint" v-if="placementMode">
+        Click anywhere on the canvas to place the selected node type.
+      </p>
+      <p class="menu-hint" v-else-if="edgeMode && !edgeStartNode">
+        Edge mode: select the start node.
+      </p>
+      <p class="menu-hint" v-else-if="edgeMode && edgeStartNode">
+        Edge mode: select the target node.
+      </p>
+      <p class="menu-hint" v-else-if="selectedCount >= 2">
+        Select 2+ nodes to group them in a cluster.
+      </p>
+      <p class="menu-hint" v-else>
+        Tip: use these tools to add nodes or connect ideas.
+      </p>
+    </div>
+
     <!-- Selection Info -->
     <div v-if="selectedCount > 0" class="selection-info">
       {{ selectedCount }} node{{ selectedCount > 1 ? 's' : '' }} selected
+    </div>
+
+    <!-- Context Menu -->
+    <div
+      v-if="contextMenu.show"
+      class="context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      @click.stop
+    >
+      <!-- Shape Options (not for clusters) -->
+      <div v-if="!contextMenu.isCluster" class="context-menu-section">
+        <div class="context-menu-header">Shape</div>
+        <div class="context-menu-item" @click="changeNodeShape('ellipse')">
+          <span class="context-menu-icon">⚫</span>
+          Circle
+        </div>
+        <div class="context-menu-item" @click="changeNodeShape('rectangle')">
+          <span class="context-menu-icon">⬜</span>
+          Square
+        </div>
+        <div class="context-menu-item" @click="changeNodeShape('round-rectangle')">
+          <span class="context-menu-icon">▭</span>
+          Rounded Rectangle
+        </div>
+      </div>
+
+      <!-- Background Image (not for clusters) -->
+      <div v-if="!contextMenu.isCluster" class="context-menu-section">
+        <div class="context-menu-header">Background</div>
+        <div class="context-menu-item" @click="openImageSelectorForNode">
+          <span class="context-menu-icon">🖼️</span>
+          Set Background Image
+        </div>
+        <div v-if="hasBackgroundImage()" class="context-menu-item" @click="removeBackgroundImage">
+          <span class="context-menu-icon">🚫</span>
+          Remove Background
+        </div>
+      </div>
+
+      <!-- Rename Node (not for clusters) -->
+      <div v-if="!contextMenu.isCluster" class="context-menu-section">
+        <div class="context-menu-header">Content</div>
+        <div class="context-menu-item" @click="renameNode">
+          <span class="context-menu-icon">✏️</span>
+          Rename Node
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="context-menu-divider"></div>
+
+      <!-- Delete Options -->
+      <div class="context-menu-item danger" @click="deleteContextNode">
+        <span class="context-menu-icon">🗑️</span>
+        {{ contextMenu.isImportedCluster ? 'Remove Imported Graph' : contextMenu.isCluster ? 'Delete Cluster' : 'Delete Node' }}
+      </div>
+      <div v-if="contextMenu.isCluster && !contextMenu.isImportedCluster" class="context-menu-item" @click="deleteClusterOnly">
+        <span class="context-menu-icon">📦</span>
+        Ungroup (Keep Children)
+      </div>
+    </div>
+
+    <!-- Image Selector for Background Images -->
+    <ImageSelector
+      :is-open="isImageSelectorOpen"
+      :current-image-url="currentImageData.url"
+      :current-image-alt="currentImageData.alt"
+      :image-type="currentImageData.type"
+      :image-context="currentImageData.context"
+      :node-content="currentImageData.nodeContent"
+      @close="closeImageSelector"
+      @image-replaced="handleBackgroundImageSelected"
+    />
+
+    <!-- Node Info Modal -->
+    <div v-if="showInfoModal" class="modal-overlay">
+      <div class="info-modal" @click.stop>
+        <div class="modal-header">
+          <h5>Edit Node Info</h5>
+          <button @click="closeInfoModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">Node Label:</label>
+          <input 
+            v-model="editingNodeLabel" 
+            type="text" 
+            class="form-control mb-3"
+            placeholder="Node label"
+          />
+          <label class="form-label">Node Info Content:</label>
+          <textarea 
+            v-model="editingNodeInfo" 
+            class="form-control info-textarea"
+            rows="15"
+            placeholder="Enter node information..."
+          ></textarea>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeInfoModal" class="btn btn-secondary">Cancel</button>
+          <button @click="saveNodeInfo" class="btn btn-primary">Save Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Graph Import Modal -->
+    <div v-if="showImportModal" class="graph-import-modal-overlay" @click="closeImportModal">
+      <div class="graph-import-modal" @click.stop>
+        <div class="modal-header">
+          <h5>Import Knowledge Graph</h5>
+          <button class="btn-close" @click="closeImportModal"></button>
+        </div>
+        <div class="modal-body">
+          <input
+            v-model="importSearchQuery"
+            type="text"
+            class="form-control mb-3"
+            placeholder="🔍 Search graphs..."
+          />
+          <div class="graph-grid">
+            <div
+              v-for="graph in filteredImportGraphs"
+              :key="graph.id"
+              class="graph-card"
+              @click="importGraphAsCluster(graph.id, graph.title || graph.name || `Graph ${graph.id}`)"
+            >
+              <div class="graph-card-title">{{ graph.title || graph.name || `Graph ${graph.id}` }}</div>
+              <div class="graph-card-meta">
+                <span v-if="graph.metadata?.metaArea" class="badge bg-secondary">{{ graph.metadata.metaArea }}</span>
+                <span class="text-muted small">{{ graph.metadata?.description || 'No description' }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="filteredImportGraphs.length === 0" class="text-center text-muted p-4">
+            No graphs available to import
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -125,6 +349,7 @@ import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
+import ImageSelector from '@/components/ImageSelector.vue'
 
 // Initialize undo-redo plugin
 if (!cytoscape.prototype.undoRedo) {
@@ -136,20 +361,67 @@ const route = useRoute()
 const userStore = useUserStore()
 const graphStore = useKnowledgeGraphStore()
 
-// Use store's currentGraphId instead of local state
-const selectedGraphId = computed({
-  get: () => graphStore.currentGraphId || '',
-  set: (value) => graphStore.setCurrentGraphId(value),
-})
 const searchQuery = ref('')
 const statusMessage = ref('')
 const statusClass = ref('')
 const selectedCount = ref(0)
 const knowledgeGraphs = ref([])
+const showImportModal = ref(false)
+const importSearchQuery = ref('')
+const currentGraphTitle = ref('')
+const graphCanvasRoot = ref(null)
+const isFullscreen = ref(false)
+const placementMode = ref(null)
+const edgeMode = ref(false)
+const edgeStartNode = ref(null)
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  node: null,
+  isCluster: false,
+  isImportedCluster: false,
+})
+const isImageSelectorOpen = ref(false)
+const targetNodeForImage = ref(null)
+const currentImageData = ref({
+  url: '',
+  alt: '',
+  type: 'node-background',
+  context: 'Graph Canvas Node Background',
+  nodeContent: '',
+})
+const showInfoModal = ref(false)
+const editingNodeInfo = ref('')
+const editingNodeLabel = ref('')
+const editingNode = ref(null)
+const canAddNodes = computed(() => Boolean(graphStore.currentGraphId))
+const filteredImportGraphs = computed(() => {
+  if (!importSearchQuery.value.trim()) {
+    return knowledgeGraphs.value.filter((g) => g.id !== graphStore.currentGraphId)
+  }
+  const query = importSearchQuery.value.toLowerCase()
+  return knowledgeGraphs.value
+    .filter((g) => g.id !== graphStore.currentGraphId)
+    .filter(
+      (g) =>
+        (g.title && g.title.toLowerCase().includes(query)) ||
+        (g.name && g.name.toLowerCase().includes(query)) ||
+        (g.metadata?.metaArea && g.metadata.metaArea.toLowerCase().includes(query)) ||
+        (g.metadata?.description && g.metadata.description.toLowerCase().includes(query))
+    )
+})
 
 // Cytoscape instance
 const cyInstance = ref(null)
 const undoRedoInstance = ref(null)
+
+const generateUUID = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 
 // Helper function to parse markdown image syntax (from GraphAdmin)
 const parseMarkdownImage = (markdown) => {
@@ -174,7 +446,7 @@ const hasSelection = computed(() => selectedCount.value > 0)
 // Load available graphs
 const loadGraphs = async () => {
   try {
-    const response = await fetch('https://knowledge.vegvisr.org/getknowgraphs')
+    const response = await fetch('https://knowledge-graph-worker.torarnehave.workers.dev/getknowgraphs')
     if (response.ok) {
       const data = await response.json()
       console.log('Raw API response:', data)
@@ -183,7 +455,9 @@ const loadGraphs = async () => {
 
       // Handle different response formats
       let graphs = []
-      if (Array.isArray(data)) {
+      if (data.results && Array.isArray(data.results)) {
+        graphs = data.results
+      } else if (Array.isArray(data)) {
         graphs = data
       } else if (data && Array.isArray(data.graphs)) {
         graphs = data.graphs
@@ -196,13 +470,15 @@ const loadGraphs = async () => {
         return
       }
 
-      // Filter graphs for current user or admin
-      knowledgeGraphs.value = graphs.filter(
-        (graph) =>
-          graph.user_email === userStore.email || ['Admin', 'Superadmin'].includes(userStore.role),
-      )
+      // Store all graphs without filtering by user
+      knowledgeGraphs.value = graphs
 
-      console.log('Filtered graphs:', knowledgeGraphs.value.length)
+      console.log('Total graphs loaded:', knowledgeGraphs.value.length)
+      console.log('User email:', userStore.email)
+      console.log('User role:', userStore.role)
+      console.log('Current graph ID:', graphStore.currentGraphId)
+      const availableForImport = knowledgeGraphs.value.filter((g) => g.id !== graphStore.currentGraphId)
+      console.log('Available for import (excluding current):', availableForImport.length)
       showStatus(`Loaded ${knowledgeGraphs.value.length} graphs`, 'success')
     } else {
       console.error('Failed to fetch graphs. Status:', response.status)
@@ -216,21 +492,22 @@ const loadGraphs = async () => {
 
 // Load selected graph
 const loadGraph = async () => {
-  if (!selectedGraphId.value) return
+  const currentGraphId = graphStore.currentGraphId
+  if (!currentGraphId) return
 
   try {
     showStatus('Loading graph...', 'info')
 
     // Update URL to reflect current graph
-    if (route.query.graphId !== selectedGraphId.value) {
+    if (route.query.graphId !== currentGraphId) {
       router.replace({
         name: 'GraphCanvas',
-        query: { graphId: selectedGraphId.value },
+        query: { graphId: currentGraphId },
       })
     }
 
     const response = await fetch(
-      `https://knowledge.vegvisr.org/getknowgraph?id=${selectedGraphId.value}`,
+      `https://knowledge.vegvisr.org/getknowgraph?id=${currentGraphId}`,
     )
 
     if (response.ok) {
@@ -262,6 +539,7 @@ const loadGraph = async () => {
       }
 
       initializeCytoscape(graphData)
+      currentGraphTitle.value = graphData.metadata?.title || graphData.title || 'Untitled Graph'
       showStatus('Graph loaded successfully', 'success')
     } else {
       showStatus('Error loading graph', 'error')
@@ -284,6 +562,8 @@ const initializeCytoscape = (graphData) => {
   if (cyInstance.value) {
     cyInstance.value.destroy()
   }
+
+  resetInteractionModes()
 
   // Prepare elements
   const elements = [
@@ -308,9 +588,29 @@ const initializeCytoscape = (graphData) => {
           label: (ele) =>
             ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label') || '',
           'background-color': (ele) => ele.data('color') || '#ccc',
-          color: '#000',
+          color: (ele) => ele.data('fontColor') || '#000',
           'text-valign': 'center',
           'text-halign': 'center',
+        },
+      },
+      {
+        selector: 'node[type="info"]',
+        style: {
+          shape: 'ellipse',
+          width: (ele) => {
+            const label = ele.data('label') || ''
+            const info = ele.data('info') || ''
+            const totalLength = label.length + info.length
+            return Math.max(150, Math.min(400, 150 + totalLength * 2))
+          },
+          height: (ele) => {
+            const label = ele.data('label') || ''
+            const info = ele.data('info') || ''
+            const totalLength = label.length + info.length
+            return Math.max(150, Math.min(400, 150 + totalLength * 2))
+          },
+          'text-wrap': 'wrap',
+          'text-max-width': '350px',
         },
       },
       {
@@ -519,6 +819,38 @@ const initializeCytoscape = (graphData) => {
           width: 4,
         },
       },
+      {
+        selector: ':parent',
+        style: {
+          'background-opacity': 0.2,
+          'background-color': (ele) => ele.data('sourceGraphId') ? '#B8E6B8' : '#A5D6FF',
+          'border-width': 3,
+          'border-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
+          'border-style': 'dashed',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'font-weight': 'bold',
+          'font-size': '16px',
+          'padding': '20px',
+          label: (ele) => {
+            const collapsed = ele.data('collapsed')
+            const childCount = ele.children().length
+            const label = ele.data('label') || 'Cluster'
+            const isImported = ele.data('sourceGraphId') ? ' 🌐' : ''
+            return collapsed ? `${label} [${childCount}]${isImported}` : `${label}${isImported}`
+          },
+        },
+      },
+      {
+        selector: ':parent[collapsed]',
+        style: {
+          'background-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
+          'background-opacity': 0.4,
+          'border-style': 'solid',
+          width: '400px',
+          height: '400px',
+        },
+      },
     ],
     layout: {
       name: 'preset',
@@ -527,11 +859,11 @@ const initializeCytoscape = (graphData) => {
     userZoomingEnabled: true,
     userPanningEnabled: true,
     boxSelectionEnabled: true,
-    selectionType: 'additive',
+    selectionType: 'single',
     // Fine-tuned zoom settings
     wheelSensitivity: 0.1, // Reduce wheel sensitivity for finer control (default is 1)
     minZoom: 0.1, // Minimum zoom level
-    maxZoom: 3, // Maximum zoom level
+    maxZoom: 10, // Maximum zoom level (1000%)
     zoomingEnabled: true,
     // Pan settings
     panningEnabled: true,
@@ -547,9 +879,58 @@ const initializeCytoscape = (graphData) => {
 
   // Event listeners
   setupEventListeners()
+  updateCanvasInteractionState()
+
+  // Apply collapsed state to clusters
+  cyInstance.value.nodes().forEach((node) => {
+    if (node.isParent() && node.data('collapsed')) {
+      node.children().style('display', 'none')
+    }
+  })
+
+  // Apply custom shapes and background images from node data
+  cyInstance.value.nodes().forEach((node) => {
+    // Apply custom shape if stored
+    if (node.data('customShape')) {
+      node.style('shape', node.data('customShape'))
+    }
+    
+    // Apply background image if stored (using 'path' property)
+    if (node.data('path')) {
+      node.style({
+        'background-image': node.data('path'),
+        'background-fit': 'cover',
+        'background-opacity': 1,
+      })
+    }
+    
+    // Apply custom font color if stored
+    if (node.data('fontColor')) {
+      node.style('color', node.data('fontColor'))
+    }
+  })
 
   // Fit to view
   cyInstance.value.fit()
+}
+
+const handleCanvasTap = async (event) => {
+  if (!cyInstance.value) return
+
+  // Check if clicked on background (not a node or edge)
+  const isBackgroundClick = !event.target.isNode || !event.target.isNode()
+  
+  if (placementMode.value && isBackgroundClick) {
+    console.log('Background clicked in placement mode, adding node at:', event.position)
+    await addNodeAtPosition(placementMode.value, event.position)
+    resetInteractionModes()
+    return
+  }
+
+  if (edgeMode.value && event.target?.isNode?.()) {
+    console.log('Node clicked in edge mode:', event.target.id())
+    await handleEdgeNodeSelection(event.target)
+  }
 }
 
 // Setup event listeners
@@ -561,14 +942,113 @@ const setupEventListeners = () => {
     selectedCount.value = cyInstance.value.$(':selected').length
   })
 
-  // Double-click to edit label (simple prompt for now)
-  cyInstance.value.on('dblclick', 'node', (event) => {
-    const node = event.target
-    const newLabel = prompt('Enter new label:', node.data('label'))
-    if (newLabel && newLabel.trim()) {
-      node.data('label', newLabel.trim())
-      showStatus('Label updated', 'success')
+  // Close context menu on canvas click (but not immediately after opening)
+  let contextMenuJustOpened = false
+  
+  cyInstance.value.on('tap', (event) => {
+    // If menu was just opened, don't close it
+    if (contextMenuJustOpened) {
+      return
     }
+    
+    // Handle regular tap behavior
+    handleCanvasTap(event)
+    
+    // Close context menu if open
+    if (contextMenu.value.show) {
+      contextMenu.value.show = false
+    }
+  })
+
+  // Right-click context menu (works with right-click, Ctrl+click on Mac, or long-press)
+  cyInstance.value.on('cxttap', 'node', (event) => {
+    event.originalEvent.preventDefault()
+    event.originalEvent.stopPropagation()
+    console.log('Context menu triggered on node:', event.target.data('label'))
+    const node = event.target
+    const renderedPosition = node.renderedPosition()
+    
+    // Set flag to prevent tap handler from closing menu
+    contextMenuJustOpened = true
+    
+    // Small delay to prevent immediate closure from tap event
+    setTimeout(() => {
+      contextMenu.value = {
+        show: true,
+        x: renderedPosition.x,
+        y: renderedPosition.y,
+        node: node,
+        isCluster: node.isParent(),
+        isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
+      }
+      
+      // Clear flag after a longer delay to ensure menu stays open
+      setTimeout(() => {
+        contextMenuJustOpened = false
+      }, 200)
+    }, 10)
+  })
+
+  // Double-click to edit info
+  cyInstance.value.on('dbltap', 'node', (event) => {
+    event.originalEvent.preventDefault()
+    event.originalEvent.stopPropagation()
+    
+    const node = event.target
+    if (!node.isParent()) {
+      // Close context menu if open
+      contextMenu.value.show = false
+      
+      editingNode.value = node
+      editingNodeLabel.value = node.data('label') || ''
+      editingNodeInfo.value = node.data('info') || ''
+      showInfoModal.value = true
+    }
+  })
+
+  // Also handle context menu via standard browser event as fallback
+  const canvas = document.getElementById('graph-canvas')
+  if (canvas) {
+    canvas.addEventListener('contextmenu', (e) => {
+      const target = cyInstance.value.$(`:selected`).first()
+      if (target && target.length > 0 && target.isNode()) {
+        e.preventDefault()
+        e.stopPropagation()
+        const renderedPosition = target.renderedPosition()
+        
+        contextMenuJustOpened = true
+        
+        setTimeout(() => {
+          contextMenu.value = {
+            show: true,
+            x: e.clientX,
+            y: e.clientY,
+            node: target,
+            isCluster: target.isParent(),
+            isImportedCluster: target.isParent() && Boolean(target.data('sourceGraphId')),
+          }
+          console.log('Context menu opened via browser contextmenu event')
+          
+          setTimeout(() => {
+            contextMenuJustOpened = false
+          }, 200)
+        }, 10)
+      }
+    })
+  }
+
+  // Double-click on parent nodes to toggle collapse/expand
+  cyInstance.value.on('dblclick', 'node', (event) => {
+    event.originalEvent.preventDefault()
+    event.originalEvent.stopPropagation()
+    
+    const node = event.target
+    
+    // Check if it's a parent/cluster node
+    if (node.isParent()) {
+      toggleClusterCollapse(node)
+    }
+    // For regular nodes, the dbltap handler will open the info modal
   })
 
   // Delete key to remove selected elements
@@ -578,12 +1058,18 @@ const setupEventListeners = () => {
 // Handle keyboard shortcuts
 const handleKeyDown = (event) => {
   if (!cyInstance.value) return
+  
+  // Ignore keyboard shortcuts if user is typing in an input field
+  const activeElement = document.activeElement
+  if (activeElement && (
+    activeElement.tagName === 'INPUT' ||
+    activeElement.tagName === 'TEXTAREA' ||
+    activeElement.isContentEditable
+  )) {
+    return
+  }
 
   switch (event.key) {
-    case 'Delete':
-    case 'Backspace':
-      deleteSelected()
-      break
     case 'z':
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
@@ -594,6 +1080,11 @@ const handleKeyDown = (event) => {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
         redoAction()
+      }
+      break
+    case 'Escape':
+      if (placementMode.value || edgeMode.value) {
+        cancelInteractionModes()
       }
       break
   }
@@ -686,6 +1177,251 @@ const deleteSelected = () => {
   }
 }
 
+const deleteContextNode = async () => {
+  const node = contextMenu.value.node
+  if (!node) return
+
+  const isImportedCluster = contextMenu.value.isImportedCluster
+  const isCluster = contextMenu.value.isCluster
+  const nodeName = node.data('label') || 'this item'
+
+  contextMenu.value.show = false
+
+  if (isImportedCluster) {
+    // Just remove from canvas - original graph remains intact
+    if (confirm(`Remove imported graph "${nodeName}" from canvas?\n\nThe original graph will remain intact.`)) {
+      node.remove()
+      await saveGraph()
+      showStatus(`Removed imported graph "${nodeName}"`, 'success')
+    }
+  } else if (isCluster) {
+    // Delete cluster and all children
+    const childCount = node.children().length
+    if (confirm(`Delete cluster "${nodeName}" and ${childCount} children?`)) {
+      node.remove()
+      await saveGraph()
+      showStatus(`Deleted cluster "${nodeName}" with ${childCount} nodes`, 'success')
+    }
+  } else {
+    // Regular node deletion
+    if (confirm(`Delete node "${nodeName}"?`)) {
+      node.remove()
+      await saveGraph()
+      showStatus(`Deleted node "${nodeName}"`, 'success')
+    }
+  }
+}
+
+const deleteClusterOnly = async () => {
+  const node = contextMenu.value.node
+  if (!node || !node.isParent()) return
+
+  const nodeName = node.data('label') || 'cluster'
+  contextMenu.value.show = false
+
+  if (confirm(`Ungroup "${nodeName}"?\n\nChildren will be moved to root level.`)) {
+    const children = node.children()
+    
+    // Move children to root (remove parent reference)
+    children.forEach((child) => {
+      child.move({ parent: null })
+    })
+    
+    // Delete the cluster node itself
+    node.remove()
+    
+    await saveGraph()
+    showStatus(`Ungrouped "${nodeName}" - ${children.length} nodes moved to root`, 'success')
+  }
+}
+
+// Node styling functions
+const changeNodeShape = async (shape) => {
+  const node = contextMenu.value.node
+  if (!node) return
+
+  contextMenu.value.show = false
+
+  // Update node style
+  node.style('shape', shape)
+  
+  // Store shape in node data for persistence
+  node.data('customShape', shape)
+
+  await saveGraph()
+  showStatus(`Changed node shape to ${shape}`, 'success')
+}
+
+const openImageSelectorForNode = () => {
+  targetNodeForImage.value = contextMenu.value.node
+  contextMenu.value.show = false
+  
+  const node = targetNodeForImage.value
+  currentImageData.value = {
+    url: node.data('path') || '',
+    alt: node.data('label') || 'Node background',
+    type: 'node-background',
+    context: `Background image for node: ${node.data('label') || 'Untitled'}`,
+    nodeContent: node.data('info') || node.data('label') || '',
+  }
+  
+  isImageSelectorOpen.value = true
+}
+
+const closeImageSelector = () => {
+  isImageSelectorOpen.value = false
+  targetNodeForImage.value = null
+  currentImageData.value = {
+    url: '',
+    alt: '',
+    type: 'node-background',
+    context: 'Graph Canvas Node Background',
+    nodeContent: '',
+  }
+}
+
+const handleBackgroundImageSelected = async (replacementData) => {
+  if (!targetNodeForImage.value) return
+
+  const node = targetNodeForImage.value
+  const imageUrl = replacementData.newUrl
+
+  // Apply background image style
+  node.style({
+    'background-image': imageUrl,
+    'background-fit': 'cover',
+    'background-opacity': 1,
+  })
+
+  // Store image URL in node data for persistence (using 'path' property)
+  node.data('path', imageUrl)
+
+  await saveGraph()
+  showStatus('Background image applied', 'success')
+  
+  closeImageSelector()
+}
+
+const removeBackgroundImage = async () => {
+  const node = contextMenu.value.node
+  if (!node) return
+
+  contextMenu.value.show = false
+
+  // Remove background image style
+  node.style({
+    'background-image': 'none',
+    'background-color': '#6495ED', // Reset to default blue
+  })
+
+  // Remove from node data (using 'path' property)
+  node.removeData('path')
+
+  await saveGraph()
+  showStatus('Background image removed', 'success')
+}
+
+const hasBackgroundImage = () => {
+  const node = contextMenu.value.node
+  if (!node) return false
+  return Boolean(node.data('path'))
+}
+
+// Node info modal functions
+const renameNode = () => {
+  const node = contextMenu.value.node
+  if (!node) return
+
+  const currentLabel = node.data('label') || ''
+  const newLabel = prompt('Enter new name for node:', currentLabel)
+  
+  if (newLabel !== null && newLabel.trim() !== '') {
+    node.data('label', newLabel.trim())
+    saveCytoscape()
+  }
+  
+  contextMenu.value.show = false
+}
+
+const openInfoModal = () => {
+  const node = contextMenu.value.node
+  if (!node) return
+
+  editingNode.value = node
+  editingNodeLabel.value = node.data('label') || ''
+  editingNodeInfo.value = node.data('info') || ''
+  contextMenu.value.show = false
+  showInfoModal.value = true
+}
+
+const closeInfoModal = () => {
+  showInfoModal.value = false
+  editingNode.value = null
+  editingNodeLabel.value = ''
+  editingNodeInfo.value = ''
+}
+
+const saveNodeInfo = async () => {
+  if (!editingNode.value) return
+
+  const node = editingNode.value
+  
+  // Update label if changed
+  if (editingNodeLabel.value.trim()) {
+    node.data('label', editingNodeLabel.value.trim())
+  }
+  
+  // Update info
+  node.data('info', editingNodeInfo.value)
+
+  await saveGraph()
+  showStatus('Node info updated', 'success')
+  closeInfoModal()
+}
+
+// Toggle font color on selected nodes
+const toggleFontColor = async () => {
+  if (!cyInstance.value) return
+
+  // Get selected nodes but exclude parent/cluster nodes
+  const selectedNodes = cyInstance.value.$('node:selected').filter(node => !node.isParent())
+  console.log('Selected nodes count:', selectedNodes.length)
+  console.log('Selected node IDs:', selectedNodes.map(n => n.id()).join(', '))
+  
+  if (selectedNodes.length === 0) {
+    showStatus('No nodes selected (or only clusters selected)', 'warning')
+    return
+  }
+
+  selectedNodes.forEach((node) => {
+    // Check if node has stored fontColor in data, otherwise get current computed color
+    const storedColor = node.data('fontColor')
+    const currentColor = storedColor || node.style('color')
+    
+    console.log(`Node ${node.id()} - Current color:`, currentColor, 'Stored color:', storedColor)
+    
+    // Determine new color - if it's white or contains white, switch to black, otherwise to white
+    let newColor
+    if (currentColor === '#fff' || currentColor === '#ffffff' || 
+        currentColor === 'rgb(255, 255, 255)' || currentColor === 'white' ||
+        storedColor === '#fff' || storedColor === 'white') {
+      newColor = '#000'
+    } else {
+      newColor = '#fff'
+    }
+    
+    console.log(`Node ${node.id()} - Setting new color:`, newColor)
+    
+    // Apply the new color
+    node.style('color', newColor)
+    // Store color in node data for persistence
+    node.data('fontColor', newColor)
+  })
+
+  await saveGraph()
+  showStatus(`Font color toggled for ${selectedNodes.length} node(s)`, 'success')
+}
+
 // Search nodes
 const searchNodes = () => {
   if (!cyInstance.value) return
@@ -724,7 +1460,7 @@ const redoAction = () => {
 
 // Save graph (position updates only) - FIXED to preserve metadata
 const saveGraph = async () => {
-  if (!cyInstance.value || !selectedGraphId.value) {
+  if (!cyInstance.value || !graphStore.currentGraphId) {
     showStatus('No graph selected to save', 'warning')
     return
   }
@@ -735,7 +1471,7 @@ const saveGraph = async () => {
     // CRITICAL FIX: Fetch the current graph data to preserve metadata
     console.log('🔍 [GraphCanvas] Fetching current graph to preserve metadata...')
     const currentGraphResponse = await fetch(
-      `https://knowledge.vegvisr.org/getknowgraph?id=${selectedGraphId.value}`,
+      `https://knowledge.vegvisr.org/getknowgraph?id=${graphStore.currentGraphId}`,
     )
 
     if (!currentGraphResponse.ok) {
@@ -789,7 +1525,7 @@ const saveGraph = async () => {
     }
 
     const payload = {
-      id: selectedGraphId.value,
+      id: graphStore.currentGraphId,
       graphData: {
         metadata: preservedMetadata,
         nodes: updatedNodes,
@@ -828,6 +1564,402 @@ const saveGraph = async () => {
   }
 }
 
+const createNodeTemplate = (type) => {
+  if (type === 'fulltext') {
+    return {
+      id: generateUUID(),
+      label: 'New Full Text Node',
+      type: 'fulltext',
+      color: '#f8f9fa',
+      info: 'Add your full text content here.',
+      bibl: [],
+      visible: true,
+      imageWidth: '100%',
+      imageHeight: '100%',
+    }
+  }
+
+  return {
+    id: generateUUID(),
+    label: 'New Info Node',
+    type: 'info',
+    color: '#d1ecf1',
+    info: 'Add supporting details here.',
+    bibl: [],
+    visible: true,
+    imageWidth: '100%',
+    imageHeight: '100%',
+  }
+}
+
+const addNodeAtPosition = async (type, position) => {
+  if (!cyInstance.value) return
+
+  const nodeData = createNodeTemplate(type)
+
+  try {
+    cyInstance.value.add({
+      group: 'nodes',
+      data: nodeData,
+      position,
+    })
+
+    cyInstance.value.$(`#${nodeData.id}`).select()
+    showStatus('Saving new node...', 'info')
+    await saveGraph()
+    showStatus('Node added successfully.', 'success')
+  } catch (error) {
+    console.error('Failed to add node:', error)
+    showStatus('Unable to add node. Please try again.', 'error')
+    const created = cyInstance.value.$(`#${nodeData.id}`)
+    if (created) {
+      created.remove()
+    }
+  }
+}
+
+const addEdgeBetweenNodes = async (sourceNode, targetNode) => {
+  if (!cyInstance.value || !sourceNode || !targetNode) return
+
+  const edgeId = generateUUID()
+
+  try {
+    cyInstance.value.add({
+      group: 'edges',
+      data: {
+        id: edgeId,
+        source: sourceNode.id(),
+        target: targetNode.id(),
+        type: 'info',
+        label: '',
+      },
+    })
+
+    showStatus('Saving new edge...', 'info')
+    await saveGraph()
+    showStatus('Edge added successfully.', 'success')
+  } catch (error) {
+    console.error('Failed to add edge:', error)
+    showStatus('Unable to add edge. Please try again.', 'error')
+    const created = cyInstance.value.$(`#${edgeId}`)
+    if (created) {
+      created.remove()
+    }
+  }
+}
+
+const updateCanvasInteractionState = () => {
+  const interactionLocked = Boolean(placementMode.value || edgeMode.value)
+  const cy = cyInstance.value
+
+  if (cy) {
+    cy.userPanningEnabled(!interactionLocked)
+    cy.boxSelectionEnabled(!interactionLocked)
+    cy.autoungrabify(interactionLocked)
+  }
+
+  const root = graphCanvasRoot.value
+  if (root) {
+    root.classList.toggle('interaction-locked', interactionLocked)
+    root.classList.toggle('placement-active', Boolean(placementMode.value))
+    root.classList.toggle('edge-active', Boolean(edgeMode.value))
+  }
+}
+
+const resetInteractionModes = () => {
+  placementMode.value = null
+  edgeMode.value = false
+  edgeStartNode.value = null
+  updateCanvasInteractionState()
+}
+
+const cancelInteractionModes = () => {
+  if (placementMode.value || edgeMode.value) {
+    resetInteractionModes()
+    showStatus('Placement cancelled.', 'info')
+  }
+}
+
+const startNodePlacement = (type) => {
+  if (!canAddNodes.value) {
+    showStatus('Load a graph to add nodes.', 'warning')
+    return
+  }
+
+  resetInteractionModes()
+  placementMode.value = type
+  updateCanvasInteractionState()
+  const label = type === 'fulltext' ? 'Full Text' : 'Info'
+  showStatus(`Placement mode: click anywhere to add a ${label} node.`, 'info')
+}
+
+const toggleEdgeMode = () => {
+  if (!canAddNodes.value) {
+    showStatus('Load a graph to add edges.', 'warning')
+    return
+  }
+
+  if (edgeMode.value) {
+    resetInteractionModes()
+    showStatus('Edge mode cancelled.', 'info')
+  } else {
+    resetInteractionModes()
+    edgeMode.value = true
+    updateCanvasInteractionState()
+    showStatus('Edge mode: select the start node.', 'info')
+  }
+}
+
+const handleEdgeNodeSelection = async (node) => {
+  if (!edgeMode.value || !node) {
+    return
+  }
+
+  if (!edgeStartNode.value) {
+    edgeStartNode.value = node
+    showStatus('Start node selected. Choose the target node.', 'info')
+    return
+  }
+
+  if (edgeStartNode.value.id() === node.id()) {
+    showStatus('Choose a different node as the target.', 'warning')
+    return
+  }
+
+  await addEdgeBetweenNodes(edgeStartNode.value, node)
+  resetInteractionModes()
+}
+
+const toggleClusterCollapse = async (clusterNode) => {
+  if (!cyInstance.value || !clusterNode || !clusterNode.isParent()) return
+
+  const isCollapsed = clusterNode.data('collapsed')
+  const children = clusterNode.children()
+
+  if (isCollapsed) {
+    // Expand: show children
+    children.style('display', 'element')
+    clusterNode.removeData('collapsed')
+    showStatus(`Expanded cluster "${clusterNode.data('label')}"`, 'info')
+  } else {
+    // Collapse: hide children
+    children.style('display', 'none')
+    clusterNode.data('collapsed', true)
+    showStatus(`Collapsed cluster "${clusterNode.data('label')}" (${children.length} nodes)`, 'info')
+  }
+
+  // Save the collapsed state
+  await saveGraph()
+}
+
+const createClusterFromSelected = async () => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.$('node:selected')
+  if (selectedNodes.length < 2) {
+    showStatus('Select at least 2 nodes to create a cluster', 'warning')
+    return
+  }
+
+  const clusterName = prompt('Enter cluster name:', 'New Cluster')
+  if (!clusterName || !clusterName.trim()) {
+    showStatus('Cluster creation cancelled', 'info')
+    return
+  }
+
+  try {
+    // Calculate bounding box for selected nodes
+    const boundingBox = selectedNodes.boundingBox()
+    const centerX = (boundingBox.x1 + boundingBox.x2) / 2
+    const centerY = (boundingBox.y1 + boundingBox.y2) / 2
+
+    // Create parent/cluster node
+    const clusterId = generateUUID()
+    cyInstance.value.add({
+      group: 'nodes',
+      data: {
+        id: clusterId,
+        label: clusterName.trim(),
+        type: 'cluster',
+        color: '#A5D6FF',
+        visible: true,
+      },
+      position: { x: centerX, y: centerY },
+    })
+
+    // Move selected nodes into the cluster
+    selectedNodes.forEach((node) => {
+      node.move({ parent: clusterId })
+    })
+
+    showStatus('Saving cluster...', 'info')
+    await saveGraph()
+    showStatus(`Cluster "${clusterName.trim()}" created with ${selectedNodes.length} nodes`, 'success')
+
+    // Select the new cluster
+    cyInstance.value.$(':selected').unselect()
+    cyInstance.value.$(`#${clusterId}`).select()
+  } catch (error) {
+    console.error('Failed to create cluster:', error)
+    showStatus('Unable to create cluster. Please try again.', 'error')
+  }
+}
+
+const showImportGraphDialog = async () => {
+  if (!cyInstance.value) return
+
+  // Ensure graphs are loaded
+  if (knowledgeGraphs.value.length === 0) {
+    showStatus('Loading graphs...', 'info')
+    await loadGraphs()
+  }
+
+  const availableGraphs = knowledgeGraphs.value.filter((g) => g.id !== graphStore.currentGraphId)
+  
+  if (availableGraphs.length === 0) {
+    showStatus('No other graphs available to import', 'warning')
+    return
+  }
+
+  showImportModal.value = true
+  importSearchQuery.value = ''
+}
+
+const closeImportModal = () => {
+  showImportModal.value = false
+  importSearchQuery.value = ''
+}
+
+const importGraphAsCluster = async (graphId, graphTitle) => {
+  if (!cyInstance.value) return
+
+  closeImportModal()
+
+  try {
+    showStatus(`Loading graph "${graphTitle}"...`, 'info')
+
+    const response = await fetch(
+      `https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch graph: ${response.status}`)
+    }
+
+    let importedGraphData = await response.json()
+
+    // Handle JSON string
+    if (typeof importedGraphData === 'string') {
+      importedGraphData = JSON.parse(importedGraphData)
+    }
+
+    if (!importedGraphData.nodes || !importedGraphData.edges) {
+      throw new Error('Invalid graph data structure')
+    }
+
+    // Calculate center position for the imported cluster
+    const extent = cyInstance.value.extent()
+    const centerX = (extent.x1 + extent.x2) / 2
+    const centerY = (extent.y1 + extent.y2) / 2
+
+    // Create parent cluster node
+    const clusterId = generateUUID()
+    cyInstance.value.add({
+      group: 'nodes',
+      data: {
+        id: clusterId,
+        label: graphTitle,
+        type: 'cluster',
+        color: '#B8E6B8',
+        visible: true,
+        sourceGraphId: graphId, // Track original graph
+      },
+      position: { x: centerX, y: centerY },
+    })
+
+    // Map old node IDs to new ones to avoid conflicts
+    const idMap = {}
+    importedGraphData.nodes.forEach((node) => {
+      const newId = generateUUID()
+      idMap[node.id] = newId
+
+      // Calculate relative position offset
+      const relativeX = node.position?.x || 0
+      const relativeY = node.position?.y || 0
+
+      cyInstance.value.add({
+        group: 'nodes',
+        data: {
+          ...node,
+          id: newId,
+          originalId: node.id, // Keep reference to original
+          parent: clusterId,
+        },
+        position: {
+          x: relativeX,
+          y: relativeY,
+        },
+      })
+    })
+
+    // Add edges with mapped IDs
+    importedGraphData.edges.forEach((edge) => {
+      const newSource = idMap[edge.source]
+      const newTarget = idMap[edge.target]
+
+      if (newSource && newTarget) {
+        cyInstance.value.add({
+          group: 'edges',
+          data: {
+            ...edge,
+            id: generateUUID(),
+            source: newSource,
+            target: newTarget,
+          },
+        })
+      }
+    })
+
+    showStatus('Saving imported cluster...', 'info')
+    await saveGraph()
+    showStatus(
+      `Graph "${graphTitle}" imported with ${importedGraphData.nodes.length} nodes`,
+      'success'
+    )
+
+    // Select the imported cluster
+    cyInstance.value.$(':selected').unselect()
+    cyInstance.value.$(`#${clusterId}`).select()
+    cyInstance.value.fit(cyInstance.value.$(`#${clusterId}`), 50)
+  } catch (error) {
+    console.error('Failed to import graph:', error)
+    showStatus(`Unable to import graph: ${error.message}`, 'error')
+  }
+}
+
+const handleFullscreenChange = () => {
+  isFullscreen.value = Boolean(document.fullscreenElement)
+}
+
+const toggleFullscreen = async () => {
+  const target = graphCanvasRoot.value
+  if (!target) {
+    showStatus('Canvas not ready for fullscreen', 'warning')
+    return
+  }
+
+  try {
+    if (!document.fullscreenElement) {
+      await target.requestFullscreen()
+    } else {
+      await document.exitFullscreen()
+    }
+  } catch (error) {
+    console.error('Fullscreen toggle failed:', error)
+    showStatus('Fullscreen mode is unavailable in this browser.', 'error')
+  }
+}
+
 // Status message helper
 const showStatus = (message, type = 'info') => {
   statusMessage.value = message
@@ -848,6 +1980,8 @@ const initializeEmptyCanvas = () => {
     cyInstance.value.destroy()
   }
 
+  resetInteractionModes()
+
   cyInstance.value = cytoscape({
     container: container,
     elements: [],
@@ -859,7 +1993,7 @@ const initializeEmptyCanvas = () => {
           label: (ele) =>
             ele.data('type') === 'info' ? ele.data('label') + ' ℹ️' : ele.data('label') || '',
           'background-color': (ele) => ele.data('color') || '#ccc',
-          color: '#000',
+          color: (ele) => ele.data('fontColor') || '#000',
           'text-valign': 'center',
           'text-halign': 'center',
         },
@@ -881,21 +2015,54 @@ const initializeEmptyCanvas = () => {
           'curve-style': 'unbundled-bezier',
         },
       },
+      {
+        selector: ':parent',
+        style: {
+          'background-opacity': 0.2,
+          'background-color': (ele) => ele.data('sourceGraphId') ? '#B8E6B8' : '#A5D6FF',
+          'border-width': 3,
+          'border-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
+          'border-style': 'dashed',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'font-weight': 'bold',
+          'font-size': '16px',
+          'padding': '20px',
+          label: (ele) => {
+            const collapsed = ele.data('collapsed')
+            const childCount = ele.children().length
+            const label = ele.data('label') || 'Cluster'
+            const isImported = ele.data('sourceGraphId') ? ' 🌐' : ''
+            return collapsed ? `${label} [${childCount}]${isImported}` : `${label}${isImported}`
+          },
+        },
+      },
+      {
+        selector: ':parent[collapsed]',
+        style: {
+          'background-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
+          'background-opacity': 0.4,
+          'border-style': 'solid',
+          width: '400px',
+          height: '400px',
+        },
+      },
     ],
     layout: { name: 'grid' },
     userZoomingEnabled: true,
     userPanningEnabled: true,
     boxSelectionEnabled: true,
-    selectionType: 'additive',
+    selectionType: 'single',
     // Fine-tuned zoom settings
     wheelSensitivity: 0.1, // Reduce wheel sensitivity for finer control
-    minZoom: 0.1, // Minimum zoom level
-    maxZoom: 3, // Maximum zoom level
+    minZoom: 0.001, // Minimum zoom level (0.1%)
+    maxZoom: 500, // Maximum zoom level (50000%)
     zoomingEnabled: true,
     panningEnabled: true,
   })
 
   setupEventListeners()
+  updateCanvasInteractionState()
   showStatus('Canvas initialized - select a graph to load data', 'info')
 }
 
@@ -907,11 +2074,25 @@ const handleGraphIdChange = async (newGraphId) => {
   }
 }
 
+watch([placementMode, edgeMode], () => {
+  updateCanvasInteractionState()
+}, { immediate: true })
+
 // Watch for changes in currentGraphId (from store or URL)
 watch(() => graphStore.currentGraphId, handleGraphIdChange)
 
 // Lifecycle
 onMounted(async () => {
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  
+  // Close context menu when clicking outside
+  document.addEventListener('click', (e) => {
+    const contextMenuEl = document.querySelector('.context-menu')
+    if (contextMenu.value.show && contextMenuEl && !contextMenuEl.contains(e.target)) {
+      contextMenu.value.show = false
+    }
+  })
+
   if (!userStore.loggedIn) {
     router.push('/login')
     return
@@ -940,6 +2121,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {})
+  }
   if (cyInstance.value) {
     cyInstance.value.destroy()
   }
@@ -951,6 +2136,14 @@ onUnmounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  background: #f8f9fa;
+  position: relative;
+}
+
+:global(.graph-canvas:fullscreen),
+:global(.graph-canvas:-webkit-full-screen) {
+  height: 100vh;
+  width: 100vw;
   background: #f8f9fa;
 }
 
@@ -1011,6 +2204,49 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.floating-node-menu {
+  position: absolute;
+  left: 1rem;
+  top: calc(1rem + 100px);
+  width: 240px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 5;
+}
+
+.floating-node-menu .menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.floating-node-menu .menu-status {
+  font-size: 0.75rem;
+  color: #0d6efd;
+}
+
+.floating-node-menu .btn {
+  width: 100%;
+}
+
+.floating-node-menu .btn.active {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.floating-node-menu .menu-hint {
+  font-size: 0.8rem;
+  color: #495057;
+  margin: 0;
+}
+
 .cytoscape-canvas {
   width: 100%;
   height: 100%;
@@ -1020,12 +2256,223 @@ onUnmounted(() => {
 .selection-info {
   position: absolute;
   bottom: 1rem;
-  right: 1rem;
+  left: 1rem;
   background: rgba(0, 0, 0, 0.8);
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 4px;
   font-size: 0.875rem;
+}
+
+.context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 200px;
+  padding: 0.25rem 0;
+}
+
+.context-menu-section {
+  padding: 0.25rem 0;
+}
+
+.context-menu-header {
+  padding: 0.25rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background-color: #dee2e6;
+  margin: 0.25rem 0;
+}
+
+.context-menu-item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.context-menu-item:hover {
+  background-color: #f8f9fa;
+}
+
+.context-menu-item.danger:hover {
+  background-color: #fee;
+  color: #dc3545;
+}
+
+.context-menu-icon {
+  font-size: 1.1rem;
+}
+
+.graph-canvas.placement-active .cytoscape-canvas {
+  cursor: crosshair;
+}
+
+.graph-canvas.edge-active .cytoscape-canvas {
+  cursor: pointer;
+}
+
+.graph-canvas.interaction-locked .cytoscape-canvas {
+  user-select: none;
+}
+
+.graph-import-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.graph-import-modal {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.graph-import-modal .modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.graph-import-modal .modal-header h5 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.graph-import-modal .modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.info-modal {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.info-modal .modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.info-modal .modal-header h5 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.info-modal .modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.info-modal .modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #dee2e6;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.info-textarea {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 16px;
+  line-height: 1.5;
+  resize: vertical;
+  color: #000;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.btn-close:hover {
+  opacity: 1;
+}
+
+.graph-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.graph-card {
+  padding: 1rem;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.graph-card:hover {
+  border-color: #0969DA;
+  background: #f8f9fa;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.graph-card-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #212529;
+}
+
+.graph-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.graph-card-meta .badge {
+  align-self: flex-start;
+  font-size: 0.75rem;
 }
 
 /* Highlighted nodes */

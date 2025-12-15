@@ -85,7 +85,10 @@ export default {
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders })
+      return new Response(null, { 
+        status: 204,
+        headers: corsHeaders 
+      })
     }
 
     try {
@@ -270,6 +273,49 @@ export default {
 }
 
 /**
+ * Node type descriptions for Advanced Mode
+ */
+const NODE_TYPE_DESCRIPTIONS = {
+  'fulltext': 'Rich text content with formatting support, sections, and citations. Use for detailed articles, biographies, or long-form explanations.',
+  'title': 'Section heading or graph title. Use for organizing graph content with concise titles.',
+  'notes': 'Concise note or insight with optional bibliography. Use for short, focused content with sources.',
+  'info': 'Brief information card with key details. Use for quick reference information or summaries.',
+  'worknote': 'Research notes or work-in-progress observations. Use for capturing ongoing thoughts or collaborative annotations.',
+  'action_test': 'API integration node for dynamic content (Grok/AI calls). Use for nodes that require real-time answers or knowledge retrieval.',
+  'map': 'Geographic visualization with KML support. Use for spatial context, mapping, or location-based insights.',
+  'youtube': 'Embedded video content. Use for video references or multimedia content.',
+  'portfolio-image': 'Image display for galleries. Use for visual showcases or image collections.',
+  'mermaid-diagram': 'Charts, flowcharts, or diagrams using Mermaid syntax. Use for process visualization or system flows.',
+  'bubblechart': 'Bubble chart for multi-dimensional data. Use for comparative and statistical insights.',
+  'linechart': 'Line chart for trend visualization. Use for time-series data or trends.',
+  'multilinechart': 'Multiple line series chart. Use for comparing multiple data series over time.'
+}
+
+function getNodeTypeDescription(type) {
+  return NODE_TYPE_DESCRIPTIONS[type] || 'Custom node type'
+}
+
+function buildAdvancedModeConstraint(allowedNodeTypes) {
+  if (!allowedNodeTypes || allowedNodeTypes.length === 0) {
+    return ''
+  }
+  
+  const typeDescriptions = allowedNodeTypes
+    .map(type => `- ${type}: ${getNodeTypeDescription(type)}`)
+    .join('\n')
+  
+  return `
+
+IMPORTANT CONSTRAINT - ALLOWED NODE TYPES ONLY:
+You may ONLY use these node types in your response: ${allowedNodeTypes.join(', ')}
+
+Available node type descriptions:
+${typeDescriptions}
+
+CRITICAL: Every node you create MUST have a "type" field matching one of the allowed types above. Do not use any other node types.`
+}
+
+/**
  * Handle YouTube transcript processing to knowledge graph
  */
 async function handleProcessTranscript(request, env, corsHeaders) {
@@ -279,7 +325,7 @@ async function handleProcessTranscript(request, env, corsHeaders) {
     const body = await request.json()
     console.log('Request body keys:', Object.keys(body))
 
-    const { transcript, sourceLanguage, targetLanguage, userId } = body
+    const { transcript, sourceLanguage, targetLanguage, userId, mode, allowedNodeTypes } = body
 
     if (!transcript) {
       console.error('Missing transcript text in request')
@@ -293,6 +339,8 @@ async function handleProcessTranscript(request, env, corsHeaders) {
     console.log('Source language:', sourceLanguage)
     console.log('Target language:', targetLanguage)
     console.log('User ID:', userId)
+    console.log('Mode:', mode || 'basic')
+    console.log('Allowed Node Types:', allowedNodeTypes ? allowedNodeTypes.join(', ') : 'all')
 
     // Get user's API key from D1 if userId provided
     let apiKey = null
@@ -352,7 +400,7 @@ STRUCTURE:
 6. Show HOW ideas connect and build on each other
 7. Add timestamps [00:00] where helpful for context
 8. DO NOT include word counts in the output
-9. Be generous with content - capture the richness of the conversation
+9. Be generous with content - capture the richness of the conversation${mode === 'advanced' && allowedNodeTypes ? buildAdvancedModeConstraint(allowedNodeTypes) : ''}
 
 TRANSCRIPT (full content):
 ${transcript}
@@ -379,7 +427,7 @@ RULES:
 4. Use rich markdown formatting in "info" field with headers, lists, emphasis
 5. Each node should contain substantial, detailed content.
 6. Include key quotes, important details, and context
-7. Create a comprehensive knowledge graph that captures the full essence
+7. Create a comprehensive knowledge graph that captures the full essence${mode === 'advanced' && allowedNodeTypes ? buildAdvancedModeConstraint(allowedNodeTypes) : ''}
 
 TRANSCRIPT (full content):
 ${transcript}
@@ -406,7 +454,7 @@ Rules:
 - Preserve cultural context and nuanced meaning
 - Each node should be substantial and detailed.
 - Include important quotes, examples, and detailed explanations
-- Don't summarize - be comprehensive and detailed
+- Don't summarize - be comprehensive and detailed${mode === 'advanced' && allowedNodeTypes ? buildAdvancedModeConstraint(allowedNodeTypes) : ''}
 
 TRANSCRIPT:
 ${transcript}
