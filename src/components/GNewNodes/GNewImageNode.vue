@@ -22,8 +22,12 @@
           :alt="imageAlt"
           :style="imageStyles"
           class="node-image"
+          draggable="true"
+          @dragstart="handleImageDragStart"
+          @dragend="handleImageDragEnd"
           @error="handleImageError"
           @load="handleImageLoad"
+          :title="'Drag to chat to analyze this image'"
         />
 
         <!-- Attribution Overlay or Below -->
@@ -382,6 +386,33 @@ const handleImageError = () => {
   imageMetadata.value = null
 }
 
+// Drag handlers for image drag-and-drop to chat
+const handleImageDragStart = (event) => {
+  const url = imageUrl.value
+  if (!url) return
+  
+  // Set the image URL as drag data
+  event.dataTransfer.setData('text/uri-list', url)
+  event.dataTransfer.setData('text/plain', url)
+  event.dataTransfer.setData('application/x-vegvisr-image', url)
+  
+  // Also set HTML for broader compatibility
+  event.dataTransfer.setData('text/html', `<img src="${url}" />`)
+  
+  // Set drag effect
+  event.dataTransfer.effectAllowed = 'copy'
+  
+  // Add visual feedback
+  event.target.style.opacity = '0.6'
+  event.target.style.cursor = 'grabbing'
+}
+
+const handleImageDragEnd = (event) => {
+  // Reset visual feedback
+  event.target.style.opacity = '1'
+  event.target.style.cursor = 'grab'
+}
+
 const editNode = () => {
   emit('node-updated', { ...props.node, action: 'edit' })
 }
@@ -527,6 +558,12 @@ const handleGooglePhotosClick = (event) => {
   height: auto;
   display: block;
   border-radius: 8px;
+  cursor: grab;
+  transition: opacity 0.2s ease;
+}
+
+.node-image:active {
+  cursor: grabbing;
 }
 
 /* Image Attribution Overlay Styles */

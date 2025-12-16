@@ -276,7 +276,26 @@
       </div>
 
       <!-- Input -->
-      <div class="chat-input-container">
+      <div 
+        class="chat-input-container"
+        :class="{ 'drag-over': isDragOver }"
+        @dragenter.prevent="handleDragEnter"
+        @dragover.prevent="handleDragOver"
+        @dragleave.prevent="handleDragLeave"
+        @drop.prevent="handleDrop"
+      >
+        <!-- Drop Zone Overlay -->
+        <div v-if="isDragOver" class="drop-zone-overlay">
+          <div class="drop-zone-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/>
+              <path d="M12 5v13"/>
+              <path d="m8 9 4-4 4 4"/>
+            </svg>
+            <p>Drop files here</p>
+            <small>Images{{ providerSupportsImages ? '' : ' (not supported by ' + providerMeta(provider).label + ')' }} • Audio files</small>
+          </div>
+        </div>
         <div v-if="uploadedImage" class="image-preview-container">
           <img :src="uploadedImage.preview" alt="Uploaded image" class="uploaded-image-preview" />
           <button @click="clearUploadedImage" class="clear-image-btn" title="Remove image">×</button>
@@ -448,6 +467,7 @@
               v-model="userInput"
               @keydown.enter.exact.prevent="sendMessage"
               @keydown.shift.enter.exact="handleShiftEnter"
+              @paste="handlePaste"
               :placeholder="`Ask ${providerMeta(provider).label} anything about the graph...`"
               class="chat-input"
               rows="3"
@@ -482,6 +502,7 @@
           Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
           <span v-if="speechSupported"> | 🎤 Voice input available</span>
           <span> | 🎧 Audio upload ready</span>
+          <span> | 📎 Drag & drop or paste images</span>
         </div>
       </div>
     </div>
@@ -643,6 +664,10 @@ const uploadedImage = ref(null)
 const imageFileInput = ref(null)
 const isUploadingImage = ref(false)
 
+// Drag and drop
+const isDragOver = ref(false)
+let dragCounter = 0
+
 // Audio upload/transcription
 const audioFileInput = ref(null)
 const selectedAudioFile = ref(null)
@@ -795,6 +820,12 @@ const userInitial = computed(() => {
 
 const canCreateGraph = computed(() => Boolean(userStore.emailVerificationToken))
 
+// Provider image support
+const providerSupportsImages = computed(() => {
+  // Grok does not support image analysis
+  return provider.value !== 'grok'
+})
+
 // Group templates by category
 const templatesByCategory = computed(() => {
   const grouped = {}
@@ -933,6 +964,243 @@ const handleImageUpload = async (event) => {
 
 const clearUploadedImage = () => {
   uploadedImage.value = null
+}
+
+// Drag and drop handlers
+const handleDragEnter = (event) => {
+  dragCounter++
+  isDragOver.value = true
+}
+
+const handleDragOver = (event) => {
+  // Keep the drag-over state active
+  isDragOver.value = true
+}
+
+const handleDragLeave = (event) => {
+  dragCounter--
+  if (dragCounter === 0) {
+    isDragOver.value = false
+  }
+}
+
+const handleDrop = async (event) => {
+  dragCounter = 0
+  isDragOver.value = false
+  
+  if (isStreaming.value) return
+  
+  // First, check for image URL data (from dragging images within the app)
+  const imageUrl = event.dataTransfer?.getData('text/uri-list') || 
+                   event.dataTransfer?.getData('text/plain') ||
+                   event.dataTransfer?.getData('application/x-vegvisr-image')
+  
+  if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+    // Check if it looks like an image URL
+    const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(imageUrl) ||
+                       imageUrl.includes('/image') ||
+                       imageUrl.includes('unsplash') ||
+                       imageUrl.includes('pexels') ||
+                       imageUrl.includes('portfolio') ||
+                       imageUrl.includes('r2.cloudflarestorage')
+    
+    if (isImageUrl) {
+      if (!providerSupportsImages.value) {
+        errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
+        return
+      }
+      // Process the URL as an image
+      await processImageFromUrl(imageUrl)
+      return
+    }
+  }
+  
+  // Next, check for dropped files
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) {
+    // No files and no valid URL - maybe it's an image dragged from HTML
+    const htmlData = event.dataTransfer?.getData('text/html')
+    if (htmlData) {
+      const imgMatch = htmlData.match(/src=["']([^"']+)["']/)
+      if (imgMatch && imgMatch[1]) {
+        const extractedUrl = imgMatch[1]
+        if (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://')) {
+          if (!providerSupportsImages.value) {
+            errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
+            return
+          }
+          await processImageFromUrl(extractedUrl)
+          return
+        }
+      }
+    }
+    return
+  }
+  
+  const file = files[0] // Handle first file only
+  
+  // Check if it's an image
+  if (file.type.startsWith('image/')) {
+    if (!providerSupportsImages.value) {
+      errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
+      return
+    }
+    // Process as image
+    await processDroppedImage(file)
+    return
+  }
+  
+  // Check if it's an audio file
+  if (isSupportedAudioFile(file)) {
+    // Process as audio
+    await processDroppedAudio(file)
+    return
+  }
+  
+  // Unsupported file type
+  errorMessage.value = 'Unsupported file type. Please drop an image or audio file (wav, mp3, m4a, aac, ogg, opus, mp4, webm).'
+}
+
+const processDroppedImage = async (file) => {
+  errorMessage.value = ''
+  isUploadingImage.value = true
+  
+  try {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      uploadedImage.value = {
+        file: file,
+        preview: e.target.result,
+        base64: e.target.result.split(',')[1],
+        mimeType: file.type
+      }
+    }
+    reader.readAsDataURL(file)
+  } catch (err) {
+    console.error('Error processing dropped image:', err)
+    errorMessage.value = 'Failed to process the dropped image. Please try again.'
+  } finally {
+    isUploadingImage.value = false
+  }
+}
+
+const processImageFromUrl = async (url) => {
+  errorMessage.value = ''
+  isUploadingImage.value = true
+  
+  try {
+    // Fetch the image and convert to base64
+    const response = await fetch(url, { mode: 'cors' })
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`)
+    }
+    
+    const blob = await response.blob()
+    const mimeType = blob.type || 'image/jpeg'
+    
+    // Convert blob to base64
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      uploadedImage.value = {
+        file: null,
+        preview: url, // Use original URL for preview (better quality)
+        base64: e.target.result.split(',')[1],
+        mimeType: mimeType,
+        sourceUrl: url
+      }
+    }
+    reader.readAsDataURL(blob)
+  } catch (err) {
+    console.error('Error processing image from URL:', err)
+    // Fallback: use the URL directly without base64 conversion
+    // Some providers may support direct URL analysis
+    uploadedImage.value = {
+      file: null,
+      preview: url,
+      base64: null,
+      mimeType: 'image/jpeg',
+      sourceUrl: url,
+      isUrlOnly: true
+    }
+  } finally {
+    isUploadingImage.value = false
+  }
+}
+
+// Handle paste event for images from clipboard
+const handlePaste = async (event) => {
+  const clipboardData = event.clipboardData
+  if (!clipboardData) return
+  
+  // Check for image files in clipboard
+  const items = clipboardData.items
+  if (!items) return
+  
+  for (const item of items) {
+    // Check if item is an image
+    if (item.type.startsWith('image/')) {
+      event.preventDefault() // Prevent default paste behavior for images
+      
+      if (!providerSupportsImages.value) {
+        errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
+        return
+      }
+      
+      const file = item.getAsFile()
+      if (file) {
+        await processDroppedImage(file)
+      }
+      return
+    }
+  }
+  
+  // Check for image URL in plain text (e.g., copied image URL)
+  const text = clipboardData.getData('text/plain')
+  if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+    const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(text) ||
+                       text.includes('/image') ||
+                       text.includes('unsplash') ||
+                       text.includes('pexels') ||
+                       text.includes('portfolio') ||
+                       text.includes('r2.cloudflarestorage')
+    
+    if (isImageUrl) {
+      event.preventDefault()
+      
+      if (!providerSupportsImages.value) {
+        errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
+        return
+      }
+      
+      await processImageFromUrl(text)
+      return
+    }
+  }
+  
+  // Let normal text paste through
+}
+
+const processDroppedAudio = async (file) => {
+  errorMessage.value = ''
+  audioTranscriptionStatus.value = ''
+  audioChunkProgress.value = { current: 0, total: 0 }
+  
+  try {
+    const duration = await getAudioDurationSeconds(file).catch(() => null)
+    selectedAudioFile.value = {
+      file,
+      name: file.name || 'audio-file',
+      size: file.size,
+      type: file.type || inferMimeTypeFromExtension(file.name),
+      duration: typeof duration === 'number' && Number.isFinite(duration) ? duration : null,
+    }
+    audioAutoDetect.value = true
+    audioLanguage.value = 'no'
+  } catch (err) {
+    console.error('Error processing dropped audio:', err)
+    errorMessage.value = 'Failed to process the dropped audio file. Please try again.'
+    selectedAudioFile.value = null
+  }
 }
 
 const triggerAudioUpload = () => {
@@ -3233,6 +3501,45 @@ watch(
   z-index: 2;
   flex: 0 0 auto;
   min-height: 200px;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.chat-input-container.drag-over {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.drop-zone-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(102, 126, 234, 0.95);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.drop-zone-content {
+  text-align: center;
+  color: white;
+}
+
+.drop-zone-content svg {
+  margin-bottom: 0.75rem;
+  opacity: 0.9;
+}
+
+.drop-zone-content p {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.drop-zone-content small {
+  opacity: 0.8;
+  font-size: 0.875rem;
 }
 
 .input-wrapper {

@@ -340,6 +340,49 @@ const convertCodeBlocksToWebComponent = () => {
   }
 }
 
+// Make images draggable for drag-and-drop to chat panel
+const makeImagesDraggable = () => {
+  if (!nodeContainer.value) return
+  
+  const images = nodeContainer.value.querySelectorAll('img:not([data-draggable-setup])')
+  
+  images.forEach((img) => {
+    // Mark as setup to prevent duplicate handlers
+    img.setAttribute('data-draggable-setup', 'true')
+    img.setAttribute('draggable', 'true')
+    img.style.cursor = 'grab'
+    
+    img.addEventListener('dragstart', (e) => {
+      // Set the image URL as drag data
+      const imageUrl = img.src
+      e.dataTransfer.setData('text/uri-list', imageUrl)
+      e.dataTransfer.setData('text/plain', imageUrl)
+      e.dataTransfer.setData('application/x-vegvisr-image', imageUrl)
+      
+      // Also set HTML for broader compatibility
+      e.dataTransfer.setData('text/html', `<img src="${imageUrl}" />`)
+      
+      // Set drag effect
+      e.dataTransfer.effectAllowed = 'copy'
+      
+      // Add visual feedback
+      img.style.opacity = '0.6'
+      img.style.cursor = 'grabbing'
+    })
+    
+    img.addEventListener('dragend', (e) => {
+      // Reset visual feedback
+      img.style.opacity = '1'
+      img.style.cursor = 'grab'
+    })
+    
+    // Add title hint
+    if (!img.title) {
+      img.title = 'Drag to chat to analyze this image'
+    }
+  })
+}
+
 // Setup MutationObserver to watch for code blocks added by v-html
 const setupCodeBlockObserver = () => {
   if (!nodeContainer.value || mutationObserver) return
@@ -349,13 +392,14 @@ const setupCodeBlockObserver = () => {
   mutationObserver = new MutationObserver((mutations) => {
     console.log('🔍 MutationObserver detected', mutations.length, 'mutations')
 
-    // Check if any mutations added <pre><code> elements
+    // Check if any mutations added <pre><code> elements or images
     let hasNewCodeBlocks = false
+    let hasNewImages = false
     for (const mutation of mutations) {
       console.log('  Mutation type:', mutation.type, 'added nodes:', mutation.addedNodes.length)
 
       if (mutation.addedNodes.length > 0) {
-        // Look for pre>code elements in added nodes
+        // Look for pre>code elements and images in added nodes
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
             console.log('  Checking element:', node.tagName)
@@ -363,17 +407,21 @@ const setupCodeBlockObserver = () => {
             if (node.tagName === 'PRE' && node.querySelector('code')) {
               console.log('  ✅ Found PRE with CODE element')
               hasNewCodeBlocks = true
-              break
             }
-            // Also check descendants
+            // Also check descendants for code blocks
             if (node.querySelector && node.querySelector('pre code')) {
               console.log('  ✅ Found PRE>CODE in descendants')
               hasNewCodeBlocks = true
-              break
+            }
+            // Check for images
+            if (node.tagName === 'IMG') {
+              hasNewImages = true
+            }
+            if (node.querySelector && node.querySelector('img')) {
+              hasNewImages = true
             }
           }
         }
-        if (hasNewCodeBlocks) break
       }
     }
 
@@ -381,6 +429,11 @@ const setupCodeBlockObserver = () => {
       console.log('🎯 Triggering code block conversion')
       // Small delay to ensure DOM is fully settled
       setTimeout(() => convertCodeBlocksToWebComponent(), 10)
+    }
+    
+    if (hasNewImages) {
+      // Make new images draggable
+      setTimeout(() => makeImagesDraggable(), 10)
     }
   })
 
@@ -400,6 +453,9 @@ onMounted(async () => {
   await nextTick()
   console.log('📋 nextTick completed, setting up observer')
   setupCodeBlockObserver()
+  
+  // Make any existing images draggable
+  makeImagesDraggable()
 
   // Check if custom element is already defined
   if (customElements.get('code-block')) {
@@ -2346,5 +2402,20 @@ const convertStylesToString = (styleObj) => {
 .node-content :deep(ul ol) {
   margin: 5px 0;
   padding-left: 25px;
+}
+
+/* Draggable images for drag-and-drop to chat */
+.node-content :deep(img[data-draggable-setup]) {
+  cursor: grab;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.node-content :deep(img[data-draggable-setup]:hover) {
+  transform: scale(1.01);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.node-content :deep(img[data-draggable-setup]:active) {
+  cursor: grabbing;
 }
 </style>

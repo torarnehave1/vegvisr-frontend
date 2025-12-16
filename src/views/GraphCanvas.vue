@@ -165,15 +165,6 @@
         🎨 Toggle Font Color
       </button>
       <button
-        class="btn btn-outline-danger btn-sm"
-        type="button"
-        @click="deleteSelected"
-        :disabled="selectedCount === 0"
-        title="Delete selected elements"
-      >
-        🗑️ Delete Selected
-      </button>
-      <button
         class="btn btn-link btn-sm"
         type="button"
         v-if="placementMode || edgeMode"
@@ -1319,8 +1310,21 @@ const handleBackgroundImageSelected = async (replacementData) => {
   const imageUrl = replacementData.newUrl
 
   // Store image URL in node data for persistence (using 'path' property)
-  // CSS selectors will handle showing/hiding based on collapsed state
   node.data('path', imageUrl)
+  
+  // Apply inline styles for immediate visual update
+  // For clusters, check if collapsed
+  const isCluster = node.isParent()
+  const isCollapsed = node.data('collapsed')
+  
+  // Apply styles to non-clusters or collapsed clusters
+  if (!isCluster || isCollapsed) {
+    node.style({
+      'background-image': imageUrl,
+      'background-fit': 'cover',
+      'background-opacity': 1,
+    })
+  }
 
   await saveGraph()
   showStatus('Background image applied', 'success')
