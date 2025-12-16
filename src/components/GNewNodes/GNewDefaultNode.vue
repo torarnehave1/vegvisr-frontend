@@ -343,39 +343,39 @@ const convertCodeBlocksToWebComponent = () => {
 // Make images draggable for drag-and-drop to chat panel
 const makeImagesDraggable = () => {
   if (!nodeContainer.value) return
-  
+
   const images = nodeContainer.value.querySelectorAll('img:not([data-draggable-setup])')
-  
+
   images.forEach((img) => {
     // Mark as setup to prevent duplicate handlers
     img.setAttribute('data-draggable-setup', 'true')
     img.setAttribute('draggable', 'true')
     img.style.cursor = 'grab'
-    
+
     img.addEventListener('dragstart', (e) => {
       // Set the image URL as drag data
       const imageUrl = img.src
       e.dataTransfer.setData('text/uri-list', imageUrl)
       e.dataTransfer.setData('text/plain', imageUrl)
       e.dataTransfer.setData('application/x-vegvisr-image', imageUrl)
-      
+
       // Also set HTML for broader compatibility
       e.dataTransfer.setData('text/html', `<img src="${imageUrl}" />`)
-      
+
       // Set drag effect
       e.dataTransfer.effectAllowed = 'copy'
-      
+
       // Add visual feedback
       img.style.opacity = '0.6'
       img.style.cursor = 'grabbing'
     })
-    
+
     img.addEventListener('dragend', (e) => {
       // Reset visual feedback
       img.style.opacity = '1'
       img.style.cursor = 'grab'
     })
-    
+
     // Add title hint
     if (!img.title) {
       img.title = 'Drag to chat to analyze this image'
@@ -430,7 +430,7 @@ const setupCodeBlockObserver = () => {
       // Small delay to ensure DOM is fully settled
       setTimeout(() => convertCodeBlocksToWebComponent(), 10)
     }
-    
+
     if (hasNewImages) {
       // Make new images draggable
       setTimeout(() => makeImagesDraggable(), 10)
@@ -453,7 +453,7 @@ onMounted(async () => {
   await nextTick()
   console.log('📋 nextTick completed, setting up observer')
   setupCodeBlockObserver()
-  
+
   // Make any existing images draggable
   makeImagesDraggable()
 

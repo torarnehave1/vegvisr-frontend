@@ -390,18 +390,18 @@ const handleImageError = () => {
 const handleImageDragStart = (event) => {
   const url = imageUrl.value
   if (!url) return
-  
+
   // Set the image URL as drag data
   event.dataTransfer.setData('text/uri-list', url)
   event.dataTransfer.setData('text/plain', url)
   event.dataTransfer.setData('application/x-vegvisr-image', url)
-  
+
   // Also set HTML for broader compatibility
   event.dataTransfer.setData('text/html', `<img src="${url}" />`)
-  
+
   // Set drag effect
   event.dataTransfer.effectAllowed = 'copy'
-  
+
   // Add visual feedback
   event.target.style.opacity = '0.6'
   event.target.style.cursor = 'grabbing'

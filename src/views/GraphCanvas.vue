@@ -1311,12 +1311,12 @@ const handleBackgroundImageSelected = async (replacementData) => {
 
   // Store image URL in node data for persistence (using 'path' property)
   node.data('path', imageUrl)
-  
+
   // Apply inline styles for immediate visual update
   // For clusters, check if collapsed
   const isCluster = node.isParent()
   const isCollapsed = node.data('collapsed')
-  
+
   // Apply styles to non-clusters or collapsed clusters
   if (!isCluster || isCollapsed) {
     node.style({

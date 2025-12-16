@@ -276,7 +276,7 @@
       </div>
 
       <!-- Input -->
-      <div 
+      <div
         class="chat-input-container"
         :class="{ 'drag-over': isDragOver }"
         @dragenter.prevent="handleDragEnter"
@@ -987,14 +987,14 @@ const handleDragLeave = (event) => {
 const handleDrop = async (event) => {
   dragCounter = 0
   isDragOver.value = false
-  
+
   if (isStreaming.value) return
-  
+
   // First, check for image URL data (from dragging images within the app)
-  const imageUrl = event.dataTransfer?.getData('text/uri-list') || 
+  const imageUrl = event.dataTransfer?.getData('text/uri-list') ||
                    event.dataTransfer?.getData('text/plain') ||
                    event.dataTransfer?.getData('application/x-vegvisr-image')
-  
+
   if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
     // Check if it looks like an image URL
     const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(imageUrl) ||
@@ -1003,7 +1003,7 @@ const handleDrop = async (event) => {
                        imageUrl.includes('pexels') ||
                        imageUrl.includes('portfolio') ||
                        imageUrl.includes('r2.cloudflarestorage')
-    
+
     if (isImageUrl) {
       if (!providerSupportsImages.value) {
         errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
@@ -1014,7 +1014,7 @@ const handleDrop = async (event) => {
       return
     }
   }
-  
+
   // Next, check for dropped files
   const files = event.dataTransfer?.files
   if (!files || files.length === 0) {
@@ -1036,9 +1036,9 @@ const handleDrop = async (event) => {
     }
     return
   }
-  
+
   const file = files[0] // Handle first file only
-  
+
   // Check if it's an image
   if (file.type.startsWith('image/')) {
     if (!providerSupportsImages.value) {
@@ -1049,14 +1049,14 @@ const handleDrop = async (event) => {
     await processDroppedImage(file)
     return
   }
-  
+
   // Check if it's an audio file
   if (isSupportedAudioFile(file)) {
     // Process as audio
     await processDroppedAudio(file)
     return
   }
-  
+
   // Unsupported file type
   errorMessage.value = 'Unsupported file type. Please drop an image or audio file (wav, mp3, m4a, aac, ogg, opus, mp4, webm).'
 }
@@ -1064,7 +1064,7 @@ const handleDrop = async (event) => {
 const processDroppedImage = async (file) => {
   errorMessage.value = ''
   isUploadingImage.value = true
-  
+
   try {
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -1087,17 +1087,17 @@ const processDroppedImage = async (file) => {
 const processImageFromUrl = async (url) => {
   errorMessage.value = ''
   isUploadingImage.value = true
-  
+
   try {
     // Fetch the image and convert to base64
     const response = await fetch(url, { mode: 'cors' })
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status}`)
     }
-    
+
     const blob = await response.blob()
     const mimeType = blob.type || 'image/jpeg'
-    
+
     // Convert blob to base64
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -1131,21 +1131,21 @@ const processImageFromUrl = async (url) => {
 const handlePaste = async (event) => {
   const clipboardData = event.clipboardData
   if (!clipboardData) return
-  
+
   // Check for image files in clipboard
   const items = clipboardData.items
   if (!items) return
-  
+
   for (const item of items) {
     // Check if item is an image
     if (item.type.startsWith('image/')) {
       event.preventDefault() // Prevent default paste behavior for images
-      
+
       if (!providerSupportsImages.value) {
         errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
         return
       }
-      
+
       const file = item.getAsFile()
       if (file) {
         await processDroppedImage(file)
@@ -1153,7 +1153,7 @@ const handlePaste = async (event) => {
       return
     }
   }
-  
+
   // Check for image URL in plain text (e.g., copied image URL)
   const text = clipboardData.getData('text/plain')
   if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
@@ -1163,20 +1163,20 @@ const handlePaste = async (event) => {
                        text.includes('pexels') ||
                        text.includes('portfolio') ||
                        text.includes('r2.cloudflarestorage')
-    
+
     if (isImageUrl) {
       event.preventDefault()
-      
+
       if (!providerSupportsImages.value) {
         errorMessage.value = `${providerMeta(provider.value).label} does not support image analysis. Please switch to OpenAI, Claude, Gemini, or Perplexity.`
         return
       }
-      
+
       await processImageFromUrl(text)
       return
     }
   }
-  
+
   // Let normal text paste through
 }
 
@@ -1184,7 +1184,7 @@ const processDroppedAudio = async (file) => {
   errorMessage.value = ''
   audioTranscriptionStatus.value = ''
   audioChunkProgress.value = { current: 0, total: 0 }
-  
+
   try {
     const duration = await getAudioDurationSeconds(file).catch(() => null)
     selectedAudioFile.value = {
