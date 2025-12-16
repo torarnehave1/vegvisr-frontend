@@ -939,7 +939,7 @@ const handleCanvasTap = async (event) => {
   if (placementMode.value && isBackgroundClick) {
     console.log('Background clicked in placement mode, adding node at:', event.position)
     await addNodeAtPosition(placementMode.value, event.position)
-    resetInteractionModes()
+    // Don't reset interaction modes - keep placement mode active
     return
   }
 
@@ -1712,11 +1712,18 @@ const startNodePlacement = (type) => {
     return
   }
 
+  // Toggle behavior: if already in this mode, turn it off
+  if (placementMode.value === type) {
+    resetInteractionModes()
+    showStatus('Node placement mode disabled.', 'info')
+    return
+  }
+
   resetInteractionModes()
   placementMode.value = type
   updateCanvasInteractionState()
   const label = type === 'fulltext' ? 'Full Text' : 'Info'
-  showStatus(`Placement mode: click anywhere to add a ${label} node.`, 'info')
+  showStatus(`${label} node mode enabled. Click to add nodes. Click button again to disable.`, 'info')
 }
 
 const toggleEdgeMode = () => {
