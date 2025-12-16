@@ -908,7 +908,7 @@ const initializeCytoscape = (graphData) => {
     if (node.data('path')) {
       const isCluster = node.isParent()
       const isCollapsed = node.data('collapsed')
-      
+
       // Only apply inline styles for non-clusters or collapsed clusters
       if (!isCluster || isCollapsed) {
         node.style({
@@ -1275,7 +1275,7 @@ const openImageSelectorForNode = () => {
     isCluster: contextMenu.value?.isCluster,
     nodeLabel: contextMenu.value?.node?.data('label')
   })
-  
+
   targetNodeForImage.value = contextMenu.value.node
   contextMenu.value.show = false
 
@@ -1288,15 +1288,15 @@ const openImageSelectorForNode = () => {
     nodeContent: node.data('info') || node.data('label') || '',
   }
 
-  console.log('🖼️ Opening ImageSelector', { 
+  console.log('🖼️ Opening ImageSelector', {
     currentImageData: currentImageData.value,
-    isImageSelectorOpen: isImageSelectorOpen.value 
+    isImageSelectorOpen: isImageSelectorOpen.value
   })
-  
+
   isImageSelectorOpen.value = true
-  
-  console.log('🖼️ After setting isImageSelectorOpen', { 
-    isImageSelectorOpen: isImageSelectorOpen.value 
+
+  console.log('🖼️ After setting isImageSelectorOpen', {
+    isImageSelectorOpen: isImageSelectorOpen.value
   })
 }
 
