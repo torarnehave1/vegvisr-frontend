@@ -822,10 +822,9 @@ const initializeCytoscape = (graphData) => {
       {
         selector: ':parent',
         style: {
-          'background-image': (ele) => ele.data('path') || '',
-          'background-fit': 'cover',
-          'background-opacity': (ele) => ele.data('path') ? 1 : 0.2,
-          'background-color': (ele) => ele.data('path') ? 'transparent' : (ele.data('sourceGraphId') ? '#B8E6B8' : '#A5D6FF'),
+          'background-opacity': 0.2,
+          'background-color': (ele) => ele.data('sourceGraphId') ? '#E8F5E9' : '#E3F2FD',
+          'background-image': 'none',
           'border-width': 3,
           'border-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
           'border-style': 'dashed',
@@ -846,13 +845,18 @@ const initializeCytoscape = (graphData) => {
       {
         selector: ':parent[collapsed]',
         style: {
-          'background-image': (ele) => ele.data('path') || '',
-          'background-fit': 'cover',
           'background-color': (ele) => ele.data('path') ? 'transparent' : (ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA'),
           'background-opacity': (ele) => ele.data('path') ? 1 : 0.4,
           'border-style': 'solid',
           width: '400px',
           height: '400px',
+        },
+      },
+      {
+        selector: ':parent[collapsed][path]',
+        style: {
+          'background-image': 'data(path)',
+          'background-fit': 'cover',
         },
       },
     ],
@@ -900,12 +904,20 @@ const initializeCytoscape = (graphData) => {
     }
 
     // Apply background image if stored (using 'path' property)
+    // Only apply to collapsed clusters or non-cluster nodes
     if (node.data('path')) {
-      node.style({
-        'background-image': node.data('path'),
-        'background-fit': 'cover',
-        'background-opacity': 1,
-      })
+      const isCluster = node.isParent()
+      const isCollapsed = node.data('collapsed')
+      
+      // Only apply inline styles for non-clusters or collapsed clusters
+      if (!isCluster || isCollapsed) {
+        node.style({
+          'background-image': node.data('path'),
+          'background-fit': 'cover',
+          'background-opacity': 1,
+        })
+      }
+      // For expanded clusters with path, CSS selectors will handle hiding the image
     }
 
     // Apply custom font color if stored
@@ -1257,6 +1269,13 @@ const changeNodeShape = async (shape) => {
 }
 
 const openImageSelectorForNode = () => {
+  console.log('🖼️ openImageSelectorForNode called', {
+    hasContextMenu: !!contextMenu.value,
+    hasNode: !!contextMenu.value?.node,
+    isCluster: contextMenu.value?.isCluster,
+    nodeLabel: contextMenu.value?.node?.data('label')
+  })
+  
   targetNodeForImage.value = contextMenu.value.node
   contextMenu.value.show = false
 
@@ -1269,7 +1288,16 @@ const openImageSelectorForNode = () => {
     nodeContent: node.data('info') || node.data('label') || '',
   }
 
+  console.log('🖼️ Opening ImageSelector', { 
+    currentImageData: currentImageData.value,
+    isImageSelectorOpen: isImageSelectorOpen.value 
+  })
+  
   isImageSelectorOpen.value = true
+  
+  console.log('🖼️ After setting isImageSelectorOpen', { 
+    isImageSelectorOpen: isImageSelectorOpen.value 
+  })
 }
 
 const closeImageSelector = () => {
@@ -1290,14 +1318,8 @@ const handleBackgroundImageSelected = async (replacementData) => {
   const node = targetNodeForImage.value
   const imageUrl = replacementData.newUrl
 
-  // Apply background image style
-  node.style({
-    'background-image': imageUrl,
-    'background-fit': 'cover',
-    'background-opacity': 1,
-  })
-
   // Store image URL in node data for persistence (using 'path' property)
+  // CSS selectors will handle showing/hiding based on collapsed state
   node.data('path', imageUrl)
 
   await saveGraph()
@@ -1741,9 +1763,12 @@ const toggleClusterCollapse = async (clusterNode) => {
   const children = clusterNode.children()
 
   if (isCollapsed) {
-    // Expand: show children
+    // Expand: show children and remove background image inline styles
     children.style('display', 'element')
     clusterNode.removeData('collapsed')
+    // Force remove any inline background-image styles so CSS selectors take over
+    clusterNode.removeStyle('background-image')
+    clusterNode.removeStyle('background-fit')
     showStatus(`Expanded cluster "${clusterNode.data('label')}"`, 'info')
   } else {
     // Collapse: hide children
