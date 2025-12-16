@@ -227,8 +227,8 @@
         </div>
       </div>
 
-      <!-- Background Image (not for clusters) -->
-      <div v-if="!contextMenu.isCluster" class="context-menu-section">
+      <!-- Background Image -->
+      <div class="context-menu-section">
         <div class="context-menu-header">Background</div>
         <div class="context-menu-item" @click="openImageSelectorForNode">
           <span class="context-menu-icon">🖼️</span>
@@ -822,8 +822,10 @@ const initializeCytoscape = (graphData) => {
       {
         selector: ':parent',
         style: {
-          'background-opacity': 0.2,
-          'background-color': (ele) => ele.data('sourceGraphId') ? '#B8E6B8' : '#A5D6FF',
+          'background-image': (ele) => ele.data('path') || '',
+          'background-fit': 'cover',
+          'background-opacity': (ele) => ele.data('path') ? 1 : 0.2,
+          'background-color': (ele) => ele.data('path') ? 'transparent' : (ele.data('sourceGraphId') ? '#B8E6B8' : '#A5D6FF'),
           'border-width': 3,
           'border-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
           'border-style': 'dashed',
@@ -844,8 +846,10 @@ const initializeCytoscape = (graphData) => {
       {
         selector: ':parent[collapsed]',
         style: {
-          'background-color': (ele) => ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA',
-          'background-opacity': 0.4,
+          'background-image': (ele) => ele.data('path') || '',
+          'background-fit': 'cover',
+          'background-color': (ele) => ele.data('path') ? 'transparent' : (ele.data('sourceGraphId') ? '#2DA44E' : '#0969DA'),
+          'background-opacity': (ele) => ele.data('path') ? 1 : 0.4,
           'border-style': 'solid',
           width: '400px',
           height: '400px',
