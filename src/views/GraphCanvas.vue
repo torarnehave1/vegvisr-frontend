@@ -97,6 +97,19 @@
           💾 Save Graph
         </button>
       </div>
+
+      <div class="toolbar-section">
+        <!-- AI Chat Toggle -->
+        <button
+          v-if="userStore.loggedIn"
+          @click="showAIChat = !showAIChat"
+          class="btn btn-sm ai-chat-toggle"
+          :class="showAIChat ? 'btn-primary' : 'btn-outline-primary'"
+          title="Toggle AI Assistant"
+        >
+          🤖 AI Chat
+        </button>
+      </div>
     </div>
 
     <!-- Status Bar -->
@@ -104,9 +117,33 @@
       {{ statusMessage }}
     </div>
 
-    <!-- Main Canvas -->
-    <div class="canvas-container">
-      <div id="graph-canvas" class="cytoscape-canvas"></div>
+    <!-- Main Content with optional Chat Panel -->
+    <div class="canvas-with-chat" :class="{ 'chat-open': showAIChat }">
+      <!-- Main Canvas -->
+      <div class="canvas-container" :class="{ 'with-chat': showAIChat }">
+        <div id="graph-canvas" class="cytoscape-canvas"></div>
+      </div>
+
+      <!-- Chat Resize Handle -->
+      <div
+        v-if="showAIChat"
+        class="chat-resize-handle"
+        @mousedown.prevent="startChatResize"
+      ></div>
+
+      <!-- AI Chat Panel -->
+      <div
+        v-if="showAIChat"
+        class="chat-panel-container"
+        :style="{ width: chatWidth + 'px' }"
+      >
+        <GrokChatPanel
+          :graphData="graphDataForChat"
+          :selection-context="aiChatSelectionContext"
+          parent-context="canvas"
+          @insert-fulltext="insertAIResponseAsFullText"
+        />
+      </div>
     </div>
 
     <div class="floating-node-menu" v-if="canAddNodes">
@@ -341,6 +378,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import ImageSelector from '@/components/ImageSelector.vue'
+import GrokChatPanel from '@/components/GrokChatPanel.vue'
 
 // Initialize undo-redo plugin
 if (!cytoscape.prototype.undoRedo) {
@@ -362,6 +400,15 @@ const importSearchQuery = ref('')
 const currentGraphTitle = ref('')
 const graphCanvasRoot = ref(null)
 const isFullscreen = ref(false)
+
+// AI Chat Panel state
+const showAIChat = ref(false)
+const chatWidth = ref(420)
+const isResizingChat = ref(false)
+let chatResizeStartX = 0
+let chatResizeStartWidth = 0
+const chatSelection = ref(null)
+
 const placementMode = ref(null)
 const edgeMode = ref(false)
 const edgeStartNode = ref(null)
@@ -401,6 +448,41 @@ const filteredImportGraphs = computed(() => {
         (g.metadata?.metaArea && g.metadata.metaArea.toLowerCase().includes(query)) ||
         (g.metadata?.description && g.metadata.description.toLowerCase().includes(query))
     )
+})
+
+// AI Chat Panel - computed properties
+const aiChatSelectionContext = computed(() => {
+  if (!chatSelection.value?.text) return null
+  return {
+    text: chatSelection.value.text,
+    nodeId: chatSelection.value.nodeId || null,
+    nodeLabel: chatSelection.value.nodeLabel || null,
+    nodeType: chatSelection.value.nodeType || null,
+    source: 'graph-canvas',
+    updatedAt: chatSelection.value.updatedAt,
+  }
+})
+
+const graphDataForChat = computed(() => {
+  if (!cyInstance.value) return { nodes: [], edges: [], metadata: { title: currentGraphTitle.value } }
+  
+  const nodes = cyInstance.value.nodes().map(n => ({
+    id: n.id(),
+    label: n.data('label'),
+    info: n.data('info'),
+    fullText: n.data('fullText'),
+    type: n.data('type'),
+    ...n.data()
+  }))
+  
+  const edges = cyInstance.value.edges().map(e => ({
+    id: e.id(),
+    source: e.source().id(),
+    target: e.target().id(),
+    ...e.data()
+  }))
+  
+  return { nodes, edges, metadata: { title: currentGraphTitle.value } }
 })
 
 // Cytoscape instance
@@ -947,6 +1029,23 @@ const setupEventListeners = () => {
   // Selection tracking
   cyInstance.value.on('select unselect', () => {
     selectedCount.value = cyInstance.value.$(':selected').length
+  })
+
+  // AI Chat - Update selection context when node is selected/unselected
+  cyInstance.value.on('select', 'node', (event) => {
+    const node = event.target
+    updateChatSelectionFromNode(node)
+  })
+
+  cyInstance.value.on('unselect', 'node', () => {
+    // Only clear if no other nodes are selected
+    if (cyInstance.value.nodes(':selected').length === 0) {
+      chatSelection.value = null
+    } else {
+      // Update to the first selected node
+      const firstSelected = cyInstance.value.nodes(':selected').first()
+      updateChatSelectionFromNode(firstSelected)
+    }
   })
 
   // Close context menu on canvas click (but not immediately after opening)
@@ -2121,9 +2220,100 @@ watch([placementMode, edgeMode], () => {
 // Watch for changes in currentGraphId (from store or URL)
 watch(() => graphStore.currentGraphId, handleGraphIdChange)
 
+// AI Chat Panel - Resize handlers
+const getMaxChatWidth = () => Math.min(800, window.innerWidth * 0.5)
+
+const clampChatWidthToViewport = () => {
+  const maxWidth = getMaxChatWidth()
+  if (chatWidth.value > maxWidth) {
+    chatWidth.value = maxWidth
+  }
+}
+
+const startChatResize = (e) => {
+  isResizingChat.value = true
+  chatResizeStartX = e.clientX
+  chatResizeStartWidth = chatWidth.value
+  document.addEventListener('mousemove', handleChatResize)
+  document.addEventListener('mouseup', stopChatResize)
+}
+
+const handleChatResize = (e) => {
+  if (!isResizingChat.value) return
+  const delta = chatResizeStartX - e.clientX
+  const newWidth = Math.max(300, Math.min(getMaxChatWidth(), chatResizeStartWidth + delta))
+  chatWidth.value = newWidth
+}
+
+const stopChatResize = () => {
+  isResizingChat.value = false
+  document.removeEventListener('mousemove', handleChatResize)
+  document.removeEventListener('mouseup', stopChatResize)
+}
+
+// AI Chat Panel - Insert AI response as fulltext node
+const insertAIResponseAsFullText = async (content) => {
+  if (!cyInstance.value) return
+  
+  // Create new fulltext node with AI response
+  const newNodeId = generateUUID()
+  
+  // Calculate position - center of visible viewport
+  const extent = cyInstance.value.extent()
+  const position = {
+    x: (extent.x1 + extent.x2) / 2,
+    y: (extent.y1 + extent.y2) / 2
+  }
+  
+  // Create a summary label from the content (first 50 chars)
+  const labelPreview = content.substring(0, 50).replace(/\n/g, ' ').trim()
+  const label = labelPreview.length < content.length ? `${labelPreview}...` : labelPreview
+  
+  cyInstance.value.add({
+    data: {
+      id: newNodeId,
+      label: 'AI Response',
+      type: 'fulltext',
+      fullText: content,
+      info: label,
+      color: '#e8f4f8',
+      fontColor: '#000',
+      createdAt: new Date().toISOString()
+    },
+    position: position
+  })
+  
+  showStatus('AI response inserted as new fulltext node', 'success')
+  
+  // Auto-save the graph
+  await saveGraph()
+}
+
+// AI Chat Panel - Update selection context when node is selected
+const updateChatSelectionFromNode = (node) => {
+  if (!node) {
+    chatSelection.value = null
+    return
+  }
+  
+  const textContent = node.data('fullText') || node.data('info') || node.data('label') || ''
+  
+  chatSelection.value = {
+    text: textContent,
+    nodeId: node.id(),
+    nodeLabel: node.data('label'),
+    nodeType: node.data('type'),
+    source: 'node-selection',
+    updatedAt: Date.now()
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+  
+  // Clamp chat width on window resize
+  window.addEventListener('resize', clampChatWidthToViewport)
 
   // Close context menu when clicking outside
   document.addEventListener('click', (e) => {
@@ -2162,6 +2352,10 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  // Clean up chat resize listeners
+  document.removeEventListener('mousemove', handleChatResize)
+  document.removeEventListener('mouseup', stopChatResize)
+  window.removeEventListener('resize', clampChatWidthToViewport)
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {})
   }
@@ -2242,6 +2436,60 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   overflow: hidden;
+  transition: flex 0.2s ease;
+}
+
+/* AI Chat Panel Layout */
+.canvas-with-chat {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.canvas-with-chat.chat-open .canvas-container {
+  flex: 1;
+}
+
+.chat-resize-handle {
+  width: 6px;
+  cursor: ew-resize;
+  background: linear-gradient(90deg, transparent, #e0e0e0, transparent);
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.chat-resize-handle:hover {
+  background: linear-gradient(90deg, transparent, #007bff, transparent);
+}
+
+.chat-resize-handle:active {
+  background: linear-gradient(90deg, transparent, #0056b3, transparent);
+}
+
+.chat-panel-container {
+  height: 100%;
+  min-width: 300px;
+  max-width: 800px;
+  border-left: 1px solid #e0e0e0;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.ai-chat-toggle {
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.ai-chat-toggle:hover {
+  transform: scale(1.02);
+}
+
+.ai-chat-toggle.btn-primary {
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
 }
 
 .floating-node-menu {

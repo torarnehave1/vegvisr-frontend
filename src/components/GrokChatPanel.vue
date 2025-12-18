@@ -61,7 +61,7 @@
           </span>
         </div>
         <div v-else class="selection-hint">
-          Highlight text in the graph to share it with the assistant.
+          {{ isCanvasContext ? 'Select a node in the canvas to share it with the assistant.' : 'Highlight text in the graph to share it with the assistant.' }}
         </div>
         <div
           v-if="canPersistHistory"
@@ -216,14 +216,14 @@
             <span class="message-role">{{ message.role === 'user' ? 'You' : providerMeta(message.provider || provider).label }}</span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           </div>
-          <div class="message-content" v-html="renderMarkdown(message.content)"></div>
+          <div class="message-content" v-html="renderMarkdown(message.content)" @click="handleMessageContentClick($event)"></div>
           <div v-if="message.role === 'assistant'" class="message-actions">
             <button
               class="btn btn-link btn-sm insert-btn"
               type="button"
               @click="insertAsFullText(message.content)"
             >
-              Insert as FullText node
+              {{ insertLabel }}
             </button>
             <button
               class="btn btn-link btn-sm graph-btn"
@@ -628,7 +628,27 @@ const props = defineProps({
     required: false,
     default: () => null,
   },
+  /**
+   * Context identifier for the parent component.
+   * - 'viewer': GNewViewer (reading/viewing graphs)
+   * - 'canvas': GraphCanvas (editing/creating graphs with Cytoscape)
+   * This affects hints, suggestions, and insert behavior.
+   */
+  parentContext: {
+    type: String,
+    required: false,
+    default: 'viewer',
+    validator: (value) => ['viewer', 'canvas'].includes(value),
+  },
 })
+
+// Computed helpers for context-aware behavior
+const isCanvasContext = computed(() => props.parentContext === 'canvas')
+const isViewerContext = computed(() => props.parentContext === 'viewer')
+
+// Context-aware labels
+const contextLabel = computed(() => isCanvasContext.value ? 'Canvas' : 'Graph')
+const insertLabel = computed(() => isCanvasContext.value ? 'Insert as Node' : 'Insert as Full Text')
 
 // State
 const isCollapsed = ref(false)
@@ -1632,6 +1652,35 @@ const renderMarkdown = (content) => {
 const insertAsFullText = (content) => {
   if (!content) return
   emit('insert-fulltext', content)
+}
+
+// Handle clicks on message content (for related questions)
+const handleMessageContentClick = (event) => {
+  const target = event.target
+  
+  // Check if clicked element is a related question link
+  if (target.classList.contains('perplexity-related-question')) {
+    event.preventDefault()
+    event.stopPropagation()
+    
+    const encodedQuestion = target.getAttribute('data-question')
+    if (encodedQuestion) {
+      const question = decodeURIComponent(encodedQuestion)
+      
+      // Set the question in the input
+      userInput.value = question
+      
+      // Ensure Perplexity is selected as the provider
+      if (provider.value !== 'perplexity') {
+        provider.value = 'perplexity'
+      }
+      
+      // Send the message
+      nextTick(() => {
+        sendMessage()
+      })
+    }
+  }
 }
 
 // Advanced Graph Creation Functions
@@ -2831,6 +2880,16 @@ const sendMessage = async () => {
 
     const contextSections = []
 
+    // Add image analysis context when image is attached
+    if (hasImage) {
+      contextSections.push(`You are a helpful assistant with vision capabilities. When analyzing images:
+- Describe what you see in detail
+- If there is text visible in the image, transcribe it accurately
+- Provide OCR for any text, code, or written content
+- Be thorough and helpful in your image analysis
+Do not refuse to describe or transcribe text from images - this is a legitimate and helpful task.`)
+    }
+
     if (useGraphContext.value) {
       const graphContext = buildGraphContext()
       if (graphContext) {
@@ -2899,6 +2958,13 @@ Use this context to provide relevant insights and answers about the knowledge gr
       temperature: 0.7,
       stream: false,
     }
+    
+    // Add Perplexity-specific parameters for richer responses
+    if (currentProvider === 'perplexity') {
+      requestBody.return_images = true
+      requestBody.return_related_questions = true
+      requestBody.search_recency_filter = 'month'
+    }
 
     if (model) {
       requestBody.model = model
@@ -2915,6 +2981,40 @@ Use this context to provide relevant insights and answers about the knowledge gr
       requestBody.messages = nonSystemMessages
       if (systemMsg) {
         requestBody.system = systemMsg.content
+      }
+    } else if (currentProvider === 'perplexity') {
+      // Perplexity requires messages to strictly alternate between user and assistant
+      // Extract system message first
+      const systemMsg = grokMessages.find(m => m.role === 'system')
+      const nonSystemMessages = grokMessages.filter(m => m.role !== 'system')
+      
+      // Merge consecutive messages of the same role
+      const alternatingMessages = []
+      for (const msg of nonSystemMessages) {
+        const lastMsg = alternatingMessages[alternatingMessages.length - 1]
+        if (lastMsg && lastMsg.role === msg.role) {
+          // Merge with previous message of same role
+          if (typeof lastMsg.content === 'string' && typeof msg.content === 'string') {
+            lastMsg.content = lastMsg.content + '\n\n' + msg.content
+          } else {
+            // For complex content (arrays with images), keep the last one
+            lastMsg.content = msg.content
+          }
+        } else {
+          alternatingMessages.push({ ...msg })
+        }
+      }
+      
+      // Ensure first non-system message is from user
+      if (alternatingMessages.length > 0 && alternatingMessages[0].role !== 'user') {
+        alternatingMessages.unshift({ role: 'user', content: 'Continue the conversation.' })
+      }
+      
+      // Build final messages with system message first if present
+      if (systemMsg) {
+        requestBody.messages = [systemMsg, ...alternatingMessages]
+      } else {
+        requestBody.messages = alternatingMessages
       }
     } else {
       requestBody.messages = grokMessages
@@ -2953,9 +3053,19 @@ Use this context to provide relevant insights and answers about the knowledge gr
     // Parse response - Claude uses different format than OpenAI/Grok
     const data = await response.json()
     let aiMessage
+    let perplexityCitations = null
+    let perplexityImages = null
+    let perplexityRelatedQuestions = null
+    
     if (currentProvider === 'claude') {
       // Anthropic format: data.content[0].text
       aiMessage = data.content?.[0]?.text
+    } else if (currentProvider === 'perplexity') {
+      // Perplexity format: data.choices[0].message.content + extra fields
+      aiMessage = data.choices?.[0]?.message?.content
+      perplexityCitations = data.citations || []
+      perplexityImages = data.images || []
+      perplexityRelatedQuestions = data.related_questions || []
     } else {
       // OpenAI/Grok format: data.choices[0].message.content
       aiMessage = data.choices?.[0]?.message?.content
@@ -2964,9 +3074,84 @@ Use this context to provide relevant insights and answers about the knowledge gr
     if (!aiMessage) {
       throw new Error('No response from AI')
     }
+    
+    // For Perplexity, process citations and enhance the message
+    let enhancedMessage = aiMessage
+    
+    if (currentProvider === 'perplexity') {
+      // Convert inline citation references [1], [2], etc. to clickable links
+      if (perplexityCitations && perplexityCitations.length > 0) {
+        // Replace [1], [2], [1][2], etc. with clickable superscript links
+        enhancedMessage = enhancedMessage.replace(/\[(\d+)\]/g, (match, num) => {
+          const index = parseInt(num) - 1
+          if (index >= 0 && index < perplexityCitations.length) {
+            const url = perplexityCitations[index]
+            // Extract domain for display
+            let domain = ''
+            try {
+              domain = new URL(url).hostname.replace('www.', '')
+            } catch {
+              domain = url.substring(0, 30)
+            }
+            return `[<sup>${num}</sup>](${url} "${domain}")`
+          }
+          return match
+        })
+      }
+      
+      // Add images as clickable thumbnails if available (often YouTube thumbnails)
+      if (perplexityImages && perplexityImages.length > 0) {
+        enhancedMessage += '\n\n**📺 Related Media:**\n\n'
+        perplexityImages.forEach((img, index) => {
+          // Handle both string URLs and object format from Perplexity API
+          // API returns: { image_url, origin_url, title, width, height }
+          const imgUrl = typeof img === 'string' ? img : (img.image_url || img.url)
+          const originUrl = typeof img === 'object' ? (img.origin_url || imgUrl) : imgUrl
+          const imgTitle = typeof img === 'object' ? (img.title || `Media ${index + 1}`) : `Media ${index + 1}`
+          
+          if (imgUrl) {
+            // Use origin_url for the link (e.g., YouTube watch URL)
+            enhancedMessage += `[![${imgTitle}](${imgUrl})](${originUrl} "${imgTitle}")\n\n`
+          }
+        })
+      }
+      
+      // Add citations list at the bottom
+      if (perplexityCitations && perplexityCitations.length > 0) {
+        enhancedMessage += '\n---\n\n**📚 Sources:**\n'
+        perplexityCitations.forEach((citation, index) => {
+          // Extract title from URL or use domain
+          let displayText = ''
+          try {
+            const urlObj = new URL(citation)
+            displayText = urlObj.hostname.replace('www.', '')
+            // Try to get a readable path
+            if (urlObj.pathname && urlObj.pathname !== '/') {
+              const pathParts = urlObj.pathname.split('/').filter(p => p)
+              if (pathParts.length > 0) {
+                displayText += ' - ' + decodeURIComponent(pathParts[pathParts.length - 1]).replace(/-/g, ' ').substring(0, 50)
+              }
+            }
+          } catch {
+            displayText = citation.substring(0, 60)
+          }
+          enhancedMessage += `${index + 1}. [${displayText}](${citation})\n`
+        })
+      }
+      
+      // Add related questions section if available (as clickable links)
+      if (perplexityRelatedQuestions && perplexityRelatedQuestions.length > 0) {
+        enhancedMessage += '\n**🔍 Related Questions:**\n'
+        perplexityRelatedQuestions.forEach((question) => {
+          // Encode the question for use in a data attribute
+          const encodedQuestion = encodeURIComponent(question)
+          enhancedMessage += `- <a href="#" class="perplexity-related-question" data-question="${encodedQuestion}">${question}</a>\n`
+        })
+      }
+    }
 
     // Simulate streaming effect by displaying word by word
-    const words = aiMessage.split(' ')
+    const words = enhancedMessage.split(' ')
     for (let i = 0; i < words.length; i++) {
       streamingContent.value += words[i] + (i < words.length - 1 ? ' ' : '')
       scrollToBottom()
@@ -2976,7 +3161,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
     // Add assistant message
     appendChatMessage({
       role: 'assistant',
-      content: aiMessage,
+      content: enhancedMessage,
       timestamp: Date.now(),
       provider: currentProvider,
     })
@@ -3469,6 +3654,81 @@ watch(
 .message-content :deep(pre code) {
   background: transparent;
   padding: 0;
+}
+
+/* Perplexity citation styles */
+.message-content :deep(sup) {
+  font-size: 0.7em;
+  color: #667eea;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.message-content :deep(sup:hover) {
+  color: #4c51bf;
+  text-decoration: underline;
+}
+
+/* Perplexity image/video thumbnails */
+.message-content :deep(img) {
+  max-width: 200px;
+  max-height: 120px;
+  border-radius: 8px;
+  margin: 0.5rem 0.5rem 0.5rem 0;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: inline-block;
+  vertical-align: top;
+}
+
+.message-content :deep(img:hover) {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Perplexity sources list */
+.message-content :deep(hr) {
+  margin: 1rem 0;
+  border: none;
+  border-top: 1px solid #e0e0e0;
+}
+
+.message-content :deep(a) {
+  color: #667eea;
+  text-decoration: none;
+}
+
+.message-content :deep(a:hover) {
+  text-decoration: underline;
+}
+
+/* Perplexity related questions - clickable */
+.message-content :deep(.perplexity-related-question) {
+  color: #667eea;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(102, 126, 234, 0.08);
+  transition: all 0.2s ease;
+  display: inline-block;
+  margin: 2px 0;
+}
+
+.message-content :deep(.perplexity-related-question:hover) {
+  background: rgba(102, 126, 234, 0.15);
+  text-decoration: none;
+  transform: translateX(4px);
+}
+
+.message-content :deep(.perplexity-related-question::before) {
+  content: '→ ';
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-content :deep(.perplexity-related-question:hover::before) {
+  opacity: 1;
 }
 
 .message-actions {

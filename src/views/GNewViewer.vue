@@ -1555,6 +1555,7 @@
         <GrokChatPanel
           :graphData="graphData"
           :selection-context="grokSelectionContext"
+          parent-context="viewer"
           @insert-fulltext="insertAIResponseAsFullText"
         />
       </div>
