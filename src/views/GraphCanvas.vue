@@ -122,6 +122,45 @@
       <!-- Main Canvas -->
       <div class="canvas-container" :class="{ 'with-chat': showAIChat }">
         <div id="graph-canvas" class="cytoscape-canvas"></div>
+        <!-- Node Resize Handles -->
+        <div
+          v-if="resizeHandles.visible"
+          class="node-resize-handles"
+          :style="resizeHandles.containerStyle"
+        >
+          <div
+            class="resize-handle resize-handle-n"
+            @mousedown.prevent.stop="startNodeResize('n', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-s"
+            @mousedown.prevent.stop="startNodeResize('s', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-e"
+            @mousedown.prevent.stop="startNodeResize('e', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-w"
+            @mousedown.prevent.stop="startNodeResize('w', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-ne"
+            @mousedown.prevent.stop="startNodeResize('ne', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-nw"
+            @mousedown.prevent.stop="startNodeResize('nw', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-se"
+            @mousedown.prevent.stop="startNodeResize('se', $event)"
+          ></div>
+          <div
+            class="resize-handle resize-handle-sw"
+            @mousedown.prevent.stop="startNodeResize('sw', $event)"
+          ></div>
+        </div>
       </div>
 
       <!-- Chat Resize Handle -->
@@ -201,6 +240,130 @@
       >
         🎨 Toggle Font Color
       </button>
+      
+      <!-- Shape Options -->
+      <div v-if="selectedCount === 1" class="shape-options">
+        <div class="menu-subheader">Shape</div>
+        <div class="shape-buttons">
+          <button
+            class="btn btn-outline-secondary btn-sm shape-btn"
+            type="button"
+            @click="changeSelectedNodeShape('ellipse')"
+            title="Circle"
+          >⚫</button>
+          <button
+            class="btn btn-outline-secondary btn-sm shape-btn"
+            type="button"
+            @click="changeSelectedNodeShape('rectangle')"
+            title="Square"
+          >⬜</button>
+          <button
+            class="btn btn-outline-secondary btn-sm shape-btn"
+            type="button"
+            @click="changeSelectedNodeShape('round-rectangle')"
+            title="Rounded Rectangle"
+          >▭</button>
+          <button
+            class="btn btn-outline-secondary btn-sm shape-btn"
+            type="button"
+            @click="changeSelectedNodeShape('triangle')"
+            title="Triangle"
+          >▲</button>
+          <button
+            class="btn btn-outline-secondary btn-sm shape-btn"
+            type="button"
+            @click="changeSelectedNodeShape('diamond')"
+            title="Diamond"
+          >◆</button>
+        </div>
+      </div>
+      
+      <!-- Color Options -->
+      <div v-if="selectedCount === 1" class="color-options">
+        <div class="menu-subheader">Color</div>
+        <div class="color-buttons">
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#ADD8E6')"
+            title="Light Blue"
+            style="background-color: #ADD8E6;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#90EE90')"
+            title="Light Green"
+            style="background-color: #90EE90;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#FFB6C1')"
+            title="Light Pink"
+            style="background-color: #FFB6C1;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#FFD700')"
+            title="Gold"
+            style="background-color: #FFD700;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#FFA500')"
+            title="Orange"
+            style="background-color: #FFA500;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#DDA0DD')"
+            title="Plum"
+            style="background-color: #DDA0DD;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#F5F5DC')"
+            title="Beige"
+            style="background-color: #F5F5DC;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#E0E0E0')"
+            title="Light Gray"
+            style="background-color: #E0E0E0;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#FFFFFF')"
+            title="White"
+            style="background-color: #FFFFFF; border: 1px solid #ccc;"
+          ></button>
+          <button
+            class="btn btn-sm color-btn"
+            type="button"
+            @click="changeSelectedNodeColor('#333333')"
+            title="Dark Gray"
+            style="background-color: #333333;"
+          ></button>
+        </div>
+        <div class="color-picker-row">
+          <input
+            type="color"
+            class="color-picker-input"
+            @input="changeSelectedNodeColor($event.target.value)"
+            title="Custom color"
+          />
+          <span class="color-picker-label">Custom</span>
+        </div>
+      </div>
+      
       <button
         class="btn btn-link btn-sm"
         type="button"
@@ -238,23 +401,6 @@
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @click.stop
     >
-      <!-- Shape Options (not for clusters) -->
-      <div v-if="!contextMenu.isCluster" class="context-menu-section">
-        <div class="context-menu-header">Shape</div>
-        <div class="context-menu-item" @click="changeNodeShape('ellipse')">
-          <span class="context-menu-icon">⚫</span>
-          Circle
-        </div>
-        <div class="context-menu-item" @click="changeNodeShape('rectangle')">
-          <span class="context-menu-icon">⬜</span>
-          Square
-        </div>
-        <div class="context-menu-item" @click="changeNodeShape('round-rectangle')">
-          <span class="context-menu-icon">▭</span>
-          Rounded Rectangle
-        </div>
-      </div>
-
       <!-- Background Image -->
       <div class="context-menu-section">
         <div class="context-menu-header">Background</div>
@@ -268,9 +414,13 @@
         </div>
       </div>
 
-      <!-- Rename Node (not for clusters) -->
+      <!-- Edit Node (not for clusters) -->
       <div v-if="!contextMenu.isCluster" class="context-menu-section">
         <div class="context-menu-header">Content</div>
+        <div class="context-menu-item" @click="openInfoModal">
+          <span class="context-menu-icon">📝</span>
+          Edit Info
+        </div>
         <div class="context-menu-item" @click="renameNode">
           <span class="context-menu-icon">✏️</span>
           Rename Node
@@ -412,6 +562,25 @@ const chatSelection = ref(null)
 const placementMode = ref(null)
 const edgeMode = ref(false)
 const edgeStartNode = ref(null)
+
+// Node resize state
+const isResizingNode = ref(false)
+const resizeDirection = ref(null)
+const resizeStartPos = ref({ x: 0, y: 0 })
+const resizeStartSize = ref({ width: 0, height: 0 })
+const resizeStartNodePos = ref({ x: 0, y: 0 })
+const resizeTargetNode = ref(null)
+const resizeUpdateToken = ref(0)
+
+const bumpResizeUpdate = () => {
+  resizeUpdateToken.value = (resizeUpdateToken.value + 1) % Number.MAX_SAFE_INTEGER
+}
+
+const handleWindowResize = () => {
+  clampChatWidthToViewport()
+  bumpResizeUpdate()
+}
+
 const contextMenu = ref({
   show: false,
   x: 0,
@@ -483,6 +652,69 @@ const graphDataForChat = computed(() => {
   }))
 
   return { nodes, edges, metadata: { title: currentGraphTitle.value } }
+})
+
+// Resize handles computed - calculates position based on selected node
+const computeHandleStyle = (node) => {
+  if (!cyInstance.value?.container()) return null
+
+  // renderedPosition() is already relative to the cytoscape container
+  // Since our overlay is inside .canvas-container (same as #graph-canvas),
+  // we use the position directly without viewport offset adjustments
+  const renderedPos = node.renderedPosition()
+  const width = node.renderedOuterWidth()
+  const height = node.renderedOuterHeight()
+
+  return {
+    position: 'absolute',
+    left: `${renderedPos.x - width / 2}px`,
+    top: `${renderedPos.y - height / 2}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+    pointerEvents: 'auto',
+  }
+}
+
+const resizeHandles = computed(() => {
+  // Depend on selection count and explicit updates for reactivity
+  selectedCount.value
+  resizeUpdateToken.value
+  if (!cyInstance.value || isResizingNode.value) {
+    // Keep showing during resize
+    if (isResizingNode.value && resizeTargetNode.value) {
+      const node = resizeTargetNode.value
+      const style = computeHandleStyle(node)
+      if (!style) {
+        return { visible: false, containerStyle: {} }
+      }
+      return {
+        visible: true,
+        containerStyle: { ...style, pointerEvents: 'none' },
+      }
+    }
+    return { visible: false, containerStyle: {} }
+  }
+
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length !== 1) {
+    return { visible: false, containerStyle: {} }
+  }
+
+  const node = selectedNodes.first()
+  // Don't show resize handles for parent/cluster nodes
+  if (node.isParent()) {
+    return { visible: false, containerStyle: {} }
+  }
+
+  const style = computeHandleStyle(node)
+  if (!style) {
+    return { visible: false, containerStyle: {} }
+  }
+
+  return {
+    visible: true,
+    containerStyle: style,
+  }
 })
 
 // Cytoscape instance
@@ -1029,12 +1261,14 @@ const setupEventListeners = () => {
   // Selection tracking
   cyInstance.value.on('select unselect', () => {
     selectedCount.value = cyInstance.value.$(':selected').length
+    bumpResizeUpdate()
   })
 
   // AI Chat - Update selection context when node is selected/unselected
   cyInstance.value.on('select', 'node', (event) => {
     const node = event.target
     updateChatSelectionFromNode(node)
+    bumpResizeUpdate()
   })
 
   cyInstance.value.on('unselect', 'node', () => {
@@ -1046,6 +1280,16 @@ const setupEventListeners = () => {
       const firstSelected = cyInstance.value.nodes(':selected').first()
       updateChatSelectionFromNode(firstSelected)
     }
+    bumpResizeUpdate()
+  })
+
+  // Update resize handles on viewport changes (pan, zoom, drag)
+  cyInstance.value.on('viewport pan zoom drag position', () => {
+    bumpResizeUpdate()
+  })
+
+  cyInstance.value.on('style', 'node', () => {
+    bumpResizeUpdate()
   })
 
   // Close context menu on canvas click (but not immediately after opening)
@@ -1072,73 +1316,76 @@ const setupEventListeners = () => {
     event.originalEvent.stopPropagation()
     console.log('Context menu triggered on node:', event.target.data('label'))
     const node = event.target
-    const renderedPosition = node.renderedPosition()
+    
+    // Select the node on right-click (standard UX behavior)
+    cyInstance.value.nodes().unselect()
+    node.select()
+    
+    // Get viewport coordinates from the original event for position: fixed menu
+    const clientX = event.originalEvent.clientX ?? event.originalEvent.touches?.[0]?.clientX ?? 0
+    const clientY = event.originalEvent.clientY ?? event.originalEvent.touches?.[0]?.clientY ?? 0
 
     // Set flag to prevent tap handler from closing menu
     contextMenuJustOpened = true
 
-    // Small delay to prevent immediate closure from tap event
-    setTimeout(() => {
-      contextMenu.value = {
-        show: true,
-        x: renderedPosition.x,
-        y: renderedPosition.y,
-        node: node,
-        isCluster: node.isParent(),
-        isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
-      }
-
-      // Clear flag after a longer delay to ensure menu stays open
-      setTimeout(() => {
-        contextMenuJustOpened = false
-      }, 200)
-    }, 10)
-  })
-
-  // Double-click to edit info
-  cyInstance.value.on('dbltap', 'node', (event) => {
-    event.originalEvent.preventDefault()
-    event.originalEvent.stopPropagation()
-
-    const node = event.target
-    if (!node.isParent()) {
-      // Close context menu if open
-      contextMenu.value.show = false
-
-      editingNode.value = node
-      editingNodeLabel.value = node.data('label') || ''
-      editingNodeInfo.value = node.data('info') || ''
-      showInfoModal.value = true
+    // Show context menu immediately at cursor position
+    contextMenu.value = {
+      show: true,
+      x: clientX,
+      y: clientY,
+      node: node,
+      isCluster: node.isParent(),
+      isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
     }
+    console.log('Context menu opened at:', clientX, clientY)
+
+    // Clear flag after a delay to ensure menu stays open
+    setTimeout(() => {
+      contextMenuJustOpened = false
+    }, 200)
   })
 
   // Also handle context menu via standard browser event as fallback
   const canvas = document.getElementById('graph-canvas')
   if (canvas) {
     canvas.addEventListener('contextmenu', (e) => {
-      const target = cyInstance.value.$(`:selected`).first()
-      if (target && target.length > 0 && target.isNode()) {
-        e.preventDefault()
-        e.stopPropagation()
-        const renderedPosition = target.renderedPosition()
-
+      e.preventDefault()
+      e.stopPropagation()
+      
+      // Find the node at the click position using Cytoscape's API
+      const containerRect = cyInstance.value.container().getBoundingClientRect()
+      const renderedX = e.clientX - containerRect.left
+      const renderedY = e.clientY - containerRect.top
+      
+      // Get node at rendered position
+      const nodesAtPoint = cyInstance.value.nodes().filter(node => {
+        const bbox = node.renderedBoundingBox()
+        return renderedX >= bbox.x1 && renderedX <= bbox.x2 &&
+               renderedY >= bbox.y1 && renderedY <= bbox.y2
+      })
+      
+      if (nodesAtPoint.length > 0) {
+        const node = nodesAtPoint.first()
+        
+        // Select the node
+        cyInstance.value.nodes().unselect()
+        node.select()
+        
         contextMenuJustOpened = true
 
-        setTimeout(() => {
-          contextMenu.value = {
-            show: true,
-            x: e.clientX,
-            y: e.clientY,
-            node: target,
-            isCluster: target.isParent(),
-            isImportedCluster: target.isParent() && Boolean(target.data('sourceGraphId')),
-          }
-          console.log('Context menu opened via browser contextmenu event')
+        contextMenu.value = {
+          show: true,
+          x: e.clientX,
+          y: e.clientY,
+          node: node,
+          isCluster: node.isParent(),
+          isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
+        }
+        console.log('Context menu opened via browser contextmenu event at:', e.clientX, e.clientY)
 
-          setTimeout(() => {
-            contextMenuJustOpened = false
-          }, 200)
-        }, 10)
+        setTimeout(() => {
+          contextMenuJustOpened = false
+        }, 200)
       }
     })
   }
@@ -1356,6 +1603,46 @@ const changeNodeShape = async (shape) => {
 
   await saveGraph()
   showStatus(`Changed node shape to ${shape}`, 'success')
+}
+
+// Change shape for currently selected node (from floating menu)
+const changeSelectedNodeShape = async (shape) => {
+  if (!cyInstance.value) return
+  
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length !== 1) return
+  
+  const node = selectedNodes.first()
+  if (node.isParent()) return // Don't change shape of clusters
+  
+  // Update node style
+  node.style('shape', shape)
+  
+  // Store shape in node data for persistence
+  node.data('customShape', shape)
+  
+  await saveGraph()
+  showStatus(`Changed node shape to ${shape}`, 'success')
+}
+
+// Change color for currently selected node (from floating menu)
+const changeSelectedNodeColor = async (color) => {
+  if (!cyInstance.value) return
+  
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length !== 1) return
+  
+  const node = selectedNodes.first()
+  if (node.isParent()) return // Don't change color of clusters
+  
+  // Update node style
+  node.style('background-color', color)
+  
+  // Store color in node data for persistence
+  node.data('color', color)
+  
+  await saveGraph()
+  showStatus(`Changed node color`, 'success')
 }
 
 const openImageSelectorForNode = () => {
@@ -2203,6 +2490,7 @@ const initializeEmptyCanvas = () => {
   setupEventListeners()
   updateCanvasInteractionState()
   showStatus('Canvas initialized - select a graph to load data', 'info')
+  bumpResizeUpdate()
 }
 
 // Handle URL parameters and store changes
@@ -2219,6 +2507,149 @@ watch([placementMode, edgeMode], () => {
 
 // Watch for changes in currentGraphId (from store or URL)
 watch(() => graphStore.currentGraphId, handleGraphIdChange)
+
+// Node Resize Handlers
+const startNodeResize = (direction, event) => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length !== 1) return
+
+  const node = selectedNodes.first()
+  if (node.isParent()) return
+
+  isResizingNode.value = true
+  resizeDirection.value = direction
+  resizeTargetNode.value = node
+  resizeStartPos.value = { x: event.clientX, y: event.clientY }
+
+  // Get current node dimensions
+  const width = node.width()
+  const height = node.height()
+  const pos = node.position()
+
+  resizeStartSize.value = { width, height }
+  resizeStartNodePos.value = { x: pos.x, y: pos.y }
+
+  document.addEventListener('mousemove', handleNodeResize)
+  document.addEventListener('mouseup', stopNodeResize)
+
+  // Prevent node dragging during resize
+  node.ungrabify()
+  bumpResizeUpdate()
+}
+
+const handleNodeResize = (event) => {
+  if (!isResizingNode.value || !resizeTargetNode.value) return
+
+  const node = resizeTargetNode.value
+  const deltaX = event.clientX - resizeStartPos.value.x
+  const deltaY = event.clientY - resizeStartPos.value.y
+
+  // Get zoom level for accurate delta calculation
+  const zoom = cyInstance.value.zoom()
+  const minSizePx = 50
+  const minSize = minSizePx / zoom
+
+  let newWidth = resizeStartSize.value.width
+  let newHeight = resizeStartSize.value.height
+  let newX = resizeStartNodePos.value.x
+  let newY = resizeStartNodePos.value.y
+
+  const dir = resizeDirection.value
+  const shiftKey = event.shiftKey
+  const startAspectRatio = resizeStartSize.value.width / resizeStartSize.value.height
+
+  // Calculate new dimensions based on resize direction
+  if (dir.includes('e')) {
+    newWidth = Math.max(minSize, resizeStartSize.value.width + deltaX / zoom)
+  }
+  if (dir.includes('w')) {
+    newWidth = Math.max(minSize, resizeStartSize.value.width - deltaX / zoom)
+    const widthDelta = newWidth - resizeStartSize.value.width
+    if (newWidth >= minSize) {
+      newX = resizeStartNodePos.value.x - widthDelta / 2
+    }
+  }
+  if (dir.includes('s')) {
+    newHeight = Math.max(minSize, resizeStartSize.value.height + deltaY / zoom)
+  }
+  if (dir.includes('n')) {
+    newHeight = Math.max(minSize, resizeStartSize.value.height - deltaY / zoom)
+    const heightDelta = newHeight - resizeStartSize.value.height
+    if (newHeight >= minSize) {
+      newY = resizeStartNodePos.value.y - heightDelta / 2
+    }
+  }
+
+  // Maintain aspect ratio when Shift is held
+  if (shiftKey) {
+    const currentAspectRatio = newWidth / newHeight
+    
+    // Determine which dimension to adjust based on resize direction
+    if (dir === 'e' || dir === 'w') {
+      // Horizontal only - adjust height to match
+      newHeight = newWidth / startAspectRatio
+    } else if (dir === 'n' || dir === 's') {
+      // Vertical only - adjust width to match
+      newWidth = newHeight * startAspectRatio
+    } else {
+      // Corner resize - use the larger change
+      const widthChange = Math.abs(newWidth - resizeStartSize.value.width)
+      const heightChange = Math.abs(newHeight - resizeStartSize.value.height)
+      
+      if (widthChange > heightChange) {
+        newHeight = newWidth / startAspectRatio
+      } else {
+        newWidth = newHeight * startAspectRatio
+      }
+    }
+    
+    // Recalculate position for north/west directions with aspect ratio
+    if (dir.includes('w')) {
+      const widthDelta = newWidth - resizeStartSize.value.width
+      newX = resizeStartNodePos.value.x - widthDelta / 2
+    }
+    if (dir.includes('n')) {
+      const heightDelta = newHeight - resizeStartSize.value.height
+      newY = resizeStartNodePos.value.y - heightDelta / 2
+    }
+  }
+
+  // Apply the new size using style
+  node.style({
+    width: newWidth,
+    height: newHeight,
+  })
+
+  // Update position if resizing from top or left
+  if (dir.includes('n') || dir.includes('w')) {
+    node.position({ x: newX, y: newY })
+  }
+
+  // Store dimensions in node data for persistence
+  node.data('customWidth', newWidth)
+  node.data('customHeight', newHeight)
+  bumpResizeUpdate()
+}
+
+const stopNodeResize = () => {
+  if (resizeTargetNode.value) {
+    // Re-enable grabbing
+    resizeTargetNode.value.grabify()
+  }
+
+  isResizingNode.value = false
+  resizeDirection.value = null
+  resizeTargetNode.value = null
+
+  document.removeEventListener('mousemove', handleNodeResize)
+  document.removeEventListener('mouseup', stopNodeResize)
+
+  // Mark graph as modified
+  showStatus('Node resized', 'success')
+  bumpResizeUpdate()
+}
 
 // AI Chat Panel - Resize handlers
 const getMaxChatWidth = () => Math.min(800, window.innerWidth * 0.5)
@@ -2313,7 +2744,7 @@ onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 
   // Clamp chat width on window resize
-  window.addEventListener('resize', clampChatWidthToViewport)
+  window.addEventListener('resize', handleWindowResize)
 
   // Close context menu when clicking outside
   document.addEventListener('click', (e) => {
@@ -2355,7 +2786,10 @@ onUnmounted(() => {
   // Clean up chat resize listeners
   document.removeEventListener('mousemove', handleChatResize)
   document.removeEventListener('mouseup', stopChatResize)
-  window.removeEventListener('resize', clampChatWidthToViewport)
+  // Clean up node resize listeners
+  document.removeEventListener('mousemove', handleNodeResize)
+  document.removeEventListener('mouseup', stopNodeResize)
+  window.removeEventListener('resize', handleWindowResize)
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {})
   }
@@ -2533,6 +2967,88 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: #495057;
   margin: 0;
+}
+
+.floating-node-menu .shape-options {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #dee2e6;
+}
+
+.floating-node-menu .menu-subheader {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+}
+
+.floating-node-menu .shape-buttons {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.floating-node-menu .shape-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-node-menu .color-options {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #dee2e6;
+}
+
+.floating-node-menu .color-buttons {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.floating-node-menu .color-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  border: 2px solid #dee2e6;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+}
+
+.floating-node-menu .color-btn:hover {
+  transform: scale(1.1);
+  border-color: #0969DA;
+}
+
+.floating-node-menu .color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.floating-node-menu .color-picker-input {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.floating-node-menu .color-picker-input:hover {
+  border-color: #0969DA;
+}
+
+.floating-node-menu .color-picker-label {
+  font-size: 0.75rem;
+  color: #6c757d;
 }
 
 .cytoscape-canvas {
@@ -2767,6 +3283,116 @@ onUnmounted(() => {
 :global(.highlighted) {
   background-color: #ff5722 !important;
   border-color: #d84315 !important;
+}
+
+/* Node Resize Handles */
+.node-resize-handles {
+  position: absolute;
+  pointer-events: none;
+  z-index: 100;
+  border: 2px solid #0969DA;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+.resize-handle {
+  position: absolute;
+  background: #0969DA;
+  border: 2px solid white;
+  border-radius: 2px;
+  pointer-events: auto;
+  z-index: 101;
+}
+
+/* Edge handles (top, bottom, left, right) */
+.resize-handle-n,
+.resize-handle-s {
+  width: 12px;
+  height: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.resize-handle-n {
+  top: -5px;
+}
+
+.resize-handle-s {
+  bottom: -5px;
+}
+
+.resize-handle-e,
+.resize-handle-w {
+  width: 8px;
+  height: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.resize-handle-e {
+  right: -5px;
+}
+
+.resize-handle-w {
+  left: -5px;
+}
+
+/* Corner handles */
+.resize-handle-ne,
+.resize-handle-nw,
+.resize-handle-se,
+.resize-handle-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.resize-handle-ne {
+  top: -6px;
+  right: -6px;
+  cursor: nesw-resize;
+}
+
+.resize-handle-nw {
+  top: -6px;
+  left: -6px;
+  cursor: nwse-resize;
+}
+
+.resize-handle-se {
+  bottom: -6px;
+  right: -6px;
+  cursor: nwse-resize;
+}
+
+.resize-handle-sw {
+  bottom: -6px;
+  left: -6px;
+  cursor: nesw-resize;
+}
+
+.resize-handle:hover {
+  background: #0550ae;
+  transform-origin: center;
+}
+
+.resize-handle-n:hover,
+.resize-handle-s:hover {
+  transform: translateX(-50%) scale(1.1);
+}
+
+.resize-handle-e:hover,
+.resize-handle-w:hover {
+  transform: translateY(-50%) scale(1.1);
+}
+
+.resize-handle-ne:hover,
+.resize-handle-nw:hover,
+.resize-handle-se:hover,
+.resize-handle-sw:hover {
+  transform: scale(1.2);
 }
 
 /* Responsive design */
