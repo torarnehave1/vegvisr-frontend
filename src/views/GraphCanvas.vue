@@ -240,7 +240,7 @@
       >
         🎨 Toggle Font Color
       </button>
-      
+
       <!-- Shape Options -->
       <div v-if="selectedCount === 1" class="shape-options">
         <div class="menu-subheader">Shape</div>
@@ -277,7 +277,7 @@
           >◆</button>
         </div>
       </div>
-      
+
       <!-- Color Options -->
       <div v-if="selectedCount === 1" class="color-options">
         <div class="menu-subheader">Color</div>
@@ -363,7 +363,7 @@
           <span class="color-picker-label">Custom</span>
         </div>
       </div>
-      
+
       <button
         class="btn btn-link btn-sm"
         type="button"
@@ -1316,11 +1316,11 @@ const setupEventListeners = () => {
     event.originalEvent.stopPropagation()
     console.log('Context menu triggered on node:', event.target.data('label'))
     const node = event.target
-    
+
     // Select the node on right-click (standard UX behavior)
     cyInstance.value.nodes().unselect()
     node.select()
-    
+
     // Get viewport coordinates from the original event for position: fixed menu
     const clientX = event.originalEvent.clientX ?? event.originalEvent.touches?.[0]?.clientX ?? 0
     const clientY = event.originalEvent.clientY ?? event.originalEvent.touches?.[0]?.clientY ?? 0
@@ -1351,26 +1351,26 @@ const setupEventListeners = () => {
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      
+
       // Find the node at the click position using Cytoscape's API
       const containerRect = cyInstance.value.container().getBoundingClientRect()
       const renderedX = e.clientX - containerRect.left
       const renderedY = e.clientY - containerRect.top
-      
+
       // Get node at rendered position
       const nodesAtPoint = cyInstance.value.nodes().filter(node => {
         const bbox = node.renderedBoundingBox()
         return renderedX >= bbox.x1 && renderedX <= bbox.x2 &&
                renderedY >= bbox.y1 && renderedY <= bbox.y2
       })
-      
+
       if (nodesAtPoint.length > 0) {
         const node = nodesAtPoint.first()
-        
+
         // Select the node
         cyInstance.value.nodes().unselect()
         node.select()
-        
+
         contextMenuJustOpened = true
 
         contextMenu.value = {
@@ -1608,19 +1608,19 @@ const changeNodeShape = async (shape) => {
 // Change shape for currently selected node (from floating menu)
 const changeSelectedNodeShape = async (shape) => {
   if (!cyInstance.value) return
-  
+
   const selectedNodes = cyInstance.value.nodes(':selected')
   if (selectedNodes.length !== 1) return
-  
+
   const node = selectedNodes.first()
   if (node.isParent()) return // Don't change shape of clusters
-  
+
   // Update node style
   node.style('shape', shape)
-  
+
   // Store shape in node data for persistence
   node.data('customShape', shape)
-  
+
   await saveGraph()
   showStatus(`Changed node shape to ${shape}`, 'success')
 }
@@ -1628,19 +1628,19 @@ const changeSelectedNodeShape = async (shape) => {
 // Change color for currently selected node (from floating menu)
 const changeSelectedNodeColor = async (color) => {
   if (!cyInstance.value) return
-  
+
   const selectedNodes = cyInstance.value.nodes(':selected')
   if (selectedNodes.length !== 1) return
-  
+
   const node = selectedNodes.first()
   if (node.isParent()) return // Don't change color of clusters
-  
+
   // Update node style
   node.style('background-color', color)
-  
+
   // Store color in node data for persistence
   node.data('color', color)
-  
+
   await saveGraph()
   showStatus(`Changed node color`, 'success')
 }
@@ -2585,7 +2585,7 @@ const handleNodeResize = (event) => {
   // Maintain aspect ratio when Shift is held
   if (shiftKey) {
     const currentAspectRatio = newWidth / newHeight
-    
+
     // Determine which dimension to adjust based on resize direction
     if (dir === 'e' || dir === 'w') {
       // Horizontal only - adjust height to match
@@ -2597,14 +2597,14 @@ const handleNodeResize = (event) => {
       // Corner resize - use the larger change
       const widthChange = Math.abs(newWidth - resizeStartSize.value.width)
       const heightChange = Math.abs(newHeight - resizeStartSize.value.height)
-      
+
       if (widthChange > heightChange) {
         newHeight = newWidth / startAspectRatio
       } else {
         newWidth = newHeight * startAspectRatio
       }
     }
-    
+
     // Recalculate position for north/west directions with aspect ratio
     if (dir.includes('w')) {
       const widthDelta = newWidth - resizeStartSize.value.width
