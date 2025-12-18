@@ -465,7 +465,7 @@ const aiChatSelectionContext = computed(() => {
 
 const graphDataForChat = computed(() => {
   if (!cyInstance.value) return { nodes: [], edges: [], metadata: { title: currentGraphTitle.value } }
-  
+
   const nodes = cyInstance.value.nodes().map(n => ({
     id: n.id(),
     label: n.data('label'),
@@ -474,14 +474,14 @@ const graphDataForChat = computed(() => {
     type: n.data('type'),
     ...n.data()
   }))
-  
+
   const edges = cyInstance.value.edges().map(e => ({
     id: e.id(),
     source: e.source().id(),
     target: e.target().id(),
     ...e.data()
   }))
-  
+
   return { nodes, edges, metadata: { title: currentGraphTitle.value } }
 })
 
@@ -2254,21 +2254,21 @@ const stopChatResize = () => {
 // AI Chat Panel - Insert AI response as fulltext node
 const insertAIResponseAsFullText = async (content) => {
   if (!cyInstance.value) return
-  
+
   // Create new fulltext node with AI response
   const newNodeId = generateUUID()
-  
+
   // Calculate position - center of visible viewport
   const extent = cyInstance.value.extent()
   const position = {
     x: (extent.x1 + extent.x2) / 2,
     y: (extent.y1 + extent.y2) / 2
   }
-  
+
   // Create a summary label from the content (first 50 chars)
   const labelPreview = content.substring(0, 50).replace(/\n/g, ' ').trim()
   const label = labelPreview.length < content.length ? `${labelPreview}...` : labelPreview
-  
+
   cyInstance.value.add({
     data: {
       id: newNodeId,
@@ -2282,9 +2282,9 @@ const insertAIResponseAsFullText = async (content) => {
     },
     position: position
   })
-  
+
   showStatus('AI response inserted as new fulltext node', 'success')
-  
+
   // Auto-save the graph
   await saveGraph()
 }
@@ -2295,9 +2295,9 @@ const updateChatSelectionFromNode = (node) => {
     chatSelection.value = null
     return
   }
-  
+
   const textContent = node.data('fullText') || node.data('info') || node.data('label') || ''
-  
+
   chatSelection.value = {
     text: textContent,
     nodeId: node.id(),
@@ -2311,7 +2311,7 @@ const updateChatSelectionFromNode = (node) => {
 // Lifecycle
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
-  
+
   // Clamp chat width on window resize
   window.addEventListener('resize', clampChatWidthToViewport)
 

@@ -1657,24 +1657,24 @@ const insertAsFullText = (content) => {
 // Handle clicks on message content (for related questions)
 const handleMessageContentClick = (event) => {
   const target = event.target
-  
+
   // Check if clicked element is a related question link
   if (target.classList.contains('perplexity-related-question')) {
     event.preventDefault()
     event.stopPropagation()
-    
+
     const encodedQuestion = target.getAttribute('data-question')
     if (encodedQuestion) {
       const question = decodeURIComponent(encodedQuestion)
-      
+
       // Set the question in the input
       userInput.value = question
-      
+
       // Ensure Perplexity is selected as the provider
       if (provider.value !== 'perplexity') {
         provider.value = 'perplexity'
       }
-      
+
       // Send the message
       nextTick(() => {
         sendMessage()
@@ -2958,7 +2958,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
       temperature: 0.7,
       stream: false,
     }
-    
+
     // Add Perplexity-specific parameters for richer responses
     if (currentProvider === 'perplexity') {
       requestBody.return_images = true
@@ -2987,7 +2987,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
       // Extract system message first
       const systemMsg = grokMessages.find(m => m.role === 'system')
       const nonSystemMessages = grokMessages.filter(m => m.role !== 'system')
-      
+
       // Merge consecutive messages of the same role
       const alternatingMessages = []
       for (const msg of nonSystemMessages) {
@@ -3004,12 +3004,12 @@ Use this context to provide relevant insights and answers about the knowledge gr
           alternatingMessages.push({ ...msg })
         }
       }
-      
+
       // Ensure first non-system message is from user
       if (alternatingMessages.length > 0 && alternatingMessages[0].role !== 'user') {
         alternatingMessages.unshift({ role: 'user', content: 'Continue the conversation.' })
       }
-      
+
       // Build final messages with system message first if present
       if (systemMsg) {
         requestBody.messages = [systemMsg, ...alternatingMessages]
@@ -3056,7 +3056,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
     let perplexityCitations = null
     let perplexityImages = null
     let perplexityRelatedQuestions = null
-    
+
     if (currentProvider === 'claude') {
       // Anthropic format: data.content[0].text
       aiMessage = data.content?.[0]?.text
@@ -3074,10 +3074,10 @@ Use this context to provide relevant insights and answers about the knowledge gr
     if (!aiMessage) {
       throw new Error('No response from AI')
     }
-    
+
     // For Perplexity, process citations and enhance the message
     let enhancedMessage = aiMessage
-    
+
     if (currentProvider === 'perplexity') {
       // Convert inline citation references [1], [2], etc. to clickable links
       if (perplexityCitations && perplexityCitations.length > 0) {
@@ -3098,7 +3098,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
           return match
         })
       }
-      
+
       // Add images as clickable thumbnails if available (often YouTube thumbnails)
       if (perplexityImages && perplexityImages.length > 0) {
         enhancedMessage += '\n\n**📺 Related Media:**\n\n'
@@ -3108,14 +3108,14 @@ Use this context to provide relevant insights and answers about the knowledge gr
           const imgUrl = typeof img === 'string' ? img : (img.image_url || img.url)
           const originUrl = typeof img === 'object' ? (img.origin_url || imgUrl) : imgUrl
           const imgTitle = typeof img === 'object' ? (img.title || `Media ${index + 1}`) : `Media ${index + 1}`
-          
+
           if (imgUrl) {
             // Use origin_url for the link (e.g., YouTube watch URL)
             enhancedMessage += `[![${imgTitle}](${imgUrl})](${originUrl} "${imgTitle}")\n\n`
           }
         })
       }
-      
+
       // Add citations list at the bottom
       if (perplexityCitations && perplexityCitations.length > 0) {
         enhancedMessage += '\n---\n\n**📚 Sources:**\n'
@@ -3138,7 +3138,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
           enhancedMessage += `${index + 1}. [${displayText}](${citation})\n`
         })
       }
-      
+
       // Add related questions section if available (as clickable links)
       if (perplexityRelatedQuestions && perplexityRelatedQuestions.length > 0) {
         enhancedMessage += '\n**🔍 Related Questions:**\n'
