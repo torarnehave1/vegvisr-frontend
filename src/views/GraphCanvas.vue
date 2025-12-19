@@ -160,9 +160,18 @@
             class="resize-handle resize-handle-sw"
             @mousedown.prevent.stop="startNodeResize('sw', $event)"
           ></div>
+          <!-- Rotation Handle -->
+          <div
+            class="rotation-handle"
+            @mousedown.prevent.stop="startNodeRotation($event)"
+            title="Drag to rotate"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+          </div>
         </div>
       </div>
-
       <!-- Chat Resize Handle -->
       <div
         v-if="showAIChat"
@@ -517,6 +526,14 @@
         </div>
       </div>
     </div>
+
+    <!-- Teacher Assistant (Learning/Tutorial System) - Hidden until Gemini TTS billing propagates (24h) -->
+    <!-- 
+    <TeacherAssistant 
+      ref="teacherAssistant"
+      current-view="GraphCanvas"
+    />
+    -->
   </div>
 </template>
 
@@ -529,6 +546,7 @@ import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
+// import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
 // Initialize undo-redo plugin
 if (!cytoscape.prototype.undoRedo) {
@@ -571,6 +589,12 @@ const resizeStartSize = ref({ width: 0, height: 0 })
 const resizeStartNodePos = ref({ x: 0, y: 0 })
 const resizeTargetNode = ref(null)
 const resizeUpdateToken = ref(0)
+
+// Node rotation state
+const isRotatingNode = ref(false)
+const rotationStartAngle = ref(0)
+const rotationStartMouseAngle = ref(0)
+const rotationTargetNode = ref(null)
 
 const bumpResizeUpdate = () => {
   resizeUpdateToken.value = (resizeUpdateToken.value + 1) % Number.MAX_SAFE_INTEGER
@@ -1228,6 +1252,28 @@ const initializeCytoscape = (graphData) => {
     // Apply custom font color if stored
     if (node.data('fontColor')) {
       node.style('color', node.data('fontColor'))
+    }
+
+    // Apply custom size if stored (from resize operations)
+    if (node.data('customWidth') || node.data('customHeight')) {
+      const styleUpdate = {}
+      if (node.data('customWidth')) {
+        styleUpdate.width = node.data('customWidth')
+      }
+      if (node.data('customHeight')) {
+        styleUpdate.height = node.data('customHeight')
+      }
+      node.style(styleUpdate)
+    }
+
+    // Apply rotation if stored
+    if (node.data('rotation')) {
+      const rotation = node.data('rotation')
+      const bgImage = node.style('background-image')
+      if (bgImage && bgImage !== 'none') {
+        node.style('background-image-rotation', rotation)
+      }
+      node.style('text-rotation', rotation)
     }
   })
 
@@ -2651,6 +2697,113 @@ const stopNodeResize = () => {
   bumpResizeUpdate()
 }
 
+// Node Rotation Handlers
+const startNodeRotation = (event) => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length !== 1) return
+
+  const node = selectedNodes.first()
+  if (node.isParent()) return
+
+  isRotatingNode.value = true
+  rotationTargetNode.value = node
+
+  // Get current rotation angle from node data (default 0)
+  rotationStartAngle.value = node.data('rotation') || 0
+
+  // Calculate initial mouse angle relative to node center
+  const renderedPos = node.renderedPosition()
+  const container = cyInstance.value.container()
+  const rect = container.getBoundingClientRect()
+  const nodeCenterX = rect.left + renderedPos.x
+  const nodeCenterY = rect.top + renderedPos.y
+
+  rotationStartMouseAngle.value = Math.atan2(
+    event.clientY - nodeCenterY,
+    event.clientX - nodeCenterX
+  ) * (180 / Math.PI)
+
+  document.addEventListener('mousemove', handleNodeRotation)
+  document.addEventListener('mouseup', stopNodeRotation)
+
+  // Prevent node dragging during rotation
+  node.ungrabify()
+}
+
+const handleNodeRotation = (event) => {
+  if (!isRotatingNode.value || !rotationTargetNode.value) return
+
+  const node = rotationTargetNode.value
+  const renderedPos = node.renderedPosition()
+  const container = cyInstance.value.container()
+  const rect = container.getBoundingClientRect()
+  const nodeCenterX = rect.left + renderedPos.x
+  const nodeCenterY = rect.top + renderedPos.y
+
+  // Calculate current mouse angle
+  const currentMouseAngle = Math.atan2(
+    event.clientY - nodeCenterY,
+    event.clientX - nodeCenterX
+  ) * (180 / Math.PI)
+
+  // Calculate rotation delta
+  let angleDelta = currentMouseAngle - rotationStartMouseAngle.value
+
+  // Calculate new rotation
+  let newRotation = rotationStartAngle.value + angleDelta
+
+  // Snap to 90-degree increments if Shift is held
+  if (event.shiftKey) {
+    newRotation = Math.round(newRotation / 90) * 90
+  }
+
+  // Normalize to 0-360 range
+  newRotation = ((newRotation % 360) + 360) % 360
+
+  // Store rotation in node data
+  node.data('rotation', newRotation)
+
+  // Apply rotation via CSS (Cytoscape doesn't natively support rotation)
+  // We'll use a custom style that reads the rotation data
+  updateNodeRotationStyle(node, newRotation)
+}
+
+const stopNodeRotation = () => {
+  if (rotationTargetNode.value) {
+    rotationTargetNode.value.grabify()
+  }
+
+  isRotatingNode.value = false
+  rotationTargetNode.value = null
+
+  document.removeEventListener('mousemove', handleNodeRotation)
+  document.removeEventListener('mouseup', stopNodeRotation)
+
+  showStatus('Node rotated', 'success')
+  bumpResizeUpdate()
+}
+
+// Apply rotation to node using CSS transform on the node's DOM element
+const updateNodeRotationStyle = (node, rotation) => {
+  // Store rotation in node data for persistence
+  node.data('rotation', rotation)
+
+  // Cytoscape supports rotation for background images
+  // Apply rotation to the node's background image if it has one
+  const bgImage = node.style('background-image')
+  if (bgImage && bgImage !== 'none') {
+    node.style('background-image-rotation', rotation)
+  }
+
+  // Also apply text rotation for the label
+  node.style('text-rotation', rotation)
+
+  // Trigger style update
+  node.updateStyle()
+}
+
 // AI Chat Panel - Resize handlers
 const getMaxChatWidth = () => Math.min(800, window.innerWidth * 0.5)
 
@@ -2789,6 +2942,9 @@ onUnmounted(() => {
   // Clean up node resize listeners
   document.removeEventListener('mousemove', handleNodeResize)
   document.removeEventListener('mouseup', stopNodeResize)
+  // Clean up node rotation listeners
+  document.removeEventListener('mousemove', handleNodeRotation)
+  document.removeEventListener('mouseup', stopNodeRotation)
   window.removeEventListener('resize', handleWindowResize)
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {})
@@ -3376,6 +3532,52 @@ onUnmounted(() => {
 .resize-handle:hover {
   background: #0550ae;
   transform-origin: center;
+}
+
+/* Rotation handle - positioned above the node */
+.rotation-handle {
+  position: absolute;
+  top: -35px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 24px;
+  background: #10B981;
+  border: 2px solid white;
+  border-radius: 50%;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 102;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+}
+
+.rotation-handle:hover {
+  background: #059669;
+  transform: translateX(-50%) scale(1.15);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+.rotation-handle:active {
+  cursor: grabbing;
+  background: #047857;
+}
+
+/* Connector line from rotation handle to node */
+.node-resize-handles::before {
+  content: '';
+  position: absolute;
+  top: -25px;
+  left: 50%;
+  width: 2px;
+  height: 20px;
+  background: #10B981;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .resize-handle-n:hover,
