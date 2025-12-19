@@ -6,10 +6,10 @@
       </span>
       <span v-if="isCompleted" class="completed-badge">✓</span>
     </div>
-    
+
     <h4 class="card-title">{{ tutorial.title }}</h4>
     <p class="card-description">{{ tutorial.description }}</p>
-    
+
     <div class="card-meta">
       <span class="meta-item">
         <span class="meta-icon">📍</span>
@@ -20,14 +20,14 @@
         ~{{ estimatedTime }} min
       </span>
     </div>
-    
+
     <div v-if="hasProgress && !isCompleted" class="progress-bar">
       <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
       <span class="progress-text">{{ progressPercent }}%</span>
     </div>
-    
-    <button 
-      class="start-btn" 
+
+    <button
+      class="start-btn"
       @click="$emit('start', tutorial.id)"
     >
       {{ buttonLabel }}

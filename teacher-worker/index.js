@@ -1,14 +1,14 @@
 /**
  * Teacher Worker - Onboarding & Tutorial System
- * 
+ *
  * URL: https://teacher.vegvisr.org
- * 
+ *
  * Provides:
  * - User guide search
  * - Tutorial definitions & progress tracking
  * - Text-to-speech via Google Gemini API
  * - Multi-language support (English, Norwegian)
- * 
+ *
  * Endpoints:
  *   GET  /health                    - Health check
  *   GET  /api/teacher/voices        - List available TTS voices
@@ -21,7 +21,7 @@
  *   POST /api/teacher/progress      - Update tutorial progress
  *   GET  /api/teacher/settings      - Get user's teacher settings
  *   POST /api/teacher/settings      - Update teacher settings
- * 
+ *
  * Secrets (set via wrangler secret put):
  *   - GEMINI_API_KEY (for TTS generation)
  */
@@ -99,29 +99,29 @@ export default {
       if (path === '/api/teacher/voices') {
         return handleGetVoices(request, env)
       }
-      
+
       if (path === '/api/teacher/guide/search') {
         return handleGuideSearch(request, env)
       }
-      
+
       if (path.startsWith('/api/teacher/guide/section/')) {
         const sectionId = path.split('/').pop()
         return handleGetGuideSection(sectionId, env)
       }
-      
+
       if (path === '/api/teacher/tutorials') {
         return handleGetTutorials(request, env)
       }
-      
+
       if (path.startsWith('/api/teacher/tutorials/') && !path.includes('/progress')) {
         const tutorialId = path.split('/').pop()
         return handleGetTutorial(tutorialId, env)
       }
-      
+
       if (path === '/api/teacher/tts') {
         return handleTTS(request, env)
       }
-      
+
       if (path === '/api/teacher/progress') {
         if (request.method === 'GET') {
           return handleGetProgress(request, env)
@@ -129,7 +129,7 @@ export default {
           return handleUpdateProgress(request, env)
         }
       }
-      
+
       if (path === '/api/teacher/settings') {
         if (request.method === 'GET') {
           return handleGetSettings(request, env)
@@ -155,7 +155,7 @@ export default {
 function handleGetVoices(request, env) {
   const url = new URL(request.url)
   const lang = url.searchParams.get('lang') || 'en'
-  
+
   return jsonResponse({
     success: true,
     voices: AVAILABLE_VOICES[lang] || AVAILABLE_VOICES.en,
@@ -172,11 +172,11 @@ async function handleGuideSearch(request, env) {
   const query = url.searchParams.get('q')?.toLowerCase() || ''
   const lang = url.searchParams.get('lang') || 'en'
   const targetView = url.searchParams.get('view') || null
-  
+
   if (!query) {
     return jsonResponse({ success: true, results: [] })
   }
-  
+
   // Search guide sections in database
   let sql = `
     SELECT id, title, content, target_view, language, keywords
@@ -189,16 +189,16 @@ async function handleGuideSearch(request, env) {
     )
   `
   const params = [lang, `%${query}%`, `%${query}%`, `%${query}%`]
-  
+
   if (targetView) {
     sql += ' AND (target_view = ? OR target_view IS NULL)'
     params.push(targetView)
   }
-  
+
   sql += ' LIMIT 10'
-  
+
   const results = await env.DB.prepare(sql).bind(...params).all()
-  
+
   return jsonResponse({
     success: true,
     results: results.results || []
@@ -211,11 +211,11 @@ async function handleGetGuideSection(sectionId, env) {
     .prepare('SELECT * FROM guide_sections WHERE id = ?')
     .bind(sectionId)
     .first()
-  
+
   if (!result) {
     return jsonResponse({ error: 'Section not found' }, 404)
   }
-  
+
   return jsonResponse({ success: true, section: result })
 }
 
@@ -225,9 +225,9 @@ async function handleGetTutorials(request, env) {
   const targetView = url.searchParams.get('view') || null
   const lang = url.searchParams.get('lang') || 'en'
   const userEmail = request.headers.get('x-user-email')
-  
+
   let sql = `
-    SELECT t.*, 
+    SELECT t.*,
            COALESCE(p.current_step, 0) as user_current_step,
            COALESCE(p.completed, 0) as user_completed
     FROM tutorials t
@@ -235,16 +235,16 @@ async function handleGetTutorials(request, env) {
     WHERE t.language = ?
   `
   const params = [userEmail || '', lang]
-  
+
   if (targetView) {
     sql += ' AND t.target_view = ?'
     params.push(targetView)
   }
-  
+
   sql += ' ORDER BY t.sort_order, t.difficulty'
-  
+
   const results = await env.DB.prepare(sql).bind(...params).all()
-  
+
   return jsonResponse({
     success: true,
     tutorials: results.results || []
@@ -257,61 +257,61 @@ async function handleGetTutorial(tutorialId, env) {
     .prepare('SELECT * FROM tutorials WHERE id = ?')
     .bind(tutorialId)
     .first()
-  
+
   if (!result) {
     return jsonResponse({ error: 'Tutorial not found' }, 404)
   }
-  
+
   // Parse steps JSON
   result.steps = JSON.parse(result.steps || '[]')
-  
+
   return jsonResponse({ success: true, tutorial: result })
 }
 
 // Text-to-speech handler
 async function handleTTS(request, env) {
   const { text, voice = 'Puck', language = 'en-US' } = await request.json()
-  
+
   if (!text) {
     return jsonResponse({ error: 'Text is required' }, 400)
   }
-  
+
   // Check if GEMINI_API_KEY is set
   if (!env.GEMINI_API_KEY) {
     console.error('GEMINI_API_KEY not configured')
     return jsonResponse({ error: 'TTS not configured', details: 'API key missing' }, 500)
   }
-  
+
   // Create hash for caching
   const textHash = await hashText(text + voice + language)
-  
+
   // Check cache
   const cached = await env.DB
     .prepare('SELECT r2_path FROM tts_cache WHERE text_hash = ?')
     .bind(textHash)
     .first()
-  
+
   if (cached) {
     const audio = await env.TEACHER_AUDIO.get(cached.r2_path)
     if (audio) {
       return new Response(audio.body, {
-        headers: { 
+        headers: {
           'Content-Type': 'audio/wav',
-          ...corsHeaders 
+          ...corsHeaders
         }
       })
     }
   }
-  
+
   // Build enhanced prompt with director's notes for better voice quality
   const voiceStyle = VOICE_STYLE_PROMPTS[voice] || VOICE_STYLE_PROMPTS['Puck']
-  
+
   // Create a styled prompt that guides the TTS to sound natural
   // Keep it simple - just add speaking style instruction
   const styledPrompt = `Say in a ${voiceStyle.style} voice: ${text}`
-  
+
   console.log('TTS Request:', { voice, textLength: text.length, styledPrompt: styledPrompt.substring(0, 100) })
-  
+
   // Use Gemini 2.5 Flash TTS with styled prompt
   try {
     const ttsResponse = await fetch(
@@ -320,8 +320,8 @@ async function handleTTS(request, env) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ 
-            parts: [{ text: styledPrompt }] 
+          contents: [{
+            parts: [{ text: styledPrompt }]
           }],
           generationConfig: {
             responseModalities: ['AUDIO'],
@@ -334,81 +334,81 @@ async function handleTTS(request, env) {
         })
       }
     )
-    
+
     console.log('Gemini TTS response status:', ttsResponse.status)
-    
+
     if (ttsResponse.ok) {
       const ttsData = await ttsResponse.json()
       const audioContent = ttsData.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
-      
+
       if (audioContent) {
         const pcmData = Uint8Array.from(atob(audioContent), c => c.charCodeAt(0))
-        
+
         // Create proper WAV file with headers (Gemini returns 24kHz 16-bit mono PCM)
         const wavBuffer = createWavFile(pcmData, 24000, 1, 16)
-        
+
         // Cache to R2
         const r2Path = `tts/${textHash}.wav`
         await env.TEACHER_AUDIO.put(r2Path, wavBuffer)
-        
+
         // Save cache reference
         await env.DB
           .prepare('INSERT OR REPLACE INTO tts_cache (id, text_hash, r2_path, voice, language) VALUES (?, ?, ?, ?, ?)')
           .bind(crypto.randomUUID(), textHash, r2Path, voice, language)
           .run()
-        
+
         return new Response(wavBuffer, {
-          headers: { 
+          headers: {
             'Content-Type': 'audio/wav',
-            ...corsHeaders 
+            ...corsHeaders
           }
         })
       } else {
         console.error('Gemini TTS: No audio data in response', JSON.stringify(ttsData).substring(0, 500))
-        return jsonResponse({ 
-          error: 'TTS: No audio in response', 
+        return jsonResponse({
+          error: 'TTS: No audio in response',
           debug: JSON.stringify(ttsData).substring(0, 300),
           fallback: 'browser',
-          text: text 
+          text: text
         }, 200)
       }
     } else {
       const errorText = await ttsResponse.text()
       console.error('Gemini TTS error:', ttsResponse.status, errorText)
-      return jsonResponse({ 
-        error: 'TTS API error', 
+      return jsonResponse({
+        error: 'TTS API error',
         status: ttsResponse.status,
         debug: errorText.substring(0, 300),
         fallback: 'browser',
-        text: text 
+        text: text
       }, 200)
     }
   } catch (error) {
     console.error('TTS fetch error:', error.message)
-    return jsonResponse({ 
-      error: 'TTS exception', 
+    return jsonResponse({
+      error: 'TTS exception',
       debug: error.message,
       fallback: 'browser',
-      text: text 
+      text: text
     }, 200)
   }
-  
+
   // Return error with suggestion to use browser TTS
-  return jsonResponse({ 
-    error: 'TTS generation failed', 
+  return jsonResponse({
+    error: 'TTS generation failed',
     fallback: 'browser',
-    text: text 
+    text: text
   }, 200) // Return 200 so frontend can fallback gracefully
 }
 
 // Get user progress
 async function handleGetProgress(request, env) {
   const userEmail = request.headers.get('x-user-email')
-  
+
   if (!userEmail) {
     return jsonResponse({ error: 'User email required' }, 401)
   }
-  
+
   const results = await env.DB
     .prepare(`
       SELECT p.*, t.name as tutorial_name, t.steps
@@ -418,13 +418,13 @@ async function handleGetProgress(request, env) {
     `)
     .bind(userEmail)
     .all()
-  
+
   // Calculate progress percentages
   const progress = (results.results || []).map(p => {
     const steps = JSON.parse(p.steps || '[]')
     const totalSteps = steps.length
     const progressPercent = totalSteps > 0 ? Math.round((p.current_step / totalSteps) * 100) : 0
-    
+
     return {
       tutorial_id: p.tutorial_id,
       tutorial_name: p.tutorial_name,
@@ -435,27 +435,27 @@ async function handleGetProgress(request, env) {
       completed_at: p.completed_at
     }
   })
-  
+
   return jsonResponse({ success: true, progress })
 }
 
 // Update user progress
 async function handleUpdateProgress(request, env) {
   const userEmail = request.headers.get('x-user-email')
-  
+
   if (!userEmail) {
     return jsonResponse({ error: 'User email required' }, 401)
   }
-  
+
   const { tutorial_id, current_step, completed } = await request.json()
-  
+
   if (!tutorial_id) {
     return jsonResponse({ error: 'tutorial_id is required' }, 400)
   }
-  
+
   const id = `${userEmail}-${tutorial_id}`
   const completedAt = completed ? new Date().toISOString() : null
-  
+
   await env.DB
     .prepare(`
       INSERT INTO user_tutorial_progress (id, user_email, tutorial_id, current_step, completed, completed_at)
@@ -467,30 +467,30 @@ async function handleUpdateProgress(request, env) {
     `)
     .bind(id, userEmail, tutorial_id, current_step || 0, completed ? 1 : 0, completedAt)
     .run()
-  
+
   return jsonResponse({ success: true })
 }
 
 // Get user settings (voice preference, language)
 async function handleGetSettings(request, env) {
   const userEmail = request.headers.get('x-user-email')
-  
+
   if (!userEmail) {
     return jsonResponse({ error: 'User email required' }, 401)
   }
-  
+
   const result = await env.DB
     .prepare('SELECT * FROM user_teacher_settings WHERE user_email = ?')
     .bind(userEmail)
     .first()
-  
+
   const defaults = {
     voice: 'Kore',
     language: 'en',
     voice_enabled: true,
     auto_suggestions: true
   }
-  
+
   return jsonResponse({
     success: true,
     settings: result || defaults
@@ -500,13 +500,13 @@ async function handleGetSettings(request, env) {
 // Update user settings
 async function handleUpdateSettings(request, env) {
   const userEmail = request.headers.get('x-user-email')
-  
+
   if (!userEmail) {
     return jsonResponse({ error: 'User email required' }, 401)
   }
-  
+
   const { voice, language, voice_enabled, auto_suggestions } = await request.json()
-  
+
   await env.DB
     .prepare(`
       INSERT INTO user_teacher_settings (user_email, voice, language, voice_enabled, auto_suggestions, updated_at)
@@ -520,7 +520,7 @@ async function handleUpdateSettings(request, env) {
     `)
     .bind(userEmail, voice || 'Puck', language || 'en', voice_enabled ? 1 : 0, auto_suggestions ? 1 : 0)
     .run()
-  
+
   return jsonResponse({ success: true })
 }
 
@@ -549,15 +549,15 @@ function createWavFile(pcmData, sampleRate, channels, bitsPerSample) {
   const blockAlign = channels * (bitsPerSample / 8)
   const dataSize = pcmData.length
   const fileSize = 44 + dataSize - 8  // Total size minus 8 bytes for RIFF header
-  
+
   const buffer = new ArrayBuffer(44 + dataSize)
   const view = new DataView(buffer)
-  
+
   // RIFF header
   writeString(view, 0, 'RIFF')
   view.setUint32(4, fileSize, true)  // File size minus 8 bytes
   writeString(view, 8, 'WAVE')
-  
+
   // fmt chunk
   writeString(view, 12, 'fmt ')
   view.setUint32(16, 16, true)  // fmt chunk size (16 for PCM)
@@ -567,15 +567,15 @@ function createWavFile(pcmData, sampleRate, channels, bitsPerSample) {
   view.setUint32(28, byteRate, true)
   view.setUint16(32, blockAlign, true)
   view.setUint16(34, bitsPerSample, true)
-  
+
   // data chunk
   writeString(view, 36, 'data')
   view.setUint32(40, dataSize, true)
-  
+
   // Copy PCM data
   const wavBytes = new Uint8Array(buffer)
   wavBytes.set(pcmData, 44)
-  
+
   return wavBytes
 }
 

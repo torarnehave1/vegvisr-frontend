@@ -57,7 +57,7 @@
           <div v-if="activeTab === 'tutorials'" class="tab-content tutorials-tab">
             <!-- Active Tutorial View -->
             <div v-if="teacherStore.activeTutorial" class="active-tutorial">
-              <TutorialPlayer 
+              <TutorialPlayer
                 @close="teacherStore.closeTutorial()"
               />
             </div>

@@ -528,8 +528,8 @@
     </div>
 
     <!-- Teacher Assistant (Learning/Tutorial System) - Hidden until Gemini TTS billing propagates (24h) -->
-    <!-- 
-    <TeacherAssistant 
+    <!--
+    <TeacherAssistant
       ref="teacherAssistant"
       current-view="GraphCanvas"
     />
