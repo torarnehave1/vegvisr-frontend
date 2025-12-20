@@ -552,10 +552,11 @@ async function handleLinkedInCallback() {
   statusMessage.value = 'Logging in with LinkedIn...'
 
   try {
-    const linkedInEmail = route.query.linkedin_email
-    const linkedInName = route.query.linkedin_name
-    const linkedInId = route.query.linkedin_id
-    const linkedInPicture = route.query.linkedin_picture
+    // Decode URL-encoded parameters from LinkedIn callback
+    const linkedInEmail = route.query.linkedin_email ? decodeURIComponent(route.query.linkedin_email) : null
+    const linkedInName = route.query.linkedin_name ? decodeURIComponent(route.query.linkedin_name) : null
+    const linkedInId = route.query.linkedin_id ? decodeURIComponent(route.query.linkedin_id) : null
+    const linkedInPicture = route.query.linkedin_picture ? decodeURIComponent(route.query.linkedin_picture) : null
 
     if (!linkedInEmail) {
       throw new Error('No email received from LinkedIn')
