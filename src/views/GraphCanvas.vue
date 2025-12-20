@@ -192,6 +192,7 @@
           @insert-fulltext="insertAIResponseAsFullText"
           @insert-node="insertAIResponseAsNode"
           @insert-network="insertAIResponseAsNetwork"
+          @insert-person-network="insertAIResponseAsPersonNetwork"
         />
       </div>
     </div>
@@ -3316,6 +3317,56 @@ const insertAIResponseAsNetwork = async (payload) => {
   }
 
   showStatus('Network diagram inserted with nodes', 'success')
+  await saveGraph()
+}
+
+// AI Chat Panel - Insert person network canvas from Proff person data with connections
+const insertAIResponseAsPersonNetwork = async (payload) => {
+  if (!cyInstance.value) return
+
+  const { personData } = payload
+
+  if (!personData?.connections || !Array.isArray(personData.connections)) {
+    showStatus('No person connections found', 'warning')
+    return
+  }
+
+  const extent = cyInstance.value.extent()
+  const centerX = (extent.x1 + extent.x2) / 2
+  const centerY = (extent.y1 + extent.y2) / 2
+
+  // Create the person network canvas node
+  const networkCanvasId = generateUUID()
+  const nodeInfo = JSON.stringify({
+    personId: personData.personId,
+    name: personData.name,
+    gender: personData.gender,
+    age: personData.age,
+    roles: personData.roles || [],
+    connections: personData.connections,
+    industryConnections: personData.industryConnections || []
+  })
+
+  cyInstance.value.add({
+    data: {
+      id: networkCanvasId,
+      label: `${personData.name} sitt nettverk`,
+      type: 'person-network-canvas',
+      color: '#f3e8ff',
+      visible: true,
+      info: nodeInfo,
+      data: {
+        personId: personData.personId,
+        name: personData.name,
+        gender: personData.gender,
+        connections: personData.connections
+      },
+      createdAt: new Date().toISOString()
+    },
+    position: { x: centerX, y: centerY }
+  })
+
+  showStatus(`Nettverkskart for ${personData.name} opprettet med ${personData.connections.length} forbindelser`, 'success')
   await saveGraph()
 }
 

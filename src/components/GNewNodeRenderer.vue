@@ -93,6 +93,7 @@ import GNewPersonProfileNode from './GNewNodes/GNewPersonProfileNode.vue'
 import GNewCompanyCardNode from './GNewNodes/GNewCompanyCardNode.vue'
 import GNewNetworkNode from './GNewNodes/GNewNetworkNode.vue'
 import GNewNewsFeedNode from './GNewNodes/GNewNewsFeedNode.vue'
+import GNewPersonNetworkCanvas from './GNewNodes/GNewPersonNetworkCanvas.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -212,6 +213,7 @@ const nodeComponents = {
   'company-card': GNewCompanyCardNode,
   'network': GNewNetworkNode,
   'news-feed': GNewNewsFeedNode,
+  'person-network-canvas': GNewPersonNetworkCanvas,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,

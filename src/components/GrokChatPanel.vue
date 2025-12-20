@@ -289,6 +289,15 @@
               🕸️ Nettverk
             </button>
             <button
+              v-if="hasPersonConnectionsData(message)"
+              class="btn btn-link btn-sm case-study-btn"
+              type="button"
+              @click="insertAsPersonNetwork(message)"
+              title="Sett inn som nettverkskart med alle forbindelser"
+            >
+              🌐 Nettverkskart
+            </button>
+            <button
               v-if="hasNewsData(message)"
               class="btn btn-link btn-sm case-study-btn"
               type="button"
@@ -685,7 +694,7 @@ import graphContextIcon from '@/assets/graph-context.svg'
 import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
 
-const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network'])
+const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network', 'insert-person-network'])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -2238,6 +2247,44 @@ const hasNewsData = (message) => {
   return message?.sourcesData?.results?.length > 0 ||
          message?.sourcesData?.sources_search?.results?.length > 0 ||
          (message?.usedSourcesAPI && message.content?.includes('artikler'))
+}
+
+// Check if message contains person data with connections (for network canvas)
+const hasPersonConnectionsData = (message) => {
+  if (!message?.proffData) return false
+
+  // Check for person details with connections array
+  const personData = message.proffData.proff_get_person_details?.person ||
+                     message.proffData.person
+
+  if (personData?.connections && Array.isArray(personData.connections) && personData.connections.length > 0) {
+    return true
+  }
+
+  // Also check for direct connections array
+  if (message.proffData.connections && Array.isArray(message.proffData.connections) && message.proffData.connections.length > 0) {
+    return true
+  }
+
+  return false
+}
+
+// Insert person network canvas from Proff person data with connections
+const insertAsPersonNetwork = (message) => {
+  if (!hasPersonConnectionsData(message)) {
+    console.warn('No person connections data found in message')
+    return
+  }
+
+  // Extract person data with connections
+  const personData = message.proffData.proff_get_person_details?.person ||
+                     message.proffData.person ||
+                     message.proffData
+
+  emit('insert-person-network', {
+    content: message.content,
+    personData: personData
+  })
 }
 
 // Handle clicks on message content (for related questions)
