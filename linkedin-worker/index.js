@@ -228,6 +228,27 @@ async function handleShareArticle(request, env, corsHeaders) {
 
     if (!response.ok) {
       const errorText = await response.text()
+      
+      // Handle duplicate post error specifically
+      if (response.status === 422) {
+        try {
+          const errorData = JSON.parse(errorText)
+          if (errorData.errorDetails?.inputErrors?.[0]?.code === 'DUPLICATE_POST') {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Duplicate post detected',
+              message: 'LinkedIn does not allow posting the same content twice. Try:\n• Adding unique commentary to your post\n• Waiting a few hours before posting again\n• Sharing a different knowledge graph',
+              code: 'DUPLICATE_POST'
+            }), {
+              status: 422,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+        } catch (parseError) {
+          // If we can't parse the error, fall through to generic error
+        }
+      }
+      
       throw new Error(`LinkedIn API error: ${response.status} - ${errorText}`)
     }
 
@@ -517,12 +538,17 @@ async function getUserLinkedInToken(env, userEmail) {
 
 async function fetchSEOMetadata(seoPagesKV, slug) {
   try {
-    const html = await seoPagesKV.get(`graph:${slug}`)
-    if (!html) return null
+    const stored = await seoPagesKV.get(`graph:${slug}`)
+    if (!stored) return null
 
-    // Parse metadata from stored KV or fetch from mapping
-    const mapping = await seoPagesKV.get(`slug:${slug}`, 'json')
-    return mapping
+    const pageData = JSON.parse(stored)
+    return {
+      title: pageData.title,
+      description: pageData.description,
+      ogImage: pageData.ogImage,
+      graphId: pageData.graphId,
+      slug: pageData.slug,
+    }
   } catch (error) {
     console.error('Error fetching SEO metadata:', error)
     return null
@@ -565,7 +591,7 @@ async function storeLinkedInPost(db, postData) {
 async function updateGraphLinkedInMetadata(db, graphId, postId, decrement = false) {
   // Fetch current graph data
   const graph = await db.prepare(
-    'SELECT graphData FROM graphs WHERE id = ?'
+    'SELECT graphData FROM knowledge_graphs WHERE id = ?'
   ).bind(graphId).first()
 
   if (!graph) return
@@ -585,7 +611,7 @@ async function updateGraphLinkedInMetadata(db, graphId, postId, decrement = fals
 
   // Save back
   await db.prepare(
-    'UPDATE graphs SET graphData = ? WHERE id = ?'
+    'UPDATE knowledge_graphs SET graphData = ? WHERE id = ?'
   ).bind(JSON.stringify(graphData), graphId).run()
 }
 

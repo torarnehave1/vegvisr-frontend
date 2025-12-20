@@ -170,7 +170,7 @@
               </a>
             </div>
 
-            <div v-if="linkedinErrorMessage" class="alert alert-danger mt-3">
+            <div v-if="linkedinErrorMessage" class="alert alert-danger mt-3" style="white-space: pre-line;">
               {{ linkedinErrorMessage }}
             </div>
           </div>
@@ -460,7 +460,9 @@ const shareToLinkedInWorker = async () => {
     const result = await response.json()
 
     if (!response.ok || !result.success) {
-      throw new Error(result.error || 'LinkedIn publish failed.')
+      // Use detailed message if available, otherwise fallback to error
+      const errorMsg = result.message || result.error || 'LinkedIn publish failed.'
+      throw new Error(errorMsg)
     }
 
     linkedinShareSuccess.value = true
