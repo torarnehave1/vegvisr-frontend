@@ -2251,21 +2251,46 @@ const hasNewsData = (message) => {
 
 // Check if message contains person data with connections (for network canvas)
 const hasPersonConnectionsData = (message) => {
-  if (!message?.proffData) return false
-
-  // Check for person details with connections array
-  const personData = message.proffData.proff_get_person_details?.person ||
-                     message.proffData.person
-
-  if (personData?.connections && Array.isArray(personData.connections) && personData.connections.length > 0) {
-    return true
+  if (!message?.proffData) {
+    console.log('hasPersonConnectionsData: No proffData')
+    return false
   }
 
-  // Also check for direct connections array
+  console.log('hasPersonConnectionsData: proffData keys:', Object.keys(message.proffData))
+
+  // Check for person details with connections array - multiple possible paths
+  // Path 1: proff_get_person_details result
+  const personFromDetails = message.proffData.proff_get_person_details?.person
+  // Path 2: Direct person object (extracted during tool processing)
+  const directPerson = message.proffData.person
+  // Path 3: First person from search results (might have connections if details were fetched)
+  const personFromSearch = message.proffData.proff_search_persons?.persons?.[0]
+
+  console.log('hasPersonConnectionsData: paths checked -',
+    'fromDetails:', !!personFromDetails,
+    'direct:', !!directPerson,
+    'fromSearch:', !!personFromSearch)
+
+  // Check each path for connections
+  for (const personData of [personFromDetails, directPerson, personFromSearch]) {
+    if (personData?.connections && Array.isArray(personData.connections) && personData.connections.length > 0) {
+      console.log('hasPersonConnectionsData: Found connections in person:', personData.name, 'count:', personData.connections.length)
+      return true
+    }
+  }
+
+  // Also check for direct connections array at root level
   if (message.proffData.connections && Array.isArray(message.proffData.connections) && message.proffData.connections.length > 0) {
+    console.log('hasPersonConnectionsData: Found direct connections array')
     return true
   }
 
+  // Check if proff_get_person_details was called and has the full result structure
+  if (message.proffData.proff_get_person_details) {
+    console.log('hasPersonConnectionsData: proff_get_person_details structure:', Object.keys(message.proffData.proff_get_person_details))
+  }
+
+  console.log('hasPersonConnectionsData: No connections found')
   return false
 }
 
@@ -2276,10 +2301,27 @@ const insertAsPersonNetwork = (message) => {
     return
   }
 
-  // Extract person data with connections
-  const personData = message.proffData.proff_get_person_details?.person ||
-                     message.proffData.person ||
-                     message.proffData
+  // Extract person data with connections - check multiple paths
+  let personData = message.proffData.proff_get_person_details?.person ||
+                   message.proffData.person
+
+  // If no person data found but we have proff_get_person_details result, check its structure
+  if (!personData && message.proffData.proff_get_person_details) {
+    // The result might be the person directly
+    personData = message.proffData.proff_get_person_details
+  }
+
+  // Fallback to search result if it has connections
+  if (!personData?.connections && message.proffData.proff_search_persons?.persons?.[0]?.connections) {
+    personData = message.proffData.proff_search_persons.persons[0]
+  }
+
+  // Final fallback
+  if (!personData) {
+    personData = message.proffData
+  }
+
+  console.log('insertAsPersonNetwork: Using personData:', personData?.name, 'with', personData?.connections?.length, 'connections')
 
   emit('insert-person-network', {
     content: message.content,
