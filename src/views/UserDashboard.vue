@@ -557,6 +557,55 @@
           </div>
         </div>
 
+        <!-- Case Study Builder Section -->
+        <div v-if="userStore.loggedIn" class="mt-4">
+          <div
+            class="case-study-card"
+            style="
+              background: linear-gradient(135deg, #1a365d 0%, #2d3748 100%);
+              border-radius: 12px;
+              padding: 1.5rem;
+              color: white;
+              position: relative;
+              overflow: hidden;
+            "
+          >
+            <div
+              class="case-study-pattern"
+              style="
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 100px;
+                height: 100px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                transform: translate(30px, -30px);
+              "
+            ></div>
+            <div class="case-study-content" style="position: relative; z-index: 2">
+              <h5 class="mb-3 d-flex align-items-center">
+                📊 <span class="ms-2">Case Study Builder</span>
+              </h5>
+              <p class="mb-3" style="opacity: 0.9; line-height: 1.5">
+                Bygg visuelle case studies med Proff-data, nyheter og egendefinert innhold.
+                Søk etter personer og bedrifter, legg til nyheter og generer profesjonelle presentasjoner.
+              </p>
+
+              <div class="d-flex justify-content-end">
+                <router-link
+                  to="/case-study"
+                  class="btn btn-light btn-sm"
+                  style="font-weight: 600; text-decoration: none"
+                >
+                  <i class="fas fa-chart-network me-1"></i>
+                  Bygg Case Study
+                </router-link>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- User Secret Section -->
         <div class="user-id-section alert alert-info mt-5">
           <p>Current User Secret:</p>

@@ -190,6 +190,8 @@
           :selection-context="aiChatSelectionContext"
           parent-context="canvas"
           @insert-fulltext="insertAIResponseAsFullText"
+          @insert-node="insertAIResponseAsNode"
+          @insert-network="insertAIResponseAsNetwork"
         />
       </div>
     </div>
@@ -198,7 +200,7 @@
       <div class="menu-header">
         <span>Nodes & Edges</span>
         <span class="menu-status" v-if="placementMode || edgeMode">
-          {{ placementMode ? (placementMode === 'fulltext' ? 'Full Text mode' : 'Info mode') : edgeStartNode ? 'Select target node' : 'Select start node' }}
+          {{ placementMode ? getPlacementModeLabel(placementMode) : edgeStartNode ? 'Select target node' : 'Select start node' }}
         </span>
       </div>
       <button
@@ -217,6 +219,47 @@
       >
         📝 Add Full Text Node
       </button>
+      
+      <!-- Case Study Node Types -->
+      <div class="menu-subheader mt-2">📊 Case Study</div>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'person-profile' }"
+        @click="startNodePlacement('person-profile')"
+        title="Add person profile from Proff data"
+      >
+        👤 Person Profile
+      </button>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'company-card' }"
+        @click="startNodePlacement('company-card')"
+        title="Add company card from Proff data"
+      >
+        🏢 Company Card
+      </button>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'network' }"
+        @click="startNodePlacement('network')"
+        title="Add network visualization node"
+      >
+        🕸️ Network Map
+      </button>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'news-feed' }"
+        @click="startNodePlacement('news-feed')"
+        title="Add news feed from sources"
+      >
+        📰 News Feed
+      </button>
+      
+      <div class="menu-subheader mt-2">Tools</div>
       <button
         class="btn btn-outline-primary btn-sm"
         type="button"
@@ -396,6 +439,25 @@
       <p class="menu-hint" v-else>
         Tip: use these tools to add nodes or connect ideas.
       </p>
+
+      <!-- Edge Info Editor -->
+      <div v-if="selectedEdge" class="edge-info-editor">
+        <div class="menu-subheader">🔗 Edge Info</div>
+        <textarea
+          v-model="edgeInfoText"
+          class="edge-info-textarea"
+          placeholder="Add description for this connection..."
+          @input="updateEdgeInfo"
+          rows="3"
+        ></textarea>
+        <button
+          class="btn btn-outline-danger btn-sm mt-2"
+          type="button"
+          @click="deleteSelectedEdge"
+        >
+          🗑️ Delete Edge
+        </button>
+      </div>
     </div>
 
     <!-- Selection Info -->
@@ -580,6 +642,10 @@ const chatSelection = ref(null)
 const placementMode = ref(null)
 const edgeMode = ref(false)
 const edgeStartNode = ref(null)
+
+// Selected edge state
+const selectedEdge = ref(null)
+const edgeInfoText = ref('')
 
 // Node resize state
 const isResizingNode = ref(false)
@@ -1329,6 +1395,22 @@ const setupEventListeners = () => {
     bumpResizeUpdate()
   })
 
+  // Edge selection - show edge info editor
+  cyInstance.value.on('select', 'edge', (event) => {
+    const edge = event.target
+    selectedEdge.value = edge
+    edgeInfoText.value = edge.data('info') || ''
+    bumpResizeUpdate()
+  })
+
+  cyInstance.value.on('unselect', 'edge', () => {
+    if (cyInstance.value.edges(':selected').length === 0) {
+      selectedEdge.value = null
+      edgeInfoText.value = ''
+    }
+    bumpResizeUpdate()
+  })
+
   // Update resize handles on viewport changes (pan, zoom, drag)
   cyInstance.value.on('viewport pan zoom drag position', () => {
     bumpResizeUpdate()
@@ -2027,30 +2109,108 @@ const saveGraph = async () => {
 }
 
 const createNodeTemplate = (type) => {
-  if (type === 'fulltext') {
-    return {
-      id: generateUUID(),
-      label: 'New Full Text Node',
-      type: 'fulltext',
-      color: '#f8f9fa',
-      info: 'Add your full text content here.',
-      bibl: [],
-      visible: true,
-      imageWidth: '100%',
-      imageHeight: '100%',
-    }
-  }
-
-  return {
+  const baseNode = {
     id: generateUUID(),
-    label: 'New Info Node',
-    type: 'info',
-    color: '#d1ecf1',
-    info: 'Add supporting details here.',
-    bibl: [],
     visible: true,
     imageWidth: '100%',
     imageHeight: '100%',
+  }
+
+  switch (type) {
+    case 'fulltext':
+      return {
+        ...baseNode,
+        label: 'New Full Text Node',
+        type: 'fulltext',
+        color: '#f8f9fa',
+        info: 'Add your full text content here.',
+        bibl: [],
+      }
+    
+    case 'person-profile':
+      return {
+        ...baseNode,
+        label: 'Person Profile',
+        type: 'person-profile',
+        color: '#e8f5e9',
+        data: {
+          personId: '',
+          name: 'Søk etter person...',
+          age: null,
+          gender: null,
+          location: { municipality: '', county: '' },
+          roles: [],
+          connections: [],
+          industryConnections: [],
+          showRoles: true,
+          showConnections: true
+        },
+        info: 'Bruk AI Chat til å søke etter en person: "Finn person Christine Myrseth"',
+      }
+    
+    case 'company-card':
+      return {
+        ...baseNode,
+        label: 'Company Card',
+        type: 'company-card',
+        color: '#fff3e0',
+        data: {
+          organisationNumber: '',
+          name: 'Søk etter bedrift...',
+          naceDescription: '',
+          employees: null,
+          foundedYear: null,
+          address: {},
+          boardMembers: [],
+          financials: {},
+          showFinancials: true,
+          showBoard: true,
+          showAddress: true
+        },
+        info: 'Bruk AI Chat til å søke etter en bedrift: "Finn bedrift SABIMA"',
+      }
+    
+    case 'network':
+      return {
+        ...baseNode,
+        label: 'Network Map',
+        type: 'network',
+        color: '#e3f2fd',
+        data: {
+          title: 'Nettverkskart',
+          centerPerson: null,
+          paths: [],
+          connections: [],
+          degreesOfSeparation: 0
+        },
+        info: 'Bruk AI Chat: "Finn forbindelser mellom Person A og Person B"',
+      }
+    
+    case 'news-feed':
+      return {
+        ...baseNode,
+        label: 'News Feed',
+        type: 'news-feed',
+        color: '#fce4ec',
+        data: {
+          title: 'Nyhetsstrøm',
+          subtitle: '',
+          query: '',
+          results: [],
+          lastUpdated: new Date().toISOString()
+        },
+        info: 'Bruk AI Chat: "Finn nyheter om naturvern"',
+      }
+
+    default:
+      return {
+        ...baseNode,
+        label: 'New Info Node',
+        type: 'info',
+        color: '#d1ecf1',
+        info: 'Add supporting details here.',
+        bibl: [],
+      }
   }
 }
 
@@ -2142,6 +2302,18 @@ const cancelInteractionModes = () => {
   }
 }
 
+const getPlacementModeLabel = (mode) => {
+  const labels = {
+    'info': 'Info mode',
+    'fulltext': 'Full Text mode',
+    'person-profile': 'Person Profile mode',
+    'company-card': 'Company Card mode',
+    'network': 'Network Map mode',
+    'news-feed': 'News Feed mode'
+  }
+  return labels[mode] || `${mode} mode`
+}
+
 const startNodePlacement = (type) => {
   if (!canAddNodes.value) {
     showStatus('Load a graph to add nodes.', 'warning')
@@ -2158,8 +2330,8 @@ const startNodePlacement = (type) => {
   resetInteractionModes()
   placementMode.value = type
   updateCanvasInteractionState()
-  const label = type === 'fulltext' ? 'Full Text' : 'Info'
-  showStatus(`${label} node mode enabled. Click to add nodes. Click button again to disable.`, 'info')
+  const label = getPlacementModeLabel(type)
+  showStatus(`${label} enabled. Click to add nodes. Click button again to disable.`, 'info')
 }
 
 const toggleEdgeMode = () => {
@@ -2197,6 +2369,27 @@ const handleEdgeNodeSelection = async (node) => {
 
   await addEdgeBetweenNodes(edgeStartNode.value, node)
   resetInteractionModes()
+}
+
+// Edge info editing functions
+const updateEdgeInfo = () => {
+  if (selectedEdge.value) {
+    selectedEdge.value.data('info', edgeInfoText.value)
+    showStatus('Edge info updated', 'success')
+  }
+}
+
+const deleteSelectedEdge = async () => {
+  if (!selectedEdge.value || !cyInstance.value) return
+  
+  const confirmed = confirm('Delete this edge?')
+  if (!confirmed) return
+  
+  cyInstance.value.remove(selectedEdge.value)
+  selectedEdge.value = null
+  edgeInfoText.value = ''
+  showStatus('Edge deleted', 'info')
+  await saveGraph()
 }
 
 const toggleClusterCollapse = async (clusterNode) => {
@@ -2873,6 +3066,259 @@ const insertAIResponseAsFullText = async (content) => {
   await saveGraph()
 }
 
+// AI Chat Panel - Insert structured node from Proff/Sources data
+const insertAIResponseAsNode = async (payload) => {
+  if (!cyInstance.value) return
+
+  const { type, content, rawData } = payload
+  const newNodeId = generateUUID()
+
+  console.log('insertAIResponseAsNode - type:', type, 'rawData:', rawData)
+
+  // Calculate position - center of visible viewport
+  const extent = cyInstance.value.extent()
+  const position = {
+    x: (extent.x1 + extent.x2) / 2,
+    y: (extent.y1 + extent.y2) / 2
+  }
+
+  // Build node data based on type
+  let nodeData = {
+    id: newNodeId,
+    type: type,
+    visible: true,
+    createdAt: new Date().toISOString()
+  }
+
+  if (type === 'person-profile' && rawData) {
+    // Extract person data from various possible structures
+    // rawData may have: person, persons, proff_search_persons, proff_get_person_details
+    let person = rawData.person || rawData.persons?.[0]
+    
+    // Check for tool-name keyed results
+    if (!person && rawData.proff_search_persons?.persons) {
+      person = rawData.proff_search_persons.persons[0]
+    }
+    if (!person && rawData.proff_get_person_details?.person) {
+      person = rawData.proff_get_person_details.person
+    }
+    if (!person && rawData.proff_get_person_details) {
+      // Sometimes the person data is directly in the result
+      person = rawData.proff_get_person_details
+    }
+    
+    console.log('Extracted person:', person)
+    
+    if (person) {
+      // Store BOTH AI response AND raw Proff data in info field
+      const nodeInfo = {
+        aiResponse: content || '',  // Claude's text response
+        proffData: {
+          personId: person.personId || '',
+          name: person.name || '',
+          age: person.age,
+          birthYear: person.birthYear,
+          gender: person.gender,
+          location: person.location || {},
+          address: person.address || {},
+          roles: person.roles || [],
+          connections: person.connections,
+          industryConnections: person.industryConnections || [],
+        },
+        showRoles: true,
+        showConnections: true
+      }
+      
+      nodeData = {
+        ...nodeData,
+        label: person.name || 'Person Profile',
+        color: '#e8f5e9',
+        info: JSON.stringify(nodeInfo, null, 2)
+      }
+    } else {
+      // Fallback with content
+      nodeData = {
+        ...nodeData,
+        label: 'Person Profile',
+        color: '#e8f5e9',
+        info: content || 'No person data found'
+      }
+    }
+  } else if (type === 'company-card' && rawData) {
+    // Extract company data from various possible structures
+    let company = rawData.company || rawData.companies?.[0]
+    
+    // Check for tool-name keyed results
+    if (!company && rawData.proff_search_companies?.companies) {
+      company = rawData.proff_search_companies.companies[0]
+    }
+    if (!company && rawData.proff_get_company_details?.company) {
+      company = rawData.proff_get_company_details.company
+    }
+    if (!company && rawData.proff_get_company_details) {
+      company = rawData.proff_get_company_details
+    }
+    
+    console.log('Extracted company:', company)
+    
+    if (company) {
+      // Store BOTH AI response AND raw Proff data
+      const nodeInfo = {
+        aiResponse: content || '',
+        proffData: {
+          organisationNumber: company.organisationNumber || company.orgNr || '',
+          name: company.name || '',
+          naceDescription: company.naceDescription || '',
+          employees: company.employees,
+          foundedYear: company.foundedYear,
+          address: company.address || {},
+          boardMembers: company.boardMembers || [],
+          financials: company.financials || {},
+        },
+        showFinancials: true,
+        showBoard: true,
+        showAddress: true
+      }
+      
+      nodeData = {
+        ...nodeData,
+        label: company.name || 'Company Card',
+        color: '#fff3e0',
+        info: JSON.stringify(nodeInfo, null, 2)
+      }
+    } else {
+      nodeData = {
+        ...nodeData,
+        label: 'Company Card',
+        color: '#fff3e0',
+        info: content || 'No company data found'
+      }
+    }
+  } else if (type === 'news-feed' && rawData) {
+    // Extract results from sources data
+    const results = rawData.results || rawData.sources_search?.results || []
+    
+    // Store BOTH AI response AND raw sources data
+    const nodeInfo = {
+      aiResponse: content || '',
+      sourcesData: {
+        title: 'Relaterte nyheter',
+        results: results,
+        lastUpdated: new Date().toISOString()
+      }
+    }
+    
+    nodeData = {
+      ...nodeData,
+      label: 'News Feed',
+      color: '#fce4ec',
+      info: JSON.stringify(nodeInfo, null, 2)
+    }
+  } else {
+    // Fallback - create fulltext node with content
+    nodeData = {
+      ...nodeData,
+      label: `${type} Node`,
+      type: 'fulltext',
+      color: '#f5f5f5',
+      info: content || 'No data available',
+      fullText: content
+    }
+  }
+
+  cyInstance.value.add({
+    data: nodeData,
+    position: position
+  })
+
+  showStatus(`${type} node inserted`, 'success')
+  await saveGraph()
+}
+
+// AI Chat Panel - Insert network diagram from Proff network data
+const insertAIResponseAsNetwork = async (payload) => {
+  if (!cyInstance.value) return
+
+  const { content, networkData } = payload
+  
+  if (!networkData?.paths && !networkData?.degreesOfSeparation) {
+    showStatus('No network data found', 'warning')
+    return
+  }
+
+  const extent = cyInstance.value.extent()
+  const centerX = (extent.x1 + extent.x2) / 2
+  const centerY = (extent.y1 + extent.y2) / 2
+
+  // Create network visualization node
+  const networkNodeId = generateUUID()
+  cyInstance.value.add({
+    data: {
+      id: networkNodeId,
+      label: 'Network Map',
+      type: 'network',
+      color: '#e3f2fd',
+      visible: true,
+      data: {
+        title: 'Forbindelseskart',
+        paths: networkData.paths || [],
+        degreesOfSeparation: networkData.degreesOfSeparation,
+        centerPerson: networkData.proff_find_business_network?.fromPerson || null
+      },
+      createdAt: new Date().toISOString()
+    },
+    position: { x: centerX, y: centerY }
+  })
+
+  // If we have path data, also create individual person nodes
+  if (networkData.paths && networkData.paths.length > 0) {
+    const path = networkData.paths[0]
+    const nodeSpacing = 200
+    let xOffset = -((path.persons?.length || 0) * nodeSpacing) / 2
+
+    path.persons?.forEach((person, idx) => {
+      const personNodeId = generateUUID()
+      cyInstance.value.add({
+        data: {
+          id: personNodeId,
+          label: person.name || `Person ${idx + 1}`,
+          type: 'person-profile',
+          color: '#e8f5e9',
+          visible: true,
+          data: {
+            personId: person.personId || '',
+            name: person.name || '',
+            roles: person.roles || []
+          }
+        },
+        position: { x: centerX + xOffset, y: centerY + 150 }
+      })
+      xOffset += nodeSpacing
+
+      // Create edge from previous person
+      if (idx > 0) {
+        const prevPerson = path.persons[idx - 1]
+        // Find the previous node we just created
+        const prevNodes = cyInstance.value.nodes().filter(n => n.data('data')?.personId === prevPerson.personId)
+        if (prevNodes.length > 0) {
+          cyInstance.value.add({
+            data: {
+              id: generateUUID(),
+              source: prevNodes[0].id(),
+              target: personNodeId,
+              label: path.companies?.[idx - 1]?.name || 'via',
+              type: 'connection'
+            }
+          })
+        }
+      }
+    })
+  }
+
+  showStatus('Network diagram inserted with nodes', 'success')
+  await saveGraph()
+}
+
 // AI Chat Panel - Update selection context when node is selected
 const updateChatSelectionFromNode = (node) => {
   if (!node) {
@@ -3205,6 +3651,39 @@ onUnmounted(() => {
 .floating-node-menu .color-picker-label {
   font-size: 0.75rem;
   color: #6c757d;
+}
+
+/* Edge Info Editor */
+.floating-node-menu .edge-info-editor {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 2px solid #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-left: -0.5rem;
+  margin-right: -0.5rem;
+}
+
+.floating-node-menu .edge-info-textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.floating-node-menu .edge-info-textarea:focus {
+  outline: none;
+  border-color: #ffc107;
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.25);
+}
+
+.floating-node-menu .edge-info-textarea::placeholder {
+  color: #adb5bd;
 }
 
 .cytoscape-canvas {

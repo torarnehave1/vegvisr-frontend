@@ -1,12 +1,6 @@
 <template>
   <div class="gnew-node-renderer">
-    <!-- Streamlined Reorder Conimport GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
-import GNewMapNode from './GNewNodes/GNewMapNode.vue'
-import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
-import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
-import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
-import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
-import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'(Admin Only) -->
+    <!-- Streamlined Reorder Controls (Admin Only) -->
     <GNewNodeControlBar
       v-if="showControls && nodeComponent"
       :node-type="node.type || 'default'"
@@ -93,6 +87,12 @@ import GNewEmailManagerNode from './GNewNodes/GNewEmailManagerNode.vue'
 import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.vue'
 import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'
 import GNewAppViewerNode from './GNewNodes/GNewAppViewerNode.vue'
+
+// Case Study Node Types (Sprint 4-5)
+import GNewPersonProfileNode from './GNewNodes/GNewPersonProfileNode.vue'
+import GNewCompanyCardNode from './GNewNodes/GNewCompanyCardNode.vue'
+import GNewNetworkNode from './GNewNodes/GNewNetworkNode.vue'
+import GNewNewsFeedNode from './GNewNodes/GNewNewsFeedNode.vue'
 
 // Store access
 const userStore = useUserStore()
@@ -207,6 +207,11 @@ const nodeComponents = {
   'mermaid-diagram': GNewMermaidNode,
   // App Viewer node (AI-generated HTML apps)
   'app-viewer': GNewAppViewerNode,
+  // Case Study Node Types (Sprint 4-5)
+  'person-profile': GNewPersonProfileNode,
+  'company-card': GNewCompanyCardNode,
+  'network': GNewNetworkNode,
+  'news-feed': GNewNewsFeedNode,
   // Text types
   fulltext: GNewDefaultNode,
   worknote: GNewDefaultNode,

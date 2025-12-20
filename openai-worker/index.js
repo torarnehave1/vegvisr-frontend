@@ -167,7 +167,9 @@ async function handleChat(request, env, corsHeaders) {
       frequency_penalty = 0,
       presence_penalty = 0,
       stream = false,
-      userId
+      userId,
+      tools,        // Function calling tools
+      tool_choice   // Function calling mode: 'auto', 'none', or specific function
     } = body;
 
     if (!messages || !Array.isArray(messages)) {
@@ -209,6 +211,14 @@ async function handleChat(request, env, corsHeaders) {
     if (frequency_penalty !== undefined && frequency_penalty !== 0) requestBody.frequency_penalty = frequency_penalty;
     if (presence_penalty !== undefined && presence_penalty !== 0) requestBody.presence_penalty = presence_penalty;
     if (stream !== undefined && stream !== false) requestBody.stream = stream;
+    
+    // Add function calling parameters
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      requestBody.tools = tools;
+    }
+    if (tool_choice !== undefined) {
+      requestBody.tool_choice = tool_choice;
+    }
 
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -251,7 +261,9 @@ async function handleModelEndpoint(request, env, corsHeaders, modelName) {
       temperature = 0.7,
       max_tokens,
       max_completion_tokens,
-      userId
+      userId,
+      tools,        // Function calling tools
+      tool_choice   // Function calling mode
     } = body;
 
     if (!messages || !Array.isArray(messages)) {
@@ -286,6 +298,14 @@ async function handleModelEndpoint(request, env, corsHeaders, modelName) {
       requestBody.max_completion_tokens = max_completion_tokens;
     } else if (max_tokens !== undefined) {
       requestBody.max_tokens = max_tokens;
+    }
+    
+    // Add function calling parameters
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      requestBody.tools = tools;
+    }
+    if (tool_choice !== undefined) {
+      requestBody.tool_choice = tool_choice;
     }
 
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {

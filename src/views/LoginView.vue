@@ -19,6 +19,22 @@
           {{ loadingEmail ? 'Checking...' : 'Continue' }}
         </button>
       </form>
+
+      <div class="divider">
+        <span>or</span>
+      </div>
+
+      <button 
+        type="button" 
+        class="btn btn-linkedin w-100" 
+        @click="loginWithLinkedIn"
+        :disabled="loadingLinkedIn"
+      >
+        <svg class="linkedin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+        </svg>
+        {{ loadingLinkedIn ? 'Connecting...' : 'Continue with LinkedIn' }}
+      </button>
     </div>
 
     <div v-else-if="step === 'magic'" class="card">
@@ -122,6 +138,7 @@ const theme = ref('light')
 const step = ref('email')
 const magicLinkSent = ref(false)
 const loadingEmail = ref(false)
+const loadingLinkedIn = ref(false)
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const statusMessage = ref('')
@@ -152,10 +169,17 @@ onMounted(async () => {
   }
   theme.value = localStorage.getItem('theme') || 'light'
 
+  // Handle LinkedIn OAuth callback
+  if (route.query.linkedin_auth_success === 'true') {
+    console.log('[LoginView] LinkedIn OAuth callback received')
+    await handleLinkedInCallback()
+    return
+  }
+
   // Dev mode: Auto-login on localhost with email parameter
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   const devEmail = route.query.email || 'torarnehave@gmail.com' // Default dev email
-  if (isLocalhost) {
+  if (isLocalhost && !route.query.linkedin_auth_success) {
     console.log('[LoginView] Dev mode: Auto-login with email:', devEmail)
     email.value = devEmail
     try {
@@ -498,6 +522,106 @@ function startResendTimer() {
     }
   }, 1000)
 }
+
+// LinkedIn Login Functions
+function loginWithLinkedIn() {
+  loadingLinkedIn.value = true
+  statusMessage.value = 'Redirecting to LinkedIn...'
+  
+  // Store current URL to return after auth
+  const returnUrl = window.location.origin + '/login'
+  
+  // Redirect to LinkedIn OAuth
+  window.location.href = `https://auth.vegvisr.org/auth/linkedin/login?return_url=${encodeURIComponent(returnUrl)}`
+}
+
+async function handleLinkedInCallback() {
+  console.log('[LoginView] Processing LinkedIn callback...')
+  loadingLinkedIn.value = true
+  statusMessage.value = 'Logging in with LinkedIn...'
+  
+  try {
+    const linkedInEmail = route.query.linkedin_email
+    const linkedInName = route.query.linkedin_name
+    const linkedInId = route.query.linkedin_id
+    const linkedInPicture = route.query.linkedin_picture
+    
+    if (!linkedInEmail) {
+      throw new Error('No email received from LinkedIn')
+    }
+    
+    console.log('[LoginView] LinkedIn user:', { email: linkedInEmail, name: linkedInName })
+    
+    // Fetch or create user context
+    let userContext
+    try {
+      userContext = await fetchUserContext(linkedInEmail)
+    } catch (err) {
+      console.log('[LoginView] User not found, creating new user...')
+      // Create new user via registration API
+      const registerRes = await fetch('https://dashboard.vegvisr.org/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: linkedInEmail,
+          name: linkedInName,
+          oauth_provider: 'linkedin',
+          oauth_id: linkedInId,
+          profile_image: linkedInPicture
+        })
+      })
+      
+      if (!registerRes.ok) {
+        const errorData = await registerRes.json()
+        throw new Error(errorData.error || 'Failed to register user')
+      }
+      
+      // Fetch the newly created user
+      userContext = await fetchUserContext(linkedInEmail)
+    }
+    
+    // Set profile image from LinkedIn if available
+    if (linkedInPicture && !userContext.profileimage) {
+      userContext.profileimage = linkedInPicture
+    }
+    
+    // Set user in store
+    userStore.setUser(userContext)
+    sessionStorage.setItem('email_session_verified', '1')
+    
+    // Clean up URL parameters
+    const cleanUrl = new URL(window.location.href)
+    cleanUrl.searchParams.delete('linkedin_auth_success')
+    cleanUrl.searchParams.delete('linkedin_access_token')
+    cleanUrl.searchParams.delete('linkedin_expires_in')
+    cleanUrl.searchParams.delete('linkedin_id')
+    cleanUrl.searchParams.delete('linkedin_name')
+    cleanUrl.searchParams.delete('linkedin_email')
+    cleanUrl.searchParams.delete('linkedin_picture')
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+    
+    statusMessage.value = `Welcome, ${linkedInName || linkedInEmail}! Redirecting...`
+    
+    // Redirect to dashboard
+    setTimeout(() => {
+      router.push('/user')
+    }, 1000)
+    
+  } catch (err) {
+    console.error('[LoginView] LinkedIn login error:', err)
+    errorMessage.value = err.message || 'LinkedIn login failed. Please try again.'
+    loadingLinkedIn.value = false
+    
+    // Clean up URL even on error
+    const cleanUrl = new URL(window.location.href)
+    for (const key of [...cleanUrl.searchParams.keys()]) {
+      if (key.startsWith('linkedin_')) {
+        cleanUrl.searchParams.delete(key)
+      }
+    }
+    window.history.replaceState({}, document.title, cleanUrl.toString())
+  }
+}
 </script>
 
 <style>
@@ -564,5 +688,54 @@ function startResendTimer() {
   align-items: center;
   gap: 10px;
   margin-top: 6px;
+}
+
+/* LinkedIn Login Styles */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.divider span {
+  padding: 0 12px;
+  color: #6b7280;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.btn-linkedin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background-color: #0A66C2;
+  color: white;
+  border: none;
+  padding: 12px 16px;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+}
+
+.btn-linkedin:hover:not(:disabled) {
+  background-color: #004182;
+  color: white;
+}
+
+.btn-linkedin:disabled {
+  background-color: #84b8e0;
+  cursor: not-allowed;
+}
+
+.linkedin-icon {
+  width: 20px;
+  height: 20px;
 }
 </style>

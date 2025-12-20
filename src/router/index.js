@@ -397,6 +397,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/case-study',
+      name: 'case-study',
+      component: () => import('../views/CaseStudyBuilder.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: null,
+      },
+    },
+    {
       path: '/claude-code',
       name: 'claude-code',
       component: () => import('../views/ClaudeCodeInterface.vue'),

@@ -1,0 +1,14 @@
+{
+  "name": "proff-worker",
+  "version": "1.0.0",
+  "description": "Norwegian company registry API worker (Proff.no)",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "curl http://localhost:8787/health"
+  },
+  "keywords": ["cloudflare", "worker", "proff", "company", "registry", "norway"],
+  "author": "Vegvisr",
+  "license": "MIT"
+}

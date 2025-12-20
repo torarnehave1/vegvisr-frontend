@@ -168,7 +168,9 @@ async function handleChat(request, env, corsHeaders) {
     max_tokens = 8192,
     temperature = 1,
     system = null,
-    userId
+    userId,
+    tools,         // Function calling tools (OpenAI format, will be converted)
+    tool_choice    // Function calling mode
   } = body
 
   if (!messages || !Array.isArray(messages)) {
@@ -203,6 +205,32 @@ async function handleChat(request, env, corsHeaders) {
 
     if (system) {
       requestBody.system = system
+    }
+
+    // Convert OpenAI-style tools to Anthropic format
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      requestBody.tools = tools.map(tool => {
+        if (tool.type === 'function' && tool.function) {
+          return {
+            name: tool.function.name,
+            description: tool.function.description,
+            input_schema: tool.function.parameters
+          }
+        }
+        return tool
+      })
+    }
+    
+    // Convert tool_choice to Anthropic format
+    if (tool_choice !== undefined) {
+      if (tool_choice === 'auto' || (typeof tool_choice === 'object' && tool_choice.type === 'auto')) {
+        requestBody.tool_choice = { type: 'auto' }
+      } else if (tool_choice === 'none') {
+        // Claude doesn't have 'none', just don't send tools
+        delete requestBody.tools
+      } else if (typeof tool_choice === 'object' && tool_choice.function) {
+        requestBody.tool_choice = { type: 'tool', name: tool_choice.function.name }
+      }
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

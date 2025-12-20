@@ -47,6 +47,38 @@
             {{ graphContextSummary }}
           </span>
         </div>
+        <div class="context-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+            <input 
+              type="checkbox" 
+              v-model="useProffTools" 
+              :disabled="provider !== 'openai' && provider !== 'claude'"
+            />
+            <span>🏢 Proff Selskapsoppslag</span>
+          </label>
+          <span v-if="useProffTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+            AI kan slå opp norske selskaper
+          </span>
+          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
+            Kun OpenAI/Claude
+          </span>
+        </div>
+        <div class="context-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+            <input 
+              type="checkbox" 
+              v-model="useSourcesTools" 
+              :disabled="provider !== 'openai' && provider !== 'claude'"
+            />
+            <span>📰 Norske Kilder</span>
+          </label>
+          <span v-if="useSourcesTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+            Regjeringen, SSB, NRK, Forskning.no, miljøorg.
+          </span>
+          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
+            Kun OpenAI/Claude
+          </span>
+        </div>
         <div
           v-if="hasSelectionContext"
           class="context-row selection-context"
@@ -214,6 +246,9 @@
               <span v-else class="assistant-avatar-initial">{{ providerMeta(message.provider || provider).initials }}</span>
             </div>
             <span class="message-role">{{ message.role === 'user' ? 'You' : providerMeta(message.provider || provider).label }}</span>
+            <span v-if="message.usedProffAPI" class="proff-badge" title="Data hentet via Proff.no (Brønnøysundregistrene)">
+              <img :src="proffIcon" alt="Proff" class="proff-badge-icon" />
+            </span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           </div>
           <div class="message-content" v-html="renderMarkdown(message.content)" @click="handleMessageContentClick($event)"></div>
@@ -224,6 +259,43 @@
               @click="insertAsFullText(message.content)"
             >
               {{ insertLabel }}
+            </button>
+            <!-- Case Study Node Insert Buttons -->
+            <button
+              v-if="hasPersonData(message)"
+              class="btn btn-link btn-sm case-study-btn"
+              type="button"
+              @click="insertAsNode(message, 'person-profile')"
+              title="Sett inn som Person Profile node"
+            >
+              👤 Person
+            </button>
+            <button
+              v-if="hasCompanyData(message)"
+              class="btn btn-link btn-sm case-study-btn"
+              type="button"
+              @click="insertAsNode(message, 'company-card')"
+              title="Sett inn som Company Card node"
+            >
+              🏢 Bedrift
+            </button>
+            <button
+              v-if="hasNetworkData(message)"
+              class="btn btn-link btn-sm case-study-btn"
+              type="button"
+              @click="insertAsNetwork(message)"
+              title="Sett inn som Network diagram"
+            >
+              🕸️ Nettverk
+            </button>
+            <button
+              v-if="hasNewsData(message)"
+              class="btn btn-link btn-sm case-study-btn"
+              type="button"
+              @click="insertAsNode(message, 'news-feed')"
+              title="Sett inn som News Feed node"
+            >
+              📰 Nyheter
             </button>
             <button
               class="btn btn-link btn-sm graph-btn"
@@ -610,9 +682,10 @@ import perplexityIcon from '@/assets/perplexity.svg'
 import claudeIcon from '@/assets/claude.svg'
 import geminiIcon from '@/assets/gemini.svg'
 import graphContextIcon from '@/assets/graph-context.svg'
+import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
 
-const emit = defineEmits(['insert-fulltext'])
+const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network'])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -706,6 +779,443 @@ const audioLanguageOptions = [
   { code: 'es', label: 'Spanish' },
   { code: 'it', label: 'Italian' }
 ]
+
+// Proff API Function Calling Configuration
+const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
+const useProffTools = ref(true) // Enable Proff company lookup by default
+
+// OpenAI-compatible tool definitions for Proff API
+const proffTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'proff_search_companies',
+      description: 'Search for Norwegian companies by name. Returns a list of matching companies with their organization numbers (org.nr). Use this FIRST to find the org.nr, then use other tools to get details.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Company name to search for (e.g., "Equinor", "Universi AS")'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proff_get_financials',
+      description: `Get financial history for a Norwegian company. Returns revenue (omsetning), operating result (driftsresultat), annual result (årsresultat), and EBITDA for ALL available years.
+
+IMPORTANT: This tool returns a ready-to-use markdown table in the "markdown_table" field. When presenting financial data, ALWAYS display this table directly to the user.
+
+Use this tool when the user asks about:
+- Revenue / omsetning / inntekter
+- Profit / resultat / overskudd
+- Financial performance over years
+- Company economics / økonomi`,
+      parameters: {
+        type: 'object',
+        properties: {
+          orgNr: {
+            type: 'string',
+            description: 'The 9-digit Norwegian organization number'
+          }
+        },
+        required: ['orgNr']
+      }
+    }
+  },
+  {
+    type: 'function', 
+    function: {
+      name: 'proff_get_company_details',
+      description: 'Get company details: board members (styremedlemmer), shareholders (aksjonærer), address, contact info, industry code. Use for ownership, management, or company structure questions - NOT for financial data.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgNr: {
+            type: 'string',
+            description: 'The 9-digit Norwegian organization number'
+          }
+        },
+        required: ['orgNr']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proff_search_persons',
+      description: 'Search for business persons (executives, board members) by name in Norwegian business registry. Returns personId needed for detailed lookups and network searches.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Person name to search for (e.g., "Anders Opedal", "Kjell Inge Røkke")'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proff_get_person_details',
+      description: `Get detailed information about a business person including ALL their board positions, roles, and connected companies.
+
+Use this tool when user wants to:
+- See all companies a person is involved with
+- List all board positions/roles for a person  
+- "Dykke dypere" or explore someone's full business network
+- Understand the extent of someone's business involvement
+
+Returns a markdown summary table with all roles.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          personId: {
+            type: 'string',
+            description: 'Proff personId (get this from proff_search_persons first)'
+          }
+        },
+        required: ['personId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proff_find_business_network',
+      description: `Find the shortest business connection path between two persons through shared companies and board positions. Shows how two business people are connected (degrees of separation).
+
+WORKFLOW: 
+1. First use proff_search_persons to find personId for BOTH persons
+2. Then use this tool with both personIds
+
+Returns the connection path like: Person A → Company X → Person B → Company Y → Person C`,
+      parameters: {
+        type: 'object',
+        properties: {
+          fromPersonId: {
+            type: 'string',
+            description: 'Proff personId of the first person (get this from proff_search_persons)'
+          },
+          toPersonId: {
+            type: 'string',
+            description: 'Proff personId of the second person (get this from proff_search_persons)'
+          }
+        },
+        required: ['fromPersonId', 'toPersonId']
+      }
+    }
+  }
+]
+
+// Sources API Configuration
+const SOURCES_API_BASE = 'https://sources-worker.torarnehave.workers.dev'
+const useSourcesTools = ref(true) // Enable Norwegian sources by default
+
+// OpenAI-compatible tool definitions for Sources API
+const sourcesTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'sources_search',
+      description: `Search Norwegian government, news, research, and environmental sources for articles and reports.
+
+Use this when users ask about:
+- Norwegian government news and policy
+- Environment/nature/climate news
+- Research and statistics
+- Public hearings (høringer)
+
+Available sources: Regjeringen (government), SSB (statistics), NRK (news), Forskning.no (research), Naturvernforbundet, SABIMA (biodiversity), WWF, Bellona (environment), CICERO (climate)
+
+Returns articles with links to original sources.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query in Norwegian or English (e.g., "naturmangfold", "climate change", "rovdyr", "biologisk mangfold", "høring")'
+          },
+          sources: {
+            type: 'string',
+            description: 'Comma-separated source IDs (optional). Available: regjeringen, ssb, nrk, forskning, naturvern, sabima, wwf, bellona, cicero'
+          },
+          days: {
+            type: 'number',
+            description: 'How many days back to search (default: 30)'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sources_get_hearings',
+      description: `Search for public hearings (høringer) from the Norwegian government and news sources.
+
+Searches regjeringen.no and other sources for hearing-related content.
+
+Use when users ask about:
+- Public hearings / høringer
+- Ways to participate in policy
+- Current consultations
+- Offentlige høringer`,
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: {
+            type: 'string',
+            description: 'Filter by topic (e.g., "naturvern", "klima", "biodiversitet", "mineral")'
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sources_environment_news',
+      description: `Get the latest environment and nature news from Norwegian sources.
+
+Aggregates news from: Regjeringen, SSB (statistics), NRK Klima, Naturvernforbundet, SABIMA, WWF, Bellona, CICERO, Forskning.no
+
+Use when users ask about:
+- Environment news / miljønyheter
+- Nature conservation updates / naturvern
+- Climate policy news / klimapolitikk
+- Biodiversity / biologisk mangfold`,
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: {
+            type: 'number',
+            description: 'Maximum number of articles (default: 20)'
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sources_list_feeds',
+      description: 'List all available Norwegian RSS feeds and sources that can be searched. Returns source names, descriptions, and categories.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  }
+]
+
+/**
+ * Execute a Proff API tool call
+ * @param {string} toolName - The function name to call
+ * @param {object} args - The function arguments
+ * @returns {Promise<object>} - The API response
+ */
+async function executeProffTool(toolName, args) {
+  const userId = userStore.user_id || 'system'
+  
+  try {
+    if (toolName === 'proff_search_companies') {
+      const response = await fetch(`${PROFF_API_BASE}/search?query=${encodeURIComponent(args.query)}&userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'proff_get_financials') {
+      const response = await fetch(`${PROFF_API_BASE}/financials/${args.orgNr}?userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'proff_get_company_details') {
+      const response = await fetch(`${PROFF_API_BASE}/company/${args.orgNr}?userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'proff_search_persons') {
+      const response = await fetch(`${PROFF_API_BASE}/persons?query=${encodeURIComponent(args.query)}&userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'proff_get_person_details') {
+      const response = await fetch(`${PROFF_API_BASE}/person/${args.personId}?userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'proff_find_business_network') {
+      const response = await fetch(`${PROFF_API_BASE}/network?from=${args.fromPersonId}&to=${args.toPersonId}&userId=${userId}`)
+      if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    throw new Error(`Unknown tool: ${toolName}`)
+  } catch (error) {
+    console.error('Proff tool execution error:', error)
+    return { error: error.message }
+  }
+}
+
+/**
+ * Execute a Sources API tool call
+ * @param {string} toolName - The function name to call
+ * @param {object} args - The function arguments
+ * @returns {Promise<object>} - The API response
+ */
+async function executeSourcesTool(toolName, args) {
+  try {
+    if (toolName === 'sources_search') {
+      let url = `${SOURCES_API_BASE}/search?query=${encodeURIComponent(args.query)}`
+      if (args.sources) url += `&sources=${encodeURIComponent(args.sources)}`
+      if (args.days) url += `&days=${args.days}`
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'sources_get_hearings') {
+      let url = `${SOURCES_API_BASE}/hearings`
+      if (args.topic) url += `?topic=${encodeURIComponent(args.topic)}`
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'sources_environment_news') {
+      let url = `${SOURCES_API_BASE}/environment`
+      if (args.limit) url += `?limit=${args.limit}`
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    if (toolName === 'sources_list_feeds') {
+      const response = await fetch(`${SOURCES_API_BASE}/feeds`)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+    
+    throw new Error(`Unknown sources tool: ${toolName}`)
+  } catch (error) {
+    console.error('Sources tool execution error:', error)
+    return { error: error.message }
+  }
+}
+
+/**
+ * Process tool calls from AI response and get final answer
+ * @param {object} data - The AI response with tool_calls
+ * @param {array} grokMessages - The conversation messages
+ * @param {string} endpoint - The AI endpoint
+ * @param {object} requestBody - The original request body
+ * @returns {Promise<{message: string, usedProffAPI: boolean, proffData: object, sourcesData: object}>} - The final AI message and tool usage info
+ */
+async function processToolCalls(data, grokMessages, endpoint, requestBody) {
+  const toolCalls = data.choices?.[0]?.message?.tool_calls || []
+  if (!toolCalls.length) return { message: null, usedProffAPI: false, usedSourcesAPI: false, proffData: null, sourcesData: null }
+  
+  console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
+  
+  // Track which APIs were used
+  const usedProffAPI = toolCalls.some(t => t.function.name.startsWith('proff_'))
+  const usedSourcesAPI = toolCalls.some(t => t.function.name.startsWith('sources_'))
+  
+  // Collect raw data from tool results
+  let proffData = null
+  let sourcesData = null
+  
+  // Execute all tool calls
+  const toolResults = []
+  for (const toolCall of toolCalls) {
+    const { name, arguments: argsStr } = toolCall.function
+    const args = JSON.parse(argsStr)
+    
+    console.log(`Executing tool: ${name}`, args)
+    
+    // Route to appropriate executor
+    let result
+    if (name.startsWith('sources_')) {
+      result = await executeSourcesTool(name, args)
+      // Store sources data for later use
+      if (!sourcesData) sourcesData = {}
+      sourcesData[name] = result
+      if (result.results) sourcesData.results = result.results
+    } else {
+      result = await executeProffTool(name, args)
+      // Store proff data for later use
+      if (!proffData) proffData = {}
+      proffData[name] = result
+      // Extract key data for easy access
+      if (result.person) proffData.person = result.person
+      if (result.persons) proffData.persons = result.persons
+      if (result.company) proffData.company = result.company
+      if (result.companies) proffData.companies = result.companies
+      if (result.paths) proffData.paths = result.paths
+      if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
+    }
+    
+    toolResults.push({
+      tool_call_id: toolCall.id,
+      role: 'tool',
+      name: name,
+      content: JSON.stringify(result, null, 2)
+    })
+  }
+  
+  // Build new messages with assistant's tool call and tool results
+  const newMessages = [
+    ...grokMessages,
+    data.choices[0].message, // Assistant message with tool_calls
+    ...toolResults
+  ]
+  
+  // Make follow-up request without tools (to get final response)
+  const followUpBody = {
+    ...requestBody,
+    messages: newMessages,
+    tools: undefined, // Remove tools for final response
+    tool_choice: undefined
+  }
+  delete followUpBody.tools
+  delete followUpBody.tool_choice
+  
+  const followUpResponse = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(followUpBody)
+  })
+  
+  if (!followUpResponse.ok) {
+    throw new Error(`Follow-up API error: ${followUpResponse.status}`)
+  }
+  
+  const followUpData = await followUpResponse.json()
+  return { 
+    message: followUpData.choices?.[0]?.message?.content,
+    usedProffAPI,
+    usedSourcesAPI,
+    proffData,
+    sourcesData
+  }
+}
 
 const SUPPORTED_AUDIO_MIME_TYPES = new Set([
   'audio/wav',
@@ -1654,6 +2164,82 @@ const insertAsFullText = (content) => {
   emit('insert-fulltext', content)
 }
 
+// Insert structured node (person-profile, company-card, news-feed)
+const insertAsNode = (message, nodeType) => {
+  if (!message?.proffData && !message?.sourcesData) {
+    // Try to extract structured data from message content
+    emit('insert-node', {
+      type: nodeType,
+      content: message.content,
+      rawData: null
+    })
+    return
+  }
+  
+  emit('insert-node', {
+    type: nodeType,
+    content: message.content,
+    rawData: message.proffData || message.sourcesData
+  })
+}
+
+// Insert network diagram from Proff network data
+const insertAsNetwork = (message) => {
+  if (!message?.proffData?.paths && !message?.proffData?.network) {
+    console.warn('No network data found in message')
+    return
+  }
+  
+  emit('insert-network', {
+    content: message.content,
+    networkData: message.proffData
+  })
+}
+
+// Check if message contains Proff person data
+const hasPersonData = (message) => {
+  if (!message?.proffData) {
+    console.log('hasPersonData: No proffData on message', message?.usedProffAPI)
+    return false
+  }
+  console.log('hasPersonData: proffData keys:', Object.keys(message.proffData))
+  // Check for person data from any Proff tool
+  return message.proffData.person || 
+         message.proffData.persons || 
+         message.proffData.proff_search_persons ||
+         message.proffData.proff_get_person_details ||
+         (message.content && message.content.includes('personId'))
+}
+
+// Check if message contains Proff company data
+const hasCompanyData = (message) => {
+  if (!message?.proffData) return false
+  console.log('hasCompanyData: proffData keys:', Object.keys(message.proffData))
+  return message.proffData.company || 
+         message.proffData.companies ||
+         message.proffData.proff_search_companies ||
+         message.proffData.proff_get_company_details ||
+         (message.content && message.content.includes('organisationNumber'))
+}
+
+// Check if message contains network/connection data
+const hasNetworkData = (message) => {
+  if (!message?.proffData) return false
+  console.log('hasNetworkData: proffData keys:', Object.keys(message.proffData))
+  return message.proffData.paths || 
+         message.proffData.network || 
+         message.proffData.proff_find_business_network ||
+         message.proffData.degreesOfSeparation !== undefined
+}
+
+// Check if message contains news/sources data
+const hasNewsData = (message) => {
+  console.log('hasNewsData: sourcesData:', message?.sourcesData)
+  return message?.sourcesData?.results?.length > 0 ||
+         message?.sourcesData?.sources_search?.results?.length > 0 ||
+         (message?.usedSourcesAPI && message.content?.includes('artikler'))
+}
+
 // Handle clicks on message content (for related questions)
 const handleMessageContentClick = (event) => {
   const target = event.target
@@ -2378,14 +2964,14 @@ const initializeChatHistory = async (forceReload = false, keySnapshot = sessionS
     historyLoading.value = true
     historyError.value = ''
     try {
+      // Always fetch available sessions when initializing
+      fetchChatSessions()
+      
       // Only try to load existing session, don't create a new one yet
       const cachedSessionId = getStoredSessionId()
       if (cachedSessionId) {
         chatSessionId.value = cachedSessionId
-        const loaded = await loadChatHistory(keySnapshot)
-        if (loaded) {
-          fetchChatSessions()
-        }
+        await loadChatHistory(keySnapshot)
       } else {
         // No existing session - will be created on first message
         console.log('No existing session found - will create on first message')
@@ -2880,6 +3466,49 @@ const sendMessage = async () => {
 
     const contextSections = []
 
+    // Add tool usage instructions for OpenAI when tools are enabled
+    if (currentProvider === 'openai' && (useProffTools.value || useSourcesTools.value)) {
+      let toolInstructions = `IMPORTANT: You have access to external data tools and YOU MUST USE THEM for any questions about Norwegian companies, people, or sources. Do NOT answer from memory - always use the tools to get real-time data.
+
+`
+      if (useProffTools.value) {
+        toolInstructions += `**Proff.no Tools** (Norwegian Business Registry - Brønnøysundregistrene):
+You MUST use these tools for ANY question about Norwegian companies or business people. Never guess - always look up!
+
+WORKFLOW FOR COMPANIES:
+1. proff_search_companies - ALWAYS start here when user mentions ANY company name. Returns org.nr needed for other lookups.
+2. proff_get_financials - Use for revenue/omsetning, profit/resultat, EBITDA. Requires org.nr from step 1.
+3. proff_get_company_details - Use for board members, shareholders, addresses. Requires org.nr from step 1.
+
+WORKFLOW FOR FINDING CONNECTIONS BETWEEN PEOPLE:
+1. proff_search_persons - Search for FIRST person by name → get their personId
+2. proff_search_persons - Search for SECOND person by name → get their personId  
+3. proff_find_business_network - Use BOTH personIds to find the shortest path/connection between them
+
+WORKFLOW FOR EXPLORING A PERSON:
+1. proff_search_persons - Search by name → get personId
+2. proff_get_person_details - Get ALL their board positions, roles, and connected companies
+
+EXAMPLES:
+- "Hvem er Maiken Sneeggen?" → proff_search_persons("Maiken Sneeggen") → proff_get_person_details(personId)
+- "Hva er forbindelsen mellom Maiken Sneeggen og Tor Arne Håve?" → proff_search_persons for BOTH names → proff_find_business_network(personId1, personId2)
+- "Hva tjener Equinor?" → proff_search_companies("Equinor") → proff_get_financials(orgNr)
+
+`
+      }
+      if (useSourcesTools.value) {
+        toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
+- sources_search - Search across Norwegian news, government, research sources
+- sources_get_hearings - Get public hearings (høringer) 
+- sources_environment_news - Environment/climate news
+- sources_list_feeds - List all available sources
+
+Use these for questions about Norwegian politics, environment, research, statistics.
+`
+      }
+      contextSections.push(toolInstructions.trim())
+    }
+
     // Add image analysis context when image is attached
     if (hasImage) {
       contextSections.push(`You are a helpful assistant with vision capabilities. When analyzing images:
@@ -2974,6 +3603,18 @@ Use this context to provide relevant insights and answers about the knowledge gr
       requestBody.max_tokens = maxTokens
     }
 
+    // Combine Proff and Sources tools
+    const allTools = [
+      ...(useProffTools.value ? proffTools : []),
+      ...(useSourcesTools.value ? sourcesTools : [])
+    ]
+
+    // Add tools for OpenAI function calling
+    if (currentProvider === 'openai' && allTools.length > 0) {
+      requestBody.tools = allTools
+      requestBody.tool_choice = 'auto' // Let AI decide when to use tools
+    }
+
     if (currentProvider === 'claude') {
       // Extract system message for Claude (Anthropic API uses top-level system param)
       const systemMsg = grokMessages.find(m => m.role === 'system')
@@ -2981,6 +3622,11 @@ Use this context to provide relevant insights and answers about the knowledge gr
       requestBody.messages = nonSystemMessages
       if (systemMsg) {
         requestBody.system = systemMsg.content
+      }
+      // Add tools for Claude
+      if (allTools.length > 0) {
+        requestBody.tools = allTools
+        requestBody.tool_choice = { type: 'auto' }
       }
     } else if (currentProvider === 'perplexity') {
       // Perplexity requires messages to strictly alternate between user and assistant
@@ -3053,11 +3699,132 @@ Use this context to provide relevant insights and answers about the knowledge gr
     // Parse response - Claude uses different format than OpenAI/Grok
     const data = await response.json()
     let aiMessage
+    let usedProffAPI = false
+    let usedSourcesAPI = false
+    let proffData = null
+    let sourcesData = null
     let perplexityCitations = null
     let perplexityImages = null
     let perplexityRelatedQuestions = null
 
-    if (currentProvider === 'claude') {
+    // Check for tool calls (function calling) - OpenAI format
+    if (currentProvider === 'openai' && data.choices?.[0]?.message?.tool_calls) {
+      console.log('Detected tool calls, processing...')
+      try {
+        const toolResult = await processToolCalls(data, grokMessages, endpoint, requestBody)
+        aiMessage = toolResult.message
+        usedProffAPI = toolResult.usedProffAPI
+        usedSourcesAPI = toolResult.usedSourcesAPI
+        proffData = toolResult.proffData
+        sourcesData = toolResult.sourcesData
+        if (!aiMessage) {
+          throw new Error('No response after tool execution')
+        }
+      } catch (toolError) {
+        console.error('Tool call processing error:', toolError)
+        // Fall back to any content in the original response
+        aiMessage = data.choices?.[0]?.message?.content || `Tool execution failed: ${toolError.message}`
+      }
+    } else if (currentProvider === 'claude' && data.stop_reason === 'tool_use') {
+      // Claude tool use handling - supports multi-step chains
+      console.log('Claude tool use detected, starting tool chain...')
+      
+      let currentData = data
+      let currentMessages = [...requestBody.messages]
+      let maxIterations = 5 // Safety limit
+      let iterations = 0
+      
+      try {
+        while (currentData.stop_reason === 'tool_use' && iterations < maxIterations) {
+          iterations++
+          
+          // Find all tool_use blocks in the response
+          const toolUseBlocks = currentData.content?.filter(c => c.type === 'tool_use') || []
+          console.log(`Claude iteration ${iterations}: ${toolUseBlocks.length} tool(s) to execute`)
+          
+          if (toolUseBlocks.length === 0) break
+          
+          // Track which APIs are used
+          if (toolUseBlocks.some(t => t.name.startsWith('proff_'))) {
+            usedProffAPI = true
+          }
+          if (toolUseBlocks.some(t => t.name.startsWith('sources_'))) {
+            usedSourcesAPI = true
+          }
+          
+          // Execute all tools and collect results
+          const toolResults = []
+          for (const toolBlock of toolUseBlocks) {
+            console.log(`  Executing: ${toolBlock.name}`, toolBlock.input)
+            
+            // Route to appropriate executor
+            let result
+            if (toolBlock.name.startsWith('sources_')) {
+              result = await executeSourcesTool(toolBlock.name, toolBlock.input)
+              // Store sources data for Case Study buttons
+              if (!sourcesData) sourcesData = {}
+              sourcesData[toolBlock.name] = result
+              if (result.results) sourcesData.results = result.results
+            } else {
+              result = await executeProffTool(toolBlock.name, toolBlock.input)
+              // Store proff data for Case Study buttons
+              if (!proffData) proffData = {}
+              proffData[toolBlock.name] = result
+              // Extract key data for easy access
+              if (result.person) proffData.person = result.person
+              if (result.persons) proffData.persons = result.persons
+              if (result.company) proffData.company = result.company
+              if (result.companies) proffData.companies = result.companies
+              if (result.paths) proffData.paths = result.paths
+              if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
+            }
+            
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: JSON.stringify(result, null, 2)
+            })
+          }
+          
+          // Build next request with tool results
+          currentMessages = [
+            ...currentMessages,
+            { role: 'assistant', content: currentData.content },
+            { role: 'user', content: toolResults }
+          ]
+          
+          const nextBody = {
+            ...requestBody,
+            messages: currentMessages
+            // Keep tools so Claude can make more calls if needed
+          }
+          
+          const nextResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextBody)
+          })
+          
+          if (!nextResponse.ok) {
+            throw new Error(`Claude follow-up error: ${nextResponse.status}`)
+          }
+          
+          currentData = await nextResponse.json()
+          console.log(`  Response stop_reason: ${currentData.stop_reason}`)
+        }
+        
+        // Extract final text response
+        aiMessage = currentData.content?.find(c => c.type === 'text')?.text
+        
+        if (!aiMessage && iterations >= maxIterations) {
+          aiMessage = 'Tool chain reached maximum iterations. Please try a simpler question.'
+        }
+        
+      } catch (toolError) {
+        console.error('Claude tool chain error:', toolError)
+        aiMessage = data.content?.find(c => c.type === 'text')?.text || `Tool error: ${toolError.message}`
+      }
+    } else if (currentProvider === 'claude') {
       // Anthropic format: data.content[0].text
       aiMessage = data.content?.[0]?.text
     } else if (currentProvider === 'perplexity') {
@@ -3164,6 +3931,10 @@ Use this context to provide relevant insights and answers about the knowledge gr
       content: enhancedMessage,
       timestamp: Date.now(),
       provider: currentProvider,
+      usedProffAPI: usedProffAPI,
+      usedSourcesAPI: usedSourcesAPI,
+      proffData: proffData,
+      sourcesData: sourcesData,
     })
 
     // Clear uploaded image after successful send
@@ -3306,6 +4077,15 @@ watch(
   user-select: none;
 }
 
+.context-toggle.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-toggle.disabled input {
+  cursor: not-allowed;
+}
+
 .context-icon {
   width: 18px;
   height: 18px;
@@ -3322,6 +4102,11 @@ watch(
   margin-top: 0.25rem;
   font-size: 0.85rem;
   color: #666;
+}
+
+.context-indicator.muted {
+  color: #999;
+  font-style: italic;
 }
 
 .context-row {
@@ -3505,12 +4290,29 @@ watch(
 
 .message-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   justify-content: flex-start;
 }
 
 .insert-btn {
   padding: 0;
   font-weight: 600;
+}
+
+.case-study-btn {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  background: #e8f5e9;
+  border: 1px solid #81c784;
+  border-radius: 12px;
+  color: #2e7d32;
+  text-decoration: none;
+}
+
+.case-study-btn:hover {
+  background: #c8e6c9;
+  color: #1b5e20;
 }
 
 .message.user {
@@ -3599,6 +4401,30 @@ watch(
 
 .message-role {
   font-weight: 600;
+}
+
+.proff-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-left: 10px;
+  cursor: help;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.proff-badge:hover {
+  transform: scale(1.08);
+  box-shadow: 0 3px 10px rgba(26, 54, 93, 0.25);
+}
+
+.proff-badge-icon {
+  width: 50px;
+  height: auto;
+  border-radius: 4px;
 }
 
 .message-time {

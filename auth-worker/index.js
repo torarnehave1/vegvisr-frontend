@@ -629,6 +629,171 @@ export default {
       }
     }
 
+    // ============================================
+    // LINKEDIN OAUTH ENDPOINTS
+    // ============================================
+
+    // LinkedIn Login - Start OAuth flow
+    if (url.pathname === '/auth/linkedin/login') {
+      const linkedinClientId = env.LINKEDIN_CLIENT_ID
+      const redirectUri = env.LINKEDIN_REDIRECT_URI
+      
+      // Store return URL in state parameter (supports localhost:5173 for dev)
+      const returnUrl = url.searchParams.get('return_url') || 'https://www.vegvisr.org/'
+      const state = btoa(JSON.stringify({ returnUrl }))
+      
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: linkedinClientId,
+        redirect_uri: redirectUri,
+        state: state,
+        scope: 'openid profile email',
+      })
+      
+      return Response.redirect(
+        `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`,
+        302,
+      )
+    }
+
+    // LinkedIn Callback - Handle OAuth callback
+    if (url.pathname === '/auth/linkedin/callback') {
+      const code = url.searchParams.get('code')
+      const error = url.searchParams.get('error')
+      const errorDescription = url.searchParams.get('error_description')
+      const state = url.searchParams.get('state')
+      
+      // Parse state to get return URL (can be localhost:5173 for dev)
+      let returnUrl = 'https://www.vegvisr.org/'
+      try {
+        if (state) {
+          const stateData = JSON.parse(atob(state))
+          returnUrl = stateData.returnUrl || returnUrl
+        }
+      } catch (e) {
+        console.error('Failed to parse state:', e)
+      }
+
+      // Handle OAuth errors
+      if (error) {
+        const errorMsg = errorDescription || error
+        return Response.redirect(
+          `${returnUrl}?linkedin_auth_error=${encodeURIComponent(errorMsg)}`,
+          302,
+        )
+      }
+
+      if (!code) {
+        return Response.redirect(
+          `${returnUrl}?linkedin_auth_error=${encodeURIComponent('No authorization code received')}`,
+          302,
+        )
+      }
+
+      try {
+        const linkedinClientId = env.LINKEDIN_CLIENT_ID
+        const linkedinClientSecret = env.LINKEDIN_CLIENT_SECRET
+        const redirectUri = env.LINKEDIN_REDIRECT_URI
+
+        // Exchange code for access token
+        const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: code,
+            client_id: linkedinClientId,
+            client_secret: linkedinClientSecret,
+            redirect_uri: redirectUri,
+          }),
+        })
+
+        const tokenData = await tokenRes.json()
+
+        if (!tokenData.access_token) {
+          throw new Error(tokenData.error_description || tokenData.error || 'Failed to get access token')
+        }
+
+        // Fetch user profile using OpenID Connect userinfo endpoint
+        const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+          },
+        })
+
+        const profile = await profileRes.json()
+
+        if (profile.error) {
+          throw new Error(profile.error_description || profile.error)
+        }
+
+        // Redirect back to frontend with profile data
+        const successUrl = new URL(returnUrl)
+        successUrl.searchParams.set('linkedin_auth_success', 'true')
+        successUrl.searchParams.set('linkedin_access_token', tokenData.access_token)
+        successUrl.searchParams.set('linkedin_expires_in', tokenData.expires_in || '3600')
+        
+        // Include basic profile info
+        if (profile.sub) successUrl.searchParams.set('linkedin_id', profile.sub)
+        if (profile.name) successUrl.searchParams.set('linkedin_name', encodeURIComponent(profile.name))
+        if (profile.email) successUrl.searchParams.set('linkedin_email', encodeURIComponent(profile.email))
+        if (profile.picture) successUrl.searchParams.set('linkedin_picture', encodeURIComponent(profile.picture))
+
+        return Response.redirect(successUrl.toString(), 302)
+      } catch (error) {
+        return Response.redirect(
+          `${returnUrl}?linkedin_auth_error=${encodeURIComponent(error.message)}`,
+          302,
+        )
+      }
+    }
+
+    // LinkedIn Profile - Fetch profile with existing token
+    if (url.pathname === '/auth/linkedin/profile' && request.method === 'GET') {
+      const authHeader = request.headers.get('Authorization')
+      
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return createResponse(JSON.stringify({ error: 'Authorization header required' }), 401)
+      }
+
+      const accessToken = authHeader.replace('Bearer ', '')
+
+      try {
+        // Fetch user profile
+        const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        })
+
+        const profile = await profileRes.json()
+
+        if (profile.error) {
+          return createResponse(JSON.stringify({ 
+            error: profile.error_description || profile.error 
+          }), 401)
+        }
+
+        return createResponse(JSON.stringify({
+          success: true,
+          profile: {
+            id: profile.sub,
+            name: profile.name,
+            givenName: profile.given_name,
+            familyName: profile.family_name,
+            email: profile.email,
+            emailVerified: profile.email_verified,
+            picture: profile.picture,
+            locale: profile.locale,
+          }
+        }))
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
     return new Response('Not found', {
       status: 404,
       headers: corsHeaders,

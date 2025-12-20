@@ -72,7 +72,7 @@ export default {
         }
 
         // Validate provider
-        const validProviders = ['openai', 'anthropic', 'google', 'grok', 'perplexity']
+        const validProviders = ['openai', 'anthropic', 'google', 'grok', 'perplexity', 'proff']
         if (!validProviders.includes(provider.toLowerCase())) {
           return jsonResponse({
             error: `Invalid provider. Must be one of: ${validProviders.join(', ')}`
