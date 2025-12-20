@@ -88,8 +88,8 @@
           <span class="section-icon">👔</span> Styre ({{ boardMembers.length }})
         </h4>
         <div class="board-members">
-          <div 
-            v-for="(member, index) in displayedBoardMembers" 
+          <div
+            v-for="(member, index) in displayedBoardMembers"
             :key="index"
             class="board-member"
             @click="emitMemberClick(member)"
@@ -103,8 +103,8 @@
             </div>
           </div>
         </div>
-        <button 
-          v-if="boardMembers.length > 4 && !showAllBoard" 
+        <button
+          v-if="boardMembers.length > 4 && !showAllBoard"
           @click="showAllBoard = true"
           class="show-more-btn"
         >
@@ -303,7 +303,7 @@ const formatCurrency = (value) => {
   if (!value && value !== 0) return '-'
   const num = Number(value)
   if (isNaN(num)) return value
-  
+
   // Format in millions/thousands
   if (Math.abs(num) >= 1000000) {
     return `${(num / 1000000).toFixed(1)} MNOK`
@@ -738,16 +738,16 @@ const deleteNode = () => {
   .company-header {
     flex-wrap: wrap;
   }
-  
+
   .proff-badge {
     order: -1;
     margin-left: auto;
   }
-  
+
   .financial-grid {
     grid-template-columns: 1fr 1fr;
   }
-  
+
   .board-members {
     grid-template-columns: 1fr;
   }

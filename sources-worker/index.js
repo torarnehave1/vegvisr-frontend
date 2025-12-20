@@ -1,12 +1,12 @@
 /**
  * Sources Worker - Norwegian Government & Research Sources Integration
- * 
+ *
  * Aggregates RSS feeds and provides search across Norwegian public sources:
  * - regjeringen.no (Government news, hearings, reports)
  * - stortinget.no (Parliament)
  * - miljodirektoratet.no (Environment Agency)
  * - forskningsradet.no (Research Council)
- * 
+ *
  * Endpoints:
  * - GET /feeds - List available RSS feeds
  * - GET /feed/:source - Get parsed RSS feed
@@ -53,7 +53,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['government', 'policy', 'hearings', 'news']
   },
-  
+
   // SSB - Statistics Norway (VERIFIED WORKING)
   ssb: {
     name: 'Statistisk sentralbyrå',
@@ -70,7 +70,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['statistics', 'data', 'research', 'economy']
   },
-  
+
   // NRK - Norwegian Broadcasting (VERIFIED WORKING)
   nrk: {
     name: 'NRK',
@@ -86,7 +86,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['news', 'science', 'climate']
   },
-  
+
   // Forskning.no - Science news (likely working)
   forskning: {
     name: 'Forskning.no',
@@ -102,7 +102,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['research', 'science', 'health', 'environment']
   },
-  
+
   // Naturvernforbundet - Nature conservation
   naturvern: {
     name: 'Naturvernforbundet',
@@ -116,7 +116,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['environment', 'nature', 'activism']
   },
-  
+
   // Sabima - Biodiversity alliance
   sabima: {
     name: 'SABIMA',
@@ -130,7 +130,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['biodiversity', 'nature', 'policy']
   },
-  
+
   // WWF Norway
   wwf: {
     name: 'WWF Norge',
@@ -144,7 +144,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['environment', 'nature', 'wildlife']
   },
-  
+
   // Bellona - Environmental foundation
   bellona: {
     name: 'Bellona',
@@ -158,7 +158,7 @@ const NORWEGIAN_SOURCES = {
     },
     categories: ['environment', 'climate', 'energy']
   },
-  
+
   // CICERO - Climate research
   cicero: {
     name: 'CICERO',
@@ -185,34 +185,34 @@ async function parseRSSFeed(url) {
         'Accept': 'application/rss+xml, application/xml, text/xml'
       }
     })
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch feed: ${response.status}`)
     }
-    
+
     const xml = await response.text()
-    
+
     // Parse XML to extract items
     const items = []
-    
+
     // Extract channel title
     const channelTitleMatch = xml.match(/<channel>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i)
     const channelTitle = channelTitleMatch ? channelTitleMatch[1].trim() : 'Unknown Feed'
-    
+
     // Extract items using regex (works in Workers environment)
     const itemRegex = /<item>([\s\S]*?)<\/item>/gi
     let match
-    
+
     while ((match = itemRegex.exec(xml)) !== null) {
       const itemXml = match[1]
-      
+
       const title = extractXmlValue(itemXml, 'title')
       const link = extractXmlValue(itemXml, 'link')
       const description = extractXmlValue(itemXml, 'description')
       const pubDate = extractXmlValue(itemXml, 'pubDate')
       const category = extractXmlValue(itemXml, 'category')
       const guid = extractXmlValue(itemXml, 'guid')
-      
+
       items.push({
         title: cleanHtml(title),
         link,
@@ -223,7 +223,7 @@ async function parseRSSFeed(url) {
         guid
       })
     }
-    
+
     return {
       success: true,
       feedTitle: channelTitle,
@@ -232,7 +232,7 @@ async function parseRSSFeed(url) {
       items,
       fetchedAt: new Date().toISOString()
     }
-    
+
   } catch (error) {
     console.error(`RSS parse error for ${url}:`, error)
     return {
@@ -252,7 +252,7 @@ function extractXmlValue(xml, tagName) {
   const cdataRegex = new RegExp(`<${tagName}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tagName}>`, 'i')
   const cdataMatch = xml.match(cdataRegex)
   if (cdataMatch) return cdataMatch[1].trim()
-  
+
   // Try regular element
   const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i')
   const match = xml.match(regex)
@@ -281,7 +281,7 @@ function cleanHtml(text) {
  */
 function handleListFeeds() {
   const feeds = []
-  
+
   for (const [sourceId, source] of Object.entries(NORWEGIAN_SOURCES)) {
     for (const [feedType, feedUrl] of Object.entries(source.feeds)) {
       feeds.push({
@@ -297,7 +297,7 @@ function handleListFeeds() {
       })
     }
   }
-  
+
   return jsonResponse({
     success: true,
     totalSources: Object.keys(NORWEGIAN_SOURCES).length,
@@ -325,33 +325,33 @@ async function handleGetFeed(request) {
   const sourceId = url.searchParams.get('source')
   const feedType = url.searchParams.get('type') || 'news'
   const limit = parseInt(url.searchParams.get('limit') || '20')
-  
+
   if (!sourceId || !NORWEGIAN_SOURCES[sourceId]) {
     return jsonResponse({
       error: 'Invalid source',
       availableSources: Object.keys(NORWEGIAN_SOURCES)
     }, 400)
   }
-  
+
   const source = NORWEGIAN_SOURCES[sourceId]
   const feedUrl = source.feeds[feedType]
-  
+
   if (!feedUrl) {
     return jsonResponse({
       error: 'Invalid feed type',
       availableTypes: Object.keys(source.feeds)
     }, 400)
   }
-  
+
   console.log(`📰 Fetching ${sourceId}/${feedType}: ${feedUrl}`)
-  
+
   const feed = await parseRSSFeed(feedUrl)
-  
+
   // Limit results
   if (feed.items && feed.items.length > limit) {
     feed.items = feed.items.slice(0, limit)
   }
-  
+
   return jsonResponse({
     ...feed,
     source: {
@@ -373,26 +373,26 @@ async function handleSearch(request) {
   const category = url.searchParams.get('category')
   const limit = parseInt(url.searchParams.get('limit') || '30')
   const daysBack = parseInt(url.searchParams.get('days') || '30')
-  
+
   if (!query) {
     return jsonResponse({ error: 'Missing query parameter' }, 400)
   }
-  
+
   console.log(`🔍 Searching sources for: "${query}"`)
-  
+
   const cutoffDate = new Date()
   cutoffDate.setDate(cutoffDate.getDate() - daysBack)
-  
+
   // Fetch feeds from requested sources
   const feedPromises = []
-  
+
   for (const sourceId of sources) {
     const source = NORWEGIAN_SOURCES[sourceId]
     if (!source) continue
-    
+
     // Filter by category if specified
     if (category && !source.categories.includes(category)) continue
-    
+
     // Fetch main news feed
     const newsUrl = source.feeds.news || source.feeds.all
     if (newsUrl) {
@@ -405,30 +405,30 @@ async function handleSearch(request) {
       )
     }
   }
-  
+
   const feedResults = await Promise.all(feedPromises)
-  
+
   // Search through all items
   const queryLower = query.toLowerCase()
   const queryWords = queryLower.split(/\s+/)
   const results = []
-  
+
   for (const { sourceId, sourceName, feed } of feedResults) {
     if (!feed.success) continue
-    
+
     const sourceInfo = NORWEGIAN_SOURCES[sourceId]
-    
+
     for (const item of feed.items) {
       // Check date filter
       if (item.pubDateParsed) {
         const itemDate = new Date(item.pubDateParsed)
         if (itemDate < cutoffDate) continue
       }
-      
+
       // Check if query matches
       const searchText = `${item.title} ${item.description} ${item.category}`.toLowerCase()
       const matches = queryWords.filter(word => searchText.includes(word))
-      
+
       if (matches.length > 0) {
         results.push({
           source: sourceId,
@@ -448,17 +448,17 @@ async function handleSearch(request) {
       }
     }
   }
-  
+
   // Sort by relevance, then date
   results.sort((a, b) => {
     if (b.relevance !== a.relevance) return b.relevance - a.relevance
     return new Date(b.pubDateParsed || 0) - new Date(a.pubDateParsed || 0)
   })
-  
+
   // Build markdown summary
   let markdownSummary = `## Søkeresultater: "${query}"\n\n`
   markdownSummary += `Fant ${results.length} treff fra ${feedResults.length} kilder (siste ${daysBack} dager)\n\n`
-  
+
   const topResults = results.slice(0, limit)
   if (topResults.length > 0) {
     for (const r of topResults.slice(0, 10)) {
@@ -471,7 +471,7 @@ async function handleSearch(request) {
   } else {
     markdownSummary += `Ingen treff funnet. Prøv et annet søkeord.\n`
   }
-  
+
   return jsonResponse({
     success: true,
     query,
@@ -490,12 +490,12 @@ async function handleHearings(request) {
   const url = new URL(request.url)
   const topic = url.searchParams.get('topic')
   const limit = parseInt(url.searchParams.get('limit') || '20')
-  
+
   console.log('📋 Searching for hearing-related news')
-  
+
   // Keywords: høring, høringer, høringsuttalelse, konsultasjon
   const hearingKeywords = ['høring', 'høringsuttalelse', 'konsultasjon', 'innspill']
-  
+
   // Source mapping for logo info
   const sourceMapping = {
     'Regjeringen': 'regjeringen',
@@ -504,7 +504,7 @@ async function handleHearings(request) {
     'SABIMA': 'sabima',
     'Bellona': 'bellona'
   }
-  
+
   // Fetch from regjeringen.no (primary source) and environmental orgs
   const feedPromises = [
     parseRSSFeed(NORWEGIAN_SOURCES.regjeringen.feeds.news).then(f => ({ source: 'Regjeringen', sourceId: 'regjeringen', feed: f })),
@@ -513,21 +513,21 @@ async function handleHearings(request) {
     parseRSSFeed(NORWEGIAN_SOURCES.sabima.feeds.news).then(f => ({ source: 'SABIMA', sourceId: 'sabima', feed: f })),
     parseRSSFeed(NORWEGIAN_SOURCES.bellona.feeds.news).then(f => ({ source: 'Bellona', sourceId: 'bellona', feed: f }))
   ]
-  
+
   const results = await Promise.all(feedPromises)
-  
+
   // Filter for hearing-related items
   let hearings = []
   for (const { source, sourceId, feed } of results) {
     if (!feed.success || !feed.items) continue
-    
+
     const sourceInfo = NORWEGIAN_SOURCES[sourceId]
-    
+
     for (const item of feed.items) {
       const searchText = `${item.title} ${item.description}`.toLowerCase()
       const isHearing = hearingKeywords.some(kw => searchText.includes(kw))
       const matchesTopic = !topic || searchText.includes(topic.toLowerCase())
-      
+
       if (isHearing && matchesTopic) {
         hearings.push({
           ...item,
@@ -540,7 +540,7 @@ async function handleHearings(request) {
       }
     }
   }
-  
+
   // Sort by date and limit
   hearings.sort((a, b) => {
     const dateA = a.pubDateParsed ? new Date(a.pubDateParsed) : new Date(0)
@@ -548,18 +548,18 @@ async function handleHearings(request) {
     return dateB - dateA
   })
   hearings = hearings.slice(0, limit)
-  
+
   // Build markdown
   let markdown = `## Høringer og konsultasjoner\n\n`
   if (topic) markdown += `Filtrert på: "${topic}"\n\n`
   markdown += `Fant ${hearings.length} relevante saker\n\n`
-  
+
   if (hearings.length === 0) {
     markdown += `Ingen høringer funnet i nyhetsfeedene akkurat nå. For flere høringer, besøk:\n`
     markdown += `- [Regjeringen.no høringer](https://www.regjeringen.no/no/dokument/hoyringar/)\n`
     markdown += `- [Stortinget.no høringer](https://www.stortinget.no/no/Saker-og-publikasjoner/Publikasjoner/Horingsinnkallinger/)\n\n`
   }
-  
+
   for (const h of hearings) {
     markdown += `### [${h.title}](${h.link})\n`
     markdown += `*${h.source}* - ${h.pubDate || 'Ukjent dato'}\n\n`
@@ -568,7 +568,7 @@ async function handleHearings(request) {
     }
     markdown += `---\n\n`
   }
-  
+
   return jsonResponse({
     success: true,
     topic: topic || 'alle',
@@ -584,9 +584,9 @@ async function handleHearings(request) {
 async function handleEnvironmentNews(request) {
   const url = new URL(request.url)
   const limit = parseInt(url.searchParams.get('limit') || '20')
-  
+
   console.log('🌿 Fetching environment news')
-  
+
   // Fetch from multiple environment-related sources (verified working)
   const feedPromises = [
     parseRSSFeed(NORWEGIAN_SOURCES.regjeringen.feeds.news).then(f => ({ source: 'Regjeringen', feed: f })),
@@ -599,9 +599,9 @@ async function handleEnvironmentNews(request) {
     parseRSSFeed(NORWEGIAN_SOURCES.cicero.feeds.news).then(f => ({ source: 'CICERO', feed: f })),
     parseRSSFeed(NORWEGIAN_SOURCES.forskning.feeds.environment).then(f => ({ source: 'Forskning.no - Miljø', feed: f }))
   ]
-  
+
   const results = await Promise.all(feedPromises)
-  
+
   // Combine and sort by date
   const allItems = []
   for (const { source, feed } of results) {
@@ -614,20 +614,20 @@ async function handleEnvironmentNews(request) {
       }
     }
   }
-  
+
   // Sort by date
   allItems.sort((a, b) => {
     const dateA = a.pubDateParsed ? new Date(a.pubDateParsed) : new Date(0)
     const dateB = b.pubDateParsed ? new Date(b.pubDateParsed) : new Date(0)
     return dateB - dateA
   })
-  
+
   const limitedItems = allItems.slice(0, limit)
-  
+
   // Build markdown
   let markdown = `## Miljø- og naturnyheter\n\n`
   markdown += `Siste ${limitedItems.length} saker fra offentlige kilder:\n\n`
-  
+
   for (const item of limitedItems) {
     markdown += `### [${item.title}](${item.link})\n`
     markdown += `*${item.source}* - ${item.pubDate || 'Ukjent dato'}\n\n`
@@ -635,7 +635,7 @@ async function handleEnvironmentNews(request) {
       markdown += `${item.description.substring(0, 250)}${item.description.length > 250 ? '...' : ''}\n\n`
     }
   }
-  
+
   return jsonResponse({
     success: true,
     totalItems: limitedItems.length,
@@ -778,16 +778,16 @@ function handleGetTools() {
 function handleGetLogo(request) {
   const url = new URL(request.url)
   const sourceId = url.searchParams.get('source')
-  
+
   if (!sourceId || !NORWEGIAN_SOURCES[sourceId]) {
     return jsonResponse({
       error: 'Invalid source',
       availableSources: Object.keys(NORWEGIAN_SOURCES)
     }, 400)
   }
-  
+
   const source = NORWEGIAN_SOURCES[sourceId]
-  
+
   // Return SVG directly
   return new Response(source.logo, {
     status: 200,
@@ -804,7 +804,7 @@ function handleGetLogo(request) {
  */
 function handleGetAllLogos() {
   const logos = {}
-  
+
   for (const [id, source] of Object.entries(NORWEGIAN_SOURCES)) {
     logos[id] = {
       name: source.name,
@@ -814,7 +814,7 @@ function handleGetAllLogos() {
       baseUrl: source.baseUrl
     }
   }
-  
+
   return jsonResponse({
     success: true,
     logos
@@ -858,12 +858,12 @@ export default {
       if (pathname === '/feeds' && request.method === 'GET') {
         return handleListFeeds()
       }
-      
+
       // Get logo for a specific source
       if (pathname === '/logo' && request.method === 'GET') {
         return handleGetLogo(request)
       }
-      
+
       // Get all logos
       if (pathname === '/logos' && request.method === 'GET') {
         return handleGetAllLogos()

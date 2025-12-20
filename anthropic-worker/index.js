@@ -220,7 +220,7 @@ async function handleChat(request, env, corsHeaders) {
         return tool
       })
     }
-    
+
     // Convert tool_choice to Anthropic format
     if (tool_choice !== undefined) {
       if (tool_choice === 'auto' || (typeof tool_choice === 'object' && tool_choice.type === 'auto')) {

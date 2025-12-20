@@ -1,9 +1,9 @@
 /**
  * Proff Worker - Norwegian Company Registry API Integration
- * 
+ *
  * Provides secure access to Proff.no company data API.
  * Supports user-provided API keys stored encrypted in D1 database.
- * 
+ *
  * Endpoints:
  * - GET /search?query=... - Search companies by name
  * - GET /company/:orgNr - Get detailed company info with financials
@@ -244,38 +244,38 @@ async function handleCompanyDetails(orgNr, request, env) {
         foundationDate: data.foundationDate,
         foundationYear: data.foundationYear,
         companyPurpose: data.companyPurpose,
-        
+
         // Contact
         email: data.email,
         homePage: data.homePage,
         phoneNumbers: data.phoneNumbers,
-        
+
         // Location
         postalAddress: data.postalAddress,
         visitorAddress: data.visitorAddress,
         location: data.location,
-        
+
         // Industry
         naceCategories: data.naceCategories,
         sectorCode: data.sectorCode,
-        
+
         // Employees
         numberOfEmployees: data.numberOfEmployees,
         empMin: data.empMin,
         empMax: data.empMax,
-        
+
         // Financials (parsed)
         financials,
-        
+
         // People
         contactPerson: data.contactPerson,
         personRoles: data.personRoles,
         shareholders: data.shareholders,
         signatories: data.signatories,
-        
+
         // Raw accounts (for advanced users)
         companyAccounts: data.companyAccounts,
-        
+
         // Other
         ehf: data.ehf,
         mortgages: data.mortgages,
@@ -402,7 +402,7 @@ async function handleFinancials(orgNr, request, env) {
     // Format as markdown table for easy display
     let markdownTable = `| År | Omsetning (NOK) | Driftsresultat | Årsresultat | EBITDA |\n`
     markdownTable += `|---:|---------------:|---------------:|------------:|-------:|\n`
-    
+
     for (const year of financialYears) {
       const formatNum = (n) => n !== null ? n.toLocaleString('no-NO') : 'N/A'
       markdownTable += `| ${year.year} | ${formatNum(year.revenue_nok)} | ${formatNum(year.operating_result_nok)} | ${formatNum(year.annual_result_nok)} | ${formatNum(year.ebitda_nok)} |\n`
@@ -650,7 +650,7 @@ async function handlePersonDetails(personId, request, env) {
     // Build markdown summary of roles
     let rolesMarkdown = `## ${p.name || p.Name} - Roller i næringslivet\n\n`
     rolesMarkdown += `**Alder:** ${p.age || p.Age} år | **Antall roller:** ${p.numberOfRoles || p.NumberOfRoles} | **Tilknyttede virksomheter:** ${p.associatedCount || p.AssociatedCount}\n\n`
-    
+
     if (roles.length > 0) {
       rolesMarkdown += `### Styrer og roller\n\n`
       rolesMarkdown += `| Selskap | Rolle |\n|---------|-------|\n`
@@ -737,7 +737,7 @@ async function handlePersonSearch(request, env) {
     }
 
     const data = await proffResponse.json()
-    
+
     // The API returns a list directly, not nested under 'persons'
     // Handle both cases: array response or object with persons property
     const persons = Array.isArray(data) ? data : (data.persons || data.businessPersons || [])
@@ -813,7 +813,7 @@ function getToolDefinitions() {
       }
     },
     {
-      type: 'function', 
+      type: 'function',
       function: {
         name: 'proff_get_company_details',
         description: 'Get company information like board members, shareholders, address, and contact details. Use this for ownership, management, or company structure questions.',

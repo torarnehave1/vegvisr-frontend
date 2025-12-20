@@ -24,9 +24,9 @@
         <span>or</span>
       </div>
 
-      <button 
-        type="button" 
-        class="btn btn-linkedin w-100" 
+      <button
+        type="button"
+        class="btn btn-linkedin w-100"
         @click="loginWithLinkedIn"
         :disabled="loadingLinkedIn"
       >
@@ -527,10 +527,10 @@ function startResendTimer() {
 function loginWithLinkedIn() {
   loadingLinkedIn.value = true
   statusMessage.value = 'Redirecting to LinkedIn...'
-  
+
   // Store current URL to return after auth
   const returnUrl = window.location.origin + '/login'
-  
+
   // Redirect to LinkedIn OAuth
   window.location.href = `https://auth.vegvisr.org/auth/linkedin/login?return_url=${encodeURIComponent(returnUrl)}`
 }
@@ -539,19 +539,19 @@ async function handleLinkedInCallback() {
   console.log('[LoginView] Processing LinkedIn callback...')
   loadingLinkedIn.value = true
   statusMessage.value = 'Logging in with LinkedIn...'
-  
+
   try {
     const linkedInEmail = route.query.linkedin_email
     const linkedInName = route.query.linkedin_name
     const linkedInId = route.query.linkedin_id
     const linkedInPicture = route.query.linkedin_picture
-    
+
     if (!linkedInEmail) {
       throw new Error('No email received from LinkedIn')
     }
-    
+
     console.log('[LoginView] LinkedIn user:', { email: linkedInEmail, name: linkedInName })
-    
+
     // Fetch or create user context
     let userContext
     try {
@@ -570,25 +570,25 @@ async function handleLinkedInCallback() {
           profile_image: linkedInPicture
         })
       })
-      
+
       if (!registerRes.ok) {
         const errorData = await registerRes.json()
         throw new Error(errorData.error || 'Failed to register user')
       }
-      
+
       // Fetch the newly created user
       userContext = await fetchUserContext(linkedInEmail)
     }
-    
+
     // Set profile image from LinkedIn if available
     if (linkedInPicture && !userContext.profileimage) {
       userContext.profileimage = linkedInPicture
     }
-    
+
     // Set user in store
     userStore.setUser(userContext)
     sessionStorage.setItem('email_session_verified', '1')
-    
+
     // Clean up URL parameters
     const cleanUrl = new URL(window.location.href)
     cleanUrl.searchParams.delete('linkedin_auth_success')
@@ -599,19 +599,19 @@ async function handleLinkedInCallback() {
     cleanUrl.searchParams.delete('linkedin_email')
     cleanUrl.searchParams.delete('linkedin_picture')
     window.history.replaceState({}, document.title, cleanUrl.toString())
-    
+
     statusMessage.value = `Welcome, ${linkedInName || linkedInEmail}! Redirecting...`
-    
+
     // Redirect to dashboard
     setTimeout(() => {
       router.push('/user')
     }, 1000)
-    
+
   } catch (err) {
     console.error('[LoginView] LinkedIn login error:', err)
     errorMessage.value = err.message || 'LinkedIn login failed. Please try again.'
     loadingLinkedIn.value = false
-    
+
     // Clean up URL even on error
     const cleanUrl = new URL(window.location.href)
     for (const key of [...cleanUrl.searchParams.keys()]) {

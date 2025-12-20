@@ -49,9 +49,9 @@
         </div>
         <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
-            <input 
-              type="checkbox" 
-              v-model="useProffTools" 
+            <input
+              type="checkbox"
+              v-model="useProffTools"
               :disabled="provider !== 'openai' && provider !== 'claude'"
             />
             <span>🏢 Proff Selskapsoppslag</span>
@@ -65,9 +65,9 @@
         </div>
         <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
-            <input 
-              type="checkbox" 
-              v-model="useSourcesTools" 
+            <input
+              type="checkbox"
+              v-model="useSourcesTools"
               :disabled="provider !== 'openai' && provider !== 'claude'"
             />
             <span>📰 Norske Kilder</span>
@@ -829,7 +829,7 @@ Use this tool when the user asks about:
     }
   },
   {
-    type: 'function', 
+    type: 'function',
     function: {
       name: 'proff_get_company_details',
       description: 'Get company details: board members (styremedlemmer), shareholders (aksjonærer), address, contact info, industry code. Use for ownership, management, or company structure questions - NOT for financial data.',
@@ -870,7 +870,7 @@ Use this tool when the user asks about:
 
 Use this tool when user wants to:
 - See all companies a person is involved with
-- List all board positions/roles for a person  
+- List all board positions/roles for a person
 - "Dykke dypere" or explore someone's full business network
 - Understand the extent of someone's business involvement
 
@@ -893,7 +893,7 @@ Returns a markdown summary table with all roles.`,
       name: 'proff_find_business_network',
       description: `Find the shortest business connection path between two persons through shared companies and board positions. Shows how two business people are connected (degrees of separation).
 
-WORKFLOW: 
+WORKFLOW:
 1. First use proff_search_persons to find personId for BOTH persons
 2. Then use this tool with both personIds
 
@@ -1029,44 +1029,44 @@ Use when users ask about:
  */
 async function executeProffTool(toolName, args) {
   const userId = userStore.user_id || 'system'
-  
+
   try {
     if (toolName === 'proff_search_companies') {
       const response = await fetch(`${PROFF_API_BASE}/search?query=${encodeURIComponent(args.query)}&userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'proff_get_financials') {
       const response = await fetch(`${PROFF_API_BASE}/financials/${args.orgNr}?userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'proff_get_company_details') {
       const response = await fetch(`${PROFF_API_BASE}/company/${args.orgNr}?userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'proff_search_persons') {
       const response = await fetch(`${PROFF_API_BASE}/persons?query=${encodeURIComponent(args.query)}&userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'proff_get_person_details') {
       const response = await fetch(`${PROFF_API_BASE}/person/${args.personId}?userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'proff_find_business_network') {
       const response = await fetch(`${PROFF_API_BASE}/network?from=${args.fromPersonId}&to=${args.toPersonId}&userId=${userId}`)
       if (!response.ok) throw new Error(`Proff API error: ${response.status}`)
       return await response.json()
     }
-    
+
     throw new Error(`Unknown tool: ${toolName}`)
   } catch (error) {
     console.error('Proff tool execution error:', error)
@@ -1090,7 +1090,7 @@ async function executeSourcesTool(toolName, args) {
       if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'sources_get_hearings') {
       let url = `${SOURCES_API_BASE}/hearings`
       if (args.topic) url += `?topic=${encodeURIComponent(args.topic)}`
@@ -1098,7 +1098,7 @@ async function executeSourcesTool(toolName, args) {
       if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'sources_environment_news') {
       let url = `${SOURCES_API_BASE}/environment`
       if (args.limit) url += `?limit=${args.limit}`
@@ -1106,13 +1106,13 @@ async function executeSourcesTool(toolName, args) {
       if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
       return await response.json()
     }
-    
+
     if (toolName === 'sources_list_feeds') {
       const response = await fetch(`${SOURCES_API_BASE}/feeds`)
       if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
       return await response.json()
     }
-    
+
     throw new Error(`Unknown sources tool: ${toolName}`)
   } catch (error) {
     console.error('Sources tool execution error:', error)
@@ -1131,25 +1131,25 @@ async function executeSourcesTool(toolName, args) {
 async function processToolCalls(data, grokMessages, endpoint, requestBody) {
   const toolCalls = data.choices?.[0]?.message?.tool_calls || []
   if (!toolCalls.length) return { message: null, usedProffAPI: false, usedSourcesAPI: false, proffData: null, sourcesData: null }
-  
+
   console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
-  
+
   // Track which APIs were used
   const usedProffAPI = toolCalls.some(t => t.function.name.startsWith('proff_'))
   const usedSourcesAPI = toolCalls.some(t => t.function.name.startsWith('sources_'))
-  
+
   // Collect raw data from tool results
   let proffData = null
   let sourcesData = null
-  
+
   // Execute all tool calls
   const toolResults = []
   for (const toolCall of toolCalls) {
     const { name, arguments: argsStr } = toolCall.function
     const args = JSON.parse(argsStr)
-    
+
     console.log(`Executing tool: ${name}`, args)
-    
+
     // Route to appropriate executor
     let result
     if (name.startsWith('sources_')) {
@@ -1171,7 +1171,7 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
       if (result.paths) proffData.paths = result.paths
       if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
     }
-    
+
     toolResults.push({
       tool_call_id: toolCall.id,
       role: 'tool',
@@ -1179,14 +1179,14 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
       content: JSON.stringify(result, null, 2)
     })
   }
-  
+
   // Build new messages with assistant's tool call and tool results
   const newMessages = [
     ...grokMessages,
     data.choices[0].message, // Assistant message with tool_calls
     ...toolResults
   ]
-  
+
   // Make follow-up request without tools (to get final response)
   const followUpBody = {
     ...requestBody,
@@ -1196,19 +1196,19 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
   }
   delete followUpBody.tools
   delete followUpBody.tool_choice
-  
+
   const followUpResponse = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(followUpBody)
   })
-  
+
   if (!followUpResponse.ok) {
     throw new Error(`Follow-up API error: ${followUpResponse.status}`)
   }
-  
+
   const followUpData = await followUpResponse.json()
-  return { 
+  return {
     message: followUpData.choices?.[0]?.message?.content,
     usedProffAPI,
     usedSourcesAPI,
@@ -2175,7 +2175,7 @@ const insertAsNode = (message, nodeType) => {
     })
     return
   }
-  
+
   emit('insert-node', {
     type: nodeType,
     content: message.content,
@@ -2189,7 +2189,7 @@ const insertAsNetwork = (message) => {
     console.warn('No network data found in message')
     return
   }
-  
+
   emit('insert-network', {
     content: message.content,
     networkData: message.proffData
@@ -2204,8 +2204,8 @@ const hasPersonData = (message) => {
   }
   console.log('hasPersonData: proffData keys:', Object.keys(message.proffData))
   // Check for person data from any Proff tool
-  return message.proffData.person || 
-         message.proffData.persons || 
+  return message.proffData.person ||
+         message.proffData.persons ||
          message.proffData.proff_search_persons ||
          message.proffData.proff_get_person_details ||
          (message.content && message.content.includes('personId'))
@@ -2215,7 +2215,7 @@ const hasPersonData = (message) => {
 const hasCompanyData = (message) => {
   if (!message?.proffData) return false
   console.log('hasCompanyData: proffData keys:', Object.keys(message.proffData))
-  return message.proffData.company || 
+  return message.proffData.company ||
          message.proffData.companies ||
          message.proffData.proff_search_companies ||
          message.proffData.proff_get_company_details ||
@@ -2226,8 +2226,8 @@ const hasCompanyData = (message) => {
 const hasNetworkData = (message) => {
   if (!message?.proffData) return false
   console.log('hasNetworkData: proffData keys:', Object.keys(message.proffData))
-  return message.proffData.paths || 
-         message.proffData.network || 
+  return message.proffData.paths ||
+         message.proffData.network ||
          message.proffData.proff_find_business_network ||
          message.proffData.degreesOfSeparation !== undefined
 }
@@ -2966,7 +2966,7 @@ const initializeChatHistory = async (forceReload = false, keySnapshot = sessionS
     try {
       // Always fetch available sessions when initializing
       fetchChatSessions()
-      
+
       // Only try to load existing session, don't create a new one yet
       const cachedSessionId = getStoredSessionId()
       if (cachedSessionId) {
@@ -3482,7 +3482,7 @@ WORKFLOW FOR COMPANIES:
 
 WORKFLOW FOR FINDING CONNECTIONS BETWEEN PEOPLE:
 1. proff_search_persons - Search for FIRST person by name → get their personId
-2. proff_search_persons - Search for SECOND person by name → get their personId  
+2. proff_search_persons - Search for SECOND person by name → get their personId
 3. proff_find_business_network - Use BOTH personIds to find the shortest path/connection between them
 
 WORKFLOW FOR EXPLORING A PERSON:
@@ -3499,7 +3499,7 @@ EXAMPLES:
       if (useSourcesTools.value) {
         toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
 - sources_search - Search across Norwegian news, government, research sources
-- sources_get_hearings - Get public hearings (høringer) 
+- sources_get_hearings - Get public hearings (høringer)
 - sources_environment_news - Environment/climate news
 - sources_list_feeds - List all available sources
 
@@ -3728,22 +3728,22 @@ Use this context to provide relevant insights and answers about the knowledge gr
     } else if (currentProvider === 'claude' && data.stop_reason === 'tool_use') {
       // Claude tool use handling - supports multi-step chains
       console.log('Claude tool use detected, starting tool chain...')
-      
+
       let currentData = data
       let currentMessages = [...requestBody.messages]
       let maxIterations = 5 // Safety limit
       let iterations = 0
-      
+
       try {
         while (currentData.stop_reason === 'tool_use' && iterations < maxIterations) {
           iterations++
-          
+
           // Find all tool_use blocks in the response
           const toolUseBlocks = currentData.content?.filter(c => c.type === 'tool_use') || []
           console.log(`Claude iteration ${iterations}: ${toolUseBlocks.length} tool(s) to execute`)
-          
+
           if (toolUseBlocks.length === 0) break
-          
+
           // Track which APIs are used
           if (toolUseBlocks.some(t => t.name.startsWith('proff_'))) {
             usedProffAPI = true
@@ -3751,12 +3751,12 @@ Use this context to provide relevant insights and answers about the knowledge gr
           if (toolUseBlocks.some(t => t.name.startsWith('sources_'))) {
             usedSourcesAPI = true
           }
-          
+
           // Execute all tools and collect results
           const toolResults = []
           for (const toolBlock of toolUseBlocks) {
             console.log(`  Executing: ${toolBlock.name}`, toolBlock.input)
-            
+
             // Route to appropriate executor
             let result
             if (toolBlock.name.startsWith('sources_')) {
@@ -3778,48 +3778,48 @@ Use this context to provide relevant insights and answers about the knowledge gr
               if (result.paths) proffData.paths = result.paths
               if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
             }
-            
+
             toolResults.push({
               type: 'tool_result',
               tool_use_id: toolBlock.id,
               content: JSON.stringify(result, null, 2)
             })
           }
-          
+
           // Build next request with tool results
           currentMessages = [
             ...currentMessages,
             { role: 'assistant', content: currentData.content },
             { role: 'user', content: toolResults }
           ]
-          
+
           const nextBody = {
             ...requestBody,
             messages: currentMessages
             // Keep tools so Claude can make more calls if needed
           }
-          
+
           const nextResponse = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(nextBody)
           })
-          
+
           if (!nextResponse.ok) {
             throw new Error(`Claude follow-up error: ${nextResponse.status}`)
           }
-          
+
           currentData = await nextResponse.json()
           console.log(`  Response stop_reason: ${currentData.stop_reason}`)
         }
-        
+
         // Extract final text response
         aiMessage = currentData.content?.find(c => c.type === 'text')?.text
-        
+
         if (!aiMessage && iterations >= maxIterations) {
           aiMessage = 'Tool chain reached maximum iterations. Please try a simpler question.'
         }
-        
+
       } catch (toolError) {
         console.error('Claude tool chain error:', toolError)
         aiMessage = data.content?.find(c => c.type === 'text')?.text || `Tool error: ${toolError.message}`

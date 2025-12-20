@@ -211,7 +211,7 @@ async function handleChat(request, env, corsHeaders) {
     if (frequency_penalty !== undefined && frequency_penalty !== 0) requestBody.frequency_penalty = frequency_penalty;
     if (presence_penalty !== undefined && presence_penalty !== 0) requestBody.presence_penalty = presence_penalty;
     if (stream !== undefined && stream !== false) requestBody.stream = stream;
-    
+
     // Add function calling parameters
     if (tools && Array.isArray(tools) && tools.length > 0) {
       requestBody.tools = tools;
@@ -299,7 +299,7 @@ async function handleModelEndpoint(request, env, corsHeaders, modelName) {
     } else if (max_tokens !== undefined) {
       requestBody.max_tokens = max_tokens;
     }
-    
+
     // Add function calling parameters
     if (tools && Array.isArray(tools) && tools.length > 0) {
       requestBody.tools = tools;

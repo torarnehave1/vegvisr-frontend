@@ -14,14 +14,14 @@
 
       <!-- Network Visualization -->
       <div class="network-path">
-        <div 
-          v-for="(pathNode, index) in pathNodes" 
+        <div
+          v-for="(pathNode, index) in pathNodes"
           :key="index"
           class="path-step"
         >
           <!-- Person Node -->
-          <div 
-            v-if="pathNode.type === 'person'" 
+          <div
+            v-if="pathNode.type === 'person'"
             class="path-node person-node"
             :class="{ 'endpoint': index === 0 || index === pathNodes.length - 1 }"
             @click="handleNodeClick(pathNode)"
@@ -39,8 +39,8 @@
           </div>
 
           <!-- Company Node -->
-          <div 
-            v-else-if="pathNode.type === 'company'" 
+          <div
+            v-else-if="pathNode.type === 'company'"
             class="path-node company-node"
             @click="handleNodeClick(pathNode)"
           >
@@ -86,8 +86,8 @@
           <span class="section-icon">🔀</span> Alternative forbindelser
         </h4>
         <div class="alt-path-list">
-          <div 
-            v-for="(altPath, index) in alternatePaths" 
+          <div
+            v-for="(altPath, index) in alternatePaths"
             :key="index"
             class="alt-path-item"
             @click="selectAlternatePath(index)"
@@ -104,8 +104,8 @@
           <span class="section-icon">🔗</span> Relaterte lenker
         </h4>
         <div class="links-list">
-          <a 
-            v-for="(link, index) in relatedLinks" 
+          <a
+            v-for="(link, index) in relatedLinks"
             :key="index"
             :href="link.url"
             target="_blank"
@@ -224,7 +224,7 @@ const formattedPathDescription = computed(() => {
 const connectionDetails = computed(() => {
   const data = nodeData.value
   const details = []
-  
+
   if (data.fromPersonId) {
     details.push({ label: 'Fra PersonId', value: data.fromPersonId })
   }
@@ -237,7 +237,7 @@ const connectionDetails = computed(() => {
   if (data.pathLength) {
     details.push({ label: 'Sti-lengde', value: data.pathLength })
   }
-  
+
   return details
 })
 
@@ -316,8 +316,8 @@ const selectAlternatePath = (index) => {
 
 const expandNetwork = () => {
   // Emit event to trigger network expansion in parent
-  emit('node-updated', { 
-    ...props.node, 
+  emit('node-updated', {
+    ...props.node,
     _action: 'expand-network',
     _expandParams: {
       personIds: pathNodes.value
@@ -671,16 +671,16 @@ const deleteNode = () => {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .path-step {
     flex-direction: column;
   }
-  
+
   .path-connector {
     transform: rotate(90deg);
     padding: 8px 0;
   }
-  
+
   .path-node {
     min-width: 100%;
   }

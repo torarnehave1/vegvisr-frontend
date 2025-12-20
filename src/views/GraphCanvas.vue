@@ -219,7 +219,7 @@
       >
         📝 Add Full Text Node
       </button>
-      
+
       <!-- Case Study Node Types -->
       <div class="menu-subheader mt-2">📊 Case Study</div>
       <button
@@ -258,7 +258,7 @@
       >
         📰 News Feed
       </button>
-      
+
       <div class="menu-subheader mt-2">Tools</div>
       <button
         class="btn btn-outline-primary btn-sm"
@@ -2126,7 +2126,7 @@ const createNodeTemplate = (type) => {
         info: 'Add your full text content here.',
         bibl: [],
       }
-    
+
     case 'person-profile':
       return {
         ...baseNode,
@@ -2147,7 +2147,7 @@ const createNodeTemplate = (type) => {
         },
         info: 'Bruk AI Chat til å søke etter en person: "Finn person Christine Myrseth"',
       }
-    
+
     case 'company-card':
       return {
         ...baseNode,
@@ -2169,7 +2169,7 @@ const createNodeTemplate = (type) => {
         },
         info: 'Bruk AI Chat til å søke etter en bedrift: "Finn bedrift SABIMA"',
       }
-    
+
     case 'network':
       return {
         ...baseNode,
@@ -2185,7 +2185,7 @@ const createNodeTemplate = (type) => {
         },
         info: 'Bruk AI Chat: "Finn forbindelser mellom Person A og Person B"',
       }
-    
+
     case 'news-feed':
       return {
         ...baseNode,
@@ -2381,10 +2381,10 @@ const updateEdgeInfo = () => {
 
 const deleteSelectedEdge = async () => {
   if (!selectedEdge.value || !cyInstance.value) return
-  
+
   const confirmed = confirm('Delete this edge?')
   if (!confirmed) return
-  
+
   cyInstance.value.remove(selectedEdge.value)
   selectedEdge.value = null
   edgeInfoText.value = ''
@@ -3094,7 +3094,7 @@ const insertAIResponseAsNode = async (payload) => {
     // Extract person data from various possible structures
     // rawData may have: person, persons, proff_search_persons, proff_get_person_details
     let person = rawData.person || rawData.persons?.[0]
-    
+
     // Check for tool-name keyed results
     if (!person && rawData.proff_search_persons?.persons) {
       person = rawData.proff_search_persons.persons[0]
@@ -3106,9 +3106,9 @@ const insertAIResponseAsNode = async (payload) => {
       // Sometimes the person data is directly in the result
       person = rawData.proff_get_person_details
     }
-    
+
     console.log('Extracted person:', person)
-    
+
     if (person) {
       // Store BOTH AI response AND raw Proff data in info field
       const nodeInfo = {
@@ -3128,7 +3128,7 @@ const insertAIResponseAsNode = async (payload) => {
         showRoles: true,
         showConnections: true
       }
-      
+
       nodeData = {
         ...nodeData,
         label: person.name || 'Person Profile',
@@ -3147,7 +3147,7 @@ const insertAIResponseAsNode = async (payload) => {
   } else if (type === 'company-card' && rawData) {
     // Extract company data from various possible structures
     let company = rawData.company || rawData.companies?.[0]
-    
+
     // Check for tool-name keyed results
     if (!company && rawData.proff_search_companies?.companies) {
       company = rawData.proff_search_companies.companies[0]
@@ -3158,9 +3158,9 @@ const insertAIResponseAsNode = async (payload) => {
     if (!company && rawData.proff_get_company_details) {
       company = rawData.proff_get_company_details
     }
-    
+
     console.log('Extracted company:', company)
-    
+
     if (company) {
       // Store BOTH AI response AND raw Proff data
       const nodeInfo = {
@@ -3179,7 +3179,7 @@ const insertAIResponseAsNode = async (payload) => {
         showBoard: true,
         showAddress: true
       }
-      
+
       nodeData = {
         ...nodeData,
         label: company.name || 'Company Card',
@@ -3197,7 +3197,7 @@ const insertAIResponseAsNode = async (payload) => {
   } else if (type === 'news-feed' && rawData) {
     // Extract results from sources data
     const results = rawData.results || rawData.sources_search?.results || []
-    
+
     // Store BOTH AI response AND raw sources data
     const nodeInfo = {
       aiResponse: content || '',
@@ -3207,7 +3207,7 @@ const insertAIResponseAsNode = async (payload) => {
         lastUpdated: new Date().toISOString()
       }
     }
-    
+
     nodeData = {
       ...nodeData,
       label: 'News Feed',
@@ -3240,7 +3240,7 @@ const insertAIResponseAsNetwork = async (payload) => {
   if (!cyInstance.value) return
 
   const { content, networkData } = payload
-  
+
   if (!networkData?.paths && !networkData?.degreesOfSeparation) {
     showStatus('No network data found', 'warning')
     return

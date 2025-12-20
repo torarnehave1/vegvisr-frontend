@@ -25,10 +25,10 @@
         <div class="panel-section">
           <h3>🔍 Søk i Proff</h3>
           <div class="search-box">
-            <input 
-              v-model="searchQuery" 
+            <input
+              v-model="searchQuery"
               @keyup.enter="searchProff"
-              type="text" 
+              type="text"
               placeholder="Søk etter person eller bedrift..."
               class="search-input"
             />
@@ -36,17 +36,17 @@
               {{ isSearching ? '⏳' : '🔍' }}
             </button>
           </div>
-          
+
           <!-- Search Type Toggle -->
           <div class="search-type-toggle">
-            <button 
-              @click="searchType = 'person'" 
+            <button
+              @click="searchType = 'person'"
               :class="{ active: searchType === 'person' }"
             >
               👤 Person
             </button>
-            <button 
-              @click="searchType = 'company'" 
+            <button
+              @click="searchType = 'company'"
               :class="{ active: searchType === 'company' }"
             >
               🏢 Bedrift
@@ -56,8 +56,8 @@
           <!-- Search Results -->
           <div v-if="searchResults.length > 0" class="search-results">
             <h4>Resultater ({{ searchResults.length }})</h4>
-            <div 
-              v-for="result in searchResults" 
+            <div
+              v-for="result in searchResults"
               :key="result.id"
               class="search-result-item"
               @click="addToSelection(result)"
@@ -81,10 +81,10 @@
         <div class="panel-section">
           <h3>📰 Legg til nyheter</h3>
           <div class="search-box">
-            <input 
-              v-model="newsQuery" 
+            <input
+              v-model="newsQuery"
               @keyup.enter="searchNews"
-              type="text" 
+              type="text"
               placeholder="Søkeord for nyheter..."
               class="search-input"
             />
@@ -92,7 +92,7 @@
               {{ isSearchingNews ? '⏳' : '📰' }}
             </button>
           </div>
-          
+
           <!-- News Sources -->
           <div class="news-sources">
             <label v-for="source in availableSources" :key="source.id" class="source-checkbox">
@@ -103,8 +103,8 @@
 
           <!-- News Results -->
           <div v-if="newsResults.length > 0" class="news-results">
-            <div 
-              v-for="(article, idx) in newsResults.slice(0, 5)" 
+            <div
+              v-for="(article, idx) in newsResults.slice(0, 5)"
               :key="idx"
               class="news-item"
               @click="addNewsToSelection(article)"
@@ -126,13 +126,13 @@
               <option value="quote">💬 Sitat</option>
               <option value="highlight">⭐ Fremhevet punkt</option>
             </select>
-            <textarea 
+            <textarea
               v-model="customContentText"
               placeholder="Skriv inn innhold..."
               class="custom-textarea"
               rows="3"
             ></textarea>
-            <input 
+            <input
               v-if="customContentType === 'link'"
               v-model="customContentUrl"
               type="url"
@@ -156,9 +156,9 @@
         <!-- Case Study Title -->
         <div class="case-title-section">
           <label>Case Study Tittel</label>
-          <input 
-            v-model="caseTitle" 
-            type="text" 
+          <input
+            v-model="caseTitle"
+            type="text"
             placeholder="F.eks. 'Christine Myrseth - Naturvernleder'"
             class="title-input"
           />
@@ -168,8 +168,8 @@
         <div v-if="selectedPersons.length > 0" class="selection-group">
           <h3>👤 Personer ({{ selectedPersons.length }})</h3>
           <div class="sortable-list">
-            <div 
-              v-for="(element, index) in selectedPersons" 
+            <div
+              v-for="(element, index) in selectedPersons"
               :key="element.id"
               class="selected-item person-item"
             >
@@ -177,7 +177,7 @@
               <div class="item-content">
                 <strong>{{ element.name }}</strong>
                 <span class="item-detail">{{ element.detail }}</span>
-                
+
                 <!-- Adjustable Settings -->
                 <div class="item-settings">
                   <label class="setting-checkbox">
@@ -207,8 +207,8 @@
         <div v-if="selectedCompanies.length > 0" class="selection-group">
           <h3>🏢 Bedrifter ({{ selectedCompanies.length }})</h3>
           <div class="sortable-list">
-            <div 
-              v-for="(element, index) in selectedCompanies" 
+            <div
+              v-for="(element, index) in selectedCompanies"
               :key="element.id"
               class="selected-item company-item"
             >
@@ -216,7 +216,7 @@
               <div class="item-content">
                 <strong>{{ element.name }}</strong>
                 <span class="item-detail">Org.nr: {{ element.orgNumber }}</span>
-                
+
                 <div class="item-settings">
                   <label class="setting-checkbox">
                     <input type="checkbox" v-model="element.showFinancials" />
@@ -245,8 +245,8 @@
         <div v-if="selectedNews.length > 0" class="selection-group">
           <h3>📰 Nyheter ({{ selectedNews.length }})</h3>
           <div class="sortable-list">
-            <div 
-              v-for="(element, index) in selectedNews" 
+            <div
+              v-for="(element, index) in selectedNews"
               :key="element.id"
               class="selected-item news-item-selected"
             >
@@ -268,8 +268,8 @@
         <div v-if="customContents.length > 0" class="selection-group">
           <h3>✏️ Egendefinert ({{ customContents.length }})</h3>
           <div class="sortable-list">
-            <div 
-              v-for="(element, index) in customContents" 
+            <div
+              v-for="(element, index) in customContents"
               :key="element.id"
               class="selected-item custom-item"
             >
@@ -318,8 +318,8 @@
           <!-- Cards Preview -->
           <div v-if="previewMode === 'cards'" class="preview-cards">
             <!-- Person Cards -->
-            <div 
-              v-for="person in selectedPersons" 
+            <div
+              v-for="person in selectedPersons"
               :key="'p-' + person.id"
               class="preview-card person-card"
             >
@@ -332,8 +332,8 @@
             </div>
 
             <!-- Company Cards -->
-            <div 
-              v-for="company in selectedCompanies" 
+            <div
+              v-for="company in selectedCompanies"
               :key="'c-' + company.id"
               class="preview-card company-card"
             >
@@ -472,9 +472,9 @@ const generatingProgress = ref(0)
 
 // Computed
 const totalSelectedItems = computed(() => {
-  return selectedPersons.value.length + 
-         selectedCompanies.value.length + 
-         selectedNews.value.length + 
+  return selectedPersons.value.length +
+         selectedCompanies.value.length +
+         selectedNews.value.length +
          customContents.value.length
 })
 
@@ -485,17 +485,17 @@ const canGenerate = computed(() => {
 // Methods
 const searchProff = async () => {
   if (!searchQuery.value.trim()) return
-  
+
   isSearching.value = true
   hasSearched.value = false
   lastSearchQuery.value = searchQuery.value
   searchResults.value = []
 
   try {
-    const endpoint = searchType.value === 'person' 
+    const endpoint = searchType.value === 'person'
       ? `https://proff.vegvisr.org/person/search?query=${encodeURIComponent(searchQuery.value)}`
       : `https://proff.vegvisr.org/company/search?query=${encodeURIComponent(searchQuery.value)}`
-    
+
     const response = await fetch(endpoint)
     const data = await response.json()
 
@@ -541,7 +541,7 @@ const searchProff = async () => {
 
 const searchNews = async () => {
   if (!newsQuery.value.trim()) return
-  
+
   isSearchingNews.value = true
   newsResults.value = []
 
@@ -551,7 +551,7 @@ const searchNews = async () => {
       `https://sources-worker.torarnehave.workers.dev/search?query=${encodeURIComponent(newsQuery.value)}&sources=${sources}&days=90`
     )
     const data = await response.json()
-    
+
     if (data.results) {
       newsResults.value = data.results.map((r, idx) => ({
         id: `news-${idx}-${Date.now()}`,
@@ -591,14 +591,14 @@ const addNewsToSelection = (article) => {
 
 const addCustomContent = () => {
   if (!customContentText.value.trim()) return
-  
+
   customContents.value.push({
     id: `custom-${Date.now()}`,
     type: customContentType.value,
     text: customContentText.value,
     url: customContentUrl.value || null
   })
-  
+
   customContentText.value = ''
   customContentUrl.value = ''
 }
@@ -638,10 +638,10 @@ const moveItem = (type, index, direction) => {
     default:
       return
   }
-  
+
   const newIndex = index + direction
   if (newIndex < 0 || newIndex >= array.length) return
-  
+
   const item = array.splice(index, 1)[0]
   array.splice(newIndex, 0, item)
 }
@@ -660,7 +660,7 @@ const resetBuilder = () => {
 
 const generateCaseStudy = async () => {
   if (!canGenerate.value) return
-  
+
   showGeneratingModal.value = true
   generatingProgress.value = 0
   generatingStatus.value = 'Forbereder data...'
@@ -685,7 +685,7 @@ const generateCaseStudy = async () => {
     for (const person of selectedPersons.value) {
       generatingStatus.value = `Henter data for ${person.name}...`
       generatingProgress.value = 20 + (30 * nodes.length / (selectedPersons.value.length + selectedCompanies.value.length))
-      
+
       // Fetch full person data
       let personData = person
       try {
@@ -744,7 +744,7 @@ const generateCaseStudy = async () => {
     for (const company of selectedCompanies.value) {
       generatingStatus.value = `Henter data for ${company.name}...`
       generatingProgress.value = 50 + (20 * nodes.length / (selectedPersons.value.length + selectedCompanies.value.length))
-      
+
       let companyData = company
       try {
         const response = await fetch(`https://proff.vegvisr.org/company/${company.orgNumber}`)
@@ -782,7 +782,7 @@ const generateCaseStudy = async () => {
     if (selectedNews.value.length > 0) {
       generatingStatus.value = 'Oppretter nyhetsstrøm...'
       generatingProgress.value = 80
-      
+
       nodes.push({
         id: `cs-news-${Date.now()}`,
         type: 'news-feed',
@@ -810,7 +810,7 @@ const generateCaseStudy = async () => {
     for (const custom of customContents.value) {
       generatingStatus.value = 'Legger til egendefinert innhold...'
       generatingProgress.value = 90
-      
+
       let info = custom.text
       if (custom.type === 'link' && custom.url) {
         info = `[${custom.text}](${custom.url})`
@@ -819,7 +819,7 @@ const generateCaseStudy = async () => {
       } else if (custom.type === 'highlight') {
         info = `⭐ **${custom.text}**`
       }
-      
+
       nodes.push({
         id: `cs-custom-${custom.id}`,
         type: 'fulltext',
@@ -852,7 +852,7 @@ const generateCaseStudy = async () => {
 
     setTimeout(() => {
       showGeneratingModal.value = false
-      
+
       // Navigate to graph viewer with the case study
       if (generateOptions.value.createNewGraph) {
         router.push({
@@ -1566,12 +1566,12 @@ onMounted(() => {
   .builder-layout {
     grid-template-columns: 1fr;
   }
-  
+
   .search-panel,
   .preview-panel {
     order: 2;
   }
-  
+
   .selection-panel {
     order: 1;
   }

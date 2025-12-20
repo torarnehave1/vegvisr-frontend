@@ -43,8 +43,8 @@
             </div>
           </div>
         </div>
-        <button 
-          v-if="roles.length > 3 && !showAllRoles" 
+        <button
+          v-if="roles.length > 3 && !showAllRoles"
           @click="showAllRoles = true"
           class="show-more-btn"
         >
@@ -58,9 +58,9 @@
           <span class="section-icon">🔗</span> Forbindelser ({{ connections.length }})
         </h4>
         <div class="connections-list">
-          <div 
-            v-for="(conn, index) in displayedConnections" 
-            :key="index" 
+          <div
+            v-for="(conn, index) in displayedConnections"
+            :key="index"
             class="connection-item"
             @click="emitConnectionClick(conn)"
           >
@@ -73,8 +73,8 @@
             </span>
           </div>
         </div>
-        <button 
-          v-if="connections.length > 5 && !showAllConnections" 
+        <button
+          v-if="connections.length > 5 && !showAllConnections"
           @click="showAllConnections = true"
           class="show-more-btn"
         >
@@ -100,8 +100,8 @@
           <span class="section-icon">🌐</span> Sosiale medier
         </h4>
         <div class="social-links">
-          <a 
-            v-for="(link, index) in socialLinks" 
+          <a
+            v-for="(link, index) in socialLinks"
             :key="index"
             :href="link.url"
             target="_blank"
@@ -690,11 +690,11 @@ const deleteNode = () => {
     align-items: center;
     text-align: center;
   }
-  
+
   .person-meta {
     justify-content: center;
   }
-  
+
   .roles-grid {
     grid-template-columns: 1fr;
   }

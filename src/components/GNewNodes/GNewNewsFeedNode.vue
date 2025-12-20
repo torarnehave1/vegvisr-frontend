@@ -11,9 +11,9 @@
           <p v-if="subtitle" class="feed-subtitle">{{ subtitle }}</p>
         </div>
         <div class="header-actions">
-          <button 
-            v-if="canRefresh" 
-            @click="refreshFeed" 
+          <button
+            v-if="canRefresh"
+            @click="refreshFeed"
             class="refresh-btn"
             :class="{ 'loading': isRefreshing }"
             title="Oppdater"
@@ -26,8 +26,8 @@
 
       <!-- Source Filters -->
       <div v-if="availableSources.length > 1" class="source-filters">
-        <button 
-          v-for="source in availableSources" 
+        <button
+          v-for="source in availableSources"
           :key="source.id"
           @click="toggleSourceFilter(source.id)"
           class="source-filter-btn"
@@ -41,8 +41,8 @@
 
       <!-- Articles List -->
       <div class="articles-container">
-        <article 
-          v-for="(article, index) in displayedArticles" 
+        <article
+          v-for="(article, index) in displayedArticles"
           :key="index"
           class="article-card"
         >
@@ -106,8 +106,8 @@
         <div class="footer-sources">
           <span class="footer-label">Kilder:</span>
           <div class="source-logos">
-            <span 
-              v-for="source in uniqueSources" 
+            <span
+              v-for="source in uniqueSources"
               :key="source.id"
               class="footer-source"
               :title="source.name"
@@ -240,7 +240,7 @@ const truncateText = (text, maxLength) => {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-  
+
   if (decoded.length <= maxLength) return decoded
   return decoded.slice(0, maxLength).trim() + '...'
 }
@@ -253,13 +253,13 @@ const formatDate = (dateStr) => {
     const diffMs = now - date
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    
+
     if (diffHours < 1) return 'Nå'
     if (diffHours < 24) return `${diffHours}t siden`
     if (diffDays < 7) return `${diffDays}d siden`
-    
-    return date.toLocaleDateString('nb-NO', { 
-      day: 'numeric', 
+
+    return date.toLocaleDateString('nb-NO', {
+      day: 'numeric',
       month: 'short',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     })
@@ -297,17 +297,17 @@ const loadMore = () => {
 const refreshFeed = async () => {
   if (isRefreshing.value) return
   isRefreshing.value = true
-  
+
   // Emit event for parent to handle refresh
-  emit('node-updated', { 
-    ...props.node, 
+  emit('node-updated', {
+    ...props.node,
     _action: 'refresh-feed',
     _refreshParams: {
       query: nodeData.value.query,
       sources: nodeData.value.sources
     }
   })
-  
+
   // Reset after animation
   setTimeout(() => {
     isRefreshing.value = false
@@ -687,17 +687,17 @@ const deleteNode = () => {
     flex-direction: column;
     gap: 12px;
   }
-  
+
   .header-actions {
     width: 100%;
     justify-content: space-between;
   }
-  
+
   .article-meta {
     flex-direction: column;
     gap: 6px;
   }
-  
+
   .feed-footer {
     flex-direction: column;
     gap: 8px;
