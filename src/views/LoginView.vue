@@ -309,6 +309,11 @@ async function fetchUserContext(targetEmail) {
   const roleRes = await fetch(
     `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(targetEmail)}`,
   )
+  
+  if (!roleRes.ok) {
+    throw new Error(`User not found or role unavailable (status: ${roleRes.status})`)
+  }
+  
   const roleData = await roleRes.json()
 
   if (!roleData || !roleData.role) {
@@ -318,6 +323,11 @@ async function fetchUserContext(targetEmail) {
   const userDataRes = await fetch(
     `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(targetEmail)}`,
   )
+  
+  if (!userDataRes.ok) {
+    throw new Error(`Unable to fetch user data (status: ${userDataRes.status})`)
+  }
+  
   const userData = await userDataRes.json()
 
   return {
@@ -329,6 +339,7 @@ async function fetchUserContext(targetEmail) {
     phone: userData.phone,
     phoneVerifiedAt: userData.phoneVerifiedAt,
     branding: userData.branding,
+    profileimage: userData.profileimage,
   }
 }
 
@@ -552,40 +563,51 @@ async function handleLinkedInCallback() {
 
     console.log('[LoginView] LinkedIn user:', { email: linkedInEmail, name: linkedInName })
 
-    // Fetch or create user context
+    // Try to fetch existing user context
     let userContext
+    let isNewUser = false
+    
     try {
       userContext = await fetchUserContext(linkedInEmail)
+      console.log('[LoginView] Existing user found:', userContext.email)
     } catch (err) {
-      console.log('[LoginView] User not found, creating new user...')
-      // Create new user via registration API
-      const registerRes = await fetch('https://dashboard.vegvisr.org/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: linkedInEmail,
-          name: linkedInName,
-          oauth_provider: 'linkedin',
-          oauth_id: linkedInId,
-          profile_image: linkedInPicture
-        })
-      })
+      console.log('[LoginView] User not found, creating new user via /sve2...')
+      isNewUser = true
+      
+      // Create new user via /sve2 endpoint (main-worker registration)
+      const registerRes = await fetch(
+        `https://test.vegvisr.org/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
+      )
 
       if (!registerRes.ok) {
-        const errorData = await registerRes.json()
-        throw new Error(errorData.error || 'Failed to register user')
+        const errorText = await registerRes.text()
+        console.error('[LoginView] Registration failed:', errorText)
+        throw new Error('Failed to create user account')
       }
 
-      // Fetch the newly created user
-      userContext = await fetchUserContext(linkedInEmail)
+      // Wait a moment for database to sync, then fetch the newly created user
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      try {
+        userContext = await fetchUserContext(linkedInEmail)
+      } catch (fetchErr) {
+        // If still can't fetch, create a minimal context
+        console.log('[LoginView] Creating minimal user context for new user')
+        userContext = {
+          email: linkedInEmail,
+          role: 'User',
+          user_id: null,
+          profileimage: linkedInPicture || null,
+        }
+      }
     }
 
-    // Set profile image from LinkedIn if available
+    // Update profile image from LinkedIn if available and not already set
     if (linkedInPicture && !userContext.profileimage) {
       userContext.profileimage = linkedInPicture
     }
 
-    // Set user in store
+    // Set user in store - LinkedIn OAuth = verified identity
     userStore.setUser(userContext)
     sessionStorage.setItem('email_session_verified', '1')
 
@@ -600,7 +622,10 @@ async function handleLinkedInCallback() {
     cleanUrl.searchParams.delete('linkedin_picture')
     window.history.replaceState({}, document.title, cleanUrl.toString())
 
-    statusMessage.value = `Welcome, ${linkedInName || linkedInEmail}! Redirecting...`
+    const welcomeMsg = isNewUser 
+      ? `Welcome to Vegvisr, ${linkedInName || linkedInEmail}!`
+      : `Welcome back, ${linkedInName || linkedInEmail}!`
+    statusMessage.value = `${welcomeMsg} Redirecting...`
 
     // Redirect to dashboard
     setTimeout(() => {
