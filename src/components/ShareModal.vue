@@ -238,6 +238,20 @@ const linkedinPostUrl = ref('')
 const linkedinErrorMessage = ref('')
 const sharingToLinkedIn = ref(false)
 
+const primaryLinkedInBaseUrl = 'https://linkedin.vegvisr.org'
+const fallbackLinkedInBaseUrl = 'https://linkedin-worker.torarnehave.workers.dev'
+
+const requestLinkedIn = async (path, options = {}) => {
+  const primaryUrl = `${primaryLinkedInBaseUrl}${path}`
+  try {
+    return await fetch(primaryUrl, options)
+  } catch (error) {
+    console.warn('LinkedIn primary host failed, retrying with fallback:', error)
+    const fallbackUrl = `${fallbackLinkedInBaseUrl}${path}`
+    return await fetch(fallbackUrl, options)
+  }
+}
+
 // Methods
 const closeModal = () => {
   emit('close')
@@ -392,7 +406,7 @@ const checkLinkedInStatus = async () => {
   if (!userStore.email) return
 
   try {
-    const response = await fetch('https://linkedin.vegvisr.org/auth/status', {
+    const response = await requestLinkedIn('/auth/status', {
       headers: {
         'x-user-email': userStore.email,
       },
@@ -428,7 +442,7 @@ const shareToLinkedInWorker = async () => {
   sharingToLinkedIn.value = true
 
   try {
-    const response = await fetch('https://linkedin.vegvisr.org/share/article', {
+    const response = await requestLinkedIn('/share/article', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

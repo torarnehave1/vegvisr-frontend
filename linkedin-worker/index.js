@@ -25,6 +25,12 @@ export default {
     if (url.pathname === '/auth/status') {
       return await handleAuthStatus(request, env, corsHeaders)
     }
+    // Health check
+    if (url.pathname === '/health') {
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
     // Share article to LinkedIn
     if (url.pathname === '/share/article') {
       return await handleShareArticle(request, env, corsHeaders)
