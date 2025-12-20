@@ -109,6 +109,115 @@
           </button>
         </div>
 
+        <div class="linkedin-share-section mt-4">
+          <h6 class="section-title">
+            <i class="bi bi-linkedin"></i> Post to LinkedIn
+          </h6>
+          <p class="text-muted small">
+            Uses your SEO page to create a rich LinkedIn card.
+          </p>
+
+          <div v-if="!props.graphData?.metadata?.seoSlug" class="alert alert-info mb-3">
+            Generate an SEO page for this graph before posting to LinkedIn.
+          </div>
+
+          <div v-else-if="!userStore.email" class="alert alert-warning mb-3">
+            Sign in to connect LinkedIn and publish this graph.
+          </div>
+
+          <div v-else-if="!linkedinConnected" class="alert alert-info mb-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <span>Connect your LinkedIn account to publish this graph.</span>
+              <button @click="connectLinkedIn" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-linkedin"></i> Connect LinkedIn
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="linkedin-share-controls">
+            <div class="form-group mb-3">
+              <label class="form-label">Post as</label>
+              <div class="d-flex flex-wrap gap-3">
+                <label class="form-check-label">
+                  <input
+                    class="form-check-input me-2"
+                    type="radio"
+                    name="linkedinTarget"
+                    value="personal"
+                    v-model="linkedinTarget"
+                  />
+                  Personal profile (choose audience below)
+                </label>
+                <label class="form-check-label">
+                  <input
+                    class="form-check-input me-2"
+                    type="radio"
+                    name="linkedinTarget"
+                    value="organization"
+                    v-model="linkedinTarget"
+                  />
+                  Business page
+                </label>
+              </div>
+            </div>
+
+            <div v-if="linkedinTarget === 'organization'" class="form-group mb-3">
+              <label class="form-label">Organization</label>
+              <select v-model="linkedinOrganizationId" class="form-select" :disabled="linkedinOrganizations.length === 0">
+                <option value="" disabled>
+                  {{ linkedinOrganizations.length ? 'Select a business page' : 'No business pages found' }}
+                </option>
+                <option v-for="org in linkedinOrganizations" :key="org.id" :value="org.id">
+                  {{ org.label }}
+                </option>
+              </select>
+              <small class="text-muted d-block mt-1">
+                Only organizations you manage appear here.
+              </small>
+            </div>
+
+            <div v-else class="form-group mb-3">
+              <label class="form-label">Audience</label>
+              <select v-model="linkedinVisibility" class="form-select">
+                <option value="CONNECTIONS">Connections only (private)</option>
+                <option value="PUBLIC">Public</option>
+              </select>
+            </div>
+
+            <div class="form-group mb-3">
+              <label class="form-label">Commentary (optional)</label>
+              <textarea
+                v-model="linkedinCommentary"
+                class="form-control"
+                rows="3"
+                maxlength="1300"
+                placeholder="Add a short intro before the graph link..."
+              ></textarea>
+              <small class="text-muted">{{ linkedinCommentary.length }}/1300 characters</small>
+            </div>
+
+            <button
+              class="btn btn-linkedin w-100"
+              @click="shareToLinkedInWorker"
+              :disabled="sharingToLinkedIn || (linkedinTarget === 'organization' && !linkedinOrganizationId)"
+            >
+              <span v-if="sharingToLinkedIn" class="spinner-border spinner-border-sm me-2"></span>
+              {{ sharingToLinkedIn ? 'Posting...' : 'Publish to LinkedIn' }}
+            </button>
+
+            <div v-if="linkedinShareSuccess" class="alert alert-success mt-3">
+              LinkedIn post created.
+              <a v-if="linkedinPostUrl" :href="linkedinPostUrl" target="_blank" class="btn btn-sm btn-outline-success ms-2">
+                View post
+              </a>
+            </div>
+
+            <div v-if="linkedinErrorMessage" class="alert alert-danger mt-3">
+              {{ linkedinErrorMessage }}
+            </div>
+          </div>
+        </div>
+
         <!-- AI Share Success Message -->
         <div v-if="aiShareSuccess" class="alert alert-success mt-3" role="alert">
           <i class="bi bi-check-circle"></i> AI crawlable page link copied! AI systems can now read
@@ -163,6 +272,16 @@ const showAIShareComputed = computed(() => {
 const shareContent = ref('')
 const shareType = ref('dynamic') // Default to dynamic sharing
 const aiShareSuccess = ref(false)
+const linkedinConnected = ref(false)
+const linkedinOrganizations = ref([])
+const linkedinTarget = ref('personal')
+const linkedinOrganizationId = ref('')
+const linkedinVisibility = ref('CONNECTIONS')
+const linkedinCommentary = ref('')
+const linkedinShareSuccess = ref(false)
+const linkedinPostUrl = ref('')
+const linkedinErrorMessage = ref('')
+const sharingToLinkedIn = ref(false)
 
 // Methods
 const closeModal = () => {
@@ -314,11 +433,118 @@ const shareToAI = async () => {
   }
 }
 
+const checkLinkedInStatus = async () => {
+  if (!userStore.email) return
+
+  try {
+    const response = await fetch('https://linkedin.vegvisr.org/auth/status', {
+      headers: {
+        'x-user-email': userStore.email,
+      },
+    })
+    const data = await response.json()
+    linkedinConnected.value = Boolean(data.connected)
+
+    if (linkedinConnected.value) {
+      await loadLinkedInOrganizations()
+    }
+  } catch (error) {
+    console.error('Error checking LinkedIn status:', error)
+  }
+}
+
+const loadLinkedInOrganizations = async () => {
+  try {
+    const response = await fetch('https://linkedin.vegvisr.org/organizations', {
+      headers: {
+        'x-user-email': userStore.email,
+      },
+    })
+    const data = await response.json()
+    const orgs = Array.isArray(data.organizations) ? data.organizations : []
+    linkedinOrganizations.value = orgs.map((org) => {
+      const urn = org.organization || org.id || ''
+      const id = urn.split(':').pop() || urn
+      return {
+        id,
+        label: org.role ? `Organization ${id} (${org.role})` : `Organization ${id}`,
+        role: org.role || '',
+      }
+    })
+    if (linkedinOrganizations.value.length && !linkedinOrganizationId.value) {
+      linkedinOrganizationId.value = linkedinOrganizations.value[0].id
+    }
+  } catch (error) {
+    console.error('Error loading LinkedIn organizations:', error)
+  }
+}
+
+const connectLinkedIn = () => {
+  const returnUrl = encodeURIComponent(window.location.href)
+  window.location.href = `https://auth.vegvisr.org/auth/linkedin/login?return_url=${returnUrl}`
+}
+
+const shareToLinkedInWorker = async () => {
+  linkedinErrorMessage.value = ''
+  linkedinShareSuccess.value = false
+  linkedinPostUrl.value = ''
+
+  if (!userStore.email) {
+    linkedinErrorMessage.value = 'Sign in to publish to LinkedIn.'
+    return
+  }
+
+  if (!props.graphData?.metadata?.seoSlug) {
+    linkedinErrorMessage.value = 'Generate an SEO page before posting to LinkedIn.'
+    return
+  }
+
+  if (linkedinTarget.value === 'organization' && !linkedinOrganizationId.value) {
+    linkedinErrorMessage.value = 'Select a business page to publish.'
+    return
+  }
+
+  sharingToLinkedIn.value = true
+
+  try {
+    const response = await fetch('https://linkedin.vegvisr.org/share/article', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': userStore.email,
+      },
+      body: JSON.stringify({
+        userEmail: userStore.email,
+        graphId: props.currentGraphId,
+        seoSlug: props.graphData.metadata.seoSlug,
+        shareCommentary: linkedinCommentary.value,
+        visibility: linkedinTarget.value === 'personal' ? linkedinVisibility.value : undefined,
+        organizationId: linkedinTarget.value === 'organization' ? linkedinOrganizationId.value : undefined,
+      }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'LinkedIn publish failed.')
+    }
+
+    linkedinShareSuccess.value = true
+    linkedinPostUrl.value = result.postUrl || ''
+    linkedinCommentary.value = ''
+  } catch (error) {
+    linkedinErrorMessage.value = error.message
+  } finally {
+    sharingToLinkedIn.value = false
+  }
+}
+
 // Generate content when component mounts
 onMounted(() => {
   // Set default share type based on whether SEO slug exists
   shareType.value = props.graphData?.metadata?.seoSlug ? 'seo' : 'dynamic'
   generateShareContent()
+  checkLinkedInStatus()
 })
 
 // Watch for changes in graphId to regenerate content
@@ -499,6 +725,32 @@ watch(
 .ai-btn:hover:not(:disabled) {
   background-color: #28a745;
   color: white;
+}
+
+.linkedin-share-section {
+  border-top: 1px solid #eee;
+  padding-top: 20px;
+}
+
+.section-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.btn-linkedin {
+  background-color: #0077b5;
+  border: none;
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-linkedin:hover:not(:disabled) {
+  background-color: #00629a;
+}
+
+.btn-linkedin:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .modal-footer {

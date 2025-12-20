@@ -647,7 +647,7 @@ export default {
         client_id: linkedinClientId,
         redirect_uri: redirectUri,
         state: state,
-        scope: 'openid profile email',
+        scope: 'openid profile email w_member_social w_organization_social',
       })
 
       return Response.redirect(
@@ -729,6 +729,32 @@ export default {
           throw new Error(profile.error_description || profile.error)
         }
 
+        // Fetch user's organizations
+        const orgsRes = await fetch('https://api.linkedin.com/v2/organizationAcls?q=roleAssignee', {
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+          },
+        })
+
+        let organizations = []
+        if (orgsRes.ok) {
+          const orgsData = await orgsRes.json()
+          organizations = orgsData.elements || []
+        }
+
+        // Store LinkedIn credentials with organizations
+        const credentials = {
+          linkedin_access_token: tokenData.access_token,
+          linkedin_refresh_token: tokenData.refresh_token,
+          linkedin_expires_in: tokenData.expires_in || 3600,
+          linkedin_person_urn: `urn:li:person:${profile.sub}`,
+          linkedin_profile: profile,
+          linkedin_organizations: organizations,
+          updated_at: new Date().toISOString()
+        }
+
+        await env.GOOGLE_CREDENTIALS.put(profile.email, JSON.stringify(credentials))
+
         // Redirect back to frontend with profile data
         const successUrl = new URL(returnUrl)
         successUrl.searchParams.set('linkedin_auth_success', 'true')
@@ -788,6 +814,37 @@ export default {
             picture: profile.picture,
             locale: profile.locale,
           }
+        }))
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // Get LinkedIn token for a user
+    if (url.pathname === '/user/linkedin-token' && request.method === 'GET') {
+      try {
+        const userEmail = request.headers.get('x-user-email')
+        if (!userEmail) {
+          return createResponse(JSON.stringify({ error: 'Missing x-user-email header' }), 400)
+        }
+
+        // Get LinkedIn credentials from KV
+        const credentials = await env.GOOGLE_CREDENTIALS.get(userEmail)
+        if (!credentials) {
+          return createResponse(JSON.stringify({ error: 'No LinkedIn credentials found for user' }), 404)
+        }
+
+        const creds = JSON.parse(credentials)
+        if (!creds.linkedin_access_token) {
+          return createResponse(JSON.stringify({ error: 'No LinkedIn access token found' }), 404)
+        }
+
+        return createResponse(JSON.stringify({
+          success: true,
+          access_token: creds.linkedin_access_token,
+          linkedin_person_urn: creds.linkedin_person_urn,
+          linkedin_organizations: creds.linkedin_organizations || [],
+          expires_in: creds.linkedin_expires_in || 3600
         }))
       } catch (error) {
         return createResponse(JSON.stringify({ error: error.message }), 500)
