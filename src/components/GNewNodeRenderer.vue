@@ -163,7 +163,7 @@ const nodeComponents = {
   'portfolio-image': GNewImageNode,
   'youtube-video': GNewVideoNode,
   audio: GNewAudioNode,
-  title: GNewTitleNode,
+  title: GNewDefaultNode, // Use DefaultNode for full FANCY formatting support
   imagequote: GNewImageQuoteNode,
   button_row: GNewButtonRowNode,
   // AI Action node
