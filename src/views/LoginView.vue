@@ -309,11 +309,11 @@ async function fetchUserContext(targetEmail) {
   const roleRes = await fetch(
     `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(targetEmail)}`,
   )
-  
+
   if (!roleRes.ok) {
     throw new Error(`User not found or role unavailable (status: ${roleRes.status})`)
   }
-  
+
   const roleData = await roleRes.json()
 
   if (!roleData || !roleData.role) {
@@ -323,11 +323,11 @@ async function fetchUserContext(targetEmail) {
   const userDataRes = await fetch(
     `https://dashboard.vegvisr.org/userdata?email=${encodeURIComponent(targetEmail)}`,
   )
-  
+
   if (!userDataRes.ok) {
     throw new Error(`Unable to fetch user data (status: ${userDataRes.status})`)
   }
-  
+
   const userData = await userDataRes.json()
 
   return {
@@ -566,14 +566,14 @@ async function handleLinkedInCallback() {
     // Try to fetch existing user context
     let userContext
     let isNewUser = false
-    
+
     try {
       userContext = await fetchUserContext(linkedInEmail)
       console.log('[LoginView] Existing user found:', userContext.email)
     } catch (err) {
       console.log('[LoginView] User not found, creating new user via /sve2...')
       isNewUser = true
-      
+
       // Create new user via /sve2 endpoint (main-worker registration)
       const registerRes = await fetch(
         `https://test.vegvisr.org/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
@@ -587,7 +587,7 @@ async function handleLinkedInCallback() {
 
       // Wait a moment for database to sync, then fetch the newly created user
       await new Promise(resolve => setTimeout(resolve, 500))
-      
+
       try {
         userContext = await fetchUserContext(linkedInEmail)
       } catch (fetchErr) {
@@ -622,7 +622,7 @@ async function handleLinkedInCallback() {
     cleanUrl.searchParams.delete('linkedin_picture')
     window.history.replaceState({}, document.title, cleanUrl.toString())
 
-    const welcomeMsg = isNewUser 
+    const welcomeMsg = isNewUser
       ? `Welcome to Vegvisr, ${linkedInName || linkedInEmail}!`
       : `Welcome back, ${linkedInName || linkedInEmail}!`
     statusMessage.value = `${welcomeMsg} Redirecting...`
