@@ -228,7 +228,7 @@ async function handleShareArticle(request, env, corsHeaders) {
 
     if (!response.ok) {
       const errorText = await response.text()
-      
+
       // Handle duplicate post error specifically
       if (response.status === 422) {
         try {
@@ -248,7 +248,7 @@ async function handleShareArticle(request, env, corsHeaders) {
           // If we can't parse the error, fall through to generic error
         }
       }
-      
+
       throw new Error(`LinkedIn API error: ${response.status} - ${errorText}`)
     }
 
