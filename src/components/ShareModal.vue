@@ -136,51 +136,9 @@
 
           <div v-else class="linkedin-share-controls">
             <div class="form-group mb-3">
-              <label class="form-label">Post as</label>
-              <div class="d-flex flex-wrap gap-3">
-                <label class="form-check-label">
-                  <input
-                    class="form-check-input me-2"
-                    type="radio"
-                    name="linkedinTarget"
-                    value="personal"
-                    v-model="linkedinTarget"
-                  />
-                  Personal profile (choose audience below)
-                </label>
-                <label class="form-check-label">
-                  <input
-                    class="form-check-input me-2"
-                    type="radio"
-                    name="linkedinTarget"
-                    value="organization"
-                    v-model="linkedinTarget"
-                  />
-                  Business page
-                </label>
-              </div>
-            </div>
-
-            <div v-if="linkedinTarget === 'organization'" class="form-group mb-3">
-              <label class="form-label">Organization</label>
-              <select v-model="linkedinOrganizationId" class="form-select" :disabled="linkedinOrganizations.length === 0">
-                <option value="" disabled>
-                  {{ linkedinOrganizations.length ? 'Select a business page' : 'No business pages found' }}
-                </option>
-                <option v-for="org in linkedinOrganizations" :key="org.id" :value="org.id">
-                  {{ org.label }}
-                </option>
-              </select>
-              <small class="text-muted d-block mt-1">
-                Only organizations you manage appear here.
-              </small>
-            </div>
-
-            <div v-else class="form-group mb-3">
               <label class="form-label">Audience</label>
-              <select v-model="linkedinVisibility" class="form-select">
+              <select v-model="linkedinVisibility" class="form-select" disabled>
                 <option value="CONNECTIONS">Connections only (private)</option>
-                <option value="PUBLIC">Public</option>
               </select>
             </div>
 
@@ -199,7 +157,7 @@
             <button
               class="btn btn-linkedin w-100"
               @click="shareToLinkedInWorker"
-              :disabled="sharingToLinkedIn || (linkedinTarget === 'organization' && !linkedinOrganizationId)"
+              :disabled="sharingToLinkedIn"
             >
               <span v-if="sharingToLinkedIn" class="spinner-border spinner-border-sm me-2"></span>
               {{ sharingToLinkedIn ? 'Posting...' : 'Publish to LinkedIn' }}
@@ -273,9 +231,6 @@ const shareContent = ref('')
 const shareType = ref('dynamic') // Default to dynamic sharing
 const aiShareSuccess = ref(false)
 const linkedinConnected = ref(false)
-const linkedinOrganizations = ref([])
-const linkedinTarget = ref('personal')
-const linkedinOrganizationId = ref('')
 const linkedinVisibility = ref('CONNECTIONS')
 const linkedinCommentary = ref('')
 const linkedinShareSuccess = ref(false)
@@ -445,37 +400,8 @@ const checkLinkedInStatus = async () => {
     const data = await response.json()
     linkedinConnected.value = Boolean(data.connected)
 
-    if (linkedinConnected.value) {
-      await loadLinkedInOrganizations()
-    }
   } catch (error) {
     console.error('Error checking LinkedIn status:', error)
-  }
-}
-
-const loadLinkedInOrganizations = async () => {
-  try {
-    const response = await fetch('https://linkedin.vegvisr.org/organizations', {
-      headers: {
-        'x-user-email': userStore.email,
-      },
-    })
-    const data = await response.json()
-    const orgs = Array.isArray(data.organizations) ? data.organizations : []
-    linkedinOrganizations.value = orgs.map((org) => {
-      const urn = org.organization || org.id || ''
-      const id = urn.split(':').pop() || urn
-      return {
-        id,
-        label: org.role ? `Organization ${id} (${org.role})` : `Organization ${id}`,
-        role: org.role || '',
-      }
-    })
-    if (linkedinOrganizations.value.length && !linkedinOrganizationId.value) {
-      linkedinOrganizationId.value = linkedinOrganizations.value[0].id
-    }
-  } catch (error) {
-    console.error('Error loading LinkedIn organizations:', error)
   }
 }
 
@@ -499,11 +425,6 @@ const shareToLinkedInWorker = async () => {
     return
   }
 
-  if (linkedinTarget.value === 'organization' && !linkedinOrganizationId.value) {
-    linkedinErrorMessage.value = 'Select a business page to publish.'
-    return
-  }
-
   sharingToLinkedIn.value = true
 
   try {
@@ -518,8 +439,7 @@ const shareToLinkedInWorker = async () => {
         graphId: props.currentGraphId,
         seoSlug: props.graphData.metadata.seoSlug,
         shareCommentary: linkedinCommentary.value,
-        visibility: linkedinTarget.value === 'personal' ? linkedinVisibility.value : undefined,
-        organizationId: linkedinTarget.value === 'organization' ? linkedinOrganizationId.value : undefined,
+        visibility: linkedinVisibility.value,
       }),
     })
 
@@ -544,8 +464,17 @@ onMounted(() => {
   // Set default share type based on whether SEO slug exists
   shareType.value = props.graphData?.metadata?.seoSlug ? 'seo' : 'dynamic'
   generateShareContent()
-  checkLinkedInStatus()
 })
+
+watch(
+  () => userStore.email,
+  (email) => {
+    if (email) {
+      checkLinkedInStatus()
+    }
+  },
+  { immediate: true },
+)
 
 // Watch for changes in graphId to regenerate content
 watch(

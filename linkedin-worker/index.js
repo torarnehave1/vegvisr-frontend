@@ -467,7 +467,8 @@ async function handleGetOrganizations(request, env, corsHeaders) {
 
     return new Response(JSON.stringify({
       success: true,
-      organizations: tokenData.linkedin_organizations || []
+      organizations: [],
+      message: 'Business page access is temporarily unavailable. Only personal profile posting is supported.'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
