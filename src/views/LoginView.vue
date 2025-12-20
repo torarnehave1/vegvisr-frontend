@@ -24,6 +24,20 @@
         <span>or</span>
       </div>
 
+      <div class="form-check mb-3">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          id="linkedinPersonalOnly"
+          v-model="linkedinPersonalOnly"
+          disabled
+        >
+        <label class="form-check-label small text-muted" for="linkedinPersonalOnly">
+          Personal LinkedIn access only
+          <small class="d-block text-muted">(Business page access temporarily unavailable)</small>
+        </label>
+      </div>
+
       <button
         type="button"
         class="btn btn-linkedin w-100"
@@ -139,6 +153,7 @@ const step = ref('email')
 const magicLinkSent = ref(false)
 const loadingEmail = ref(false)
 const loadingLinkedIn = ref(false)
+const linkedinPersonalOnly = ref(true) // Default to personal-only for easier access
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const statusMessage = ref('')
@@ -542,8 +557,14 @@ function loginWithLinkedIn() {
   // Store current URL to return after auth
   const returnUrl = window.location.origin + '/login'
 
+  // Add personal_only parameter if checked
+  const params = new URLSearchParams({
+    return_url: returnUrl,
+    personal_only: linkedinPersonalOnly.value.toString()
+  })
+
   // Redirect to LinkedIn OAuth
-  window.location.href = `https://auth.vegvisr.org/auth/linkedin/login?return_url=${encodeURIComponent(returnUrl)}`
+  window.location.href = `https://auth.vegvisr.org/auth/linkedin/login?${params.toString()}`
 }
 
 async function handleLinkedInCallback() {

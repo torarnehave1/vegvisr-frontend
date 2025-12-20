@@ -113,6 +113,17 @@ async function handleShareArticle(request, env, corsHeaders) {
       })
     }
 
+    // Organization posting temporarily disabled
+    if (organizationId) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Business page posting is temporarily unavailable. Please post to your personal profile only.'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
     // 1. Get user's LinkedIn token via auth-worker
     const tokenData = await getUserLinkedInToken(env, userEmail)
     if (!tokenData) {

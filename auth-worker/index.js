@@ -638,16 +638,28 @@ export default {
       const linkedinClientId = env.LINKEDIN_CLIENT_ID
       const redirectUri = env.LINKEDIN_REDIRECT_URI
 
+      // Check if user only wants personal posting (no organization access)
+      const personalOnly = url.searchParams.get('personal_only') === 'true'
+
       // Store return URL in state parameter (supports localhost:5173 for dev)
       const returnUrl = url.searchParams.get('return_url') || 'https://www.vegvisr.org/'
-      const state = btoa(JSON.stringify({ returnUrl }))
+      const state = btoa(JSON.stringify({ returnUrl, personalOnly }))
+
+      // Set scopes based on request - temporarily disable organization scope
+      // TODO: Re-enable when LinkedIn app is approved for w_organization_social
+      const scopes = 'openid profile email w_member_social'
+
+      // Note: w_organization_social scope disabled until app is approved by LinkedIn
+      // const scopes = personalOnly
+      //   ? 'openid profile email w_member_social'
+      //   : 'openid profile email w_member_social w_organization_social'
 
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: linkedinClientId,
         redirect_uri: redirectUri,
         state: state,
-        scope: 'openid profile email w_member_social w_organization_social',
+        scope: scopes,
       })
 
       return Response.redirect(
@@ -665,10 +677,12 @@ export default {
 
       // Parse state to get return URL (can be localhost:5173 for dev)
       let returnUrl = 'https://www.vegvisr.org/'
+      let personalOnly = false
       try {
         if (state) {
           const stateData = JSON.parse(atob(state))
           returnUrl = stateData.returnUrl || returnUrl
+          personalOnly = stateData.personalOnly || false
         }
       } catch (e) {
         console.error('Failed to parse state:', e)
@@ -729,18 +743,21 @@ export default {
           throw new Error(profile.error_description || profile.error)
         }
 
-        // Fetch user's organizations
-        const orgsRes = await fetch('https://api.linkedin.com/v2/organizationAcls?q=roleAssignee', {
-          headers: {
-            'Authorization': `Bearer ${tokenData.access_token}`,
-          },
-        })
-
+        // Fetch user's organizations (disabled until scope is approved)
+        // TODO: Re-enable when w_organization_social scope is approved
         let organizations = []
-        if (orgsRes.ok) {
-          const orgsData = await orgsRes.json()
-          organizations = orgsData.elements || []
-        }
+        // if (!personalOnly) {
+        //   const orgsRes = await fetch('https://api.linkedin.com/v2/organizationAcls?q=roleAssignee', {
+        //     headers: {
+        //       'Authorization': `Bearer ${tokenData.access_token}`,
+        //     },
+        //   })
+
+        //   if (orgsRes.ok) {
+        //     const orgsData = await orgsRes.json()
+        //     organizations = orgsData.elements || []
+        //   }
+        // }
 
         // Store LinkedIn credentials with organizations
         const credentials = {
