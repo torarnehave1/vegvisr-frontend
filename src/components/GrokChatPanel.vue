@@ -95,6 +95,21 @@
         <div v-else class="selection-hint">
           {{ isCanvasContext ? 'Select a node in the canvas to share it with the assistant.' : 'Highlight text in the graph to share it with the assistant.' }}
         </div>
+        <!-- Suggested Questions based on selection -->
+        <div v-if="suggestedQuestions.length > 0" class="suggested-questions">
+          <div class="suggested-questions-chips">
+            <button
+              v-for="(question, idx) in suggestedQuestions"
+              :key="idx"
+              class="suggested-question-chip"
+              type="button"
+              @click="askSuggestedQuestion(question.query)"
+              :title="question.description"
+            >
+              {{ question.icon }} {{ question.label }}
+            </button>
+          </div>
+        </div>
         <div
           v-if="canPersistHistory"
           class="history-status"
@@ -1412,6 +1427,109 @@ const selectionContextLabel = computed(() => {
   if (!hasSelectionContext.value) return 'Highlighted text'
   return props.selectionContext?.nodeLabel || 'Highlighted text'
 })
+
+// Suggested questions based on selection context
+const suggestedQuestions = computed(() => {
+  const selection = props.selectionContext
+  if (!selection?.selectedNodes?.length) return []
+
+  const nodes = selection.selectedNodes
+  const questions = []
+
+  // Check if nodes are person-profile type (from Proff network)
+  const isPersonNetwork = nodes.some(n => n.type === 'person-profile' || n.data?.source === 'proff')
+
+  if (nodes.length === 1) {
+    // Single node selected
+    const node = nodes[0]
+    const name = node.label || node.data?.name || 'denne personen'
+
+    if (isPersonNetwork) {
+      questions.push({
+        icon: '🔍',
+        label: 'Utvid nettverk',
+        query: `Utvid nettverket for ${name}. Vis alle forbindelser og roller.`,
+        description: `Hent flere detaljer om ${name} sitt nettverk`
+      })
+      questions.push({
+        icon: '🌐',
+        label: 'Lag nettverkskart',
+        query: `Lag et detaljert nettverkskart for ${name}. Vis alle styreposisjoner og selskaper.`,
+        description: `Generer et visuelt nettverkskart for ${name}`
+      })
+      questions.push({
+        icon: '📊',
+        label: 'Analyser roller',
+        query: `Analyser rollene og posisjonene til ${name}. Hva er de viktigste selskapene?`,
+        description: `Få en analyse av ${name} sine roller`
+      })
+    } else {
+      questions.push({
+        icon: '💡',
+        label: 'Forklar',
+        query: `Forklar innholdet i denne noden: ${name}`,
+        description: 'Få en forklaring av nodeinnholdet'
+      })
+    }
+  } else if (nodes.length === 2) {
+    // Two nodes selected
+    const name1 = nodes[0].label || nodes[0].data?.name || 'Person 1'
+    const name2 = nodes[1].label || nodes[1].data?.name || 'Person 2'
+
+    if (isPersonNetwork) {
+      questions.push({
+        icon: '🔗',
+        label: 'Finn forbindelse',
+        query: `Finn forbindelsen mellom ${name1} og ${name2}. Hvilke selskaper og roller knytter dem sammen?`,
+        description: `Finn hvordan ${name1} og ${name2} er koblet`
+      })
+      questions.push({
+        icon: '⚖️',
+        label: 'Sammenlign',
+        query: `Sammenlign ${name1} og ${name2}. Hva har de til felles og hva skiller dem?`,
+        description: `Sammenlign de to personene`
+      })
+    }
+    questions.push({
+      icon: '🔍',
+      label: 'Analyser relasjon',
+      query: `Analyser relasjonen mellom ${name1} og ${name2}.`,
+      description: 'Analyser forbindelsen mellom de valgte nodene'
+    })
+  } else if (nodes.length > 2) {
+    // Multiple nodes selected
+    const names = nodes.map(n => n.label || n.data?.name).filter(Boolean).slice(0, 5)
+    const namesStr = names.join(', ')
+
+    if (isPersonNetwork) {
+      questions.push({
+        icon: '🕸️',
+        label: 'Finn fellesnevner',
+        query: `Analyser gruppen: ${namesStr}. Hva har disse personene til felles? Hvilke selskaper deler de?`,
+        description: 'Finn hva de valgte personene har felles'
+      })
+      questions.push({
+        icon: '📈',
+        label: 'Kartlegg nettverk',
+        query: `Kartlegg nettverket mellom disse personene: ${namesStr}. Vis alle forbindelser.`,
+        description: 'Vis nettverket mellom de valgte personene'
+      })
+    }
+    questions.push({
+      icon: '📋',
+      label: 'Oppsummer',
+      query: `Oppsummer de valgte nodene: ${namesStr}`,
+      description: 'Få en oppsummering av alle valgte noder'
+    })
+  }
+
+  return questions
+})
+
+const askSuggestedQuestion = (query) => {
+  userInput.value = query
+  sendMessage()
+}
 
 const canPersistHistory = computed(() => Boolean(userStore.loggedIn && userStore.user_id))
 const graphIdentifier = computed(() => {
@@ -4751,6 +4869,48 @@ watch(
   margin-top: 0.35rem;
   font-size: 0.82rem;
   color: #7a7a8c;
+}
+
+.suggested-questions {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+  border-radius: 8px;
+  border: 1px solid #d0daf0;
+}
+
+.suggested-questions-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.suggested-question-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #1a56db;
+  background: #fff;
+  border: 1px solid #c3d4f7;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.suggested-question-chip:hover {
+  background: #1a56db;
+  color: #fff;
+  border-color: #1a56db;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(26, 86, 219, 0.25);
+}
+
+.suggested-question-chip:active {
+  transform: translateY(0);
 }
 
 .history-status {

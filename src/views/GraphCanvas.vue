@@ -713,12 +713,14 @@ const filteredImportGraphs = computed(() => {
 
 // AI Chat Panel - computed properties
 const aiChatSelectionContext = computed(() => {
-  if (!chatSelection.value?.text) return null
+  if (!chatSelection.value?.text && !chatSelection.value?.selectedNodes?.length) return null
   return {
     text: chatSelection.value.text,
     nodeId: chatSelection.value.nodeId || null,
     nodeLabel: chatSelection.value.nodeLabel || null,
     nodeType: chatSelection.value.nodeType || null,
+    nodeData: chatSelection.value.nodeData || null,
+    selectedNodes: chatSelection.value.selectedNodes || [],
     source: 'graph-canvas',
     updatedAt: chatSelection.value.updatedAt,
   }
@@ -1397,21 +1399,13 @@ const setupEventListeners = () => {
   })
 
   // AI Chat - Update selection context when node is selected/unselected
-  cyInstance.value.on('select', 'node', (event) => {
-    const node = event.target
-    updateChatSelectionFromNode(node)
+  cyInstance.value.on('select', 'node', () => {
+    updateChatSelectionFromNode()
     bumpResizeUpdate()
   })
 
   cyInstance.value.on('unselect', 'node', () => {
-    // Only clear if no other nodes are selected
-    if (cyInstance.value.nodes(':selected').length === 0) {
-      chatSelection.value = null
-    } else {
-      // Update to the first selected node
-      const firstSelected = cyInstance.value.nodes(':selected').first()
-      updateChatSelectionFromNode(firstSelected)
-    }
+    updateChatSelectionFromNode()
     bumpResizeUpdate()
   })
 
@@ -3395,21 +3389,74 @@ const handleImportGraphAsCluster = (payload) => {
 }
 
 // AI Chat Panel - Update selection context when node is selected
-const updateChatSelectionFromNode = (node) => {
-  if (!node) {
+const updateChatSelectionFromNode = () => {
+  if (!cyInstance.value) {
     chatSelection.value = null
     return
   }
 
-  const textContent = node.data('fullText') || node.data('info') || node.data('label') || ''
+  const selectedNodes = cyInstance.value.nodes(':selected').filter(n => !n.isParent())
 
-  chatSelection.value = {
-    text: textContent,
-    nodeId: node.id(),
-    nodeLabel: node.data('label'),
-    nodeType: node.data('type'),
-    source: 'node-selection',
-    updatedAt: Date.now()
+  if (selectedNodes.length === 0) {
+    chatSelection.value = null
+    return
+  }
+
+  if (selectedNodes.length === 1) {
+    // Single node selection
+    const singleNode = selectedNodes.first()
+    const textContent = singleNode.data('fullText') || singleNode.data('info') || singleNode.data('label') || ''
+
+    chatSelection.value = {
+      text: textContent,
+      nodeId: singleNode.id(),
+      nodeLabel: singleNode.data('label'),
+      nodeType: singleNode.data('type'),
+      nodeData: singleNode.data(),
+      source: 'node-selection',
+      selectedNodes: [{
+        id: singleNode.id(),
+        label: singleNode.data('label'),
+        type: singleNode.data('type'),
+        data: singleNode.data()
+      }],
+      updatedAt: Date.now()
+    }
+  } else {
+    // Multi-node selection
+    const nodesInfo = selectedNodes.map(n => ({
+      id: n.id(),
+      label: n.data('label'),
+      type: n.data('type'),
+      data: n.data()
+    }))
+
+    // Create combined label: "Person A og Person B" or "Person A, Person B og Person C"
+    const labels = nodesInfo.map(n => n.label).filter(Boolean)
+    let combinedLabel = ''
+    if (labels.length === 2) {
+      combinedLabel = `${labels[0]} og ${labels[1]}`
+    } else if (labels.length > 2) {
+      combinedLabel = labels.slice(0, -1).join(', ') + ' og ' + labels[labels.length - 1]
+    } else {
+      combinedLabel = labels.join(', ')
+    }
+
+    // Combine text content from all nodes
+    const combinedText = nodesInfo
+      .map(n => n.data?.fullText || n.data?.info || n.label || '')
+      .filter(Boolean)
+      .join('\n\n---\n\n')
+
+    chatSelection.value = {
+      text: combinedText,
+      nodeId: nodesInfo[0]?.id || null,
+      nodeLabel: combinedLabel,
+      nodeType: 'multi-selection',
+      source: 'node-selection',
+      selectedNodes: nodesInfo,
+      updatedAt: Date.now()
+    }
   }
 }
 
