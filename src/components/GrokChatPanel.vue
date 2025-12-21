@@ -2489,6 +2489,16 @@ const createGraphId = (prefix = 'graph') => {
   return `${prefix}_${randomPart}`
 }
 
+const buildRetryMessage = (question, detail) => {
+  const trimmed = (question || '').trim()
+  const encodedQuestion = encodeURIComponent(trimmed)
+  const detailText = detail ? ` (${detail})` : ''
+  const retryLink = trimmed
+    ? `<a href="#" class="chat-retry-question" data-question="${encodedQuestion}">Prøv igjen</a>`
+    : 'Prøv igjen'
+  return `⚠️ Claude kunne ikke fullføre verktøykjøringen${detailText}. ${retryLink}`
+}
+
 const extractPersonConnectionsFromMessage = (message) => {
   if (!message?.proffData) return null
 
@@ -2746,6 +2756,20 @@ const handleMessageContentClick = (event) => {
       }
 
       // Send the message
+      nextTick(() => {
+        sendMessage()
+      })
+    }
+  }
+
+  if (target.classList.contains('chat-retry-question')) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const encodedQuestion = target.getAttribute('data-question')
+    if (encodedQuestion) {
+      const question = decodeURIComponent(encodedQuestion)
+      userInput.value = question
       nextTick(() => {
         sendMessage()
       })
@@ -3918,6 +3942,7 @@ const sendMessage = async () => {
   const message = userInput.value.trim()
   if (!message || isStreaming.value) return
 
+  const userPrompt = message
   const currentProvider = provider.value
   const hasImage = uploadedImage.value && currentProvider !== 'grok'
   const selectionFocus = buildSelectionContext()
@@ -4353,7 +4378,11 @@ Use this context to provide relevant insights and answers about the knowledge gr
 
       } catch (toolError) {
         console.error('Claude tool chain error:', toolError)
-        aiMessage = data.content?.find(c => c.type === 'text')?.text || `Tool error: ${toolError.message}`
+        usedProffAPI = false
+        usedSourcesAPI = false
+        proffData = null
+        sourcesData = null
+        aiMessage = buildRetryMessage(userPrompt, toolError.message || 'Midleridig feil')
       }
     } else if (currentProvider === 'claude') {
       // Anthropic format: data.content[0].text
