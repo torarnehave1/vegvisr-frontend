@@ -2016,7 +2016,8 @@ const redoAction = () => {
   }
 }
 
-// Save graph (position updates only) - FIXED to preserve metadata
+// Save graph with history - uses saveGraphWithHistory endpoint like GNewViewer
+// This ensures version history is properly maintained
 const saveGraph = async () => {
   if (!cyInstance.value || !graphStore.currentGraphId) {
     showStatus('No graph selected to save', 'warning')
@@ -2024,9 +2025,9 @@ const saveGraph = async () => {
   }
 
   try {
-    showStatus('Saving positions...', 'info')
+    showStatus('Saving graph...', 'info')
 
-    // CRITICAL FIX: Fetch the current graph data to preserve metadata
+    // Fetch the current graph data to preserve metadata
     console.log('🔍 [GraphCanvas] Fetching current graph to preserve metadata...')
     const currentGraphResponse = await fetch(
       `https://knowledge.vegvisr.org/getknowgraph?id=${graphStore.currentGraphId}`,
@@ -2045,10 +2046,6 @@ const saveGraph = async () => {
       '🔍 [GraphCanvas] Current graph metadata:',
       JSON.stringify(existingMetadata, null, 2),
     )
-    console.log(
-      '🔍 [GraphCanvas] Meta area in current graph:',
-      existingMetadata.metaArea || 'NO META AREA FOUND',
-    )
 
     // Get current positions from Cytoscape
     const updatedNodes = cyInstance.value.nodes().map((node) => ({
@@ -2060,65 +2057,51 @@ const saveGraph = async () => {
       ...edge.data(), // Keep all existing edge data
     }))
 
-    console.log('=== Saving Position Updates ===')
-    console.log('Updated nodes with positions:', updatedNodes.length)
-    console.log(
-      'Sample node positions:',
-      updatedNodes.slice(0, 2).map((n) => ({ id: n.id, position: n.position })),
-    )
+    console.log('=== Saving Graph with History ===')
+    console.log('Updated nodes:', updatedNodes.length)
+    console.log('Updated edges:', updatedEdges.length)
 
-    // CRITICAL FIX: Include metadata in the payload to preserve it
+    // Preserve metadata - version will be incremented by backend
     const preservedMetadata = {
+      ...existingMetadata,
       title: existingMetadata.title || 'Untitled Graph',
       description: existingMetadata.description || '',
       createdBy: existingMetadata.createdBy || 'Unknown',
       category: existingMetadata.category || '',
-      metaArea: existingMetadata.metaArea || '', // Preserve metaArea - CRITICAL!
-      version: existingMetadata.version || 1,
+      metaArea: existingMetadata.metaArea || '',
       createdAt: existingMetadata.createdAt || new Date().toISOString(),
-      // Preserve any other existing fields
-      ...existingMetadata,
-      // Always update timestamp
       updatedAt: new Date().toISOString(),
     }
 
-    const payload = {
-      id: graphStore.currentGraphId,
-      graphData: {
-        metadata: preservedMetadata,
-        nodes: updatedNodes,
-        edges: updatedEdges,
-      },
-    }
-
-    console.log(
-      '💾 [GraphCanvas] Saving with preserved metadata:',
-      JSON.stringify(preservedMetadata, null, 2),
-    )
-    console.log(
-      '💾 [GraphCanvas] Meta area being saved:',
-      preservedMetadata.metaArea || 'NO META AREA IN SAVE DATA',
-    )
-
-    const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+    // Use saveGraphWithHistory endpoint (like GNewViewer) to properly save with version history
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        id: graphStore.currentGraphId,
+        graphData: {
+          metadata: preservedMetadata,
+          nodes: updatedNodes,
+          edges: updatedEdges,
+        },
+        override: true,
+      }),
     })
 
     if (response.ok) {
-      console.log('✅ [GraphCanvas] Position update successful with metadata preserved')
-      showStatus('Positions saved successfully!', 'success')
+      const result = await response.json()
+      console.log('✅ [GraphCanvas] Graph saved with history:', result)
+      showStatus('Graph saved successfully!', 'success')
     } else {
       const errorText = await response.text()
       console.error('❌ [GraphCanvas] Save failed:', response.status, errorText)
-      showStatus(`Error saving positions: ${response.status}`, 'error')
+      showStatus(`Error saving graph: ${response.status}`, 'error')
     }
   } catch (error) {
-    console.error('❌ [GraphCanvas] Error saving positions:', error)
-    showStatus('Error saving positions: ' + error.message, 'error')
+    console.error('❌ [GraphCanvas] Error saving graph:', error)
+    showStatus('Error saving graph: ' + error.message, 'error')
   }
 }
 
