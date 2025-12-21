@@ -79,6 +79,38 @@
             Kun OpenAI/Claude
           </span>
         </div>
+        <div class="context-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+            <input
+              type="checkbox"
+              v-model="useWebSearch"
+              :disabled="provider !== 'openai' && provider !== 'claude'"
+            />
+            <span>🌐 Web Search (Perplexity)</span>
+          </label>
+          <span v-if="useWebSearch && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+            AI will suggest search queries to run via Perplexity
+          </span>
+          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
+            Kun OpenAI/Claude
+          </span>
+        </div>
+        <!-- Suggested Web Search Queries from AI -->
+        <div v-if="suggestedWebSearches.length > 0" class="suggested-web-searches">
+          <div class="web-search-label">🔍 Suggested searches:</div>
+          <div class="web-search-chips">
+            <button
+              v-for="(search, idx) in suggestedWebSearches"
+              :key="idx"
+              class="web-search-chip"
+              type="button"
+              @click="runPerplexitySearch(search)"
+              :disabled="isLoading"
+            >
+              {{ search }}
+            </button>
+          </div>
+        </div>
         <div
           v-if="hasSelectionContext"
           class="context-row selection-context"
@@ -1047,6 +1079,10 @@ Returns the connection path like: Person A → Company X → Person B → Compan
 const SOURCES_API_BASE = 'https://sources-worker.torarnehave.workers.dev'
 const useSourcesTools = ref(true) // Enable Norwegian sources by default
 
+// Web Search Configuration (Perplexity integration)
+const useWebSearch = ref(false) // Disabled by default - user opts in
+const suggestedWebSearches = ref([]) // AI-suggested search queries to run via Perplexity
+
 // OpenAI-compatible tool definitions for Sources API
 const sourcesTools = [
   {
@@ -1145,6 +1181,64 @@ Use when users ask about:
         required: []
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sources_google_news',
+      description: `Search Google News for Norwegian and international news articles.
+
+Use this when users ask about:
+- Breaking news / siste nytt
+- International news / utenriksnyheter
+- Current events / aktuelle saker
+- Recent news about specific topics
+
+Returns news articles from Google News with Norwegian language preference.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query (e.g., "klimaendringer", "stortinget", "biodiversitet", "NATO")'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of articles (default: 20)'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sources_web_search',
+      description: `Search the web for general information using DuckDuckGo.
+
+Use this when:
+- Users need general web information (not just news)
+- Looking for websites, documentation, or resources
+- Need current information beyond news articles
+- Other source searches don't have relevant results
+
+Note: Results may be limited. For news, prefer sources_search or sources_google_news.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query in any language'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of results (default: 10)'
+          }
+        },
+        required: ['query']
+      }
+    }
   }
 ]
 
@@ -1236,6 +1330,22 @@ async function executeSourcesTool(toolName, args) {
 
     if (toolName === 'sources_list_feeds') {
       const response = await fetch(`${SOURCES_API_BASE}/feeds`)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+
+    if (toolName === 'sources_google_news') {
+      let url = `${SOURCES_API_BASE}/googlenews?query=${encodeURIComponent(args.query)}`
+      if (args.limit) url += `&limit=${args.limit}`
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
+      return await response.json()
+    }
+
+    if (toolName === 'sources_web_search') {
+      let url = `${SOURCES_API_BASE}/websearch?query=${encodeURIComponent(args.query)}`
+      if (args.limit) url += `&limit=${args.limit}`
+      const response = await fetch(url)
       if (!response.ok) throw new Error(`Sources API error: ${response.status}`)
       return await response.json()
     }
@@ -1531,6 +1641,27 @@ const askSuggestedQuestion = (query) => {
   sendMessage()
 }
 
+/**
+ * Run a web search via Perplexity provider
+ * Switches to Perplexity, sets the query, and sends the message
+ */
+const runPerplexitySearch = (query) => {
+  // Store current provider to potentially restore later
+  const previousProvider = provider.value
+
+  // Switch to Perplexity
+  provider.value = 'perplexity'
+
+  // Clear any existing suggestions since we're running one
+  suggestedWebSearches.value = []
+
+  // Set the query and send
+  userInput.value = query
+  sendMessage()
+
+  console.log(`🌐 Running Perplexity search: "${query}" (switched from ${previousProvider})`)
+}
+
 const canPersistHistory = computed(() => Boolean(userStore.loggedIn && userStore.user_id))
 const graphIdentifier = computed(() => {
   return (
@@ -1567,6 +1698,9 @@ const loadChatPreferences = () => {
     if (typeof parsed?.useSourcesTools === 'boolean') {
       useSourcesTools.value = parsed.useSourcesTools
     }
+    if (typeof parsed?.useWebSearch === 'boolean') {
+      useWebSearch.value = parsed.useWebSearch
+    }
   } catch (error) {
     console.warn('Failed to load chat preferences:', error)
   }
@@ -1578,7 +1712,8 @@ const persistChatPreferences = () => {
     const payload = {
       provider: provider.value,
       useProffTools: useProffTools.value,
-      useSourcesTools: useSourcesTools.value
+      useSourcesTools: useSourcesTools.value,
+      useWebSearch: useWebSearch.value
     }
     localStorage.setItem(prefsStorageKey.value, JSON.stringify(payload))
   } catch (error) {
@@ -1629,7 +1764,7 @@ watch(
 )
 
 watch(
-  [provider, useProffTools, useSourcesTools],
+  [provider, useProffTools, useSourcesTools, useWebSearch],
   () => {
     persistChatPreferences()
   }
@@ -4225,15 +4360,44 @@ EXAMPLES:
       }
       if (useSourcesTools.value) {
         toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
-- sources_search - Search across Norwegian news, government, research sources
+- sources_search - Search across Norwegian news, government, research sources (Regjeringen, SSB, NRK, etc.)
+- sources_google_news - Search Google News for breaking news and international stories
+- sources_web_search - General web search (DuckDuckGo) for websites and documentation
 - sources_get_hearings - Get public hearings (høringer)
-- sources_environment_news - Environment/climate news
+- sources_environment_news - Environment/climate news from multiple sources
 - sources_list_feeds - List all available sources
 
-Use these for questions about Norwegian politics, environment, research, statistics.
+Use sources_search for Norwegian public sources, sources_google_news for current news, sources_web_search for general web info.
 `
       }
       contextSections.push(toolInstructions.trim())
+    }
+
+    // Add web search suggestion instruction when enabled
+    if ((currentProvider === 'openai' || currentProvider === 'claude') && useWebSearch.value) {
+      contextSections.push(`**Web Search Integration**:
+The user has enabled web search. After providing your answer using available tools, you SHOULD suggest 2-4 specific search queries that would help find additional information from the web.
+
+Format your suggestions at the END of your response like this:
+---WEBSEARCH_SUGGESTIONS---
+query1: Your first suggested search query
+query2: Your second suggested search query
+query3: Your third suggested search query (optional)
+---END_SUGGESTIONS---
+
+Guidelines for suggestions:
+- Make queries specific and targeted (not generic)
+- Use Norwegian for Norwegian topics, English for international topics
+- Focus on finding information that complements what you found with tools
+- Include company names, person names, or specific topics from the conversation
+- Avoid duplicating what was already searched via tools
+
+Example for a question about "Equinor's climate strategy":
+---WEBSEARCH_SUGGESTIONS---
+query1: Equinor klimastrategi 2024 nyheter
+query2: Equinor renewable energy investments latest
+query3: Norwegian oil companies green transition
+---END_SUGGESTIONS---`)
     }
 
     // Add image analysis context when image is attached
@@ -4648,6 +4812,29 @@ Use this context to provide relevant insights and answers about the knowledge gr
       }
     }
 
+    // Parse and extract web search suggestions if present
+    if (useWebSearch.value) {
+      const suggestionMatch = enhancedMessage.match(/---WEBSEARCH_SUGGESTIONS---\s*([\s\S]*?)\s*---END_SUGGESTIONS---/)
+      if (suggestionMatch) {
+        const suggestionBlock = suggestionMatch[1]
+        const queries = []
+        // Parse query lines like "query1: Search term here"
+        const queryLines = suggestionBlock.split('\n').filter(line => line.trim())
+        for (const line of queryLines) {
+          const queryMatch = line.match(/query\d+:\s*(.+)/)
+          if (queryMatch && queryMatch[1].trim()) {
+            queries.push(queryMatch[1].trim())
+          }
+        }
+        suggestedWebSearches.value = queries
+        // Remove the suggestion block from the displayed message
+        enhancedMessage = enhancedMessage.replace(/---WEBSEARCH_SUGGESTIONS---[\s\S]*?---END_SUGGESTIONS---/, '').trim()
+      } else {
+        // Clear suggestions if none found
+        suggestedWebSearches.value = []
+      }
+    }
+
     // Simulate streaming effect by displaying word by word
     const words = enhancedMessage.split(' ')
     for (let i = 0; i < words.length; i++) {
@@ -4911,6 +5098,69 @@ watch(
 
 .suggested-question-chip:active {
   transform: translateY(0);
+}
+
+/* Web Search Suggestions (Perplexity integration) */
+.suggested-web-searches {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border-radius: 8px;
+  border: 1px solid #fed7aa;
+}
+
+.web-search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #c2410c;
+  margin-bottom: 0.4rem;
+}
+
+.web-search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.web-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #c2410c;
+  background: #fff;
+  border: 1px solid #fdba74;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.web-search-chip:hover:not(:disabled) {
+  background: #ea580c;
+  color: #fff;
+  border-color: #ea580c;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.25);
+}
+
+.web-search-chip:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.web-search-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.web-search-chip::before {
+  content: '🔍';
+  font-size: 0.7rem;
 }
 
 .history-status {

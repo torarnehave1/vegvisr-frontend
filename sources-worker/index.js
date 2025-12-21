@@ -171,6 +171,25 @@ const NORWEGIAN_SOURCES = {
       news: 'https://cicero.oslo.no/no/rss'
     },
     categories: ['climate', 'research', 'science']
+  },
+
+  // Google News Norway - Dynamic RSS feed based on search
+  googlenews: {
+    name: 'Google News Norge',
+    shortName: 'GN',
+    description: 'Google News - Norske nyheter og internasjonale saker',
+    baseUrl: 'https://news.google.com',
+    color: '#4285F4', // Google blue
+    logo: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="6" fill="#4285F4"/><text x="20" y="18" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="white" text-anchor="middle">Google</text><text x="20" y="28" font-family="Arial,sans-serif" font-size="8" fill="white" text-anchor="middle">News</text></svg>`,
+    feeds: {
+      // Google News RSS format: https://news.google.com/rss/search?q=QUERY&hl=no&gl=NO&ceid=NO:no
+      norway: 'https://news.google.com/rss?hl=no&gl=NO&ceid=NO:no',
+      world: 'https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtNXZHZ0pPVHlnQVAB?hl=no&gl=NO&ceid=NO:no'
+    },
+    // Special flag to indicate dynamic search support
+    supportsSearch: true,
+    searchUrl: 'https://news.google.com/rss/search?q={query}&hl=no&gl=NO&ceid=NO:no',
+    categories: ['news', 'international', 'search']
   }
 }
 
@@ -646,6 +665,157 @@ async function handleEnvironmentNews(request) {
 }
 
 /**
+ * Core function to fetch Google News results
+ * Shared between handleGoogleNewsSearch and handleWebSearch
+ */
+async function fetchGoogleNewsResults(query, limit = 20) {
+  const googleSource = NORWEGIAN_SOURCES.googlenews
+  const searchUrl = googleSource.searchUrl.replace('{query}', encodeURIComponent(query))
+
+  const feed = await parseRSSFeed(searchUrl)
+
+  if (!feed.success) {
+    return { success: false, items: [], error: 'Failed to fetch Google News' }
+  }
+
+  const items = feed.items.slice(0, limit).map(item => ({
+    ...item,
+    source: 'googlenews',
+    sourceName: googleSource.name,
+    sourceShortName: googleSource.shortName,
+    sourceColor: googleSource.color,
+    sourceLogo: googleSource.logo
+  }))
+
+  return { success: true, items }
+}
+
+/**
+ * Search Google News RSS feed
+ */
+async function handleGoogleNewsSearch(request) {
+  const url = new URL(request.url)
+  const query = url.searchParams.get('query') || url.searchParams.get('q')
+  const limit = parseInt(url.searchParams.get('limit') || '20')
+
+  if (!query) {
+    return jsonResponse({ error: 'Missing query parameter' }, 400)
+  }
+
+  console.log(`📰 Searching Google News for: "${query}"`)
+
+  const result = await fetchGoogleNewsResults(query, limit)
+
+  if (!result.success) {
+    return jsonResponse({
+      success: false,
+      error: result.error,
+      query
+    }, 500)
+  }
+
+  // Build markdown
+  let markdown = `## Google News: "${query}"\n\n`
+  markdown += `Fant ${result.items.length} nyhetsartikler\n\n`
+
+  for (const item of result.items.slice(0, 10)) {
+    markdown += `### [${item.title}](${item.link})\n`
+    markdown += `${item.pubDate || ''}\n\n`
+    if (item.description) {
+      markdown += `${item.description.substring(0, 200)}${item.description.length > 200 ? '...' : ''}\n\n`
+    }
+  }
+
+  return jsonResponse({
+    success: true,
+    query,
+    totalResults: result.items.length,
+    source: 'Google News Norge',
+    items: result.items,
+    markdown_summary: markdown
+  })
+}
+
+/**
+ * Web search using DuckDuckGo HTML (scraping approach - may be rate limited)
+ * For production, consider using a proper search API like SerpAPI or Brave Search
+ */
+async function handleWebSearch(request) {
+  const url = new URL(request.url)
+  const query = url.searchParams.get('query') || url.searchParams.get('q')
+  const limit = parseInt(url.searchParams.get('limit') || '10')
+
+  if (!query) {
+    return jsonResponse({ error: 'Missing query parameter' }, 400)
+  }
+
+  console.log(`🌐 Web search for: "${query}"`)
+
+  // Web search via DuckDuckGo is blocked by CAPTCHA from Cloudflare Workers
+  // Use Google News search which works reliably as fallback
+
+  try {
+    // Use the shared Google News fetcher
+    const googleNewsResult = await fetchGoogleNewsResults(query, limit)
+
+    if (googleNewsResult.success && googleNewsResult.items?.length > 0) {
+      const results = googleNewsResult.items.map(item => ({
+        title: item.title,
+        link: item.link,
+        snippet: item.description ? cleanHtml(item.description) : '',
+        pubDate: item.pubDate,
+        source: 'googlenews',
+        sourceName: 'Google News',
+        sourceShortName: 'GN',
+        sourceColor: '#4285F4',
+        sourceLogo: item.sourceLogo
+      }))
+
+      let markdown = `## Websøk: "${query}"\n\n`
+      markdown += `Fant ${results.length} resultater via Google News\n\n`
+
+      for (const r of results) {
+        markdown += `### [${r.title}](${r.link})\n`
+        if (r.snippet) {
+          markdown += `${r.snippet}\n\n`
+        }
+      }
+
+      return jsonResponse({
+        success: true,
+        query,
+        totalResults: results.length,
+        source: 'Google News (fallback)',
+        results,
+        markdown_summary: markdown,
+        note: 'Web search uses Google News as DuckDuckGo requires CAPTCHA verification from automated services.'
+      })
+    }
+
+    // No results from Google News
+    return jsonResponse({
+      success: true,
+      query,
+      totalResults: 0,
+      source: 'Web Search',
+      results: [],
+      markdown_summary: `## Websøk: "${query}"\n\nIngen resultater funnet. Prøv et annet søkeord eller bruk sources_search for norske kilder.`,
+      note: 'No results found. Try sources_search for Norwegian government sources.'
+    })
+
+  } catch (error) {
+    console.error('Web search error:', error)
+    return jsonResponse({
+      success: false,
+      query,
+      error: error.message,
+      markdown_summary: `## Websøk feilet\n\nKunne ikke utføre websøk for "${query}". Prøv sources_google_news i stedet.`,
+      fallback: 'Use sources_google_news for news or sources_search for Norwegian government sources.'
+    }, 500)
+  }
+}
+
+/**
  * OpenAI Function Calling compatible tool definitions
  */
 function getToolDefinitions() {
@@ -746,6 +916,65 @@ Use when users ask about:
           type: 'object',
           properties: {},
           required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'sources_google_news',
+        description: `Search Google News for Norwegian and international news articles.
+
+Use this when users ask about:
+- Breaking news
+- International news
+- Current events
+- Recent news about specific topics
+- Nyheter
+
+Returns news articles from Google News with Norwegian language preference.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query (e.g., "klimaendringer", "stortinget", "biodiversitet", "NATO")'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of articles (default: 20)'
+            }
+          },
+          required: ['query']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'sources_web_search',
+        description: `Search the web for general information using DuckDuckGo.
+
+Use this when:
+- Users need general web information (not just news)
+- Looking for websites, documentation, or resources
+- Need current information beyond news articles
+- Other source searches don't have relevant results
+
+Note: Results may be limited. For news, prefer sources_search or sources_google_news.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query in any language'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results (default: 10)'
+            }
+          },
+          required: ['query']
         }
       }
     }
@@ -889,6 +1118,16 @@ export default {
         return await handleEnvironmentNews(request)
       }
 
+      // Google News search
+      if (pathname === '/googlenews' && request.method === 'GET') {
+        return await handleGoogleNewsSearch(request)
+      }
+
+      // Web search (DuckDuckGo)
+      if (pathname === '/websearch' && request.method === 'GET') {
+        return await handleWebSearch(request)
+      }
+
       // 404
       return jsonResponse({
         error: 'Not Found',
@@ -899,6 +1138,8 @@ export default {
           'GET /logo?source=ssb - Get SVG logo for a source',
           'GET /logos - Get all logos as JSON',
           'GET /search?query=naturmangfold - Search across sources',
+          'GET /googlenews?query=klima - Search Google News',
+          'GET /websearch?query=biodiversitet - Web search (DuckDuckGo)',
           'GET /hearings?topic=naturvern - Get open hearings',
           'GET /environment - Get environment/nature news',
           'GET /api/tools - AI function calling definitions',
