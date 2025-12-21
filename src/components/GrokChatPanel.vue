@@ -246,7 +246,7 @@
               <span v-else class="assistant-avatar-initial">{{ providerMeta(message.provider || provider).initials }}</span>
             </div>
             <span class="message-role">{{ message.role === 'user' ? 'You' : providerMeta(message.provider || provider).label }}</span>
-            <span v-if="message.usedProffAPI" class="proff-badge" title="Data hentet via Proff.no (Brønnøysundregistrene)">
+            <span v-if="message.usedProffAPI || message.proffData" class="proff-badge" title="Data hentet via Proff.no (Brønnøysundregistrene)">
               <img :src="proffIcon" alt="Proff" class="proff-badge-icon" />
             </span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
@@ -1429,6 +1429,45 @@ const sessionStorageKey = computed(() => {
   return `grok-chat-session:${userStore.user_id}:${graphIdentifier.value}`
 })
 
+const prefsStorageKey = computed(() => {
+  const userPart = userStore.user_id || 'anon'
+  return `grok-chat-prefs:${userPart}:${graphIdentifier.value}`
+})
+
+const loadChatPreferences = () => {
+  if (!prefsStorageKey.value || typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(prefsStorageKey.value)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (parsed?.provider && providerOptions.some(opt => opt.value === parsed.provider)) {
+      provider.value = parsed.provider
+    }
+    if (typeof parsed?.useProffTools === 'boolean') {
+      useProffTools.value = parsed.useProffTools
+    }
+    if (typeof parsed?.useSourcesTools === 'boolean') {
+      useSourcesTools.value = parsed.useSourcesTools
+    }
+  } catch (error) {
+    console.warn('Failed to load chat preferences:', error)
+  }
+}
+
+const persistChatPreferences = () => {
+  if (!prefsStorageKey.value || typeof window === 'undefined') return
+  try {
+    const payload = {
+      provider: provider.value,
+      useProffTools: useProffTools.value,
+      useSourcesTools: useSourcesTools.value
+    }
+    localStorage.setItem(prefsStorageKey.value, JSON.stringify(payload))
+  } catch (error) {
+    console.warn('Failed to persist chat preferences:', error)
+  }
+}
+
 const historyLastLoadedLabel = computed(() => {
   if (!historyLastLoaded.value) return ''
   try {
@@ -1461,6 +1500,21 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => prefsStorageKey.value,
+  () => {
+    loadChatPreferences()
+  },
+  { immediate: true }
+)
+
+watch(
+  [provider, useProffTools, useSourcesTools],
+  () => {
+    persistChatPreferences()
+  }
 )
 
 // Prefer a user-provided profile image; fall back to an initial
@@ -3362,20 +3416,35 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
   }
 
   const data = await response.json().catch(() => ({}))
-  const normalized = (data.messages || []).map((message) => {
+  const rawMessages = data.messages || []
+  const sortedRaw = [...rawMessages].sort((a, b) => {
+    const aTs = a.createdAt ? Date.parse(a.createdAt) : 0
+    const bTs = b.createdAt ? Date.parse(b.createdAt) : 0
+    return aTs - bTs
+  })
+
+  let fallbackProvider = provider.value
+  const normalized = sortedRaw.map((message) => {
     const timestamp = message.createdAt ? Date.parse(message.createdAt) : Date.now()
+    const resolvedProvider = message.provider || (message.role === 'assistant' ? fallbackProvider : provider.value)
+    if (message.role === 'assistant' && message.provider) {
+      fallbackProvider = message.provider
+    }
+    const hasProff = Boolean(message.usedProffAPI || message.proffData)
+    const hasSources = Boolean(message.usedSourcesAPI || message.sourcesData)
+
     return {
       id: message.id,
       role: message.role,
       content: message.content || '',
       timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-      provider: message.role === 'assistant' ? (message.provider || 'grok') : (message.provider || provider.value),
+      provider: resolvedProvider,
       selectionMeta: message.selectionMeta || null,
       // Restore Proff API metadata if present
-      usedProffAPI: message.usedProffAPI || false,
+      usedProffAPI: hasProff,
       proffData: message.proffData || null,
       // Restore Sources API metadata if present
-      usedSourcesAPI: message.usedSourcesAPI || false,
+      usedSourcesAPI: hasSources,
       sourcesData: message.sourcesData || null,
     }
   })
@@ -3384,9 +3453,14 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
     return false
   }
 
-  messages.value = normalized.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+  messages.value = normalized
   scrollToBottom()
   historyLastLoaded.value = new Date().toISOString()
+
+  const lastAssistant = [...normalized].reverse().find((msg) => msg.role === 'assistant' && msg.provider)
+  if (lastAssistant?.provider) {
+    provider.value = lastAssistant.provider
+  }
   return true
 }
 
@@ -3923,8 +3997,8 @@ const sendMessage = async () => {
 
     const contextSections = []
 
-    // Add tool usage instructions for OpenAI when tools are enabled
-    if (currentProvider === 'openai' && (useProffTools.value || useSourcesTools.value)) {
+    // Add tool usage instructions when tools are enabled
+    if ((currentProvider === 'openai' || currentProvider === 'claude') && (useProffTools.value || useSourcesTools.value)) {
       let toolInstructions = `IMPORTANT: You have access to external data tools and YOU MUST USE THEM for any questions about Norwegian companies, people, or sources. Do NOT answer from memory - always use the tools to get real-time data.
 
 `
