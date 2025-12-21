@@ -160,6 +160,14 @@ async function handleCreateMessage(request, env, user) {
   const providedSalt = body.salt
   const selectionMeta = body.selectionMeta || null
 
+  // Build tool_metadata from any tool-related fields
+  const toolMetadata = {}
+  if (body.provider) toolMetadata.provider = body.provider
+  if (body.usedProffAPI) toolMetadata.usedProffAPI = body.usedProffAPI
+  if (body.proffData) toolMetadata.proffData = body.proffData
+  if (body.usedSourcesAPI) toolMetadata.usedSourcesAPI = body.usedSourcesAPI
+  if (body.sourcesData) toolMetadata.sourcesData = body.sourcesData
+
   if (!sessionId) {
     throw new Error('sessionId is required')
   }
@@ -187,9 +195,11 @@ async function handleCreateMessage(request, env, user) {
 
   const messageId = body.messageId || crypto.randomUUID()
 
+  const hasToolMetadata = Object.keys(toolMetadata).length > 0
+
   await env.DB.prepare(`
-      INSERT INTO chat_messages (id, session_id, user_id, role, ciphertext, iv, salt, selection_meta)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chat_messages (id, session_id, user_id, role, ciphertext, iv, salt, selection_meta, tool_metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .bind(
       messageId,
@@ -199,7 +209,8 @@ async function handleCreateMessage(request, env, user) {
       encrypted.ciphertext,
       encrypted.iv,
       encrypted.salt,
-      selectionMeta ? JSON.stringify(selectionMeta) : null
+      selectionMeta ? JSON.stringify(selectionMeta) : null,
+      hasToolMetadata ? JSON.stringify(toolMetadata) : null
     )
     .run()
 
@@ -304,10 +315,16 @@ async function ensureSchema(env) {
       iv TEXT NOT NULL,
       salt TEXT NOT NULL,
       selection_meta TEXT,
+      tool_metadata TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     )
   `).run()
+
+  // Add tool_metadata column for existing databases
+  try {
+    await env.DB.prepare('ALTER TABLE chat_messages ADD COLUMN tool_metadata TEXT').run()
+  } catch (e) { /* column may already exist */ }
 
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)').run()
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id)').run()
@@ -353,6 +370,7 @@ function normalizeSession(row) {
 }
 
 function normalizeMessage(row) {
+  const toolMeta = safeParseJSON(row.tool_metadata) || {}
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -361,7 +379,13 @@ function normalizeMessage(row) {
     iv: row.iv,
     salt: row.salt,
     selectionMeta: safeParseJSON(row.selection_meta),
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    // Spread tool_metadata fields to top level for frontend compatibility
+    provider: toolMeta.provider || null,
+    usedProffAPI: toolMeta.usedProffAPI || false,
+    proffData: toolMeta.proffData || null,
+    usedSourcesAPI: toolMeta.usedSourcesAPI || false,
+    sourcesData: toolMeta.sourcesData || null
   }
 }
 

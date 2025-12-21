@@ -2426,20 +2426,23 @@ const hasPersonConnectionsData = (message) => {
   console.log('hasPersonConnectionsData: proffData keys:', Object.keys(message.proffData))
 
   // Check for person details with connections array - multiple possible paths
-  // Path 1: proff_get_person_details result
+  // Path 1: proff_get_person_details.person (nested)
   const personFromDetails = message.proffData.proff_get_person_details?.person
-  // Path 2: Direct person object (extracted during tool processing)
+  // Path 2: proff_get_person_details directly (API returns person at root)
+  const detailsDirect = message.proffData.proff_get_person_details
+  // Path 3: Direct person object (extracted during tool processing)
   const directPerson = message.proffData.person
-  // Path 3: First person from search results (might have connections if details were fetched)
+  // Path 4: First person from search results (might have connections if details were fetched)
   const personFromSearch = message.proffData.proff_search_persons?.persons?.[0]
 
   console.log('hasPersonConnectionsData: paths checked -',
     'fromDetails:', !!personFromDetails,
+    'detailsDirect:', !!detailsDirect,
     'direct:', !!directPerson,
     'fromSearch:', !!personFromSearch)
 
   // Check each path for connections
-  for (const personData of [personFromDetails, directPerson, personFromSearch]) {
+  for (const personData of [personFromDetails, detailsDirect, directPerson, personFromSearch]) {
     if (personData?.connections && Array.isArray(personData.connections) && personData.connections.length > 0) {
       console.log('hasPersonConnectionsData: Found connections in person:', personData.name, 'count:', personData.connections.length)
       return true
@@ -3441,6 +3444,18 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
 
   const data = await response.json().catch(() => ({}))
   const rawMessages = data.messages || []
+
+  // Debug: Log raw messages from API to see if proffData is returned
+  const rawWithProff = rawMessages.filter(m => m.proffData || m.usedProffAPI)
+  if (rawWithProff.length > 0) {
+    console.log('loadChatHistory: Raw API response has', rawWithProff.length, 'messages with proffData')
+    rawWithProff.forEach((m, i) => {
+      console.log(`  [${i}] raw proffData keys:`, m.proffData ? Object.keys(m.proffData) : 'null', 'usedProffAPI:', m.usedProffAPI)
+    })
+  } else {
+    console.log('loadChatHistory: No proffData in raw API response')
+  }
+
   const sortedRaw = [...rawMessages].sort((a, b) => {
     const aTs = a.createdAt ? Date.parse(a.createdAt) : 0
     const bTs = b.createdAt ? Date.parse(b.createdAt) : 0
@@ -3480,6 +3495,15 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
   messages.value = normalized
   scrollToBottom()
   historyLastLoaded.value = new Date().toISOString()
+
+  // Debug: Log messages with proffData after loading
+  const messagesWithProff = normalized.filter(m => m.proffData || m.usedProffAPI)
+  if (messagesWithProff.length > 0) {
+    console.log('loadChatHistory: Found', messagesWithProff.length, 'messages with proffData')
+    messagesWithProff.forEach((m, i) => {
+      console.log(`  [${i}] proffData keys:`, m.proffData ? Object.keys(m.proffData) : 'null', 'usedProffAPI:', m.usedProffAPI)
+    })
+  }
 
   const lastAssistant = [...normalized].reverse().find((msg) => msg.role === 'assistant' && msg.provider)
   if (lastAssistant?.provider) {
@@ -3640,6 +3664,11 @@ const persistChatMessage = async (message) => {
       payload.content = message.content
     } else {
       return
+    }
+
+    // Debug: Log when persisting proffData
+    if (payload.proffData || payload.usedProffAPI) {
+      console.log('persistChatMessage: Saving message with proffData keys:', payload.proffData ? Object.keys(payload.proffData) : 'null', 'usedProffAPI:', payload.usedProffAPI)
     }
 
     const response = await authorizedHistoryFetch('/messages', {
