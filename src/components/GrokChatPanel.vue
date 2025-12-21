@@ -2537,9 +2537,26 @@ const createNetworkKnowledgeGraph = (personData, requestedTitle = '', sourceMess
   const title = requestedTitle?.trim() || `${personData.name || 'Ukjent person'} sitt nettverk`
   const connections = personData.connections
 
+  // Color based on gender: pink for female (K), blue for male (M)
+  const getGenderColor = (gender) => {
+    if (gender === 'K') return '#ec4899' // Pink for female
+    if (gender === 'M') return '#3b82f6' // Blue for male
+    return '#9ca3af' // Gray for unknown
+  }
+
+  // Size based on number of connections (min 60, max 120)
+  const getNodeSize = (numConnections) => {
+    const baseSize = 60
+    const maxSize = 120
+    const size = baseSize + Math.min(numConnections || 0, 30) * 2
+    return Math.min(size, maxSize)
+  }
+
   const centerNodeId = createGraphId('person')
   const nodes = []
   const edges = []
+
+  const centerSize = getNodeSize(connections.length)
 
   nodes.push({
     id: centerNodeId,
@@ -2547,6 +2564,9 @@ const createNetworkKnowledgeGraph = (personData, requestedTitle = '', sourceMess
     label: personData.name || 'Ukjent person',
     position: { x: 0, y: 0 },
     visible: true,
+    color: getGenderColor(personData.gender),
+    width: centerSize,
+    height: centerSize,
     data: {
       personId: personData.personId || '',
       name: personData.name || '',
@@ -2566,6 +2586,7 @@ const createNetworkKnowledgeGraph = (personData, requestedTitle = '', sourceMess
     const nodeId = createGraphId('connection')
     const angle = angleStep * index
     const connectionName = connection.name || `Forbindelse ${index + 1}`
+    const nodeSize = getNodeSize(connection.numberOfConnections)
 
     nodes.push({
       id: nodeId,
@@ -2576,6 +2597,9 @@ const createNetworkKnowledgeGraph = (personData, requestedTitle = '', sourceMess
         y: Math.sin(angle) * radius
       },
       visible: true,
+      color: getGenderColor(connection.gender),
+      width: nodeSize,
+      height: nodeSize,
       data: {
         name: connectionName,
         gender: connection.gender || '',

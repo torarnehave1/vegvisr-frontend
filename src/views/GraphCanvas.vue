@@ -1011,6 +1011,24 @@ const initializeCytoscape = (graphData) => {
         },
       },
       {
+        selector: 'node[type="person-profile"]',
+        style: {
+          shape: 'ellipse',
+          'background-color': (ele) => ele.data('color') || '#9ca3af',
+          width: (ele) => ele.data('width') || 60,
+          height: (ele) => ele.data('height') || 60,
+          'border-width': 2,
+          'border-color': '#fff',
+          label: 'data(label)',
+          'text-wrap': 'wrap',
+          'text-max-width': '100px',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'font-size': '11px',
+          'text-margin-y': 5,
+        },
+      },
+      {
         selector: 'node[type="worknote"]',
         style: {
           shape: 'rectangle',
