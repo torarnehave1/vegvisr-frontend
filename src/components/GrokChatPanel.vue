@@ -3030,6 +3030,12 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
       timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
       provider: message.role === 'assistant' ? (message.provider || 'grok') : (message.provider || provider.value),
       selectionMeta: message.selectionMeta || null,
+      // Restore Proff API metadata if present
+      usedProffAPI: message.usedProffAPI || false,
+      proffData: message.proffData || null,
+      // Restore Sources API metadata if present
+      usedSourcesAPI: message.usedSourcesAPI || false,
+      sourcesData: message.sourcesData || null,
     }
   })
 
@@ -3164,6 +3170,27 @@ const persistChatMessage = async (message) => {
 
     if (message.selectionMeta) {
       payload.selectionMeta = message.selectionMeta
+    }
+
+    // Save provider info for assistant messages
+    if (message.role === 'assistant' && message.provider) {
+      payload.provider = message.provider
+    }
+
+    // Save Proff API metadata if present
+    if (message.usedProffAPI) {
+      payload.usedProffAPI = true
+    }
+    if (message.proffData) {
+      payload.proffData = message.proffData
+    }
+
+    // Save Sources API metadata if present
+    if (message.usedSourcesAPI) {
+      payload.usedSourcesAPI = true
+    }
+    if (message.sourcesData) {
+      payload.sourcesData = message.sourcesData
     }
 
     if (message.ciphertext && message.iv && message.salt) {
