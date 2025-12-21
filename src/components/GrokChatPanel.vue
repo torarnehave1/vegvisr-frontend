@@ -298,6 +298,16 @@
               🌐 Nettverkskart
             </button>
             <button
+              v-if="hasPersonConnectionsData(message)"
+              class="btn btn-link btn-sm case-study-btn case-graph-btn"
+              type="button"
+              @click="openCaseGraphDialog(message)"
+              :disabled="message.caseGraphCreating"
+              title="Opprett egen kunnskapsgraf fra nettverksdata (kan importeres som cluster i hoved-case)"
+            >
+              {{ message.caseGraphCreating ? '⏳ Oppretter...' : '📊 Opprett Case Graf' }}
+            </button>
+            <button
               v-if="hasNewsData(message)"
               class="btn btn-link btn-sm case-study-btn"
               type="button"
@@ -677,6 +687,99 @@
       </div>
     </div>
   </div>
+
+  <!-- Case Graph Creation Modal -->
+  <div v-if="showCaseGraphModal" class="modal-overlay" @click.self="closeCaseGraphModal">
+    <div class="case-graph-modal">
+      <div class="modal-header">
+        <h3>📊 Opprett Case Graf</h3>
+        <button class="btn-close" @click="closeCaseGraphModal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="case-info" v-if="caseGraphPersonData">
+          <div class="person-header">
+            <span class="person-avatar" :class="caseGraphPersonData.gender === 'K' ? 'female' : 'male'">
+              {{ caseGraphPersonData.gender === 'K' ? '👩' : '👨' }}
+            </span>
+            <div class="person-details">
+              <h4>{{ caseGraphPersonData.name }}</h4>
+              <p class="connections-count">
+                {{ caseGraphPersonData.connections?.length || 0 }} forbindelser i nettverket
+              </p>
+            </div>
+          </div>
+
+          <div class="case-preview">
+            <p><strong>Grafen vil inneholde:</strong></p>
+            <ul>
+              <li>1 sentral person-node ({{ caseGraphPersonData.name }})</li>
+              <li>{{ caseGraphPersonData.connections?.length || 0 }} forbindelse-noder</li>
+              <li>{{ caseGraphPersonData.connections?.length || 0 }} edges (kanter)</li>
+            </ul>
+          </div>
+
+          <div class="case-title-input">
+            <label for="caseGraphTitle">Graf-tittel:</label>
+            <input
+              id="caseGraphTitle"
+              type="text"
+              v-model="caseGraphTitle"
+              class="form-control"
+              :placeholder="`${caseGraphPersonData.name} sitt nettverk`"
+            />
+          </div>
+        </div>
+
+        <div v-if="caseGraphError" class="error-state">
+          <p class="error-message">{{ caseGraphError }}</p>
+        </div>
+
+        <div v-if="caseGraphCreating && !caseGraphCreatedId" class="loading-state">
+          <div class="spinner"></div>
+          <p>{{ caseGraphStatus }}</p>
+        </div>
+      </div>
+
+      <div class="modal-footer" v-if="!caseGraphCreating && !caseGraphCreatedId">
+        <button class="btn btn-secondary" @click="closeCaseGraphModal">
+          Avbryt
+        </button>
+        <button
+          class="btn btn-primary"
+          @click="createCaseGraphAndOpen"
+          :disabled="!caseGraphPersonData"
+        >
+          📂 Åpne i GNewViewer
+        </button>
+        <button
+          class="btn btn-success"
+          @click="createCaseGraphAndImport"
+          :disabled="!caseGraphPersonData || parentContext !== 'canvas'"
+          :title="parentContext !== 'canvas' ? 'Kun tilgjengelig fra GraphCanvas' : 'Importer som cluster i nåværende graf'"
+        >
+          📦 Importer som Cluster
+        </button>
+      </div>
+
+      <div class="modal-footer" v-if="caseGraphCreatedId">
+        <p class="success-message">✅ Graf opprettet!</p>
+        <button class="btn btn-primary" @click="openCreatedCaseGraph">
+          📂 Åpne graf
+        </button>
+        <button
+          class="btn btn-success"
+          @click="importCreatedCaseGraphAsCluster"
+          :disabled="parentContext !== 'canvas'"
+        >
+          📦 Importer som Cluster
+        </button>
+        <button class="btn btn-secondary" @click="closeCaseGraphModal">
+          Lukk
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -694,7 +797,7 @@ import graphContextIcon from '@/assets/graph-context.svg'
 import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
 
-const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network', 'insert-person-network'])
+const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network', 'insert-person-network', 'import-graph-as-cluster'])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -1258,6 +1361,16 @@ const selectedTemplates = ref([])
 const templatesLoading = ref(false)
 const templatesFetchError = ref('')
 const MAX_GRAPH_JOBS = 4
+
+// Case Graph Creation (from person network data)
+const showCaseGraphModal = ref(false)
+const caseGraphPersonData = ref(null)
+const caseGraphTitle = ref('')
+const caseGraphCreating = ref(false)
+const caseGraphStatus = ref('')
+const caseGraphError = ref('')
+const caseGraphCreatedId = ref(null)
+const caseGraphSourceMessage = ref(null)
 
 const graphProcessingJobs = ref([])
 
@@ -2301,24 +2414,10 @@ const insertAsPersonNetwork = (message) => {
     return
   }
 
-  // Extract person data with connections - check multiple paths
-  let personData = message.proffData.proff_get_person_details?.person ||
-                   message.proffData.person
-
-  // If no person data found but we have proff_get_person_details result, check its structure
-  if (!personData && message.proffData.proff_get_person_details) {
-    // The result might be the person directly
-    personData = message.proffData.proff_get_person_details
-  }
-
-  // Fallback to search result if it has connections
-  if (!personData?.connections && message.proffData.proff_search_persons?.persons?.[0]?.connections) {
-    personData = message.proffData.proff_search_persons.persons[0]
-  }
-
-  // Final fallback
+  const personData = extractPersonConnectionsFromMessage(message)
   if (!personData) {
-    personData = message.proffData
+    console.warn('No person connections data found in message')
+    return
   }
 
   console.log('insertAsPersonNetwork: Using personData:', personData?.name, 'with', personData?.connections?.length, 'connections')
@@ -2327,6 +2426,248 @@ const insertAsPersonNetwork = (message) => {
     content: message.content,
     personData: personData
   })
+}
+
+const createGraphId = (prefix = 'graph') => {
+  const randomPart = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  return `${prefix}_${randomPart}`
+}
+
+const extractPersonConnectionsFromMessage = (message) => {
+  if (!message?.proffData) return null
+
+  let personData = message.proffData.proff_get_person_details?.person ||
+    message.proffData.person
+
+  if (!personData && message.proffData.proff_get_person_details) {
+    personData = message.proffData.proff_get_person_details
+  }
+
+  if (!personData?.connections && message.proffData.proff_search_persons?.persons?.[0]?.connections) {
+    personData = message.proffData.proff_search_persons.persons[0]
+  }
+
+  if (!personData) {
+    personData = message.proffData
+  }
+
+  if (!personData?.connections && Array.isArray(message.proffData.connections)) {
+    personData = { ...personData, connections: message.proffData.connections }
+  }
+
+  if (!Array.isArray(personData?.connections)) return null
+  return personData
+}
+
+const createNetworkKnowledgeGraph = (personData, requestedTitle = '', sourceMessage = '') => {
+  if (!personData || !Array.isArray(personData.connections)) {
+    throw new Error('Missing person network data')
+  }
+
+  const now = new Date()
+  const title = requestedTitle?.trim() || `${personData.name || 'Ukjent person'} sitt nettverk`
+  const connections = personData.connections
+
+  const centerNodeId = createGraphId('person')
+  const nodes = []
+  const edges = []
+
+  nodes.push({
+    id: centerNodeId,
+    type: 'person-profile',
+    label: personData.name || 'Ukjent person',
+    position: { x: 0, y: 0 },
+    visible: true,
+    data: {
+      personId: personData.personId || '',
+      name: personData.name || '',
+      gender: personData.gender || '',
+      age: personData.age || personData.alder || '',
+      roles: personData.roles || [],
+      connections,
+      industryConnections: personData.industryConnections || [],
+      source: 'proff'
+    }
+  })
+
+  const radius = Math.max(320, 140 + connections.length * 18)
+  const angleStep = (Math.PI * 2) / Math.max(connections.length, 1)
+
+  connections.forEach((connection, index) => {
+    const nodeId = createGraphId('connection')
+    const angle = angleStep * index
+    const connectionName = connection.name || `Forbindelse ${index + 1}`
+
+    nodes.push({
+      id: nodeId,
+      type: 'person-profile',
+      label: connectionName,
+      position: {
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius
+      },
+      visible: true,
+      data: {
+        name: connectionName,
+        gender: connection.gender || '',
+        numberOfConnections: connection.numberOfConnections || 0,
+        roles: connection.roles || [],
+        source: 'proff'
+      }
+    })
+
+    edges.push({
+      id: createGraphId('edge'),
+      source: centerNodeId,
+      target: nodeId,
+      type: 'connection',
+      label: connection.companyName || connection.roleName || 'forbindelse'
+    })
+  })
+
+  return {
+    metadata: {
+      title,
+      description: `Automatisk generert nettverksgraf for ${personData.name || 'ukjent person'} (${connections.length} forbindelser).`,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      createdBy: userStore.email || 'GrokChatPanel',
+      source: 'GrokChatPanel',
+      sourceMessage
+    },
+    nodes,
+    edges
+  }
+}
+
+const resetCaseGraphState = () => {
+  caseGraphPersonData.value = null
+  caseGraphTitle.value = ''
+  caseGraphCreating.value = false
+  caseGraphStatus.value = ''
+  caseGraphError.value = ''
+  caseGraphCreatedId.value = null
+  caseGraphSourceMessage.value = null
+}
+
+const openCaseGraphDialog = (message) => {
+  const personData = extractPersonConnectionsFromMessage(message)
+  if (!personData) {
+    caseGraphError.value = 'Fant ikke nettverksdata for personen.'
+    return
+  }
+
+  caseGraphPersonData.value = personData
+  caseGraphTitle.value = `${personData.name || 'Ukjent person'} sitt nettverk`
+  caseGraphSourceMessage.value = message || null
+  caseGraphError.value = ''
+  caseGraphCreatedId.value = null
+  caseGraphStatus.value = ''
+  showCaseGraphModal.value = true
+}
+
+const closeCaseGraphModal = () => {
+  showCaseGraphModal.value = false
+  resetCaseGraphState()
+}
+
+const openCaseGraphInViewer = (graphId) => {
+  if (!graphId) return
+  try {
+    if (typeof window !== 'undefined') {
+      window.open(`/gnew-viewer?graphId=${graphId}`, '_blank')
+      return
+    }
+    router.push(`/gnew-viewer?graphId=${graphId}`)
+  } catch (error) {
+    console.error('Failed to open case graph viewer:', error)
+  }
+}
+
+const emitImportCaseGraph = (graphId, graphTitle) => {
+  if (!graphId) return
+  emit('import-graph-as-cluster', {
+    graphId,
+    title: graphTitle || caseGraphTitle.value || 'Case graf'
+  })
+}
+
+const createCaseGraph = async (action) => {
+  if (!caseGraphPersonData.value) return
+  if (!canCreateGraph.value) {
+    caseGraphError.value = 'Logg inn for å lagre grafen.'
+    return
+  }
+
+  caseGraphCreating.value = true
+  caseGraphStatus.value = 'Bygger graf...'
+  caseGraphError.value = ''
+  caseGraphCreatedId.value = null
+
+  if (caseGraphSourceMessage.value) {
+    caseGraphSourceMessage.value.caseGraphCreating = true
+  }
+
+  try {
+    const graphData = createNetworkKnowledgeGraph(
+      caseGraphPersonData.value,
+      caseGraphTitle.value,
+      caseGraphSourceMessage.value?.content || ''
+    )
+
+    caseGraphStatus.value = 'Lagrer graf...'
+    const graphId = createGraphId('case_graph')
+    const response = await fetch(KNOWLEDGE_GRAPH_SAVE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken,
+      },
+      body: JSON.stringify({
+        id: graphId,
+        graphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `Failed to save graph (${response.status})`)
+    }
+
+    const result = await response.json().catch(() => ({}))
+    const savedGraphId = result.graphId || result.id || graphId
+
+    caseGraphCreatedId.value = savedGraphId
+    caseGraphStatus.value = '✅ Graf opprettet!'
+
+    if (action === 'open') {
+      openCaseGraphInViewer(savedGraphId)
+    } else if (action === 'import') {
+      emitImportCaseGraph(savedGraphId, graphData.metadata?.title)
+    }
+  } catch (error) {
+    console.error('Failed to create case graph:', error)
+    caseGraphError.value = error.message || 'Kunne ikke opprette grafen.'
+  } finally {
+    caseGraphCreating.value = false
+    if (caseGraphSourceMessage.value) {
+      caseGraphSourceMessage.value.caseGraphCreating = false
+    }
+  }
+}
+
+const createCaseGraphAndOpen = () => createCaseGraph('open')
+const createCaseGraphAndImport = () => createCaseGraph('import')
+
+const openCreatedCaseGraph = () => {
+  openCaseGraphInViewer(caseGraphCreatedId.value)
+}
+
+const importCreatedCaseGraphAsCluster = () => {
+  emitImportCaseGraph(caseGraphCreatedId.value, caseGraphTitle.value)
 }
 
 // Handle clicks on message content (for related questions)

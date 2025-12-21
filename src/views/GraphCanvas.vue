@@ -193,6 +193,7 @@
           @insert-node="insertAIResponseAsNode"
           @insert-network="insertAIResponseAsNetwork"
           @insert-person-network="insertAIResponseAsPersonNetwork"
+          @import-graph-as-cluster="handleImportGraphAsCluster"
         />
       </div>
     </div>
@@ -3368,6 +3369,11 @@ const insertAIResponseAsPersonNetwork = async (payload) => {
 
   showStatus(`Nettverkskart for ${personData.name} opprettet med ${personData.connections.length} forbindelser`, 'success')
   await saveGraph()
+}
+
+const handleImportGraphAsCluster = (payload) => {
+  if (!payload?.graphId) return
+  importGraphAsCluster(payload.graphId, payload.title || `Graph ${payload.graphId}`)
 }
 
 // AI Chat Panel - Update selection context when node is selected
