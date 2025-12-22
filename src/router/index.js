@@ -477,6 +477,11 @@ const router = createRouter({
         requiresAuth: true,
       },
     },
+    {
+      path: '/mystmkra',
+      name: 'mystmkra',
+      component: () => import('../views/MystMkraPortfolio.vue'),
+    },
   ],
 })
 
