@@ -31,8 +31,9 @@
       >
         Reading
       </button>
-      <button
-        @click="goToLetters"
+      <button 
+        @click="selectMode('letters')"
+        :class="{ active: currentMode === 'letters' }"
         class="sanskrit-learner__mode-btn"
       >
         Letters
@@ -43,6 +44,7 @@
       <SanskritLetterRecognition v-if="currentMode === 'recognition'" />
       <SanskritLetterWriter v-else-if="currentMode === 'writing'" />
       <SanskritLetterReader v-else-if="currentMode === 'reading'" />
+      <SanskritLettersOverview v-else-if="currentMode === 'letters'" />
     </div>
 
     <SanskritProgressDashboard />
@@ -52,13 +54,13 @@
 
 <script>
 import { computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { useSanskritLearnerStore } from '@/stores/sanskritLearner';
 import SanskritLetterRecognition from './SanskritLetterRecognition.vue';
 import SanskritLetterWriter from './SanskritLetterWriter.vue';
 import SanskritLetterReader from './SanskritLetterReader.vue';
 import SanskritProgressDashboard from './SanskritProgressDashboard.vue';
 import SanskritAchievementPopup from './SanskritAchievementPopup.vue';
+import SanskritLettersOverview from './SanskritLettersOverview.vue';
 
 export default {
   name: 'SanskritLearner',
@@ -67,10 +69,10 @@ export default {
     SanskritLetterWriter,
     SanskritLetterReader,
     SanskritProgressDashboard,
-    SanskritAchievementPopup
+    SanskritAchievementPopup,
+    SanskritLettersOverview
   },
   setup() {
-    const router = useRouter();
     const store = useSanskritLearnerStore();
 
     const currentMode = computed(() => store.sanskritCurrentMode);
@@ -82,10 +84,6 @@ export default {
       await store.endSanskritSession();
       await store.startSanskritSession(mode);
       store.setNextSanskritLetter();
-    };
-
-    const goToLetters = () => {
-      router.push('/sanskrit/letters');
     };
 
     onMounted(async () => {
@@ -100,8 +98,7 @@ export default {
       progressPercentage,
       masteredLetters,
       currentStreak,
-      selectMode,
-      goToLetters
+      selectMode
     };
   }
 };
