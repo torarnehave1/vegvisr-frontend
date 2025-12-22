@@ -327,6 +327,31 @@ async function fetchGraph(graphId) {
 async function saveSlugToGraphMetadata(graphId, graphData, slug) {
   const updatedMetadata = {
     ...graphData.metadata,
+    seoSlug: slug,
+    publicationState: 'published',
+    publishedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+
+  const updatedGraphData = {
+    ...graphData,
+    metadata: updatedMetadata,
+  }
+
+  const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: graphId,
+      graphData: updatedGraphData,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to update graph metadata: ${response.status}`)
+  }
+
+  return updatedGraphData
 }
 
 function applySharedContent(rawContent, shareUrl, title) {
