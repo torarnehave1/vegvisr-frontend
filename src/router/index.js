@@ -482,6 +482,11 @@ const router = createRouter({
       name: 'mystmkra',
       component: () => import('../views/MystMkraPortfolio.vue'),
     },
+    {
+      path: '/mystmkra-documents',
+      name: 'mystmkra-documents',
+      component: () => import('../views/MystMkraDocuments.vue'),
+    },
   ],
 })
 
