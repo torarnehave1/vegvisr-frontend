@@ -128,6 +128,11 @@ const router = createRouter({
         next()
       },
     },
+    {
+      path: '/sanskrit',
+      name: 'sanskrit-learner',
+      component: () => import('../components/SanskritLearner.vue'),
+    },
 
     {
       path: '/graph-editor',
