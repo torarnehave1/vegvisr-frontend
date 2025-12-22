@@ -133,6 +133,11 @@ const router = createRouter({
       name: 'sanskrit-learner',
       component: () => import('../components/SanskritLearner.vue'),
     },
+    {
+      path: '/sanskrit/letters',
+      name: 'sanskrit-letters',
+      component: () => import('../components/SanskritLettersOverview.vue'),
+    },
 
     {
       path: '/graph-editor',

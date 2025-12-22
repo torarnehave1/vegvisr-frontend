@@ -10,7 +10,7 @@
     </div>
 
     <div class="sanskrit-learner__mode-selector">
-      <button
+      <button 
         @click="selectMode('recognition')"
         :class="{ active: currentMode === 'recognition' }"
         class="sanskrit-learner__mode-btn"
@@ -24,12 +24,18 @@
       >
         Writing
       </button>
-      <button
+      <button 
         @click="selectMode('reading')"
         :class="{ active: currentMode === 'reading' }"
         class="sanskrit-learner__mode-btn"
       >
         Reading
+      </button>
+      <button
+        @click="goToLetters"
+        class="sanskrit-learner__mode-btn"
+      >
+        Letters
       </button>
     </div>
 
@@ -46,6 +52,7 @@
 
 <script>
 import { computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useSanskritLearnerStore } from '@/stores/sanskritLearner';
 import SanskritLetterRecognition from './SanskritLetterRecognition.vue';
 import SanskritLetterWriter from './SanskritLetterWriter.vue';
@@ -63,6 +70,7 @@ export default {
     SanskritAchievementPopup
   },
   setup() {
+    const router = useRouter();
     const store = useSanskritLearnerStore();
 
     const currentMode = computed(() => store.sanskritCurrentMode);
@@ -74,6 +82,10 @@ export default {
       await store.endSanskritSession();
       await store.startSanskritSession(mode);
       store.setNextSanskritLetter();
+    };
+
+    const goToLetters = () => {
+      router.push('/sanskrit/letters');
     };
 
     onMounted(async () => {
@@ -88,7 +100,8 @@ export default {
       progressPercentage,
       masteredLetters,
       currentStreak,
-      selectMode
+      selectMode,
+      goToLetters
     };
   }
 };
