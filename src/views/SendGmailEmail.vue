@@ -7,6 +7,43 @@
         recommended) to send a message.
       </p>
 
+      <div v-if="sharedGraphId" class="share-panel">
+        <div class="share-panel-header">
+          <h2>Shared Knowledge Graph</h2>
+          <span v-if="sharedGraphLoading" class="badge info">Preparing SEO page</span>
+          <span v-else-if="sharedGraphReady" class="badge success">SEO page ready</span>
+          <span v-else-if="sharedGraphError" class="badge danger">SEO generation failed</span>
+        </div>
+        <p class="share-panel-subtitle">
+          This email will include the SEO-friendly link for the shared graph.
+        </p>
+        <div class="share-panel-grid">
+          <div>
+            <span class="label">Graph Title</span>
+            <div class="value">{{ sharedGraphTitle || 'Untitled Graph' }}</div>
+          </div>
+          <div>
+            <span class="label">Graph ID</span>
+            <div class="value mono">{{ sharedGraphId }}</div>
+          </div>
+          <div>
+            <span class="label">SEO Slug</span>
+            <div class="value mono">{{ sharedGraphSlug || 'Generating…' }}</div>
+          </div>
+          <div>
+            <span class="label">SEO Link</span>
+            <div class="value">
+              <a v-if="sharedGraphUrl" :href="sharedGraphUrl" target="_blank" rel="noreferrer">
+                {{ sharedGraphUrl }}
+              </a>
+              <span v-else>Preparing…</span>
+            </div>
+          </div>
+        </div>
+        <p v-if="sharedGraphMessage" class="status info">{{ sharedGraphMessage }}</p>
+        <p v-if="sharedGraphError" class="status error">{{ sharedGraphError }}</p>
+      </div>
+
       <form @submit.prevent="sendEmail">
         <div class="field">
           <label for="senderEmail">Your primary Gmail (auth user)</label>
@@ -96,9 +133,11 @@
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
 const userStore = useUserStore()
+const route = useRoute()
 
 const form = reactive({
   authEmail: userStore.email || '',
@@ -118,11 +157,20 @@ const newAlias = ref('')
 const aliases = ref([])
 const userData = ref(null)
 const savePassword = ref(false)
+const sharedGraphId = ref('')
+const sharedGraphTitle = ref('')
+const sharedGraphSlug = ref('')
+const sharedGraphUrl = ref('')
+const sharedGraphMessage = ref('')
+const sharedGraphError = ref('')
+const sharedGraphLoading = ref(false)
+const sharedGraphReady = ref(false)
 
 const dashboardBase = import.meta.env.VITE_DASHBOARD_URL || 'https://dashboard.vegvisr.org'
 
 onMounted(() => {
   loadUserData()
+  initializeSharedGraph()
 })
 
 async function loadUserData() {
@@ -226,9 +274,172 @@ async function persistAliases(updatedAliases) {
   userData.value = { ...(userData.value || {}), data: merged }
 }
 
+function getQueryValue(key) {
+  const value = route.query[key]
+  if (Array.isArray(value)) return value[0]
+  return typeof value === 'string' ? value : ''
+}
+
+function toSeoSlug(text, fallback) {
+  const base = (text || fallback || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return base || fallback || ''
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function stripTrailingUrl(value) {
+  return value.replace(/\n?\s*https?:\/\/\S+\s*$/i, '').trim()
+}
+
+function textToHtml(value) {
+  return escapeHtml(value).replace(/\n/g, '<br/>')
+}
+
+async function fetchGraph(graphId) {
+  const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(graphId)}`)
+  if (!response.ok) {
+    throw new Error(`Failed to load graph ${graphId} (${response.status})`)
+  }
+  const data = await response.json()
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data)
+    } catch {
+      throw new Error('Invalid graph payload')
+    }
+  }
+  return data
+}
+
+async function saveSlugToGraphMetadata(graphId, graphData, slug) {
+  const updatedMetadata = {
+    ...graphData.metadata,
+    seoSlug: slug,
+    publicationState: 'published',
+    publishedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+
+  const updatedGraphData = {
+    ...graphData,
+    metadata: updatedMetadata,
+  }
+
+  const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: graphId,
+      graphData: updatedGraphData,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to update graph metadata (${response.status})`)
+  }
+}
+
+async function generateSeoPage(graphId, slug, graphData) {
+  const response = await fetch('https://seo.vegvisr.org/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      graphId,
+      slug,
+      title: graphData.metadata?.title || graphData.title || 'Untitled Graph',
+      description: graphData.metadata?.description || '',
+      keywords: graphData.metadata?.keywords || '',
+      graphData,
+    }),
+  })
+
+  if (!response.ok) {
+    let errorText
+    try {
+      const errorData = await response.json()
+      errorText = errorData.error || errorData.message || 'Unknown error'
+    } catch {
+      errorText = await response.text()
+    }
+    throw new Error(`SEO generation failed (${response.status}): ${errorText}`)
+  }
+}
+
+function applySharedContent(rawContent, shareUrl, title) {
+  const cleanedContent = rawContent ? stripTrailingUrl(rawContent) : ''
+  const messageText = cleanedContent || `Check out this knowledge graph: ${title}`
+  const textPayload = `${messageText}\n\n${shareUrl}`
+  form.subject = `Knowledge Graph: ${title}`
+  form.html = textToHtml(textPayload)
+}
+
+async function initializeSharedGraph() {
+  const graphId = getQueryValue('graphId')
+  const rawContent = getQueryValue('content')
+  const rawUrl = getQueryValue('url')
+
+  if (!graphId) {
+    if (rawContent) {
+      form.html = textToHtml(rawContent)
+    } else if (rawUrl) {
+      form.html = textToHtml(`Check out this knowledge graph:\n\n${rawUrl}`)
+    }
+    return
+  }
+
+  sharedGraphId.value = graphId
+  sharedGraphLoading.value = true
+  sharedGraphError.value = ''
+  sharedGraphMessage.value = 'Preparing SEO page for this graph...'
+
+  try {
+    const graphData = await fetchGraph(graphId)
+    sharedGraphTitle.value = graphData.metadata?.title || graphData.title || 'Untitled Graph'
+
+    let seoSlug = graphData.metadata?.seoSlug
+    if (!seoSlug) {
+      const slugFallback = `graph-${graphId}`.toLowerCase().replace(/[^a-z0-9-]/g, '')
+      seoSlug = toSeoSlug(sharedGraphTitle.value, slugFallback)
+      await generateSeoPage(graphId, seoSlug, graphData)
+      await saveSlugToGraphMetadata(graphId, graphData, seoSlug)
+      sharedGraphMessage.value = 'SEO page generated and saved.'
+    } else {
+      sharedGraphMessage.value = 'SEO page already available.'
+    }
+
+    sharedGraphSlug.value = seoSlug
+    sharedGraphUrl.value = `https://seo.vegvisr.org/graph/${seoSlug}`
+    sharedGraphReady.value = true
+    applySharedContent(rawContent, sharedGraphUrl.value, sharedGraphTitle.value)
+  } catch (err) {
+    console.error('initializeSharedGraph error', err)
+    sharedGraphError.value = err.message || 'Failed to prepare SEO page'
+  } finally {
+    sharedGraphLoading.value = false
+  }
+}
+
 async function sendEmail() {
   error.value = ''
   success.value = ''
+
+  if (sharedGraphId.value && !sharedGraphReady.value) {
+    error.value = 'SEO page is not ready yet. Please wait before sending.'
+    return
+  }
 
   if (!form.authEmail || !form.fromEmail || !form.toEmail || !form.subject || !form.html) {
     error.value = 'All fields are required.'
@@ -377,6 +588,12 @@ textarea:focus {
   border: 1px solid #bbf7d0;
 }
 
+.status.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
 .hint {
   color: #6b7280;
   font-size: 12px;
@@ -434,5 +651,81 @@ select {
   background: transparent;
   cursor: pointer;
   font-weight: 700;
+}
+
+.share-panel {
+  border: 1px solid #e0e7ff;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.share-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.share-panel-subtitle {
+  margin: 6px 0 16px;
+  color: #475569;
+}
+
+.share-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.value {
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.value.mono {
+  font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge.info {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.badge.success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge.danger {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 </style>

@@ -96,6 +96,14 @@
           >
             <i class="bi bi-chat-dots"></i> SMS
           </button>
+          <button
+            class="btn btn-outline-primary share-btn email-btn"
+            @click="shareViaEmail"
+            :disabled="shareContent.includes('Generating')"
+            title="Share via Email"
+          >
+            <i class="bi bi-envelope"></i> Email
+          </button>
 
           <!-- NEW: Share to AI button (superadmin only) -->
           <button
@@ -374,6 +382,12 @@ const shareViaSMS = () => {
   const url = getShareUrl()
   const smsPageUrl = `/sms-share?content=${encodeURIComponent(shareContent.value)}&url=${encodeURIComponent(url)}&graphId=${props.currentGraphId}`
   window.location.href = smsPageUrl
+}
+
+const shareViaEmail = () => {
+  const url = getShareUrl()
+  const emailPageUrl = `/send-gmail-email?content=${encodeURIComponent(shareContent.value)}&url=${encodeURIComponent(url)}&graphId=${props.currentGraphId}`
+  window.location.href = emailPageUrl
 }
 
 const shareToAI = async () => {
@@ -659,6 +673,16 @@ watch(
 
 .sms-btn:hover:not(:disabled) {
   background-color: #28a745;
+  color: white;
+}
+
+.email-btn {
+  border-color: #0d6efd;
+  color: #0d6efd;
+}
+
+.email-btn:hover:not(:disabled) {
+  background-color: #0d6efd;
   color: white;
 }
 
