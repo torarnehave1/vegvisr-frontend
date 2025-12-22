@@ -84,6 +84,18 @@
       </div>
 
       <div class="toolbar-section">
+        <!-- Fulltext Rendering Toggle -->
+        <button
+          class="btn btn-sm"
+          :class="showRichFulltext ? 'btn-outline-primary' : 'btn-outline-secondary'"
+          @click="toggleRichFulltext"
+          :title="showRichFulltext ? 'Disable rich fulltext rendering' : 'Enable rich fulltext rendering'"
+        >
+          🧾 Rich Fulltext
+        </button>
+      </div>
+
+      <div class="toolbar-section">
         <!-- Undo/Redo -->
         <div class="btn-group" role="group">
           <button @click="undoAction" class="btn btn-outline-secondary" title="Undo">↶ Undo</button>
@@ -122,6 +134,20 @@
       <!-- Main Canvas -->
       <div class="canvas-container" :class="{ 'with-chat': showAIChat }">
         <div id="graph-canvas" class="cytoscape-canvas"></div>
+        <div
+          class="node-html-overlays"
+          v-if="showRichFulltext && fulltextNodeOverlays.length"
+        >
+          <div
+            v-for="overlay in fulltextNodeOverlays"
+            :key="overlay.id"
+            class="node-html-overlay"
+            :class="{ 'is-selected': overlay.isSelected }"
+            :style="overlay.style"
+          >
+            <GNewDefaultNode :node="overlay.node" :isPreview="true" :showControls="false" />
+          </div>
+        </div>
         <!-- Node Resize Handles -->
         <div
           v-if="resizeHandles.visible"
@@ -610,6 +636,7 @@ import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
+import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
 // Initialize undo-redo plugin
@@ -632,6 +659,7 @@ const importSearchQuery = ref('')
 const currentGraphTitle = ref('')
 const graphCanvasRoot = ref(null)
 const isFullscreen = ref(false)
+const showRichFulltext = ref(true)
 
 // AI Chat Panel state
 const showAIChat = ref(false)
@@ -809,6 +837,76 @@ const resizeHandles = computed(() => {
     visible: true,
     containerStyle: style,
   }
+})
+
+const toggleRichFulltext = () => {
+  showRichFulltext.value = !showRichFulltext.value
+  updateFulltextNodeLabelStyle()
+  bumpResizeUpdate()
+}
+
+const updateFulltextNodeLabelStyle = () => {
+  if (!cyInstance.value) return
+  const labelValue = showRichFulltext.value
+    ? ''
+    : (ele) => `${ele.data('label') || ''}\n\n${ele.data('info') || ''}`
+  cyInstance.value.style()
+    .selector('node[type="fulltext"]')
+    .style('label', labelValue)
+    .update()
+}
+
+const getOverlayStyle = (node) => {
+  if (!cyInstance.value?.container()) return null
+  const renderedPos = node.renderedPosition()
+  const width = node.renderedOuterWidth()
+  const height = node.renderedOuterHeight()
+  return {
+    position: 'absolute',
+    left: `${renderedPos.x - width / 2}px`,
+    top: `${renderedPos.y - height / 2}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+    pointerEvents: 'none',
+  }
+}
+
+const fulltextNodeOverlays = computed(() => {
+  resizeUpdateToken.value
+  if (!cyInstance.value) return []
+
+  return cyInstance.value
+    .nodes()
+    .filter((node) => {
+      const data = node.data()
+      if (data.type !== 'fulltext') return false
+      if (data.visible === false) return false
+      if (node.isParent() || !node.visible()) return false
+      return Boolean(getOverlayStyle(node))
+    })
+    .map((node) => {
+      const data = node.data()
+      const info =
+        typeof data.info === 'string' && data.info.trim().length
+          ? data.info
+          : typeof data.fullText === 'string'
+            ? data.fullText
+            : ''
+      const overlayStyle = getOverlayStyle(node)
+      return {
+        id: node.id(),
+        isSelected: node.selected(),
+        style: overlayStyle,
+        node: {
+          ...data,
+          id: node.id(),
+          label: data.label || '',
+          type: data.type || 'fulltext',
+          info,
+          imageAttributions: data.imageAttributions || {},
+        },
+      }
+    })
 })
 
 // Cytoscape instance
@@ -1079,7 +1177,9 @@ const initializeCytoscape = (graphData) => {
           'background-color': (ele) => ele.data('color') || '#ede8e8',
           'border-width': 4,
           'border-color': '#555',
-          label: (ele) => `${ele.data('label')}\n\n${ele.data('info')}`,
+          label: showRichFulltext.value
+            ? ''
+            : (ele) => `${ele.data('label') || ''}\n\n${ele.data('info') || ''}`,
           'text-wrap': 'wrap',
           'text-max-width': '734px',
           'text-valign': 'center',
@@ -1367,6 +1467,8 @@ const initializeCytoscape = (graphData) => {
 
   // Fit to view
   cyInstance.value.fit()
+
+  updateFulltextNodeLabelStyle()
 }
 
 const handleCanvasTap = async (event) => {
@@ -1431,6 +1533,14 @@ const setupEventListeners = () => {
   })
 
   cyInstance.value.on('style', 'node', () => {
+    bumpResizeUpdate()
+  })
+
+  cyInstance.value.on('data', 'node', () => {
+    bumpResizeUpdate()
+  })
+
+  cyInstance.value.on('add remove', () => {
     bumpResizeUpdate()
   })
 
@@ -3578,6 +3688,34 @@ onUnmounted(() => {
   position: relative;
   overflow: hidden;
   transition: flex 0.2s ease;
+}
+
+.node-html-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.node-html-overlay {
+  position: absolute;
+  pointer-events: none;
+}
+
+.node-html-overlay :deep(.gnew-default-node) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.node-html-overlay :deep(.node-content) {
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.node-html-overlay.is-selected :deep(.gnew-default-node) {
+  box-shadow: 0 0 0 3px #0d6efd, 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 /* AI Chat Panel Layout */
