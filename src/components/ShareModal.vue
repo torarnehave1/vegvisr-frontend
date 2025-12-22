@@ -99,8 +99,8 @@
           <button
             class="btn btn-outline-primary share-btn email-btn"
             @click="shareViaEmail"
-            :disabled="shareContent.includes('Generating')"
-            title="Share via Email"
+            :disabled="shareContent.includes('Generating') || !props.graphData?.metadata?.seoSlug"
+            :title="props.graphData?.metadata?.seoSlug ? 'Share via Email' : 'Generate an SEO page before sharing via email'"
           >
             <i class="bi bi-envelope"></i> Email
           </button>
@@ -385,6 +385,10 @@ const shareViaSMS = () => {
 }
 
 const shareViaEmail = () => {
+  if (!props.graphData?.metadata?.seoSlug) {
+    alert('Generate an SEO page before sharing via email.')
+    return
+  }
   const url = getShareUrl()
   const emailPageUrl = `/send-gmail-email?content=${encodeURIComponent(shareContent.value)}&url=${encodeURIComponent(url)}&graphId=${props.currentGraphId}`
   window.location.href = emailPageUrl

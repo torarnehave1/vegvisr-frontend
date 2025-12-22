@@ -10,12 +10,12 @@
       <div v-if="sharedGraphId" class="share-panel">
         <div class="share-panel-header">
           <h2>Shared Knowledge Graph</h2>
-          <span v-if="sharedGraphLoading" class="badge info">Preparing SEO page</span>
-          <span v-else-if="sharedGraphReady" class="badge success">SEO page ready</span>
-          <span v-else-if="sharedGraphError" class="badge danger">SEO generation failed</span>
+          <span v-if="sharedGraphLoading" class="badge info">Checking SEO slug</span>
+          <span v-else-if="sharedGraphReady" class="badge success">SEO slug ready</span>
+          <span v-else-if="sharedGraphError" class="badge danger">SEO slug missing</span>
         </div>
         <p class="share-panel-subtitle">
-          This email will include the SEO-friendly link for the shared graph.
+          Email sharing requires an existing SEO slug for this graph.
         </p>
         <div class="share-panel-grid">
           <div>
@@ -327,55 +327,6 @@ async function fetchGraph(graphId) {
 async function saveSlugToGraphMetadata(graphId, graphData, slug) {
   const updatedMetadata = {
     ...graphData.metadata,
-    seoSlug: slug,
-    publicationState: 'published',
-    publishedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-
-  const updatedGraphData = {
-    ...graphData,
-    metadata: updatedMetadata,
-  }
-
-  const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: graphId,
-      graphData: updatedGraphData,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to update graph metadata (${response.status})`)
-  }
-}
-
-async function generateSeoPage(graphId, slug, graphData) {
-  const response = await fetch('https://seo.vegvisr.org/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      graphId,
-      slug,
-      title: graphData.metadata?.title || graphData.title || 'Untitled Graph',
-      description: graphData.metadata?.description || '',
-      keywords: graphData.metadata?.keywords || '',
-      graphData,
-    }),
-  })
-
-  if (!response.ok) {
-    let errorText
-    try {
-      const errorData = await response.json()
-      errorText = errorData.error || errorData.message || 'Unknown error'
-    } catch {
-      errorText = await response.text()
-    }
-    throw new Error(`SEO generation failed (${response.status}): ${errorText}`)
-  }
 }
 
 function applySharedContent(rawContent, shareUrl, title) {
@@ -403,22 +354,19 @@ async function initializeSharedGraph() {
   sharedGraphId.value = graphId
   sharedGraphLoading.value = true
   sharedGraphError.value = ''
-  sharedGraphMessage.value = 'Preparing SEO page for this graph...'
+  sharedGraphMessage.value = 'Checking for an SEO slug on this graph...'
 
   try {
     const graphData = await fetchGraph(graphId)
     sharedGraphTitle.value = graphData.metadata?.title || graphData.title || 'Untitled Graph'
 
-    let seoSlug = graphData.metadata?.seoSlug
+    const seoSlug = graphData.metadata?.seoSlug
     if (!seoSlug) {
-      const slugFallback = `graph-${graphId}`.toLowerCase().replace(/[^a-z0-9-]/g, '')
-      seoSlug = toSeoSlug(sharedGraphTitle.value, slugFallback)
-      await generateSeoPage(graphId, seoSlug, graphData)
-      await saveSlugToGraphMetadata(graphId, graphData, seoSlug)
-      sharedGraphMessage.value = 'SEO page generated and saved.'
-    } else {
-      sharedGraphMessage.value = 'SEO page already available.'
+      sharedGraphError.value = 'SEO slug missing. Generate an SEO page before emailing.'
+      return
     }
+
+    sharedGraphMessage.value = 'SEO slug found.'
 
     sharedGraphSlug.value = seoSlug
     sharedGraphUrl.value = `https://seo.vegvisr.org/graph/${seoSlug}`
@@ -426,7 +374,7 @@ async function initializeSharedGraph() {
     applySharedContent(rawContent, sharedGraphUrl.value, sharedGraphTitle.value)
   } catch (err) {
     console.error('initializeSharedGraph error', err)
-    sharedGraphError.value = err.message || 'Failed to prepare SEO page'
+    sharedGraphError.value = err.message || 'Failed to check SEO slug'
   } finally {
     sharedGraphLoading.value = false
   }
@@ -437,7 +385,7 @@ async function sendEmail() {
   success.value = ''
 
   if (sharedGraphId.value && !sharedGraphReady.value) {
-    error.value = 'SEO page is not ready yet. Please wait before sending.'
+    error.value = sharedGraphError.value || 'SEO slug missing. Generate an SEO page first.'
     return
   }
 
