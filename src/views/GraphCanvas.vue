@@ -590,8 +590,13 @@
 
     <!-- YouTube Player Modal -->
     <div v-if="showYoutubeModal" class="modal-overlay" @click="closeYoutubeModal">
-      <div class="youtube-modal" @click.stop>
-        <div class="modal-header">
+      <div
+        class="youtube-modal"
+        :style="youtubeModalStyle"
+        @click.stop
+        @mousedown="bringYoutubeModalToFront"
+      >
+        <div class="modal-header youtube-modal-header" @mousedown.prevent="startYoutubeModalDrag">
           <h5>Play Video</h5>
           <button @click="closeYoutubeModal" class="btn-close">&times;</button>
         </div>
@@ -603,6 +608,12 @@
             :showControls="false"
           />
         </div>
+        <div
+          class="youtube-modal-resize-handle"
+          @mousedown.prevent.stop="startYoutubeModalResize"
+          aria-label="Resize video modal"
+          title="Resize"
+        ></div>
       </div>
     </div>
 
@@ -688,6 +699,17 @@ const showRichFulltext = ref(true)
 const showRichYoutube = ref(true)
 const showYoutubeModal = ref(false)
 const youtubeModalNode = ref(null)
+const youtubeModalState = ref({
+  top: 80,
+  left: 80,
+  width: 960,
+  height: 640,
+  zIndex: 1200,
+})
+const isYoutubeModalDragging = ref(false)
+const isYoutubeModalResizing = ref(false)
+const youtubeModalDragStart = ref({ x: 0, y: 0, top: 0, left: 0 })
+const youtubeModalResizeStart = ref({ x: 0, y: 0, width: 0, height: 0 })
 
 // AI Chat Panel state
 const showAIChat = ref(false)
@@ -1008,6 +1030,14 @@ const youtubePlayButtons = computed(() => {
     return buttons
   }, [])
 })
+
+const youtubeModalStyle = computed(() => ({
+  top: `${youtubeModalState.value.top}px`,
+  left: `${youtubeModalState.value.left}px`,
+  width: `${youtubeModalState.value.width}px`,
+  height: `${youtubeModalState.value.height}px`,
+  zIndex: youtubeModalState.value.zIndex,
+}))
 
 // Cytoscape instance
 const cyInstance = ref(null)
@@ -2148,11 +2178,88 @@ const saveNodeInfo = async () => {
 const openYoutubeModal = (nodeData) => {
   youtubeModalNode.value = nodeData
   showYoutubeModal.value = true
+  bringYoutubeModalToFront()
 }
 
 const closeYoutubeModal = () => {
   showYoutubeModal.value = false
   youtubeModalNode.value = null
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onYoutubeModalDrag)
+  window.removeEventListener('mouseup', stopYoutubeModalDrag)
+  window.removeEventListener('mousemove', onYoutubeModalResize)
+  window.removeEventListener('mouseup', stopYoutubeModalResize)
+})
+
+const bringYoutubeModalToFront = () => {
+  youtubeModalState.value = {
+    ...youtubeModalState.value,
+    zIndex: youtubeModalState.value.zIndex + 1,
+  }
+}
+
+const startYoutubeModalDrag = (event) => {
+  bringYoutubeModalToFront()
+  isYoutubeModalDragging.value = true
+  youtubeModalDragStart.value = {
+    x: event.clientX,
+    y: event.clientY,
+    top: youtubeModalState.value.top,
+    left: youtubeModalState.value.left,
+  }
+  window.addEventListener('mousemove', onYoutubeModalDrag)
+  window.addEventListener('mouseup', stopYoutubeModalDrag)
+}
+
+const onYoutubeModalDrag = (event) => {
+  if (!isYoutubeModalDragging.value) return
+  const deltaX = event.clientX - youtubeModalDragStart.value.x
+  const deltaY = event.clientY - youtubeModalDragStart.value.y
+  youtubeModalState.value = {
+    ...youtubeModalState.value,
+    top: Math.max(10, youtubeModalDragStart.value.top + deltaY),
+    left: Math.max(10, youtubeModalDragStart.value.left + deltaX),
+  }
+}
+
+const stopYoutubeModalDrag = () => {
+  if (!isYoutubeModalDragging.value) return
+  isYoutubeModalDragging.value = false
+  window.removeEventListener('mousemove', onYoutubeModalDrag)
+  window.removeEventListener('mouseup', stopYoutubeModalDrag)
+}
+
+const startYoutubeModalResize = (event) => {
+  bringYoutubeModalToFront()
+  isYoutubeModalResizing.value = true
+  youtubeModalResizeStart.value = {
+    x: event.clientX,
+    y: event.clientY,
+    width: youtubeModalState.value.width,
+    height: youtubeModalState.value.height,
+  }
+  window.addEventListener('mousemove', onYoutubeModalResize)
+  window.addEventListener('mouseup', stopYoutubeModalResize)
+}
+
+const onYoutubeModalResize = (event) => {
+  if (!isYoutubeModalResizing.value) return
+  const deltaX = event.clientX - youtubeModalResizeStart.value.x
+  const deltaY = event.clientY - youtubeModalResizeStart.value.y
+  youtubeModalState.value = {
+    ...youtubeModalState.value,
+    width: Math.max(360, youtubeModalResizeStart.value.width + deltaX),
+    height: Math.max(240, youtubeModalResizeStart.value.height + deltaY),
+  }
+}
+
+const stopYoutubeModalResize = () => {
+  if (!isYoutubeModalResizing.value) return
+  isYoutubeModalResizing.value = false
+  window.removeEventListener('mousemove', onYoutubeModalResize)
+  window.removeEventListener('mouseup', stopYoutubeModalResize)
 }
 
 // Toggle font color on selected nodes
@@ -3867,7 +3974,10 @@ onUnmounted(() => {
 }
 
 .youtube-modal {
+  position: fixed;
   width: min(960px, 92vw);
+  max-width: 95vw;
+  max-height: 90vh;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
@@ -3882,8 +3992,28 @@ onUnmounted(() => {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.youtube-modal-header {
+  cursor: move;
+  user-select: none;
+}
+
 .youtube-modal .modal-body {
   padding: 16px 20px 24px;
+  height: calc(100% - 64px);
+  overflow: auto;
+}
+
+.youtube-modal-resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  border-right: 2px solid #9ca3af;
+  border-bottom: 2px solid #9ca3af;
+  border-radius: 2px;
+  opacity: 0.7;
 }
 
 /* AI Chat Panel Layout */
