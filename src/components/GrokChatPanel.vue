@@ -298,7 +298,13 @@
             </span>
             <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           </div>
-          <div class="message-content" v-html="renderMarkdown(message.content)" @click="handleMessageContentClick($event)"></div>
+          <div
+            class="message-content"
+            v-html="renderMarkdown(message.content)"
+            @click="handleMessageContentClick($event)"
+            @mouseover="handleMessageContentMouseOver($event)"
+            @mouseout="handleMessageContentMouseOut($event)"
+          ></div>
           <div v-if="message.role === 'assistant'" class="message-actions">
             <button
               class="btn btn-link btn-sm insert-btn"
@@ -400,7 +406,12 @@
               <span class="spinner"></span> Thinking...
             </span>
           </div>
-          <div class="message-content" v-html="renderMarkdown(streamingContent)"></div>
+          <div
+            class="message-content"
+            v-html="renderMarkdown(streamingContent)"
+            @mouseover="handleMessageContentMouseOver($event)"
+            @mouseout="handleMessageContentMouseOut($event)"
+          ></div>
         </div>
 
         <!-- Error Message -->
@@ -410,6 +421,65 @@
             <span class="message-role">Error</span>
           </div>
           <div class="message-content">{{ errorMessage }}</div>
+        </div>
+      </div>
+
+      <div
+        v-if="citationPreview.visible"
+        class="citation-preview"
+        :style="citationPreview.style"
+        @mouseenter="handleCitationPreviewEnter"
+        @mouseleave="handleCitationPreviewLeave"
+      >
+        <div v-if="citationPreview.loading" class="citation-preview-loading">Loading source…</div>
+        <div v-else-if="citationPreview.error" class="citation-preview-error">
+          Could not load source preview.
+        </div>
+        <div v-else class="citation-preview-content">
+          <div class="citation-preview-header">
+            <span class="citation-preview-domain">{{ citationPreview.domain }}</span>
+          </div>
+          <div class="citation-preview-body">
+            <img
+              v-if="citationPreview.image"
+              :src="citationPreview.image"
+              alt=""
+              class="citation-preview-image"
+            />
+            <div>
+              <div class="citation-preview-title">{{ citationPreview.title }}</div>
+              <div class="citation-preview-description">{{ citationPreview.description }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showCitationModal" class="citation-modal-overlay" @click="closeCitationModal">
+        <div class="citation-modal" @click.stop>
+          <div class="citation-modal-header">
+            <div class="citation-modal-title">Source</div>
+            <div class="citation-modal-actions">
+              <a
+                v-if="citationModalUrl"
+                :href="citationModalUrl"
+                target="_blank"
+                rel="noreferrer"
+                class="btn btn-sm btn-outline-secondary"
+              >
+                Open in new tab
+              </a>
+              <button class="btn-close" @click="closeCitationModal">&times;</button>
+            </div>
+          </div>
+          <div class="citation-modal-body">
+            <iframe
+              v-if="citationModalUrl"
+              :src="citationModalUrl"
+              class="citation-modal-iframe"
+              title="Source preview"
+            ></iframe>
+            <div v-else class="citation-preview-error">No source URL available.</div>
+          </div>
         </div>
       </div>
 
@@ -901,6 +971,22 @@ const streamingContent = ref('')
 const streamingProviderOverride = ref(null)
 const errorMessage = ref('')
 const messagesContainer = ref(null)
+const citationPreview = ref({
+  visible: false,
+  loading: false,
+  error: false,
+  url: '',
+  domain: '',
+  title: '',
+  description: '',
+  image: '',
+  style: {},
+})
+const isCitationPreviewHovered = ref(false)
+const showCitationModal = ref(false)
+const citationModalUrl = ref('')
+let citationHideTimeout = null
+const linkPreviewCache = new Map()
 
 // Background image state
 const backgroundImageUrl = ref(localStorage.getItem('grok-chat-background') || '')
@@ -1077,6 +1163,7 @@ Returns the connection path like: Person A → Company X → Person B → Compan
 
 // Sources API Configuration
 const SOURCES_API_BASE = 'https://sources-worker.torarnehave.workers.dev'
+const LINK_PREVIEW_ENDPOINT = `${SOURCES_API_BASE}/link-preview`
 const useSourcesTools = ref(true) // Enable Norwegian sources by default
 
 // Web Search Configuration (Perplexity integration)
@@ -3014,9 +3101,173 @@ const importCreatedCaseGraphAsCluster = () => {
   emitImportCaseGraph(caseGraphCreatedId.value, caseGraphTitle.value)
 }
 
+const getCitationAnchor = (target) => {
+  if (!target) return null
+  return target.closest ? target.closest('.perplexity-citation') : null
+}
+
+const extractCitationData = (element) => {
+  if (!element) return null
+  const url = element.getAttribute('data-url') || ''
+  const domain = element.getAttribute('data-domain') || ''
+  const index = element.getAttribute('data-index') || ''
+  return { url, domain, index }
+}
+
+const positionCitationPreview = (element) => {
+  const rect = element.getBoundingClientRect()
+  const maxWidth = 360
+  const spacing = 10
+  const left = Math.min(rect.left + rect.width / 2, window.innerWidth - maxWidth - spacing)
+  const top = Math.min(rect.bottom + spacing, window.innerHeight - 220)
+  return {
+    position: 'fixed',
+    top: `${Math.max(10, top)}px`,
+    left: `${Math.max(10, left)}px`,
+    width: `${maxWidth}px`,
+  }
+}
+
+const fetchCitationPreview = async (url) => {
+  if (!url) return null
+  if (linkPreviewCache.has(url)) {
+    return linkPreviewCache.get(url)
+  }
+
+  const response = await fetch(`${LINK_PREVIEW_ENDPOINT}?url=${encodeURIComponent(url)}`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch preview (${response.status})`)
+  }
+  const data = await response.json()
+  linkPreviewCache.set(url, data)
+  return data
+}
+
+const showCitationPreview = async (element) => {
+  const data = extractCitationData(element)
+  if (!data?.url) return
+
+  citationPreview.value = {
+    ...citationPreview.value,
+    visible: true,
+    loading: true,
+    error: false,
+    url: data.url,
+    domain: data.domain || '',
+    title: '',
+    description: '',
+    image: '',
+    style: positionCitationPreview(element),
+  }
+
+  try {
+    const preview = await fetchCitationPreview(data.url)
+    citationPreview.value = {
+      ...citationPreview.value,
+      loading: false,
+      error: false,
+      domain: preview.domain || data.domain || '',
+      title: preview.title || data.domain || 'Source',
+      description: preview.description || '',
+      image: preview.image || '',
+    }
+  } catch (error) {
+    console.error('Citation preview error:', error)
+    citationPreview.value = {
+      ...citationPreview.value,
+      loading: false,
+      error: false,
+      domain: data.domain || '',
+      title: data.domain || 'Source',
+      description: 'Preview unavailable. Click to open.',
+      image: '',
+    }
+  }
+}
+
+const hideCitationPreview = () => {
+  citationPreview.value = {
+    ...citationPreview.value,
+    visible: false,
+    loading: false,
+    error: false,
+  }
+}
+
+const handleCitationPreviewEnter = () => {
+  isCitationPreviewHovered.value = true
+  if (citationHideTimeout) {
+    clearTimeout(citationHideTimeout)
+    citationHideTimeout = null
+  }
+}
+
+const handleCitationPreviewLeave = () => {
+  isCitationPreviewHovered.value = false
+  citationHideTimeout = setTimeout(() => {
+    if (!isCitationPreviewHovered.value) {
+      hideCitationPreview()
+    }
+  }, 150)
+}
+
+const handleMessageContentMouseOver = (event) => {
+  const citation = getCitationAnchor(event.target)
+  if (!citation) return
+
+  if (citationPreview.value.url === citation.getAttribute('data-url') && citationPreview.value.visible) {
+    return
+  }
+
+  if (citationHideTimeout) {
+    clearTimeout(citationHideTimeout)
+    citationHideTimeout = null
+  }
+
+  showCitationPreview(citation)
+}
+
+const handleMessageContentMouseOut = (event) => {
+  const citation = getCitationAnchor(event.target)
+  if (!citation) return
+
+  const related = event.relatedTarget
+  if (related && (related.closest?.('.perplexity-citation') || related.closest?.('.citation-preview'))) {
+    return
+  }
+
+  citationHideTimeout = setTimeout(() => {
+    if (!isCitationPreviewHovered.value) {
+      hideCitationPreview()
+    }
+  }, 150)
+}
+
+const openCitationModal = (url) => {
+  if (!url) return
+  citationModalUrl.value = url
+  showCitationModal.value = true
+}
+
+const closeCitationModal = () => {
+  showCitationModal.value = false
+  citationModalUrl.value = ''
+}
+
 // Handle clicks on message content (for related questions)
 const handleMessageContentClick = (event) => {
   const target = event.target
+
+  const citation = getCitationAnchor(target)
+  if (citation) {
+    event.preventDefault()
+    event.stopPropagation()
+    const data = extractCitationData(citation)
+    if (data?.url) {
+      openCitationModal(data.url)
+    }
+    return
+  }
 
   // Check if clicked element is a related question link
   if (target.classList.contains('perplexity-related-question')) {
@@ -4755,7 +5006,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
             } catch {
               domain = url.substring(0, 30)
             }
-            return `[<sup>${num}</sup>](${url} "${domain}")`
+            return `<sup class="perplexity-citation" data-url="${url}" data-domain="${domain}" data-index="${num}">${num}</sup>`
           }
           return match
         })
@@ -5516,6 +5767,124 @@ watch(
 .message-content :deep(sup:hover) {
   color: #4c51bf;
   text-decoration: underline;
+}
+
+.message-content :deep(.perplexity-citation) {
+  background: rgba(102, 126, 234, 0.12);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.citation-preview {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  padding: 12px;
+  z-index: 1200;
+}
+
+.citation-preview-loading,
+.citation-preview-error {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.citation-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.citation-preview-domain {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.citation-preview-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.citation-preview-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f3f4f6;
+}
+
+.citation-preview-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.citation-preview-description {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.3;
+}
+
+.citation-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1300;
+}
+
+.citation-modal {
+  width: min(1100px, 92vw);
+  height: min(80vh, 860px);
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.citation-modal-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.citation-modal-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.citation-modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.citation-modal-body {
+  flex: 1;
+  background: #fff;
+}
+
+.citation-modal-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 /* Perplexity image/video thumbnails */

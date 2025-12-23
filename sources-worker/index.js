@@ -34,6 +34,72 @@ function jsonResponse(data, status = 200) {
   })
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function extractMetaContent(html, key, attrName) {
+  const pattern = `<meta[^>]+${attrName}=["']${escapeRegExp(key)}["'][^>]*content=["']([^"']+)["'][^>]*>`
+  const match = html.match(new RegExp(pattern, 'i'))
+  return match ? match[1].trim() : ''
+}
+
+function extractTitle(html) {
+  const match = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+  return match ? match[1].trim() : ''
+}
+
+async function handleLinkPreview(request) {
+  const requestUrl = new URL(request.url)
+  const targetUrl = requestUrl.searchParams.get('url')
+
+  if (!targetUrl) {
+    return jsonResponse({ error: 'Missing url parameter' }, 400)
+  }
+  if (!/^https?:\/\//i.test(targetUrl)) {
+    return jsonResponse({ error: 'Only http/https URLs are supported' }, 400)
+  }
+
+  let domain = ''
+  try {
+    domain = new URL(targetUrl).hostname.replace('www.', '')
+  } catch {
+    domain = targetUrl.substring(0, 60)
+  }
+
+  const response = await fetch(targetUrl, {
+    headers: {
+      'User-Agent': 'vegvisr-link-preview'
+    }
+  })
+
+  if (!response.ok) {
+    return jsonResponse({ error: `Failed to fetch source (${response.status})` }, 502)
+  }
+
+  const html = (await response.text()).slice(0, 200000)
+
+  const ogTitle = extractMetaContent(html, 'og:title', 'property')
+  const ogDescription = extractMetaContent(html, 'og:description', 'property')
+  const ogImage = extractMetaContent(html, 'og:image', 'property')
+  const twitterTitle = extractMetaContent(html, 'twitter:title', 'name')
+  const twitterDescription = extractMetaContent(html, 'twitter:description', 'name')
+  const twitterImage = extractMetaContent(html, 'twitter:image', 'name')
+  const metaDescription = extractMetaContent(html, 'description', 'name')
+  const title = ogTitle || twitterTitle || extractTitle(html) || domain
+  const description = ogDescription || twitterDescription || metaDescription || ''
+  const image = ogImage || twitterImage || ''
+
+  return jsonResponse({
+    success: true,
+    url: targetUrl,
+    domain,
+    title,
+    description,
+    image
+  })
+}
+
 /**
  * Norwegian source definitions with RSS feed URLs
  * Updated December 2025 with verified working feeds
@@ -1128,6 +1194,11 @@ export default {
         return await handleWebSearch(request)
       }
 
+      // Link preview (metadata unfurl)
+      if (pathname === '/link-preview' && request.method === 'GET') {
+        return await handleLinkPreview(request)
+      }
+
       // 404
       return jsonResponse({
         error: 'Not Found',
@@ -1142,6 +1213,7 @@ export default {
           'GET /websearch?query=biodiversitet - Web search (DuckDuckGo)',
           'GET /hearings?topic=naturvern - Get open hearings',
           'GET /environment - Get environment/nature news',
+          'GET /link-preview?url=https://example.com - Link preview metadata',
           'GET /api/tools - AI function calling definitions',
           'GET /health - Health check'
         ]
