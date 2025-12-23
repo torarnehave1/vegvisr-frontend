@@ -38,6 +38,14 @@
       >
         Letters
       </button>
+      <button
+        v-if="isAdmin"
+        @click="selectMode('audio-admin')"
+        :class="{ active: currentMode === 'audio-admin' }"
+        class="sanskrit-learner__mode-btn sanskrit-learner__mode-btn--admin"
+      >
+        Audio Admin
+      </button>
     </div>
 
     <div class="sanskrit-learner__content">
@@ -45,6 +53,7 @@
       <SanskritLetterWriter v-else-if="currentMode === 'writing'" />
       <SanskritLetterReader v-else-if="currentMode === 'reading'" />
       <SanskritLettersOverview v-else-if="currentMode === 'letters'" />
+      <SanskritAudioAdmin v-else-if="currentMode === 'audio-admin'" />
     </div>
 
     <SanskritProgressDashboard />
@@ -55,12 +64,14 @@
 <script>
 import { computed, onMounted } from 'vue';
 import { useSanskritLearnerStore } from '@/stores/sanskritLearner';
+import { useUserStore } from '@/stores/userStore';
 import SanskritLetterRecognition from './SanskritLetterRecognition.vue';
 import SanskritLetterWriter from './SanskritLetterWriter.vue';
 import SanskritLetterReader from './SanskritLetterReader.vue';
 import SanskritProgressDashboard from './SanskritProgressDashboard.vue';
 import SanskritAchievementPopup from './SanskritAchievementPopup.vue';
 import SanskritLettersOverview from './SanskritLettersOverview.vue';
+import SanskritAudioAdmin from './SanskritAudioAdmin.vue';
 
 export default {
   name: 'SanskritLearner',
@@ -70,17 +81,25 @@ export default {
     SanskritLetterReader,
     SanskritProgressDashboard,
     SanskritAchievementPopup,
-    SanskritLettersOverview
+    SanskritLettersOverview,
+    SanskritAudioAdmin
   },
   setup() {
     const store = useSanskritLearnerStore();
+    const userStore = useUserStore();
 
     const currentMode = computed(() => store.sanskritCurrentMode);
     const progressPercentage = computed(() => store.sanskritProgressPercentage);
     const masteredLetters = computed(() => store.sanskritMasteredLetters);
     const currentStreak = computed(() => store.sanskritCurrentStreak);
+    const isAdmin = computed(() => ['Superadmin', 'Admin'].includes(userStore.role));
 
     const selectMode = async (mode) => {
+      if (mode === 'audio-admin') {
+        await store.endSanskritSession();
+        store.sanskritCurrentMode = mode;
+        return;
+      }
       await store.endSanskritSession();
       await store.startSanskritSession(mode);
       store.setNextSanskritLetter();
@@ -98,6 +117,7 @@ export default {
       progressPercentage,
       masteredLetters,
       currentStreak,
+      isAdmin,
       selectMode
     };
   }
@@ -154,6 +174,17 @@ export default {
   background: #4CAF50;
   color: white;
   border-color: #4CAF50;
+}
+
+.sanskrit-learner__mode-btn--admin {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.sanskrit-learner__mode-btn--admin.active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: white;
 }
 
 .sanskrit-learner__content {

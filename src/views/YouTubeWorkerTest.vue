@@ -1245,13 +1245,20 @@ const extractAudio = async () => {
     audioProgress.message = 'Extracting audio using FFmpeg...'
 
     const instanceId = `youtube-audio-${Date.now()}`
+    const videoUrlForFfmpeg = downloadResult.download_url || downloadResult.video_url ||
+      (normalizedId ? `https://www.youtube.com/watch?v=${normalizedId}` : null)
+
+    if (!videoUrlForFfmpeg) {
+      throw new Error('Audio extraction failed: video_url is required')
+    }
+
     const audioResponse = await fetch(`${AUDIO_WORKER_BASE_URL}/ffmpeg/${instanceId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        video_url: downloadResult.download_url,
+        video_url: videoUrlForFfmpeg,
         output_format: audioForm.format
       })
     })
