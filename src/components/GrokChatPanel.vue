@@ -12,6 +12,26 @@
             {{ opt.label }}
           </option>
         </select>
+        <select
+          v-if="provider === 'openai'"
+          v-model="openaiModel"
+          class="model-select"
+          title="Select OpenAI model"
+        >
+          <option v-for="opt in openaiModelOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <select
+          v-if="provider === 'claude'"
+          v-model="claudeModel"
+          class="model-select"
+          title="Select Claude model"
+        >
+          <option v-for="opt in claudeModelOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
         <button
           @click="backgroundImageUrl ? clearBackgroundImage() : openImageSelector()"
           class="btn btn-sm btn-ghost"
@@ -964,6 +984,20 @@ const providerOptions = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'perplexity', label: 'Perplexity' },
 ]
+const openaiModel = ref('gpt-5.2')
+const openaiModelOptions = [
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
+  { value: 'gpt-5.1', label: 'GPT-5.1' },
+  { value: 'gpt-5', label: 'GPT-5' },
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4', label: 'GPT-4' }
+]
+const claudeModel = ref('claude-opus-4-5-20251101')
+const claudeModelOptions = [
+  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }
+]
 const messages = ref([])
 const userInput = ref('')
 const isStreaming = ref(false)
@@ -1779,6 +1813,12 @@ const loadChatPreferences = () => {
     if (parsed?.provider && providerOptions.some(opt => opt.value === parsed.provider)) {
       provider.value = parsed.provider
     }
+    if (parsed?.openaiModel && openaiModelOptions.some(opt => opt.value === parsed.openaiModel)) {
+      openaiModel.value = parsed.openaiModel
+    }
+    if (parsed?.claudeModel && claudeModelOptions.some(opt => opt.value === parsed.claudeModel)) {
+      claudeModel.value = parsed.claudeModel
+    }
     if (typeof parsed?.useProffTools === 'boolean') {
       useProffTools.value = parsed.useProffTools
     }
@@ -1798,6 +1838,8 @@ const persistChatPreferences = () => {
   try {
     const payload = {
       provider: provider.value,
+      openaiModel: openaiModel.value,
+      claudeModel: claudeModel.value,
       useProffTools: useProffTools.value,
       useSourcesTools: useSourcesTools.value,
       useWebSearch: useWebSearch.value
@@ -1851,7 +1893,7 @@ watch(
 )
 
 watch(
-  [provider, useProffTools, useSourcesTools, useWebSearch],
+  [provider, openaiModel, claudeModel, useProffTools, useSourcesTools, useWebSearch],
   () => {
     persistChatPreferences()
   }
@@ -4707,12 +4749,20 @@ Use this context to provide relevant insights and answers about the knowledge gr
 
     if (currentProvider === 'openai') {
       endpoint = 'https://openai.vegvisr.org/chat'
-      model = 'gpt-4o'
-      maxTokens = 16384 // OpenAI gpt-4o limit
+      model = openaiModel.value
+      maxTokens = model && model.startsWith('gpt-5') ? 32768 : 16384
     } else if (currentProvider === 'claude') {
       endpoint = 'https://anthropic.vegvisr.org/chat'
-      model = 'claude-sonnet-4-20250514'
-      maxTokens = 8192 // Claude default
+      model = claudeModel.value
+      if (model === 'claude-opus-4-5-20251101') {
+        maxTokens = 16384
+      } else if (model === 'claude-sonnet-4-5-20250929') {
+        maxTokens = 64000
+      } else if (model === 'claude-haiku-4-5-20251001') {
+        maxTokens = 8192
+      } else {
+        maxTokens = 8192
+      }
     } else if (currentProvider === 'gemini') {
       endpoint = 'https://gemini.vegvisr.org/chat'
       model = undefined // Let the worker pick the default Gemini model
@@ -4742,7 +4792,12 @@ Use this context to provide relevant insights and answers about the knowledge gr
     }
 
     if (typeof maxTokens === 'number') {
-      requestBody.max_tokens = maxTokens
+      const useMaxCompletionTokens = currentProvider === 'openai' && model && model.startsWith('gpt-5')
+      if (useMaxCompletionTokens) {
+        requestBody.max_completion_tokens = maxTokens
+      } else {
+        requestBody.max_tokens = maxTokens
+      }
     }
 
     // Combine Proff and Sources tools
@@ -5193,7 +5248,21 @@ watch(
   font-weight: 600;
 }
 
+.model-select {
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  padding: 0 0.5rem;
+  font-weight: 600;
+}
+
 .provider-select option {
+  color: #2c3e50;
+}
+
+.model-select option {
   color: #2c3e50;
 }
 

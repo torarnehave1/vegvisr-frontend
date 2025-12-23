@@ -115,7 +115,7 @@ export default {
       }
 
       // Model-specific shortcuts
-      if (pathname.match(/^\/(gpt-4o|gpt-4|gpt-5\.1|gpt-5)$/) && request.method === 'POST') {
+      if (pathname.match(/^\/(gpt-4o|gpt-4|gpt-5\.2|gpt-5\.1|gpt-5)$/) && request.method === 'POST') {
         const model = pathname.substring(1);
         return await handleModelEndpoint(request, env, corsHeaders, model);
       }
@@ -625,6 +625,14 @@ function handleModels(env, corsHeaders) {
         max_output_tokens: 32768,
         features: ['chat', 'vision', 'function calling', 'json mode', 'advanced reasoning', 'improved accuracy'],
         description: 'GPT-5.1 - Latest iteration with improved performance'
+      },
+      {
+        id: 'gpt-5.2',
+        name: 'GPT-5.2',
+        context_length: 200000,
+        max_output_tokens: 32768,
+        features: ['chat', 'vision', 'function calling', 'json mode', 'advanced reasoning', 'improved accuracy'],
+        description: 'GPT-5.2 - Latest iteration with improved performance'
       }
     ],
     image: [
@@ -687,7 +695,7 @@ function handleApiDocs(corsHeaders) {
     info: {
       title: 'OpenAI Worker API Documentation',
       version: '1.0.0',
-      description: 'Complete OpenAI API integration with 8 models: 4 chat (GPT-4o, GPT-4, GPT-5, GPT-5.1), 3 image (DALL-E 2, DALL-E 3, GPT-Image-1), 1 audio (Whisper-1). Features userId-based encrypted key retrieval from D1 database.',
+      description: 'Complete OpenAI API integration with 9 models: 5 chat (GPT-4o, GPT-4, GPT-5, GPT-5.1, GPT-5.2), 3 image (DALL-E 2, DALL-E 3, GPT-Image-1), 1 audio (Whisper-1). Features userId-based encrypted key retrieval from D1 database.',
       contact: {
         name: 'Vegvisr Platform',
         url: 'https://openai.vegvisr.org'
@@ -764,7 +772,7 @@ function handleApiDocs(corsHeaders) {
         post: {
           tags: ['Chat'],
           summary: 'Chat completions (all models)',
-          description: 'Generic chat endpoint supporting all 4 GPT models. API key retrieved from D1 using userId.',
+          description: 'Generic chat endpoint supporting all 5 GPT models. API key retrieved from D1 using userId.',
           requestBody: {
             required: true,
             content: {
@@ -780,11 +788,11 @@ function handleApiDocs(corsHeaders) {
                       max_tokens: 100
                     }
                   },
-                  'gpt-5.1': {
-                    summary: 'GPT-5.1 example (uses max_completion_tokens)',
+                  'gpt-5.2': {
+                    summary: 'GPT-5.2 example (uses max_completion_tokens)',
                     value: {
                       userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
-                      model: 'gpt-5.1',
+                      model: 'gpt-5.2',
                       messages: [{ role: 'system', content: 'You are a helpful assistant.' }, { role: 'user', content: 'What is AI?' }],
                       max_completion_tokens: 150
                     }
@@ -898,6 +906,32 @@ function handleApiDocs(corsHeaders) {
                     userId: { type: 'string', description: 'User ID for encrypted key retrieval from D1' },
                     messages: { type: 'array', items: { $ref: '#/components/schemas/Message' } },
                     max_completion_tokens: { type: 'integer', description: 'CRITICAL: GPT-5.1 requires max_completion_tokens (max_tokens will error)' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Success', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Error if max_tokens used instead of max_completion_tokens' }
+          }
+        }
+      },
+      '/gpt-5.2': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-5.2 endpoint (Latest)',
+          description: 'Direct endpoint for GPT-5.2 (200K context, latest release). IMPORTANT: Uses max_completion_tokens (not max_tokens).',
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['userId', 'messages'],
+                  properties: {
+                    userId: { type: 'string', description: 'User ID for encrypted key retrieval from D1' },
+                    messages: { type: 'array', items: { $ref: '#/components/schemas/Message' } },
+                    max_completion_tokens: { type: 'integer', description: 'CRITICAL: GPT-5.2 requires max_completion_tokens (max_tokens will error)' }
                   }
                 }
               }
@@ -1027,16 +1061,16 @@ function handleApiDocs(corsHeaders) {
               type: 'string',
               description: 'User ID for retrieving encrypted API key from D1 database. Falls back to system key if user has none.'
             },
-            model: { type: 'string', enum: ['gpt-4o', 'gpt-4', 'gpt-5', 'gpt-5.1'], default: 'gpt-4o' },
+            model: { type: 'string', enum: ['gpt-4o', 'gpt-4', 'gpt-5', 'gpt-5.1', 'gpt-5.2'], default: 'gpt-4o' },
             messages: { type: 'array', items: { $ref: '#/components/schemas/Message' } },
             temperature: { type: 'number', minimum: 0, maximum: 2, default: 0.7 },
             max_tokens: {
               type: 'integer',
-              description: 'For GPT-4 and GPT-4o only. Do NOT use with GPT-5/5.1.'
+              description: 'For GPT-4 and GPT-4o only. Do NOT use with GPT-5.x.'
             },
             max_completion_tokens: {
               type: 'integer',
-              description: 'For GPT-5 and GPT-5.1 only. Required for these models.'
+              description: 'For GPT-5.x only. Required for these models.'
             },
             top_p: { type: 'number', minimum: 0, maximum: 1, default: 1 },
             frequency_penalty: { type: 'number', minimum: -2, maximum: 2, default: 0 },
