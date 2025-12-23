@@ -96,6 +96,18 @@
       </div>
 
       <div class="toolbar-section">
+        <!-- YouTube Rendering Toggle -->
+        <button
+          class="btn btn-sm"
+          :class="showRichYoutube ? 'btn-outline-primary' : 'btn-outline-secondary'"
+          @click="toggleRichYoutube"
+          :title="showRichYoutube ? 'Disable rich YouTube rendering' : 'Enable rich YouTube rendering'"
+        >
+          📺 Rich YouTube
+        </button>
+      </div>
+
+      <div class="toolbar-section">
         <!-- Undo/Redo -->
         <div class="btn-group" role="group">
           <button @click="undoAction" class="btn btn-outline-secondary" title="Undo">↶ Undo</button>
@@ -136,16 +148,21 @@
         <div id="graph-canvas" class="cytoscape-canvas"></div>
         <div
           class="node-html-overlays"
-          v-if="showRichFulltext && fulltextNodeOverlays.length"
+          v-if="nodeHtmlOverlays.length"
         >
           <div
-            v-for="overlay in fulltextNodeOverlays"
+            v-for="overlay in nodeHtmlOverlays"
             :key="overlay.id"
             class="node-html-overlay"
             :class="{ 'is-selected': overlay.isSelected }"
             :style="overlay.style"
           >
-            <GNewDefaultNode :node="overlay.node" :isPreview="true" :showControls="false" />
+            <component
+              :is="overlay.component"
+              :node="overlay.node"
+              :isPreview="true"
+              :showControls="false"
+            />
           </div>
         </div>
         <!-- Node Resize Handles -->
@@ -637,6 +654,7 @@ import undoRedo from 'cytoscape-undo-redo'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
+import GNewVideoNode from '@/components/GNewNodes/GNewVideoNode.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
 // Initialize undo-redo plugin
@@ -660,6 +678,7 @@ const currentGraphTitle = ref('')
 const graphCanvasRoot = ref(null)
 const isFullscreen = ref(false)
 const showRichFulltext = ref(true)
+const showRichYoutube = ref(true)
 
 // AI Chat Panel state
 const showAIChat = ref(false)
@@ -839,9 +858,21 @@ const resizeHandles = computed(() => {
   }
 })
 
+const getYoutubeNodeLabel = (ele) => {
+  const label = ele.data('label') || ''
+  const match = label.match(/!\[YOUTUBE src=.+?\](.+?)\[END YOUTUBE\]/)
+  return match ? match[1] : label
+}
+
 const toggleRichFulltext = () => {
   showRichFulltext.value = !showRichFulltext.value
   updateFulltextNodeLabelStyle()
+  bumpResizeUpdate()
+}
+
+const toggleRichYoutube = () => {
+  showRichYoutube.value = !showRichYoutube.value
+  updateYoutubeNodeLabelStyle()
   bumpResizeUpdate()
 }
 
@@ -852,6 +883,15 @@ const updateFulltextNodeLabelStyle = () => {
     : (ele) => `${ele.data('label') || ''}\n\n${ele.data('info') || ''}`
   cyInstance.value.style()
     .selector('node[type="fulltext"]')
+    .style('label', labelValue)
+    .update()
+}
+
+const updateYoutubeNodeLabelStyle = () => {
+  if (!cyInstance.value) return
+  const labelValue = showRichYoutube.value ? '' : getYoutubeNodeLabel
+  cyInstance.value.style()
+    .selector('node[type="youtube-video"]')
     .style('label', labelValue)
     .update()
 }
@@ -871,32 +911,28 @@ const getOverlayStyle = (node) => {
   }
 }
 
-const fulltextNodeOverlays = computed(() => {
+const nodeHtmlOverlays = computed(() => {
   resizeUpdateToken.value
   if (!cyInstance.value) return []
 
-  return cyInstance.value
-    .nodes()
-    .filter((node) => {
-      const data = node.data()
-      if (data.type !== 'fulltext') return false
-      if (data.visible === false) return false
-      if (node.isParent() || !node.visible()) return false
-      return Boolean(getOverlayStyle(node))
-    })
-    .map((node) => {
-      const data = node.data()
+  return cyInstance.value.nodes().reduce((overlays, node) => {
+    const data = node.data()
+    if (data.visible === false || node.isParent() || !node.visible()) return overlays
+    const overlayStyle = getOverlayStyle(node)
+    if (!overlayStyle) return overlays
+
+    if (data.type === 'fulltext' && showRichFulltext.value) {
       const info =
         typeof data.info === 'string' && data.info.trim().length
           ? data.info
           : typeof data.fullText === 'string'
             ? data.fullText
             : ''
-      const overlayStyle = getOverlayStyle(node)
-      return {
+      overlays.push({
         id: node.id(),
         isSelected: node.selected(),
         style: overlayStyle,
+        component: GNewDefaultNode,
         node: {
           ...data,
           id: node.id(),
@@ -905,8 +941,26 @@ const fulltextNodeOverlays = computed(() => {
           info,
           imageAttributions: data.imageAttributions || {},
         },
-      }
-    })
+      })
+    }
+
+    if (data.type === 'youtube-video' && showRichYoutube.value) {
+      overlays.push({
+        id: node.id(),
+        isSelected: node.selected(),
+        style: overlayStyle,
+        component: GNewVideoNode,
+        node: {
+          ...data,
+          id: node.id(),
+          label: data.label || '',
+          type: data.type || 'youtube-video',
+        },
+      })
+    }
+
+    return overlays
+  }, [])
 })
 
 // Cytoscape instance
@@ -1218,10 +1272,7 @@ const initializeCytoscape = (graphData) => {
           'background-color': '#FF0000',
           'border-width': 1,
           'border-color': '#000',
-          label: (ele) => {
-            const match = ele.data('label').match(/!\[YOUTUBE src=.+?\](.+?)\[END YOUTUBE\]/)
-            return match ? match[1] : ele.data('label')
-          },
+          label: showRichYoutube.value ? '' : getYoutubeNodeLabel,
           'text-wrap': 'wrap',
           'text-max-width': '180px',
           'text-valign': 'center',
@@ -1469,6 +1520,7 @@ const initializeCytoscape = (graphData) => {
   cyInstance.value.fit()
 
   updateFulltextNodeLabelStyle()
+  updateYoutubeNodeLabelStyle()
 }
 
 const handleCanvasTap = async (event) => {
@@ -3703,6 +3755,13 @@ onUnmounted(() => {
 }
 
 .node-html-overlay :deep(.gnew-default-node) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.node-html-overlay :deep(.gnew-video-node) {
   width: 100%;
   height: 100%;
   margin: 0;
