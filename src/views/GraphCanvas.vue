@@ -84,30 +84,6 @@
       </div>
 
       <div class="toolbar-section">
-        <!-- Fulltext Rendering Toggle -->
-        <button
-          class="btn btn-sm"
-          :class="showRichFulltext ? 'btn-outline-primary' : 'btn-outline-secondary'"
-          @click="toggleRichFulltext"
-          :title="showRichFulltext ? 'Disable rich fulltext rendering' : 'Enable rich fulltext rendering'"
-        >
-          🧾 Rich Fulltext
-        </button>
-      </div>
-
-      <div class="toolbar-section">
-        <!-- YouTube Rendering Toggle -->
-        <button
-          class="btn btn-sm"
-          :class="showRichYoutube ? 'btn-outline-primary' : 'btn-outline-secondary'"
-          @click="toggleRichYoutube"
-          :title="showRichYoutube ? 'Disable rich YouTube rendering' : 'Enable rich YouTube rendering'"
-        >
-          📺 Rich YouTube
-        </button>
-      </div>
-
-      <div class="toolbar-section">
         <!-- Undo/Redo -->
         <div class="btn-group" role="group">
           <button @click="undoAction" class="btn btn-outline-secondary" title="Undo">↶ Undo</button>
@@ -164,6 +140,19 @@
               :showControls="false"
             />
           </div>
+        </div>
+        <div class="youtube-play-buttons" v-if="youtubePlayButtons.length">
+          <button
+            v-for="btn in youtubePlayButtons"
+            :key="btn.id"
+            class="youtube-play-button"
+            :style="btn.style"
+            @click.stop="openYoutubeModal(btn.node)"
+            aria-label="Play YouTube video"
+            title="Play video"
+          >
+            ▶
+          </button>
         </div>
         <!-- Node Resize Handles -->
         <div
@@ -599,6 +588,24 @@
       </div>
     </div>
 
+    <!-- YouTube Player Modal -->
+    <div v-if="showYoutubeModal" class="modal-overlay" @click="closeYoutubeModal">
+      <div class="youtube-modal" @click.stop>
+        <div class="modal-header">
+          <h5>Play Video</h5>
+          <button @click="closeYoutubeModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <GNewVideoNode
+            v-if="youtubeModalNode"
+            :node="youtubeModalNode"
+            :isPreview="true"
+            :showControls="false"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Graph Import Modal -->
     <div v-if="showImportModal" class="graph-import-modal-overlay" @click="closeImportModal">
       <div class="graph-import-modal" @click.stop>
@@ -679,6 +686,8 @@ const graphCanvasRoot = ref(null)
 const isFullscreen = ref(false)
 const showRichFulltext = ref(true)
 const showRichYoutube = ref(true)
+const showYoutubeModal = ref(false)
+const youtubeModalNode = ref(null)
 
 // AI Chat Panel state
 const showAIChat = ref(false)
@@ -960,6 +969,43 @@ const nodeHtmlOverlays = computed(() => {
     }
 
     return overlays
+  }, [])
+})
+
+const youtubePlayButtons = computed(() => {
+  resizeUpdateToken.value
+  if (!cyInstance.value) return []
+
+  const buttonSize = 28
+  const inset = 8
+
+  return cyInstance.value.nodes().reduce((buttons, node) => {
+    const data = node.data()
+    if (data.type !== 'youtube-video') return buttons
+    if (data.visible === false || node.isParent() || !node.visible()) return buttons
+
+    const renderedPos = node.renderedPosition()
+    const width = node.renderedOuterWidth()
+    const height = node.renderedOuterHeight()
+
+    buttons.push({
+      id: node.id(),
+      style: {
+        position: 'absolute',
+        left: `${renderedPos.x + width / 2 - buttonSize - inset}px`,
+        top: `${renderedPos.y - height / 2 + inset}px`,
+        width: `${buttonSize}px`,
+        height: `${buttonSize}px`,
+      },
+      node: {
+        ...data,
+        id: node.id(),
+        label: data.label || '',
+        type: data.type || 'youtube-video',
+      },
+    })
+
+    return buttons
   }, [])
 })
 
@@ -2097,6 +2143,16 @@ const saveNodeInfo = async () => {
   await saveGraph()
   showStatus('Node info updated', 'success')
   closeInfoModal()
+}
+
+const openYoutubeModal = (nodeData) => {
+  youtubeModalNode.value = nodeData
+  showYoutubeModal.value = true
+}
+
+const closeYoutubeModal = () => {
+  showYoutubeModal.value = false
+  youtubeModalNode.value = null
 }
 
 // Toggle font color on selected nodes
@@ -3775,6 +3831,59 @@ onUnmounted(() => {
 
 .node-html-overlay.is-selected :deep(.gnew-default-node) {
   box-shadow: 0 0 0 3px #0d6efd, 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.youtube-play-buttons {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.youtube-play-button {
+  position: absolute;
+  border: none;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.92);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.18);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.youtube-play-button:hover {
+  transform: scale(1.08);
+  background: rgba(185, 28, 28, 0.95);
+}
+
+.youtube-play-button:active {
+  transform: scale(0.98);
+}
+
+.youtube-modal {
+  width: min(960px, 92vw);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.youtube-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.youtube-modal .modal-body {
+  padding: 16px 20px 24px;
 }
 
 /* AI Chat Panel Layout */
