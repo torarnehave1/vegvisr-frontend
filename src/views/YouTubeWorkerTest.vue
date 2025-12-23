@@ -988,15 +988,23 @@ const getVideoInfo = async () => {
 
   loading.download = true
   try {
+    const normalizedId = extractVideoId(downloadForm.videoUrl)
+    const payload = {
+      user_email: userEmail.value,
+    }
+
+    if (normalizedId && normalizedId.length === 11 && !normalizedId.includes('/')) {
+      payload.video_id = normalizedId
+    } else {
+      payload.video_url = downloadForm.videoUrl
+    }
+
     const response = await fetch(`${WORKER_BASE_URL}/download`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        user_email: userEmail.value,
-        video_url: downloadForm.videoUrl
-      })
+      body: JSON.stringify(payload)
     })
 
     results.download = await response.json()
@@ -1206,17 +1214,24 @@ const extractAudio = async () => {
     audioProgress.step = 1
     audioProgress.message = 'Downloading video from YouTube...'
 
-    const videoId = extractVideoId(audioForm.videoId)
+    const normalizedId = extractVideoId(audioForm.videoId)
+    const payload = {
+      user_email: userEmail.value,
+      format: 'mp4'
+    }
+
+    if (normalizedId && normalizedId.length === 11 && !normalizedId.includes('/')) {
+      payload.video_id = normalizedId
+    } else {
+      payload.video_url = audioForm.videoId
+    }
+
     const downloadResponse = await fetch(`${WORKER_BASE_URL}/download`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        user_email: userEmail.value,
-        video_url: videoId,
-        format: 'mp4'
-      })
+      body: JSON.stringify(payload)
     })
 
     const downloadResult = await downloadResponse.json()
