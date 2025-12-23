@@ -126,13 +126,14 @@
           class="node-html-overlays"
           v-if="nodeHtmlOverlays.length"
         >
-          <div
-            v-for="overlay in nodeHtmlOverlays"
-            :key="overlay.id"
-            class="node-html-overlay"
-            :class="{ 'is-selected': overlay.isSelected }"
-            :style="overlay.style"
-          >
+        <div
+          v-for="overlay in nodeHtmlOverlays"
+          :key="overlay.id"
+          class="node-html-overlay"
+          :class="{ 'is-selected': overlay.isSelected }"
+          :data-node-id="overlay.id"
+          :style="overlay.style"
+        >
             <component
               :is="overlay.component"
               :node="overlay.node"
@@ -938,7 +939,6 @@ const getOverlayStyle = (node) => {
     top: `${renderedPos.y - height / 2}px`,
     width: `${width}px`,
     height: `${height}px`,
-    pointerEvents: 'none',
   }
 }
 
@@ -3768,9 +3768,82 @@ const updateChatSelectionFromNode = () => {
   }
 }
 
+const normalizeSelectionNode = (node) => {
+  if (!node) return null
+  return node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+}
+
+const getSelectionContainer = (element) => {
+  if (!element?.closest) return null
+  return element.closest('.node-html-overlay, .youtube-modal')
+}
+
+const handleOverlayTextSelection = () => {
+  const selection = window.getSelection?.()
+  if (!selection || selection.isCollapsed) {
+    if (chatSelection.value?.source === 'text-selection') {
+      chatSelection.value = null
+    }
+    return
+  }
+
+  const selectedTextValue = selection.toString().trim()
+  if (!selectedTextValue) return
+
+  const anchorElement = normalizeSelectionNode(selection.anchorNode)
+  const focusElement = normalizeSelectionNode(selection.focusNode)
+  const anchorContainer = getSelectionContainer(anchorElement)
+  const focusContainer = getSelectionContainer(focusElement)
+  const selectionContainer = anchorContainer || focusContainer
+
+  if (!selectionContainer) return
+
+  let nodeData = null
+  let nodeId = null
+  let nodeLabel = 'Highlighted text'
+  let nodeType = null
+
+  if (selectionContainer.classList.contains('node-html-overlay')) {
+    nodeId = selectionContainer.dataset.nodeId || null
+    if (nodeId && cyInstance.value) {
+      const node = cyInstance.value.getElementById(nodeId)
+      if (node && node.length) {
+        const data = node.data()
+        nodeData = { ...data, id: nodeId }
+        nodeLabel = data.label || nodeLabel
+        nodeType = data.type || null
+      }
+    }
+  } else if (selectionContainer.classList.contains('youtube-modal') && youtubeModalNode.value) {
+    nodeData = youtubeModalNode.value
+    nodeId = youtubeModalNode.value.id || null
+    nodeLabel = youtubeModalNode.value.label || nodeLabel
+    nodeType = youtubeModalNode.value.type || null
+  }
+
+  chatSelection.value = {
+    text: selectedTextValue,
+    nodeId,
+    nodeLabel,
+    nodeType,
+    nodeData,
+    source: 'text-selection',
+    selectedNodes: nodeData
+      ? [{
+          id: nodeId,
+          label: nodeLabel,
+          type: nodeType,
+          data: nodeData,
+        }]
+      : [],
+    updatedAt: Date.now(),
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+  document.addEventListener('selectionchange', handleOverlayTextSelection)
 
   // Clamp chat width on window resize
   window.addEventListener('resize', handleWindowResize)
@@ -3812,6 +3885,7 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('selectionchange', handleOverlayTextSelection)
   // Clean up chat resize listeners
   document.removeEventListener('mousemove', handleChatResize)
   document.removeEventListener('mouseup', stopChatResize)
@@ -3908,13 +3982,20 @@ onUnmounted(() => {
 .node-html-overlays {
   position: absolute;
   inset: 0;
-  pointer-events: none;
   z-index: 3;
+  display: contents;
 }
 
 .node-html-overlay {
   position: absolute;
   pointer-events: none;
+  user-select: none;
+}
+
+.node-html-overlay.is-selected {
+  pointer-events: auto;
+  user-select: text;
+  cursor: text;
 }
 
 .node-html-overlay :deep(.gnew-default-node) {
@@ -3934,6 +4015,10 @@ onUnmounted(() => {
 .node-html-overlay :deep(.node-content) {
   max-height: 100%;
   overflow: hidden;
+}
+
+.node-html-overlay.is-selected :deep(.node-content) {
+  user-select: text;
 }
 
 .node-html-overlay.is-selected :deep(.gnew-default-node) {
