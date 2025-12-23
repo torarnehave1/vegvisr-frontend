@@ -589,7 +589,7 @@
     </div>
 
     <!-- YouTube Player Modal -->
-    <div v-if="showYoutubeModal" class="modal-overlay" @click="closeYoutubeModal">
+    <div v-if="showYoutubeModal" class="youtube-modal-overlay">
       <div
         class="youtube-modal"
         :style="youtubeModalStyle"
@@ -3982,6 +3982,16 @@ onUnmounted(() => {
   border-radius: 12px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
   overflow: hidden;
+}
+
+.youtube-modal-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.youtube-modal {
+  pointer-events: auto;
 }
 
 .youtube-modal .modal-header {
