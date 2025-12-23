@@ -3988,6 +3988,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   pointer-events: none;
+  z-index: 11000;
 }
 
 .youtube-modal {
