@@ -338,6 +338,54 @@ const updateRecording = async (env, userEmail, recordingId, updates) => {
   }
 }
 
+// List public recordings across users (published only), optionally filtered by tag
+const listPublicRecordings = async (env, tag, limit = 50, cursor = null) => {
+  try {
+    const normalizedTag = tag ? String(tag).toLowerCase().trim() : null
+    const recordings = []
+    let listCursor = cursor || undefined
+    let listComplete = false
+
+    while (!listComplete && recordings.length < limit) {
+      const page = await env.AUDIO_PORTFOLIO.list({
+        prefix: 'audio-recording:',
+        cursor: listCursor,
+        limit: 100,
+      })
+
+      listCursor = page.cursor
+      listComplete = page.list_complete
+
+      for (const key of page.keys) {
+        if (recordings.length >= limit) break
+        const recordingData = await env.AUDIO_PORTFOLIO.get(key.name)
+        if (!recordingData) continue
+
+        const recording = JSON.parse(recordingData)
+        if (recording.publicationState !== 'published') continue
+
+        if (normalizedTag) {
+          const tags = (recording.tags || recording.metadata?.tags || []).map((t) =>
+            String(t).toLowerCase().trim(),
+          )
+          if (!tags.includes(normalizedTag)) continue
+        }
+
+        recordings.push(recording)
+      }
+    }
+
+    return {
+      recordings,
+      total: recordings.length,
+      cursor: listComplete ? null : listCursor,
+    }
+  } catch (error) {
+    console.error('Error listing public recordings:', error)
+    throw error
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -414,6 +462,16 @@ export default {
         const limit = parseInt(url.searchParams.get('limit') || '50')
 
         const result = await searchRecordings(env, userEmail, query, limit)
+        return createSuccessResponse(result)
+      }
+
+      // GET /list-recordings-public - Public recordings by tag (published only)
+      if (pathname === '/list-recordings-public' && request.method === 'GET') {
+        const tag = url.searchParams.get('tag')
+        const limit = parseInt(url.searchParams.get('limit') || '50')
+        const cursor = url.searchParams.get('cursor')
+
+        const result = await listPublicRecordings(env, tag, limit, cursor)
         return createSuccessResponse(result)
       }
 

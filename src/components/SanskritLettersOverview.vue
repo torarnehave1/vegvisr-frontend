@@ -20,10 +20,16 @@
             v-for="letter in vowels"
             :key="letter.id"
             class="sanskrit-overview__card"
+            :class="{ 'sanskrit-overview__card--has-audio': hasAudio(letter) }"
+            role="button"
+            tabindex="0"
+            @click="playLetter(letter)"
+            @keydown.enter.prevent="playLetter(letter)"
           >
             <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
             <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
           </div>
         </div>
       </section>
@@ -38,40 +44,145 @@
             v-for="letter in consonants"
             :key="letter.id"
             class="sanskrit-overview__card"
+            :class="{ 'sanskrit-overview__card--has-audio': hasAudio(letter) }"
+            role="button"
+            tabindex="0"
+            @click="playLetter(letter)"
+            @keydown.enter.prevent="playLetter(letter)"
           >
             <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
             <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
           </div>
         </div>
       </section>
+    </div>
+    <div v-if="playbackError" class="sanskrit-overview__status">
+      {{ playbackError }}
     </div>
   </div>
 </template>
 
 <script>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useSanskritLearnerStore } from '@/stores/sanskritLearner';
 
 export default {
   name: 'SanskritLettersOverview',
   setup() {
     const store = useSanskritLearnerStore();
+    const recordings = ref([]);
+    const playbackError = ref('');
+    const audioPlayer = ref(null);
 
     const loading = computed(() => store.sanskritLoading);
     const vowels = computed(() => store.sanskritLetters.filter((l) => l.category === 'vowel'));
     const consonants = computed(() => store.sanskritLetters.filter((l) => l.category === 'consonant'));
+    const buildSlug = (value) => {
+      return String(value || '')
+        .toLowerCase()
+        .trim()
+        .replace(/ā/g, 'aa')
+        .replace(/ī/g, 'ii')
+        .replace(/ū/g, 'uu')
+        .replace(/ṛ/g, 'ri')
+        .replace(/ṝ/g, 'rii')
+        .replace(/ḷ/g, 'li')
+        .replace(/ḹ/g, 'lii')
+        .replace(/ṅ/g, 'ng')
+        .replace(/ñ/g, 'ny')
+        .replace(/ṭ/g, 't')
+        .replace(/ḍ/g, 'd')
+        .replace(/ṇ/g, 'n')
+        .replace(/[śṣ]/g, 'sh')
+        .replace(/ṃ/g, 'm')
+        .replace(/ḥ/g, 'h')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .replace(/-+/g, '-');
+    };
+
+    const getTags = (recording) => recording?.metadata?.tags || recording?.tags || [];
+
+    const audioMap = computed(() => {
+      const map = {};
+      const letters = store.sanskritLetters || [];
+      if (!letters.length || !recordings.value.length) return map;
+
+      letters.forEach((letter) => {
+        const slug = buildSlug(letter.romanization || letter.id);
+        const matches = recordings.value.filter((recording) => getTags(recording).includes(slug));
+        if (!matches.length) return;
+        const shortMatch = matches.find((recording) => getTags(recording).includes('short'));
+        map[slug] = shortMatch || matches[0];
+      });
+
+      return map;
+    });
+
+    const fetchRecordings = async () => {
+      try {
+        playbackError.value = '';
+        const response = await fetch(
+          'https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings-public?tag=sanskrit&limit=500',
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to load recordings: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        recordings.value = data.recordings || [];
+      } catch (error) {
+        playbackError.value = error.message;
+        recordings.value = [];
+      }
+    };
+
+    const hasAudio = (letter) => {
+      const slug = buildSlug(letter.romanization || letter.id);
+      return Boolean(audioMap.value[slug]?.r2Url);
+    };
+
+    const playLetter = async (letter) => {
+      const slug = buildSlug(letter.romanization || letter.id);
+      const recording = audioMap.value[slug];
+      const url = recording?.r2Url;
+
+      if (!url) {
+        playbackError.value = 'No published audio found for this letter yet.';
+        return;
+      }
+
+      try {
+        playbackError.value = '';
+        if (!audioPlayer.value) {
+          audioPlayer.value = new Audio();
+        }
+        if (audioPlayer.value.src !== url) {
+          audioPlayer.value.src = url;
+        }
+        await audioPlayer.value.play();
+      } catch (error) {
+        playbackError.value = error.message || 'Failed to play audio.';
+      }
+    };
 
     onMounted(async () => {
       if (!store.sanskritLetters.length) {
         await store.fetchSanskritLetters();
       }
+      await fetchRecordings();
     });
 
     return {
       loading,
       vowels,
       consonants,
+      playbackError,
+      hasAudio,
+      playLetter,
     };
   },
 };
@@ -143,11 +254,17 @@ export default {
   text-align: center;
   background: white;
   transition: transform 0.2s, border-color 0.2s;
+  position: relative;
+  cursor: pointer;
 }
 
 .sanskrit-overview__card:hover {
   transform: translateY(-2px);
   border-color: #4caf50;
+}
+
+.sanskrit-overview__card--has-audio {
+  border-color: #cdeccf;
 }
 
 .sanskrit-overview__devanagari {
@@ -166,5 +283,18 @@ export default {
   margin-top: 6px;
   font-size: 12px;
   color: #888;
+}
+
+.sanskrit-overview__audio-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 14px;
+}
+
+.sanskrit-overview__status {
+  margin-top: 16px;
+  text-align: center;
+  color: #b00020;
 }
 </style>
