@@ -1676,6 +1676,16 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
 
   console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
 
+  const safeParseToolArgs = (rawArgs) => {
+    if (!rawArgs) return {}
+    if (typeof rawArgs === 'object') return rawArgs
+    try {
+      return JSON.parse(rawArgs)
+    } catch (_) {
+      return {}
+    }
+  }
+
   // Track which APIs were used
   const usedProffAPI = toolCalls.some(t => t.function.name.startsWith('proff_'))
   const usedSourcesAPI = toolCalls.some(t => t.function.name.startsWith('sources_'))
@@ -1688,7 +1698,7 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
   const toolResults = []
   for (const toolCall of toolCalls) {
     const { name, arguments: argsStr } = toolCall.function
-    const args = JSON.parse(argsStr)
+    const args = safeParseToolArgs(argsStr)
 
     console.log(`Executing tool: ${name}`, args)
 

@@ -178,6 +178,139 @@ function toOpenAIStyleResponse(responsesData) {
   }
 }
 
+function extractToolCallsFromText(text, tools) {
+  if (!text || !Array.isArray(tools) || tools.length === 0) return []
+
+  const toolNames = tools
+    .map((tool) => tool?.function?.name || tool?.name)
+    .filter(Boolean)
+
+  if (toolNames.length === 0) return []
+
+  const toolCalls = []
+  const escapeNewlinesInStrings = (raw) => {
+    let out = ''
+    let inString = false
+    let escaped = false
+    for (let i = 0; i < raw.length; i += 1) {
+      const char = raw[i]
+      if (escaped) {
+        out += char
+        escaped = false
+        continue
+      }
+      if (char === '\\') {
+        out += char
+        escaped = true
+        continue
+      }
+      if (char === '"') {
+        inString = !inString
+        out += char
+        continue
+      }
+      if (inString && char === '\n') {
+        out += '\\n'
+        continue
+      }
+      if (inString && char === '\r') {
+        out += '\\r'
+        continue
+      }
+      out += char
+    }
+    return out
+  }
+  const safeJsonParse = (raw) => {
+    const cleaned = raw
+      .replace(/(^|\s)\/\/.*$/gm, '$1')
+      .replace(/,\s*([}\]])/g, '$1')
+      .trim()
+    if (!cleaned) return {}
+    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) return null
+    try {
+      return JSON.parse(cleaned)
+    } catch (_) {
+      try {
+        return JSON.parse(escapeNewlinesInStrings(cleaned))
+      } catch (_) {
+        return null
+      }
+    }
+  }
+
+  for (const name of toolNames) {
+    const linePattern = new RegExp(`(^|\\n)\\s*${name}\\s*(?:\\(\\s*\\))?\\s*(?=\\n|$)`, 'g')
+    for (const match of text.matchAll(linePattern)) {
+      const hasParen = match[0].includes('(')
+      if (!hasParen) {
+        toolCalls.push({
+          id: `call_${toolCalls.length + 1}`,
+          type: 'function',
+          function: {
+            name,
+            arguments: ''
+          }
+        })
+      }
+    }
+
+    let searchIndex = 0
+    while (searchIndex < text.length) {
+      const matchIndex = text.indexOf(`${name}(`, searchIndex)
+      if (matchIndex === -1) break
+      let i = matchIndex + name.length + 1
+      let depth = 1
+      for (; i < text.length; i += 1) {
+        const char = text[i]
+        if (char === '(') depth += 1
+        if (char === ')') depth -= 1
+        if (depth === 0) break
+      }
+      if (depth !== 0) {
+        searchIndex = matchIndex + name.length + 1
+        continue
+      }
+      const rawArgs = text.slice(matchIndex + name.length + 1, i).trim()
+      const parsedArgs = rawArgs ? safeJsonParse(rawArgs) : {}
+      if (parsedArgs !== null) {
+        toolCalls.push({
+          id: `call_${toolCalls.length + 1}`,
+          type: 'function',
+          function: {
+            name,
+            arguments: rawArgs ? JSON.stringify(parsedArgs) : ''
+          }
+        })
+      }
+      searchIndex = i + 1
+    }
+  }
+
+  return toolCalls
+}
+
+function applyFallbackToolCalls(responsePayload, tools) {
+  const message = responsePayload?.choices?.[0]?.message
+  if (!message || message.tool_calls || typeof message.content !== 'string') return responsePayload
+
+  const toolCalls = extractToolCallsFromText(message.content, tools)
+  if (!toolCalls.length) return responsePayload
+
+  return {
+    ...responsePayload,
+    choices: [
+      {
+        ...responsePayload.choices[0],
+        message: {
+          ...message,
+          tool_calls: toolCalls
+        }
+      }
+    ]
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -250,6 +383,14 @@ export default {
           }
 
           const hasTools = Array.isArray(tools) && tools.length > 0
+          const hasClientTools = hasTools && tools.some((tool) => {
+            const name = tool?.function?.name || tool?.name || ''
+            return (
+              name.startsWith('graph_template_') ||
+              name.startsWith('proff_') ||
+              name.startsWith('sources_')
+            )
+          })
           const toolCapableModels = [
             'grok-4',
             'grok-4-fast',
@@ -260,11 +401,12 @@ export default {
           const effectiveModel = hasTools && !toolCapableModels.includes(model)
             ? 'grok-4-1-fast'
             : model
-          const endpoint = hasTools
+          const useResponsesApi = hasTools && !hasClientTools
+          const endpoint = useResponsesApi
             ? 'https://api.x.ai/v1/responses'
             : 'https://api.x.ai/v1/chat/completions'
 
-          const payload = hasTools
+          const payload = useResponsesApi
             ? {
                 model: effectiveModel,
                 input: buildResponsesInput(messages),
@@ -276,6 +418,7 @@ export default {
             : {
                 model: effectiveModel,
                 messages,
+                ...(hasTools ? { tools, ...(tool_choice ? { tool_choice } : {}) } : {}),
                 temperature,
                 max_tokens,
                 stream
@@ -298,8 +441,9 @@ export default {
 
           const data = await xaiResponse.json()
 
-          const responsePayload = hasTools ? toOpenAIStyleResponse(data) : data
-          return new Response(JSON.stringify(responsePayload), {
+          const responsePayload = useResponsesApi ? toOpenAIStyleResponse(data) : data
+          const finalPayload = hasTools ? applyFallbackToolCalls(responsePayload, tools) : responsePayload
+          return new Response(JSON.stringify(finalPayload), {
             headers: corsHeaders
           })
 
