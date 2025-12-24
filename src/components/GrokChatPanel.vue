@@ -99,6 +99,22 @@
             Kun OpenAI/Claude
           </span>
         </div>
+        <div v-if="canUseTemplateTools" class="context-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+            <input
+              type="checkbox"
+              v-model="useTemplateTools"
+              :disabled="provider !== 'openai' && provider !== 'claude'"
+            />
+            <span>🧩 Node Template Tools</span>
+          </label>
+          <span v-if="useTemplateTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+            AI kan sette inn godkjente node-maler
+          </span>
+          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
+            Kun OpenAI/Claude
+          </span>
+        </div>
         <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
             <input
@@ -1062,6 +1078,12 @@ const audioLanguageOptions = [
 // Proff API Function Calling Configuration
 const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
 const useProffTools = ref(true) // Enable Proff company lookup by default
+const useTemplateTools = ref(true)
+const TOOL_TEMPLATES_ENDPOINT = 'https://knowledge.vegvisr.org/getToolTemplates'
+
+const canUseTemplateTools = computed(() => {
+  return userStore.role === 'Superadmin' || userStore.role === 'Admin'
+})
 
 // OpenAI-compatible tool definitions for Proff API
 const proffTools = [
@@ -1363,6 +1385,54 @@ Note: Results may be limited. For news, prefer sources_search or sources_google_
   }
 ]
 
+// OpenAI-compatible tool definitions for graph template tools
+const templateTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'graph_template_catalog',
+      description: 'List available admin-approved graph node templates for tool insertion. Call this before choosing a template to insert.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_template_insert',
+      description: 'Insert a node based on an approved graph template into the current graph. Use after graph_template_catalog. Provide template_id and node_overrides with generated content.',
+      parameters: {
+        type: 'object',
+        properties: {
+          template_id: {
+            type: 'string',
+            description: 'Template id from graph_template_catalog.'
+          },
+          node_overrides: {
+            type: 'object',
+            description: 'Fields to override on the template node. Use info for the main content.',
+            properties: {
+              label: { type: 'string' },
+              info: { type: 'string' },
+              description: { type: 'string' },
+              path: { type: 'string' },
+              color: { type: 'string' },
+              imageWidth: { type: 'string' },
+              imageHeight: { type: 'string' },
+              bibl: { type: 'array', items: { type: 'string' } }
+            },
+            additionalProperties: true
+          }
+        },
+        required: ['template_id']
+      }
+    }
+  }
+]
+
 /**
  * Execute a Proff API tool call
  * @param {string} toolName - The function name to call
@@ -1478,6 +1548,120 @@ async function executeSourcesTool(toolName, args) {
   }
 }
 
+const createTemplateNodeId = () => {
+  if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+const fetchToolTemplates = async ({ force = false } = {}) => {
+  if (toolTemplatesLoaded.value && !force) return toolTemplates.value
+  if (toolTemplatesLoading.value) return toolTemplates.value
+
+  toolTemplatesLoading.value = true
+  toolTemplatesError.value = ''
+
+  try {
+    if (!canUseTemplateTools.value) {
+      throw new Error('Admin access required for template tools')
+    }
+
+    const response = await fetch(TOOL_TEMPLATES_ENDPOINT, {
+      headers: {
+        'X-API-Token': userStore.emailVerificationToken || '',
+        'x-user-role': userStore.role || '',
+        Accept: 'application/json',
+      },
+      mode: 'cors',
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tool templates: ${response.status}`)
+    }
+
+    const data = await response.json()
+    toolTemplates.value = Array.isArray(data.results) ? data.results : []
+    toolTemplatesLoaded.value = true
+    return toolTemplates.value
+  } catch (error) {
+    console.error('Failed to load tool templates:', error)
+    toolTemplatesError.value = error.message || 'Failed to load tool templates'
+    return []
+  } finally {
+    toolTemplatesLoading.value = false
+  }
+}
+
+async function executeTemplateTool(toolName, args) {
+  try {
+    if (!isViewerContext.value) {
+      throw new Error('Template tools are only available in the GNewViewer context.')
+    }
+
+    if (toolName === 'graph_template_catalog') {
+      const templates = await fetchToolTemplates()
+      const catalog = templates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        nodeType: template.nodeType || template.nodes?.[0]?.type || null,
+        category: template.category || 'General',
+        description: template.description || template.ai_instructions || '',
+      }))
+      return { templates: catalog }
+    }
+
+    if (toolName === 'graph_template_insert') {
+      const templates = await fetchToolTemplates()
+      const templateId = args?.template_id || args?.templateId || ''
+      const template = templates.find((t) => t.id === templateId) ||
+        templates.find((t) => t.name === args?.template_name)
+
+      if (!template) {
+        throw new Error('Template not found. Use graph_template_catalog first.')
+      }
+
+      const baseNode = Array.isArray(template.nodes) ? { ...template.nodes[0] } : null
+      if (!baseNode || !baseNode.type) {
+        throw new Error('Template has no valid node definition.')
+      }
+
+      const overrides = args?.node_overrides || {}
+      if (!overrides.label && args?.label) overrides.label = args.label
+      if (!overrides.info && args?.info) overrides.info = args.info
+      if (!overrides.description && args?.description) overrides.description = args.description
+
+      if (overrides.info && typeof overrides.info !== 'string') {
+        overrides.info = JSON.stringify(overrides.info)
+      }
+
+      const newNode = {
+        ...baseNode,
+        ...overrides,
+        id: createTemplateNodeId(),
+        bibl: Array.isArray(overrides.bibl) ? overrides.bibl : (baseNode.bibl || []),
+        visible: overrides.visible !== undefined ? overrides.visible : (baseNode.visible ?? true),
+      }
+
+      emit('insert-node', { node: newNode, source: 'template-tool', templateId: template.id })
+
+      return {
+        status: 'ok',
+        inserted: true,
+        nodeId: newNode.id,
+        nodeType: newNode.type,
+        templateId: template.id,
+      }
+    }
+
+    throw new Error(`Unknown template tool: ${toolName}`)
+  } catch (error) {
+    console.error('Template tool execution error:', error)
+    return { error: error.message }
+  }
+}
+
 /**
  * Process tool calls from AI response and get final answer
  * @param {object} data - The AI response with tool_calls
@@ -1510,7 +1694,9 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
 
     // Route to appropriate executor
     let result
-    if (name.startsWith('sources_')) {
+    if (name.startsWith('graph_template_')) {
+      result = await executeTemplateTool(name, args)
+    } else if (name.startsWith('sources_')) {
       result = await executeSourcesTool(name, args)
       // Store sources data for later use
       if (!sourcesData) sourcesData = {}
@@ -1606,6 +1792,10 @@ const availableTemplates = ref([])
 const selectedTemplates = ref([])
 const templatesLoading = ref(false)
 const templatesFetchError = ref('')
+const toolTemplates = ref([])
+const toolTemplatesLoading = ref(false)
+const toolTemplatesError = ref('')
+const toolTemplatesLoaded = ref(false)
 const MAX_GRAPH_JOBS = 4
 
 // Case Graph Creation (from person network data)
@@ -1825,8 +2015,14 @@ const loadChatPreferences = () => {
     if (typeof parsed?.useSourcesTools === 'boolean') {
       useSourcesTools.value = parsed.useSourcesTools
     }
+    if (typeof parsed?.useTemplateTools === 'boolean') {
+      useTemplateTools.value = parsed.useTemplateTools
+    }
     if (typeof parsed?.useWebSearch === 'boolean') {
       useWebSearch.value = parsed.useWebSearch
+    }
+    if (!canUseTemplateTools.value) {
+      useTemplateTools.value = false
     }
   } catch (error) {
     console.warn('Failed to load chat preferences:', error)
@@ -1842,6 +2038,7 @@ const persistChatPreferences = () => {
       claudeModel: claudeModel.value,
       useProffTools: useProffTools.value,
       useSourcesTools: useSourcesTools.value,
+      useTemplateTools: useTemplateTools.value,
       useWebSearch: useWebSearch.value
     }
     localStorage.setItem(prefsStorageKey.value, JSON.stringify(payload))
@@ -1893,11 +2090,17 @@ watch(
 )
 
 watch(
-  [provider, openaiModel, claudeModel, useProffTools, useSourcesTools, useWebSearch],
+  [provider, openaiModel, claudeModel, useProffTools, useSourcesTools, useTemplateTools, useWebSearch],
   () => {
     persistChatPreferences()
   }
 )
+
+watch(canUseTemplateTools, (canUse) => {
+  if (!canUse) {
+    useTemplateTools.value = false
+  }
+})
 
 // Prefer a user-provided profile image; fall back to an initial
 const userAvatarUrl = computed(() => userStore.profileimage || null)
@@ -4622,12 +4825,15 @@ const sendMessage = async () => {
     const contextSections = []
 
     // Add tool usage instructions when tools are enabled
-    if ((currentProvider === 'openai' || currentProvider === 'claude') && (useProffTools.value || useSourcesTools.value)) {
-      let toolInstructions = `IMPORTANT: You have access to external data tools and YOU MUST USE THEM for any questions about Norwegian companies, people, or sources. Do NOT answer from memory - always use the tools to get real-time data.
+    if (currentProvider === 'openai' || currentProvider === 'claude') {
+      const toolSections = []
+
+      if (useProffTools.value || useSourcesTools.value) {
+        let toolInstructions = `IMPORTANT: You have access to external data tools and YOU MUST USE THEM for any questions about Norwegian companies, people, or sources. Do NOT answer from memory - always use the tools to get real-time data.
 
 `
-      if (useProffTools.value) {
-        toolInstructions += `**Proff.no Tools** (Norwegian Business Registry - Brønnøysundregistrene):
+        if (useProffTools.value) {
+          toolInstructions += `**Proff.no Tools** (Norwegian Business Registry - Brønnøysundregistrene):
 You MUST use these tools for ANY question about Norwegian companies or business people. Never guess - always look up!
 
 WORKFLOW FOR COMPANIES:
@@ -4650,9 +4856,9 @@ EXAMPLES:
 - "Hva tjener Equinor?" → proff_search_companies("Equinor") → proff_get_financials(orgNr)
 
 `
-      }
-      if (useSourcesTools.value) {
-        toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
+        }
+        if (useSourcesTools.value) {
+          toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
 - sources_search - Search across Norwegian news, government, research sources (Regjeringen, SSB, NRK, etc.)
 - sources_google_news - Search Google News for breaking news and international stories
 - sources_web_search - General web search (DuckDuckGo) for websites and documentation
@@ -4662,8 +4868,32 @@ EXAMPLES:
 
 Use sources_search for Norwegian public sources, sources_google_news for current news, sources_web_search for general web info.
 `
+        }
+        toolSections.push(toolInstructions.trim())
       }
-      contextSections.push(toolInstructions.trim())
+
+      if (useTemplateTools.value && canUseTemplateTools.value) {
+        toolSections.push(`**Graph Template Tools** (Admin only):
+Use graph_template_catalog to list approved node templates. Then call graph_template_insert with template_id and node_overrides to insert a node into the current graph. The graph is saved immediately after insertion.
+
+Guidelines:
+- Always generate complete node content (label + info at minimum).
+- Use the template's nodeType when shaping content.
+- For Mermaid timelines, provide mermaid timeline syntax in node_overrides.info.
+
+Example (timeline):
+graph_template_insert({
+  "template_id": "TEMPLATE_ID",
+  "node_overrides": {
+    "label": "Timeline of Early Sanskrit Scholars",
+    "info": "timeline\n  title Timeline of Early Sanskrit Scholars\n  section Vedic period\n    Yaska : Nirukta\n    Panini : Ashtadhyayi\n  section Classical period\n    Patanjali : Mahabhashya\n    Bhartrihari : Vakyapadiya"
+  }
+}`)
+      }
+
+      if (toolSections.length) {
+        contextSections.push(toolSections.join('\n\n'))
+      }
     }
 
     // Add web search suggestion instruction when enabled
@@ -4800,10 +5030,11 @@ Use this context to provide relevant insights and answers about the knowledge gr
       }
     }
 
-    // Combine Proff and Sources tools
+    // Combine Proff, Sources, and Template tools
     const allTools = [
       ...(useProffTools.value ? proffTools : []),
-      ...(useSourcesTools.value ? sourcesTools : [])
+      ...(useSourcesTools.value ? sourcesTools : []),
+      ...(useTemplateTools.value && canUseTemplateTools.value ? templateTools : [])
     ]
 
     // Add tools for OpenAI function calling
@@ -4956,7 +5187,9 @@ Use this context to provide relevant insights and answers about the knowledge gr
 
             // Route to appropriate executor
             let result
-            if (toolBlock.name.startsWith('sources_')) {
+            if (toolBlock.name.startsWith('graph_template_')) {
+              result = await executeTemplateTool(toolBlock.name, toolBlock.input)
+            } else if (toolBlock.name.startsWith('sources_')) {
               result = await executeSourcesTool(toolBlock.name, toolBlock.input)
               // Store sources data for Case Study buttons
               if (!sourcesData) sourcesData = {}

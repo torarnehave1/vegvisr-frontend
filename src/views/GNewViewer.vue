@@ -1557,6 +1557,7 @@
           :selection-context="grokSelectionContext"
           parent-context="viewer"
           @insert-fulltext="insertAIResponseAsFullText"
+          @insert-node="handleInsertNodeFromChat"
         />
       </div>
     </div>
@@ -4973,6 +4974,44 @@ const insertAIResponseAsFullText = async (content) => {
   } catch (error) {
     console.error('❌ Error inserting AI response into FullText node:', error)
     statusMessage.value = `❌ Failed to insert AI response: ${error.message}`
+  } finally {
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 4000)
+  }
+}
+
+const handleInsertNodeFromChat = async (payload) => {
+  const node = payload?.node || payload
+  if (!node || typeof node !== 'object') {
+    statusMessage.value = '❌ Invalid node payload from AI tool'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 4000)
+    return
+  }
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNode = {
+    ...node,
+    id: node.id || generateUUID(),
+    bibl: Array.isArray(node.bibl) ? node.bibl : [],
+    visible: node.visible !== undefined ? node.visible : true,
+  }
+
+  try {
+    await handleNodeCreated(newNode)
+    statusMessage.value = `✅ New node "${newNode.label || newNode.id}" inserted`
+  } catch (error) {
+    console.error('❌ Error inserting node from AI:', error)
+    statusMessage.value = `❌ Failed to insert node: ${error.message}`
   } finally {
     setTimeout(() => {
       statusMessage.value = ''

@@ -1,7 +1,27 @@
 <template>
   <div class="gnew-mermaid-node">
-    <!-- Node Title -->
-    <h3 v-if="node.label" class="node-label">{{ node.label }}</h3>
+    <!-- Node Header - Following GNewDefaultNode pattern -->
+    <div v-if="showControls && node.label" class="node-header">
+      <div class="node-title-section">
+        <h3 class="node-title">{{ node.label }}</h3>
+        <div class="node-type-badge-inline">
+          {{ nodeTypeDisplay }}
+        </div>
+      </div>
+      <div v-if="!isPreview" class="node-controls">
+        <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">
+          ✏️
+        </button>
+        <button @click="deleteNode" class="btn btn-sm btn-outline-danger" title="Delete Node">
+          🗑️
+        </button>
+      </div>
+    </div>
+
+    <!-- Title only (for non-control mode) -->
+    <div v-else-if="node.label" class="node-title-row">
+      <h3 class="node-title">{{ node.label }}</h3>
+    </div>
 
     <!-- Mermaid Diagram -->
     <div class="mermaid-wrapper">
@@ -21,6 +41,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import Mermaid from '@/components/Mermaid.vue'
 
 // Component name for debugging
@@ -54,6 +75,18 @@ const props = defineProps({
 
 // Emits
 const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
+
+const nodeTypeDisplay = computed(() => 'Mermaid Diagram')
+
+const editNode = () => {
+  emit('node-updated', { ...props.node, action: 'edit' })
+}
+
+const deleteNode = () => {
+  if (confirm('Are you sure you want to delete this mermaid diagram?')) {
+    emit('node-deleted', props.node.id)
+  }
+}
 </script>
 
 <style scoped>
@@ -65,12 +98,51 @@ const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.node-label {
-  color: #333;
-  margin-bottom: 1rem;
+/* Header - Following GNewDefaultNode pattern */
+.node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+
+.node-title-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.node-title {
+  margin: 0;
+  font-size: 1.4rem;
   font-weight: 600;
-  border-bottom: 2px solid #e9ecef;
-  padding-bottom: 0.5rem;
+  color: #2c3e50;
+  line-height: 1.3;
+}
+
+.node-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: 15px;
+}
+
+.node-type-badge-inline {
+  background: #6f42c1;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Title row for non-control mode */
+.node-title-row {
+  margin-bottom: 15px;
 }
 
 .mermaid-wrapper {
@@ -115,9 +187,8 @@ const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
     color: #e2e8f0;
   }
 
-  .node-label {
+  .node-title {
     color: #e2e8f0;
-    border-bottom-color: #4a5568;
   }
 
   .mermaid-wrapper,
