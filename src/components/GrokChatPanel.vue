@@ -68,51 +68,51 @@
           </span>
         </div>
         <div class="context-row">
-          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
             <input
               type="checkbox"
               v-model="useProffTools"
-              :disabled="provider !== 'openai' && provider !== 'claude'"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
             />
             <span>🏢 Proff Selskapsoppslag</span>
           </label>
-          <span v-if="useProffTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+          <span v-if="useProffTools && (provider === 'openai' || provider === 'claude' || provider === 'grok')" class="context-indicator">
             AI kan slå opp norske selskaper
           </span>
-          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
-            Kun OpenAI/Claude
+          <span v-else-if="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'" class="context-indicator muted">
+            Kun OpenAI/Claude/Grok
           </span>
         </div>
         <div class="context-row">
-          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
             <input
               type="checkbox"
               v-model="useSourcesTools"
-              :disabled="provider !== 'openai' && provider !== 'claude'"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
             />
             <span>📰 Norske Kilder</span>
           </label>
-          <span v-if="useSourcesTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+          <span v-if="useSourcesTools && (provider === 'openai' || provider === 'claude' || provider === 'grok')" class="context-indicator">
             Regjeringen, SSB, NRK, Forskning.no, miljøorg.
           </span>
-          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
-            Kun OpenAI/Claude
+          <span v-else-if="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'" class="context-indicator muted">
+            Kun OpenAI/Claude/Grok
           </span>
         </div>
         <div v-if="canUseTemplateTools" class="context-row">
-          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
             <input
               type="checkbox"
               v-model="useTemplateTools"
-              :disabled="provider !== 'openai' && provider !== 'claude'"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
             />
             <span>🧩 Node Template Tools</span>
           </label>
-          <span v-if="useTemplateTools && (provider === 'openai' || provider === 'claude')" class="context-indicator">
+          <span v-if="useTemplateTools && (provider === 'openai' || provider === 'claude' || provider === 'grok')" class="context-indicator">
             AI kan sette inn godkjente node-maler
           </span>
-          <span v-else-if="provider !== 'openai' && provider !== 'claude'" class="context-indicator muted">
-            Kun OpenAI/Claude
+          <span v-else-if="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'" class="context-indicator muted">
+            Kun OpenAI/Claude/Grok
           </span>
         </div>
         <div class="context-row">
@@ -4825,7 +4825,7 @@ const sendMessage = async () => {
     const contextSections = []
 
     // Add tool usage instructions when tools are enabled
-    if (currentProvider === 'openai' || currentProvider === 'claude') {
+    if (currentProvider === 'openai' || currentProvider === 'claude' || currentProvider === 'grok') {
       const toolSections = []
 
       if (useProffTools.value || useSourcesTools.value) {
@@ -5037,8 +5037,8 @@ Use this context to provide relevant insights and answers about the knowledge gr
       ...(useTemplateTools.value && canUseTemplateTools.value ? templateTools : [])
     ]
 
-    // Add tools for OpenAI function calling
-    if (currentProvider === 'openai' && allTools.length > 0) {
+    // Add tools for OpenAI/Grok function calling
+    if ((currentProvider === 'openai' || currentProvider === 'grok') && allTools.length > 0) {
       requestBody.tools = allTools
       requestBody.tool_choice = 'auto' // Let AI decide when to use tools
     }
@@ -5136,7 +5136,7 @@ Use this context to provide relevant insights and answers about the knowledge gr
     let perplexityRelatedQuestions = null
 
     // Check for tool calls (function calling) - OpenAI format
-    if (currentProvider === 'openai' && data.choices?.[0]?.message?.tool_calls) {
+    if ((currentProvider === 'openai' || currentProvider === 'grok') && data.choices?.[0]?.message?.tool_calls) {
       console.log('Detected tool calls, processing...')
       try {
         const toolResult = await processToolCalls(data, grokMessages, endpoint, requestBody)

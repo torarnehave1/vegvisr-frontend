@@ -70,6 +70,114 @@ async function getUserApiKey(userId, provider, env) {
   }
 }
 
+function buildResponsesInput(messages) {
+  const input = []
+
+  for (const message of messages || []) {
+    if (!message) continue
+
+    if (message.role === 'tool') {
+      if (message.tool_call_id) {
+        input.push({
+          type: 'function_call_output',
+          call_id: message.tool_call_id,
+          output: message.content || ''
+        })
+      }
+      continue
+    }
+
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      for (const toolCall of message.tool_calls) {
+        const functionName = toolCall.function?.name || toolCall.name
+        const functionArgs = toolCall.function?.arguments || toolCall.arguments || ''
+        if (!functionName) continue
+        input.push({
+          type: 'function_call',
+          name: functionName,
+          arguments: functionArgs,
+          call_id: toolCall.id || toolCall.call_id || `call_${input.length + 1}`
+        })
+      }
+    }
+
+    if (typeof message.content === 'string' && message.content.trim() !== '') {
+      input.push({
+        role: message.role || 'user',
+        content: message.content
+      })
+    }
+  }
+
+  return input
+}
+
+function toOpenAIStyleResponse(responsesData) {
+  const output = Array.isArray(responsesData.output) ? responsesData.output : []
+  const toolCalls = []
+  const contentParts = []
+
+  if (typeof responsesData.output_text === 'string') {
+    contentParts.push(responsesData.output_text)
+  }
+
+  for (const item of output) {
+    if (!item) continue
+
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      for (const contentItem of item.content) {
+        const text = contentItem?.text
+        if (contentItem?.type === 'output_text' && typeof text === 'string') {
+          contentParts.push(text)
+        } else if (contentItem?.type === 'text' && typeof text === 'string') {
+          contentParts.push(text)
+        }
+      }
+    }
+
+    if (item.type === 'output_text' && typeof item.text === 'string') {
+      contentParts.push(item.text)
+    }
+
+    if (item.type === 'function_call') {
+      const callId = item.id || item.call_id || `call_${toolCalls.length + 1}`
+      const name = item.name || item.function?.name
+      let args = item.arguments || item.function?.arguments || ''
+      if (args && typeof args !== 'string') {
+        args = JSON.stringify(args)
+      }
+      if (name) {
+        toolCalls.push({
+          id: callId,
+          type: 'function',
+          function: {
+            name,
+            arguments: args || ''
+          }
+        })
+      }
+    }
+  }
+
+  const content = contentParts.join('') || ''
+  const message = {
+    role: 'assistant',
+    content: content || null
+  }
+  if (toolCalls.length) {
+    message.tool_calls = toolCalls
+  }
+
+  return {
+    choices: [
+      {
+        message
+      }
+    ],
+    usage: responsesData.usage || responsesData.usage_info || undefined
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -100,7 +208,16 @@ export default {
       // POST /chat - Chat completion (handles both user API keys and fallback)
       if (pathname === '/chat' && request.method === 'POST') {
         const body = await request.json()
-        const { userId, messages, model = 'grok-3', temperature = 0.7, max_tokens = 32000, stream = false } = body
+        const {
+          userId,
+          messages,
+          model = 'grok-3',
+          temperature = 0.7,
+          max_tokens = 32000,
+          stream = false,
+          tools = [],
+          tool_choice
+        } = body
 
         if (!messages || !Array.isArray(messages)) {
           return new Response(JSON.stringify({ error: 'Missing or invalid messages array' }), {
@@ -132,20 +249,46 @@ export default {
             })
           }
 
+          const hasTools = Array.isArray(tools) && tools.length > 0
+          const toolCapableModels = [
+            'grok-4',
+            'grok-4-fast',
+            'grok-4-fast-non-reasoning',
+            'grok-4-1-fast',
+            'grok-4-1-fast-non-reasoning'
+          ]
+          const effectiveModel = hasTools && !toolCapableModels.includes(model)
+            ? 'grok-4-1-fast'
+            : model
+          const endpoint = hasTools
+            ? 'https://api.x.ai/v1/responses'
+            : 'https://api.x.ai/v1/chat/completions'
+
+          const payload = hasTools
+            ? {
+                model: effectiveModel,
+                input: buildResponsesInput(messages),
+                tools,
+                temperature,
+                stream,
+                ...(tool_choice ? { tool_choice } : {})
+              }
+            : {
+                model: effectiveModel,
+                messages,
+                temperature,
+                max_tokens,
+                stream
+              }
+
           // Call X.AI API
-          const xaiResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+          const xaiResponse = await fetch(endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`
             },
-            body: JSON.stringify({
-              model,
-              messages,
-              temperature,
-              max_tokens,
-              stream
-            })
+            body: JSON.stringify(payload)
           })
 
           if (!xaiResponse.ok) {
@@ -153,9 +296,10 @@ export default {
             throw new Error(errorData.error?.message || `X.AI API error: ${xaiResponse.status}`)
           }
 
-          // Return response as-is
           const data = await xaiResponse.json()
-          return new Response(JSON.stringify(data), {
+
+          const responsePayload = hasTools ? toOpenAIStyleResponse(data) : data
+          return new Response(JSON.stringify(responsePayload), {
             headers: corsHeaders
           })
 
