@@ -30,6 +30,7 @@
             <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
           </div>
         </div>
       </section>
@@ -54,6 +55,7 @@
             <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
           </div>
         </div>
       </section>
@@ -290,6 +292,15 @@ export default {
   top: 8px;
   right: 8px;
   font-size: 14px;
+}
+
+.sanskrit-overview__play-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #2e7d32;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .sanskrit-overview__status {

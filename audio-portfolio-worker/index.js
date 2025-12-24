@@ -315,6 +315,8 @@ const updateRecording = async (env, userEmail, recordingId, updates) => {
       'displayName',
       'tags',
       'category',
+      'publicationState',
+      'publishedAt',
       'speakerTimeline',
       'numSpeakers',
       'speakerNames',

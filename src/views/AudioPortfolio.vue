@@ -838,7 +838,7 @@ const togglePublicationState = async (recording) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userEmail: userStore.email,
+          userEmail: recording.userEmail || userStore.email,
           recordingId: recording.recordingId || recording.id,
           publicationState: newState,
           requestingUserRole: 'superadmin',
@@ -1381,4 +1381,3 @@ onMounted(async () => {
   padding-left: 0.75rem;
 }
 </style>
-
