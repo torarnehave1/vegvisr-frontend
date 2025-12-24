@@ -79,8 +79,15 @@ export default {
     const audioPlayer = ref(null);
 
     const loading = computed(() => store.sanskritLoading);
-    const vowels = computed(() => store.sanskritLetters.filter((l) => l.category === 'vowel'));
-    const consonants = computed(() => store.sanskritLetters.filter((l) => l.category === 'consonant'));
+    const sortById = (letters) =>
+      [...letters].sort((a, b) => Number(a.id) - Number(b.id));
+
+    const vowels = computed(() =>
+      sortById(store.sanskritLetters.filter((l) => l.category === 'vowel')),
+    );
+    const consonants = computed(() =>
+      sortById(store.sanskritLetters.filter((l) => l.category === 'consonant')),
+    );
     const buildSlug = (value) => {
       return String(value || '')
         .toLowerCase()
