@@ -4,7 +4,7 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
-import mermaid from 'mermaid'
+import mermaid from '@/utils/mermaid'
 
 // Define component name
 defineOptions({
@@ -29,14 +29,6 @@ async function renderMermaid() {
   try {
     // Clear previous content
     container.value.innerHTML = ''
-
-    // Initialize Mermaid with default settings
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'default',
-      securityLevel: 'loose',
-      logLevel: 'error',
-    })
 
     // Generate a unique ID for this diagram
     const id = 'mermaid-graph-' + Math.random().toString(36).substr(2, 9)

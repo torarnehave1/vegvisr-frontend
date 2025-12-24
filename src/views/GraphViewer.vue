@@ -935,7 +935,7 @@ import SWOTDiagram from '@/components/SWOTDiagram.vue'
 import BubbleChart from '@/components/BubbleChart.vue'
 import html2pdf from 'html2pdf.js'
 import Mermaid from '@/components/Mermaid.vue'
-import mermaid from 'mermaid'
+import mermaid from '@/utils/mermaid'
 import AINodeModal from '@/components/AINodeModal.vue'
 import EnhancedAINodeModal from '@/components/EnhancedAINodeModal.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
@@ -947,14 +947,6 @@ import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import SandboxModal from '@/components/SandboxModal.vue'
 import { Modal } from 'bootstrap'
 import { useBranding } from '@/composables/useBranding'
-
-// Initialize Mermaid
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'loose',
-  logLevel: 'error',
-})
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
