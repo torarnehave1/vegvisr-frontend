@@ -3,6 +3,22 @@
     <div class="sanskrit-overview__header">
       <h2>Sanskrit Letters Overview</h2>
       <p>Browse all vowels and consonants.</p>
+      <div class="sanskrit-overview__actions">
+        <button
+          type="button"
+          class="sanskrit-overview__toggle"
+          @click="showDevanagari = !showDevanagari"
+        >
+          {{ showDevanagari ? 'Hide Sanskrit letters' : 'Show Sanskrit letters' }}
+        </button>
+        <button
+          type="button"
+          class="sanskrit-overview__toggle"
+          @click="showRomanization = !showRomanization"
+        >
+          {{ showRomanization ? 'Hide romanization' : 'Show romanization' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="sanskrit-overview__loading">
@@ -10,6 +26,18 @@
     </div>
 
     <div v-else class="sanskrit-overview__content">
+      <details class="sanskrit-overview__basics" open>
+        <summary>Basic terms</summary>
+        <div class="sanskrit-overview__basics-body">
+          <p><strong>Svarah</strong> are vowels that can stand on their own.</p>
+          <p><strong>Vyanjana</strong> are consonants that combine with vowels to form syllables.</p>
+          <p>
+            <strong>Ayogavaha</strong> are special final sounds like anusvara (m) and
+            visarga (h).
+          </p>
+          <p>Tip: tap a card with the speaker icon to hear a recording.</p>
+        </div>
+      </details>
       <section class="sanskrit-overview__section">
         <div class="sanskrit-overview__section-header">
           <h3>Vowels</h3>
@@ -26,8 +54,12 @@
             @click="playLetter(letter)"
             @keydown.enter.prevent="playLetter(letter)"
           >
-            <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
-            <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
+            <div v-if="showDevanagari" class="sanskrit-overview__devanagari">
+              {{ letter.devanagari }}
+            </div>
+            <div v-if="showRomanization" class="sanskrit-overview__romanization">
+              {{ letter.romanization }}
+            </div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
@@ -51,8 +83,12 @@
             @click="playLetter(letter)"
             @keydown.enter.prevent="playLetter(letter)"
           >
-            <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
-            <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
+            <div v-if="showDevanagari" class="sanskrit-overview__devanagari">
+              {{ letter.devanagari }}
+            </div>
+            <div v-if="showRomanization" class="sanskrit-overview__romanization">
+              {{ letter.romanization }}
+            </div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
@@ -76,8 +112,12 @@
             @click="playLetter(letter)"
             @keydown.enter.prevent="playLetter(letter)"
           >
-            <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
-            <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
+            <div v-if="showDevanagari" class="sanskrit-overview__devanagari">
+              {{ letter.devanagari }}
+            </div>
+            <div v-if="showRomanization" class="sanskrit-overview__romanization">
+              {{ letter.romanization }}
+            </div>
             <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
             <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
@@ -102,6 +142,8 @@ export default {
     const recordings = ref([]);
     const playbackError = ref('');
     const audioPlayer = ref(null);
+    const showDevanagari = ref(true);
+    const showRomanization = ref(true);
 
     const loading = computed(() => store.sanskritLoading);
     const sortById = (letters) =>
@@ -226,6 +268,8 @@ export default {
       playbackError,
       hasAudio,
       playLetter,
+      showDevanagari,
+      showRomanization,
     };
   },
 };
@@ -254,6 +298,30 @@ export default {
   color: #666;
 }
 
+.sanskrit-overview__actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sanskrit-overview__toggle {
+  border: 1px solid #cfcfcf;
+  background: #f7f7f7;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sanskrit-overview__toggle:hover {
+  border-color: #4caf50;
+  color: #2e7d32;
+}
+
 .sanskrit-overview__loading {
   text-align: center;
   padding: 50px;
@@ -262,6 +330,31 @@ export default {
 
 .sanskrit-overview__section {
   margin-bottom: 30px;
+}
+
+.sanskrit-overview__basics {
+  background: #f4f7f2;
+  border: 1px solid #dde7d7;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.sanskrit-overview__basics summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.sanskrit-overview__basics-body {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #444;
+  line-height: 1.5;
+}
+
+.sanskrit-overview__basics-body p {
+  margin: 0 0 8px 0;
 }
 
 .sanskrit-overview__section-header {
