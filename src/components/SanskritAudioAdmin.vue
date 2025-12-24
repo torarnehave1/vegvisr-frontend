@@ -23,7 +23,7 @@
           <div class="letter-devanagari">{{ letter.devanagari }}</div>
           <div class="letter-romanization">{{ letter.romanization }}</div>
           <div class="letter-category">
-            {{ letter.category === 'vowel' ? 'Vowel' : 'Consonant' }}
+            {{ getCategoryLabel(letter.category) }}
           </div>
         </button>
       </div>
@@ -32,13 +32,11 @@
         <div class="letter-description">
           <strong>{{ selectedLetter.devanagari }} — {{ selectedLetter.romanization }}</strong>
           <span class="letter-description__meta">
-            {{ selectedLetter.category === 'vowel' ? 'Vowel' : 'Consonant' }}
+            {{ getCategoryLabel(selectedLetter.category) }}
           </span>
         </div>
         <div class="letter-description__text">
-          {{ selectedLetter.category === 'vowel'
-            ? `This is a vowel (${selectedLetter.devanagari}) in Sanskrit.`
-            : `This is a consonant (${selectedLetter.devanagari}) in Sanskrit.` }}
+          {{ getCategoryDescription(selectedLetter) }}
         </div>
       </div>
 
@@ -122,6 +120,30 @@ const selectedLetter = computed(
 const canSubmit = computed(() => {
   return Boolean(userStore.email && selectedLetter.value && audioFile.value)
 })
+
+const getCategoryLabel = (category) => {
+  const normalized = String(category || '').toLowerCase()
+  if (normalized === 'vowel') return 'Vowel'
+  if (normalized === 'consonant') return 'Consonant'
+  if (['final', 'final-sound', 'final_sounds', 'avslutningslyder', 'ayogavaha'].includes(normalized)) {
+    return 'Final sound'
+  }
+  return 'Letter'
+}
+
+const getCategoryDescription = (letter) => {
+  const label = getCategoryLabel(letter?.category)
+  if (label === 'Vowel') {
+    return `This is a vowel (${letter.devanagari}) in Sanskrit.`
+  }
+  if (label === 'Consonant') {
+    return `This is a consonant (${letter.devanagari}) in Sanskrit.`
+  }
+  if (label === 'Final sound') {
+    return `This is a final sound (${letter.devanagari}) used as an ending in Sanskrit.`
+  }
+  return `This is a Sanskrit letter (${letter?.devanagari || ''}).`
+}
 
 const buildSlug = (value) => {
   if (!value) return ''

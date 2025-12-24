@@ -35,6 +35,31 @@
         </div>
       </section>
 
+      <section v-if="finalSounds.length" class="sanskrit-overview__section">
+        <div class="sanskrit-overview__section-header">
+          <h3>Final sounds</h3>
+          <span class="sanskrit-overview__count">{{ finalSounds.length }}</span>
+        </div>
+        <div class="sanskrit-overview__grid">
+          <div
+            v-for="letter in finalSounds"
+            :key="letter.id"
+            class="sanskrit-overview__card"
+            :class="{ 'sanskrit-overview__card--has-audio': hasAudio(letter) }"
+            role="button"
+            tabindex="0"
+            @click="playLetter(letter)"
+            @keydown.enter.prevent="playLetter(letter)"
+          >
+            <div class="sanskrit-overview__devanagari">{{ letter.devanagari }}</div>
+            <div class="sanskrit-overview__romanization">{{ letter.romanization }}</div>
+            <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
+            <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
+          </div>
+        </div>
+      </section>
+
       <section class="sanskrit-overview__section">
         <div class="sanskrit-overview__section-header">
           <h3>Consonants</h3>
@@ -82,8 +107,16 @@ export default {
     const sortById = (letters) =>
       [...letters].sort((a, b) => Number(a.id) - Number(b.id));
 
+    const isFinalCategory = (category) =>
+      ['final', 'final-sound', 'final_sounds', 'avslutningslyder', 'ayogavaha'].includes(
+        String(category || '').toLowerCase(),
+      );
+
     const vowels = computed(() =>
       sortById(store.sanskritLetters.filter((l) => l.category === 'vowel')),
+    );
+    const finalSounds = computed(() =>
+      sortById(store.sanskritLetters.filter((l) => isFinalCategory(l.category))),
     );
     const consonants = computed(() =>
       sortById(store.sanskritLetters.filter((l) => l.category === 'consonant')),
@@ -188,6 +221,7 @@ export default {
     return {
       loading,
       vowels,
+      finalSounds,
       consonants,
       playbackError,
       hasAudio,
