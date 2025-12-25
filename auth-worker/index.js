@@ -29,11 +29,21 @@ const parseCookies = (cookieHeader) => {
   )
 }
 
-const clearCookie = (name) => `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
+const clearCookie = (name, opts = {}) => {
+  const parts = [`${name}=`]
+  parts.push(`Path=${opts.path || '/'}`)
+  if (opts.domain) parts.push(`Domain=${opts.domain}`)
+  parts.push('HttpOnly')
+  parts.push('Secure')
+  parts.push(`SameSite=${opts.sameSite || 'Lax'}`)
+  parts.push('Max-Age=0')
+  return parts.join('; ')
+}
 
 const setCookie = (name, value, opts = {}) => {
   const parts = [`${name}=${value}`]
   parts.push(`Path=${opts.path || '/'}`)
+  if (opts.domain) parts.push(`Domain=${opts.domain}`)
   if (opts.maxAge !== undefined) parts.push(`Max-Age=${opts.maxAge}`)
   if (opts.httpOnly !== false) parts.push('HttpOnly')
   if (opts.secure !== false) parts.push('Secure')
@@ -85,6 +95,7 @@ export default {
       if (verified.tokens?.access) {
         headers['Set-Cookie'] = setCookie('oa_access', verified.tokens.access, {
           maxAge: verified.tokens.expiresIn || 3600,
+          domain: '.vegvisr.org',
         })
       }
 
@@ -304,11 +315,13 @@ export default {
       const headers = new Headers({ ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' })
       const accessCookie = setCookie('oa_access', exchanged.tokens.access, {
         maxAge: exchanged.tokens.expiresIn || 3600,
+        domain: '.vegvisr.org',
       })
       const refreshCookie = exchanged.tokens.refresh
         ? setCookie('oa_refresh', exchanged.tokens.refresh, {
-            maxAge: 60 * 60 * 24 * 30,
-          })
+          maxAge: 60 * 60 * 24 * 30,
+          domain: '.vegvisr.org',
+        })
         : null
       headers.append('Set-Cookie', clearCookie('oa_verifier'))
       headers.append('Set-Cookie', accessCookie)

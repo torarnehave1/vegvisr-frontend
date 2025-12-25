@@ -23,6 +23,21 @@ export const useUserStore = defineStore('user', {
     logoutUrl: 'https://auth.vegvisr.org/auth/openauth/logout',
   }),
   actions: {
+    setAuthCookie(token) {
+      if (typeof document === 'undefined' || !token) return
+      const isVegvisr = window.location.hostname.endsWith('vegvisr.org')
+      const domain = isVegvisr ? '; Domain=.vegvisr.org' : ''
+      const maxAge = 60 * 60 * 24 * 30
+      document.cookie = `vegvisr_token=${encodeURIComponent(
+        token,
+      )}; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure${domain}`
+    },
+    clearAuthCookie() {
+      if (typeof document === 'undefined') return
+      const isVegvisr = window.location.hostname.endsWith('vegvisr.org')
+      const domain = isVegvisr ? '; Domain=.vegvisr.org' : ''
+      document.cookie = `vegvisr_token=; Path=/; Max-Age=0; SameSite=Lax; Secure${domain}`
+    },
     setUser(user) {
       console.log('🔧 setUser called with:', user)
 
@@ -39,6 +54,9 @@ export const useUserStore = defineStore('user', {
       this.mystmkraUserId = user.mystmkraUserId || null
       this.branding = user.branding || { mySite: null, myLogo: null }
       this.loggedIn = true
+      if (user.emailVerificationToken) {
+        this.setAuthCookie(user.emailVerificationToken)
+      }
 
       const userData = {
         email: user.email,
@@ -90,6 +108,7 @@ export const useUserStore = defineStore('user', {
     },
     setEmailVerificationToken(token) {
       this.emailVerificationToken = token
+      this.setAuthCookie(token)
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
       storedUser.emailVerificationToken = token
       localStorage.setItem('user', JSON.stringify(storedUser))
@@ -115,6 +134,7 @@ export const useUserStore = defineStore('user', {
       this.googlePhotosCredentials = null
       localStorage.removeItem('user')
         sessionStorage.removeItem('phone_session_verified')
+      this.clearAuthCookie()
 
       // Clear all password verification sessions for security
       this.clearPasswordSessions()
@@ -294,6 +314,9 @@ export const useUserStore = defineStore('user', {
         this.mystmkraUserId = storedUser.mystmkraUserId || null
         this.branding = storedUser.branding || { mySite: null, myLogo: null }
         this.loggedIn = true
+        if (this.emailVerificationToken) {
+          this.setAuthCookie(this.emailVerificationToken)
+        }
 
         console.log('✅ Loaded user from storage:', this.email, 'ID:', this.user_id)
         console.log('🔍 Store state after loading:', {

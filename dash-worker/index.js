@@ -7,11 +7,53 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
     }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders })
+    }
+
+    if (pathname === '/auth/validate-token' && request.method === 'GET') {
+      try {
+        const authHeader = request.headers.get('Authorization') || ''
+        const bearerToken = authHeader.startsWith('Bearer ')
+          ? authHeader.slice(7)
+          : null
+        const apiToken = request.headers.get('X-API-Token')
+        const token = bearerToken || apiToken
+
+        if (!token) {
+          return new Response(JSON.stringify({ valid: false, error: 'Missing token' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const db = env.vegvisr_org
+        const user = await db
+          .prepare('SELECT email, Role FROM config WHERE emailVerificationToken = ?')
+          .bind(token)
+          .first()
+
+        if (!user) {
+          return new Response(JSON.stringify({ valid: false, error: 'Invalid token' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        return new Response(JSON.stringify({ valid: true, email: user.email, role: user.Role }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error in GET /auth/validate-token:', error)
+        return new Response(JSON.stringify({ valid: false, error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     // Helper: load/derive crypto key for app password encryption
