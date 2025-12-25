@@ -1,22 +1,8 @@
-import { createClient as createOpenAuthClient } from '@openauthjs/openauth/client'
-import { createSubjects } from '@openauthjs/openauth/subject'
-import { object, string } from 'valibot'
-
 // CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
-
-const buildOpenAuthClient = (env) => {
-  const subjects = createSubjects({ user: object({ id: string() }) })
-  const client = createOpenAuthClient({
-    issuer: env.OPENAUTH_ISSUER || 'https://openauth-template.torarnehave.workers.dev',
-    subjects,
-    clientID: env.OPENAUTH_CLIENT_ID || 'vegvisr-app-auth',
-  })
-  return { client, subjects }
 }
 
 const parseCookies = (cookieHeader) => {
@@ -74,36 +60,6 @@ export default {
           'Access-Control-Max-Age': '86400',
         },
       })
-    }
-
-    if (url.pathname === '/auth/openauth/session') {
-      const { client, subjects } = buildOpenAuthClient(env)
-      const cookies = parseCookies(request.headers.get('Cookie') || '')
-      const access = cookies.oa_access
-      const refresh = cookies.oa_refresh
-
-      if (!access || !refresh) {
-        return createResponse(JSON.stringify({ success: false, error: 'No session' }), 401)
-      }
-
-      const verified = await client.verify(subjects, access, { refresh })
-      if (verified.err) {
-        return createResponse(JSON.stringify({ success: false, error: 'Invalid session' }), 401)
-      }
-
-      const headers = { ...corsHeaders }
-      if (verified.tokens?.access) {
-        headers['Set-Cookie'] = setCookie('oa_access', verified.tokens.access, {
-          maxAge: verified.tokens.expiresIn || 3600,
-          domain: '.vegvisr.org',
-        })
-      }
-
-      return createResponse(
-        JSON.stringify({ success: true, subject: verified.subject?.properties || {} }),
-        200,
-        headers,
-      )
     }
 
     // 1. Login endpoint: /auth/google/login
@@ -230,112 +186,6 @@ export default {
       }
     }
 
-    // OpenAuth-protected endpoint and callback
-    if (url.pathname === '/auth/openauth/login') {
-      return new Response(
-        `<!doctype html><html><head><title>Vegvisr Login</title></head><body style="font-family: sans-serif; padding: 32px;">
-          <h2>Vegvisr Login</h2>
-          <p>Continue to sign in with Vegvisr.</p>
-          <a href="/auth/openauth/protected" style="display:inline-block;padding:10px 16px;background:#0f62fe;color:#fff;text-decoration:none;border-radius:6px;">Continue</a>
-        </body></html>`,
-        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders } },
-      )
-    }
-
-    if (url.pathname === '/auth/openauth/protected') {
-      const { client } = buildOpenAuthClient(env)
-      const [verifier, redirectUrl] = await client.pkce('https://auth.vegvisr.org/callback')
-
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: redirectUrl,
-          'Set-Cookie': `oa_verifier=${verifier}; Path=/; HttpOnly; Secure; SameSite=Lax`,
-        },
-      })
-    }
-
-    if (url.pathname === '/callback') {
-      const { client, subjects } = buildOpenAuthClient(env)
-      const code = url.searchParams.get('code')
-      const cookies = parseCookies(request.headers.get('Cookie') || '')
-      const verifier = cookies.oa_verifier
-
-      if (!code || !verifier) {
-        return new Response('Missing code or verifier', { status: 400, headers: corsHeaders })
-      }
-
-      const exchanged = await client.exchange(
-        code,
-        'https://auth.vegvisr.org/callback',
-        verifier,
-      )
-      if (exchanged.err) {
-        return new Response('Authorization code invalid', { status: 401, headers: corsHeaders })
-      }
-
-      const verified = await client.verify(subjects, exchanged.tokens.access, {
-        refresh: exchanged.tokens.refresh,
-      })
-
-      if (verified.err) {
-        return new Response('Access token invalid', { status: 401, headers: corsHeaders })
-      }
-
-      const subject = verified.subject?.properties || {}
-
-      // Persist oauth_id in config without disturbing existing user_id/data
-      if (subject.id) {
-        try {
-          const existing = await env.VEGVISR_DB.prepare(
-            'SELECT email FROM config WHERE email = ?1',
-          )
-            .bind(subject.email || '')
-            .first()
-
-          if (existing) {
-            await env.VEGVISR_DB.prepare(
-              'UPDATE config SET oauth_id = ?1 WHERE email = ?2',
-            )
-              .bind(subject.id, subject.email || '')
-              .run()
-          } else {
-            await env.VEGVISR_DB.prepare(
-              "INSERT INTO config (email, oauth_id, data) VALUES (?1, ?2, '{}')",
-            )
-              .bind(subject.email || '', subject.id)
-              .run()
-          }
-        } catch (err) {
-          console.error('Failed to sync oauth_id to config', err)
-          // Continue without blocking login
-        }
-      }
-
-      const headers = new Headers({ ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' })
-      const accessCookie = setCookie('oa_access', exchanged.tokens.access, {
-        maxAge: exchanged.tokens.expiresIn || 3600,
-        domain: '.vegvisr.org',
-      })
-      const refreshCookie = exchanged.tokens.refresh
-        ? setCookie('oa_refresh', exchanged.tokens.refresh, {
-          maxAge: 60 * 60 * 24 * 30,
-          domain: '.vegvisr.org',
-        })
-        : null
-      headers.append('Set-Cookie', clearCookie('oa_verifier'))
-      headers.append('Set-Cookie', accessCookie)
-      if (refreshCookie) headers.append('Set-Cookie', refreshCookie)
-
-      const body = `<!doctype html><html><head><title>Vegvisr Auth</title></head><body style="font-family: sans-serif; padding: 32px;">
-        <h2>Signed in</h2>
-        <p>You are signed in as <strong>${subject.id || 'user'}</strong>.</p>
-        <p>You can close this tab or return to the app.</p>
-      </body></html>`
-
-      return new Response(body, { status: 200, headers })
-    }
-
     // 4. Health check or fallback
     if (url.pathname === '/' || url.pathname === '/health') {
       return new Response('Auth worker running', {
@@ -344,24 +194,7 @@ export default {
       })
     }
 
-    // 5. Google Picker initialization endpoint
-    if (url.pathname === '/picker/init' && request.method === 'GET') {
-      try {
-        // Return configuration for Google Picker (without exposing API key directly)
-        return createResponse(
-          JSON.stringify({
-            success: true,
-            client_id: clientId,
-            auth_url: `https://auth.vegvisr.org/picker/auth`,
-            scope: 'email https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
-          }),
-        )
-      } catch (error) {
-        return createResponse(JSON.stringify({ error: error.message }), 500)
-      }
-    }
-
-    // 6. Google Picker OAuth flow
+    // 5. Google Picker OAuth flow
     if (url.pathname === '/picker/auth' && request.method === 'GET') {
       const params = new URLSearchParams({
         client_id: clientId,
@@ -377,7 +210,7 @@ export default {
       )
     }
 
-    // 7. Google Picker OAuth callback
+    // 6. Google Picker OAuth callback
     if (url.pathname === '/picker/callback' && request.method === 'GET') {
       const code = url.searchParams.get('code')
       const error = url.searchParams.get('error')
@@ -465,7 +298,7 @@ export default {
       }
     }
 
-    // 8. Store Google Picker credentials in KV
+    // 7. Store Google Picker credentials in KV
     if (url.pathname === '/picker/store-credentials' && request.method === 'POST') {
       try {
         const { access_token, user_email } = await request.json()
@@ -499,7 +332,7 @@ export default {
       }
     }
 
-    // 9. Get Google Picker credentials from KV
+    // 8. Get Google Picker credentials from KV
     if (url.pathname === '/picker/get-credentials' && request.method === 'POST') {
       try {
         const { user_email } = await request.json()
@@ -550,7 +383,7 @@ export default {
       }
     }
 
-    // 10. Delete Google Picker credentials from KV
+    // 9. Delete Google Picker credentials from KV
     if (url.pathname === '/picker/delete-credentials' && request.method === 'POST') {
       try {
         const { user_email } = await request.json()
@@ -573,30 +406,7 @@ export default {
       }
     }
 
-    // 11. Legacy endpoint for backward compatibility
-    if (url.pathname === '/picker/credentials' && request.method === 'POST') {
-      try {
-        const { access_token } = await request.json()
-
-        if (!access_token) {
-          return createResponse(JSON.stringify({ error: 'Access token required' }), 400)
-        }
-
-        // Return both API key and validated token for picker
-        return createResponse(
-          JSON.stringify({
-            success: true,
-            api_key: env.GOOGLE_API_KEY,
-            access_token: access_token,
-            client_id: clientId,
-          }),
-        )
-      } catch (error) {
-        return createResponse(JSON.stringify({ error: error.message }), 500)
-      }
-    }
-
-    // 12. Proxy Google Photos images with authentication
+    // 10. Proxy Google Photos images with authentication
     if (url.pathname === '/picker/proxy-image' && request.method === 'POST') {
       try {
         const { baseUrl, user_email } = await request.json()
@@ -658,14 +468,7 @@ export default {
       const returnUrl = url.searchParams.get('return_url') || 'https://www.vegvisr.org/'
       const state = btoa(JSON.stringify({ returnUrl, personalOnly }))
 
-      // Set scopes based on request - temporarily disable organization scope
-      // TODO: Re-enable when LinkedIn app is approved for w_organization_social
       const scopes = 'openid profile email w_member_social'
-
-      // Note: w_organization_social scope disabled until app is approved by LinkedIn
-      // const scopes = personalOnly
-      //   ? 'openid profile email w_member_social'
-      //   : 'openid profile email w_member_social w_organization_social'
 
       const params = new URLSearchParams({
         response_type: 'code',
@@ -756,21 +559,7 @@ export default {
           throw new Error(profile.error_description || profile.error)
         }
 
-        // Fetch user's organizations (disabled until scope is approved)
-        // TODO: Re-enable when w_organization_social scope is approved
         let organizations = []
-        // if (!personalOnly) {
-        //   const orgsRes = await fetch('https://api.linkedin.com/v2/organizationAcls?q=roleAssignee', {
-        //     headers: {
-        //       'Authorization': `Bearer ${tokenData.access_token}`,
-        //     },
-        //   })
-
-        //   if (orgsRes.ok) {
-        //     const orgsData = await orgsRes.json()
-        //     organizations = orgsData.elements || []
-        //   }
-        // }
 
         // Store LinkedIn credentials with organizations
         const credentials = {
