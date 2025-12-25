@@ -14,6 +14,20 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders })
     }
 
+    if (pathname === '/' || pathname === '/health') {
+      return new Response(JSON.stringify({ ok: true, service: 'vegvisr-dash-worker' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (pathname === '/version') {
+      return new Response(JSON.stringify({ version: '1.0.0' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     if (pathname === '/auth/validate-token' && request.method === 'GET') {
       try {
         const authHeader = request.headers.get('Authorization') || ''

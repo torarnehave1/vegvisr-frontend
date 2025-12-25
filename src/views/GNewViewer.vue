@@ -374,6 +374,17 @@
             Graph Operations
           </button>
 
+          <!-- Web Content Extractor (Admin/Superadmin only) -->
+          <button
+            v-if="userStore.loggedIn && (userStore.role === 'Superadmin' || userStore.role === 'Admin')"
+            @click="openWebContentExtractor"
+            class="btn btn-outline-dark btn-sm"
+            title="Open Web Content Extractor"
+          >
+            <i class="bi bi-box-arrow-up-right"></i>
+            Web Content Extractor
+          </button>
+
           <!-- Fullscreen Toggle -->
           <button
             @click="toggleFullscreen"
@@ -4382,6 +4393,10 @@ const printGraph = () => {
     console.error('Error printing graph:', error)
     alert('Sorry, there was an error while trying to print the graph.')
   }
+}
+
+const openWebContentExtractor = () => {
+  window.open('https://wcx.vegvisr.org', '_blank', 'noopener')
 }
 
 // Navigate to SEO Admin page with current graph context
