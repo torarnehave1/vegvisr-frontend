@@ -146,10 +146,9 @@ const getCategoryDescription = (letter) => {
 }
 
 const buildSlug = (value) => {
-  if (!value) return ''
-  const ascii = value
+  return String(value || '')
     .toLowerCase()
-    .normalize('NFKD')
+    .trim()
     .replace(/ā/g, 'aa')
     .replace(/ī/g, 'ii')
     .replace(/ū/g, 'uu')
@@ -162,13 +161,12 @@ const buildSlug = (value) => {
     .replace(/ṭ/g, 't')
     .replace(/ḍ/g, 'd')
     .replace(/ṇ/g, 'n')
-    .replace(/ś/g, 'sh')
-    .replace(/ṣ/g, 'sh')
+    .replace(/[śṣ]/g, 'sh')
     .replace(/ṃ/g, 'm')
     .replace(/ḥ/g, 'h')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-  return ascii
+    .replace(/-+/g, '-')
 }
 
 const handleFileChange = (event) => {

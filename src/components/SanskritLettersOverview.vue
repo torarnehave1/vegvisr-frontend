@@ -189,6 +189,22 @@ export default {
 
     const getTags = (recording) => recording?.metadata?.tags || recording?.tags || [];
 
+    const matchesLetter = (letter, recording) => {
+      const meta = recording?.metadata || {};
+      if (meta.letter_id != null) {
+        return String(meta.letter_id) === String(letter.id);
+      }
+
+      const romanization = meta.letter_romanization || meta.romanization;
+      if (romanization) {
+        return buildSlug(romanization) === buildSlug(letter.romanization || letter.id);
+      }
+
+      const tags = getTags(recording);
+      const slug = buildSlug(letter.romanization || letter.id);
+      return tags.includes(slug);
+    };
+
     const audioMap = computed(() => {
       const map = {};
       const letters = store.sanskritLetters || [];
@@ -196,7 +212,7 @@ export default {
 
       letters.forEach((letter) => {
         const slug = buildSlug(letter.romanization || letter.id);
-        const matches = recordings.value.filter((recording) => getTags(recording).includes(slug));
+        const matches = recordings.value.filter((recording) => matchesLetter(letter, recording));
         if (!matches.length) return;
         const shortMatch = matches.find((recording) => getTags(recording).includes('short'));
         map[slug] = shortMatch || matches[0];

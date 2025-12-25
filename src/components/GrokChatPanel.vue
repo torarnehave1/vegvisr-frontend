@@ -1671,11 +1671,6 @@ async function executeTemplateTool(toolName, args) {
  * @returns {Promise<{message: string, usedProffAPI: boolean, proffData: object, sourcesData: object}>} - The final AI message and tool usage info
  */
 async function processToolCalls(data, grokMessages, endpoint, requestBody) {
-  const toolCalls = data.choices?.[0]?.message?.tool_calls || []
-  if (!toolCalls.length) return { message: null, usedProffAPI: false, usedSourcesAPI: false, proffData: null, sourcesData: null }
-
-  console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
-
   const safeParseToolArgs = (rawArgs) => {
     if (!rawArgs) return {}
     if (typeof rawArgs === 'object') return rawArgs
@@ -1686,84 +1681,96 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
     }
   }
 
-  // Track which APIs were used
-  const usedProffAPI = toolCalls.some(t => t.function.name.startsWith('proff_'))
-  const usedSourcesAPI = toolCalls.some(t => t.function.name.startsWith('sources_'))
-
-  // Collect raw data from tool results
+  let currentData = data
+  let currentMessages = [...grokMessages]
+  let usedProffAPI = false
+  let usedSourcesAPI = false
   let proffData = null
   let sourcesData = null
+  let iterations = 0
+  const maxIterations = 5
 
-  // Execute all tool calls
-  const toolResults = []
-  for (const toolCall of toolCalls) {
-    const { name, arguments: argsStr } = toolCall.function
-    const args = safeParseToolArgs(argsStr)
+  while (iterations < maxIterations) {
+    const toolCalls = currentData.choices?.[0]?.message?.tool_calls || []
+    if (!toolCalls.length) break
 
-    console.log(`Executing tool: ${name}`, args)
+    iterations += 1
+    console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
 
-    // Route to appropriate executor
-    let result
-    if (name.startsWith('graph_template_')) {
-      result = await executeTemplateTool(name, args)
-    } else if (name.startsWith('sources_')) {
-      result = await executeSourcesTool(name, args)
-      // Store sources data for later use
-      if (!sourcesData) sourcesData = {}
-      sourcesData[name] = result
-      if (result.results) sourcesData.results = result.results
-    } else {
-      result = await executeProffTool(name, args)
-      // Store proff data for later use
-      if (!proffData) proffData = {}
-      proffData[name] = result
-      // Extract key data for easy access
-      if (result.person) proffData.person = result.person
-      if (result.persons) proffData.persons = result.persons
-      if (result.company) proffData.company = result.company
-      if (result.companies) proffData.companies = result.companies
-      if (result.paths) proffData.paths = result.paths
-      if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
+    if (toolCalls.some(t => t.function.name.startsWith('proff_'))) usedProffAPI = true
+    if (toolCalls.some(t => t.function.name.startsWith('sources_'))) usedSourcesAPI = true
+
+    const toolResults = []
+    for (const toolCall of toolCalls) {
+      const { name, arguments: argsStr } = toolCall.function
+      const args = safeParseToolArgs(argsStr)
+
+      console.log(`Executing tool: ${name}`, args)
+
+      let result
+      if (name.startsWith('graph_template_')) {
+        result = await executeTemplateTool(name, args)
+      } else if (name.startsWith('sources_')) {
+        result = await executeSourcesTool(name, args)
+        if (!sourcesData) sourcesData = {}
+        sourcesData[name] = result
+        if (result.results) sourcesData.results = result.results
+      } else {
+        result = await executeProffTool(name, args)
+        if (!proffData) proffData = {}
+        proffData[name] = result
+        if (result.person) proffData.person = result.person
+        if (result.persons) proffData.persons = result.persons
+        if (result.company) proffData.company = result.company
+        if (result.companies) proffData.companies = result.companies
+        if (result.paths) proffData.paths = result.paths
+        if (result.degreesOfSeparation !== undefined) proffData.degreesOfSeparation = result.degreesOfSeparation
+      }
+
+      toolResults.push({
+        tool_call_id: toolCall.id,
+        role: 'tool',
+        name: name,
+        content: JSON.stringify(result, null, 2)
+      })
     }
 
-    toolResults.push({
-      tool_call_id: toolCall.id,
-      role: 'tool',
-      name: name,
-      content: JSON.stringify(result, null, 2)
+    currentMessages = [
+      ...currentMessages,
+      currentData.choices[0].message,
+      ...toolResults
+    ]
+
+    const nextBody = {
+      ...requestBody,
+      messages: currentMessages
+    }
+
+    const nextResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nextBody)
     })
+
+    if (!nextResponse.ok) {
+      throw new Error(`Follow-up API error: ${nextResponse.status}`)
+    }
+
+    currentData = await nextResponse.json()
   }
 
-  // Build new messages with assistant's tool call and tool results
-  const newMessages = [
-    ...grokMessages,
-    data.choices[0].message, // Assistant message with tool_calls
-    ...toolResults
-  ]
-
-  // Make follow-up request without tools (to get final response)
-  const followUpBody = {
-    ...requestBody,
-    messages: newMessages,
-    tools: undefined, // Remove tools for final response
-    tool_choice: undefined
-  }
-  delete followUpBody.tools
-  delete followUpBody.tool_choice
-
-  const followUpResponse = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(followUpBody)
-  })
-
-  if (!followUpResponse.ok) {
-    throw new Error(`Follow-up API error: ${followUpResponse.status}`)
+  if (iterations >= maxIterations) {
+    return {
+      message: 'Tool chain reached maximum iterations. Please try a simpler question.',
+      usedProffAPI,
+      usedSourcesAPI,
+      proffData,
+      sourcesData
+    }
   }
 
-  const followUpData = await followUpResponse.json()
   return {
-    message: followUpData.choices?.[0]?.message?.content,
+    message: currentData.choices?.[0]?.message?.content,
     usedProffAPI,
     usedSourcesAPI,
     proffData,
