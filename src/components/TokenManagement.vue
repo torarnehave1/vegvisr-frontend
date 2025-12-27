@@ -24,15 +24,6 @@
         </div>
 
         <div class="token-details">
-          <div class="detail-item">
-            <span class="label">Scopes:</span>
-            <div class="scopes">
-              <span v-for="scope in token.scopes" :key="scope" class="scope-badge">
-                {{ scope }}
-              </span>
-            </div>
-          </div>
-
           <div class="detail-row">
             <div class="detail-item">
               <span class="label">Rate Limit:</span>
@@ -103,23 +94,6 @@
                 class="form-input"
                 @keyup.enter="createToken"
               />
-            </div>
-
-            <div class="form-group">
-              <label>Scopes (select at least one)</label>
-              <div class="scopes-grid">
-                <label v-for="scope in availableScopes" :key="scope.name" class="scope-checkbox">
-                  <input
-                    type="checkbox"
-                    :value="scope.name"
-                    v-model="newToken.scopes"
-                  />
-                  <span class="scope-label">
-                    <strong>{{ scope.name }}</strong>
-                    <small>{{ scope.description }}</small>
-                  </span>
-                </label>
-              </div>
             </div>
 
             <div class="form-group">
@@ -272,27 +246,13 @@ const tokenCopied = ref(false)
 
 const newToken = ref({
   name: '',
-  scopes: [],
+  scopes: ['ai:chat'],
   rateLimit: 1000,
   expiresIn: null
 })
 
-const availableScopes = ref([
-  { name: 'ai:chat', description: 'Access AI chat endpoints' },
-  { name: 'graph:read', description: 'Read knowledge graphs' },
-  { name: 'graph:write', description: 'Create and update graphs' },
-  { name: 'graph:delete', description: 'Delete knowledge graphs' },
-  { name: 'node:read', description: 'Read graph nodes' },
-  { name: 'node:write', description: 'Create and update nodes' },
-  { name: 'node:delete', description: 'Delete graph nodes' },
-  { name: 'template:read', description: 'Read templates' },
-  { name: 'template:write', description: 'Create templates' },
-  { name: 'user:read', description: 'Read user profile' },
-  { name: 'analytics:read', description: 'View analytics data' }
-])
-
 const canCreateToken = computed(() => {
-  return newToken.value.name.trim() && newToken.value.scopes.length > 0
+  return newToken.value.name.trim().length > 0
 })
 
 const formatDate = (dateString) => {
@@ -374,7 +334,7 @@ const closeCreateModal = () => {
   showCreateModal.value = false
   newToken.value = {
     name: '',
-    scopes: [],
+    scopes: ['ai:chat'],
     rateLimit: 1000,
     expiresIn: null
   }
