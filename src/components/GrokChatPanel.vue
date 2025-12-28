@@ -944,7 +944,7 @@
   </div>
 
   <!-- Batch Fulltext Generation Modal -->
-  <div v-if="showBatchGenerateModal" class="modal-overlay" @click.self="closeBatchGenerateModal">
+  <div v-if="showBatchGenerateModal" class="modal-overlay">
     <div class="batch-generate-modal">
       <div class="modal-header">
         <h3>📦 Batch Fulltext Generation</h3>
@@ -953,7 +953,7 @@
 
       <div class="modal-body">
         <!-- Setup Phase: Select template and data source -->
-        <div v-if="!batchCurrentPreview">
+        <div v-if="!batchCurrentPreview && !batchGenerating">
           <!-- Step 1: Template Selection -->
           <div class="batch-step">
             <h4>1. Velg mal-node</h4>
@@ -1002,8 +1002,8 @@
           </div>
         </div>
 
-        <!-- Preview Phase: Show generated content for approval -->
-        <div v-if="batchCurrentPreview" class="batch-preview-phase">
+        <!-- Preview Phase: Show generated content for editing/approval -->
+        <div v-if="batchCurrentPreview && !batchGenerating" class="batch-preview-phase">
           <div class="batch-preview-header">
             <span class="batch-preview-counter">
               {{ batchCurrentIndex + 1 }} / {{ parsedBatchItems.length }}
@@ -1014,12 +1014,29 @@
             </span>
           </div>
 
-          <div class="batch-preview-label">
-            <strong>Label:</strong> {{ batchCurrentPreview.label }}
+          <div class="batch-edit-field">
+            <label><strong>Label:</strong></label>
+            <input
+              type="text"
+              v-model="batchCurrentPreview.label"
+              class="form-control"
+            />
           </div>
 
-          <div class="batch-preview-content">
-            <div v-html="renderMarkdown(batchCurrentPreview.info)"></div>
+          <div class="batch-edit-field">
+            <label><strong>Innhold:</strong> <span class="edit-hint">(Du kan redigere før godkjenning)</span></label>
+            <textarea
+              v-model="batchCurrentPreview.info"
+              class="form-control batch-content-editor"
+              rows="15"
+            ></textarea>
+          </div>
+
+          <div class="batch-preview-rendered">
+            <label><strong>Forhåndsvisning:</strong></label>
+            <div class="batch-preview-content">
+              <div v-html="renderMarkdown(batchCurrentPreview.info)"></div>
+            </div>
           </div>
         </div>
 
@@ -3295,11 +3312,16 @@ async function generateNextItem() {
 
     if (batchAborting.value) return
 
-    // Clean up the response
+    // Clean up the response - remove common AI prefixes
     let info = generatedContent.trim()
-    info = info.replace(/^Innhold:\s*/i, '')
-    info = info.replace(/^Content:\s*/i, '')
-    info = info.replace(/^Label:\s*[^\n]*\n/i, '')
+    // Remove various label/content prefixes (case insensitive, with optional colon)
+    info = info.replace(/^(Innhold|Content|Label|Etikett)\s*:?\s*/i, '')
+    // Remove if it starts with the item name as a label
+    info = info.replace(/^Lyden\s+[«"']?\w+[»"']?\s*[-–—]\s*\S+\s*\n/i, '')
+    // Remove "Label: something" on its own line at the start
+    info = info.replace(/^Label\s*:\s*[^\n]*\n/gi, '')
+    // Remove any remaining "Innhold:" anywhere at the start of a line
+    info = info.replace(/^\s*Innhold\s*:\s*/gim, '')
 
     // Create preview object
     batchCurrentPreview.value = {
@@ -7686,12 +7708,45 @@ watch(
 }
 
 .batch-preview-content {
-  max-height: 400px;
+  max-height: 250px;
   overflow-y: auto;
   padding: 1rem;
   background: #fafafa;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+}
+
+.batch-edit-field {
+  margin-bottom: 1rem;
+}
+
+.batch-edit-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.batch-edit-field .edit-hint {
+  font-weight: normal;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.batch-content-editor {
+  font-family: monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.batch-preview-rendered {
+  margin-top: 1rem;
+}
+
+.batch-preview-rendered label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
 }
 
 .batch-generating {
