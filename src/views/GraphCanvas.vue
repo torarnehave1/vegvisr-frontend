@@ -2023,49 +2023,64 @@ const openGridLayoutDialog = () => {
   showGridDialog.value = true
 }
 
-// Apply grid layout with current settings
+// Apply grid layout with current settings - preserves spatial order
 const applyGridLayout = () => {
   if (!cyInstance.value) return
 
   const selectedNodes = cyInstance.value.$('node:selected')
   if (selectedNodes.length < 2) return
 
+  const spacing = gridSettings.value.spacing || 150
+  const cols = gridSettings.value.cols || Math.ceil(Math.sqrt(selectedNodes.length))
+  const rows = gridSettings.value.rows || Math.ceil(selectedNodes.length / cols)
+
   // Get the bounding box of selected nodes to position grid in same area
   const boundingBox = selectedNodes.boundingBox()
-  const centerX = (boundingBox.x1 + boundingBox.x2) / 2
-  const centerY = (boundingBox.y1 + boundingBox.y2) / 2
+  const startX = boundingBox.x1
+  const startY = boundingBox.y1
 
-  const cols = gridSettings.value.cols || undefined
-  const rows = gridSettings.value.rows || undefined
-  const spacing = gridSettings.value.spacing || 150
+  // Convert to array and sort by position (top-to-bottom, left-to-right)
+  // This preserves the visual arrangement of nodes
+  const nodesArray = selectedNodes.toArray()
 
-  // Calculate bounding box size based on spacing and grid dimensions
-  const effectiveCols = cols || Math.ceil(Math.sqrt(selectedNodes.length))
-  const effectiveRows = rows || Math.ceil(selectedNodes.length / effectiveCols)
-  const boxWidth = effectiveCols * spacing
-  const boxHeight = effectiveRows * spacing
+  // Sort nodes: first by approximate row (Y position), then by X position within row
+  // Use row height based on bounding box to determine row grouping
+  const rowHeight = (boundingBox.y2 - boundingBox.y1) / Math.max(1, rows)
 
-  // Run grid layout only on selected nodes
-  selectedNodes.layout({
-    name: 'grid',
-    fit: false,
-    boundingBox: {
-      x1: centerX - boxWidth / 2,
-      y1: centerY - boxHeight / 2,
-      x2: centerX + boxWidth / 2,
-      y2: centerY + boxHeight / 2
-    },
-    avoidOverlap: true,
-    avoidOverlapPadding: 10,
-    condense: false,
-    rows: rows,
-    cols: cols,
-    animate: true,
-    animationDuration: 300
-  }).run()
+  nodesArray.sort((a, b) => {
+    const posA = a.position()
+    const posB = b.position()
+
+    // Determine which row each node is in based on Y position
+    const rowA = Math.floor((posA.y - boundingBox.y1) / rowHeight)
+    const rowB = Math.floor((posB.y - boundingBox.y1) / rowHeight)
+
+    // First sort by row (top to bottom)
+    if (rowA !== rowB) {
+      return rowA - rowB
+    }
+    // Within same row, sort by X (left to right)
+    return posA.x - posB.x
+  })
+
+  // Position each node in the grid
+  nodesArray.forEach((node, index) => {
+    const row = Math.floor(index / cols)
+    const col = index % cols
+
+    const newX = startX + col * spacing + spacing / 2
+    const newY = startY + row * spacing + spacing / 2
+
+    // Animate to new position
+    node.animate({
+      position: { x: newX, y: newY },
+      duration: 300,
+      easing: 'ease-in-out'
+    })
+  })
 
   showGridDialog.value = false
-  showStatus(`Arranged ${selectedNodes.length} nodes in ${effectiveRows}x${effectiveCols} grid`, 'success')
+  showStatus(`Arranged ${selectedNodes.length} nodes in ${rows}x${cols} grid`, 'success')
 }
 
 // View controls
