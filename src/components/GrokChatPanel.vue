@@ -378,6 +378,15 @@
               🕸️ Nettverk
             </button>
             <button
+              v-if="canBatchGenerate(message)"
+              class="btn btn-link btn-sm batch-btn"
+              type="button"
+              @click="openBatchGenerateModal()"
+              title="Generer flere fulltext-noder basert på en mal og datatabell"
+            >
+              📦 Batch Generate
+            </button>
+            <button
               v-if="hasPersonConnectionsData(message)"
               class="btn btn-link btn-sm case-study-btn"
               type="button"
@@ -933,6 +942,107 @@
       </div>
     </div>
   </div>
+
+  <!-- Batch Fulltext Generation Modal -->
+  <div v-if="showBatchGenerateModal" class="modal-overlay" @click.self="closeBatchGenerateModal">
+    <div class="batch-generate-modal">
+      <div class="modal-header">
+        <h3>📦 Batch Fulltext Generation</h3>
+        <button class="btn-close" @click="closeBatchGenerateModal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Step 1: Template Selection -->
+        <div class="batch-step">
+          <h4>1. Velg mal-node</h4>
+          <p class="help-text">Velg en node med formateringen du vil bruke som mal</p>
+          <select v-model="batchTemplateNodeId" class="form-control">
+            <option value="">-- Velg en node --</option>
+            <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
+              {{ node.label || node.id }}
+            </option>
+          </select>
+          <div v-if="selectedTemplatePreview" class="template-preview">
+            <strong>Forhåndsvisning:</strong>
+            <div v-html="renderMarkdown(selectedTemplatePreview)"></div>
+          </div>
+        </div>
+
+        <!-- Step 2: Data Source Selection -->
+        <div class="batch-step">
+          <h4>2. Velg datakilde-node</h4>
+          <p class="help-text">Velg en node som inneholder tabellen med elementer å generere</p>
+          <select v-model="batchDataSourceNodeId" class="form-control">
+            <option value="">-- Velg en node --</option>
+            <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
+              {{ node.label || node.id }}
+            </option>
+          </select>
+          <div v-if="parsedBatchItems.length > 0" class="parsed-info">
+            ✅ Fant {{ parsedBatchItems.length }} elementer i tabellen
+            <ul class="parsed-items-preview">
+              <li v-for="(item, idx) in parsedBatchItems.slice(0, 5)" :key="idx">
+                {{ item.primary }} {{ item.secondary ? `(${item.secondary})` : '' }}
+              </li>
+              <li v-if="parsedBatchItems.length > 5">
+                ... og {{ parsedBatchItems.length - 5 }} til
+              </li>
+            </ul>
+          </div>
+          <div v-else-if="batchDataSourceNodeId" class="no-table-warning">
+            ⚠️ Ingen tabell funnet i valgt node
+          </div>
+        </div>
+
+        <!-- Progress Panel -->
+        <div v-if="batchGenerationActive || batchProgressStage" class="batch-progress-panel">
+          <div class="batch-progress-header">
+            <span>{{ batchProgressStage }}</span>
+            <button
+              v-if="batchGenerationActive"
+              class="btn btn-sm btn-danger"
+              @click="abortBatchGeneration"
+              :disabled="batchAborting"
+            >
+              {{ batchAborting ? 'Avbryter...' : 'Avbryt' }}
+            </button>
+          </div>
+          <div v-if="batchGenerationActive" class="batch-progress-bar">
+            <div
+              class="batch-progress-fill"
+              :style="{ width: batchProgressPercent + '%' }"
+            ></div>
+          </div>
+          <div v-if="batchGenerationActive" class="batch-progress-text">
+            {{ batchProgressCurrent }} / {{ batchProgressTotal }} noder
+          </div>
+          <div v-if="batchErrors.length > 0" class="batch-errors">
+            <strong>Feil:</strong>
+            <ul>
+              <li v-for="(err, idx) in batchErrors" :key="idx">{{ err }}</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button
+          class="btn btn-secondary"
+          @click="closeBatchGenerateModal"
+          :disabled="batchGenerationActive"
+        >
+          Avbryt
+        </button>
+        <button
+          class="btn btn-primary"
+          @click="startBatchGeneration"
+          :disabled="!canStartBatch || batchGenerationActive"
+        >
+          🚀 Generer {{ parsedBatchItems.length || 0 }} noder
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -950,7 +1060,7 @@ import graphContextIcon from '@/assets/graph-context.svg'
 import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
 
-const emit = defineEmits(['insert-fulltext', 'insert-node', 'insert-network', 'insert-person-network', 'import-graph-as-cluster'])
+const emit = defineEmits(['insert-fulltext', 'insert-fulltext-batch', 'insert-node', 'insert-network', 'insert-person-network', 'import-graph-as-cluster'])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -987,6 +1097,41 @@ const isViewerContext = computed(() => props.parentContext === 'viewer')
 // Context-aware labels
 const contextLabel = computed(() => isCanvasContext.value ? 'Canvas' : 'Graph')
 const insertLabel = computed(() => isCanvasContext.value ? 'Insert as Node' : 'Insert as Full Text')
+
+// Batch Generation Computed Properties
+const fulltextNodes = computed(() => {
+  if (!props.graphData?.nodes) return []
+  return props.graphData.nodes.filter(n => n.type === 'fulltext')
+})
+
+const selectedTemplatePreview = computed(() => {
+  if (!batchTemplateNodeId.value) return null
+  const node = fulltextNodes.value.find(n => n.id === batchTemplateNodeId.value)
+  return node?.info?.substring(0, 500) || null
+})
+
+const selectedDataSourcePreview = computed(() => {
+  if (!batchDataSourceNodeId.value) return null
+  const node = fulltextNodes.value.find(n => n.id === batchDataSourceNodeId.value)
+  return node?.info || null
+})
+
+const parsedBatchItems = computed(() => {
+  if (!selectedDataSourcePreview.value) return []
+  return parseMarkdownTable(selectedDataSourcePreview.value)
+})
+
+const canStartBatch = computed(() => {
+  return batchTemplateNodeId.value &&
+         batchDataSourceNodeId.value &&
+         parsedBatchItems.value.length > 0 &&
+         !batchGenerationActive.value
+})
+
+const batchProgressPercent = computed(() => {
+  if (batchProgressTotal.value === 0) return 0
+  return Math.round((batchProgressCurrent.value / batchProgressTotal.value) * 100)
+})
 
 // State
 const isCollapsed = ref(false)
@@ -1074,6 +1219,18 @@ const audioLanguageOptions = [
   { code: 'es', label: 'Spanish' },
   { code: 'it', label: 'Italian' }
 ]
+
+// Batch Fulltext Node Generation State
+const showBatchGenerateModal = ref(false)
+const batchTemplateNodeId = ref('')
+const batchDataSourceNodeId = ref('')
+const batchGenerationActive = ref(false)
+const batchProgressStage = ref('')
+const batchProgressCurrent = ref(0)
+const batchProgressTotal = ref(0)
+const batchErrors = ref([])
+const batchAbortController = ref(null)
+const batchAborting = ref(false)
 
 // Proff API Function Calling Configuration
 const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
@@ -2941,6 +3098,326 @@ const insertAsFullText = (content) => {
   if (!content) return
   emit('insert-fulltext', content)
 }
+
+// ==========================================
+// Batch Fulltext Node Generation Functions
+// ==========================================
+
+/**
+ * Parse a markdown table from node content into structured items
+ */
+function parseMarkdownTable(content) {
+  if (!content) return []
+
+  const lines = content.split('\n')
+  const items = []
+  let inTable = false
+  let headerSkipped = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Detect table rows (lines starting with |)
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      inTable = true
+
+      // Skip separator line (contains only |, -, and spaces)
+      if (/^\|[\s\-:|]+\|$/.test(trimmed)) {
+        headerSkipped = true
+        continue
+      }
+
+      // Skip header row (first row before separator)
+      if (!headerSkipped) {
+        continue
+      }
+
+      // Parse table cells
+      const cells = trimmed
+        .split('|')
+        .slice(1, -1) // Remove empty first/last from split
+        .map(cell => cell.trim())
+
+      if (cells.length >= 2 && cells[0]) {
+        items.push({
+          primary: cells[0],           // e.g., "ka"
+          secondary: cells[1] || '',   // e.g., "क"
+          description: cells[2] || '', // e.g., "velar plosive"
+          raw: trimmed
+        })
+      }
+    } else if (inTable && trimmed === '') {
+      // End of table
+      inTable = false
+      headerSkipped = false
+    }
+  }
+
+  return items
+}
+
+/**
+ * Check if a message can trigger batch generation
+ */
+function canBatchGenerate(message) {
+  return message?.role === 'assistant' &&
+         fulltextNodes.value.length > 0 &&
+         isViewerContext.value
+}
+
+/**
+ * Open the batch generation modal
+ */
+function openBatchGenerateModal() {
+  // Reset state
+  batchTemplateNodeId.value = ''
+  batchDataSourceNodeId.value = ''
+  batchGenerationActive.value = false
+  batchProgressStage.value = ''
+  batchProgressCurrent.value = 0
+  batchProgressTotal.value = 0
+  batchErrors.value = []
+  batchAborting.value = false
+
+  showBatchGenerateModal.value = true
+}
+
+/**
+ * Close the batch generation modal
+ */
+function closeBatchGenerateModal() {
+  if (batchGenerationActive.value) {
+    if (!confirm('Generering pågår. Avbryte?')) return
+    abortBatchGeneration()
+  }
+  showBatchGenerateModal.value = false
+}
+
+/**
+ * Abort ongoing batch generation
+ */
+function abortBatchGeneration() {
+  batchAborting.value = true
+  if (batchAbortController.value) {
+    batchAbortController.value.abort()
+  }
+}
+
+/**
+ * Generate a UUID for new nodes
+ */
+function generateBatchUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+/**
+ * Main batch generation orchestrator
+ */
+async function startBatchGeneration() {
+  if (!canStartBatch.value) return
+
+  const templateNode = fulltextNodes.value.find(n => n.id === batchTemplateNodeId.value)
+  if (!templateNode) {
+    errorMessage.value = 'Mal-node ikke funnet'
+    return
+  }
+
+  const items = parsedBatchItems.value
+
+  // Initialize state
+  batchGenerationActive.value = true
+  batchProgressStage.value = 'Genererer innhold med AI...'
+  batchProgressCurrent.value = 0
+  batchProgressTotal.value = items.length
+  batchErrors.value = []
+  batchAbortController.value = new AbortController()
+
+  try {
+    // Step 1: Generate all content in one AI call
+    const generatedContent = await generateBatchContent(
+      templateNode,
+      items,
+      batchAbortController.value.signal
+    )
+
+    if (batchAborting.value) return
+
+    // Step 2: Parse the response into individual node contents
+    const parsedNodes = parseBatchResponse(generatedContent, items)
+
+    if (parsedNodes.length === 0) {
+      throw new Error('Kunne ikke parse AI-respons til individuelle noder')
+    }
+
+    // Step 3: Create nodes one by one
+    batchProgressStage.value = 'Oppretter noder...'
+    batchProgressTotal.value = parsedNodes.length
+
+    for (let i = 0; i < parsedNodes.length; i++) {
+      if (batchAborting.value) break
+
+      batchProgressCurrent.value = i + 1
+
+      try {
+        const newNode = {
+          id: generateBatchUUID(),
+          label: parsedNodes[i].label,
+          type: 'fulltext',
+          color: templateNode.color || '#f8f9fa',
+          info: parsedNodes[i].info,
+          bibl: [],
+          visible: true,
+          position: { x: 0, y: i * 50 }
+        }
+
+        emit('insert-fulltext-batch', {
+          node: newNode,
+          index: i,
+          total: parsedNodes.length
+        })
+
+      } catch (nodeError) {
+        batchErrors.value.push(`Item ${i + 1}: ${nodeError.message}`)
+      }
+
+      // Small delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+
+    batchProgressStage.value = batchAborting.value
+      ? 'Avbrutt'
+      : `Ferdig: ${batchProgressCurrent.value}/${items.length} noder opprettet`
+
+  } catch (error) {
+    console.error('Batch generation failed:', error)
+    batchProgressStage.value = 'Feilet: ' + error.message
+    batchErrors.value.push(error.message)
+  } finally {
+    batchGenerationActive.value = false
+    batchAborting.value = false
+    batchAbortController.value = null
+  }
+}
+
+/**
+ * Generate content for all items via AI
+ */
+async function generateBatchContent(templateNode, items, abortSignal) {
+  const templateContent = templateNode.info || ''
+  const templateLabel = templateNode.label || 'Template'
+
+  // Build the items list
+  const itemsList = items.map((item, idx) =>
+    `${idx + 1}. ${item.primary}${item.secondary ? ` (${item.secondary})` : ''}${item.description ? ' - ' + item.description : ''}`
+  ).join('\n')
+
+  const systemPrompt = `Du genererer formatert innhold for en kunnskapsgraf.
+Du får en mal som viser ønsket formatering, og en liste med elementer.
+Generer innhold for HVERT element som følger nøyaktig samme formateringsmønster som malen.
+
+VIKTIG:
+- Separer hver genererte seksjon med skilletegnet: ===NODE_BOUNDARY===
+- Første linje etter hvert skilletegn skal være node-etiketten (label)
+- Følg malens markdown-struktur, overskrifter og visuelle stil nøyaktig
+- Tilpass innholdet for hvert spesifikke element, men behold konsistent formatering
+- Bevar alle [FANCY], [QUOTE], [SECTION] og andre spesielle formateringstagger`
+
+  const userPrompt = `MAL-NODE (bruk denne formateringsstilen):
+Label: ${templateLabel}
+Innhold:
+${templateContent}
+
+---
+
+ELEMENTER Å GENERERE (lag én formatert seksjon for hvert):
+${itemsList}
+
+---
+
+Generer formatert innhold for alle ${items.length} elementer.
+Husk å separere hver med ===NODE_BOUNDARY=== skilletegn.`
+
+  const endpoint = 'https://grok.vegvisr.org/chat'
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: userStore.user_id || 'system',
+      model: 'grok-3',
+      max_tokens: 32000,
+      temperature: 0.7,
+      stream: false,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    }),
+    signal: abortSignal
+  })
+
+  if (!response.ok) {
+    const errText = await response.text()
+    throw new Error(`AI-forespørsel feilet: ${response.status} - ${errText}`)
+  }
+
+  const data = await response.json()
+  return data.choices?.[0]?.message?.content || ''
+}
+
+/**
+ * Parse AI response into individual node contents
+ */
+function parseBatchResponse(content, originalItems) {
+  if (!content) return []
+
+  // Split by the delimiter
+  const sections = content.split('===NODE_BOUNDARY===')
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+
+  const nodes = []
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i]
+    const lines = section.split('\n')
+
+    // First non-empty line is the label
+    let label = ''
+    let infoStart = 0
+
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j].trim()
+      if (line) {
+        label = line
+        infoStart = j + 1
+        break
+      }
+    }
+
+    const info = lines.slice(infoStart).join('\n').trim()
+
+    // Match with original item if possible
+    const matchedItem = originalItems[i] || null
+
+    nodes.push({
+      label: label || matchedItem?.primary || `Node ${i + 1}`,
+      info: info,
+      originalItem: matchedItem,
+      index: i
+    })
+  }
+
+  return nodes
+}
+
+// ==========================================
+// End Batch Generation Functions
+// ==========================================
 
 // Insert structured node (person-profile, company-card, news-feed)
 const insertAsNode = (message, nodeType) => {
@@ -6968,5 +7445,129 @@ watch(
 .error-message {
   color: #dc3545;
   margin-bottom: 1rem;
+}
+
+/* Batch Generation Modal */
+.batch-generate-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 700px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.batch-step {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.batch-step:last-child {
+  border-bottom: none;
+}
+
+.batch-step h4 {
+  margin: 0 0 0.5rem 0;
+  color: #374151;
+  font-size: 1rem;
+}
+
+.batch-step .help-text {
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.template-preview {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+}
+
+.parsed-info {
+  margin-top: 0.75rem;
+  color: #059669;
+  font-size: 0.875rem;
+}
+
+.parsed-items-preview {
+  margin: 0.5rem 0 0 1.25rem;
+  padding: 0;
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+
+.parsed-items-preview li {
+  margin-bottom: 0.25rem;
+}
+
+.no-table-warning {
+  margin-top: 0.75rem;
+  color: #d97706;
+  font-size: 0.875rem;
+}
+
+.batch-progress-panel {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #f3f4f6;
+  border-radius: 8px;
+}
+
+.batch-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+}
+
+.batch-progress-bar {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.batch-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  transition: width 0.3s ease;
+}
+
+.batch-progress-text {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #4b5563;
+  text-align: center;
+}
+
+.batch-errors {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #fef2f2;
+  border-radius: 6px;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.batch-errors ul {
+  margin: 0.5rem 0 0 1rem;
+  padding: 0;
+}
+
+.batch-btn {
+  color: #6366f1;
+}
+
+.batch-btn:hover {
+  color: #4f46e5;
 }
 </style>

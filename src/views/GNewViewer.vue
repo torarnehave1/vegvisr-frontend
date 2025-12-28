@@ -1568,6 +1568,7 @@
           :selection-context="grokSelectionContext"
           parent-context="viewer"
           @insert-fulltext="insertAIResponseAsFullText"
+          @insert-fulltext-batch="handleBatchNodeInsert"
           @insert-node="handleInsertNodeFromChat"
         />
       </div>
@@ -4993,6 +4994,34 @@ const insertAIResponseAsFullText = async (content) => {
     setTimeout(() => {
       statusMessage.value = ''
     }, 4000)
+  }
+}
+
+// Handle batch node insertion from GrokChatPanel
+const handleBatchNodeInsert = async (payload) => {
+  const { node, index, total } = payload
+
+  if (!node || typeof node !== 'object') {
+    console.error('Invalid batch node payload')
+    return
+  }
+
+  try {
+    await handleNodeCreated(node)
+    statusMessage.value = `✅ Opprettet node ${index + 1}/${total}: "${node.label}"`
+  } catch (error) {
+    console.error(`❌ Error creating batch node ${index + 1}:`, error)
+    statusMessage.value = `❌ Feil ved opprettelse av node ${index + 1}: ${error.message}`
+  }
+
+  // Show completion message on last node
+  if (index === total - 1) {
+    setTimeout(() => {
+      statusMessage.value = `✅ Batch ferdig: ${total} noder opprettet`
+      setTimeout(() => {
+        statusMessage.value = ''
+      }, 5000)
+    }, 500)
   }
 }
 
