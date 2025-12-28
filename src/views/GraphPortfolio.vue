@@ -508,6 +508,14 @@
                               🔗 SEO
                             </span>
                           </template>
+                          <span
+                            v-if="graph.chatSessionCount > 0"
+                            class="badge bg-purple ms-2"
+                            :title="`${graph.chatSessionCount} AI chat session${graph.chatSessionCount !== 1 ? 's' : ''} linked to this graph`"
+                          >
+                            <i class="bi bi-chat-dots"></i>
+                            {{ graph.chatSessionCount }} Chat{{ graph.chatSessionCount !== 1 ? 's' : '' }}
+                          </span>
                         </div>
                         <div class="graph-info mt-3">
                           <small class="text-muted">
@@ -1032,6 +1040,38 @@ const checkVectorizationStatus = async (graphIds) => {
   return {}
 }
 
+// Check chat session counts for multiple graphs
+const checkChatSessionCounts = async (graphIds) => {
+  try {
+    // Requires authenticated user
+    if (!userStore.user_id) {
+      return {}
+    }
+
+    const response = await fetch(
+      'https://api.vegvisr.org/chat-history/session-counts',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userStore.user_id,
+          'x-user-email': userStore.email || '',
+          'x-user-role': userStore.role || 'User',
+        },
+        body: JSON.stringify({ graphIds }),
+      },
+    )
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.counts || {}
+    }
+  } catch {
+    // Failed to check chat session counts
+  }
+  return {}
+}
+
 // Check affiliate ambassador status for multiple graphs
 const checkAmbassadorStatus = async (graphIds) => {
   try {
@@ -1276,6 +1316,14 @@ const fetchGraphs = async () => {
             averageRate: status.averageRate || 0,
             topAffiliate: status.topAffiliate || null,
           }
+        })
+
+        // Check chat session counts for all graphs
+        const chatSessionCounts = await checkChatSessionCounts(graphIds)
+
+        // Add chat session count to each graph
+        graphs.value.forEach((graph) => {
+          graph.chatSessionCount = chatSessionCounts[graph.id] || 0
         })
 
         // Filter by publication state based on user role (NEW)
@@ -2373,6 +2421,21 @@ const filterByMetaArea = (area) => {
 
 .graph-meta .badge.bg-affiliate:hover {
   background-color: #8a63d1 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.graph-meta .badge.bg-purple {
+  background-color: #9333ea !important;
+  color: white !important;
+  border: 1px solid #7c3aed;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-meta .badge.bg-purple:hover {
+  background-color: #a855f7 !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }

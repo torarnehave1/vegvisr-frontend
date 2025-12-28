@@ -56,6 +56,11 @@ export default {
         return await handleListMessages(url, env, user)
       }
 
+      // Get session counts for multiple graphs (used by GraphPortfolio)
+      if (pathname === '/session-counts' && request.method === 'POST') {
+        return await handleSessionCounts(request, env, user)
+      }
+
       return jsonResponse({ error: 'Not Found', path: pathname }, 404)
     } catch (error) {
       console.error('chat-history-worker error', error)
@@ -279,6 +284,51 @@ async function handleListMessages(url, env, user) {
   )
 
   return jsonResponse({ messages })
+}
+
+/**
+ * Get session counts for multiple graph IDs at once
+ * Used by GraphPortfolio to display chat session badges efficiently
+ * POST /session-counts with body: { graphIds: ['graph_123', 'graph_456', ...] }
+ * Returns: { counts: { 'graph_123': 2, 'graph_456': 0, ... } }
+ */
+async function handleSessionCounts(request, env, user) {
+  requireUser(user)
+  const body = await parseJSON(request)
+  const graphIds = body.graphIds
+
+  if (!Array.isArray(graphIds) || graphIds.length === 0) {
+    return jsonResponse({ counts: {} })
+  }
+
+  // Limit to prevent abuse (max 100 graphs at once)
+  const limitedGraphIds = graphIds.slice(0, 100)
+
+  // Build query with placeholders for all graph IDs
+  const placeholders = limitedGraphIds.map(() => '?').join(',')
+  const query = `
+    SELECT graph_id, COUNT(*) as count
+    FROM chat_sessions
+    WHERE user_id = ? AND graph_id IN (${placeholders})
+    GROUP BY graph_id
+  `
+
+  const { results } = await env.DB.prepare(query)
+    .bind(user.userId, ...limitedGraphIds)
+    .all()
+
+  // Build counts object, defaulting to 0 for graphs with no sessions
+  const counts = {}
+  for (const graphId of limitedGraphIds) {
+    counts[graphId] = 0
+  }
+  for (const row of results) {
+    if (row.graph_id) {
+      counts[row.graph_id] = row.count
+    }
+  }
+
+  return jsonResponse({ counts })
 }
 
 function clampLimit(value) {
