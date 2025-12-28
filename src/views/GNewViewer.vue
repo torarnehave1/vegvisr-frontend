@@ -4997,6 +4997,9 @@ const insertAIResponseAsFullText = async (content) => {
   }
 }
 
+// Batch node storage for collecting nodes before saving
+const batchPendingNodes = ref([])
+
 // Handle batch node insertion from GrokChatPanel
 const handleBatchNodeInsert = async (payload) => {
   const { node, index, total } = payload
@@ -5006,22 +5009,61 @@ const handleBatchNodeInsert = async (payload) => {
     return
   }
 
-  try {
-    await handleNodeCreated(node)
-    statusMessage.value = `✅ Opprettet node ${index + 1}/${total}: "${node.label}"`
-  } catch (error) {
-    console.error(`❌ Error creating batch node ${index + 1}:`, error)
-    statusMessage.value = `❌ Feil ved opprettelse av node ${index + 1}: ${error.message}`
-  }
+  // Add node to local graph data (memory only, no save yet)
+  graphData.value.nodes.push(node)
+  batchPendingNodes.value.push(node)
+  statusMessage.value = `📦 Node ${index + 1}/${total}: "${node.label}"`
 
-  // Show completion message on last node
+  // On last node, save everything to backend once
   if (index === total - 1) {
-    setTimeout(() => {
-      statusMessage.value = `✅ Batch ferdig: ${total} noder opprettet`
+    statusMessage.value = `💾 Lagrer ${total} noder til backend...`
+
+    try {
+      const updatedGraphData = {
+        ...graphData.value,
+        nodes: [...graphData.value.nodes],
+      }
+
+      const response = await fetch(
+        getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: knowledgeGraphStore.currentGraphId,
+            graphData: updatedGraphData,
+            override: true,
+          }),
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to save batch nodes to backend')
+      }
+
+      // Update store
+      knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+
+      statusMessage.value = `✅ Batch ferdig: ${total} noder opprettet og lagret`
+      batchPendingNodes.value = []
+
       setTimeout(() => {
         statusMessage.value = ''
       }, 5000)
-    }, 500)
+
+    } catch (error) {
+      console.error('❌ Error saving batch nodes:', error)
+      statusMessage.value = `❌ Feil ved lagring: ${error.message}`
+
+      // Remove nodes that weren't saved from local state
+      for (const pendingNode of batchPendingNodes.value) {
+        const idx = graphData.value.nodes.findIndex(n => n.id === pendingNode.id)
+        if (idx !== -1) {
+          graphData.value.nodes.splice(idx, 1)
+        }
+      }
+      batchPendingNodes.value = []
+    }
   }
 }
 
