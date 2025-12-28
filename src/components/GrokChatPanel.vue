@@ -3420,14 +3420,22 @@ function parseBatchResponse(content, originalItems) {
       }
     }
 
-    const info = lines.slice(infoStart).join('\n').trim()
+    let info = lines.slice(infoStart).join('\n').trim()
+
+    // Clean up common AI artifacts
+    // Remove "Innhold:" prefix if present at the start
+    info = info.replace(/^Innhold:\s*/i, '')
+    // Remove "Content:" prefix if present
+    info = info.replace(/^Content:\s*/i, '')
+    // Remove "Label:" line if AI repeated it
+    info = info.replace(/^Label:\s*[^\n]*\n/i, '')
 
     // Match with original item if possible
     const matchedItem = originalItems[i] || null
 
     nodes.push({
       label: label || matchedItem?.primary || `Node ${i + 1}`,
-      info: info,
+      info: info.trim(),
       originalItem: matchedItem,
       index: i
     })
