@@ -952,110 +952,137 @@
       </div>
 
       <div class="modal-body">
-        <!-- Step 1: Template Selection -->
-        <div class="batch-step">
-          <h4>1. Velg mal-node</h4>
-          <p class="help-text">Velg en node med formateringen du vil bruke som mal</p>
-          <select v-model="batchTemplateNodeId" class="form-control">
-            <option value="">-- Velg en node --</option>
-            <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
-              {{ node.label || node.id }}
-            </option>
-          </select>
-          <div v-if="selectedTemplatePreview" class="template-preview">
-            <strong>Forhåndsvisning:</strong>
-            <div v-html="renderMarkdown(selectedTemplatePreview)"></div>
+        <!-- Setup Phase: Select template and data source -->
+        <div v-if="!batchCurrentPreview">
+          <!-- Step 1: Template Selection -->
+          <div class="batch-step">
+            <h4>1. Velg mal-node</h4>
+            <p class="help-text">Velg en node med formateringen du vil bruke som mal</p>
+            <select v-model="batchTemplateNodeId" class="form-control">
+              <option value="">-- Velg en node --</option>
+              <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
+                {{ node.label || node.id }}
+              </option>
+            </select>
+            <div v-if="selectedTemplatePreview" class="template-preview">
+              <strong>Forhåndsvisning:</strong>
+              <div v-html="renderMarkdown(selectedTemplatePreview)"></div>
+            </div>
+          </div>
+
+          <!-- Step 2: Data Source Selection -->
+          <div class="batch-step">
+            <h4>2. Velg datakilde-node</h4>
+            <p class="help-text">Velg en node som inneholder tabellen med elementer å generere</p>
+            <select v-model="batchDataSourceNodeId" class="form-control">
+              <option value="">-- Velg en node --</option>
+              <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
+                {{ node.label || node.id }}
+              </option>
+            </select>
+            <div v-if="parsedBatchItems.length > 0" class="parsed-info">
+              ✅ Fant {{ parsedBatchItems.length }} elementer i tabellen
+              <ul class="parsed-items-preview">
+                <li v-for="(item, idx) in parsedBatchItems.slice(0, 5)" :key="idx">
+                  {{ item.primary }} {{ item.secondary ? `(${item.secondary})` : '' }}
+                </li>
+                <li v-if="parsedBatchItems.length > 5">
+                  ... og {{ parsedBatchItems.length - 5 }} til
+                </li>
+              </ul>
+            </div>
+            <div v-else-if="batchDataSourceNodeId" class="no-table-warning">
+              ⚠️ Ingen tabell funnet i valgt node
+            </div>
+          </div>
+
+          <!-- Created nodes summary -->
+          <div v-if="batchCreatedNodes.length > 0" class="batch-created-summary">
+            <strong>✅ Opprettet {{ batchCreatedNodes.length }} noder</strong>
           </div>
         </div>
 
-        <!-- Step 2: Data Source Selection -->
-        <div class="batch-step">
-          <h4>2. Velg datakilde-node</h4>
-          <p class="help-text">Velg en node som inneholder tabellen med elementer å generere</p>
-          <select v-model="batchDataSourceNodeId" class="form-control">
-            <option value="">-- Velg en node --</option>
-            <option v-for="node in fulltextNodes" :key="node.id" :value="node.id">
-              {{ node.label || node.id }}
-            </option>
-          </select>
-          <div v-if="parsedBatchItems.length > 0" class="parsed-info">
-            ✅ Fant {{ parsedBatchItems.length }} elementer i tabellen
-            <ul class="parsed-items-preview">
-              <li v-for="(item, idx) in parsedBatchItems.slice(0, 5)" :key="idx">
-                {{ item.primary }} {{ item.secondary ? `(${item.secondary})` : '' }}
-              </li>
-              <li v-if="parsedBatchItems.length > 5">
-                ... og {{ parsedBatchItems.length - 5 }} til
-              </li>
-            </ul>
+        <!-- Preview Phase: Show generated content for approval -->
+        <div v-if="batchCurrentPreview" class="batch-preview-phase">
+          <div class="batch-preview-header">
+            <span class="batch-preview-counter">
+              {{ batchCurrentIndex + 1 }} / {{ parsedBatchItems.length }}
+            </span>
+            <span class="batch-preview-item">
+              {{ parsedBatchItems[batchCurrentIndex]?.primary }}
+              {{ parsedBatchItems[batchCurrentIndex]?.secondary ? `(${parsedBatchItems[batchCurrentIndex].secondary})` : '' }}
+            </span>
           </div>
-          <div v-else-if="batchDataSourceNodeId" class="no-table-warning">
-            ⚠️ Ingen tabell funnet i valgt node
+
+          <div class="batch-preview-label">
+            <strong>Label:</strong> {{ batchCurrentPreview.label }}
+          </div>
+
+          <div class="batch-preview-content">
+            <div v-html="renderMarkdown(batchCurrentPreview.info)"></div>
           </div>
         </div>
 
-        <!-- Progress Panel -->
-        <div v-if="batchGenerationActive || batchProgressStage" class="batch-progress-panel">
-          <div class="batch-progress-header">
-            <div class="batch-progress-status">
-              <span v-if="batchGenerationActive && batchProgressCurrent === 0" class="batch-spinner"></span>
-              <span>{{ batchProgressStage }}</span>
-            </div>
-            <button
-              v-if="batchGenerationActive"
-              class="btn btn-sm btn-danger"
-              @click="abortBatchGeneration"
-              :disabled="batchAborting"
-            >
-              {{ batchAborting ? 'Avbryter...' : 'Avbryt' }}
-            </button>
-          </div>
-          <div v-if="batchGenerationActive && batchProgressCurrent > 0" class="batch-progress-bar">
-            <div
-              class="batch-progress-fill"
-              :style="{ width: batchProgressPercent + '%' }"
-            ></div>
-          </div>
-          <div v-if="batchGenerationActive && batchProgressCurrent > 0" class="batch-progress-text">
-            {{ batchProgressCurrent }} / {{ batchProgressTotal }} noder
-          </div>
-          <!-- Live node creation feed -->
-          <div v-if="batchCreatedNodes.length > 0" class="batch-created-feed">
-            <div
-              v-for="(node, idx) in batchCreatedNodes.slice(-5)"
-              :key="idx"
-              class="batch-created-item"
-            >
-              ✅ {{ node.label }}
-            </div>
-            <div v-if="batchCreatedNodes.length > 5" class="batch-created-more">
-              ... og {{ batchCreatedNodes.length - 5 }} til
-            </div>
-          </div>
-          <div v-if="batchErrors.length > 0" class="batch-errors">
-            <strong>Feil:</strong>
-            <ul>
-              <li v-for="(err, idx) in batchErrors" :key="idx">{{ err }}</li>
-            </ul>
-          </div>
+        <!-- Generating spinner -->
+        <div v-if="batchGenerating" class="batch-generating">
+          <span class="batch-spinner"></span>
+          <span>Genererer innhold for {{ parsedBatchItems[batchCurrentIndex]?.primary }}...</span>
+        </div>
+
+        <!-- Error display -->
+        <div v-if="batchErrors.length > 0" class="batch-errors">
+          <strong>Feil:</strong>
+          <ul>
+            <li v-for="(err, idx) in batchErrors" :key="idx">{{ err }}</li>
+          </ul>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button
-          class="btn btn-secondary"
-          @click="closeBatchGenerateModal"
-          :disabled="batchGenerationActive"
-        >
-          Avbryt
-        </button>
-        <button
-          class="btn btn-primary"
-          @click="startBatchGeneration"
-          :disabled="!canStartBatch || batchGenerationActive"
-        >
-          🚀 Generer {{ parsedBatchItems.length || 0 }} noder
-        </button>
+        <!-- Setup phase buttons -->
+        <template v-if="!batchCurrentPreview && !batchGenerating">
+          <button class="btn btn-secondary" @click="closeBatchGenerateModal">
+            Lukk
+          </button>
+          <button
+            class="btn btn-primary"
+            @click="generateNextItem"
+            :disabled="!canStartBatch"
+          >
+            🚀 Start ({{ batchCurrentIndex + 1 }}/{{ parsedBatchItems.length }})
+          </button>
+        </template>
+
+        <!-- Preview phase buttons -->
+        <template v-if="batchCurrentPreview && !batchGenerating">
+          <button class="btn btn-outline-danger" @click="skipCurrentItem">
+            ⏭️ Hopp over
+          </button>
+          <button class="btn btn-success" @click="approveCurrentItem">
+            ✅ Godkjenn
+          </button>
+          <button
+            v-if="batchCurrentIndex < parsedBatchItems.length - 1"
+            class="btn btn-primary"
+            @click="approveAndNext"
+          >
+            ✅ Godkjenn & Neste →
+          </button>
+          <button
+            v-if="batchCurrentIndex === parsedBatchItems.length - 1"
+            class="btn btn-primary"
+            @click="approveAndFinish"
+          >
+            ✅ Godkjenn & Fullfør
+          </button>
+        </template>
+
+        <!-- Generating phase -->
+        <template v-if="batchGenerating">
+          <button class="btn btn-danger" @click="abortBatchGeneration">
+            Avbryt
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -1248,6 +1275,9 @@ const batchErrors = ref([])
 const batchAbortController = ref(null)
 const batchAborting = ref(false)
 const batchCreatedNodes = ref([])
+const batchCurrentIndex = ref(0)
+const batchCurrentPreview = ref(null)
+const batchGenerating = ref(false)
 
 // Proff API Function Calling Configuration
 const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
@@ -3196,6 +3226,9 @@ function openBatchGenerateModal() {
   batchErrors.value = []
   batchAborting.value = false
   batchCreatedNodes.value = []
+  batchCurrentIndex.value = 0
+  batchCurrentPreview.value = null
+  batchGenerating.value = false
 
   showBatchGenerateModal.value = true
 }
@@ -3204,7 +3237,7 @@ function openBatchGenerateModal() {
  * Close the batch generation modal
  */
 function closeBatchGenerateModal() {
-  if (batchGenerationActive.value) {
+  if (batchGenerating.value) {
     if (!confirm('Generering pågår. Avbryte?')) return
     abortBatchGeneration()
   }
@@ -3233,118 +3266,129 @@ function generateBatchUUID() {
 }
 
 /**
- * Main batch generation orchestrator
+ * Generate content for the next item in the batch
  */
-async function startBatchGeneration() {
-  if (!canStartBatch.value) return
+async function generateNextItem() {
+  if (!canStartBatch.value && batchCurrentIndex.value === 0) return
 
   const templateNode = fulltextNodes.value.find(n => n.id === batchTemplateNodeId.value)
   if (!templateNode) {
-    errorMessage.value = 'Mal-node ikke funnet'
+    batchErrors.value.push('Mal-node ikke funnet')
     return
   }
 
-  const items = parsedBatchItems.value
+  const currentItem = parsedBatchItems.value[batchCurrentIndex.value]
+  if (!currentItem) {
+    batchErrors.value.push('Ingen flere elementer å generere')
+    return
+  }
 
-  // Initialize state
-  batchGenerationActive.value = true
-  batchProgressStage.value = 'Genererer innhold med AI...'
-  batchProgressCurrent.value = 0
-  batchProgressTotal.value = items.length
-  batchErrors.value = []
+  batchGenerating.value = true
   batchAbortController.value = new AbortController()
 
   try {
-    // Step 1: Generate all content in one AI call
-    const generatedContent = await generateBatchContent(
+    const generatedContent = await generateSingleItemContent(
       templateNode,
-      items,
+      currentItem,
       batchAbortController.value.signal
     )
 
     if (batchAborting.value) return
 
-    // Step 2: Parse the response into individual node contents
-    const parsedNodes = parseBatchResponse(generatedContent, items)
+    // Clean up the response
+    let info = generatedContent.trim()
+    info = info.replace(/^Innhold:\s*/i, '')
+    info = info.replace(/^Content:\s*/i, '')
+    info = info.replace(/^Label:\s*[^\n]*\n/i, '')
 
-    if (parsedNodes.length === 0) {
-      throw new Error('Kunne ikke parse AI-respons til individuelle noder')
+    // Create preview object
+    batchCurrentPreview.value = {
+      label: `Lyden «${currentItem.primary.charAt(0).toUpperCase() + currentItem.primary.slice(1)}» – ${currentItem.secondary}`,
+      info: info.trim(),
+      item: currentItem
     }
-
-    // Step 3: Create nodes one by one
-    batchProgressStage.value = 'Oppretter noder...'
-    batchProgressTotal.value = parsedNodes.length
-
-    for (let i = 0; i < parsedNodes.length; i++) {
-      if (batchAborting.value) break
-
-      batchProgressCurrent.value = i + 1
-
-      try {
-        const newNode = {
-          id: generateBatchUUID(),
-          label: parsedNodes[i].label,
-          type: 'fulltext',
-          color: templateNode.color || '#f8f9fa',
-          info: parsedNodes[i].info,
-          bibl: [],
-          visible: true,
-          position: { x: 0, y: i * 50 }
-        }
-
-        emit('insert-fulltext-batch', {
-          node: newNode,
-          index: i,
-          total: parsedNodes.length
-        })
-
-        // Add to created nodes feed
-        batchCreatedNodes.value.push({ label: newNode.label })
-
-      } catch (nodeError) {
-        batchErrors.value.push(`Item ${i + 1}: ${nodeError.message}`)
-      }
-
-      // Small delay for visual feedback
-      await new Promise(resolve => setTimeout(resolve, 200))
-    }
-
-    batchProgressStage.value = batchAborting.value
-      ? 'Avbrutt'
-      : `Ferdig: ${batchProgressCurrent.value}/${items.length} noder opprettet`
 
   } catch (error) {
-    console.error('Batch generation failed:', error)
-    batchProgressStage.value = 'Feilet: ' + error.message
-    batchErrors.value.push(error.message)
+    console.error('Generation failed:', error)
+    batchErrors.value.push(`Feil ved generering: ${error.message}`)
   } finally {
-    batchGenerationActive.value = false
-    batchAborting.value = false
+    batchGenerating.value = false
     batchAbortController.value = null
   }
 }
 
 /**
- * Generate content for all items via AI
+ * Approve current preview and create the node
  */
-async function generateBatchContent(templateNode, items, abortSignal) {
+async function approveCurrentItem() {
+  if (!batchCurrentPreview.value) return
+
+  const templateNode = fulltextNodes.value.find(n => n.id === batchTemplateNodeId.value)
+
+  const newNode = {
+    id: generateBatchUUID(),
+    label: batchCurrentPreview.value.label,
+    type: 'fulltext',
+    color: templateNode?.color || '#f8f9fa',
+    info: batchCurrentPreview.value.info,
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: batchCreatedNodes.value.length * 50 }
+  }
+
+  emit('insert-fulltext-batch', {
+    node: newNode,
+    index: batchCreatedNodes.value.length,
+    total: parsedBatchItems.value.length
+  })
+
+  batchCreatedNodes.value.push({ label: newNode.label })
+  batchCurrentPreview.value = null
+}
+
+/**
+ * Skip current item without creating a node
+ */
+function skipCurrentItem() {
+  batchCurrentPreview.value = null
+  if (batchCurrentIndex.value < parsedBatchItems.value.length - 1) {
+    batchCurrentIndex.value++
+  }
+}
+
+/**
+ * Approve current and generate next
+ */
+async function approveAndNext() {
+  await approveCurrentItem()
+  batchCurrentIndex.value++
+  await generateNextItem()
+}
+
+/**
+ * Approve current and finish (save all to backend)
+ */
+async function approveAndFinish() {
+  await approveCurrentItem()
+  // The last node triggers save in handleBatchNodeInsert
+}
+
+/**
+ * Generate content for a SINGLE item via AI
+ */
+async function generateSingleItemContent(templateNode, item, abortSignal) {
   const templateContent = templateNode.info || ''
   const templateLabel = templateNode.label || 'Template'
 
-  // Build the items list
-  const itemsList = items.map((item, idx) =>
-    `${idx + 1}. ${item.primary}${item.secondary ? ` (${item.secondary})` : ''}${item.description ? ' - ' + item.description : ''}`
-  ).join('\n')
-
   const systemPrompt = `Du genererer formatert innhold for en kunnskapsgraf.
-Du får en mal som viser ønsket formatering, og en liste med elementer.
-Generer innhold for HVERT element som følger nøyaktig samme formateringsmønster som malen.
+Du får en mal som viser ønsket formatering, og ETT element å generere innhold for.
+Følg malens markdown-struktur, overskrifter og visuelle stil NØYAKTIG.
 
 VIKTIG:
-- Separer hver genererte seksjon med skilletegnet: ===NODE_BOUNDARY===
-- Første linje etter hvert skilletegn skal være node-etiketten (label)
-- Følg malens markdown-struktur, overskrifter og visuelle stil nøyaktig
-- Tilpass innholdet for hvert spesifikke element, men behold konsistent formatering
+- Generer KUN innholdet, IKKE skriv "Innhold:" eller "Label:" foran
+- Start direkte med [FANCY] taggen eller første overskrift
+- Følg malens struktur eksakt
+- Tilpass innholdet for det spesifikke elementet
 - Bevar alle [FANCY], [QUOTE], [SECTION] og andre spesielle formateringstagger`
 
   const userPrompt = `MAL-NODE (bruk denne formateringsstilen):
@@ -3354,13 +3398,14 @@ ${templateContent}
 
 ---
 
-ELEMENTER Å GENERERE (lag én formatert seksjon for hvert):
-${itemsList}
+ELEMENT Å GENERERE:
+Lyd: ${item.primary}
+Devanagari: ${item.secondary}
+${item.description ? `Beskrivelse: ${item.description}` : ''}
 
 ---
 
-Generer formatert innhold for alle ${items.length} elementer.
-Husk å separere hver med ===NODE_BOUNDARY=== skilletegn.`
+Generer formatert innhold for dette elementet. Start direkte med innholdet (f.eks. [FANCY] taggen).`
 
   const endpoint = 'https://grok.vegvisr.org/chat'
 
@@ -3370,7 +3415,7 @@ Husk å separere hver med ===NODE_BOUNDARY=== skilletegn.`
     body: JSON.stringify({
       userId: userStore.user_id || 'system',
       model: 'grok-3',
-      max_tokens: 32000,
+      max_tokens: 4000,
       temperature: 0.7,
       stream: false,
       messages: [
@@ -3388,60 +3433,6 @@ Husk å separere hver med ===NODE_BOUNDARY=== skilletegn.`
 
   const data = await response.json()
   return data.choices?.[0]?.message?.content || ''
-}
-
-/**
- * Parse AI response into individual node contents
- */
-function parseBatchResponse(content, originalItems) {
-  if (!content) return []
-
-  // Split by the delimiter
-  const sections = content.split('===NODE_BOUNDARY===')
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
-
-  const nodes = []
-
-  for (let i = 0; i < sections.length; i++) {
-    const section = sections[i]
-    const lines = section.split('\n')
-
-    // First non-empty line is the label
-    let label = ''
-    let infoStart = 0
-
-    for (let j = 0; j < lines.length; j++) {
-      const line = lines[j].trim()
-      if (line) {
-        label = line
-        infoStart = j + 1
-        break
-      }
-    }
-
-    let info = lines.slice(infoStart).join('\n').trim()
-
-    // Clean up common AI artifacts
-    // Remove "Innhold:" prefix if present at the start
-    info = info.replace(/^Innhold:\s*/i, '')
-    // Remove "Content:" prefix if present
-    info = info.replace(/^Content:\s*/i, '')
-    // Remove "Label:" line if AI repeated it
-    info = info.replace(/^Label:\s*[^\n]*\n/i, '')
-
-    // Match with original item if possible
-    const matchedItem = originalItems[i] || null
-
-    nodes.push({
-      label: label || matchedItem?.primary || `Node ${i + 1}`,
-      info: info.trim(),
-      originalItem: matchedItem,
-      index: i
-    })
-  }
-
-  return nodes
 }
 
 // ==========================================
@@ -7655,5 +7646,81 @@ watch(
   color: #6b7280;
   text-align: center;
   padding: 0.25rem;
+}
+
+/* Batch Preview Phase */
+.batch-preview-phase {
+  animation: batch-fade-in 0.3s ease-out;
+}
+
+.batch-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.batch-preview-counter {
+  background: #6366f1;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.batch-preview-item {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.batch-preview-label {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.batch-preview-content {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.batch-generating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  color: #6366f1;
+  font-weight: 500;
+}
+
+.batch-created-summary {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #ecfdf5;
+  border-radius: 6px;
+  color: #065f46;
+  text-align: center;
+}
+
+.btn-outline-danger {
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  background: transparent;
+}
+
+.btn-outline-danger:hover {
+  background: #dc2626;
+  color: white;
 }
 </style>
