@@ -997,7 +997,10 @@
         <!-- Progress Panel -->
         <div v-if="batchGenerationActive || batchProgressStage" class="batch-progress-panel">
           <div class="batch-progress-header">
-            <span>{{ batchProgressStage }}</span>
+            <div class="batch-progress-status">
+              <span v-if="batchGenerationActive && batchProgressCurrent === 0" class="batch-spinner"></span>
+              <span>{{ batchProgressStage }}</span>
+            </div>
             <button
               v-if="batchGenerationActive"
               class="btn btn-sm btn-danger"
@@ -1007,14 +1010,27 @@
               {{ batchAborting ? 'Avbryter...' : 'Avbryt' }}
             </button>
           </div>
-          <div v-if="batchGenerationActive" class="batch-progress-bar">
+          <div v-if="batchGenerationActive && batchProgressCurrent > 0" class="batch-progress-bar">
             <div
               class="batch-progress-fill"
               :style="{ width: batchProgressPercent + '%' }"
             ></div>
           </div>
-          <div v-if="batchGenerationActive" class="batch-progress-text">
+          <div v-if="batchGenerationActive && batchProgressCurrent > 0" class="batch-progress-text">
             {{ batchProgressCurrent }} / {{ batchProgressTotal }} noder
+          </div>
+          <!-- Live node creation feed -->
+          <div v-if="batchCreatedNodes.length > 0" class="batch-created-feed">
+            <div
+              v-for="(node, idx) in batchCreatedNodes.slice(-5)"
+              :key="idx"
+              class="batch-created-item"
+            >
+              ✅ {{ node.label }}
+            </div>
+            <div v-if="batchCreatedNodes.length > 5" class="batch-created-more">
+              ... og {{ batchCreatedNodes.length - 5 }} til
+            </div>
           </div>
           <div v-if="batchErrors.length > 0" class="batch-errors">
             <strong>Feil:</strong>
@@ -1231,6 +1247,7 @@ const batchProgressTotal = ref(0)
 const batchErrors = ref([])
 const batchAbortController = ref(null)
 const batchAborting = ref(false)
+const batchCreatedNodes = ref([])
 
 // Proff API Function Calling Configuration
 const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
@@ -3178,6 +3195,7 @@ function openBatchGenerateModal() {
   batchProgressTotal.value = 0
   batchErrors.value = []
   batchAborting.value = false
+  batchCreatedNodes.value = []
 
   showBatchGenerateModal.value = true
 }
@@ -3279,6 +3297,9 @@ async function startBatchGeneration() {
           index: i,
           total: parsedNodes.length
         })
+
+        // Add to created nodes feed
+        batchCreatedNodes.value.push({ label: newNode.label })
 
       } catch (nodeError) {
         batchErrors.value.push(`Item ${i + 1}: ${nodeError.message}`)
@@ -7569,5 +7590,62 @@ watch(
 
 .batch-btn:hover {
   color: #4f46e5;
+}
+
+.batch-progress-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.batch-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: batch-spin 0.8s linear infinite;
+}
+
+@keyframes batch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.batch-created-feed {
+  margin-top: 0.75rem;
+  max-height: 150px;
+  overflow-y: auto;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.75rem;
+}
+
+.batch-created-item {
+  padding: 0.35rem 0.5rem;
+  background: #ecfdf5;
+  border-radius: 4px;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+  color: #065f46;
+  animation: batch-fade-in 0.3s ease-out;
+}
+
+@keyframes batch-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.batch-created-more {
+  font-size: 0.8rem;
+  color: #6b7280;
+  text-align: center;
+  padding: 0.25rem;
 }
 </style>
