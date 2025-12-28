@@ -64,6 +64,13 @@
           >
             ↕ Spread V
           </button>
+          <button
+            @click="openGridLayoutDialog"
+            class="btn btn-outline-secondary"
+            title="Arrange selected nodes in a grid/matrix"
+          >
+            ▦ Grid
+          </button>
         </div>
       </div>
 
@@ -618,6 +625,61 @@
       </div>
     </div>
 
+    <!-- Grid Layout Dialog -->
+    <div v-if="showGridDialog" class="graph-import-modal-overlay" @click="showGridDialog = false">
+      <div class="graph-import-modal" @click.stop style="max-width: 400px;">
+        <div class="modal-header">
+          <h5>Grid Layout Settings</h5>
+          <button class="btn-close" @click="showGridDialog = false"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-3">
+            Arrange {{ cyInstance?.$('node:selected').length || 0 }} selected nodes in a grid
+          </p>
+          <div class="mb-3">
+            <label class="form-label">Columns</label>
+            <input
+              v-model.number="gridSettings.cols"
+              type="number"
+              class="form-control"
+              min="1"
+              max="20"
+              placeholder="Auto"
+            />
+            <small class="text-muted">Number of columns (leave 0 for auto)</small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Rows</label>
+            <input
+              v-model.number="gridSettings.rows"
+              type="number"
+              class="form-control"
+              min="1"
+              max="20"
+              placeholder="Auto"
+            />
+            <small class="text-muted">Number of rows (leave 0 for auto)</small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Spacing: {{ gridSettings.spacing }}px</label>
+            <input
+              v-model.number="gridSettings.spacing"
+              type="range"
+              class="form-range"
+              min="50"
+              max="400"
+              step="10"
+            />
+            <small class="text-muted">Distance between nodes</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showGridDialog = false">Cancel</button>
+          <button class="btn btn-primary" @click="applyGridLayout">Apply Grid</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Graph Import Modal -->
     <div v-if="showImportModal" class="graph-import-modal-overlay" @click="closeImportModal">
       <div class="graph-import-modal" @click.stop>
@@ -711,6 +773,14 @@ const isYoutubeModalDragging = ref(false)
 const isYoutubeModalResizing = ref(false)
 const youtubeModalDragStart = ref({ x: 0, y: 0, top: 0, left: 0 })
 const youtubeModalResizeStart = ref({ x: 0, y: 0, width: 0, height: 0 })
+
+// Grid layout dialog state
+const showGridDialog = ref(false)
+const gridSettings = ref({
+  cols: 0, // 0 = auto
+  rows: 0, // 0 = auto
+  spacing: 150
+})
 
 // AI Chat Panel state
 const showAIChat = ref(false)
@@ -1932,6 +2002,70 @@ const spreadSelectedNodes = (axis) => {
   })
 
   showStatus(`Spread ${selectedNodes.length} nodes ${axis}`, 'success')
+}
+
+// Grid layout for selected nodes - opens dialog to configure
+const openGridLayoutDialog = () => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.$('node:selected')
+  if (selectedNodes.length < 2) {
+    showStatus('Select at least 2 nodes for grid layout', 'warning')
+    return
+  }
+
+  // Calculate suggested cols based on node count
+  const nodeCount = selectedNodes.length
+  const suggestedCols = Math.ceil(Math.sqrt(nodeCount))
+  gridSettings.value.cols = suggestedCols
+  gridSettings.value.rows = Math.ceil(nodeCount / suggestedCols)
+
+  showGridDialog.value = true
+}
+
+// Apply grid layout with current settings
+const applyGridLayout = () => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.$('node:selected')
+  if (selectedNodes.length < 2) return
+
+  // Get the bounding box of selected nodes to position grid in same area
+  const boundingBox = selectedNodes.boundingBox()
+  const centerX = (boundingBox.x1 + boundingBox.x2) / 2
+  const centerY = (boundingBox.y1 + boundingBox.y2) / 2
+
+  const cols = gridSettings.value.cols || undefined
+  const rows = gridSettings.value.rows || undefined
+  const spacing = gridSettings.value.spacing || 150
+
+  // Calculate bounding box size based on spacing and grid dimensions
+  const effectiveCols = cols || Math.ceil(Math.sqrt(selectedNodes.length))
+  const effectiveRows = rows || Math.ceil(selectedNodes.length / effectiveCols)
+  const boxWidth = effectiveCols * spacing
+  const boxHeight = effectiveRows * spacing
+
+  // Run grid layout only on selected nodes
+  selectedNodes.layout({
+    name: 'grid',
+    fit: false,
+    boundingBox: {
+      x1: centerX - boxWidth / 2,
+      y1: centerY - boxHeight / 2,
+      x2: centerX + boxWidth / 2,
+      y2: centerY + boxHeight / 2
+    },
+    avoidOverlap: true,
+    avoidOverlapPadding: 10,
+    condense: false,
+    rows: rows,
+    cols: cols,
+    animate: true,
+    animationDuration: 300
+  }).run()
+
+  showGridDialog.value = false
+  showStatus(`Arranged ${selectedNodes.length} nodes in ${effectiveRows}x${effectiveCols} grid`, 'success')
 }
 
 // View controls
