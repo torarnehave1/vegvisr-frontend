@@ -1590,7 +1590,7 @@ const initializeCytoscape = (graphData) => {
     selectionType: 'additive',
     // Fine-tuned zoom settings
     wheelSensitivity: 0.1, // Reduce wheel sensitivity for finer control (default is 1)
-    minZoom: 0.1, // Minimum zoom level
+    minZoom: 0.02, // Minimum zoom level (2%) - allows zooming out much further
     maxZoom: 10, // Maximum zoom level (1000%)
     zoomingEnabled: true,
     // Pan settings
