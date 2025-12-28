@@ -742,6 +742,12 @@ const isRotatingNode = ref(false)
 const rotationStartAngle = ref(0)
 const rotationStartMouseAngle = ref(0)
 const rotationTargetNode = ref(null)
+const groupDragState = {
+  active: false,
+  anchorNodeId: null,
+  startAnchorPos: null,
+  startPositions: new Map(),
+}
 
 const bumpResizeUpdate = () => {
   resizeUpdateToken.value = (resizeUpdateToken.value + 1) % Number.MAX_SAFE_INTEGER
@@ -1511,7 +1517,7 @@ const initializeCytoscape = (graphData) => {
     userZoomingEnabled: true,
     userPanningEnabled: true,
     boxSelectionEnabled: true,
-    selectionType: 'single',
+    selectionType: 'additive',
     // Fine-tuned zoom settings
     wheelSensitivity: 0.1, // Reduce wheel sensitivity for finer control (default is 1)
     minZoom: 0.1, // Minimum zoom level
@@ -1658,6 +1664,48 @@ const setupEventListeners = () => {
   // Update resize handles on viewport changes (pan, zoom, drag)
   cyInstance.value.on('viewport pan zoom drag position', () => {
     bumpResizeUpdate()
+  })
+
+  // Drag all selected nodes together.
+  cyInstance.value.on('grab', 'node', (event) => {
+    if (isResizingNode.value || isRotatingNode.value) return
+    const selectedNodes = cyInstance.value.$('node:selected')
+    if (selectedNodes.length < 2) return
+    const anchor = event.target
+    if (!anchor.selected()) return
+
+    groupDragState.active = true
+    groupDragState.anchorNodeId = anchor.id()
+    groupDragState.startAnchorPos = { ...anchor.position() }
+    groupDragState.startPositions = new Map()
+
+    selectedNodes.forEach((node) => {
+      groupDragState.startPositions.set(node.id(), { ...node.position() })
+    })
+  })
+
+  cyInstance.value.on('drag', 'node', (event) => {
+    if (!groupDragState.active) return
+    const anchor = event.target
+    if (anchor.id() !== groupDragState.anchorNodeId) return
+
+    const dx = anchor.position('x') - groupDragState.startAnchorPos.x
+    const dy = anchor.position('y') - groupDragState.startAnchorPos.y
+
+    groupDragState.startPositions.forEach((pos, nodeId) => {
+      if (nodeId === anchor.id()) return
+      const node = cyInstance.value.$id(nodeId)
+      if (node.empty()) return
+      node.position({ x: pos.x + dx, y: pos.y + dy })
+    })
+  })
+
+  cyInstance.value.on('dragfree', 'node', () => {
+    if (!groupDragState.active) return
+    groupDragState.active = false
+    groupDragState.anchorNodeId = null
+    groupDragState.startAnchorPos = null
+    groupDragState.startPositions = new Map()
   })
 
   cyInstance.value.on('style', 'node', () => {
@@ -3039,7 +3087,7 @@ const initializeEmptyCanvas = () => {
     userZoomingEnabled: true,
     userPanningEnabled: true,
     boxSelectionEnabled: true,
-    selectionType: 'single',
+    selectionType: 'additive',
     // Fine-tuned zoom settings
     wheelSensitivity: 0.1, // Reduce wheel sensitivity for finer control
     minZoom: 0.001, // Minimum zoom level (0.1%)
