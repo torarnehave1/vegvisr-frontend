@@ -211,6 +211,18 @@
             </svg>
           </div>
         </div>
+        <!-- Group Selection Box (multi-node drag handle) -->
+        <div
+          v-if="groupSelectionBox.visible"
+          class="group-selection-box"
+          :style="groupSelectionBox.style"
+          @mousedown.prevent.stop="startGroupDrag($event)"
+          title="Drag to move all selected nodes"
+        >
+          <div class="group-selection-label">
+            {{ groupSelectionBox.nodeCount }} nodes selected - drag to move
+          </div>
+        </div>
       </div>
       <!-- Chat Resize Handle -->
       <div
@@ -965,6 +977,93 @@ const resizeHandles = computed(() => {
     containerStyle: style,
   }
 })
+
+// Group selection bounding box for multi-node drag handle
+const groupSelectionBox = computed(() => {
+  selectedCount.value
+  resizeUpdateToken.value
+  if (!cyInstance.value || selectedCount.value < 2) {
+    return { visible: false, style: {} }
+  }
+
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length < 2) {
+    return { visible: false, style: {} }
+  }
+
+  // Get rendered bounding box of all selected nodes
+  const bb = selectedNodes.renderedBoundingBox()
+  if (!bb || bb.w === 0 || bb.h === 0) {
+    return { visible: false, style: {} }
+  }
+
+  const padding = 10
+  return {
+    visible: true,
+    style: {
+      position: 'absolute',
+      left: `${bb.x1 - padding}px`,
+      top: `${bb.y1 - padding}px`,
+      width: `${bb.w + padding * 2}px`,
+      height: `${bb.h + padding * 2}px`,
+    },
+    nodeCount: selectedNodes.length
+  }
+})
+
+// Group drag state
+const isGroupDragging = ref(false)
+const groupDragStart = ref({ x: 0, y: 0 })
+const groupNodeStartPositions = ref(new Map())
+
+const startGroupDrag = (event) => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.nodes(':selected')
+  if (selectedNodes.length < 2) return
+
+  isGroupDragging.value = true
+  groupDragStart.value = { x: event.clientX, y: event.clientY }
+
+  // Store starting positions of all selected nodes
+  groupNodeStartPositions.value = new Map()
+  selectedNodes.forEach(node => {
+    groupNodeStartPositions.value.set(node.id(), { ...node.position() })
+  })
+
+  document.addEventListener('mousemove', onGroupDrag)
+  document.addEventListener('mouseup', stopGroupDrag)
+}
+
+const onGroupDrag = (event) => {
+  if (!isGroupDragging.value || !cyInstance.value) return
+
+  const zoom = cyInstance.value.zoom()
+
+  // Calculate delta in model coordinates
+  const dx = (event.clientX - groupDragStart.value.x) / zoom
+  const dy = (event.clientY - groupDragStart.value.y) / zoom
+
+  // Move all selected nodes
+  groupNodeStartPositions.value.forEach((startPos, nodeId) => {
+    const node = cyInstance.value.$id(nodeId)
+    if (!node.empty()) {
+      node.position({
+        x: startPos.x + dx,
+        y: startPos.y + dy
+      })
+    }
+  })
+
+  bumpResizeUpdate()
+}
+
+const stopGroupDrag = () => {
+  isGroupDragging.value = false
+  groupNodeStartPositions.value = new Map()
+  document.removeEventListener('mousemove', onGroupDrag)
+  document.removeEventListener('mouseup', stopGroupDrag)
+}
 
 const getYoutubeNodeLabel = (ele) => {
   const label = ele.data('label') || ''
@@ -2023,14 +2122,14 @@ const openGridLayoutDialog = () => {
   showGridDialog.value = true
 }
 
-// Apply grid layout with current settings - preserves spatial order
+// Apply grid layout with current settings - preserves spatial order and considers node sizes
 const applyGridLayout = () => {
   if (!cyInstance.value) return
 
   const selectedNodes = cyInstance.value.$('node:selected')
   if (selectedNodes.length < 2) return
 
-  const spacing = gridSettings.value.spacing || 150
+  const gapSpacing = gridSettings.value.spacing || 150 // Gap between nodes
   const cols = gridSettings.value.cols || Math.ceil(Math.sqrt(selectedNodes.length))
   const rows = gridSettings.value.rows || Math.ceil(selectedNodes.length / cols)
 
@@ -2040,38 +2139,59 @@ const applyGridLayout = () => {
   const startY = boundingBox.y1
 
   // Convert to array and sort by position (top-to-bottom, left-to-right)
-  // This preserves the visual arrangement of nodes
   const nodesArray = selectedNodes.toArray()
 
   // Sort nodes: first by approximate row (Y position), then by X position within row
-  // Use row height based on bounding box to determine row grouping
   const rowHeight = (boundingBox.y2 - boundingBox.y1) / Math.max(1, rows)
 
   nodesArray.sort((a, b) => {
     const posA = a.position()
     const posB = b.position()
 
-    // Determine which row each node is in based on Y position
     const rowA = Math.floor((posA.y - boundingBox.y1) / rowHeight)
     const rowB = Math.floor((posB.y - boundingBox.y1) / rowHeight)
 
-    // First sort by row (top to bottom)
     if (rowA !== rowB) {
       return rowA - rowB
     }
-    // Within same row, sort by X (left to right)
     return posA.x - posB.x
   })
 
-  // Position each node in the grid
+  // Calculate max width for each column and max height for each row
+  const colWidths = new Array(cols).fill(0)
+  const rowHeights = new Array(rows).fill(0)
+
+  nodesArray.forEach((node, index) => {
+    const row = Math.floor(index / cols)
+    const col = index % cols
+    const bb = node.boundingBox()
+    const nodeWidth = bb.w
+    const nodeHeight = bb.h
+
+    colWidths[col] = Math.max(colWidths[col], nodeWidth)
+    rowHeights[row] = Math.max(rowHeights[row], nodeHeight)
+  })
+
+  // Calculate cumulative positions for columns and rows
+  const colPositions = [0]
+  for (let i = 0; i < cols - 1; i++) {
+    colPositions.push(colPositions[i] + colWidths[i] + gapSpacing)
+  }
+
+  const rowPositions = [0]
+  for (let i = 0; i < rows - 1; i++) {
+    rowPositions.push(rowPositions[i] + rowHeights[i] + gapSpacing)
+  }
+
+  // Position each node in the grid, centered within its cell
   nodesArray.forEach((node, index) => {
     const row = Math.floor(index / cols)
     const col = index % cols
 
-    const newX = startX + col * spacing + spacing / 2
-    const newY = startY + row * spacing + spacing / 2
+    // Center node within its cell
+    const newX = startX + colPositions[col] + colWidths[col] / 2
+    const newY = startY + rowPositions[row] + rowHeights[row] / 2
 
-    // Animate to new position
     node.animate({
       position: { x: newX, y: newY },
       duration: 300,
@@ -4908,6 +5028,42 @@ onUnmounted(() => {
 .resize-handle-se:hover,
 .resize-handle-sw:hover {
   transform: scale(1.2);
+}
+
+/* Group Selection Box */
+.group-selection-box {
+  position: absolute;
+  border: 2px dashed #6366f1;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.08);
+  cursor: move;
+  z-index: 99;
+  box-sizing: border-box;
+}
+
+.group-selection-box:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: #4f46e5;
+}
+
+.group-selection-box:active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #4338ca;
+}
+
+.group-selection-label {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #6366f1;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 /* Responsive design */
