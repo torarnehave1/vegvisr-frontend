@@ -1040,37 +1040,6 @@ const checkVectorizationStatus = async (graphIds) => {
   return {}
 }
 
-// Check chat session counts for multiple graphs
-const checkChatSessionCounts = async (graphIds) => {
-  try {
-    // Requires authenticated user
-    if (!userStore.user_id) {
-      return {}
-    }
-
-    const response = await fetch(
-      'https://api.vegvisr.org/chat-history/session-counts',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': userStore.user_id,
-          'x-user-email': userStore.email || '',
-          'x-user-role': userStore.role || 'User',
-        },
-        body: JSON.stringify({ graphIds }),
-      },
-    )
-
-    if (response.ok) {
-      const data = await response.json()
-      return data.counts || {}
-    }
-  } catch {
-    // Failed to check chat session counts
-  }
-  return {}
-}
 
 // Check affiliate ambassador status for multiple graphs
 const checkAmbassadorStatus = async (graphIds) => {
@@ -1318,12 +1287,9 @@ const fetchGraphs = async () => {
           }
         })
 
-        // Check chat session counts for all graphs
-        const chatSessionCounts = await checkChatSessionCounts(graphIds)
-
-        // Add chat session count to each graph
+        // Read chat session count from metadata (synced by chat-history-worker)
         graphs.value.forEach((graph) => {
-          graph.chatSessionCount = chatSessionCounts[graph.id] || 0
+          graph.chatSessionCount = graph.metadata?.chatSessionCount || 0
         })
 
         // Filter by publication state based on user role (NEW)
