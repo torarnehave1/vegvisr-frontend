@@ -1598,7 +1598,7 @@ const saveEdit = async (originalGraph) => {
           ...latestGraph, // Use latest graph data instead of stale originalGraph
           metadata: preservedMetadata,
         },
-        override: false, // Create new version
+        override: true, // Force save - we already fetched the latest version above
       }),
     })
 
@@ -1690,7 +1690,7 @@ const toggleGraphPublicationState = async (graph) => {
           ...latestGraph,
           metadata: updatedMetadata,
         },
-        override: false, // Create new version
+        override: true, // Force save - we already fetched the latest version above
       }),
     })
 
