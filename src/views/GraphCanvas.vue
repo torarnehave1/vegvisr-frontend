@@ -2191,9 +2191,17 @@ const copySelectedNode = () => {
   const nodeData = node.data()
   const position = node.position()
 
+  // Capture computed styles (width, height, shape, etc.)
+  const computedStyles = {
+    width: node.style('width'),
+    height: node.style('height'),
+    shape: node.style('shape'),
+  }
+
   copiedNodeData.value = {
     ...nodeData,
-    position: { ...position }
+    position: { ...position },
+    _computedStyles: computedStyles
   }
 
   showStatus(`Copied node: ${nodeData.label || nodeData.id}`, 'success')
@@ -2209,11 +2217,15 @@ const pasteNode = async () => {
   const newId = generateUUID()
   const offset = 50 // Offset from original position
 
+  // Extract computed styles before creating new data
+  const computedStyles = copiedNodeData.value._computedStyles
+
   const newNodeData = {
     ...copiedNodeData.value,
     id: newId,
   }
   delete newNodeData.position // Remove position from data
+  delete newNodeData._computedStyles // Remove computed styles from data
 
   const newPosition = {
     x: copiedNodeData.value.position.x + offset,
@@ -2221,11 +2233,20 @@ const pasteNode = async () => {
   }
 
   try {
-    cyInstance.value.add({
+    const newNode = cyInstance.value.add({
       group: 'nodes',
       data: newNodeData,
       position: newPosition,
     })
+
+    // Apply the computed styles to preserve size and shape
+    if (computedStyles) {
+      newNode.style({
+        'width': computedStyles.width,
+        'height': computedStyles.height,
+        'shape': computedStyles.shape,
+      })
+    }
 
     // Select the new node
     cyInstance.value.$('node:selected').unselect()
