@@ -91,6 +91,38 @@
       </div>
 
       <div class="toolbar-section">
+        <!-- Grid Controls -->
+        <div class="btn-group" role="group">
+          <button
+            @click="showCanvasGrid = !showCanvasGrid"
+            class="btn"
+            :class="showCanvasGrid ? 'btn-info' : 'btn-outline-info'"
+            title="Toggle grid lines"
+          >
+            ⊞ Grid
+          </button>
+          <button
+            @click="snapToGrid = !snapToGrid"
+            class="btn"
+            :class="snapToGrid ? 'btn-warning' : 'btn-outline-warning'"
+            title="Toggle snap to grid"
+          >
+            ⊡ Snap
+          </button>
+          <select
+            v-model.number="canvasGridSize"
+            class="form-select form-select-sm grid-size-select"
+            title="Grid size"
+          >
+            <option :value="25">25px</option>
+            <option :value="50">50px</option>
+            <option :value="100">100px</option>
+            <option :value="150">150px</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toolbar-section">
         <!-- Undo/Redo -->
         <div class="btn-group" role="group">
           <button @click="undoAction" class="btn btn-outline-secondary" title="Undo">↶ Undo</button>
@@ -128,6 +160,12 @@
     <div class="canvas-with-chat" :class="{ 'chat-open': showAIChat }">
       <!-- Main Canvas -->
       <div class="canvas-container" :class="{ 'with-chat': showAIChat }">
+        <!-- Grid Background Overlay -->
+        <div
+          v-if="showCanvasGrid"
+          class="canvas-grid-overlay"
+          :style="gridOverlayStyle"
+        ></div>
         <div id="graph-canvas" class="cytoscape-canvas"></div>
         <div
           class="node-html-overlays"
@@ -794,6 +832,11 @@ const gridSettings = ref({
   spacing: 150
 })
 
+// Canvas grid and snap settings
+const showCanvasGrid = ref(false)
+const snapToGrid = ref(false)
+const canvasGridSize = ref(50) // Grid cell size in pixels
+
 // AI Chat Panel state
 const showAIChat = ref(false)
 const chatWidth = ref(420)
@@ -1008,6 +1051,27 @@ const groupSelectionBox = computed(() => {
       height: `${bb.h + padding * 2}px`,
     },
     nodeCount: selectedNodes.length
+  }
+})
+
+// Canvas grid overlay style - creates a dynamic grid pattern based on zoom and pan
+const gridOverlayStyle = computed(() => {
+  // Depend on resizeUpdateToken to update when viewport changes
+  resizeUpdateToken.value
+
+  if (!cyInstance.value) {
+    return {
+      backgroundSize: `${canvasGridSize.value}px ${canvasGridSize.value}px`
+    }
+  }
+
+  const zoom = cyInstance.value.zoom()
+  const pan = cyInstance.value.pan()
+  const size = canvasGridSize.value * zoom
+
+  return {
+    backgroundSize: `${size}px ${size}px`,
+    backgroundPosition: `${pan.x}px ${pan.y}px`
   }
 })
 
@@ -1869,12 +1933,43 @@ const setupEventListeners = () => {
     })
   })
 
-  cyInstance.value.on('dragfree', 'node', () => {
-    if (!groupDragState.active) return
-    groupDragState.active = false
-    groupDragState.anchorNodeId = null
-    groupDragState.startAnchorPos = null
-    groupDragState.startPositions = new Map()
+  cyInstance.value.on('dragfree', 'node', (event) => {
+    // Handle group drag cleanup
+    if (groupDragState.active) {
+      groupDragState.active = false
+      groupDragState.anchorNodeId = null
+      groupDragState.startAnchorPos = null
+      groupDragState.startPositions = new Map()
+    }
+
+    // Snap to grid if enabled
+    if (snapToGrid.value) {
+      const node = event.target
+      const pos = node.position()
+      const gridSize = canvasGridSize.value
+
+      // Snap position to nearest grid point
+      const snappedX = Math.round(pos.x / gridSize) * gridSize
+      const snappedY = Math.round(pos.y / gridSize) * gridSize
+
+      node.position({ x: snappedX, y: snappedY })
+
+      // Also snap any other selected nodes
+      const selectedNodes = cyInstance.value.$('node:selected')
+      if (selectedNodes.length > 1) {
+        selectedNodes.forEach((n) => {
+          if (n.id() !== node.id()) {
+            const p = n.position()
+            n.position({
+              x: Math.round(p.x / gridSize) * gridSize,
+              y: Math.round(p.y / gridSize) * gridSize
+            })
+          }
+        })
+      }
+
+      bumpResizeUpdate()
+    }
   })
 
   cyInstance.value.on('style', 'node', () => {
@@ -3681,19 +3776,16 @@ const insertAIResponseAsFullText = async (content) => {
     y: (extent.y1 + extent.y2) / 2
   }
 
-  // Create a summary label from the content (first 50 chars)
-  const labelPreview = content.substring(0, 50).replace(/\n/g, ' ').trim()
-  const label = labelPreview.length < content.length ? `${labelPreview}...` : labelPreview
-
   cyInstance.value.add({
     data: {
       id: newNodeId,
       label: 'AI Response',
       type: 'fulltext',
-      fullText: content,
-      info: label,
+      info: content,  // Full content goes in info (same as GNewViewer)
       color: '#e8f4f8',
       fontColor: '#000',
+      visible: true,
+      bibl: [],
       createdAt: new Date().toISOString()
     },
     position: position
@@ -4294,6 +4386,26 @@ onUnmounted(() => {
   position: relative;
   overflow: hidden;
   transition: flex 0.2s ease;
+}
+
+/* Canvas Grid Overlay */
+.canvas-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(100, 100, 100, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(100, 100, 100, 0.15) 1px, transparent 1px);
+  background-repeat: repeat;
+}
+
+/* Grid size selector in toolbar */
+.grid-size-select {
+  width: 75px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  border-radius: 0 0.25rem 0.25rem 0;
 }
 
 .node-html-overlays {
