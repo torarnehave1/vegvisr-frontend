@@ -1147,17 +1147,29 @@ const updateYoutubeNodeLabelStyle = () => {
     .update()
 }
 
+// Maximum width for fulltext node overlays (prevents excessive horizontal expansion when zoomed in)
+const MAX_FULLTEXT_OVERLAY_WIDTH = 1200
+
 const getOverlayStyle = (node) => {
   if (!cyInstance.value?.container()) return null
   const renderedPos = node.renderedPosition()
-  const width = node.renderedOuterWidth()
+  const rawWidth = node.renderedOuterWidth()
   const height = node.renderedOuterHeight()
+  const nodeType = node.data('type')
+
+  // Cap width for fulltext nodes to prevent excessive horizontal expansion when zoomed
+  const isFulltext = nodeType === 'fulltext'
+  const width = isFulltext ? Math.min(rawWidth, MAX_FULLTEXT_OVERLAY_WIDTH) : rawWidth
+  const exceedsMaxWidth = isFulltext && rawWidth > MAX_FULLTEXT_OVERLAY_WIDTH
+
   return {
     position: 'absolute',
     left: `${renderedPos.x - width / 2}px`,
     top: `${renderedPos.y - height / 2}px`,
     width: `${width}px`,
     height: `${height}px`,
+    // Add flag to indicate scrolling should be enabled
+    '--enable-scroll': exceedsMaxWidth ? '1' : '0',
   }
 }
 
@@ -4431,6 +4443,7 @@ onUnmounted(() => {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overflow-y: auto;
   box-sizing: border-box;
 }
 
@@ -4444,7 +4457,31 @@ onUnmounted(() => {
 .node-html-overlay :deep(.node-content) {
   max-height: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Scrollbar styling for fulltext nodes when zoomed in */
+.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar,
+.node-html-overlay :deep(.node-content)::-webkit-scrollbar {
+  width: 8px;
+}
+
+.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-track,
+.node-html-overlay :deep(.node-content)::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-thumb,
+.node-html-overlay :deep(.node-content)::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-thumb:hover,
+.node-html-overlay :deep(.node-content)::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
 }
 
 /* Ensure tables don't expand beyond the node boundary */
