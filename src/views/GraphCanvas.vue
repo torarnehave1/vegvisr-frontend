@@ -590,6 +590,22 @@
         </div>
       </div>
 
+      <!-- Font Size (only for info nodes) -->
+      <div v-if="contextMenu.isInfoNode" class="context-menu-section">
+        <div class="context-menu-header">Font Size</div>
+        <div class="context-menu-font-sizes">
+          <button
+            v-for="size in fontSizeOptions"
+            :key="size.value"
+            class="font-size-btn"
+            :class="{ active: contextMenu.currentFontSize === size.value }"
+            @click="setInfoNodeFontSize(size.value)"
+          >
+            {{ size.label }}
+          </button>
+        </div>
+      </div>
+
       <!-- Divider -->
       <div class="context-menu-divider"></div>
 
@@ -871,7 +887,18 @@ const contextMenu = ref({
   node: null,
   isCluster: false,
   isImportedCluster: false,
+  isInfoNode: false,
+  currentFontSize: 14,
 })
+
+// Font size options for info nodes
+const fontSizeOptions = [
+  { label: 'S', value: 16 },
+  { label: 'M', value: 24 },
+  { label: 'L', value: 64 },
+  { label: 'XL', value: 140 },
+  { label: 'XXL', value: 240 },
+]
 const isImageSelectorOpen = ref(false)
 const targetNodeForImage = ref(null)
 const currentImageData = ref({
@@ -1447,17 +1474,27 @@ const initializeCytoscape = (graphData) => {
           width: (ele) => {
             const label = ele.data('label') || ''
             const info = ele.data('info') || ''
+            const fontSize = ele.data('fontSize') || 14
             const totalLength = label.length + info.length
-            return Math.max(150, Math.min(400, 150 + totalLength * 2))
+            // Scale size based on font size
+            const baseSize = Math.max(150, Math.min(400, 150 + totalLength * 2))
+            return baseSize * (fontSize / 14)
           },
           height: (ele) => {
             const label = ele.data('label') || ''
             const info = ele.data('info') || ''
+            const fontSize = ele.data('fontSize') || 14
             const totalLength = label.length + info.length
-            return Math.max(150, Math.min(400, 150 + totalLength * 2))
+            // Scale size based on font size
+            const baseSize = Math.max(150, Math.min(400, 150 + totalLength * 2))
+            return baseSize * (fontSize / 14)
           },
           'text-wrap': 'wrap',
-          'text-max-width': '350px',
+          'text-max-width': (ele) => {
+            const fontSize = ele.data('fontSize') || 14
+            return (350 * (fontSize / 14)) + 'px'
+          },
+          'font-size': (ele) => (ele.data('fontSize') || 14) + 'px',
         },
       },
       {
@@ -2002,6 +2039,9 @@ const setupEventListeners = () => {
     contextMenuJustOpened = true
 
     // Show context menu immediately at cursor position
+    const nodeType = node.data('type')
+    const isInfoNode = nodeType === 'info'
+    console.log('Node type:', nodeType, 'isInfoNode:', isInfoNode, 'fontSize:', node.data('fontSize'))
     contextMenu.value = {
       show: true,
       x: clientX,
@@ -2009,8 +2049,10 @@ const setupEventListeners = () => {
       node: node,
       isCluster: node.isParent(),
       isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
+      isInfoNode: isInfoNode,
+      currentFontSize: isInfoNode ? (node.data('fontSize') || 14) : 14,
     }
-    console.log('Context menu opened at:', clientX, clientY)
+    console.log('Context menu opened at:', clientX, clientY, 'isInfoNode:', isInfoNode)
 
     // Clear flag after a delay to ensure menu stays open
     setTimeout(() => {
@@ -2046,6 +2088,8 @@ const setupEventListeners = () => {
 
         contextMenuJustOpened = true
 
+        const nodeType = node.data('type')
+        const isInfoNode = nodeType === 'info'
         contextMenu.value = {
           show: true,
           x: e.clientX,
@@ -2053,6 +2097,8 @@ const setupEventListeners = () => {
           node: node,
           isCluster: node.isParent(),
           isImportedCluster: node.isParent() && Boolean(node.data('sourceGraphId')),
+          isInfoNode: isInfoNode,
+          currentFontSize: isInfoNode ? (node.data('fontSize') || 14) : 14,
         }
         console.log('Context menu opened via browser contextmenu event at:', e.clientX, e.clientY)
 
@@ -2548,6 +2594,35 @@ const openInfoModal = () => {
   }
   contextMenu.value.show = false
   showInfoModal.value = true
+}
+
+// Set font size for info nodes
+const setInfoNodeFontSize = (size) => {
+  console.log('setInfoNodeFontSize called with size:', size)
+  const node = contextMenu.value.node
+  if (!node) {
+    console.log('No node in context menu')
+    return
+  }
+  if (node.data('type') !== 'info') {
+    console.log('Node is not info type, it is:', node.data('type'))
+    return
+  }
+
+  // Update node data with new font size
+  node.data('fontSize', size)
+  contextMenu.value.currentFontSize = size
+
+  // Force Cytoscape to re-evaluate dynamic styles by updating the stylesheet
+  if (cyInstance.value) {
+    // Trigger style recalculation for this node
+    node.updateStyle()
+  }
+
+  // Close context menu after selection
+  contextMenu.value.show = false
+
+  console.log(`Set font size to ${size}px for info node:`, node.id())
 }
 
 const closeInfoModal = () => {
@@ -4822,6 +4897,35 @@ onUnmounted(() => {
 
 .context-menu-icon {
   font-size: 1.1rem;
+}
+
+.context-menu-font-sizes {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+.font-size-btn {
+  width: 32px;
+  height: 28px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.font-size-btn:hover {
+  background: #f0f0f0;
+  border-color: #ccc;
+}
+
+.font-size-btn.active {
+  background: #007bff;
+  color: #fff;
+  border-color: #007bff;
 }
 
 .graph-canvas.placement-active .cytoscape-canvas {
