@@ -759,6 +759,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { fetchChatSessionCount } from '@/composables/useChatSessions'
 import cytoscape from 'cytoscape'
 import undoRedo from 'cytoscape-undo-redo'
 import ImageSelector from '@/components/ImageSelector.vue'
@@ -1147,29 +1148,17 @@ const updateYoutubeNodeLabelStyle = () => {
     .update()
 }
 
-// Maximum width for fulltext node overlays (prevents excessive horizontal expansion when zoomed in)
-const MAX_FULLTEXT_OVERLAY_WIDTH = 1200
-
 const getOverlayStyle = (node) => {
   if (!cyInstance.value?.container()) return null
   const renderedPos = node.renderedPosition()
-  const rawWidth = node.renderedOuterWidth()
+  const width = node.renderedOuterWidth()
   const height = node.renderedOuterHeight()
-  const nodeType = node.data('type')
-
-  // Cap width for fulltext nodes to prevent excessive horizontal expansion when zoomed
-  const isFulltext = nodeType === 'fulltext'
-  const width = isFulltext ? Math.min(rawWidth, MAX_FULLTEXT_OVERLAY_WIDTH) : rawWidth
-  const exceedsMaxWidth = isFulltext && rawWidth > MAX_FULLTEXT_OVERLAY_WIDTH
-
   return {
     position: 'absolute',
     left: `${renderedPos.x - width / 2}px`,
     top: `${renderedPos.y - height / 2}px`,
     width: `${width}px`,
     height: `${height}px`,
-    // Add flag to indicate scrolling should be enabled
-    '--enable-scroll': exceedsMaxWidth ? '1' : '0',
   }
 }
 
@@ -2808,6 +2797,9 @@ const saveGraph = async () => {
     console.log('Updated nodes:', updatedNodes.length)
     console.log('Updated edges:', updatedEdges.length)
 
+    // Fetch current chat session count before saving
+    const chatSessionCount = await fetchChatSessionCount(graphStore.currentGraphId, userStore)
+
     // Preserve metadata - version will be incremented by backend
     const preservedMetadata = {
       ...existingMetadata,
@@ -2818,6 +2810,7 @@ const saveGraph = async () => {
       metaArea: existingMetadata.metaArea || '',
       createdAt: existingMetadata.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      chatSessionCount: chatSessionCount,
     }
 
     // Use saveGraphWithHistory endpoint (like GNewViewer) to properly save with version history
@@ -4439,12 +4432,9 @@ onUnmounted(() => {
 
 .node-html-overlay :deep(.gnew-default-node) {
   width: 100%;
-  max-width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
-  overflow-y: auto;
-  box-sizing: border-box;
 }
 
 .node-html-overlay :deep(.gnew-video-node) {
@@ -4456,39 +4446,7 @@ onUnmounted(() => {
 
 .node-html-overlay :deep(.node-content) {
   max-height: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-/* Scrollbar styling for fulltext nodes when zoomed in */
-.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar,
-.node-html-overlay :deep(.node-content)::-webkit-scrollbar {
-  width: 8px;
-}
-
-.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-track,
-.node-html-overlay :deep(.node-content)::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-thumb,
-.node-html-overlay :deep(.node-content)::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.node-html-overlay :deep(.gnew-default-node)::-webkit-scrollbar-thumb:hover,
-.node-html-overlay :deep(.node-content)::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
-}
-
-/* Ensure tables don't expand beyond the node boundary */
-.node-html-overlay :deep(.node-content table) {
-  max-width: 100%;
-  table-layout: fixed;
-  word-wrap: break-word;
+  overflow: hidden;
 }
 
 .node-html-overlay.is-selected :deep(.node-content) {

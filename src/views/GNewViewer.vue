@@ -2263,6 +2263,7 @@ import { Modal } from 'bootstrap'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useBranding } from '@/composables/useBranding'
+import { fetchChatSessionCount } from '@/composables/useChatSessions'
 import GNewImageQuote from '@/components/GNewImageQuote.vue'
 import AIImageModal from '@/components/AIImageModal.vue'
 import ImageSelector from '@/components/ImageSelector.vue'
@@ -2328,6 +2329,15 @@ const getApiEndpoint = (endpoint) => {
 
 // Reactive data
 const graphData = ref({ nodes: [], edges: [] })
+
+// Helper to update chat session count in graphData before saving
+const updateChatSessionCountBeforeSave = async () => {
+  if (graphData.value?.metadata && knowledgeGraphStore.currentGraphId) {
+    const count = await fetchChatSessionCount(knowledgeGraphStore.currentGraphId, userStore)
+    graphData.value.metadata.chatSessionCount = count
+    console.log(`📊 Updated chatSessionCount to ${count} before save`)
+  }
+}
 
 const loading = ref(false)
 const error = ref(null)
@@ -6689,6 +6699,9 @@ const fetchUnsplashImage = async (query) => {
 const saveGraphAfterOperation = async (nodeCount) => {
   try {
     console.log(`💾 Saving graph with ${nodeCount} updated nodes...`)
+
+    // Update chat session count before saving
+    await updateChatSessionCountBeforeSave()
 
     const response = await fetch(
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),

@@ -951,6 +951,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useUserStore } from '@/stores/userStore'
 import { useContentFilter } from '@/composables/useContentFilter'
+import { fetchChatSessionCount, deleteChatSessionsByGraph } from '@/composables/useChatSessions'
 import { Modal } from 'bootstrap'
 import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
@@ -1041,35 +1042,6 @@ const checkVectorizationStatus = async (graphIds) => {
 }
 
 
-// Fetch live chat session counts from chat-history-worker
-const CHAT_HISTORY_BASE_URL = 'https://api.vegvisr.org/chat-history'
-
-const fetchChatSessionCounts = async (graphIds) => {
-  if (!userStore.loggedIn || !userStore.user_id || graphIds.length === 0) {
-    return {}
-  }
-
-  try {
-    const response = await fetch(`${CHAT_HISTORY_BASE_URL}/session-counts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': userStore.user_id,
-        'x-user-email': userStore.email || 'anonymous@vegvisr.org',
-        'x-user-role': userStore.role || 'User',
-      },
-      body: JSON.stringify({ graphIds }),
-    })
-
-    if (response.ok) {
-      const data = await response.json()
-      return data.counts || {}
-    }
-  } catch (err) {
-    console.error('Failed to fetch chat session counts:', err)
-  }
-  return {}
-}
 
 // Check affiliate ambassador status for multiple graphs
 const checkAmbassadorStatus = async (graphIds) => {
@@ -1317,12 +1289,9 @@ const fetchGraphs = async () => {
           }
         })
 
-        // Fetch live chat session counts from chat-history-worker
-        // This is more reliable than reading from metadata cache
-        const chatSessionCounts = await fetchChatSessionCounts(graphIds)
+        // Read chat session count from metadata (synced by chat-history-worker)
         graphs.value.forEach((graph) => {
-          // Use live count if available, fallback to metadata cache
-          graph.chatSessionCount = chatSessionCounts[graph.id] ?? graph.metadata?.chatSessionCount ?? 0
+          graph.chatSessionCount = graph.metadata?.chatSessionCount || 0
         })
 
         // Filter by publication state based on user role (NEW)
@@ -1587,8 +1556,13 @@ const saveEdit = async (originalGraph) => {
     // Get the current version from the latest graph data
     const currentVersion = existingMetadata.version || 1
 
+    // Fetch current chat session count before saving
+    const chatSessionCount = await fetchChatSessionCount(originalGraph.id, userStore)
+    console.log(`📊 Fetched chatSessionCount: ${chatSessionCount} for graph ${originalGraph.id}`)
+
     // Build safe metadata with explicit defaults
     const preservedMetadata = {
+      chatSessionCount: chatSessionCount,
       title: existingMetadata.title || 'Untitled Graph',
       description: existingMetadata.description || '',
       createdBy: existingMetadata.createdBy || 'Unknown',
@@ -1772,6 +1746,9 @@ const confirmDelete = async (graph) => {
 
       // Remove the graph from the local array
       graphs.value = graphs.value.filter((g) => g.id !== graph.id)
+
+      // Delete associated chat sessions
+      await deleteChatSessionsByGraph(graph.id, userStore)
 
       // Show success message
       error.value = null // Clear any existing error
