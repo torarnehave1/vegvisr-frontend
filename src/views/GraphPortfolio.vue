@@ -1562,26 +1562,25 @@ const saveEdit = async (originalGraph) => {
 
     // Build safe metadata with explicit defaults
     const preservedMetadata = {
-      chatSessionCount: chatSessionCount,
       title: existingMetadata.title || 'Untitled Graph',
       description: existingMetadata.description || '',
       createdBy: existingMetadata.createdBy || 'Unknown',
       category: existingMetadata.category || '',
       metaArea: existingMetadata.metaArea || '',
       createdAt: existingMetadata.createdAt || new Date().toISOString(),
-      // Preserve any other existing fields (excluding version and updatedAt)
+      // Preserve any other existing fields (excluding version, updatedAt, and chatSessionCount)
       ...Object.fromEntries(
-        Object.entries(existingMetadata).filter(([key]) => !['version', 'updatedAt'].includes(key)),
+        Object.entries(existingMetadata).filter(([key]) => !['version', 'updatedAt', 'chatSessionCount'].includes(key)),
       ),
-      // Apply user edits BUT exclude version and updatedAt (let backend handle these)
+      // Apply user edits BUT exclude version, updatedAt, and chatSessionCount (let us handle these)
       ...Object.fromEntries(
         Object.entries(editingGraph.value.metadata).filter(
-          ([key]) => !['version', 'updatedAt'].includes(key),
+          ([key]) => !['version', 'updatedAt', 'chatSessionCount'].includes(key),
         ),
       ),
-      // Set version LAST to ensure it's not overwritten by spreads above
+      // Set version and chatSessionCount LAST to ensure they're not overwritten by spreads above
       version: currentVersion, // Use the current version from latest fetch
-      // Let backend handle version control and timestamps entirely
+      chatSessionCount: chatSessionCount, // Always use the freshly fetched count
     }
 
     // Use saveGraphWithHistory to ensure metadata updates create new versions
@@ -1614,10 +1613,12 @@ const saveEdit = async (originalGraph) => {
       if (index !== -1) {
         graphs.value[index] = {
           ...originalGraph,
+          chatSessionCount: chatSessionCount, // Update top-level chatSessionCount for template
           metadata: {
             ...editingGraph.value.metadata,
             version: newVersion,
             updatedAt: new Date().toISOString(),
+            chatSessionCount: chatSessionCount, // Also update in metadata
           },
         }
       }

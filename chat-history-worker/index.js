@@ -10,7 +10,7 @@ const CORS_HEADERS = {
 let schemaBootstrapped = false
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS })
     }
@@ -31,7 +31,7 @@ export default {
       const user = getUserContext(request)
 
       if (pathname === '/sessions' && request.method === 'POST') {
-        return await handleUpsertSession(request, env, user)
+        return await handleUpsertSession(request, env, user, ctx)
       }
 
       if (pathname === '/sessions' && request.method === 'GET') {
@@ -45,7 +45,7 @@ export default {
 
       if (pathname.startsWith('/sessions/') && request.method === 'DELETE') {
         const sessionId = pathname.split('/sessions/')[1]
-        return await handleDeleteSession(sessionId, env, user)
+        return await handleDeleteSession(sessionId, env, user, ctx)
       }
 
       if (pathname === '/messages' && request.method === 'POST') {
@@ -82,7 +82,7 @@ export default {
   }
 }
 
-async function handleUpsertSession(request, env, user) {
+async function handleUpsertSession(request, env, user, ctx) {
   requireUser(user)
   const body = await parseJSON(request)
   const graphId = body.graphId || null
@@ -110,11 +110,14 @@ async function handleUpsertSession(request, env, user) {
     .bind(sessionId, user.userId)
     .first()
 
-  // Sync chat session count to Knowledge Graph metadata (non-blocking)
-  if (graphId) {
-    syncChatSessionCountToGraph(graphId, env).catch(err => {
-      console.error('Failed to sync chat session count:', err)
-    })
+  // Sync chat session count to Knowledge Graph metadata
+  // Use waitUntil to keep worker alive until sync completes
+  if (graphId && ctx) {
+    ctx.waitUntil(
+      syncChatSessionCountToGraph(graphId, env).catch(err => {
+        console.error('Failed to sync chat session count:', err)
+      })
+    )
   }
 
   return jsonResponse({ session: normalizeSession(session) }, 201)
@@ -154,7 +157,7 @@ async function handleGetSession(sessionId, env, user) {
   return jsonResponse({ session: normalizeSession(session) })
 }
 
-async function handleDeleteSession(sessionId, env, user) {
+async function handleDeleteSession(sessionId, env, user, ctx) {
   requireUser(user)
   if (!sessionId) {
     throw new Error('Session id required')
@@ -174,11 +177,14 @@ async function handleDeleteSession(sessionId, env, user) {
   await env.DB.prepare('DELETE FROM chat_messages WHERE session_id = ?').bind(sessionId).run()
   await env.DB.prepare('DELETE FROM chat_sessions WHERE id = ?').bind(sessionId).run()
 
-  // Sync chat session count to Knowledge Graph metadata (non-blocking)
-  if (graphId) {
-    syncChatSessionCountToGraph(graphId, env).catch(err => {
-      console.error('Failed to sync chat session count after delete:', err)
-    })
+  // Sync chat session count to Knowledge Graph metadata
+  // Use waitUntil to keep worker alive until sync completes
+  if (graphId && ctx) {
+    ctx.waitUntil(
+      syncChatSessionCountToGraph(graphId, env).catch(err => {
+        console.error('Failed to sync chat session count after delete:', err)
+      })
+    )
   }
 
   return jsonResponse({ success: true, sessionId })
@@ -504,6 +510,7 @@ async function handleMigrateSessionCounts(env, user) {
  */
 async function syncChatSessionCountToGraph(graphId, env) {
   if (!graphId || !env.KNOWLEDGE_GRAPH_WORKER) {
+    console.log(`[syncChatSessionCount] Skipping - graphId: ${graphId}, binding available: ${!!env.KNOWLEDGE_GRAPH_WORKER}`)
     return // No graph to sync or no binding available
   }
 
@@ -513,6 +520,7 @@ async function syncChatSessionCountToGraph(graphId, env) {
       'SELECT COUNT(*) as count FROM chat_sessions WHERE graph_id = ?'
     ).bind(graphId).first()
     const chatSessionCount = countResult?.count || 0
+    console.log(`[syncChatSessionCount] Graph ${graphId} has ${chatSessionCount} sessions`)
 
     // Fetch the current graph data
     const getResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
@@ -521,14 +529,24 @@ async function syncChatSessionCountToGraph(graphId, env) {
     )
 
     if (!getResponse.ok) {
-      console.error('Failed to fetch graph for sync:', graphId)
+      const errorText = await getResponse.text()
+      console.error(`[syncChatSessionCount] Failed to fetch graph ${graphId}: ${getResponse.status} - ${errorText}`)
       return
     }
 
     const graphData = await getResponse.json()
     if (!graphData || !graphData.metadata) {
+      console.log(`[syncChatSessionCount] Graph ${graphId} has no metadata, skipping`)
       return
     }
+
+    const oldCount = graphData.metadata.chatSessionCount || 0
+    if (oldCount === chatSessionCount) {
+      console.log(`[syncChatSessionCount] Graph ${graphId} already has correct count (${chatSessionCount}), skipping save`)
+      return
+    }
+
+    console.log(`[syncChatSessionCount] Updating graph ${graphId} chatSessionCount: ${oldCount} -> ${chatSessionCount}`)
 
     // Update metadata with new chat session count
     const updatedGraphData = {
@@ -554,10 +572,13 @@ async function syncChatSessionCountToGraph(graphId, env) {
     )
 
     if (!saveResponse.ok) {
-      console.error('Failed to sync chat session count to graph:', graphId)
+      const errorText = await saveResponse.text()
+      console.error(`[syncChatSessionCount] Failed to save graph ${graphId}: ${saveResponse.status} - ${errorText}`)
+    } else {
+      console.log(`[syncChatSessionCount] Successfully updated graph ${graphId} chatSessionCount to ${chatSessionCount}`)
     }
   } catch (error) {
-    console.error('Error syncing chat session count:', error)
+    console.error('[syncChatSessionCount] Error:', error)
   }
 }
 
