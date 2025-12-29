@@ -4427,9 +4427,11 @@ onUnmounted(() => {
 
 .node-html-overlay :deep(.gnew-default-node) {
   width: 100%;
+  max-width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .node-html-overlay :deep(.gnew-video-node) {
@@ -4441,7 +4443,15 @@ onUnmounted(() => {
 
 .node-html-overlay :deep(.node-content) {
   max-height: 100%;
+  max-width: 100%;
   overflow: hidden;
+}
+
+/* Ensure tables don't expand beyond the node boundary */
+.node-html-overlay :deep(.node-content table) {
+  max-width: 100%;
+  table-layout: fixed;
+  word-wrap: break-word;
 }
 
 .node-html-overlay.is-selected :deep(.node-content) {

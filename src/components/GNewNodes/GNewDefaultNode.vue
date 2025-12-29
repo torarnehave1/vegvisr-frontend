@@ -2290,6 +2290,8 @@ const convertStylesToString = (styleObj) => {
 /* Markdown table styles */
 .node-content :deep(table) {
   width: 100%;
+  max-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   margin: 15px 0;
   font-size: 0.9rem;
@@ -2297,6 +2299,14 @@ const convertStylesToString = (styleObj) => {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Table wrapper for horizontal scroll on wide tables */
+.node-content :deep(.table-wrapper) {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 15px 0;
 }
 
 .node-content :deep(table thead) {
