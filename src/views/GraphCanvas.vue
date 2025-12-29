@@ -899,6 +899,10 @@ const fontSizeOptions = [
   { label: 'XL', value: 140 },
   { label: 'XXL', value: 240 },
 ]
+
+// Clipboard for copy/paste nodes
+const copiedNodeData = ref(null)
+
 const isImageSelectorOpen = ref(false)
 const targetNodeForImage = ref(null)
 const currentImageData = ref({
@@ -2154,11 +2158,92 @@ const handleKeyDown = (event) => {
         redoAction()
       }
       break
+    case 'c':
+      if (event.ctrlKey || event.metaKey) {
+        copySelectedNode()
+      }
+      break
+    case 'v':
+      if (event.ctrlKey || event.metaKey) {
+        pasteNode()
+      }
+      break
     case 'Escape':
       if (placementMode.value || edgeMode.value) {
         cancelInteractionModes()
       }
       break
+  }
+}
+
+// Copy selected node to clipboard
+const copySelectedNode = () => {
+  if (!cyInstance.value) return
+
+  const selectedNodes = cyInstance.value.$('node:selected')
+  if (selectedNodes.length === 0) {
+    showStatus('No node selected to copy', 'warning')
+    return
+  }
+
+  // Copy the first selected node
+  const node = selectedNodes[0]
+  const nodeData = node.data()
+  const position = node.position()
+
+  copiedNodeData.value = {
+    ...nodeData,
+    position: { ...position }
+  }
+
+  showStatus(`Copied node: ${nodeData.label || nodeData.id}`, 'success')
+}
+
+// Paste copied node at offset position
+const pasteNode = async () => {
+  if (!cyInstance.value || !copiedNodeData.value) {
+    showStatus('Nothing to paste', 'warning')
+    return
+  }
+
+  const newId = generateUUID()
+  const offset = 50 // Offset from original position
+
+  const newNodeData = {
+    ...copiedNodeData.value,
+    id: newId,
+  }
+  delete newNodeData.position // Remove position from data
+
+  const newPosition = {
+    x: copiedNodeData.value.position.x + offset,
+    y: copiedNodeData.value.position.y + offset,
+  }
+
+  try {
+    cyInstance.value.add({
+      group: 'nodes',
+      data: newNodeData,
+      position: newPosition,
+    })
+
+    // Select the new node
+    cyInstance.value.$('node:selected').unselect()
+    cyInstance.value.$(`#${newId}`).select()
+
+    // Update copied position for next paste
+    copiedNodeData.value.position = newPosition
+
+    showStatus('Saving pasted node...', 'info')
+    await saveGraph()
+    showStatus('Node pasted successfully', 'success')
+  } catch (error) {
+    console.error('Failed to paste node:', error)
+    showStatus('Unable to paste node. Please try again.', 'error')
+    const created = cyInstance.value.$(`#${newId}`)
+    if (created) {
+      created.remove()
+    }
   }
 }
 
