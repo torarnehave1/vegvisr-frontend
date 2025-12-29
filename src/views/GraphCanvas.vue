@@ -616,35 +616,14 @@
       @image-replaced="handleBackgroundImageSelected"
     />
 
-    <!-- Node Info Modal -->
-    <div v-if="showInfoModal" class="modal-overlay">
-      <div class="info-modal" @click.stop>
-        <div class="modal-header">
-          <h5>Edit Node Info</h5>
-          <button @click="closeInfoModal" class="btn-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <label class="form-label">Node Label:</label>
-          <input
-            v-model="editingNodeLabel"
-            type="text"
-            class="form-control mb-3"
-            placeholder="Node label"
-          />
-          <label class="form-label">Node Info Content:</label>
-          <textarea
-            v-model="editingNodeInfo"
-            class="form-control info-textarea"
-            rows="15"
-            placeholder="Enter node information..."
-          ></textarea>
-        </div>
-        <div class="modal-footer">
-          <button @click="closeInfoModal" class="btn btn-secondary">Cancel</button>
-          <button @click="saveNodeInfo" class="btn btn-primary">Save Changes</button>
-        </div>
-      </div>
-    </div>
+    <!-- Node Edit Modal (reusable component) -->
+    <NodeEditModal
+      :show="showInfoModal"
+      :node="editingNodeData"
+      :saving="savingNodeInfo"
+      @close="closeInfoModal"
+      @save="handleNodeSave"
+    />
 
     <!-- YouTube Player Modal -->
     <div v-if="showYoutubeModal" class="youtube-modal-overlay">
@@ -786,6 +765,7 @@ import ImageSelector from '@/components/ImageSelector.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewVideoNode from '@/components/GNewNodes/GNewVideoNode.vue'
+import NodeEditModal from '@/components/NodeEditModal.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
 // Initialize undo-redo plugin
@@ -901,9 +881,9 @@ const currentImageData = ref({
   nodeContent: '',
 })
 const showInfoModal = ref(false)
-const editingNodeInfo = ref('')
-const editingNodeLabel = ref('')
+const editingNodeData = ref({})
 const editingNode = ref(null)
+const savingNodeInfo = ref(false)
 const canAddNodes = computed(() => Boolean(graphStore.currentGraphId))
 const filteredImportGraphs = computed(() => {
   if (!importSearchQuery.value.trim()) {
@@ -2556,8 +2536,15 @@ const openInfoModal = () => {
   if (!node) return
 
   editingNode.value = node
-  editingNodeLabel.value = node.data('label') || ''
-  editingNodeInfo.value = node.data('info') || ''
+  // Prepare node data for the modal component
+  editingNodeData.value = {
+    id: node.id(),
+    label: node.data('label') || '',
+    info: node.data('info') || '',
+    type: node.data('type') || 'default',
+    color: node.data('color') || '#f8f9fa',
+    path: node.data('path') || ''
+  }
   contextMenu.value.show = false
   showInfoModal.value = true
 }
@@ -2565,26 +2552,37 @@ const openInfoModal = () => {
 const closeInfoModal = () => {
   showInfoModal.value = false
   editingNode.value = null
-  editingNodeLabel.value = ''
-  editingNodeInfo.value = ''
+  editingNodeData.value = {}
+  savingNodeInfo.value = false
 }
 
-const saveNodeInfo = async () => {
+// Handle save from NodeEditModal component
+const handleNodeSave = async (nodeData) => {
   if (!editingNode.value) return
 
+  savingNodeInfo.value = true
   const node = editingNode.value
 
-  // Update label if changed
-  if (editingNodeLabel.value.trim()) {
-    node.data('label', editingNodeLabel.value.trim())
+  try {
+    // Update node data
+    if (nodeData.label && nodeData.label.trim()) {
+      node.data('label', nodeData.label.trim())
+    }
+    node.data('info', nodeData.info || '')
+    node.data('color', nodeData.color || '#f8f9fa')
+    if (nodeData.path) {
+      node.data('path', nodeData.path)
+    }
+
+    await saveGraph()
+    showStatus('Node info updated', 'success')
+    closeInfoModal()
+  } catch (error) {
+    console.error('Error saving node:', error)
+    showStatus('Failed to save node', 'danger')
+  } finally {
+    savingNodeInfo.value = false
   }
-
-  // Update info
-  node.data('info', editingNodeInfo.value)
-
-  await saveGraph()
-  showStatus('Node info updated', 'success')
-  closeInfoModal()
 }
 
 const openYoutubeModal = (nodeData) => {
