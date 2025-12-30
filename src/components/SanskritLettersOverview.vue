@@ -99,29 +99,33 @@
       <section class="sanskrit-overview__section">
         <div class="sanskrit-overview__section-header">
           <h3>Consonants</h3>
-          <span class="sanskrit-overview__count">{{ consonants.length }}</span>
+          <span class="sanskrit-overview__count">{{ consonantsByVarga.length }}</span>
         </div>
-        <div class="sanskrit-overview__grid">
-          <div
-            v-for="letter in consonants"
-            :key="letter.id"
-            class="sanskrit-overview__card"
-            :class="{ 'sanskrit-overview__card--has-audio': hasAudio(letter) }"
-            role="button"
-            tabindex="0"
-            @click="playLetter(letter)"
-            @keydown.enter.prevent="playLetter(letter)"
-          >
-            <div v-if="showDevanagari" class="sanskrit-overview__devanagari">
-              {{ letter.devanagari }}
+        <div class="sanskrit-overview__varga-container">
+          <template v-for="(letter, index) in consonantsByVarga" :key="letter.id">
+            <!-- Varga label row -->
+            <div v-if="getVargaName(index)" class="sanskrit-overview__varga-label">
+              {{ getVargaName(index) }}
             </div>
-            <div v-if="showRomanization" class="sanskrit-overview__romanization">
-              {{ letter.romanization }}
+            <div
+              class="sanskrit-overview__card"
+              :class="{ 'sanskrit-overview__card--has-audio': hasAudio(letter) }"
+              role="button"
+              tabindex="0"
+              @click="playLetter(letter)"
+              @keydown.enter.prevent="playLetter(letter)"
+            >
+              <div v-if="showDevanagari" class="sanskrit-overview__devanagari">
+                {{ letter.devanagari }}
+              </div>
+              <div v-if="showRomanization" class="sanskrit-overview__romanization">
+                {{ letter.romanization }}
+              </div>
+              <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
+              <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
+              <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
             </div>
-            <div class="sanskrit-overview__difficulty">Level {{ letter.difficulty_level }}</div>
-            <div v-if="hasAudio(letter)" class="sanskrit-overview__audio-indicator">🔊</div>
-            <div v-if="hasAudio(letter)" class="sanskrit-overview__play-hint">Click to play</div>
-          </div>
+          </template>
         </div>
       </section>
     </div>
@@ -163,6 +167,63 @@ export default {
     const consonants = computed(() =>
       sortById(store.sanskritLetters.filter((l) => l.category === 'consonant')),
     );
+
+    // Traditional Sanskrit varga order for consonants (5x5 arrangement)
+    const vargaOrder = [
+      // Kavarga (gutturals)
+      'ka', 'kha', 'ga', 'gha', 'ṅa',
+      // Cavarga (palatals)
+      'ca', 'cha', 'ja', 'jha', 'ña',
+      // Ṭavarga (retroflexes)
+      'ṭa', 'ṭha', 'ḍa', 'ḍha', 'ṇa',
+      // Tavarga (dentals)
+      'ta', 'tha', 'da', 'dha', 'na',
+      // Pavarga (labials)
+      'pa', 'pha', 'ba', 'bha', 'ma',
+      // Antastha (semivowels)
+      'ya', 'ra', 'la', 'va',
+      // Ūṣman (sibilants and aspirate)
+      'śa', 'ṣa', 'sa', 'ha',
+    ];
+
+    // Group consonants by varga (5 per row for the main 25, then others)
+    const consonantsByVarga = computed(() => {
+      const allConsonants = consonants.value;
+      const ordered = [];
+      const used = new Set();
+
+      // First, add consonants in varga order
+      vargaOrder.forEach((roman) => {
+        const match = allConsonants.find(
+          (c) => c.romanization?.toLowerCase() === roman.toLowerCase()
+        );
+        if (match) {
+          ordered.push(match);
+          used.add(match.id);
+        }
+      });
+
+      // Add any remaining consonants not in the standard order
+      allConsonants.forEach((c) => {
+        if (!used.has(c.id)) {
+          ordered.push(c);
+        }
+      });
+
+      return ordered;
+    });
+
+    // Get varga name for display
+    const getVargaName = (index) => {
+      if (index === 0) return 'Kavarga (Gutturals)';
+      if (index === 5) return 'Cavarga (Palatals)';
+      if (index === 10) return 'Ṭavarga (Retroflexes)';
+      if (index === 15) return 'Tavarga (Dentals)';
+      if (index === 20) return 'Pavarga (Labials)';
+      if (index === 25) return 'Antastha (Semivowels)';
+      if (index === 29) return 'Ūṣman (Sibilants)';
+      return null;
+    };
     const buildSlug = (value) => {
       return String(value || '')
         .toLowerCase()
@@ -281,6 +342,8 @@ export default {
       vowels,
       finalSounds,
       consonants,
+      consonantsByVarga,
+      getVargaName,
       playbackError,
       hasAudio,
       playLetter,
@@ -397,6 +460,50 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
+}
+
+.sanskrit-overview__varga-container {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.sanskrit-overview__varga-label {
+  grid-column: 1 / -1;
+  font-weight: 600;
+  color: #2e7d32;
+  padding: 12px 0 6px 0;
+  border-bottom: 2px solid #e8f5e9;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.sanskrit-overview__varga-label:first-child {
+  padding-top: 0;
+}
+
+@media (max-width: 700px) {
+  .sanskrit-overview__varga-container {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+
+  .sanskrit-overview__varga-container .sanskrit-overview__card {
+    padding: 8px 4px;
+  }
+
+  .sanskrit-overview__varga-container .sanskrit-overview__devanagari {
+    font-size: 24px;
+  }
+
+  .sanskrit-overview__varga-container .sanskrit-overview__romanization {
+    font-size: 12px;
+  }
+
+  .sanskrit-overview__varga-container .sanskrit-overview__difficulty,
+  .sanskrit-overview__varga-container .sanskrit-overview__play-hint {
+    display: none;
+  }
 }
 
 .sanskrit-overview__card {
