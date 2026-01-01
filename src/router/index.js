@@ -487,6 +487,12 @@ const router = createRouter({
       name: 'mystmkra-documents',
       component: () => import('../views/MystMkraDocuments.vue'),
     },
+    {
+      path: '/downloads',
+      name: 'downloads',
+      component: () => import('../views/DownloadsView.vue'),
+      meta: { layout: null },
+    },
   ],
 })
 

@@ -63,12 +63,38 @@ export default {
       return handleVerifyCode(request, env)
     }
 
+    // Knowledge Graph endpoints (proxies to Knowledge Graph Worker)
+    if (url.pathname === '/api/save-graph' && request.method === 'POST') {
+      return handleSaveGraph(request, env)
+    }
+
+    if (url.pathname === '/api/my-graphs' && request.method === 'POST') {
+      return handleMyGraphs(request, env)
+    }
+
+    if (url.pathname === '/api/delete-graph' && request.method === 'POST') {
+      return handleDeleteGraph(request, env)
+    }
+
+    if (url.pathname === '/api/get-graph' && request.method === 'POST') {
+      return handleGetGraph(request, env)
+    }
+
+    if (url.pathname === '/api/update-graph' && request.method === 'POST') {
+      return handleUpdateGraph(request, env)
+    }
+
+    if (url.pathname === '/docs.json' || url.pathname === '/openapi.json') {
+      return jsonResponse(getOpenAPISpec(url))
+    }
+
     if (url.pathname === '/' || url.pathname === '/api') {
       return jsonResponse({
         success: true,
         message: 'SMS Gateway Worker - ClickSend',
         version: '3.1.0',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        docs: `${url.origin}/docs.json`
       })
     }
 
@@ -668,15 +694,15 @@ async function handleVerifyCode(request, env) {
       return jsonResponse({ error: 'A 6-digit code is required' }, 400)
     }
 
-    // Lookup user
+    // Lookup user (include user_id from config table)
     let row
     if (email) {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE email = ?'
+        'SELECT user_id, email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE email = ?'
       ).bind(email).first()
     } else {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE phone = ?'
+        'SELECT user_id, email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE phone = ?'
       ).bind(phone).first()
     }
 
@@ -705,10 +731,11 @@ async function handleVerifyCode(request, env) {
       'UPDATE config SET phone_verified_at = ?, phone_verification_code = NULL, phone_verification_expires_at = NULL WHERE email = ?'
     ).bind(now, row.email).run()
 
-    console.log(`✅ Phone verified for ${row.email}: ${row.phone}`)
+    console.log(`✅ Phone verified for ${row.email}: ${row.phone} (user_id: ${row.user_id})`)
 
     return jsonResponse({
       success: true,
+      user_id: row.user_id || null,
       email: row.email,
       phone: row.phone,
       verified_at: now
@@ -716,5 +743,1193 @@ async function handleVerifyCode(request, env) {
   } catch (error) {
     console.error('Error in /api/auth/phone/verify-code:', error)
     return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+// ===== KNOWLEDGE GRAPH SAVE (PROXY) =====
+
+/**
+ * Save content to Knowledge Graph
+ * Validates phone authentication and proxies to Knowledge Graph Worker
+ */
+async function handleSaveGraph(request, env) {
+  try {
+    const payload = await request.json()
+    const { phone, userId, title, content, youtubeUrl } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    if (!content) {
+      return jsonResponse({ error: 'Content is required' }, 400)
+    }
+
+    // Verify phone is authenticated in our database
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    // Check if service binding is available
+    if (!env.KNOWLEDGE_GRAPH_WORKER?.fetch) {
+      return jsonResponse({ error: 'Knowledge Graph service not configured' }, 500)
+    }
+
+    // Generate IDs
+    const graphId = `graph_${Date.now()}`
+    const nodeId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const userIdentifier = row.email || normalizedPhone
+
+    // Build nodes array
+    const nodes = [
+      {
+        id: nodeId,
+        color: '#4f6d7a',
+        label: title || 'Hello Vegvisr',
+        type: 'fulltext',
+        info: `${content}\n\n---\n\n*Created by: ${userIdentifier}*\n\n*Created at: ${now}*`,
+        bibl: ['https://hello.vegvisr.org'],
+        imageWidth: null,
+        imageHeight: null,
+        visible: true,
+        position: { x: 0, y: 0 },
+        path: null
+      }
+    ]
+
+    const edges = []
+
+    // Add YouTube node if URL provided
+    if (youtubeUrl) {
+      const youtubeNodeId = crypto.randomUUID()
+      nodes.push({
+        id: youtubeNodeId,
+        color: '#FF0000',
+        label: `YouTube: ${title || 'Video'}`,
+        type: 'youtube-video',
+        info: `Video attached to: ${title || 'Hello Vegvisr Document'}\n\nCreated by: ${userIdentifier}\nCreated at: ${now}`,
+        bibl: [youtubeUrl],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        position: { x: 200, y: 0 },
+        path: youtubeUrl
+      })
+
+      edges.push({
+        id: `edge_${Date.now()}`,
+        source: nodeId,
+        target: youtubeNodeId,
+        label: 'has video'
+      })
+    }
+
+    // Build graph data
+    const graphData = {
+      metadata: {
+        title: title || 'Hello Vegvisr Document',
+        description: `Markdown document created by ${userIdentifier} at ${now}${youtubeUrl ? ' (with YouTube video)' : ''}`,
+        createdBy: 'hallo-vegvisr-flutter',
+        userId: userId || null,
+        version: 0
+      },
+      nodes: nodes,
+      edges: edges
+    }
+
+    // Call Knowledge Graph Worker via service binding
+    const kgResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      'https://knowledge-graph-worker/saveGraphWithHistory',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: graphId,
+          graphData: graphData,
+          override: false
+        })
+      }
+    )
+
+    if (!kgResponse.ok) {
+      const errorText = await kgResponse.text()
+      console.error('Knowledge Graph error:', errorText)
+      return jsonResponse({ error: 'Failed to save to Knowledge Graph', details: errorText }, 500)
+    }
+
+    const graphUrl = `https://www.vegvisr.org/gnew-viewer?graphId=${graphId}`
+
+    return jsonResponse({
+      success: true,
+      graphId: graphId,
+      nodeId: nodeId,
+      graphUrl: graphUrl,
+      message: 'Document saved to Knowledge Graph'
+    })
+
+  } catch (error) {
+    console.error('Error in /api/save-graph:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * Get graphs created by the authenticated user
+ * Lists graphs filtered by the user's phone/email
+ */
+async function handleMyGraphs(request, env) {
+  try {
+    const payload = await request.json()
+    const { phone, userId } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    // Verify phone is authenticated
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    // Check if service binding is available
+    if (!env.KNOWLEDGE_GRAPH_WORKER?.fetch) {
+      return jsonResponse({ error: 'Knowledge Graph service not configured' }, 500)
+    }
+
+    // If userId is available, use efficient direct SQL query via new endpoint
+    if (userId) {
+      const kgResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+        `https://knowledge-graph-worker/getGraphsByUser?userId=${encodeURIComponent(userId)}&sourceApp=hallo-vegvisr-flutter&limit=50`,
+        { method: 'GET' }
+      )
+
+      if (kgResponse.ok) {
+        const data = await kgResponse.json()
+        if (data.success && data.graphs) {
+          console.log(`Found ${data.graphs.length} graphs for user ${userId} via direct query`)
+          return jsonResponse({
+            success: true,
+            graphs: data.graphs
+          })
+        }
+      }
+      // Fall through to legacy method if new endpoint fails
+      console.log('Direct query failed, falling back to legacy method')
+    }
+
+    // Legacy fallback: scan graphs and check metadata (for graphs created before migration)
+    const kgResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      'https://knowledge-graph-worker/getknowgraphs',
+      { method: 'GET' }
+    )
+
+    if (!kgResponse.ok) {
+      const errorText = await kgResponse.text()
+      console.error('Knowledge Graph error:', errorText)
+      return jsonResponse({ error: 'Failed to fetch graphs' }, 500)
+    }
+
+    const responseData = await kgResponse.json()
+    const allGraphs = responseData.results || responseData || []
+
+    if (!Array.isArray(allGraphs)) {
+      return jsonResponse({ success: true, graphs: [] })
+    }
+
+    // Filter graphs created by this user
+    const userIdentifier = row.email || normalizedPhone
+    const myGraphs = []
+
+    // Only check graphs with graph_ prefix (created by Flutter app)
+    const flutterGraphs = allGraphs.filter(g => g.id?.startsWith('graph_'))
+
+    // Sort by ID descending (newest first)
+    const sortedGraphs = [...flutterGraphs].sort((a, b) => {
+      const timeA = parseInt(a.id?.replace('graph_', '') || '0')
+      const timeB = parseInt(b.id?.replace('graph_', '') || '0')
+      return timeB - timeA
+    })
+
+    // Check up to 50 most recent graphs for ownership
+    const graphsToCheck = sortedGraphs.slice(0, 50)
+
+    for (const graph of graphsToCheck) {
+      try {
+        const detailResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+          `https://knowledge-graph-worker/getknowgraph?id=${encodeURIComponent(graph.id)}`,
+          { method: 'GET' }
+        )
+
+        if (detailResponse.ok) {
+          const graphData = await detailResponse.json()
+          const createdBy = graphData.metadata?.createdBy || ''
+          const graphUserId = graphData.metadata?.userId || ''
+          const description = graphData.metadata?.description || ''
+
+          // Check ownership: prefer userId match, fallback to description match
+          const isOwner = (userId && graphUserId === userId) ||
+                          (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
+
+          if (isOwner) {
+            myGraphs.push({
+              id: graph.id,
+              title: graphData.metadata?.title || graph.title || 'Untitled',
+              description: description,
+              createdAt: graph.id ? new Date(parseInt(graph.id.replace('graph_', ''))).toISOString() : null
+            })
+          }
+        }
+      } catch (e) {
+        console.error(`Error fetching graph ${graph.id}:`, e)
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      graphs: myGraphs
+    })
+
+  } catch (error) {
+    console.error('Error in /api/my-graphs:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * Delete a graph created by the authenticated user
+ */
+async function handleDeleteGraph(request, env) {
+  try {
+    const payload = await request.json()
+    const { phone, userId, graphId } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    if (!graphId) {
+      return jsonResponse({ error: 'Graph ID is required' }, 400)
+    }
+
+    // Verify phone is authenticated
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    // Check if service binding is available
+    if (!env.KNOWLEDGE_GRAPH_WORKER?.fetch) {
+      return jsonResponse({ error: 'Knowledge Graph service not configured' }, 500)
+    }
+
+    // First, verify the user owns this graph
+    const getResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      `https://knowledge-graph-worker/getknowgraph?id=${encodeURIComponent(graphId)}`,
+      { method: 'GET' }
+    )
+
+    if (!getResponse.ok) {
+      return jsonResponse({ error: 'Graph not found' }, 404)
+    }
+
+    const graph = await getResponse.json()
+    const userIdentifier = row.email || normalizedPhone
+    const createdBy = graph.metadata?.createdBy || ''
+    const graphUserId = graph.metadata?.userId || ''
+    const description = graph.metadata?.description || ''
+
+    // Check ownership: prefer userId match, fallback to description match
+    const isOwner = (userId && graphUserId === userId) ||
+                    (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
+
+    if (!isOwner) {
+      return jsonResponse({ error: 'You can only delete graphs you created' }, 403)
+    }
+
+    // Delete the graph
+    const deleteResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      'https://knowledge-graph-worker/deleteknowgraph',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: graphId })
+      }
+    )
+
+    if (!deleteResponse.ok) {
+      const errorText = await deleteResponse.text()
+      console.error('Delete error:', errorText)
+      return jsonResponse({ error: 'Failed to delete graph' }, 500)
+    }
+
+    return jsonResponse({
+      success: true,
+      message: 'Graph deleted successfully'
+    })
+
+  } catch (error) {
+    console.error('Error in /api/delete-graph:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * Get a single graph's content for editing
+ * Returns the graph data including nodes content
+ */
+async function handleGetGraph(request, env) {
+  try {
+    const payload = await request.json()
+    const { phone, userId, graphId } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    if (!graphId) {
+      return jsonResponse({ error: 'Graph ID is required' }, 400)
+    }
+
+    // Verify phone is authenticated
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    // Check if service binding is available
+    if (!env.KNOWLEDGE_GRAPH_WORKER?.fetch) {
+      return jsonResponse({ error: 'Knowledge Graph service not configured' }, 500)
+    }
+
+    // Fetch the graph
+    const getResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      `https://knowledge-graph-worker/getknowgraph?id=${encodeURIComponent(graphId)}`,
+      { method: 'GET' }
+    )
+
+    if (!getResponse.ok) {
+      return jsonResponse({ error: 'Graph not found' }, 404)
+    }
+
+    const graph = await getResponse.json()
+    const userIdentifier = row.email || normalizedPhone
+    const createdBy = graph.metadata?.createdBy || ''
+    const graphUserId = graph.metadata?.userId || ''
+    const description = graph.metadata?.description || ''
+
+    // Check ownership
+    const isOwner = (userId && graphUserId === userId) ||
+                    (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
+
+    if (!isOwner) {
+      return jsonResponse({ error: 'You can only view graphs you created' }, 403)
+    }
+
+    // Extract content from first fulltext node
+    const fulltextNode = graph.nodes?.find(n => n.type === 'fulltext')
+    const content = fulltextNode?.info || ''
+
+    // Extract YouTube URL from youtube-video node if exists
+    const youtubeNode = graph.nodes?.find(n => n.type === 'youtube-video')
+    const youtubeUrl = youtubeNode?.path || youtubeNode?.bibl?.[0] || null
+
+    return jsonResponse({
+      success: true,
+      graph: {
+        id: graphId,
+        title: graph.metadata?.title || 'Untitled',
+        content: content,
+        youtubeUrl: youtubeUrl,
+        version: graph.metadata?.version || 0,
+        createdAt: graph.created_date,
+        updatedAt: graph.updated_at
+      }
+    })
+
+  } catch (error) {
+    console.error('Error in /api/get-graph:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * Update an existing graph
+ * Preserves the graph ID and updates content
+ */
+async function handleUpdateGraph(request, env) {
+  try {
+    const payload = await request.json()
+    const { phone, userId, graphId, title, content, youtubeUrl } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    if (!graphId) {
+      return jsonResponse({ error: 'Graph ID is required' }, 400)
+    }
+
+    if (!content) {
+      return jsonResponse({ error: 'Content is required' }, 400)
+    }
+
+    // Verify phone is authenticated
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    // Check if service binding is available
+    if (!env.KNOWLEDGE_GRAPH_WORKER?.fetch) {
+      return jsonResponse({ error: 'Knowledge Graph service not configured' }, 500)
+    }
+
+    // First, verify the user owns this graph
+    const getResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      `https://knowledge-graph-worker/getknowgraph?id=${encodeURIComponent(graphId)}`,
+      { method: 'GET' }
+    )
+
+    if (!getResponse.ok) {
+      return jsonResponse({ error: 'Graph not found' }, 404)
+    }
+
+    const existingGraph = await getResponse.json()
+    const userIdentifier = row.email || normalizedPhone
+    const createdBy = existingGraph.metadata?.createdBy || ''
+    const graphUserId = existingGraph.metadata?.userId || ''
+    const description = existingGraph.metadata?.description || ''
+
+    // Check ownership
+    const isOwner = (userId && graphUserId === userId) ||
+                    (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
+
+    if (!isOwner) {
+      return jsonResponse({ error: 'You can only edit graphs you created' }, 403)
+    }
+
+    const now = new Date().toISOString()
+
+    // Find existing node IDs to preserve them
+    const existingFulltextNode = existingGraph.nodes?.find(n => n.type === 'fulltext')
+    const existingYoutubeNode = existingGraph.nodes?.find(n => n.type === 'youtube-video')
+
+    // Build updated nodes
+    const nodes = [
+      {
+        id: existingFulltextNode?.id || crypto.randomUUID(),
+        color: '#4f6d7a',
+        label: title || 'Hello Vegvisr',
+        type: 'fulltext',
+        info: `${content}\n\n---\n\n*Created by: ${userIdentifier}*\n\n*Updated at: ${now}*`,
+        bibl: existingFulltextNode?.bibl || ['https://hello.vegvisr.org'],
+        imageWidth: null,
+        imageHeight: null,
+        visible: true,
+        position: existingFulltextNode?.position || { x: 0, y: 0 },
+        path: null
+      }
+    ]
+
+    const edges = []
+
+    // Handle YouTube node
+    if (youtubeUrl) {
+      const youtubeNodeId = existingYoutubeNode?.id || crypto.randomUUID()
+      nodes.push({
+        id: youtubeNodeId,
+        color: '#FF0000',
+        label: `YouTube: ${title || 'Video'}`,
+        type: 'youtube-video',
+        info: `Video attached to: ${title || 'Hello Vegvisr Document'}\n\nUpdated at: ${now}`,
+        bibl: [youtubeUrl],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        position: existingYoutubeNode?.position || { x: 200, y: 0 },
+        path: youtubeUrl
+      })
+
+      edges.push({
+        id: `edge_${Date.now()}`,
+        source: nodes[0].id,
+        target: youtubeNodeId,
+        label: 'has video'
+      })
+    }
+
+    // Build updated graph data
+    const graphData = {
+      metadata: {
+        title: title || existingGraph.metadata?.title || 'Hello Vegvisr Document',
+        description: `Markdown document updated by ${userIdentifier} at ${now}${youtubeUrl ? ' (with YouTube video)' : ''}`,
+        createdBy: 'hallo-vegvisr-flutter',
+        userId: userId || existingGraph.metadata?.userId || null,
+        version: existingGraph.metadata?.version || 0
+      },
+      nodes: nodes,
+      edges: edges
+    }
+
+    // Save with override to bypass version check
+    const kgResponse = await env.KNOWLEDGE_GRAPH_WORKER.fetch(
+      'https://knowledge-graph-worker/saveGraphWithHistory',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: graphId,
+          graphData: graphData,
+          override: true
+        })
+      }
+    )
+
+    if (!kgResponse.ok) {
+      const errorText = await kgResponse.text()
+      console.error('Knowledge Graph error:', errorText)
+      return jsonResponse({ error: 'Failed to update graph', details: errorText }, 500)
+    }
+
+    const result = await kgResponse.json()
+
+    return jsonResponse({
+      success: true,
+      graphId: graphId,
+      newVersion: result.newVersion,
+      message: 'Graph updated successfully'
+    })
+
+  } catch (error) {
+    console.error('Error in /api/update-graph:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+// ===== OPENAPI SPECIFICATION =====
+
+function getOpenAPISpec(url) {
+  return {
+    openapi: '3.0.3',
+    info: {
+      title: 'SMS Gateway Worker API',
+      description: 'SMS Gateway Worker using ClickSend for sending SMS messages. Supports Norwegian phone numbers (+47) only.',
+      version: '3.1.0',
+      contact: {
+        name: 'Vegvisr',
+        url: 'https://vegvisr.org'
+      }
+    },
+    servers: [
+      {
+        url: url.origin,
+        description: 'Current server'
+      }
+    ],
+    paths: {
+      '/': {
+        get: {
+          summary: 'Health check',
+          description: 'Returns service status and version information',
+          operationId: 'healthCheck',
+          tags: ['Health'],
+          responses: {
+            '200': {
+              description: 'Service is running',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string', example: 'SMS Gateway Worker - ClickSend' },
+                      version: { type: 'string', example: '3.1.0' },
+                      timestamp: { type: 'string', format: 'date-time' },
+                      docs: { type: 'string', format: 'uri' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/sms': {
+        post: {
+          summary: 'Send SMS',
+          description: 'Send SMS message to one or more Norwegian phone numbers via ClickSend',
+          operationId: 'sendSMS',
+          tags: ['SMS'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['message'],
+                  properties: {
+                    to: {
+                      oneOf: [
+                        { type: 'string', description: 'Single phone number' },
+                        { type: 'array', items: { type: 'string' }, description: 'Array of phone numbers' }
+                      ],
+                      description: 'Recipient phone number(s). Norwegian numbers only (+47).'
+                    },
+                    recipients: {
+                      type: 'array',
+                      items: {
+                        oneOf: [
+                          { type: 'string' },
+                          {
+                            type: 'object',
+                            properties: {
+                              msisdn: { type: 'string' },
+                              phone: { type: 'string' },
+                              to: { type: 'string' },
+                              number: { type: 'string' }
+                            }
+                          }
+                        ]
+                      },
+                      description: 'Alternative to "to" field. Array of recipients.'
+                    },
+                    message: { type: 'string', description: 'SMS message content' },
+                    sender: { type: 'string', maxLength: 11, description: 'Sender ID (max 11 characters)' }
+                  }
+                },
+                example: {
+                  to: '+4712345678',
+                  message: 'Hello from Vegvisr!',
+                  sender: 'Vegvisr'
+                }
+              }
+            }
+          },
+          responses: {
+            '200': {
+              description: 'SMS sent successfully',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/SMSResponse' }
+                }
+              }
+            },
+            '400': {
+              description: 'Bad request',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' }
+                }
+              }
+            },
+            '500': {
+              description: 'Server error',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/sms/history': {
+        get: {
+          summary: 'Get SMS history',
+          description: 'Retrieve SMS sending history from ClickSend',
+          operationId: 'getSMSHistory',
+          tags: ['SMS'],
+          parameters: [
+            {
+              name: 'page',
+              in: 'query',
+              schema: { type: 'string', default: '1' },
+              description: 'Page number'
+            },
+            {
+              name: 'status',
+              in: 'query',
+              schema: { type: 'string', default: 'all' },
+              description: 'Filter by status'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'SMS history retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { type: 'object' },
+                      http_code: { type: 'integer' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/lists': {
+        get: {
+          summary: 'Get recipient lists',
+          description: 'Get all recipient lists for a user',
+          operationId: 'getLists',
+          tags: ['Recipient Lists'],
+          parameters: [
+            {
+              name: 'userEmail',
+              in: 'query',
+              required: true,
+              schema: { type: 'string', format: 'email' },
+              description: 'User email address'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'Lists retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      lists: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/RecipientList' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create recipient list',
+          description: 'Create a new recipient list',
+          operationId: 'createList',
+          tags: ['Recipient Lists'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['userEmail', 'userId', 'name'],
+                  properties: {
+                    userEmail: { type: 'string', format: 'email' },
+                    userId: { type: 'string' },
+                    name: { type: 'string' },
+                    description: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            '200': {
+              description: 'List created',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      id: { type: 'string' },
+                      name: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/lists/{listId}': {
+        delete: {
+          summary: 'Delete recipient list',
+          description: 'Delete a recipient list by ID',
+          operationId: 'deleteList',
+          tags: ['Recipient Lists'],
+          parameters: [
+            {
+              name: 'listId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'List ID'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'List deleted',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/SuccessResponse' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/lists/{listId}/recipients': {
+        get: {
+          summary: 'Get recipients',
+          description: 'Get all recipients in a list',
+          operationId: 'getRecipients',
+          tags: ['Recipient Lists'],
+          parameters: [
+            {
+              name: 'listId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'List ID'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'Recipients retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      recipients: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Recipient' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Add recipient',
+          description: 'Add a recipient to a list',
+          operationId: 'addRecipient',
+          tags: ['Recipient Lists'],
+          parameters: [
+            {
+              name: 'listId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'List ID'
+            }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['phoneNumber'],
+                  properties: {
+                    name: { type: 'string' },
+                    phoneNumber: { type: 'string' },
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            '200': {
+              description: 'Recipient added',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      id: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/lists/{listId}/recipients/{recipientId}': {
+        delete: {
+          summary: 'Delete recipient',
+          description: 'Delete a recipient from a list',
+          operationId: 'deleteRecipient',
+          tags: ['Recipient Lists'],
+          parameters: [
+            {
+              name: 'listId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'List ID'
+            },
+            {
+              name: 'recipientId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Recipient ID'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'Recipient deleted',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/SuccessResponse' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/auth/phone/status': {
+        get: {
+          summary: 'Get phone verification status',
+          description: 'Check if a user has a verified phone number',
+          operationId: 'getPhoneStatus',
+          tags: ['Phone Authentication'],
+          parameters: [
+            {
+              name: 'email',
+              in: 'query',
+              schema: { type: 'string', format: 'email' },
+              description: 'User email address'
+            },
+            {
+              name: 'phone',
+              in: 'query',
+              schema: { type: 'string' },
+              description: 'Phone number to check'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'Status retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      email: { type: 'string' },
+                      phone: { type: 'string', nullable: true },
+                      phone_verified_at: { type: 'integer', nullable: true },
+                      verified: { type: 'boolean' }
+                    }
+                  }
+                }
+              }
+            },
+            '404': {
+              description: 'User not found',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/auth/phone/send-code': {
+        post: {
+          summary: 'Send verification code',
+          description: 'Send a 6-digit verification code via SMS',
+          operationId: 'sendVerificationCode',
+          tags: ['Phone Authentication'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['phone'],
+                  properties: {
+                    email: { type: 'string', format: 'email', description: 'User email (optional for phone-only login)' },
+                    phone: { type: 'string', description: 'Norwegian phone number to verify' }
+                  }
+                },
+                example: {
+                  email: 'user@example.com',
+                  phone: '+4712345678'
+                }
+              }
+            }
+          },
+          responses: {
+            '200': {
+              description: 'Code sent',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      phone: { type: 'string' },
+                      expires_at: { type: 'integer' },
+                      message: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            },
+            '404': {
+              description: 'User not found',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/auth/phone/verify-code': {
+        post: {
+          summary: 'Verify code',
+          description: 'Verify the 6-digit SMS code',
+          operationId: 'verifyCode',
+          tags: ['Phone Authentication'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['code'],
+                  properties: {
+                    email: { type: 'string', format: 'email' },
+                    phone: { type: 'string' },
+                    code: { type: 'string', pattern: '^\\d{6}$', description: '6-digit verification code' }
+                  }
+                },
+                example: {
+                  email: 'user@example.com',
+                  code: '123456'
+                }
+              }
+            }
+          },
+          responses: {
+            '200': {
+              description: 'Phone verified',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      email: { type: 'string' },
+                      phone: { type: 'string' },
+                      verified_at: { type: 'integer' }
+                    }
+                  }
+                }
+              }
+            },
+            '401': {
+              description: 'Invalid code',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    components: {
+      schemas: {
+        SMSResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            totalRecipients: { type: 'integer' },
+            successfulSends: { type: 'integer' },
+            messageIds: { type: 'array', items: { type: 'string' } },
+            totalPrice: { type: 'number' },
+            currency: { type: 'string', example: 'NOK' },
+            messages: { type: 'array', items: { type: 'object' } },
+            error: { type: 'object', nullable: true }
+          }
+        },
+        RecipientList: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            user_id: { type: 'string' },
+            user_email: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string', nullable: true },
+            created_at: { type: 'integer' },
+            updated_at: { type: 'integer' }
+          }
+        },
+        Recipient: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            list_id: { type: 'string' },
+            name: { type: 'string', nullable: true },
+            phone_number: { type: 'string' },
+            notes: { type: 'string', nullable: true },
+            created_at: { type: 'integer' }
+          }
+        },
+        SuccessResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true }
+          }
+        },
+        Error: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            details: { type: 'string' }
+          }
+        }
+      }
+    },
+    tags: [
+      { name: 'Health', description: 'Health check endpoints' },
+      { name: 'SMS', description: 'SMS sending and history' },
+      { name: 'Recipient Lists', description: 'Manage recipient lists and contacts' },
+      { name: 'Phone Authentication', description: 'Phone number verification via SMS' }
+    ]
   }
 }
