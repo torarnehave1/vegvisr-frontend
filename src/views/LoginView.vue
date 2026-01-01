@@ -450,7 +450,7 @@ function goToPhone() {
 async function checkPhoneStatus() {
   try {
     const res = await fetch(
-      `https://auth.vegvisr.org/auth/phone/status?email=${encodeURIComponent(email.value)}`,
+      `https://sms-gateway.torarnehave.workers.dev/api/auth/phone/status?email=${encodeURIComponent(email.value)}`,
     )
     if (res.ok) {
       const data = await res.json()
@@ -476,7 +476,7 @@ async function handleSendCode() {
   sendingCode.value = true
   try {
     const payload = { email: email.value, phone: phone.value }
-    const res = await fetch('https://auth.vegvisr.org/auth/phone/send-code', {
+    const res = await fetch('https://sms-gateway.torarnehave.workers.dev/api/auth/phone/send-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -509,7 +509,7 @@ async function handleVerifyCode() {
   verifyingCode.value = true
   try {
     const payload = { email: email.value, code: code.value }
-    const res = await fetch('https://auth.vegvisr.org/auth/phone/verify-code', {
+    const res = await fetch('https://sms-gateway.torarnehave.workers.dev/api/auth/phone/verify-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

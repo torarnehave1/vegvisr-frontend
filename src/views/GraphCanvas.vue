@@ -351,6 +351,17 @@
         📰 News Feed
       </button>
 
+      <div class="menu-subheader mt-2">Audio</div>
+      <button
+        class="btn btn-outline-warning btn-sm"
+        type="button"
+        :class="{ active: placementMode === 'audio-visualizer' }"
+        @click="startNodePlacement('audio-visualizer')"
+        title="Add audio visualizer with waveform display"
+      >
+        🎵 Audio Visualizer
+      </button>
+
       <div class="menu-subheader mt-2">Tools</div>
       <button
         class="btn btn-outline-primary btn-sm"
@@ -782,6 +793,7 @@ import ImageSelector from '@/components/ImageSelector.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewVideoNode from '@/components/GNewNodes/GNewVideoNode.vue'
+import GNewAudioVisualizerNode from '@/components/GNewNodes/GNewAudioVisualizerNode.vue'
 import NodeEditModal from '@/components/NodeEditModal.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
@@ -1241,6 +1253,22 @@ const nodeHtmlOverlays = computed(() => {
       })
     }
 
+    if (data.type === 'audio-visualizer') {
+      overlays.push({
+        id: node.id(),
+        isSelected: node.selected(),
+        style: overlayStyle,
+        component: GNewAudioVisualizerNode,
+        node: {
+          ...data,
+          id: node.id(),
+          label: data.label || '',
+          type: data.type || 'audio-visualizer',
+          audioUrl: data.audioUrl || data.path || '',
+        },
+      })
+    }
+
     return overlays
   }, [])
 })
@@ -1617,6 +1645,22 @@ const initializeCytoscape = (graphData) => {
           'font-size': '14px',
           width: '200px',
           height: '112px',
+        },
+      },
+      {
+        selector: 'node[type="audio-visualizer"]',
+        style: {
+          shape: 'round-rectangle',
+          'background-color': '#2c3e50',
+          'border-width': 2,
+          'border-color': '#3498db',
+          label: '',
+          'text-wrap': 'wrap',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          padding: '10px',
+          width: '1122px',
+          height: '794px',
         },
       },
       {
@@ -3120,6 +3164,16 @@ const createNodeTemplate = (type) => {
         info: 'Bruk AI Chat: "Finn nyheter om naturvern"',
       }
 
+    case 'audio-visualizer':
+      return {
+        ...baseNode,
+        label: 'Audio Visualizer',
+        type: 'audio-visualizer',
+        color: '#2c3e50',
+        audioUrl: '',
+        info: 'Audio visualizer with waveform display',
+      }
+
     default:
       return {
         ...baseNode,
@@ -3144,7 +3198,32 @@ const addNodeAtPosition = async (type, position) => {
       position,
     })
 
-    cyInstance.value.$(`#${nodeData.id}`).select()
+    const newNode = cyInstance.value.$(`#${nodeData.id}`)
+
+    // Force style for audio-visualizer nodes directly on the element
+    if (type === 'audio-visualizer') {
+      newNode.style({
+        'shape': 'round-rectangle',
+        'background-color': '#2c3e50',
+        'border-width': 2,
+        'border-color': '#3498db',
+        'label': '',
+        'text-wrap': 'wrap',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'padding': '10px',
+        'width': '1122px',
+        'height': '794px',
+      })
+      // Force Cytoscape to recalculate layout
+      cyInstance.value.style().update()
+    }
+
+    // Small delay to allow Cytoscape to process styles, then trigger overlay recalculation
+    await new Promise(resolve => setTimeout(resolve, 50))
+    resizeUpdateToken.value = (resizeUpdateToken.value + 1) % Number.MAX_SAFE_INTEGER
+
+    newNode.select()
     showStatus('Saving new node...', 'info')
     await saveGraph()
     showStatus('Node added successfully.', 'success')
@@ -3227,7 +3306,8 @@ const getPlacementModeLabel = (mode) => {
     'person-profile': 'Person Profile mode',
     'company-card': 'Company Card mode',
     'network': 'Network Map mode',
-    'news-feed': 'News Feed mode'
+    'news-feed': 'News Feed mode',
+    'audio-visualizer': 'Audio Visualizer mode'
   }
   return labels[mode] || `${mode} mode`
 }
@@ -4619,6 +4699,13 @@ onUnmounted(() => {
 }
 
 .node-html-overlay :deep(.gnew-video-node) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.node-html-overlay :deep(.gnew-audio-visualizer-node) {
   width: 100%;
   height: 100%;
   margin: 0;

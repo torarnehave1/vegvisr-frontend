@@ -3555,10 +3555,11 @@ const saveToPortfolio = async () => {
     console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
 
     // Step 1: Upload audio file to R2 using Norwegian transcription worker
+    // Encode filename for HTTP header (supports non-ASCII characters like Devanagari)
     const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
       method: 'POST',
       headers: {
-        'X-File-Name': fileName,
+        'X-File-Name': encodeURIComponent(fileName),
       },
       body: audioBlob,
     })
@@ -3670,10 +3671,11 @@ const saveAudioOnly = async () => {
     console.log('Audio details:', { fileName, size: audioBlob.size, type: audioBlob.type })
 
     // Step 1: Upload audio file to R2
+    // Encode filename for HTTP header (supports non-ASCII characters like Devanagari)
     const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
       method: 'POST',
       headers: {
-        'X-File-Name': fileName,
+        'X-File-Name': encodeURIComponent(fileName),
       },
       body: audioBlob,
     })
@@ -3809,10 +3811,11 @@ const saveChunkedToPortfolio = async () => {
     console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
 
     // Step 1: Upload audio file to R2 using Norwegian transcription worker
+    // Encode filename for HTTP header (supports non-ASCII characters like Devanagari)
     const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
       method: 'POST',
       headers: {
-        'X-File-Name': fileName,
+        'X-File-Name': encodeURIComponent(fileName),
       },
       body: audioBlob,
     })

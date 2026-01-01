@@ -50,11 +50,24 @@ export default {
       return handleDeleteRecipient(request, env)
     }
 
+    // Phone Authentication endpoints
+    if (url.pathname === '/api/auth/phone/status' && request.method === 'GET') {
+      return handlePhoneStatus(request, env)
+    }
+
+    if (url.pathname === '/api/auth/phone/send-code' && request.method === 'POST') {
+      return handleSendVerificationCode(request, env)
+    }
+
+    if (url.pathname === '/api/auth/phone/verify-code' && request.method === 'POST') {
+      return handleVerifyCode(request, env)
+    }
+
     if (url.pathname === '/' || url.pathname === '/api') {
       return jsonResponse({
         success: true,
         message: 'SMS Gateway Worker - ClickSend',
-        version: '3.0.0',
+        version: '3.1.0',
         timestamp: new Date().toISOString()
       })
     }
@@ -489,6 +502,219 @@ async function handleDeleteRecipient(request, env) {
     return jsonResponse({ success: true })
   } catch (error) {
     console.error('Error deleting recipient:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+// ===== PHONE AUTHENTICATION HANDLERS =====
+
+/**
+ * Generate a random 6-digit verification code
+ */
+function generateVerificationCode() {
+  const digits = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000
+  return digits.toString().padStart(6, '0')
+}
+
+/**
+ * Hash a string using SHA-256
+ */
+async function sha256Hex(input) {
+  const data = new TextEncoder().encode(input)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * GET /api/auth/phone/status
+ * Check if a user has a verified phone number
+ */
+async function handlePhoneStatus(request, env) {
+  try {
+    const url = new URL(request.url)
+    const email = (url.searchParams.get('email') || '').trim().toLowerCase()
+    const phone = url.searchParams.get('phone')
+
+    if (!email && !phone) {
+      return jsonResponse({ error: 'Email or phone parameter required' }, 400)
+    }
+
+    let row
+    if (email) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone, phone_verified_at FROM config WHERE email = ?'
+      ).bind(email).first()
+    } else if (phone) {
+      const normalizedPhone = normalizePhoneNumber(phone)
+      if (!normalizedPhone) {
+        return jsonResponse({ error: 'Invalid phone number format' }, 400)
+      }
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone, phone_verified_at FROM config WHERE phone = ?'
+      ).bind(normalizedPhone).first()
+    }
+
+    if (!row) {
+      return jsonResponse({ success: false, error: 'User not found' }, 404)
+    }
+
+    return jsonResponse({
+      success: true,
+      email: row.email,
+      phone: row.phone || null,
+      phone_verified_at: row.phone_verified_at || null,
+      verified: !!row.phone_verified_at
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/phone/status:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * POST /api/auth/phone/send-code
+ * Send a verification code to a phone number
+ * Body: { email: string, phone: string } OR { phone: string } for phone-only login
+ */
+async function handleSendVerificationCode(request, env) {
+  try {
+    const body = await request.json()
+    const email = (body.email || '').trim().toLowerCase()
+    const phone = normalizePhoneNumber(body.phone)
+
+    if (!phone) {
+      return jsonResponse({ error: 'A valid Norwegian phone number is required' }, 400)
+    }
+
+    // Check if user exists - by email or phone
+    let userRow
+    if (email) {
+      userRow = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone FROM config WHERE email = ?'
+      ).bind(email).first()
+    } else {
+      // Phone-only login: lookup by phone
+      userRow = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone FROM config WHERE phone = ?'
+      ).bind(phone).first()
+    }
+
+    if (!userRow) {
+      return jsonResponse({
+        success: false,
+        error: email ? 'User not found with this email' : 'No account registered with this phone number'
+      }, 404)
+    }
+
+    // Generate verification code
+    const code = generateVerificationCode()
+    const codeHash = await sha256Hex(code)
+    const expiresAt = Math.floor((Date.now() + 5 * 60 * 1000) / 1000) // 5 minutes
+
+    // Update user record with verification code
+    await env.VEGVISR_DB.prepare(
+      'UPDATE config SET phone = ?, phone_verified_at = NULL, phone_verification_code = ?, phone_verification_expires_at = ? WHERE email = ?'
+    ).bind(phone, codeHash, expiresAt, userRow.email).run()
+
+    // Send SMS via ClickSend
+    const smsResult = await sendSMSViaClickSend(
+      [phone],
+      `Your Vegvisr verification code is: ${code}`,
+      'Vegvisr',
+      env
+    )
+
+    if (!smsResult.success) {
+      return jsonResponse({
+        success: false,
+        error: 'Failed to send verification SMS',
+        details: smsResult.error
+      }, 502)
+    }
+
+    console.log(`✅ Verification code sent to ${phone} for ${userRow.email}`)
+
+    return jsonResponse({
+      success: true,
+      phone: phone,
+      expires_at: expiresAt,
+      message: 'Verification code sent'
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/phone/send-code:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * POST /api/auth/phone/verify-code
+ * Verify a phone verification code
+ * Body: { email: string, code: string } OR { phone: string, code: string }
+ */
+async function handleVerifyCode(request, env) {
+  try {
+    const body = await request.json()
+    const email = (body.email || '').trim().toLowerCase()
+    const phone = body.phone ? normalizePhoneNumber(body.phone) : null
+    const code = String(body.code || '').trim()
+
+    if (!email && !phone) {
+      return jsonResponse({ error: 'Email or phone is required' }, 400)
+    }
+
+    if (!code || !/^\d{6}$/.test(code)) {
+      return jsonResponse({ error: 'A 6-digit code is required' }, 400)
+    }
+
+    // Lookup user
+    let row
+    if (email) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE email = ?'
+      ).bind(email).first()
+    } else {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT email, phone, phone_verification_code, phone_verification_expires_at FROM config WHERE phone = ?'
+      ).bind(phone).first()
+    }
+
+    if (!row || !row.phone) {
+      return jsonResponse({ error: 'No phone on record for this user' }, 404)
+    }
+
+    if (!row.phone_verification_code || !row.phone_verification_expires_at) {
+      return jsonResponse({ error: 'No active verification code. Please request a new one.' }, 400)
+    }
+
+    // Check expiry
+    const now = Math.floor(Date.now() / 1000)
+    if (row.phone_verification_expires_at < now) {
+      return jsonResponse({ error: 'Verification code expired. Please request a new one.' }, 400)
+    }
+
+    // Verify code hash
+    const codeHash = await sha256Hex(code)
+    if (codeHash !== row.phone_verification_code) {
+      return jsonResponse({ error: 'Invalid verification code' }, 401)
+    }
+
+    // Mark phone as verified
+    await env.VEGVISR_DB.prepare(
+      'UPDATE config SET phone_verified_at = ?, phone_verification_code = NULL, phone_verification_expires_at = NULL WHERE email = ?'
+    ).bind(now, row.email).run()
+
+    console.log(`✅ Phone verified for ${row.email}: ${row.phone}`)
+
+    return jsonResponse({
+      success: true,
+      email: row.email,
+      phone: row.phone,
+      verified_at: now
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/phone/verify-code:', error)
     return jsonResponse({ error: error.message }, 500)
   }
 }
