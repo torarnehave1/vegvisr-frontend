@@ -190,6 +190,16 @@ const loadGroups = async () => {
   }
 
   if (!userStore.phone) {
+    try {
+      loading.value = true
+      await userStore.fetchUserDataFromConfig()
+    } catch (e) {
+      // Ignore and fall through to the normal validation error
+      console.warn('Failed to hydrate phone from config:', e)
+    }
+  }
+
+  if (!userStore.phone) {
     error.value = 'Phone number is required for sharing. Please update your profile.'
     loading.value = false
     return
@@ -271,6 +281,14 @@ const shareToGroup = async () => {
   if (!userStore.loggedIn) {
     shareError.value = 'Please sign in to share'
     return
+  }
+
+  if (!userStore.phone) {
+    try {
+      await userStore.fetchUserDataFromConfig()
+    } catch (e) {
+      console.warn('Failed to hydrate phone from config:', e)
+    }
   }
 
   if (!userStore.phone) {

@@ -114,7 +114,7 @@ export default {
         }
 
         const db = env.vegvisr_org
-        const query = `SELECT user_id, bio, profileimage, emailVerificationToken, role, data FROM config WHERE email = ?;`
+  const query = `SELECT user_id, bio, profileimage, emailVerificationToken, role, data, phone, phone_verified_at FROM config WHERE email = ?;`
         console.log('Executing database query:', query, 'with email:', email)
         const row = await db.prepare(query).bind(email).first()
 
@@ -128,6 +128,8 @@ export default {
             profileimage: '',
             emailVerificationToken: null,
             role: null,
+            phone: null,
+            phoneVerifiedAt: null,
           }
           return new Response(JSON.stringify(response), {
             status: 200,
@@ -143,6 +145,8 @@ export default {
           profileimage: row.profileimage,
           emailVerificationToken: row.emailVerificationToken,
           role: row.role,
+          phone: row.phone || null,
+          phoneVerifiedAt: row.phone_verified_at || null,
           data: parsedData,
         }
         console.log('Returning response for GET /userdata:', JSON.stringify(response, null, 2))

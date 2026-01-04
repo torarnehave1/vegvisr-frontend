@@ -385,21 +385,34 @@ export const useUserStore = defineStore('user', {
         }
 
         const userData = await response.json()
+
+        // /userdata returns: { email, user_id, ..., phone, phoneVerifiedAt, data: {...} }
+        // Keep compatibility with any older shape that might put fields inside data.
+        const payload = userData?.data && typeof userData.data === 'object' ? userData.data : {}
         console.log('✅ Fetched user data from config:', userData)
 
+        const resolvedPhone = userData?.phone ?? payload?.phone ?? payload?.profile?.phone ?? null
+        const resolvedPhoneVerifiedAt =
+          userData?.phoneVerifiedAt ??
+          userData?.phone_verified_at ??
+          payload?.phoneVerifiedAt ??
+          payload?.phone_verified_at ??
+          payload?.profile?.phoneVerifiedAt ??
+          null
+
         // Update the userStore with the fetched data
-        if (userData.phone) {
-          this.phone = userData.phone
+        if (resolvedPhone) {
+          this.phone = resolvedPhone
           console.log('📱 Updated phone in userStore:', this.phone)
         }
-        if (userData.phoneVerifiedAt) {
-          this.phoneVerifiedAt = userData.phoneVerifiedAt
+        if (resolvedPhoneVerifiedAt) {
+          this.phoneVerifiedAt = resolvedPhoneVerifiedAt
         }
-        if (userData.user_id) {
-          this.user_id = userData.user_id
+        if (userData?.user_id || payload?.user_id) {
+          this.user_id = userData?.user_id || payload?.user_id
         }
-        if (userData.emailVerificationToken) {
-          this.emailVerificationToken = userData.emailVerificationToken
+        if (userData?.emailVerificationToken || payload?.emailVerificationToken) {
+          this.emailVerificationToken = userData?.emailVerificationToken || payload?.emailVerificationToken
         }
 
         // Update localStorage
@@ -410,7 +423,7 @@ export const useUserStore = defineStore('user', {
         storedUser.emailVerificationToken = this.emailVerificationToken
         localStorage.setItem('user', JSON.stringify(storedUser))
 
-        return userData
+        return { ...payload, ...userData }
       } catch (error) {
         console.error('❌ Error fetching user data from config:', error)
         return null
