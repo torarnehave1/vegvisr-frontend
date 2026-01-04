@@ -189,14 +189,20 @@ const loadGroups = async () => {
     return
   }
 
-  if (!userStore.phone) {
+  if (!userStore.phone || !userStore.user_id) {
     try {
       loading.value = true
       await userStore.fetchUserDataFromConfig()
     } catch (e) {
-      // Ignore and fall through to the normal validation error
-      console.warn('Failed to hydrate phone from config:', e)
+      // Ignore and fall through to the normal validation errors
+      console.warn('Failed to hydrate user from config:', e)
     }
+  }
+
+  if (!userStore.user_id) {
+    error.value = 'User ID is required for sharing. Please sign out and sign in again.'
+    loading.value = false
+    return
   }
 
   if (!userStore.phone) {
@@ -283,12 +289,17 @@ const shareToGroup = async () => {
     return
   }
 
-  if (!userStore.phone) {
+  if (!userStore.phone || !userStore.user_id) {
     try {
       await userStore.fetchUserDataFromConfig()
     } catch (e) {
-      console.warn('Failed to hydrate phone from config:', e)
+      console.warn('Failed to hydrate user from config:', e)
     }
+  }
+
+  if (!userStore.user_id) {
+    shareError.value = 'User ID is required for sharing. Please sign out and sign in again.'
+    return
   }
 
   if (!userStore.phone) {
