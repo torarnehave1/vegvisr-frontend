@@ -115,6 +115,17 @@
           >
             <i class="bi bi-robot"></i> Share to AI
           </button>
+
+          <!-- NEW: Share to Hallo Vegvisr Chat -->
+          <button
+            v-if="userStore.loggedIn"
+            class="btn btn-outline-primary share-btn hallo-btn"
+            @click="shareToHalloVegvisr"
+            :disabled="shareContent.includes('Generating')"
+            title="Share to Hallo Vegvisr Chat"
+          >
+            <i class="bi bi-chat-dots"></i> Hallo Vegvisr
+          </button>
         </div>
 
         <div class="linkedin-share-section mt-4">
@@ -420,6 +431,13 @@ const shareToAI = async () => {
   }
 }
 
+const shareToHalloVegvisr = () => {
+  // Navigate to the new share page with graph data
+  const shareUrl = getShareUrl()
+  const sharePageUrl = `/share-to-hallo-vegvisr?graphId=${props.currentGraphId}&shareUrl=${encodeURIComponent(shareUrl)}&shareContent=${encodeURIComponent(shareContent.value)}&shareType=${shareType.value}`
+  window.location.href = sharePageUrl
+}
+
 const checkLinkedInStatus = async () => {
   if (!userStore.email) return
 
@@ -697,6 +715,16 @@ watch(
 
 .ai-btn:hover:not(:disabled) {
   background-color: #28a745;
+  color: white;
+}
+
+.hallo-btn {
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.hallo-btn:hover:not(:disabled) {
+  background-color: #007bff;
   color: white;
 }
 

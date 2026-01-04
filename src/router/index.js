@@ -19,6 +19,7 @@ import GnewAdmin from '@/views/GnewAdmin.vue' // Import the new GnewAdmin compon
 import GNewViewer from '@/views/GNewViewer.vue' // Direct import to avoid chunking issues
 import SMSShare from '@/views/SMSShare.vue' // SMS Share page
 import CanvasDemo from '@/views/CanvasDemo.vue' // Canvas Drawing Demo
+import ShareToHalloVegvisr from '@/views/ShareToHalloVegvisr.vue' // Share to Hallo Vegvisr Chat
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -289,6 +290,15 @@ const router = createRouter({
       component: SMSShare,
       meta: {
         layout: null, // No layout for clean SMS sharing page
+      },
+    },
+    {
+      path: '/share-to-hallo-vegvisr',
+      name: 'share-to-hallo-vegvisr',
+      component: ShareToHalloVegvisr,
+      meta: {
+        requiresAuth: true, // Require authentication for sharing
+        layout: null, // Clean layout for sharing page
       },
     },
     {

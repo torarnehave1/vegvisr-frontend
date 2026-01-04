@@ -67,6 +67,19 @@ export default {
       return handleUserValidate(request, env)
     }
 
+    // User profile endpoints
+    if (url.pathname === '/api/auth/profile' && request.method === 'GET') {
+      return handleGetProfile(request, env)
+    }
+
+    if (url.pathname === '/api/auth/profile' && request.method === 'PUT') {
+      return handleUpdateProfile(request, env)
+    }
+
+    if (url.pathname === '/api/auth/profile/image' && request.method === 'GET') {
+      return handleGetUserProfileImage(request, env)
+    }
+
     if (url.pathname === '/api/ai-chat' && request.method === 'POST') {
       return handleAiChat(request, env)
     }
@@ -778,15 +791,15 @@ async function handleUserValidate(request, env) {
     let row
     if (userId) {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE user_id = ?'
+        'SELECT user_id, email, phone, phone_verified_at, Role FROM config WHERE user_id = ?'
       ).bind(userId).first()
     } else if (email) {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE email = ?'
+        'SELECT user_id, email, phone, phone_verified_at, Role FROM config WHERE email = ?'
       ).bind(email).first()
     } else if (phone) {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE phone = ?'
+        'SELECT user_id, email, phone, phone_verified_at, Role FROM config WHERE phone = ?'
       ).bind(phone).first()
     }
 
@@ -811,10 +824,147 @@ async function handleUserValidate(request, env) {
       user_id: row.user_id || null,
       email: row.email,
       phone: row.phone || null,
-      phone_verified_at: row.phone_verified_at
+      phone_verified_at: row.phone_verified_at,
+      role: row.Role || 'User'
     })
   } catch (error) {
     console.error('Error in /api/auth/user/validate:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+// ===== USER PROFILE HANDLERS =====
+
+/**
+ * GET /api/auth/profile
+ * Get user profile including profile image URL
+ * Query params: phone (required)
+ */
+async function handleGetProfile(request, env) {
+  try {
+    const url = new URL(request.url)
+    const phoneInput = url.searchParams.get('phone')
+    const userId = url.searchParams.get('user_id')
+
+    if (!phoneInput && !userId) {
+      return jsonResponse({ error: 'phone or user_id parameter required' }, 400)
+    }
+
+    let row
+    if (userId) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at, profile_image_url FROM config WHERE user_id = ?'
+      ).bind(userId).first()
+    } else {
+      const phone = normalizePhoneNumber(phoneInput)
+      if (!phone) {
+        return jsonResponse({ error: 'Invalid phone number format' }, 400)
+      }
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at, profile_image_url FROM config WHERE phone = ?'
+      ).bind(phone).first()
+    }
+
+    if (!row) {
+      return jsonResponse({ error: 'User not found' }, 404)
+    }
+
+    return jsonResponse({
+      success: true,
+      user_id: row.user_id || null,
+      email: row.email || null,
+      phone: row.phone || null,
+      profile_image_url: row.profile_image_url || null,
+      verified: !!row.phone_verified_at
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/profile GET:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * PUT /api/auth/profile
+ * Update user profile (profile image URL)
+ * Body: { phone: string, profile_image_url: string }
+ */
+async function handleUpdateProfile(request, env) {
+  try {
+    const body = await request.json()
+    const phoneInput = body.phone
+    const userId = body.user_id
+    const profileImageUrl = body.profile_image_url
+
+    if (!phoneInput && !userId) {
+      return jsonResponse({ error: 'phone or user_id is required' }, 400)
+    }
+
+    // Find the user
+    let row
+    if (userId) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE user_id = ?'
+      ).bind(userId).first()
+    } else {
+      const phone = normalizePhoneNumber(phoneInput)
+      if (!phone) {
+        return jsonResponse({ error: 'Invalid phone number format' }, 400)
+      }
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE phone = ?'
+      ).bind(phone).first()
+    }
+
+    if (!row) {
+      return jsonResponse({ error: 'User not found' }, 404)
+    }
+
+    if (!row.phone_verified_at) {
+      return jsonResponse({ error: 'Phone not verified' }, 401)
+    }
+
+    // Update profile image URL
+    await env.VEGVISR_DB.prepare(
+      'UPDATE config SET profile_image_url = ? WHERE email = ?'
+    ).bind(profileImageUrl || null, row.email).run()
+
+    console.log(`✅ Profile updated for ${row.email}: image=${profileImageUrl ? 'set' : 'cleared'}`)
+
+    return jsonResponse({
+      success: true,
+      profile_image_url: profileImageUrl || null
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/profile PUT:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+/**
+ * GET /api/auth/profile/image
+ * Get profile image URL for a user by user_id (for chat display)
+ * Query params: user_id (required)
+ */
+async function handleGetUserProfileImage(request, env) {
+  try {
+    const url = new URL(request.url)
+    const userId = url.searchParams.get('user_id')
+
+    if (!userId) {
+      return jsonResponse({ error: 'user_id parameter required' }, 400)
+    }
+
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT profile_image_url FROM config WHERE user_id = ?'
+    ).bind(userId).first()
+
+    return jsonResponse({
+      success: true,
+      user_id: userId,
+      profile_image_url: row?.profile_image_url || null
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/profile/image GET:', error)
     return jsonResponse({ error: error.message }, 500)
   }
 }

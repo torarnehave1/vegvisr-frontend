@@ -10,41 +10,154 @@ function generateInviteCode() {
   return code
 }
 
-// Send FCM push notification
+// -- FCM v1 helpers -------------------------------------------------------
+let cachedAccessToken = null
+let cachedAccessTokenExpiryMs = 0
+
+const base64UrlEncode = (input) => {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+const pemToArrayBuffer = (pem) => {
+  const normalized = pem.replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\s+/g, '')
+  const binary = atob(normalized)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+const getAccessToken = async (env) => {
+  if (!env.FCM_PROJECT_ID || !env.FCM_CLIENT_EMAIL || !env.FCM_PRIVATE_KEY) {
+    console.error('Missing FCM v1 credentials')
+    return null
+  }
+
+  console.log('[FCM] Using project:', env.FCM_PROJECT_ID, 'service account:', env.FCM_CLIENT_EMAIL)
+
+  const nowMs = Date.now()
+  if (cachedAccessToken && nowMs < cachedAccessTokenExpiryMs - 30000) {
+    console.log('[FCM] Using cached access token')
+    return cachedAccessToken
+  }
+
+  const now = Math.floor(nowMs / 1000)
+  const header = { alg: 'RS256', typ: 'JWT' }
+  const payload = {
+    iss: env.FCM_CLIENT_EMAIL,
+    sub: env.FCM_CLIENT_EMAIL,
+    aud: 'https://oauth2.googleapis.com/token',
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    iat: now,
+    exp: now + 55 * 60, // 55 minutes
+  }
+
+  const unsignedToken = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}`
+
+  const privateKeyPem = env.FCM_PRIVATE_KEY.includes('BEGIN PRIVATE KEY')
+    ? env.FCM_PRIVATE_KEY
+    : `-----BEGIN PRIVATE KEY-----\n${env.FCM_PRIVATE_KEY}\n-----END PRIVATE KEY-----`
+
+  const keyBuffer = pemToArrayBuffer(privateKeyPem.replace(/\\n/g, '\n'))
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    keyBuffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+
+  const signatureBuffer = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    new TextEncoder().encode(unsignedToken),
+  )
+  const signedJwt = `${unsignedToken}.${base64UrlEncode(signatureBuffer)}`
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: signedJwt,
+    }),
+  })
+
+  if (!tokenRes.ok) {
+    console.error('FCM token exchange failed:', tokenRes.status, await tokenRes.text())
+    return null
+  }
+
+  const tokenJson = await tokenRes.json().catch(() => null)
+  cachedAccessToken = tokenJson?.access_token || null
+  cachedAccessTokenExpiryMs = nowMs + (tokenJson?.expires_in ? tokenJson.expires_in * 1000 : 55 * 60 * 1000)
+  return cachedAccessToken
+}
+
+// Send FCM push notification via v1 API
 async function sendPushNotification(env, tokens, title, body, data = {}) {
-  if (!env.FCM_SERVER_KEY || tokens.length === 0) {
+  console.log('[FCM] sendPushNotification called with', tokens.length, 'tokens')
+  if (!Array.isArray(tokens) || tokens.length === 0) {
+    console.log('[FCM] No tokens to send to')
     return
   }
 
-  try {
-    const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+  const accessToken = await getAccessToken(env)
+  if (!accessToken) {
+    console.error('[FCM] Failed to get access token')
+    return
+  }
+  console.log('[FCM] Got access token, sending to', tokens.length, 'devices')
+
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${env.FCM_PROJECT_ID}/messages:send`
+  const dataStrings = Object.fromEntries(Object.entries(data || {}).map(([k, v]) => [k, String(v)]))
+
+  const sendOne = async (token) => {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `key=${env.FCM_SERVER_KEY}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        registration_ids: tokens,
-        notification: {
-          title,
-          body,
-          sound: 'default',
+        message: {
+          token,
+          notification: {
+            title,
+            body,
+          },
+          data: dataStrings,
+          android: { priority: 'HIGH' },
+          apns: {
+            headers: { 'apns-priority': '10' },
+            payload: { aps: { sound: 'default' } },
+          },
         },
-        data,
-        priority: 'high',
       }),
     })
 
     if (!response.ok) {
-      console.error('FCM send error:', await response.text())
+      console.error('[FCM] Send error:', response.status, await response.text())
+    } else {
+      console.log('[FCM] Successfully sent to token:', token.substring(0, 20) + '...')
     }
-  } catch (error) {
-    console.error('FCM error:', error)
   }
+
+  await Promise.allSettled(tokens.map(sendOne))
+  console.log('[FCM] Finished sending to all tokens')
 }
 
 // Get FCM tokens for group members (excluding sender)
 async function getGroupMemberTokens(env, groupId, excludeUserId) {
+  console.log('[FCM] Getting tokens for group:', groupId, 'excluding:', excludeUserId)
   const { results } = await env.CHAT_DB.prepare(
     `SELECT dt.fcm_token
      FROM device_tokens dt
@@ -52,13 +165,14 @@ async function getGroupMemberTokens(env, groupId, excludeUserId) {
      WHERE gm.group_id = ? AND dt.user_id != ?`
   ).bind(groupId, excludeUserId).all()
 
+  console.log('[FCM] Found', results.length, 'tokens for other group members')
   return results.map(r => r.fcm_token)
 }
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id, x-user-phone, x-user-email',
 }
 
 const jsonResponse = (data, status = 200) =>
@@ -105,7 +219,8 @@ async function validateUser(env, userId, phone, email) {
     }
   }
 
-  return { ok: true }
+  const data = await response.json().catch(() => ({}))
+  return { ok: true, role: data.role || 'User' }
 }
 
 async function ensureMember(env, groupId, userId) {
@@ -451,36 +566,43 @@ export default {
           .bind(groupId, userId, text, createdAt)
           .run()
 
-        // Send push notifications to other group members (in background)
-        ctx.waitUntil((async () => {
-          try {
-            // Get group name for notification
-            const group = await env.CHAT_DB.prepare(
-              'SELECT name FROM groups WHERE id = ?'
-            ).bind(groupId).first()
-            const groupName = group?.name || 'Group Chat'
+        // Send push notifications only if sender is Superadmin (to avoid notification spam)
+        const isSuperadmin = auth.role === 'Superadmin'
+        if (isSuperadmin) {
+          console.log('[Push] Superadmin sending message, triggering push notifications')
+          ctx.waitUntil((async () => {
+            try {
+              // Get group name for notification
+              const group = await env.CHAT_DB.prepare(
+                'SELECT name FROM groups WHERE id = ?'
+              ).bind(groupId).first()
+              const groupName = group?.name || 'Group Chat'
 
-            // Get tokens for other members
-            const tokens = await getGroupMemberTokens(env, groupId, userId)
-            if (tokens.length > 0) {
-              // Truncate message for notification
-              const preview = text.length > 50 ? text.substring(0, 47) + '...' : text
-              await sendPushNotification(
-                env,
-                tokens,
-                groupName,
-                preview,
-                {
-                  group_id: groupId,
-                  group_name: groupName,
-                  message_id: String(result.meta.last_row_id),
-                }
-              )
+              // Get tokens for other members
+              const tokens = await getGroupMemberTokens(env, groupId, userId)
+              console.log('[Push] Got', tokens.length, 'tokens to notify')
+              if (tokens.length > 0) {
+                // Truncate message for notification
+                const preview = text.length > 50 ? text.substring(0, 47) + '...' : text
+                await sendPushNotification(
+                  env,
+                  tokens,
+                  groupName,
+                  preview,
+                  {
+                    group_id: groupId,
+                    group_name: groupName,
+                    message_id: String(result.meta.last_row_id),
+                  }
+                )
+              }
+            } catch (err) {
+              console.error('[Push] Error in background task:', err)
             }
-          } catch (err) {
-            console.error('Push notification error:', err)
-          }
-        })())
+          })())
+        } else {
+          console.log('[Push] User role is', auth.role, '- skipping push notification')
+        }
 
         return jsonResponse({
           success: true,

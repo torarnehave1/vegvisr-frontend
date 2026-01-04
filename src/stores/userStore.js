@@ -44,9 +44,9 @@ export const useUserStore = defineStore('user', {
       this.email = user.email
       this.role = user.role
       this.user_id = user.user_id
-        // Store OpenAuth id separately; also mirror into user_id for compatibility
-            this.oauth_id = user.oauth_id || user.user_id || null
-            if (!this.user_id && this.oauth_id) this.user_id = this.oauth_id
+      // Store OpenAuth id separately; also mirror into user_id for compatibility
+      this.oauth_id = user.oauth_id || user.user_id || null
+      if (!this.user_id && this.oauth_id) this.user_id = this.oauth_id
       this.emailVerificationToken = user.emailVerificationToken
       this.phone = user.phone || null
       this.phoneVerifiedAt = user.phoneVerifiedAt || null
@@ -290,6 +290,10 @@ export const useUserStore = defineStore('user', {
           branding: subject.branding || { mySite: null, myLogo: null },
         }
         this.setUser(user)
+
+        // Fetch additional data from config table (including phone)
+        await this.fetchUserDataFromConfig()
+
         return true
       } catch (err) {
         console.error('❌ fetchSession error:', err)
@@ -326,6 +330,9 @@ export const useUserStore = defineStore('user', {
           oauth_id: this.oauth_id,
           role: this.role,
         })
+
+        // Fetch additional data from config table (including phone)
+        this.fetchUserDataFromConfig()
       } else {
         console.log('❌ No user data in localStorage')
         this.email = null
@@ -360,6 +367,54 @@ export const useUserStore = defineStore('user', {
         console.warn('hydrateProfileImageFromConfig failed:', error)
       }
       return null
+    },
+
+    async fetchUserDataFromConfig() {
+      if (!this.email) {
+        console.log('❌ No user email, cannot fetch user data from config')
+        return null
+      }
+
+      try {
+        console.log('🔄 Fetching user data from config table for:', this.email)
+
+        const response = await fetch(apiUrls.getUserData(this.email))
+        if (!response.ok) {
+          console.error('❌ Failed to fetch user data:', response.status)
+          return null
+        }
+
+        const userData = await response.json()
+        console.log('✅ Fetched user data from config:', userData)
+
+        // Update the userStore with the fetched data
+        if (userData.phone) {
+          this.phone = userData.phone
+          console.log('📱 Updated phone in userStore:', this.phone)
+        }
+        if (userData.phoneVerifiedAt) {
+          this.phoneVerifiedAt = userData.phoneVerifiedAt
+        }
+        if (userData.user_id) {
+          this.user_id = userData.user_id
+        }
+        if (userData.emailVerificationToken) {
+          this.emailVerificationToken = userData.emailVerificationToken
+        }
+
+        // Update localStorage
+        const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+        storedUser.phone = this.phone
+        storedUser.phoneVerifiedAt = this.phoneVerifiedAt
+        storedUser.user_id = this.user_id
+        storedUser.emailVerificationToken = this.emailVerificationToken
+        localStorage.setItem('user', JSON.stringify(storedUser))
+
+        return userData
+      } catch (error) {
+        console.error('❌ Error fetching user data from config:', error)
+        return null
+      }
     },
   },
 })
