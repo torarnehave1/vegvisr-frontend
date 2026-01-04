@@ -205,7 +205,7 @@ const loadGroups = async () => {
       phone: userStore.phone,
       email: userStore.email || '',
     })
-    
+
     console.log('Loading groups with params:', {
       user_id: userStore.user_id,
       phone: userStore.phone,
@@ -214,7 +214,7 @@ const loadGroups = async () => {
       phoneLength: userStore.phone ? userStore.phone.length : 0,
       fullUrl: `https://group-chat-worker.torarnehave.workers.dev/groups?${params}`
     })
-    
+
     const response = await fetch(`https://group-chat-worker.torarnehave.workers.dev/groups?${params}`, {
       method: 'GET',
       headers: {
