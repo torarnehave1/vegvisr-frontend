@@ -1,7 +1,38 @@
 /**
  * Mobile Apps Worker
  * Serves mobile app downloads (APK, IPA) from R2 storage
+ * Also serves deep link verification files for iOS Universal Links and Android App Links
  */
+
+// Apple App Site Association for iOS Universal Links
+const appleAppSiteAssociation = {
+  applinks: {
+    apps: [],
+    details: [
+      {
+        appID: 'M7F9SUU879.org.vegvisr.hallo',
+        paths: ['/join/*'],
+      },
+    ],
+  },
+}
+
+// Android Asset Links for App Links
+const androidAssetLinks = [
+  {
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: {
+      namespace: 'android_app',
+      package_name: 'com.example.hallo_vegvisr',
+      // SHA256 fingerprint from your app signing key
+      // To get this, run: keytool -list -v -keystore <your-keystore> -alias <alias>
+      // Or check Play Console > Setup > App signing > App signing key certificate
+      sha256_cert_fingerprints: [
+        '6D:2B:12:59:8C:17:6A:D2:4D:19:1F:82:DA:83:BE:BB:50:24:20:5F:23:FC:F0:7F:0D:F2:56:A9:19:4C:CF:4E',
+      ],
+    },
+  },
+]
 
 export default {
   async fetch(request, env, ctx) {
@@ -18,6 +49,28 @@ export default {
     // Handle OPTIONS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
+    }
+
+    // Apple App Site Association for iOS Universal Links
+    if (path === '/.well-known/apple-app-site-association' || path === '/apple-app-site-association') {
+      return new Response(JSON.stringify(appleAppSiteAssociation), {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
+    }
+
+    // Android Asset Links for App Links
+    if (path === '/.well-known/assetlinks.json') {
+      return new Response(JSON.stringify(androidAssetLinks), {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
     }
 
     // Health check

@@ -63,6 +63,14 @@ export default {
       return handleVerifyCode(request, env)
     }
 
+    if (url.pathname === '/api/auth/user/validate' && request.method === 'POST') {
+      return handleUserValidate(request, env)
+    }
+
+    if (url.pathname === '/api/ai-chat' && request.method === 'POST') {
+      return handleAiChat(request, env)
+    }
+
     // Knowledge Graph endpoints (proxies to Knowledge Graph Worker)
     if (url.pathname === '/api/save-graph' && request.method === 'POST') {
       return handleSaveGraph(request, env)
@@ -746,6 +754,71 @@ async function handleVerifyCode(request, env) {
   }
 }
 
+/**
+ * POST /api/auth/user/validate
+ * Validate user_id/email/phone against config and ensure phone is verified
+ * Body: { user_id?: string, email?: string, phone?: string }
+ */
+async function handleUserValidate(request, env) {
+  try {
+    const body = await request.json()
+    const userId = (body.user_id || '').trim()
+    const email = (body.email || '').trim().toLowerCase()
+    const phoneInput = body.phone ? String(body.phone) : ''
+    const phone = phoneInput ? normalizePhoneNumber(phoneInput) : ''
+
+    if (!userId && !email && !phoneInput) {
+      return jsonResponse({ error: 'user_id, email, or phone required' }, 400)
+    }
+
+    if (phoneInput && !phone) {
+      return jsonResponse({ error: 'Invalid phone number format' }, 400)
+    }
+
+    let row
+    if (userId) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE user_id = ?'
+      ).bind(userId).first()
+    } else if (email) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE email = ?'
+      ).bind(email).first()
+    } else if (phone) {
+      row = await env.VEGVISR_DB.prepare(
+        'SELECT user_id, email, phone, phone_verified_at FROM config WHERE phone = ?'
+      ).bind(phone).first()
+    }
+
+    if (!row) {
+      return jsonResponse({ success: false, error: 'User not found' }, 404)
+    }
+
+    if (email && row.email !== email) {
+      return jsonResponse({ success: false, error: 'Email does not match user' }, 401)
+    }
+
+    if (phone && row.phone !== phone) {
+      return jsonResponse({ success: false, error: 'Phone does not match user' }, 401)
+    }
+
+    if (!row.phone_verified_at) {
+      return jsonResponse({ success: false, error: 'Phone not verified' }, 401)
+    }
+
+    return jsonResponse({
+      success: true,
+      user_id: row.user_id || null,
+      email: row.email,
+      phone: row.phone || null,
+      phone_verified_at: row.phone_verified_at
+    })
+  } catch (error) {
+    console.error('Error in /api/auth/user/validate:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
 // ===== KNOWLEDGE GRAPH SAVE (PROXY) =====
 
 /**
@@ -755,7 +828,7 @@ async function handleVerifyCode(request, env) {
 async function handleSaveGraph(request, env) {
   try {
     const payload = await request.json()
-    const { phone, userId, title, content, youtubeUrl } = payload
+    const { phone, userId, title, content, youtubeUrl, publicEdit } = payload
 
     if (!phone) {
       return jsonResponse({ error: 'Phone number is required' }, 400)
@@ -837,7 +910,8 @@ async function handleSaveGraph(request, env) {
         description: `Markdown document created by ${userIdentifier} at ${now}${youtubeUrl ? ' (with YouTube video)' : ''}`,
         createdBy: 'hallo-vegvisr-flutter',
         userId: userId || null,
-        version: 0
+        version: 0,
+        publicEdit: publicEdit === true
       },
       nodes: nodes,
       edges: edges
@@ -875,6 +949,98 @@ async function handleSaveGraph(request, env) {
 
   } catch (error) {
     console.error('Error in /api/save-graph:', error)
+    return jsonResponse({ error: error.message }, 500)
+  }
+}
+
+// ===== AI CHAT (PROXY) =====
+
+/**
+ * AI chat proxy
+ * Validates phone authentication and proxies to Grok/OpenAI workers.
+ */
+async function handleAiChat(request, env) {
+  try {
+    const payload = await request.json()
+    const {
+      phone,
+      userId,
+      provider = 'grok',
+      messages,
+      model,
+      temperature,
+      max_tokens,
+      max_completion_tokens
+    } = payload
+
+    if (!phone) {
+      return jsonResponse({ error: 'Phone number is required' }, 400)
+    }
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return jsonResponse({ error: 'Messages array is required' }, 400)
+    }
+
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT user_id, email, phone, phone_verified_at FROM config WHERE phone = ? AND phone_verified_at IS NOT NULL'
+    ).bind(normalizedPhone).first()
+
+    if (!row) {
+      return jsonResponse({ error: 'Phone not verified. Please log in again.' }, 401)
+    }
+
+    const effectiveUserId = userId || row.user_id || null
+    const useOpenAI = provider === 'openai'
+    const service = useOpenAI ? env.OPENAI_WORKER : env.GROK_WORKER
+    const serviceUrl = useOpenAI
+      ? 'https://openai-worker/chat'
+      : 'https://grok-worker/chat'
+    const publicUrl = useOpenAI
+      ? 'https://openai.vegvisr.org/chat'
+      : 'https://grok.vegvisr.org/chat'
+
+    const body = {
+      userId: effectiveUserId,
+      messages
+    }
+
+    if (model) body.model = model
+    if (temperature !== undefined) body.temperature = temperature
+    if (max_completion_tokens !== undefined) {
+      body.max_completion_tokens = max_completion_tokens
+    } else if (max_tokens !== undefined) {
+      body.max_tokens = max_tokens
+    }
+
+    const aiResponse = service?.fetch
+      ? await service.fetch(serviceUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+      : await fetch(publicUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text()
+      return jsonResponse({ error: 'AI request failed', details: errorText }, aiResponse.status)
+    }
+
+    const data = await aiResponse.json()
+    const aiMessage = data?.choices?.[0]?.message?.content || ''
+
+    return jsonResponse({
+      success: true,
+      message: aiMessage,
+      model: data?.model,
+      usage: data?.usage
+    })
+  } catch (error) {
+    console.error('Error in /api/ai-chat:', error)
     return jsonResponse({ error: error.message }, 500)
   }
 }
@@ -1135,12 +1301,14 @@ async function handleGetGraph(request, env) {
     const createdBy = graph.metadata?.createdBy || ''
     const graphUserId = graph.metadata?.userId || ''
     const description = graph.metadata?.description || ''
+    const publicEdit =
+      graph.metadata?.publicEdit === true || graph.metadata?.publicEdit === 'true'
 
     // Check ownership
     const isOwner = (userId && graphUserId === userId) ||
                     (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
 
-    if (!isOwner) {
+    if (!isOwner && !publicEdit) {
       return jsonResponse({ error: 'You can only view graphs you created' }, 403)
     }
 
@@ -1159,6 +1327,7 @@ async function handleGetGraph(request, env) {
         title: graph.metadata?.title || 'Untitled',
         content: content,
         youtubeUrl: youtubeUrl,
+        publicEdit: publicEdit,
         version: graph.metadata?.version || 0,
         createdAt: graph.created_date,
         updatedAt: graph.updated_at
@@ -1178,7 +1347,7 @@ async function handleGetGraph(request, env) {
 async function handleUpdateGraph(request, env) {
   try {
     const payload = await request.json()
-    const { phone, userId, graphId, title, content, youtubeUrl } = payload
+    const { phone, userId, graphId, title, content, youtubeUrl, publicEdit } = payload
 
     if (!phone) {
       return jsonResponse({ error: 'Phone number is required' }, 400)
@@ -1222,12 +1391,13 @@ async function handleUpdateGraph(request, env) {
     const createdBy = existingGraph.metadata?.createdBy || ''
     const graphUserId = existingGraph.metadata?.userId || ''
     const description = existingGraph.metadata?.description || ''
+    const existingPublicEdit = existingGraph.metadata?.publicEdit === true || existingGraph.metadata?.publicEdit === 'true'
 
     // Check ownership
     const isOwner = (userId && graphUserId === userId) ||
                     (createdBy === 'hallo-vegvisr-flutter' && description.includes(userIdentifier))
 
-    if (!isOwner) {
+    if (!isOwner && !existingPublicEdit) {
       return jsonResponse({ error: 'You can only edit graphs you created' }, 403)
     }
 
@@ -1288,7 +1458,8 @@ async function handleUpdateGraph(request, env) {
         description: `Markdown document updated by ${userIdentifier} at ${now}${youtubeUrl ? ' (with YouTube video)' : ''}`,
         createdBy: 'hallo-vegvisr-flutter',
         userId: userId || existingGraph.metadata?.userId || null,
-        version: existingGraph.metadata?.version || 0
+        version: existingGraph.metadata?.version || 0,
+        publicEdit: isOwner ? publicEdit === true : existingPublicEdit
       },
       nodes: nodes,
       edges: edges

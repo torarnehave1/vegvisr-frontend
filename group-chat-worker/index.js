@@ -10,6 +10,51 @@ function generateInviteCode() {
   return code
 }
 
+// Send FCM push notification
+async function sendPushNotification(env, tokens, title, body, data = {}) {
+  if (!env.FCM_SERVER_KEY || tokens.length === 0) {
+    return
+  }
+
+  try {
+    const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `key=${env.FCM_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        registration_ids: tokens,
+        notification: {
+          title,
+          body,
+          sound: 'default',
+        },
+        data,
+        priority: 'high',
+      }),
+    })
+
+    if (!response.ok) {
+      console.error('FCM send error:', await response.text())
+    }
+  } catch (error) {
+    console.error('FCM error:', error)
+  }
+}
+
+// Get FCM tokens for group members (excluding sender)
+async function getGroupMemberTokens(env, groupId, excludeUserId) {
+  const { results } = await env.CHAT_DB.prepare(
+    `SELECT dt.fcm_token
+     FROM device_tokens dt
+     JOIN group_members gm ON dt.user_id = gm.user_id
+     WHERE gm.group_id = ? AND dt.user_id != ?`
+  ).bind(groupId, excludeUserId).all()
+
+  return results.map(r => r.fcm_token)
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -73,7 +118,7 @@ async function ensureMember(env, groupId, userId) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
     const { pathname, searchParams } = url
 
@@ -145,6 +190,73 @@ export default {
             created_at: createdAt,
           },
         }, 201)
+      }
+
+      // PUT /groups/{id} - Update group info (owner/admin only)
+      const updateGroupMatch = pathname.match(/^\/groups\/([^/]+)$/)
+      if (updateGroupMatch && request.method === 'PUT') {
+        const groupId = updateGroupMatch[1]
+        const body = await readJson(request)
+        if (!body) {
+          return errorResponse('Invalid JSON body')
+        }
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+
+        if (!userId || !phone) {
+          return errorResponse('user_id and phone required')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        // Check if user is owner or admin
+        const member = await env.CHAT_DB.prepare(
+          'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).bind(groupId, userId).first()
+
+        if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
+          return errorResponse('Only owner or admin can update group', 403)
+        }
+
+        // Build update query dynamically based on provided fields
+        const updates = []
+        const values = []
+
+        if (body.name !== undefined) {
+          const name = String(body.name).trim()
+          if (name) {
+            updates.push('name = ?')
+            values.push(name)
+          }
+        }
+
+        if (body.image_url !== undefined) {
+          // Allow null/empty to clear the image
+          const imageUrl = body.image_url ? String(body.image_url).trim() : null
+          updates.push('image_url = ?')
+          values.push(imageUrl)
+        }
+
+        if (updates.length === 0) {
+          return errorResponse('No fields to update')
+        }
+
+        values.push(groupId)
+        await env.CHAT_DB.prepare(
+          `UPDATE groups SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...values).run()
+
+        // Fetch updated group
+        const group = await env.CHAT_DB.prepare(
+          'SELECT * FROM groups WHERE id = ?'
+        ).bind(groupId).first()
+
+        return jsonResponse({ success: true, group })
       }
 
       if (pathname === '/groups' && request.method === 'GET') {
@@ -339,6 +451,37 @@ export default {
           .bind(groupId, userId, text, createdAt)
           .run()
 
+        // Send push notifications to other group members (in background)
+        ctx.waitUntil((async () => {
+          try {
+            // Get group name for notification
+            const group = await env.CHAT_DB.prepare(
+              'SELECT name FROM groups WHERE id = ?'
+            ).bind(groupId).first()
+            const groupName = group?.name || 'Group Chat'
+
+            // Get tokens for other members
+            const tokens = await getGroupMemberTokens(env, groupId, userId)
+            if (tokens.length > 0) {
+              // Truncate message for notification
+              const preview = text.length > 50 ? text.substring(0, 47) + '...' : text
+              await sendPushNotification(
+                env,
+                tokens,
+                groupName,
+                preview,
+                {
+                  group_id: groupId,
+                  group_name: groupName,
+                  message_id: String(result.meta.last_row_id),
+                }
+              )
+            }
+          } catch (err) {
+            console.error('Push notification error:', err)
+          }
+        })())
+
         return jsonResponse({
           success: true,
           message: {
@@ -506,6 +649,70 @@ export default {
           group_id: invite.group_id,
           group_name: invite.group_name,
         })
+      }
+
+      // POST /register-device - Register FCM token for push notifications
+      if (pathname === '/register-device' && request.method === 'POST') {
+        const body = await readJson(request)
+        if (!body) {
+          return errorResponse('Invalid JSON body')
+        }
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const fcmToken = (body.fcm_token || '').trim()
+        const platform = (body.platform || 'android').trim()
+
+        if (!userId || !phone || !fcmToken) {
+          return errorResponse('user_id, phone, and fcm_token required')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        const now = Date.now()
+        // Upsert device token
+        await env.CHAT_DB.prepare(
+          `INSERT INTO device_tokens (user_id, fcm_token, platform, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(fcm_token) DO UPDATE SET
+             user_id = excluded.user_id,
+             platform = excluded.platform,
+             updated_at = excluded.updated_at`
+        ).bind(userId, fcmToken, platform, now, now).run()
+
+        return jsonResponse({ success: true, message: 'Device registered' })
+      }
+
+      // POST /unregister-device - Remove FCM token
+      if (pathname === '/unregister-device' && request.method === 'POST') {
+        const body = await readJson(request)
+        if (!body) {
+          return errorResponse('Invalid JSON body')
+        }
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const fcmToken = (body.fcm_token || '').trim()
+
+        if (!userId || !phone || !fcmToken) {
+          return errorResponse('user_id, phone, and fcm_token required')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        await env.CHAT_DB.prepare(
+          'DELETE FROM device_tokens WHERE user_id = ? AND fcm_token = ?'
+        ).bind(userId, fcmToken).run()
+
+        return jsonResponse({ success: true, message: 'Device unregistered' })
       }
 
       return new Response('Not Found', { status: 404, headers: corsHeaders })
