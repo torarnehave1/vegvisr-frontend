@@ -76,11 +76,11 @@ async function handleGenerate(request, env, corsHeaders) {
     // Priority: x-forwarded-host > origin header > default
     const requestHeaders = request.headers
     let originDomain = 'www.vegvisr.org' // Default fallback
-    
+
     const xForwardedHost = requestHeaders.get('x-forwarded-host')
     const originHeader = requestHeaders.get('origin')
     const refererHeader = requestHeaders.get('referer')
-    
+
     if (xForwardedHost) {
       originDomain = xForwardedHost
       console.log('Using x-forwarded-host for origin:', originDomain)
@@ -101,7 +101,7 @@ async function handleGenerate(request, env, corsHeaders) {
         console.log('Could not parse referer header:', e)
       }
     }
-    
+
     console.log('Detected origin domain:', originDomain)
 
     // Validate required fields
@@ -292,8 +292,8 @@ function generateStaticHTML(options) {
 
   // Use the detected origin domain (universi.no, vegvisr.org, etc.)
   const url = `https://${originDomain}/graph/${slug}`
-  const siteName = originDomain === 'www.universi.no' || originDomain === 'universi.no' 
-    ? 'Universi' 
+  const siteName = originDomain === 'www.universi.no' || originDomain === 'universi.no'
+    ? 'Universi'
     : 'Vegvisr Org'
   const defaultImage = 'https://vegvisr.imgix.net/default-og-image.jpg?w=1200&h=630&fit=crop&auto=compress,format'
 
