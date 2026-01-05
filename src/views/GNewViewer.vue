@@ -8917,8 +8917,10 @@ const saveAttribution = async () => {
 /* Public Viewer Styles - Ultra Clean */
 .public-viewer {
   max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
   padding: 0;
+  box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -8926,6 +8928,8 @@ const saveAttribution = async () => {
   background: transparent;
   border-radius: 0;
   padding: 20px;
+  box-sizing: border-box;
+  width: 100%;
   box-shadow: none;
   margin-bottom: 0;
 }
@@ -11591,6 +11595,24 @@ const saveAttribution = async () => {
 
   .content-tools .me-2 {
     margin-right: 0 !important;
+  }
+
+  /* Mobile fixes for public viewer */
+  .public-viewer {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .public-viewer .graph-content {
+    padding: 12px;
+  }
+
+  .public-viewer .nodes-container {
+    gap: 16px;
+  }
+
+  .gnew-viewer {
+    padding: 8px 12px;
   }
 }
 
