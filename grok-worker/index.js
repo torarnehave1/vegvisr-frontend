@@ -1266,8 +1266,8 @@ function handleApiDocs(corsHeaders) {
                     userId: { type: 'string', description: 'User ID for D1 key lookup (optional, falls back to env key)' },
                     prompt: { type: 'string', description: 'Text description of the image to generate' },
                     model: { type: 'string', default: 'grok-2-image-beta', description: 'Image model to use' },
-                    size: { 
-                      type: 'string', 
+                    size: {
+                      type: 'string',
                       default: '1024x1024',
                       enum: ['1024x1024', '1024x1792', '1792x1024'],
                       description: 'Size of the generated image'
