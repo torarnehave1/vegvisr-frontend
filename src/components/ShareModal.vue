@@ -283,7 +283,8 @@ const updateShareType = () => {
 
 const getShareUrl = () => {
   if (shareType.value === 'seo' && props.graphData?.metadata?.seoSlug) {
-    return `https://seo.vegvisr.org/graph/${props.graphData.metadata.seoSlug}`
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    return `${window.location.origin}/graph/${props.graphData.metadata.seoSlug}`
   } else {
     return `https://${props.currentDomain}/gnew-viewer?graphId=${props.currentGraphId}`
   }

@@ -72,6 +72,38 @@ async function handleGenerate(request, env, corsHeaders) {
       graphData,
     } = data
 
+    // Detect origin domain from request headers (for reverse proxy support)
+    // Priority: x-forwarded-host > origin header > default
+    const requestHeaders = request.headers
+    let originDomain = 'www.vegvisr.org' // Default fallback
+    
+    const xForwardedHost = requestHeaders.get('x-forwarded-host')
+    const originHeader = requestHeaders.get('origin')
+    const refererHeader = requestHeaders.get('referer')
+    
+    if (xForwardedHost) {
+      originDomain = xForwardedHost
+      console.log('Using x-forwarded-host for origin:', originDomain)
+    } else if (originHeader) {
+      try {
+        const originUrl = new URL(originHeader)
+        originDomain = originUrl.hostname
+        console.log('Using origin header for domain:', originDomain)
+      } catch (e) {
+        console.log('Could not parse origin header:', e)
+      }
+    } else if (refererHeader) {
+      try {
+        const refererUrl = new URL(refererHeader)
+        originDomain = refererUrl.hostname
+        console.log('Using referer header for domain:', originDomain)
+      } catch (e) {
+        console.log('Could not parse referer header:', e)
+      }
+    }
+    
+    console.log('Detected origin domain:', originDomain)
+
     // Validate required fields
     if (!graphId || !slug || !title || !description) {
       return new Response(
@@ -86,7 +118,7 @@ async function handleGenerate(request, env, corsHeaders) {
       )
     }
 
-    // Generate the static HTML
+    // Generate the static HTML with dynamic origin domain
     const html = generateStaticHTML({
       graphId,
       slug,
@@ -95,6 +127,7 @@ async function handleGenerate(request, env, corsHeaders) {
       ogImage,
       keywords,
       graphData,
+      originDomain, // Pass the detected domain
     })
 
     // Store in KV (if env.SEO_PAGES is configured)
@@ -131,7 +164,7 @@ async function handleGenerate(request, env, corsHeaders) {
     return new Response(
       JSON.stringify({
         success: true,
-        url: `https://www.vegvisr.org/graph/${slug}`,
+        url: `https://${originDomain}/graph/${slug}`,
         slug,
       }),
       {
@@ -254,10 +287,14 @@ function generateStaticHTML(options) {
     ogImage,
     keywords,
     graphData,
+    originDomain = 'www.vegvisr.org', // Default fallback
   } = options
 
-  const url = `https://www.vegvisr.org/graph/${slug}`
-  const siteName = 'Vegvisr Org'
+  // Use the detected origin domain (universi.no, vegvisr.org, etc.)
+  const url = `https://${originDomain}/graph/${slug}`
+  const siteName = originDomain === 'www.universi.no' || originDomain === 'universi.no' 
+    ? 'Universi' 
+    : 'Vegvisr Org'
   const defaultImage = 'https://vegvisr.imgix.net/default-og-image.jpg?w=1200&h=630&fit=crop&auto=compress,format'
 
   // Facebook requires minimum 200x200px, recommends 1200x630px for optimal display
@@ -534,7 +571,7 @@ function generateStaticHTML(options) {
     <div class="cta-section">
       <h3>🎯 Explore the Interactive Knowledge Graph</h3>
       <p>This is a static preview for search engines and social media. View the full interactive version with all features, visualizations, and connections.</p>
-      <a href="https://www.vegvisr.org/gnew-viewer?graphId=${graphId}" class="cta-button">
+      <a href="https://${originDomain}/gnew-viewer?graphId=${graphId}" class="cta-button">
         View Interactive Graph →
       </a>
     </div>
@@ -542,8 +579,8 @@ function generateStaticHTML(options) {
     <footer>
       <p>Powered by <strong>${siteName}</strong> - Visual Knowledge Management</p>
       <p style="margin-top: 0.5rem;">
-        <a href="https://www.vegvisr.org" style="color: #667eea; text-decoration: none;">Home</a> •
-        <a href="https://www.vegvisr.org/about" style="color: #667eea; text-decoration: none;">About</a>
+        <a href="https://${originDomain}" style="color: #667eea; text-decoration: none;">Home</a> •
+        <a href="https://${originDomain}/about" style="color: #667eea; text-decoration: none;">About</a>
       </p>
     </footer>
   </div>

@@ -394,7 +394,8 @@ async function initializeSharedGraph() {
     sharedGraphMessage.value = 'SEO slug found.'
 
     sharedGraphSlug.value = seoSlug
-    sharedGraphUrl.value = `https://seo.vegvisr.org/graph/${seoSlug}`
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    sharedGraphUrl.value = `${window.location.origin}/graph/${seoSlug}`
     sharedGraphReady.value = true
     applySharedContent(rawContent, sharedGraphUrl.value, sharedGraphTitle.value)
   } catch (err) {

@@ -1796,7 +1796,8 @@ const updateShareContent = () => {
   let shareLabel = ''
 
   if (shareType.value === 'seo' && graph.metadata?.seoSlug) {
-    shareUrl = `https://seo.vegvisr.org/graph/${graph.metadata.seoSlug}`
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    shareUrl = `${window.location.origin}/graph/${graph.metadata.seoSlug}`
     shareLabel = 'View this SEO-optimized knowledge graph: '
   } else {
     shareUrl = `${window.location.origin}/gnew-viewer?graphId=${graph.id}`
@@ -1826,7 +1827,8 @@ const shareToLinkedIn = () => {
 
   let url = ''
   if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
-    url = encodeURIComponent(`https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`)
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    url = encodeURIComponent(`${window.location.origin}/graph/${currentGraph.value.metadata.seoSlug}`)
   } else {
     url = encodeURIComponent(`${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`)
   }
@@ -1840,7 +1842,8 @@ const shareToTwitter = () => {
 
   let url = ''
   if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
-    url = `https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    url = `${window.location.origin}/graph/${currentGraph.value.metadata.seoSlug}`
   } else {
     url = `${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`
   }
@@ -1854,7 +1857,8 @@ const shareToTwitter = () => {
 const shareToFacebook = () => {
   let url = ''
   if (shareType.value === 'seo' && currentGraph.value?.metadata?.seoSlug) {
-    url = encodeURIComponent(`https://seo.vegvisr.org/graph/${currentGraph.value.metadata.seoSlug}`)
+    // Use current domain dynamically (universi.no, vegvisr.org, etc.)
+    url = encodeURIComponent(`${window.location.origin}/graph/${currentGraph.value.metadata.seoSlug}`)
   } else {
     url = encodeURIComponent(`${window.location.origin}/gnew-viewer?graphId=${currentGraph.value?.id}`)
   }

@@ -93,7 +93,7 @@
               </button>
             </label>
             <div class="url-preview-container">
-              <span class="url-base">https://www.vegvisr.org/graph/</span>
+              <span class="url-base">{{ seoPublicBaseUrl }}</span>
               <input
                 v-model="seoConfig.slug"
                 type="text"
@@ -376,7 +376,7 @@
 
             <h5 class="mt-3">Technical Details:</h5>
             <ul>
-              <li><strong>Static Page URL:</strong> <code>https://www.vegvisr.org/graph/{slug}</code></li>
+              <li><strong>Static Page URL:</strong> <code>{{ seoPublicBaseUrl }}{slug}</code></li>
               <li><strong>Vue App URL:</strong> <code>https://www.vegvisr.org/gnew-viewer?graphId={id}</code></li>
               <li><strong>SEO Worker:</strong> <code>seo-worker.vegvisr.workers.dev</code></li>
               <li><strong>Meta Tags:</strong> Open Graph, Twitter Cards, JSON-LD structured data</li>
@@ -476,6 +476,22 @@ const staticPageGenerated = ref(false)
 const generatedURL = ref('')
 const successMessage = ref('')
 const errorMessage = ref('')
+
+// Dynamically use the current domain (universi.no, vegvisr.org, etc.)
+const seoPublicBaseUrl = computed(() => `${window.location.origin}/graph/`)
+
+const buildPublicSeoUrl = (slug, apiUrl) => {
+  if (apiUrl) {
+    try {
+      const url = new URL(apiUrl)
+      return `${window.location.origin}${url.pathname}`
+    } catch (error) {
+      console.warn('Failed to parse SEO URL, falling back to slug:', error)
+    }
+  }
+
+  return `${seoPublicBaseUrl.value}${slug}`
+}
 
 // Image selection
 const showImageSelectionModal = ref(false)
@@ -1108,7 +1124,7 @@ const generateStaticPage = async () => {
     const result = await response.json()
     console.log('Response data:', result)
 
-    generatedURL.value = result.url || `https://seo.vegvisr.org/graph/${seoConfig.value.slug}`
+    generatedURL.value = buildPublicSeoUrl(seoConfig.value.slug, result.url)
     staticPageGenerated.value = true
 
     // Save the slug to the graph's metadata
