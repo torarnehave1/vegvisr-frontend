@@ -171,7 +171,7 @@ async function getGroupMemberTokens(env, groupId, excludeUserId) {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id, x-user-phone, x-user-email',
 }
 
@@ -282,10 +282,10 @@ export default {
         const createdAt = Date.now()
 
         await env.CHAT_DB.prepare(
-          `INSERT INTO groups (id, name, created_by, graph_id, created_at)
-           VALUES (?, ?, ?, ?, ?)`
+          `INSERT INTO groups (id, name, created_by, graph_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
-          .bind(groupId, name, createdBy, graphId, createdAt)
+          .bind(groupId, name, createdBy, graphId, createdAt, createdAt)
           .run()
 
         await env.CHAT_DB.prepare(
@@ -303,6 +303,7 @@ export default {
             created_by: createdBy,
             graph_id: graphId,
             created_at: createdAt,
+            updated_at: createdAt,
           },
         }, 201)
       }
@@ -362,6 +363,8 @@ export default {
         }
 
         values.push(groupId)
+        updates.push('updated_at = ?')
+        values.push(Date.now())
         await env.CHAT_DB.prepare(
           `UPDATE groups SET ${updates.join(', ')} WHERE id = ?`
         ).bind(...values).run()
@@ -390,14 +393,25 @@ export default {
           return errorResponse(auth.error, auth.status)
         }
 
-        const { results } = await env.CHAT_DB.prepare(
-          `SELECT g.*, gm.role, gm.joined_at
+        const sinceRaw = searchParams.get('since')
+        const since = sinceRaw ? Number(sinceRaw) : null
+        if (sinceRaw && (Number.isNaN(since) || since < 0)) {
+          return errorResponse('Invalid since value')
+        }
+
+        let query = `SELECT g.*, gm.role, gm.joined_at
            FROM groups g
            JOIN group_members gm ON g.id = gm.group_id
-           WHERE gm.user_id = ?
-           ORDER BY g.created_at DESC`
-        )
-          .bind(userId)
+           WHERE gm.user_id = ?`
+        const params = [userId]
+        if (since !== null) {
+          query += ' AND g.updated_at > ?'
+          params.push(since)
+        }
+        query += ' ORDER BY g.updated_at DESC'
+
+        const { results } = await env.CHAT_DB.prepare(query)
+          .bind(...params)
           .all()
 
         return jsonResponse({ success: true, groups: results })
@@ -440,6 +454,12 @@ export default {
            VALUES (?, ?, ?, ?)`
         )
           .bind(groupId, userId, role, joinedAt)
+          .run()
+
+        await env.CHAT_DB.prepare(
+          'UPDATE groups SET updated_at = ? WHERE id = ?'
+        )
+          .bind(joinedAt, groupId)
           .run()
 
         return jsonResponse({ success: true, group_id: groupId, user_id: userId })
@@ -489,6 +509,8 @@ export default {
         const afterRaw = searchParams.get('after')
         const after = afterRaw ? Number(afterRaw) : 0
         const limitRaw = searchParams.get('limit')
+        const latestRaw = searchParams.get('latest')
+        const latest = latestRaw === '1' || latestRaw === 'true'
         let limit = limitRaw ? Number(limitRaw) : 50
         if (!userId) {
           return errorResponse('user_id required')
@@ -514,15 +536,32 @@ export default {
           return errorResponse('Not a group member', 403)
         }
 
-        const { results } = await env.CHAT_DB.prepare(
-          `SELECT id, group_id, user_id, body, created_at
+        let results
+        if (latest) {
+          const query = `SELECT id, group_id, user_id, body, created_at,
+                  message_type, audio_url, audio_duration_ms,
+                  transcript_text, transcript_lang, transcription_status
+            FROM group_messages
+            WHERE group_id = ?
+            ORDER BY id DESC
+            LIMIT ?`
+          const data = await env.CHAT_DB.prepare(query)
+            .bind(groupId, limit)
+            .all()
+          results = (data.results || []).reverse()
+        } else {
+          const query = `SELECT id, group_id, user_id, body, created_at,
+                  message_type, audio_url, audio_duration_ms,
+                  transcript_text, transcript_lang, transcription_status
            FROM group_messages
            WHERE group_id = ? AND id > ?
            ORDER BY id ASC
            LIMIT ?`
-        )
-          .bind(groupId, after, limit)
-          .all()
+          const data = await env.CHAT_DB.prepare(query)
+            .bind(groupId, after, limit)
+            .all()
+          results = data.results || []
+        }
 
         return jsonResponse({ success: true, messages: results })
       }
@@ -538,13 +577,25 @@ export default {
         const phone = (body.phone || '').trim()
         const email = body.email ? String(body.email).trim() : ''
         const text = (body.body || '').trim()
+        const messageType = (body.message_type || body.type || 'text').trim()
+        const audioUrl = body.audio_url ? String(body.audio_url).trim() : ''
+        const audioDurationMs = body.audio_duration_ms ?? null
+        const transcriptText = body.transcript_text ? String(body.transcript_text) : null
+        const transcriptLang = body.transcript_lang ? String(body.transcript_lang) : null
+        const transcriptionStatus = body.transcription_status
+          ? String(body.transcription_status)
+          : (messageType === 'voice' ? 'pending' : null)
         if (!userId) {
           return errorResponse('user_id required')
         }
         if (!phone) {
           return errorResponse('phone required')
         }
-        if (!text) {
+        if (messageType === 'voice') {
+          if (!audioUrl) {
+            return errorResponse('audio_url required for voice messages')
+          }
+        } else if (!text) {
           return errorResponse('Message body required')
         }
 
@@ -560,10 +611,31 @@ export default {
 
         const createdAt = Date.now()
         const result = await env.CHAT_DB.prepare(
-          `INSERT INTO group_messages (group_id, user_id, body, created_at)
-           VALUES (?, ?, ?, ?)`
+          `INSERT INTO group_messages (
+             group_id, user_id, body, created_at,
+             message_type, audio_url, audio_duration_ms,
+             transcript_text, transcript_lang, transcription_status
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-          .bind(groupId, userId, text, createdAt)
+          .bind(
+            groupId,
+            userId,
+            text,
+            createdAt,
+            messageType,
+            audioUrl || null,
+            audioDurationMs,
+            transcriptText,
+            transcriptLang,
+            transcriptionStatus,
+          )
+          .run()
+
+        await env.CHAT_DB.prepare(
+          'UPDATE groups SET updated_at = ? WHERE id = ?'
+        )
+          .bind(createdAt, groupId)
           .run()
 
         // Send push notifications only if sender is Superadmin (to avoid notification spam)
@@ -583,7 +655,13 @@ export default {
               console.log('[Push] Got', tokens.length, 'tokens to notify')
               if (tokens.length > 0) {
                 // Truncate message for notification
-                const preview = text.length > 50 ? text.substring(0, 47) + '...' : text
+                const previewText = messageType === 'voice'
+                  ? (transcriptText && transcriptText.trim().isNotEmpty
+                    ? transcriptText.trim()
+                    : '🎤 Voice message')
+                  : text
+                const preview =
+                  previewText.length > 50 ? previewText.substring(0, 47) + '...' : previewText
                 await sendPushNotification(
                   env,
                   tokens,
@@ -612,8 +690,84 @@ export default {
             user_id: userId,
             body: text,
             created_at: createdAt,
+            message_type: messageType,
+            audio_url: audioUrl || null,
+            audio_duration_ms: audioDurationMs,
+            transcript_text: transcriptText,
+            transcript_lang: transcriptLang,
+            transcription_status: transcriptionStatus,
           },
         }, 201)
+      }
+
+      const messageUpdateMatch = pathname.match(/^\/groups\/([^/]+)\/messages\/(\d+)$/)
+      if (messageUpdateMatch && request.method === 'PATCH') {
+        const groupId = messageUpdateMatch[1]
+        const messageId = Number(messageUpdateMatch[2])
+        const body = await readJson(request)
+        if (!body) {
+          return errorResponse('Invalid JSON body')
+        }
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const transcriptText = body.transcript_text ? String(body.transcript_text) : null
+        const transcriptLang = body.transcript_lang ? String(body.transcript_lang) : null
+        const transcriptionStatus = body.transcription_status
+          ? String(body.transcription_status)
+          : null
+
+        if (!userId) {
+          return errorResponse('user_id required')
+        }
+        if (!phone) {
+          return errorResponse('phone required')
+        }
+        if (!transcriptText && !transcriptLang && !transcriptionStatus) {
+          return errorResponse('No transcript fields provided')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        const isMember = await ensureMember(env, groupId, userId)
+        if (!isMember) {
+          return errorResponse('Not a group member', 403)
+        }
+
+        const existing = await env.CHAT_DB.prepare(
+          `SELECT id FROM group_messages WHERE id = ? AND group_id = ?`
+        )
+          .bind(messageId, groupId)
+          .first()
+        if (!existing) {
+          return errorResponse('Message not found', 404)
+        }
+
+        await env.CHAT_DB.prepare(
+          `UPDATE group_messages
+           SET transcript_text = COALESCE(?, transcript_text),
+               transcript_lang = COALESCE(?, transcript_lang),
+               transcription_status = COALESCE(?, transcription_status)
+           WHERE id = ? AND group_id = ?`
+        )
+          .bind(transcriptText, transcriptLang, transcriptionStatus, messageId, groupId)
+          .run()
+
+        const updated = await env.CHAT_DB.prepare(
+          `SELECT id, group_id, user_id, body, created_at,
+                  message_type, audio_url, audio_duration_ms,
+                  transcript_text, transcript_lang, transcription_status
+           FROM group_messages
+           WHERE id = ?`
+        )
+          .bind(messageId)
+          .first()
+
+        return jsonResponse({ success: true, message: updated })
       }
 
       // POST /groups/{id}/invite - Create invite link (owner/admin only)

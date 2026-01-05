@@ -493,6 +493,16 @@ export default {
         return await handleModelEndpoint(request, env, corsHeaders, 'grok-code-fast-1')
       }
 
+      // POST /images - Image generation endpoint
+      if (pathname === '/images' && request.method === 'POST') {
+        return await handleImageGeneration(request, env, corsHeaders)
+      }
+
+      // GET /image-models - List image generation models
+      if (pathname === '/image-models' && request.method === 'GET') {
+        return handleImageModels(corsHeaders)
+      }
+
       // GET /models - List models
       if (pathname === '/models' && request.method === 'GET') {
         return handleModels(corsHeaders)
@@ -548,7 +558,7 @@ export default {
 
       return new Response(JSON.stringify({
         error: 'Not found',
-        available_endpoints: ['/health', '/models', '/chat', '/process-transcript', '/grok-4-latest', '/grok-3', '/grok-2-latest', '/grok-2-vision-latest', '/grok-vision-beta', '/grok-code-fast-1', '/api/docs']
+        available_endpoints: ['/health', '/models', '/image-models', '/chat', '/images', '/process-transcript', '/grok-4-latest', '/grok-3', '/grok-2-latest', '/grok-2-vision-latest', '/grok-vision-beta', '/grok-code-fast-1', '/api/docs']
       }), { status: 404, headers: corsHeaders })
 
     } catch (error) {
@@ -966,6 +976,103 @@ async function handleModelEndpoint(request, env, corsHeaders, modelId) {
 }
 
 /**
+ * Handle image generation requests
+ */
+async function handleImageGeneration(request, env, corsHeaders) {
+  try {
+    const body = await request.json()
+    const {
+      userId,
+      prompt,
+      model = 'grok-2-image',
+      size = '1024x1024',
+      n = 1,
+      response_format = 'url'
+    } = body
+
+    if (!prompt) {
+      return new Response(JSON.stringify({
+        error: 'prompt is required'
+      }), { status: 400, headers: corsHeaders })
+    }
+
+    // Get user's API key from D1 or fallback to env
+    let apiKey = null
+    if (userId && userId !== 'system') {
+      apiKey = await getUserApiKey(userId, 'grok', env)
+    }
+    if (!apiKey) {
+      apiKey = env.GROK_API_KEY
+    }
+
+    if (!apiKey) {
+      return new Response(JSON.stringify({
+        error: 'X.AI API key not configured. Please add your Grok API key.',
+        hint: 'Go to User Dashboard → API Keys to add your Grok (X.AI) API key'
+      }), { status: 401, headers: corsHeaders })
+    }
+
+    // Build request body (X.AI doesn't support size parameter yet)
+    const requestBody = {
+      model,
+      prompt,
+      n,
+      response_format
+    }
+
+    // Call X.AI Image Generation API
+    const response = await fetch('https://api.x.ai/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      return new Response(JSON.stringify({
+        error: 'X.AI Image API error',
+        details: data
+      }), { status: response.status, headers: corsHeaders })
+    }
+
+    return new Response(JSON.stringify(data), {
+      headers: corsHeaders
+    })
+
+  } catch (error) {
+    console.error('Image generation error:', error)
+    return new Response(JSON.stringify({
+      error: error.message
+    }), { status: 500, headers: corsHeaders })
+  }
+}
+
+/**
+ * List available image generation models
+ */
+function handleImageModels(corsHeaders) {
+  const models = [
+    {
+      id: 'grok-2-image-beta',
+      name: 'Grok 2 Image Beta',
+      description: 'Beta image generation model by X.AI',
+      supported_sizes: ['1024x1024', '1024x1792', '1792x1024'],
+      max_images: 1,
+      features: ['text-to-image', 'high-quality']
+    }
+  ]
+
+  return new Response(JSON.stringify({
+    models,
+    count: models.length
+  }), { headers: corsHeaders })
+}
+
+/**
  * List available models
  */
 function handleModels(corsHeaders) {
@@ -1043,6 +1150,7 @@ function handleApiDocs(corsHeaders) {
     ],
     tags: [
       { name: 'Chat', description: 'Chat completion endpoints for Grok models' },
+      { name: 'Images', description: 'Image generation endpoints using Grok models' },
       { name: 'Transcripts', description: 'YouTube transcript processing to knowledge graphs' },
       { name: 'Meta', description: 'Health checks and model listings' }
     ],
@@ -1103,6 +1211,119 @@ function handleApiDocs(corsHeaders) {
                 }
               }
             }
+          }
+        }
+      },
+      '/image-models': {
+        get: {
+          tags: ['Images'],
+          summary: 'List available image generation models',
+          description: 'Get list of image generation models with supported sizes and features',
+          responses: {
+            200: {
+              description: 'Image models list',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      models: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            name: { type: 'string' },
+                            description: { type: 'string' },
+                            supported_sizes: { type: 'array', items: { type: 'string' } },
+                            max_images: { type: 'integer' },
+                            features: { type: 'array', items: { type: 'string' } }
+                          }
+                        }
+                      },
+                      count: { type: 'integer' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/images': {
+        post: {
+          tags: ['Images'],
+          summary: 'Generate images using Grok',
+          description: 'Generate images from text prompts using X.AI image generation models. API key retrieved from D1 using userId.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['prompt'],
+                  properties: {
+                    userId: { type: 'string', description: 'User ID for D1 key lookup (optional, falls back to env key)' },
+                    prompt: { type: 'string', description: 'Text description of the image to generate' },
+                    model: { type: 'string', default: 'grok-2-image-beta', description: 'Image model to use' },
+                    size: { 
+                      type: 'string', 
+                      default: '1024x1024',
+                      enum: ['1024x1024', '1024x1792', '1792x1024'],
+                      description: 'Size of the generated image'
+                    },
+                    n: { type: 'integer', default: 1, minimum: 1, maximum: 1, description: 'Number of images to generate' },
+                    response_format: { type: 'string', enum: ['url', 'b64_json'], default: 'url', description: 'Format of the response' }
+                  }
+                },
+                examples: {
+                  'basic-image': {
+                    summary: 'Basic image generation',
+                    value: {
+                      userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                      prompt: 'A serene mountain landscape at sunset with a lake reflection',
+                      size: '1024x1024'
+                    }
+                  },
+                  'portrait-image': {
+                    summary: 'Portrait format image',
+                    value: {
+                      prompt: 'A futuristic city with flying cars and neon lights',
+                      size: '1024x1792',
+                      model: 'grok-2-image-beta'
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Image generation response',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      created: { type: 'integer', description: 'Unix timestamp of when images were created' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            url: { type: 'string', description: 'URL of the generated image' },
+                            b64_json: { type: 'string', description: 'Base64 encoded image (if response_format is b64_json)' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - missing prompt' },
+            401: { description: 'Unauthorized - API key not configured' },
+            500: { description: 'Server error' }
           }
         }
       },
