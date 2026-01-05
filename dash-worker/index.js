@@ -200,19 +200,19 @@ export default {
 
         console.log('Total domains for user', email, ':', userDomains.length)
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           domains: userDomains,
-          count: userDomains.length 
+          count: userDomains.length
         }), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       } catch (error) {
         console.error('Error fetching domains from KV:', error.message)
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: error.message 
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
         }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
