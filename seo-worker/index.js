@@ -244,7 +244,10 @@ async function handleGraphPage(request, env, url, corsHeaders) {
   } else {
     console.log('Redirecting regular user to Vue app')
     // Redirect users to the Vue app with the graphId
-    const redirectUrl = `https://www.vegvisr.org/gnew-viewer?graphId=${pageData.graphId}`
+    // Use the current hostname (universi.no, vegvisr.org, etc.) to preserve domain
+    const currentHostname = url.hostname
+    const redirectUrl = `https://${currentHostname}/gnew-viewer?graphId=${pageData.graphId}`
+    console.log('Redirect URL:', redirectUrl)
     return Response.redirect(redirectUrl, 302)
   }
 }
