@@ -58,6 +58,9 @@ export const apiUrls = {
   getUserData: (email) => getApiUrl('getUserData', { email }),
   updateUserData: () => getApiUrl('updateUserData'),
   uploadFile: () => getApiUrl('uploadFile'),
+  
+  // Domain listing endpoint (use main worker)
+  listUserDomains: (email) => `${API_CONFIG.baseUrl}/domains/list?email=${encodeURIComponent(email)}`,
 
   // Site configuration endpoints (use main worker)
   saveSiteConfig: () => getApiUrl('saveSiteConfig'),

@@ -164,6 +164,62 @@ export default {
       }
     }
 
+    // NEW ENDPOINT: List all domains from KV by owner email
+    if (pathname === '/domains/list' && request.method === 'GET') {
+      try {
+        const email = url.searchParams.get('email')
+        if (!email) {
+          return new Response(JSON.stringify({ error: 'Missing email parameter' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        console.log('Fetching all domains from KV for owner:', email)
+
+        // List all keys in the SITE_CONFIGS KV namespace
+        const listResult = await env.SITE_CONFIGS.list({ prefix: 'site-config:' })
+        console.log('Found', listResult.keys.length, 'total site-config entries in KV')
+
+        // Fetch each config and filter by owner
+        const userDomains = []
+        for (const key of listResult.keys) {
+          try {
+            const configJson = await env.SITE_CONFIGS.get(key.name)
+            if (configJson) {
+              const config = JSON.parse(configJson)
+              if (config.owner === email) {
+                userDomains.push(config)
+                console.log('Found user domain:', config.domain)
+              }
+            }
+          } catch (parseError) {
+            console.warn('Error parsing KV entry:', key.name, parseError.message)
+          }
+        }
+
+        console.log('Total domains for user', email, ':', userDomains.length)
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          domains: userDomains,
+          count: userDomains.length 
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error fetching domains from KV:', error.message)
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: error.message 
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     if (pathname === '/upload' && request.method === 'POST') {
       try {
         console.log('Received POST /upload request')

@@ -70,23 +70,50 @@ export const useDomainStore = defineStore('domain', {
       try {
         console.log('Loading domains for user:', userEmail)
         
-        // Step 1: Get domain list from user profile
-        const response = await fetch(apiUrls.getUserData(userEmail))
-        if (!response.ok) {
-          throw new Error('Failed to fetch user data')
-        }
-        
-        const userData = await response.json()
+        // Step 1: Try to get domain list from user profile first
         let domainList = []
-        
-        // Extract domain list
-        if (userData.data?.domainConfigs?.length > 0) {
-          domainList = userData.data.domainConfigs.map(config => config.domain).filter(Boolean)
-        } else if (userData.data?.branding?.mySite) {
-          domainList = [userData.data.branding.mySite]
+        try {
+          const response = await fetch(apiUrls.getUserData(userEmail))
+          if (response.ok) {
+            const userData = await response.json()
+            
+            // Extract domain list from profile
+            if (userData.data?.domainConfigs?.length > 0) {
+              domainList = userData.data.domainConfigs.map(config => config.domain).filter(Boolean)
+              console.log('Found domains in user profile:', domainList.length)
+            } else if (userData.data?.branding?.mySite) {
+              domainList = [userData.data.branding.mySite]
+              console.log('Found legacy domain in profile:', domainList[0])
+            }
+          }
+        } catch (profileError) {
+          console.warn('Error fetching user profile:', profileError)
         }
         
-        // Step 2: Fetch detailed configs from KV for each domain
+        // Step 2: If no domains in profile, fetch directly from KV by owner
+        if (domainList.length === 0) {
+          console.log('No domains in user profile, fetching directly from KV...')
+          try {
+            const kvListResponse = await fetch(apiUrls.listUserDomains(userEmail))
+            if (kvListResponse.ok) {
+              const kvListData = await kvListResponse.json()
+              if (kvListData.success && kvListData.domains?.length > 0) {
+                // Convert KV configs to modal format directly
+                const domainConfigs = kvListData.domains.map(siteConfig => 
+                  this.convertKVToModalFormat(siteConfig)
+                )
+                console.log('Loaded', domainConfigs.length, 'domains directly from KV')
+                this.setDomains(domainConfigs)
+                this.markAllAsSaved()
+                return domainConfigs
+              }
+            }
+          } catch (kvListError) {
+            console.warn('Error fetching domains from KV:', kvListError)
+          }
+        }
+        
+        // Step 3: Fetch detailed configs from KV for each domain in profile
         const domainConfigs = []
         for (const domain of domainList) {
           try {
@@ -111,7 +138,7 @@ export const useDomainStore = defineStore('domain', {
           }
         }
         
-        // Step 3: Set domains and create baseline
+        // Step 4: Set domains and create baseline
         this.setDomains(domainConfigs)
         this.markAllAsSaved() // Mark as baseline since we just loaded from server
         
