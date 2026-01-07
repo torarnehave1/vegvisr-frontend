@@ -13,12 +13,22 @@
           </option>
         </select>
         <select
-          v-if="provider === 'openai'"
+          v-if="provider === 'openai' && !isImageMode"
           v-model="openaiModel"
           class="model-select"
           title="Select OpenAI model"
         >
           <option v-for="opt in openaiModelOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <select
+          v-if="provider === 'openai' && isImageMode"
+          v-model="openaiModel"
+          class="model-select"
+          title="Select OpenAI image model"
+        >
+          <option v-for="opt in openaiImageModelOptions" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
         </select>
@@ -1205,16 +1215,25 @@ const providerOptions = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'perplexity', label: 'Perplexity' },
 ]
-const openaiModel = ref('gpt-image-1.5')
+const openaiModel = ref('gpt-5.2')
 const openaiModelOptions = [
-  { value: 'gpt-image-1.5', label: 'GPT-Image-1.5 (Best, Image Gen)' },
-  { value: 'gpt-image-1', label: 'GPT-Image-1 (Image Gen)' },
   { value: 'gpt-5.2', label: 'GPT-5.2 (Chat/Text)' },
   { value: 'gpt-5.1', label: 'GPT-5.1 (Chat/Text)' },
   { value: 'gpt-5', label: 'GPT-5 (Chat/Text)' },
   { value: 'gpt-4o', label: 'GPT-4o (Chat/Text)' },
   { value: 'gpt-4', label: 'GPT-4 (Chat/Text)' }
 ]
+const openaiImageModelOptions = [
+  { value: 'gpt-image-1.5', label: 'GPT-Image-1.5 (Image Gen)' },
+  { value: 'gpt-image-1', label: 'GPT-Image-1 (Image Gen)' },
+  { value: 'gpt-image-1-mini', label: 'GPT-Image-1 Mini (Image Gen)' }
+]
+
+import { computed } from 'vue'
+const isImageMode = computed(() => {
+  // This should be set by your UI logic; for now, check if userInput contains 'image'
+  return userInput.value?.toLowerCase().includes('image') || false
+})
 const claudeModel = ref('claude-opus-4-5-20251101')
 const claudeModelOptions = [
   { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
@@ -5210,9 +5229,19 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
     const validImageSizes = {
       'gpt-image-1': ['1024x1024', '1024x1792', '1792x1024'],
       'gpt-image-1.5': ['1024x1024', '1024x1792', '1792x1024'],
+      'gpt-image-1-mini': [
+        '256x256', '512x512', '1024x1024',
+        '1024x512', '1024x768', '1536x768',
+        '512x1024', '768x1024', '768x1536',
+      ],
     }
     const selectedModel = openaiModel.value.startsWith('gpt-image') ? openaiModel.value : 'gpt-image-1.5'
-    const size = validImageSizes[selectedModel]?.[1] || '1024x1024' // 1024x1792 is index 1
+    let size = '1024x1024'
+    if (selectedModel === 'gpt-image-1-mini') {
+      size = '512x512' // recommended default for mini
+    } else if (validImageSizes[selectedModel]?.[1]) {
+      size = validImageSizes[selectedModel][1]
+    }
     const response = await fetch('https://openai.vegvisr.org/images', {
       method: 'POST',
       headers: {
