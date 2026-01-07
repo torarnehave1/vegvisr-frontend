@@ -1205,13 +1205,15 @@ const providerOptions = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'perplexity', label: 'Perplexity' },
 ]
-const openaiModel = ref('gpt-5.2')
+const openaiModel = ref('gpt-image-1.5')
 const openaiModelOptions = [
-  { value: 'gpt-5.2', label: 'GPT-5.2' },
-  { value: 'gpt-5.1', label: 'GPT-5.1' },
-  { value: 'gpt-5', label: 'GPT-5' },
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4', label: 'GPT-4' }
+  { value: 'gpt-image-1.5', label: 'GPT-Image-1.5 (Best, Image Gen)' },
+  { value: 'gpt-image-1', label: 'GPT-Image-1 (Image Gen)' },
+  { value: 'gpt-5.2', label: 'GPT-5.2 (Chat/Text)' },
+  { value: 'gpt-5.1', label: 'GPT-5.1 (Chat/Text)' },
+  { value: 'gpt-5', label: 'GPT-5 (Chat/Text)' },
+  { value: 'gpt-4o', label: 'GPT-4o (Chat/Text)' },
+  { value: 'gpt-4', label: 'GPT-4 (Chat/Text)' }
 ]
 const claudeModel = ref('claude-opus-4-5-20251101')
 const claudeModelOptions = [
@@ -5204,6 +5206,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
   scrollToBottom()
 
   try {
+    // 1. Generate image via OpenAI
     const response = await fetch('https://openai.vegvisr.org/images', {
       method: 'POST',
       headers: {
@@ -5211,9 +5214,9 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       },
       body: JSON.stringify({
         userId: userStore.user_id || 'system',
-        model: 'gpt-image-1',
+        model: openaiModel.value.startsWith('gpt-image') ? openaiModel.value : 'gpt-image-1.5',
         prompt: imagePrompt,
-        size: '1024x1024',
+        size: '1920x1080',
         quality: 'standard',
         n: 1,
         response_format: 'url'
@@ -5233,31 +5236,54 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
 
     const data = await response.json()
     const imageUrl = data.data?.[0]?.url
-    const imageB64 = data.data?.[0]?.b64_json
     const revisedPrompt = data.data?.[0]?.revised_prompt
 
-    // Handle both URL and base64 responses
-    const finalImageUrl = imageUrl || (imageB64 ? `data:image/png;base64,${imageB64}` : null)
+    if (!imageUrl) {
+      throw new Error('No image in response (no URL)')
+    }
 
+    // 2. Save image to R2 and get permanent Imgix URL
+    const saveResp = await fetch('https://api.vegvisr.org/save-approved-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageData: {
+          url: imageUrl,
+          prompt: imagePrompt,
+          revisedPrompt,
+          model: 'gpt-image-1',
+          size: '1920x1080',
+          quality: 'high',
+        }
+      })
+    })
+    if (!saveResp.ok) {
+      let err = 'Failed to save image to R2';
+      try { err = (await saveResp.json()).error || err; } catch {}
+      throw new Error(err)
+    }
+    const saved = await saveResp.json()
+    // Extract permanent URL from markdown (same as AIImageModal)
+    let finalImageUrl = null
+    if (saved.info) {
+      const m = saved.info.match(/!\[.*?\]\((.+?)\)/)
+      finalImageUrl = m ? m[1] : null
+    }
     if (!finalImageUrl) {
-      throw new Error('No image in response (neither URL nor base64)')
+      throw new Error('Permanent image URL not found after save')
     }
 
-    // Create markdown with image and revised prompt if available
-    let responseContent = `![Generated Image](${finalImageUrl})\n\n`
-    if (revisedPrompt && revisedPrompt !== imagePrompt) {
-      responseContent += `**Revised prompt:** ${revisedPrompt}\n\n`
-    }
-    responseContent += `**Original prompt:** ${imagePrompt}`
+    // 3. Build canonical markdown (1920x1080, high quality, fit/crop/auto/sharp/sat)
+    const imgixParams = '?w=1920&h=1080&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5'
+    const markdown = `![Generated Image](${finalImageUrl}${imgixParams})`
 
-    // Add assistant message with the image
+    // 4. Add assistant message with the image
     appendChatMessage({
       role: 'assistant',
-      content: responseContent,
+      content: markdown,
       timestamp: Date.now(),
       provider: provider.value,
     })
-
   } catch (error) {
     console.error('Image generation error:', error)
     errorMessage.value = `Error: ${error.message}`
