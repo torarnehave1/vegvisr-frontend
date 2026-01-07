@@ -5285,13 +5285,47 @@ const sendMessage = async () => {
   const hasImage = uploadedImage.value && currentProvider !== 'grok'
   const selectionFocus = buildSelectionContext()
 
-  // Check for natural language image generation commands
-  const imageGenPattern = /^(create|generate|make|draw|paint|design|produce)\s+(an?\s+)?(image|picture|photo|illustration|artwork)\s+(of\s+)?(.+)$/i
-  const imageGenMatch = message.match(imageGenPattern)
+  // Image generation (OpenAI only): support `/image ...` plus common natural language phrasing.
+  const slashImageMatch = message.match(/^\/(image|img)\s+(.+)$/i)
+  if (slashImageMatch) {
+    if (currentProvider !== 'openai') {
+      appendChatMessage({
+        role: 'assistant',
+        content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+        timestamp: Date.now(),
+        provider: currentProvider,
+      })
+      return
+    }
 
-  if (imageGenMatch && currentProvider === 'openai') {
+    const imagePrompt = (slashImageMatch[2] || '').trim()
+    if (!imagePrompt) return
+    return await handleImageGeneration(imagePrompt, message)
+  }
+
+  // Check for natural language image generation commands (e.g. "make me an image of ...", "please generate a picture ...")
+  const normalizedForImageGen = message
+    .replace(/^\s*(please|pls)\s+/i, '')
+    .replace(/^\s*(can you|could you|would you)\s+/i, '')
+    .trim()
+
+  const imageGenPattern = /^(create|generate|make|draw|paint|design|produce)\s+(me\s+)?(an?\s+)?(image|picture|photo|illustration|artwork)\s*(of\s+)?(.+)$/i
+  const imageGenMatch = normalizedForImageGen.match(imageGenPattern)
+
+  if (imageGenMatch) {
+    if (currentProvider !== 'openai') {
+      appendChatMessage({
+        role: 'assistant',
+        content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+        timestamp: Date.now(),
+        provider: currentProvider,
+      })
+      return
+    }
+
     // Extract the prompt (last capture group)
-    const imagePrompt = imageGenMatch[5].trim()
+    const imagePrompt = (imageGenMatch[6] || '').trim()
+    if (!imagePrompt) return
     return await handleImageGeneration(imagePrompt, message)
   }
 

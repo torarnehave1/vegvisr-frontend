@@ -77,3 +77,7 @@ README.md
 # HTML files
 *.html
 !index.html
+
+# Ignore HalloVegvisr asset folders (media, screenshots, etc)
+src/assets/HalloVegvisr/
+scr/assets/HalloVegvisr/

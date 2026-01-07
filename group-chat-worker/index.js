@@ -362,9 +362,9 @@ export default {
           return errorResponse('No fields to update')
         }
 
-        values.push(groupId)
         updates.push('updated_at = ?')
         values.push(Date.now())
+        values.push(groupId)
         await env.CHAT_DB.prepare(
           `UPDATE groups SET ${updates.join(', ')} WHERE id = ?`
         ).bind(...values).run()
