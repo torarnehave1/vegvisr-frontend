@@ -5207,6 +5207,12 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
 
   try {
     // 1. Generate image via OpenAI
+    const validImageSizes = {
+      'gpt-image-1': ['1024x1024', '1024x1792', '1792x1024'],
+      'gpt-image-1.5': ['1024x1024', '1024x1792', '1792x1024'],
+    }
+    const selectedModel = openaiModel.value.startsWith('gpt-image') ? openaiModel.value : 'gpt-image-1.5'
+    const size = validImageSizes[selectedModel]?.[1] || '1024x1024' // 1024x1792 is index 1
     const response = await fetch('https://openai.vegvisr.org/images', {
       method: 'POST',
       headers: {
@@ -5214,10 +5220,10 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       },
       body: JSON.stringify({
         userId: userStore.user_id || 'system',
-        model: openaiModel.value.startsWith('gpt-image') ? openaiModel.value : 'gpt-image-1.5',
+        model: selectedModel,
         prompt: imagePrompt,
-        size: '1920x1080',
-        quality: 'standard',
+        size,
+        quality: 'auto',
         n: 1,
         response_format: 'url'
       }),
@@ -5251,9 +5257,9 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
           url: imageUrl,
           prompt: imagePrompt,
           revisedPrompt,
-          model: 'gpt-image-1',
-          size: '1920x1080',
-          quality: 'high',
+          model: selectedModel,
+          size,
+          quality: 'auto',
         }
       })
     })
