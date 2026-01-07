@@ -1229,7 +1229,6 @@ const openaiImageModelOptions = [
   { value: 'gpt-image-1-mini', label: 'GPT-Image-1 Mini (Image Gen)' }
 ]
 
-import { computed } from 'vue'
 const isImageMode = computed(() => {
   // This should be set by your UI logic; for now, check if userInput contains 'image'
   return userInput.value?.toLowerCase().includes('image') || false
