@@ -126,7 +126,7 @@ export default {
       }
 
       // Image model shortcuts
-      if (pathname.match(/^\/(dall-e-3|dall-e-2|gpt-image-1)$/) && request.method === 'POST') {
+      if (pathname.match(/^\/(dall-e-3|dall-e-2|gpt-image-1|gpt-image-1-mini|gpt-image-1\.5)$/) && request.method === 'POST') {
         const model = pathname.substring(1);
         return await handleImageModel(request, env, corsHeaders, model);
       }
@@ -350,7 +350,6 @@ async function handleImages(request, env, corsHeaders) {
       size = '1024x1024',
       quality = 'standard',
       n = 1,
-      response_format = 'url',
       userId
     } = body;
 
@@ -378,7 +377,9 @@ async function handleImages(request, env, corsHeaders) {
     const validSizes = {
       'dall-e-2': ['256x256', '512x512', '1024x1024'],
       'dall-e-3': ['1024x1024', '1024x1792', '1792x1024'],
-      'gpt-image-1': ['1024x1024', '1024x1792', '1792x1024']
+      'gpt-image-1': ['1024x1024', '1024x1536', '1536x1024', 'auto'],
+      'gpt-image-1.5': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+      'gpt-image-1-mini': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
     };
 
     if (!validSizes[model]?.includes(size)) {
@@ -393,15 +394,14 @@ async function handleImages(request, env, corsHeaders) {
     // Build request body
     const requestBody = {
       prompt,
-      model: model === 'gpt-image-1' ? 'dall-e-3' : model, // Map gpt-image-1 to dall-e-3
+      model,
       size,
       n
     };
 
-    // Only add quality and response_format for dall-e-3
-    if (model === 'dall-e-3' || model === 'gpt-image-1') {
+    // Only add quality for models that support it
+    if (model === 'dall-e-3' || model.startsWith('gpt-image-')) {
       requestBody.quality = quality;
-      requestBody.response_format = response_format;
     }
 
     const openaiResponse = await fetch('https://api.openai.com/v1/images/generations', {
@@ -549,12 +549,12 @@ async function handleImageModel(request, env, corsHeaders, modelName) {
 
     const requestBody = {
       prompt,
-      model: modelName === 'gpt-image-1' ? 'dall-e-3' : modelName,
+      model: modelName,
       size,
       n: 1
     };
 
-    if (modelName === 'dall-e-3' || modelName === 'gpt-image-1') {
+    if (modelName === 'dall-e-3' || modelName.startsWith('gpt-image-')) {
       requestBody.quality = quality;
     }
 
@@ -655,10 +655,26 @@ function handleModels(env, corsHeaders) {
       {
         id: 'gpt-image-1',
         name: 'GPT-Image 1',
-        sizes: ['1024x1024', '1024x1792', '1792x1024'],
-        quality: ['auto', 'high', 'medium', 'low'],
+        sizes: ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+        quality: ['low', 'medium', 'high', 'auto'],
         features: ['vision', 'world knowledge', 'multimodal LLM', 'image generation'],
         description: 'Natively multimodal LLM with vision understanding and image generation capabilities'
+      },
+      {
+        id: 'gpt-image-1.5',
+        name: 'GPT-Image 1.5',
+        sizes: ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+        quality: ['low', 'medium', 'high', 'auto'],
+        features: ['fast', 'image generation'],
+        description: 'Optimized image generation model with high-quality output'
+      },
+      {
+        id: 'gpt-image-1-mini',
+        name: 'GPT-Image 1 Mini',
+        sizes: ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+        quality: ['low', 'medium', 'high', 'auto'],
+        features: ['fast', 'cost effective', 'image generation'],
+        description: 'Lightweight image generation model optimized for speed and cost'
       }
     ],
     audio: [
@@ -695,7 +711,7 @@ function handleApiDocs(corsHeaders) {
     info: {
       title: 'OpenAI Worker API Documentation',
       version: '1.0.0',
-      description: 'Complete OpenAI API integration with 9 models: 5 chat (GPT-4o, GPT-4, GPT-5, GPT-5.1, GPT-5.2), 3 image (DALL-E 2, DALL-E 3, GPT-Image-1), 1 audio (Whisper-1). Features userId-based encrypted key retrieval from D1 database.',
+      description: 'Complete OpenAI API integration with 11 models: 5 chat (GPT-4o, GPT-4, GPT-5, GPT-5.1, GPT-5.2), 5 image (DALL-E 2, DALL-E 3, GPT-Image-1, GPT-Image-1.5, GPT-Image-1 Mini), 1 audio (Whisper-1). Features userId-based encrypted key retrieval from D1 database.',
       contact: {
         name: 'Vegvisr Platform',
         url: 'https://openai.vegvisr.org'
@@ -947,7 +963,7 @@ function handleApiDocs(corsHeaders) {
         post: {
           tags: ['Images'],
           summary: 'Image generation',
-          description: 'Generate images with DALL-E 2, DALL-E 3, or GPT-Image-1. API key retrieved from D1 using userId.',
+          description: 'Generate images with DALL-E 2, DALL-E 3, GPT-Image-1, GPT-Image-1.5, or GPT-Image-1 Mini. GPT Image models support size 1024x1024, 1536x1024, 1024x1536, or auto; quality low/medium/high/auto.',
           requestBody: {
             content: {
               'application/json': {
@@ -970,6 +986,25 @@ function handleApiDocs(corsHeaders) {
                       model: 'gpt-image-1',
                       prompt: 'A minimalist logo with geometric shapes',
                       size: '1024x1024'
+                    }
+                  },
+                  'gpt-image-1.5': {
+                    summary: 'GPT-Image-1.5 (high quality)',
+                    value: {
+                      userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                      model: 'gpt-image-1.5',
+                      prompt: 'A cinematic portrait of a fox in a misty forest',
+                      size: '1024x1024',
+                      quality: 'high'
+                    }
+                  },
+                  'gpt-image-1-mini': {
+                    summary: 'GPT-Image-1 Mini (fast & lightweight)',
+                    value: {
+                      userId: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+                      model: 'gpt-image-1-mini',
+                      prompt: 'A friendly robot sketch in pencil style',
+                      size: '512x512'
                     }
                   }
                 }
@@ -1119,14 +1154,19 @@ function handleApiDocs(corsHeaders) {
           required: ['userId', 'prompt'],
           properties: {
             userId: { type: 'string', description: 'User ID for D1 key retrieval' },
-            model: { type: 'string', enum: ['dall-e-2', 'dall-e-3', 'gpt-image-1'], default: 'dall-e-3' },
+            model: { type: 'string', enum: ['dall-e-2', 'dall-e-3', 'gpt-image-1', 'gpt-image-1.5', 'gpt-image-1-mini'], default: 'dall-e-3' },
             prompt: { type: 'string', maxLength: 4000 },
             size: {
               type: 'string',
-              enum: ['256x256', '512x512', '1024x1024', '1024x1792', '1792x1024'],
-              description: 'DALL-E 2: 256x256, 512x512, 1024x1024. DALL-E 3/GPT-Image-1: 1024x1024, 1024x1792, 1792x1024'
+              enum: [
+                '256x256', '512x512', '1024x1024',
+                '1024x1792', '1792x1024',
+                '1024x1536', '1536x1024',
+                'auto'
+              ],
+              description: 'DALL-E 2: 256x256, 512x512, 1024x1024. DALL-E 3: 1024x1024, 1024x1792, 1792x1024. GPT Image (1/1.5/mini): 1024x1024, 1536x1024, 1024x1536, or auto.'
             },
-            quality: { type: 'string', enum: ['standard', 'hd'], description: 'DALL-E 3 only' },
+            quality: { type: 'string', enum: ['standard', 'hd', 'low', 'medium', 'high', 'auto'], description: 'DALL-E 3: standard|hd. GPT Image: low|medium|high|auto.' },
             n: { type: 'integer', minimum: 1, maximum: 10, description: 'DALL-E 2 only (1-10). DALL-E 3: always 1' }
           }
         },

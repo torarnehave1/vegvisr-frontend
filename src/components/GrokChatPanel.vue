@@ -13,22 +13,12 @@
           </option>
         </select>
         <select
-          v-if="provider === 'openai' && !isImageMode"
+          v-if="provider === 'openai'"
           v-model="openaiModel"
           class="model-select"
           title="Select OpenAI model"
         >
           <option v-for="opt in openaiModelOptions" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-        <select
-          v-if="provider === 'openai' && isImageMode"
-          v-model="openaiModel"
-          class="model-select"
-          title="Select OpenAI image model"
-        >
-          <option v-for="opt in openaiImageModelOptions" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
         </select>
@@ -351,13 +341,20 @@
             @mouseover="handleMessageContentMouseOver($event)"
             @mouseout="handleMessageContentMouseOut($event)"
           ></div>
+          <div v-if="isImageMessage(message)" class="message-image">
+            <img
+              :src="getImagePreviewUrl(message.imageData)"
+              alt="Generated image preview"
+              class="message-image-preview"
+            />
+          </div>
           <div v-if="message.role === 'assistant'" class="message-actions">
             <button
               class="btn btn-link btn-sm insert-btn"
               type="button"
-              @click="insertAsFullText(message.content)"
+              @click="handleInsertMessage(message)"
             >
-              {{ insertLabel }}
+              {{ isImageMessage(message) ? 'Insert Image' : insertLabel }}
             </button>
             <!-- Case Study Node Insert Buttons -->
             <button
@@ -1216,7 +1213,7 @@ const providerOptions = [
   { value: 'perplexity', label: 'Perplexity' },
 ]
 const openaiModel = ref('gpt-5.2')
-const openaiModelOptions = [
+const openaiChatModelOptions = [
   { value: 'gpt-5.2', label: 'GPT-5.2 (Chat/Text)' },
   { value: 'gpt-5.1', label: 'GPT-5.1 (Chat/Text)' },
   { value: 'gpt-5', label: 'GPT-5 (Chat/Text)' },
@@ -1227,6 +1224,10 @@ const openaiImageModelOptions = [
   { value: 'gpt-image-1.5', label: 'GPT-Image-1.5 (Image Gen)' },
   { value: 'gpt-image-1', label: 'GPT-Image-1 (Image Gen)' },
   { value: 'gpt-image-1-mini', label: 'GPT-Image-1 Mini (Image Gen)' }
+]
+const openaiModelOptions = [
+  ...openaiImageModelOptions,
+  ...openaiChatModelOptions,
 ]
 
 const isImageMode = computed(() => {
@@ -3178,9 +3179,77 @@ const renderMarkdown = (content) => {
   }
 }
 
+const isImageMessage = (message) => {
+  const imageData = message?.imageData
+  return Boolean(imageData && (imageData.base64Data || imageData.previewImageUrl))
+}
+
+const getImagePreviewUrl = (imageData) => {
+  if (!imageData) return null
+  if (imageData.previewImageUrl) return imageData.previewImageUrl
+  if (imageData.base64Data) {
+    const mimeType = imageData.mimeType || 'image/png'
+    return `data:${mimeType};base64,${imageData.base64Data}`
+  }
+  return null
+}
+
 const insertAsFullText = (content) => {
   if (!content) return
   emit('insert-fulltext', content)
+}
+
+const insertGeneratedImage = async (message) => {
+  const imageData = message?.imageData
+  if (!imageData) return
+
+  try {
+    const saveResp = await fetch('https://api.vegvisr.org/save-approved-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageData: {
+          metadata: {
+            base64Data: imageData.base64Data || null,
+            previewImageUrl: imageData.previewImageUrl || null,
+            originalPrompt: imageData.prompt || '',
+            imageType: imageData.imageType || 'standalone',
+            model: imageData.model || 'gpt-image-1.5',
+            size: imageData.size || '1024x1024',
+            quality: imageData.quality || 'auto',
+          },
+        },
+      }),
+    })
+
+    if (!saveResp.ok) {
+      const errorData = await saveResp.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Failed to save approved image')
+    }
+
+    const saved = await saveResp.json()
+    const markdown = saved.info
+      || (saved.metadata?.generatedImageUrl
+        ? `![Generated Image](${saved.metadata.generatedImageUrl})`
+        : null)
+
+    if (!markdown) {
+      throw new Error('Failed to get saved image URL')
+    }
+
+    insertAsFullText(markdown)
+  } catch (error) {
+    console.error('Insert image error:', error)
+    errorMessage.value = `Error: ${error.message}`
+  }
+}
+
+const handleInsertMessage = async (message) => {
+  if (isImageMessage(message)) {
+    await insertGeneratedImage(message)
+    return
+  }
+  insertAsFullText(message.content)
 }
 
 // ==========================================
@@ -4814,6 +4883,7 @@ const loadChatHistory = async (keySnapshot = sessionStorageKey.value) => {
       // Restore Sources API metadata if present
       usedSourcesAPI: hasSources,
       sourcesData: message.sourcesData || null,
+      imageData: message.imageData || null,
     }
   })
 
@@ -4983,6 +5053,9 @@ const persistChatMessage = async (message) => {
     }
     if (message.sourcesData) {
       payload.sourcesData = message.sourcesData
+    }
+    if (message.imageData) {
+      payload.imageData = message.imageData
     }
 
     if (message.ciphertext && message.iv && message.salt) {
@@ -5226,21 +5299,55 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
   try {
     // 1. Generate image via OpenAI
     const validImageSizes = {
-      'gpt-image-1': ['1024x1024', '1024x1792', '1792x1024'],
-      'gpt-image-1.5': ['1024x1024', '1024x1792', '1792x1024'],
-      'gpt-image-1-mini': [
-        '256x256', '512x512', '1024x1024',
-        '1024x512', '1024x768', '1536x768',
-        '512x1024', '768x1024', '768x1536',
-      ],
+      'gpt-image-1': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+      'gpt-image-1.5': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+      'gpt-image-1-mini': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
+      'dall-e-3': ['1024x1024', '1024x1792', '1792x1024'],
+      'dall-e-2': ['256x256', '512x512', '1024x1024'],
     }
-    const selectedModel = openaiModel.value.startsWith('gpt-image') ? openaiModel.value : 'gpt-image-1.5'
-    let size = '1024x1024'
-    if (selectedModel === 'gpt-image-1-mini') {
-      size = '512x512' // recommended default for mini
-    } else if (validImageSizes[selectedModel]?.[1]) {
-      size = validImageSizes[selectedModel][1]
+    const aspectMap = {
+      '1:1': 'square',
+      '16:9': 'landscape',
+      '9:16': 'portrait',
     }
+    const extractAspectRatio = (text) => {
+      if (!text) return { aspect: '1:1', cleaned: text }
+      const match = text.match(/--ar\s*(\d+\s*:\s*\d+)/i)
+      if (!match) return { aspect: '1:1', cleaned: text }
+      const raw = match[1].replace(/\s+/g, '')
+      const aspect = aspectMap[raw] ? raw : '1:1'
+      const cleaned = text.replace(match[0], '').replace(/\s{2,}/g, ' ').trim()
+      return { aspect, cleaned }
+    }
+    const { aspect, cleaned } = extractAspectRatio(imagePrompt)
+    const requestedModel = openaiModel.value.startsWith('gpt-image')
+      ? openaiModel.value
+      : 'gpt-image-1.5'
+    const supportedImageModels = new Set(['gpt-image-1.5', 'gpt-image-1', 'gpt-image-1-mini'])
+    const selectedModel = supportedImageModels.has(requestedModel) ? requestedModel : 'gpt-image-1.5'
+    const sizeByAspect = {
+      'gpt-image-1-mini': {
+        '1:1': '512x512',
+        '16:9': '768x384',
+        '9:16': '256x512',
+      },
+      'gpt-image-1': {
+        '1:1': '1024x1024',
+        '16:9': '1536x1024',
+        '9:16': '1024x1536',
+      },
+      'default': {
+        '1:1': '1024x1024',
+        '16:9': '1536x1024',
+        '9:16': '1024x1536',
+      },
+    }
+    const aspectSizes = sizeByAspect[selectedModel] || sizeByAspect.default
+    const requestedSize = aspectSizes[aspect] || aspectSizes['1:1']
+    const modelSizes = validImageSizes[selectedModel] || [aspectSizes['1:1']]
+    const size = modelSizes.includes(requestedSize)
+      ? requestedSize
+      : modelSizes[0]
     const response = await fetch('https://openai.vegvisr.org/images', {
       method: 'POST',
       headers: {
@@ -5249,11 +5356,10 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       body: JSON.stringify({
         userId: userStore.user_id || 'system',
         model: selectedModel,
-        prompt: imagePrompt,
+        prompt: cleaned,
         size,
         quality: 'auto',
-        n: 1,
-        response_format: 'url'
+        n: 1
       }),
     })
 
@@ -5269,54 +5375,33 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
     }
 
     const data = await response.json()
+    const imageBase64 = data.data?.[0]?.b64_json
     const imageUrl = data.data?.[0]?.url
     const revisedPrompt = data.data?.[0]?.revised_prompt
 
-    if (!imageUrl) {
-      throw new Error('No image in response (no URL)')
+    if (!imageBase64 && !imageUrl) {
+      throw new Error('No image data in response')
     }
 
-    // 2. Save image to R2 and get permanent Imgix URL
-    const saveResp = await fetch('https://api.vegvisr.org/save-approved-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imageData: {
-          url: imageUrl,
-          prompt: imagePrompt,
-          revisedPrompt,
-          model: selectedModel,
-          size,
-          quality: 'auto',
-        }
-      })
-    })
-    if (!saveResp.ok) {
-      let err = 'Failed to save image to R2';
-      try { err = (await saveResp.json()).error || err; } catch {}
-      throw new Error(err)
-    }
-    const saved = await saveResp.json()
-    // Extract permanent URL from markdown (same as AIImageModal)
-    let finalImageUrl = null
-    if (saved.info) {
-      const m = saved.info.match(/!\[.*?\]\((.+?)\)/)
-      finalImageUrl = m ? m[1] : null
-    }
-    if (!finalImageUrl) {
-      throw new Error('Permanent image URL not found after save')
+    const imageData = {
+      base64Data: imageBase64 || null,
+      previewImageUrl: imageUrl || null,
+      mimeType: 'image/png',
+      prompt: cleaned,
+      revisedPrompt,
+      model: selectedModel,
+      size,
+      quality: 'auto',
+      imageType: 'standalone',
     }
 
-    // 3. Build canonical markdown (1920x1080, high quality, fit/crop/auto/sharp/sat)
-    const imgixParams = '?w=1920&h=1080&fit=crop&crop=entropy&auto=format,enhance&q=85&sharp=1&sat=5'
-    const markdown = `![Generated Image](${finalImageUrl}${imgixParams})`
-
-    // 4. Add assistant message with the image
+    // Add assistant message with the image preview data
     appendChatMessage({
       role: 'assistant',
-      content: markdown,
+      content: `🖼️ ${imagePrompt}`,
       timestamp: Date.now(),
       provider: provider.value,
+      imageData,
     })
   } catch (error) {
     console.error('Image generation error:', error)
@@ -5387,6 +5472,19 @@ const sendMessage = async () => {
     const imagePrompt = (imageGenMatch[6] || '').trim()
     if (!imagePrompt) return
     return await handleImageGeneration(imagePrompt, message)
+  }
+
+  if (currentProvider === 'openai' && openaiModel.value.startsWith('gpt-image')) {
+    if (hasImage) {
+      appendChatMessage({
+        role: 'assistant',
+        content: '🖼️ Image models cannot analyze images. Switch to a chat model (e.g. GPT-5.2) for image analysis.',
+        timestamp: Date.now(),
+        provider: currentProvider,
+      })
+      return
+    }
+    return await handleImageGeneration(message, message)
   }
 
   // Add user message
@@ -6834,6 +6932,17 @@ watch(
 .message-content :deep(img:hover) {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.message-image {
+  margin-top: 0.5rem;
+}
+
+.message-image-preview {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 12px;
+  display: block;
 }
 
 /* Perplexity sources list */

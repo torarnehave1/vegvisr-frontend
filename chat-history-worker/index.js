@@ -248,6 +248,7 @@ async function handleCreateMessage(request, env, user) {
   if (body.proffData) toolMetadata.proffData = body.proffData
   if (body.usedSourcesAPI) toolMetadata.usedSourcesAPI = body.usedSourcesAPI
   if (body.sourcesData) toolMetadata.sourcesData = body.sourcesData
+  if (body.imageData) toolMetadata.imageData = body.imageData
 
   if (!sessionId) {
     throw new Error('sessionId is required')
@@ -686,7 +687,8 @@ function normalizeMessage(row) {
     usedProffAPI: toolMeta.usedProffAPI || false,
     proffData: toolMeta.proffData || null,
     usedSourcesAPI: toolMeta.usedSourcesAPI || false,
-    sourcesData: toolMeta.sourcesData || null
+    sourcesData: toolMeta.sourcesData || null,
+    imageData: toolMeta.imageData || null
   }
 }
 
