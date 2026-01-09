@@ -290,9 +290,14 @@ async function loadBranding() {
     console.log('Loading from:', url)
 
     const response = await fetch(url)
+    const data = await response.json()
+
+    // ALWAYS show what KV returned - copyable
+    kvReadResult.value = JSON.stringify(data, null, 2)
+    kvSlogan.value = data.branding?.slogan || '(empty)'
+    kvMobileAppLogo.value = data.branding?.mobileAppLogo || '(empty)'
 
     if (response.ok) {
-      const data = await response.json()
       console.log('Loaded KV data:', data)
 
       // Map KV format to form format
@@ -304,15 +309,17 @@ async function loadBranding() {
       form.value.mySiteFrontPage = data.branding?.mySiteFrontPage || ''
 
       isEditing.value = true
-      showMessage('Loaded from KV successfully')
+      showMessage('Loaded from KV - see result below')
     } else if (response.status === 404) {
-      showMessage('Domain not found in KV - this will create a new entry', 'info')
+      kvReadResult.value = JSON.stringify({ error: 'Not found', status: 404 }, null, 2)
+      showMessage('Domain not found in KV', 'danger')
       isEditing.value = false
     } else {
       throw new Error(`HTTP ${response.status}`)
     }
   } catch (error) {
     console.error('Load error:', error)
+    kvReadResult.value = JSON.stringify({ error: error.message }, null, 2)
     showMessage(`Failed to load: ${error.message}`, 'danger')
   } finally {
     isLoading.value = false
@@ -342,11 +349,11 @@ async function saveBranding() {
     console.log('Save response:', result)
 
     if (response.ok && result.success) {
-      showMessage(`Saved successfully! Slogan: "${form.value.slogan}"`)
+      showMessage(`SAVED! Now click LOAD FROM KV to verify.`)
       isEditing.value = true
 
-      // Verify by reading back
-      setTimeout(() => testKVRead(), 1000)
+      // Auto-reload to show what's actually in KV
+      setTimeout(() => loadBranding(), 500)
     } else {
       throw new Error(result.error || 'Save failed')
     }
@@ -355,26 +362,6 @@ async function saveBranding() {
     showMessage(`Failed to save: ${error.message}`, 'danger')
   } finally {
     isSaving.value = false
-  }
-}
-
-// Test read from KV to verify save worked
-async function testKVRead() {
-  if (!form.value.domain) return
-
-  try {
-    const url = `${BASE_URL}/site-config/${form.value.domain}`
-    const response = await fetch(url)
-    const data = await response.json()
-
-    console.log('KV Read Test Result:', data)
-
-    const savedSlogan = data.branding?.slogan || '(empty)'
-    const savedMobileLogo = data.branding?.mobileAppLogo || '(empty)'
-
-    alert(`KV READ TEST:\n\nSlogan in KV: "${savedSlogan}"\nMobile Logo: "${savedMobileLogo}"\n\nFull branding object:\n${JSON.stringify(data.branding, null, 2)}`)
-  } catch (error) {
-    alert(`KV Read Test Failed: ${error.message}`)
   }
 }
 
