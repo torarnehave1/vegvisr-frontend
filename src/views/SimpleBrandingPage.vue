@@ -106,30 +106,45 @@
           </div>
 
           <!-- Debug: Show what will be saved -->
-          <div class="mb-4 p-3 bg-light border rounded">
-            <h6 class="mb-2">DEBUG: Data to be saved to KV</h6>
-            <pre style="font-size: 11px; max-height: 200px; overflow: auto;">{{ JSON.stringify(getKVPayload(), null, 2) }}</pre>
+          <div class="mb-4 p-3 bg-warning border rounded">
+            <h6 class="mb-2">PAYLOAD TO SAVE:</h6>
+            <textarea
+              readonly
+              class="form-control"
+              style="font-family: monospace; font-size: 11px; height: 150px;"
+              :value="JSON.stringify(getKVPayload(), null, 2)"
+            ></textarea>
           </div>
 
           <!-- Actions -->
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 mb-4">
             <button
               @click="saveBranding"
-              class="btn btn-primary"
+              class="btn btn-primary btn-lg"
               :disabled="isSaving || !form.domain"
             >
-              <span v-if="isSaving">
-                <span class="spinner-border spinner-border-sm me-1"></span>
-                Saving...
-              </span>
-              <span v-else>Save to KV</span>
+              <span v-if="isSaving">Saving...</span>
+              <span v-else>SAVE TO KV</span>
             </button>
-            <button @click="loadBranding" class="btn btn-outline-secondary" :disabled="!form.domain">
-              Reload from KV
+            <button @click="loadBranding" class="btn btn-secondary btn-lg" :disabled="!form.domain">
+              LOAD FROM KV
             </button>
-            <button @click="testKVRead" class="btn btn-outline-info" :disabled="!form.domain">
-              Test KV Read
-            </button>
+          </div>
+
+          <!-- KV READ RESULT - Always visible, copyable -->
+          <div class="p-3 bg-info text-dark border rounded">
+            <h6 class="mb-2">KV READ RESULT (click Load to populate):</h6>
+            <textarea
+              readonly
+              class="form-control"
+              style="font-family: monospace; font-size: 11px; height: 200px; background: white;"
+              :value="kvReadResult"
+              placeholder="Click 'LOAD FROM KV' to see what is stored..."
+            ></textarea>
+            <div class="mt-2">
+              <strong>Slogan in KV:</strong> <code>{{ kvSlogan }}</code><br>
+              <strong>MobileAppLogo in KV:</strong> <code>{{ kvMobileAppLogo }}</code>
+            </div>
           </div>
         </div>
       </div>
@@ -207,6 +222,11 @@ const logoError = ref(false)
 const userDomains = ref([])
 const phones = ref([])
 const newPhone = ref('')
+
+// KV Read Result - for display
+const kvReadResult = ref('')
+const kvSlogan = ref('(not loaded)')
+const kvMobileAppLogo = ref('(not loaded)')
 
 // Form data - flat structure matching what we send to KV
 const form = ref({
