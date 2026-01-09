@@ -127,6 +127,8 @@ export const useDomainStore = defineStore('domain', {
               domainConfigs.push({
                 domain,
                 logo: '',
+                mobileAppLogo: '',
+                slogan: '',
                 contentFilter: 'none',
                 selectedCategories: [],
                 mySiteFrontPage: '',
@@ -245,9 +247,11 @@ export const useDomainStore = defineStore('domain', {
 
         // 1. Save new and updated domains to KV
         const domainsToSave = this.domainsToSave
+        console.log('Domains to save:', domainsToSave.length, domainsToSave.map(d => d.domain))
         for (const domain of domainsToSave) {
           try {
             const kvConfig = this.convertModalToKVFormat(domain, userEmail)
+            console.log('Saving to KV - domain:', domain.domain, 'slogan:', domain.slogan, 'kvConfig.branding.slogan:', kvConfig.branding?.slogan)
 
             const response = await fetch(apiUrls.saveSiteConfig(), {
               method: 'PUT',
@@ -319,7 +323,11 @@ export const useDomainStore = defineStore('domain', {
             branding: this.domains.length > 0 ? {
               mySite: this.domains[0].domain,
               myLogo: this.domains[0].logo,
-              mySiteFrontPage: this.domains[0].mySiteFrontPage || ''
+              mobileAppLogo: this.domains[0].mobileAppLogo || '',
+              slogan: this.domains[0].slogan || '',
+              mySiteFrontPage: this.domains[0].mySiteFrontPage || '',
+              contentFilter: this.domains[0].contentFilter || 'none',
+              selectedCategories: this.domains[0].selectedCategories || []
             } : {}
           }
         }
