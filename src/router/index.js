@@ -369,6 +369,14 @@ const router = createRouter({
       },
     },
     {
+      path: '/simple-branding',
+      name: 'simple-branding',
+      component: () => import('../views/SimpleBrandingPage.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
       path: '/branding/:domain/users',
       name: 'brand-users',
       component: () => import('../views/BrandUsersPage.vue'),

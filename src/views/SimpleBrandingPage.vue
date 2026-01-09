@@ -1,0 +1,464 @@
+<template>
+  <div class="simple-branding-page">
+    <div class="container py-4">
+      <h1>Brand Settings</h1>
+      <p class="text-muted">Configure your domain branding. Changes save directly to KV storage.</p>
+
+      <!-- Status Messages -->
+      <div v-if="message" :class="['alert', messageType === 'success' ? 'alert-success' : 'alert-danger']" role="alert">
+        {{ message }}
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="isLoading" class="text-center py-5">
+        <div class="spinner-border" role="status"></div>
+        <p class="mt-2">Loading...</p>
+      </div>
+
+      <!-- Main Form -->
+      <div v-else class="card">
+        <div class="card-body">
+          <!-- Domain -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Domain *</label>
+            <input
+              v-model="form.domain"
+              type="text"
+              class="form-control"
+              placeholder="example.com"
+              :disabled="isEditing"
+            />
+            <small class="text-muted">Your website domain (cannot be changed after creation)</small>
+          </div>
+
+          <!-- Logo URL -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Logo URL</label>
+            <input
+              v-model="form.logo"
+              type="text"
+              class="form-control"
+              placeholder="https://example.com/logo.png"
+            />
+            <div v-if="form.logo" class="mt-2">
+              <img :src="form.logo" alt="Logo preview" style="max-height: 60px;" @error="logoError = true" />
+            </div>
+          </div>
+
+          <!-- Mobile App Logo -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Mobile App Logo URL</label>
+            <input
+              v-model="form.mobileAppLogo"
+              type="text"
+              class="form-control"
+              placeholder="https://example.com/mobile-logo.png"
+            />
+            <small class="text-muted">Special logo for mobile app (shown with "Powered by Vegvisr")</small>
+            <div v-if="form.mobileAppLogo" class="mt-2">
+              <img :src="form.mobileAppLogo" alt="Mobile logo preview" style="max-height: 60px;" />
+            </div>
+          </div>
+
+          <!-- Slogan -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Slogan / Tagline</label>
+            <input
+              v-model="form.slogan"
+              type="text"
+              class="form-control"
+              placeholder="Your brand tagline"
+            />
+            <small class="text-muted">Displayed below the logo in mobile app</small>
+          </div>
+
+          <!-- Content Filter -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Content Filter</label>
+            <select v-model="form.contentFilter" class="form-select">
+              <option value="none">None - Show all content</option>
+              <option value="custom">Custom - Filter by categories</option>
+            </select>
+          </div>
+
+          <!-- Categories (if custom filter) -->
+          <div v-if="form.contentFilter === 'custom'" class="mb-3">
+            <label class="form-label fw-bold">Categories</label>
+            <input
+              v-model="categoriesInput"
+              type="text"
+              class="form-control"
+              placeholder="CATEGORY1, CATEGORY2"
+            />
+            <small class="text-muted">Comma-separated list of content categories</small>
+          </div>
+
+          <!-- Front Page Graph ID -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Front Page Graph ID</label>
+            <input
+              v-model="form.mySiteFrontPage"
+              type="text"
+              class="form-control"
+              placeholder="graph_123456789"
+            />
+            <small class="text-muted">Knowledge graph to show as front page</small>
+          </div>
+
+          <!-- Debug: Show what will be saved -->
+          <div class="mb-4 p-3 bg-light border rounded">
+            <h6 class="mb-2">DEBUG: Data to be saved to KV</h6>
+            <pre style="font-size: 11px; max-height: 200px; overflow: auto;">{{ JSON.stringify(getKVPayload(), null, 2) }}</pre>
+          </div>
+
+          <!-- Actions -->
+          <div class="d-flex gap-2">
+            <button
+              @click="saveBranding"
+              class="btn btn-primary"
+              :disabled="isSaving || !form.domain"
+            >
+              <span v-if="isSaving">
+                <span class="spinner-border spinner-border-sm me-1"></span>
+                Saving...
+              </span>
+              <span v-else>Save to KV</span>
+            </button>
+            <button @click="loadBranding" class="btn btn-outline-secondary" :disabled="!form.domain">
+              Reload from KV
+            </button>
+            <button @click="testKVRead" class="btn btn-outline-info" :disabled="!form.domain">
+              Test KV Read
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phone Mappings Section -->
+      <div v-if="form.domain" class="card mt-4">
+        <div class="card-header">
+          <h5 class="mb-0">Phone Mappings</h5>
+        </div>
+        <div class="card-body">
+          <p class="text-muted">Link phone numbers to this domain for mobile app branding.</p>
+
+          <!-- Add Phone -->
+          <div class="input-group mb-3">
+            <input
+              v-model="newPhone"
+              type="text"
+              class="form-control"
+              placeholder="+1234567890"
+            />
+            <button @click="addPhone" class="btn btn-success" :disabled="!newPhone">
+              Add Phone
+            </button>
+          </div>
+
+          <!-- Phone List -->
+          <div v-if="phones.length > 0">
+            <div v-for="phone in phones" :key="phone" class="d-flex justify-content-between align-items-center p-2 border-bottom">
+              <span>{{ phone }}</span>
+              <button @click="removePhone(phone)" class="btn btn-sm btn-outline-danger">Remove</button>
+            </div>
+          </div>
+          <div v-else class="text-muted">No phone mappings yet.</div>
+        </div>
+      </div>
+
+      <!-- Quick Domain Selector -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h5 class="mb-0">Your Domains</h5>
+        </div>
+        <div class="card-body">
+          <div v-if="userDomains.length > 0" class="list-group">
+            <button
+              v-for="d in userDomains"
+              :key="d"
+              @click="selectDomain(d)"
+              :class="['list-group-item', 'list-group-item-action', form.domain === d ? 'active' : '']"
+            >
+              {{ d }}
+            </button>
+          </div>
+          <div v-else class="text-muted">No domains found. Enter a domain above to create one.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+import { API_CONFIG } from '@/config/api'
+
+const userStore = useUserStore()
+const BASE_URL = API_CONFIG.baseUrl
+
+// State
+const isLoading = ref(false)
+const isSaving = ref(false)
+const message = ref('')
+const messageType = ref('success')
+const isEditing = ref(false)
+const logoError = ref(false)
+const userDomains = ref([])
+const phones = ref([])
+const newPhone = ref('')
+
+// Form data - flat structure matching what we send to KV
+const form = ref({
+  domain: '',
+  logo: '',
+  mobileAppLogo: '',
+  slogan: '',
+  contentFilter: 'none',
+  selectedCategories: [],
+  mySiteFrontPage: ''
+})
+
+// Categories as comma-separated string for easy editing
+const categoriesInput = computed({
+  get: () => form.value.selectedCategories.join(', '),
+  set: (val) => {
+    form.value.selectedCategories = val.split(',').map(s => s.trim()).filter(Boolean)
+  }
+})
+
+// Build the exact payload that goes to KV
+function getKVPayload() {
+  return {
+    domain: form.value.domain,
+    owner: userStore.email,
+    branding: {
+      myLogo: form.value.logo || '',
+      mobileAppLogo: form.value.mobileAppLogo || '',
+      slogan: form.value.slogan || '',
+      contentFilter: form.value.contentFilter,
+      selectedCategories: form.value.selectedCategories || [],
+      mySiteFrontPage: form.value.mySiteFrontPage || '',
+      site_title: getDomainTitle(form.value.domain)
+    },
+    contentFilter: {
+      metaAreas: form.value.selectedCategories || []
+    }
+  }
+}
+
+function getDomainTitle(domain) {
+  if (!domain) return 'Your Brand'
+  const parts = domain.split('.')
+  const main = parts[0] === 'www' ? parts[1] : parts[0]
+  return main.charAt(0).toUpperCase() + main.slice(1)
+}
+
+function showMessage(msg, type = 'success') {
+  message.value = msg
+  messageType.value = type
+  setTimeout(() => { message.value = '' }, 5000)
+}
+
+// Load branding from KV
+async function loadBranding() {
+  if (!form.value.domain) return
+
+  isLoading.value = true
+  try {
+    const url = `${BASE_URL}/site-config/${form.value.domain}`
+    console.log('Loading from:', url)
+
+    const response = await fetch(url)
+
+    if (response.ok) {
+      const data = await response.json()
+      console.log('Loaded KV data:', data)
+
+      // Map KV format to form format
+      form.value.logo = data.branding?.myLogo || ''
+      form.value.mobileAppLogo = data.branding?.mobileAppLogo || ''
+      form.value.slogan = data.branding?.slogan || ''
+      form.value.contentFilter = data.branding?.contentFilter || 'none'
+      form.value.selectedCategories = data.branding?.selectedCategories || []
+      form.value.mySiteFrontPage = data.branding?.mySiteFrontPage || ''
+
+      isEditing.value = true
+      showMessage('Loaded from KV successfully')
+    } else if (response.status === 404) {
+      showMessage('Domain not found in KV - this will create a new entry', 'info')
+      isEditing.value = false
+    } else {
+      throw new Error(`HTTP ${response.status}`)
+    }
+  } catch (error) {
+    console.error('Load error:', error)
+    showMessage(`Failed to load: ${error.message}`, 'danger')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// Save branding to KV
+async function saveBranding() {
+  if (!form.value.domain) {
+    showMessage('Domain is required', 'danger')
+    return
+  }
+
+  isSaving.value = true
+  try {
+    const payload = getKVPayload()
+    console.log('Saving to KV:', JSON.stringify(payload, null, 2))
+
+    const url = `${BASE_URL}/site-config`
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json()
+    console.log('Save response:', result)
+
+    if (response.ok && result.success) {
+      showMessage(`Saved successfully! Slogan: "${form.value.slogan}"`)
+      isEditing.value = true
+
+      // Verify by reading back
+      setTimeout(() => testKVRead(), 1000)
+    } else {
+      throw new Error(result.error || 'Save failed')
+    }
+  } catch (error) {
+    console.error('Save error:', error)
+    showMessage(`Failed to save: ${error.message}`, 'danger')
+  } finally {
+    isSaving.value = false
+  }
+}
+
+// Test read from KV to verify save worked
+async function testKVRead() {
+  if (!form.value.domain) return
+
+  try {
+    const url = `${BASE_URL}/site-config/${form.value.domain}`
+    const response = await fetch(url)
+    const data = await response.json()
+
+    console.log('KV Read Test Result:', data)
+
+    const savedSlogan = data.branding?.slogan || '(empty)'
+    const savedMobileLogo = data.branding?.mobileAppLogo || '(empty)'
+
+    alert(`KV READ TEST:\n\nSlogan in KV: "${savedSlogan}"\nMobile Logo: "${savedMobileLogo}"\n\nFull branding object:\n${JSON.stringify(data.branding, null, 2)}`)
+  } catch (error) {
+    alert(`KV Read Test Failed: ${error.message}`)
+  }
+}
+
+// Load user's domains
+async function loadUserDomains() {
+  if (!userStore.email) return
+
+  try {
+    const url = `${BASE_URL}/domains/list?email=${encodeURIComponent(userStore.email)}`
+    const response = await fetch(url)
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.success && data.domains) {
+        userDomains.value = data.domains.map(d => d.domain)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load domains:', error)
+  }
+}
+
+// Select a domain from the list
+function selectDomain(domain) {
+  form.value.domain = domain
+  loadBranding()
+  loadPhones()
+}
+
+// Phone mapping functions
+async function loadPhones() {
+  if (!form.value.domain) return
+
+  try {
+    const url = `${BASE_URL}/phone-mappings?domain=${encodeURIComponent(form.value.domain)}`
+    const response = await fetch(url)
+
+    if (response.ok) {
+      const data = await response.json()
+      phones.value = data.mappings?.map(m => m.phone) || []
+    }
+  } catch (error) {
+    console.error('Failed to load phones:', error)
+  }
+}
+
+async function addPhone() {
+  if (!newPhone.value || !form.value.domain) return
+
+  try {
+    const url = `${BASE_URL}/phone-mapping`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: newPhone.value,
+        domain: form.value.domain
+      })
+    })
+
+    if (response.ok) {
+      phones.value.push(newPhone.value)
+      newPhone.value = ''
+      showMessage('Phone added')
+    }
+  } catch (error) {
+    showMessage(`Failed to add phone: ${error.message}`, 'danger')
+  }
+}
+
+async function removePhone(phone) {
+  try {
+    const url = `${BASE_URL}/phone-mapping/${encodeURIComponent(phone)}`
+    const response = await fetch(url, { method: 'DELETE' })
+
+    if (response.ok) {
+      phones.value = phones.value.filter(p => p !== phone)
+      showMessage('Phone removed')
+    }
+  } catch (error) {
+    showMessage(`Failed to remove phone: ${error.message}`, 'danger')
+  }
+}
+
+// Initialize
+onMounted(() => {
+  loadUserDomains()
+})
+</script>
+
+<style scoped>
+.simple-branding-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+.card {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+pre {
+  background: white;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 0;
+}
+</style>
