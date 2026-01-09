@@ -74,6 +74,18 @@
             </div>
           </div>
 
+          <!-- Mobile App Title -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Mobile App Title</label>
+            <input
+              v-model="form.mobileAppTitle"
+              type="text"
+              class="form-control"
+              placeholder="Your Brand Name"
+            />
+            <small class="text-muted">Replaces "HALLO VEGVISR" in the mobile app (leave empty for default)</small>
+          </div>
+
           <!-- Slogan -->
           <div class="mb-3">
             <label class="form-label fw-bold">Slogan / Tagline</label>
@@ -83,7 +95,7 @@
               class="form-control"
               placeholder="Your brand tagline"
             />
-            <small class="text-muted">Displayed below the logo in mobile app</small>
+            <small class="text-muted">Displayed below the title in mobile app</small>
           </div>
 
           <!-- Content Filter -->
@@ -252,6 +264,7 @@ const form = ref({
   domain: '',
   logo: '',
   mobileAppLogo: '',
+  mobileAppTitle: '',
   slogan: '',
   contentFilter: 'none',
   selectedCategories: [],
@@ -274,6 +287,7 @@ function getKVPayload() {
     branding: {
       myLogo: form.value.logo || '',
       mobileAppLogo: form.value.mobileAppLogo || '',
+      mobileAppTitle: form.value.mobileAppTitle || '',
       slogan: form.value.slogan || '',
       contentFilter: form.value.contentFilter,
       selectedCategories: form.value.selectedCategories || [],
@@ -322,6 +336,7 @@ async function loadBranding() {
       // Map KV format to form format
       form.value.logo = data.branding?.myLogo || ''
       form.value.mobileAppLogo = data.branding?.mobileAppLogo || ''
+      form.value.mobileAppTitle = data.branding?.mobileAppTitle || ''
       form.value.slogan = data.branding?.slogan || ''
       form.value.contentFilter = data.branding?.contentFilter || 'none'
       form.value.selectedCategories = data.branding?.selectedCategories || []
