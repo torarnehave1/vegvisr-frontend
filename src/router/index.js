@@ -373,7 +373,7 @@ const router = createRouter({
       name: 'simple-branding',
       component: () => import('../views/SimpleBrandingPage.vue'),
       meta: {
-        requiresAuth: true,
+        requiresAuth: false, // Allow local dev without login
       },
     },
     {

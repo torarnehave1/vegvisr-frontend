@@ -4,6 +4,20 @@
       <h1>Brand Settings</h1>
       <p class="text-muted">Configure your domain branding. Changes save directly to KV storage.</p>
 
+      <!-- DEV MODE TOGGLE -->
+      <div class="alert alert-warning mb-3">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" v-model="devMode" id="devModeCheck">
+          <label class="form-check-label" for="devModeCheck">
+            <strong>DEV MODE</strong> - Bypass login, use test email
+          </label>
+        </div>
+        <div v-if="devMode" class="mt-2">
+          <input v-model="testEmail" type="text" class="form-control form-control-sm" placeholder="Test email for owner field" />
+          <small>Using: {{ effectiveEmail }}</small>
+        </div>
+      </div>
+
       <!-- Status Messages -->
       <div v-if="message" :class="['alert', messageType === 'success' ? 'alert-success' : 'alert-danger']" role="alert">
         {{ message }}
@@ -228,6 +242,11 @@ const kvReadResult = ref('')
 const kvSlogan = ref('(not loaded)')
 const kvMobileAppLogo = ref('(not loaded)')
 
+// DEV MODE - bypass login
+const devMode = ref(true) // Default ON for local dev
+const testEmail = ref('torarnehave@gmail.com')
+const effectiveEmail = computed(() => devMode.value ? testEmail.value : userStore.email)
+
 // Form data - flat structure matching what we send to KV
 const form = ref({
   domain: '',
@@ -251,7 +270,7 @@ const categoriesInput = computed({
 function getKVPayload() {
   return {
     domain: form.value.domain,
-    owner: userStore.email,
+    owner: effectiveEmail.value,
     branding: {
       myLogo: form.value.logo || '',
       mobileAppLogo: form.value.mobileAppLogo || '',
@@ -367,10 +386,11 @@ async function saveBranding() {
 
 // Load user's domains
 async function loadUserDomains() {
-  if (!userStore.email) return
+  const email = effectiveEmail.value
+  if (!email) return
 
   try {
-    const url = `${BASE_URL}/domains/list?email=${encodeURIComponent(userStore.email)}`
+    const url = `${BASE_URL}/domains/list?email=${encodeURIComponent(email)}`
     const response = await fetch(url)
 
     if (response.ok) {
