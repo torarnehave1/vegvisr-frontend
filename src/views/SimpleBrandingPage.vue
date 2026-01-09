@@ -434,18 +434,23 @@ async function addPhone() {
   try {
     const url = `${BASE_URL}/phone-mapping`
     const response = await fetch(url, {
-      method: 'POST',
+      method: 'PUT',  // Worker expects PUT, not POST
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         phone: newPhone.value,
-        domain: form.value.domain
+        domain: form.value.domain,
+        ownerEmail: effectiveEmail.value  // Required by worker
       })
     })
 
-    if (response.ok) {
-      phones.value.push(newPhone.value)
+    const result = await response.json()
+    if (response.ok && result.success) {
+      phones.value.push(result.phone || newPhone.value)
       newPhone.value = ''
       showMessage('Phone added')
+      loadPhones() // Refresh list
+    } else {
+      showMessage(`Failed: ${result.error || 'Unknown error'}`, 'danger')
     }
   } catch (error) {
     showMessage(`Failed to add phone: ${error.message}`, 'danger')
