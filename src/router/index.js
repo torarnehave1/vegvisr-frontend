@@ -369,6 +369,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/branding/:domain/users',
+      name: 'brand-users',
+      component: () => import('../views/BrandUsersPage.vue'),
+      meta: {
+        requiresAuth: true,
+      },
+      props: true,
+    },
+    {
       path: '/transcript-processor',
       name: 'transcript-processor',
       component: () => import('../views/TranscriptProcessorView.vue'),

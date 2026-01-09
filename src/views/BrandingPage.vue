@@ -186,6 +186,15 @@
                                         </a>
                                       </li>
                                       <li>
+                                        <router-link
+                                          class="dropdown-item"
+                                          :to="`/branding/${config.domain}/users`"
+                                        >
+                                          <i class="fas fa-users me-2"></i>
+                                          Manage Users
+                                        </router-link>
+                                      </li>
+                                      <li>
                                         <a
                                           class="dropdown-item"
                                           :href="`https://${config.domain}`"

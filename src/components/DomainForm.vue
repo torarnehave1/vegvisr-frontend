@@ -123,6 +123,84 @@
             />
           </div>
         </div>
+
+        <!-- Mobile App Logo -->
+        <div class="form-group mt-4">
+          <label for="mobileAppLogo" class="form-label">
+            <strong>Mobile App Logo:</strong>
+            <span class="badge bg-info ms-2">Optional</span>
+          </label>
+          <div class="logo-input-group">
+            <input
+              id="mobileAppLogo"
+              v-model="formData.mobileAppLogo"
+              type="url"
+              class="form-control"
+              placeholder="https://example.com/mobile-logo.png"
+            />
+            <button
+              type="button"
+              class="btn btn-outline-primary"
+              @click="triggerMobileLogoUpload"
+              :disabled="isUploadingMobileLogo"
+            >
+              <i class="fas" :class="isUploadingMobileLogo ? 'fa-spinner fa-spin' : 'fa-upload'"></i>
+              {{ isUploadingMobileLogo ? 'Uploading...' : 'Upload' }}
+            </button>
+          </div>
+          <input
+            ref="mobileLogoFileInput"
+            type="file"
+            accept="image/*"
+            style="display: none"
+            @change="handleMobileLogoUpload"
+          />
+          <div class="form-text">
+            Special logo for the HALLO VEGVISR mobile app. This logo will be displayed with a
+            "Powered by Hallo Vegvisr" badge. If not set, the main logo is used.
+          </div>
+        </div>
+
+        <!-- Mobile App Logo Preview -->
+        <div v-if="formData.mobileAppLogo" class="logo-preview mb-4">
+          <label class="form-label"><strong>Mobile App Logo Preview:</strong></label>
+          <div class="preview-container">
+            <div class="mobile-logo-preview-wrapper">
+              <img
+                :src="formData.mobileAppLogo"
+                alt="Mobile App Logo Preview"
+                class="logo-preview-img"
+              />
+              <div class="powered-by-badge">
+                <small>Powered by Hallo Vegvisr</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slogan -->
+        <div class="form-group mt-4">
+          <label for="slogan" class="form-label">
+            <strong>Brand Slogan:</strong>
+            <span class="badge bg-info ms-2">Optional</span>
+          </label>
+          <input
+            id="slogan"
+            v-model="formData.slogan"
+            type="text"
+            class="form-control"
+            placeholder="e.g., Empowering your knowledge journey"
+            maxlength="100"
+          />
+          <div class="form-text">
+            A short tagline or slogan for your brand (max 100 characters).
+            This is displayed below the logo in the mobile app.
+          </div>
+          <div v-if="formData.slogan" class="slogan-preview mt-2">
+            <small class="text-muted">Preview: </small>
+            <em class="text-primary">{{ formData.slogan }}</em>
+          </div>
+        </div>
       </div>
 
       <!-- Content Filtering Section -->
@@ -435,6 +513,94 @@
         </div>
       </div>
 
+      <!-- Mobile App Phone Mappings Section -->
+      <div v-if="isEditing" class="form-section">
+        <h5 class="section-title">
+          <i class="fas fa-mobile-alt text-primary me-2"></i>
+          Mobile App Phone Mappings
+        </h5>
+
+        <div class="form-group">
+          <label class="form-label">
+            <strong>Linked Phone Numbers:</strong>
+          </label>
+          <div class="form-text mb-3">
+            Phone numbers linked to this domain will see this branding in the HALLO VEGVISR mobile app.
+            <br />
+            <small class="text-muted">
+              <i class="fas fa-info-circle"></i>
+              Only Norwegian phone numbers (+47) are supported.
+            </small>
+          </div>
+
+          <!-- Add Phone Input -->
+          <div class="input-group mb-3">
+            <span class="input-group-text">+47</span>
+            <input
+              type="tel"
+              class="form-control"
+              v-model="newPhoneNumber"
+              placeholder="12345678"
+              maxlength="8"
+              pattern="[0-9]{8}"
+              @keyup.enter="addPhoneMapping"
+              :disabled="isAddingPhone"
+            />
+            <button
+              type="button"
+              class="btn btn-primary"
+              @click="addPhoneMapping"
+              :disabled="!isValidPhone || isAddingPhone"
+            >
+              <i v-if="isAddingPhone" class="fas fa-spinner fa-spin me-1"></i>
+              <i v-else class="fas fa-plus me-1"></i>
+              {{ isAddingPhone ? 'Adding...' : 'Add Phone' }}
+            </button>
+          </div>
+
+          <div v-if="phoneError" class="alert alert-danger py-2 mb-3">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            {{ phoneError }}
+          </div>
+
+          <!-- Linked Phones List -->
+          <div v-if="linkedPhones.length > 0" class="linked-phones">
+            <label class="form-label"><strong>Currently Linked:</strong></label>
+            <div class="list-group">
+              <div
+                v-for="mapping in linkedPhones"
+                :key="mapping.phone"
+                class="list-group-item d-flex justify-content-between align-items-center"
+              >
+                <span>
+                  <i class="fas fa-phone me-2 text-success"></i>
+                  {{ mapping.phone }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-outline-danger btn-sm"
+                  @click="removePhoneMapping(mapping.phone)"
+                  :disabled="isRemovingPhone === mapping.phone"
+                >
+                  <i v-if="isRemovingPhone === mapping.phone" class="fas fa-spinner fa-spin"></i>
+                  <i v-else class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="!isLoadingPhones" class="alert alert-info py-2">
+            <i class="fas fa-info-circle me-2"></i>
+            No phone numbers linked yet. Add phone numbers to enable mobile app branding.
+          </div>
+
+          <div v-if="isLoadingPhones" class="text-center py-3">
+            <i class="fas fa-spinner fa-spin me-2"></i>
+            Loading phone mappings...
+          </div>
+        </div>
+      </div>
+
       <!-- Form Actions -->
       <div class="form-actions">
         <div class="d-flex justify-content-between align-items-center">
@@ -522,6 +688,8 @@ export default {
     const formData = ref({
       domain: '',
       logo: '',
+      mobileAppLogo: '',
+      slogan: '',
       contentFilter: 'none',
       selectedCategories: [],
       mySiteFrontPage: '',
@@ -553,9 +721,11 @@ export default {
     // UI state
     const logoLoaded = ref(false)
     const isUploadingLogo = ref(false)
+    const isUploadingMobileLogo = ref(false)
     const isSaving = ref(false)
     const isAILogoModalOpen = ref(false)
     const logoFileInput = ref(null)
+    const mobileLogoFileInput = ref(null)
 
     // Meta area autocomplete state
     const metaAreaInput = ref('')
@@ -572,6 +742,14 @@ export default {
     const selectedMenuTemplate = ref(null)
     const isMenuTemplateCreatorOpen = ref(false)
 
+    // Phone mapping state
+    const newPhoneNumber = ref('')
+    const linkedPhones = ref([])
+    const phoneError = ref('')
+    const isLoadingPhones = ref(false)
+    const isAddingPhone = ref(false)
+    const isRemovingPhone = ref(null)
+
     // Computed properties
     const isEditing = computed(() => !!props.domainConfig)
 
@@ -580,6 +758,11 @@ export default {
              !domainError.value &&
              !logoError.value &&
              !frontPageError.value
+    })
+
+    const isValidPhone = computed(() => {
+      const digits = newPhoneNumber.value.replace(/\D/g, '')
+      return digits.length === 8 && /^[0-9]+$/.test(digits)
     })
 
     const availableMenuItems = computed(() => {
@@ -760,6 +943,51 @@ export default {
       formData.value.logo = logoUrl
       validateLogo()
       closeAILogoModal()
+    }
+
+    // Mobile App Logo upload handlers
+    const triggerMobileLogoUpload = () => {
+      if (mobileLogoFileInput.value) {
+        mobileLogoFileInput.value.click()
+      }
+    }
+
+    const handleMobileLogoUpload = async (event) => {
+      const file = event.target.files?.[0]
+      if (!file || !file.type.startsWith('image/')) {
+        alert('Please select a valid image file.')
+        return
+      }
+
+      isUploadingMobileLogo.value = true
+
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
+      uploadFormData.append('type', 'image')
+
+      try {
+        const response = await fetch('https://api.vegvisr.org/upload', {
+          method: 'POST',
+          body: uploadFormData,
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to upload mobile logo image')
+        }
+
+        const data = await response.json()
+        formData.value.mobileAppLogo = data.url
+
+        console.log('Mobile logo uploaded successfully:', data.url)
+      } catch (error) {
+        console.error('Error uploading mobile logo:', error)
+        alert('Failed to upload mobile logo image. Please try again.')
+      } finally {
+        isUploadingMobileLogo.value = false
+        if (event.target) {
+          event.target.value = ''
+        }
+      }
     }
 
     // Meta area handling
@@ -1032,6 +1260,93 @@ export default {
       closeMenuTemplateCreator()
     }
 
+    // Phone mapping methods
+    const loadPhoneMappings = async () => {
+      if (!formData.value.domain) return
+
+      isLoadingPhones.value = true
+      phoneError.value = ''
+
+      try {
+        const response = await fetch(apiUrls.listPhoneMappings(formData.value.domain))
+        if (response.ok) {
+          const data = await response.json()
+          linkedPhones.value = data.mappings || []
+          console.log('Loaded phone mappings:', linkedPhones.value.length)
+        }
+      } catch (error) {
+        console.error('Error loading phone mappings:', error)
+        phoneError.value = 'Failed to load phone mappings'
+      } finally {
+        isLoadingPhones.value = false
+      }
+    }
+
+    const addPhoneMapping = async () => {
+      if (!isValidPhone.value || !formData.value.domain) return
+
+      phoneError.value = ''
+      const fullPhone = '+47' + newPhoneNumber.value.replace(/\D/g, '')
+
+      // Check for duplicates
+      if (linkedPhones.value.some(p => p.phone === fullPhone)) {
+        phoneError.value = 'This phone number is already linked'
+        return
+      }
+
+      isAddingPhone.value = true
+
+      try {
+        const response = await fetch(apiUrls.savePhoneMapping(), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: fullPhone,
+            domain: formData.value.domain,
+            ownerEmail: userStore.email
+          })
+        })
+
+        if (response.ok) {
+          linkedPhones.value.push({ phone: fullPhone })
+          newPhoneNumber.value = ''
+          console.log('Phone mapping added:', fullPhone)
+        } else {
+          const data = await response.json()
+          phoneError.value = data.error || 'Failed to add phone mapping'
+        }
+      } catch (error) {
+        phoneError.value = 'Network error. Please try again.'
+        console.error('Error adding phone mapping:', error)
+      } finally {
+        isAddingPhone.value = false
+      }
+    }
+
+    const removePhoneMapping = async (phone) => {
+      if (!confirm(`Remove phone ${phone} from this domain?`)) return
+
+      isRemovingPhone.value = phone
+
+      try {
+        const response = await fetch(apiUrls.deletePhoneMapping(phone), {
+          method: 'DELETE'
+        })
+
+        if (response.ok) {
+          linkedPhones.value = linkedPhones.value.filter(p => p.phone !== phone)
+          console.log('Phone mapping removed:', phone)
+        } else {
+          phoneError.value = 'Failed to remove phone mapping'
+        }
+      } catch (error) {
+        console.error('Error removing phone mapping:', error)
+        phoneError.value = 'Network error. Please try again.'
+      } finally {
+        isRemovingPhone.value = null
+      }
+    }
+
     // Form submission
     const handleSubmit = async () => {
       if (!canSaveDomain.value) return
@@ -1079,6 +1394,10 @@ export default {
     onMounted(() => {
       initializeForm()
       fetchMenuTemplates()
+      // Load phone mappings if editing
+      if (props.domainConfig) {
+        loadPhoneMappings()
+      }
     })
 
     // Watch for prop changes
@@ -1099,9 +1418,11 @@ export default {
       frontPageGraphTitle,
       logoLoaded,
       isUploadingLogo,
+      isUploadingMobileLogo,
       isSaving,
       isAILogoModalOpen,
       logoFileInput,
+      mobileLogoFileInput,
       metaAreaInput,
       availableCategories,
       showSuggestions,
@@ -1112,10 +1433,19 @@ export default {
       selectedMenuTemplate,
       isMenuTemplateCreatorOpen,
 
+      // Phone mapping state
+      newPhoneNumber,
+      linkedPhones,
+      phoneError,
+      isLoadingPhones,
+      isAddingPhone,
+      isRemovingPhone,
+
       // Computed
       isEditing,
       canSaveDomain,
       availableMenuItems,
+      isValidPhone,
 
       // Methods
       validateDomain,
@@ -1127,6 +1457,8 @@ export default {
       openAILogoModal,
       closeAILogoModal,
       handleAILogoGenerated,
+      triggerMobileLogoUpload,
+      handleMobileLogoUpload,
       onMetaAreaInput,
       selectSuggestion,
       moveSuggestion,
@@ -1141,7 +1473,12 @@ export default {
       refreshMenuTemplates,
       openMenuTemplateCreator,
       closeMenuTemplateCreator,
-      handleMenuTemplateSaved
+      handleMenuTemplateSaved,
+
+      // Phone mapping methods
+      loadPhoneMappings,
+      addPhoneMapping,
+      removePhoneMapping
     }
   }
 }
@@ -1205,6 +1542,32 @@ export default {
   border-radius: 4px;
   background: #fff;
   padding: 8px;
+}
+
+.mobile-logo-preview-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 2px dashed #dee2e6;
+}
+
+.powered-by-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.slogan-preview {
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  border-radius: 6px;
+  border-left: 3px solid #007bff;
 }
 
 .filter-options {

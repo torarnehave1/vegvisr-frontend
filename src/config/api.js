@@ -68,4 +68,23 @@ export const apiUrls = {
 
   // Main logo endpoint (use main worker)
   getMainLogo: () => getApiUrl('getMainLogo'),
+
+  // Phone-to-domain branding endpoints (use main worker)
+  getBrandingByPhone: (phone) => `${API_CONFIG.baseUrl}/branding/by-phone?phone=${encodeURIComponent(phone)}`,
+  savePhoneMapping: () => `${API_CONFIG.baseUrl}/phone-mapping`,
+  deletePhoneMapping: (phone) => `${API_CONFIG.baseUrl}/phone-mapping/${encodeURIComponent(phone)}`,
+  listPhoneMappings: (domain) => `${API_CONFIG.baseUrl}/phone-mappings?domain=${encodeURIComponent(domain)}`,
+
+  // Brand user management endpoints (use main worker)
+  listBrandUsers: (domain) => `${API_CONFIG.baseUrl}/brand-users?domain=${encodeURIComponent(domain)}`,
+  addBrandUser: () => `${API_CONFIG.baseUrl}/brand-users`,
+  updateBrandUser: (phone) => `${API_CONFIG.baseUrl}/brand-users/${encodeURIComponent(phone)}`,
+  deleteBrandUser: (phone, domain) => `${API_CONFIG.baseUrl}/brand-users/${encodeURIComponent(phone)}?domain=${encodeURIComponent(domain)}`,
+
+  // Brand invitation endpoints (use main worker)
+  listBrandInvites: (domain) => `${API_CONFIG.baseUrl}/brand-invites?domain=${encodeURIComponent(domain)}`,
+  createBrandInvite: () => `${API_CONFIG.baseUrl}/brand-invites`,
+  getBrandInvite: (code) => `${API_CONFIG.baseUrl}/brand-invite/${encodeURIComponent(code)}`,
+  acceptBrandInvite: (code) => `${API_CONFIG.baseUrl}/brand-invite/${encodeURIComponent(code)}/accept`,
+  deleteBrandInvite: (code) => `${API_CONFIG.baseUrl}/brand-invite/${encodeURIComponent(code)}`,
 }
