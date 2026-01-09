@@ -181,7 +181,11 @@ export const useDomainStore = defineStore('domain', {
 
     // Update an existing domain
     updateDomain(domainName, newConfig) {
-      console.log('Updating domain:', domainName)
+      console.log('=== DOMAIN STORE updateDomain ===')
+      console.log('domainName:', domainName)
+      console.log('newConfig:', JSON.stringify(newConfig, null, 2))
+      console.log('newConfig.slogan:', newConfig.slogan)
+      console.log('newConfig.mobileAppLogo:', newConfig.mobileAppLogo)
 
       const index = this.domains.findIndex(d => d.domain === domainName)
       if (index === -1) {
@@ -191,6 +195,8 @@ export const useDomainStore = defineStore('domain', {
 
       // Update the domain
       this.domains[index] = { ...newConfig }
+      console.log('Updated domain in store:', JSON.stringify(this.domains[index], null, 2))
+      console.log('===================================')
 
       // Track change (only if not already new)
       if (!this.newDomains.has(domainName)) {
@@ -367,7 +373,12 @@ export const useDomainStore = defineStore('domain', {
 
     // Utility: Convert modal format to KV format
     convertModalToKVFormat(domainConfig, userEmail) {
-      return {
+      console.log('=== convertModalToKVFormat INPUT ===')
+      console.log('domainConfig:', JSON.stringify(domainConfig, null, 2))
+      console.log('domainConfig.slogan:', domainConfig.slogan)
+      console.log('domainConfig.mobileAppLogo:', domainConfig.mobileAppLogo)
+
+      const result = {
         domain: domainConfig.domain,
         owner: userEmail,
         branding: {
@@ -384,6 +395,13 @@ export const useDomainStore = defineStore('domain', {
           metaAreas: domainConfig.selectedCategories || []
         }
       }
+
+      console.log('=== convertModalToKVFormat OUTPUT ===')
+      console.log('result:', JSON.stringify(result, null, 2))
+      console.log('result.branding.slogan:', result.branding.slogan)
+      console.log('=====================================')
+
+      return result
     },
 
     // Utility: Convert KV format to modal format

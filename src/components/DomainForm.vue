@@ -601,6 +601,23 @@
         </div>
       </div>
 
+      <!-- DEBUG: Live Form Data Display -->
+      <div class="form-section" style="background: #fff3cd; border: 2px solid #ffc107;">
+        <h5 class="section-title" style="color: #856404;">
+          <i class="fas fa-bug me-2"></i>
+          DEBUG: Current Form Data
+        </h5>
+        <div style="font-family: monospace; font-size: 12px;">
+          <p><strong>Domain:</strong> {{ formData.domain }}</p>
+          <p><strong>Slogan:</strong> "{{ formData.slogan }}" (length: {{ formData.slogan?.length || 0 }})</p>
+          <p><strong>MobileAppLogo:</strong> "{{ formData.mobileAppLogo }}"</p>
+          <p><strong>Logo:</strong> {{ formData.logo?.substring(0, 50) }}...</p>
+          <p><strong>ContentFilter:</strong> {{ formData.contentFilter }}</p>
+          <p><strong>Categories:</strong> {{ formData.selectedCategories?.join(', ') }}</p>
+          <p><strong>Is Editing:</strong> {{ isEditing }}</p>
+        </div>
+      </div>
+
       <!-- Form Actions -->
       <div class="form-actions">
         <div class="d-flex justify-content-between align-items-center">
@@ -1355,6 +1372,19 @@ export default {
 
       try {
         const domainConfig = { ...formData.value }
+
+        // DEBUG: Log exactly what we're about to save
+        console.log('=== DOMAIN FORM DEBUG ===')
+        console.log('formData.value:', JSON.stringify(formData.value, null, 2))
+        console.log('formData.slogan:', formData.value.slogan)
+        console.log('formData.mobileAppLogo:', formData.value.mobileAppLogo)
+        console.log('domainConfig:', JSON.stringify(domainConfig, null, 2))
+        console.log('domainConfig.slogan:', domainConfig.slogan)
+        console.log('isEditing:', isEditing.value)
+        console.log('=========================')
+
+        // Show debug alert on page
+        alert(`DEBUG: Saving domain\nSlogan: "${domainConfig.slogan}"\nMobileAppLogo: "${domainConfig.mobileAppLogo}"`)
 
         if (isEditing.value) {
           // Update existing domain
