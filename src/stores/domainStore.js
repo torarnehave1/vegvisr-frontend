@@ -364,6 +364,8 @@ export const useDomainStore = defineStore('domain', {
         owner: userEmail,
         branding: {
           myLogo: domainConfig.logo || '',
+          mobileAppLogo: domainConfig.mobileAppLogo || '',
+          slogan: domainConfig.slogan || '',
           contentFilter: domainConfig.contentFilter,
           selectedCategories: domainConfig.selectedCategories || [],
           mySiteFrontPage: domainConfig.mySiteFrontPage || '',
@@ -381,6 +383,8 @@ export const useDomainStore = defineStore('domain', {
       return {
         domain: siteConfig.domain,
         logo: siteConfig.branding?.myLogo || '',
+        mobileAppLogo: siteConfig.branding?.mobileAppLogo || '',
+        slogan: siteConfig.branding?.slogan || '',
         contentFilter: siteConfig.branding?.contentFilter || 'none',
         selectedCategories: siteConfig.branding?.selectedCategories || [],
         mySiteFrontPage: siteConfig.branding?.mySiteFrontPage || '',
