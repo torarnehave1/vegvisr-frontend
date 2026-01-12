@@ -172,7 +172,8 @@ async function getGroupMemberTokens(env, groupId, excludeUserId) {
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id, x-user-phone, x-user-email',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id, x-user-phone, x-user-email, X-File-Name, Range',
+  'Access-Control-Expose-Headers': 'Content-Type, Content-Length, Accept-Ranges, Content-Range',
 }
 
 const jsonResponse = (data, status = 200) =>
@@ -232,6 +233,272 @@ async function ensureMember(env, groupId, userId) {
   return !!member
 }
 
+const MAX_MEDIA_BYTES = 200 * 1024 * 1024 // 200MB MVP limit
+
+const buildMediaUrl = (request, env, objectKey) => {
+  if (env.PUBLIC_MEDIA_BASE_URL) {
+    return `${env.PUBLIC_MEDIA_BASE_URL}?key=${encodeURIComponent(objectKey)}`
+  }
+  const url = new URL(request.url)
+  return `${url.origin}/media?key=${encodeURIComponent(objectKey)}`
+}
+
+const guessExtensionFromFileName = (fileName) => {
+  if (!fileName) return ''
+  const lower = String(fileName).toLowerCase()
+  const dotIndex = lower.lastIndexOf('.')
+  if (dotIndex === -1) return ''
+  const ext = lower.substring(dotIndex)
+  const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.webm', '.m4v']
+  return allowed.includes(ext) ? ext : ''
+}
+
+const defaultContentTypeForExtension = (ext) => {
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.png':
+      return 'image/png'
+    case '.webp':
+      return 'image/webp'
+    case '.gif':
+      return 'image/gif'
+    case '.mp4':
+    case '.m4v':
+      return 'video/mp4'
+    case '.mov':
+      return 'video/quicktime'
+    case '.webm':
+      return 'video/webm'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+const isSupportedMediaType = (contentType, ext) => {
+  const ct = (contentType || '').toLowerCase().split(';')[0].trim()
+  if (ct.startsWith('image/')) return true
+  if (ct.startsWith('video/')) return true
+  if (ext) {
+    return ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.webm', '.m4v'].includes(ext)
+  }
+  return false
+}
+
+const handleMediaUpload = async (request, env, groupId, searchParams) => {
+  const userId = (searchParams.get('user_id') || '').trim()
+  const phone = (searchParams.get('phone') || '').trim()
+  const email = (searchParams.get('email') || '').trim()
+
+  if (!userId) return errorResponse('user_id required')
+  if (!phone) return errorResponse('phone required')
+
+  const auth = await validateUser(env, userId, phone, email)
+  if (!auth.ok) {
+    return errorResponse(auth.error, auth.status)
+  }
+
+  const isMember = await ensureMember(env, groupId, userId)
+  if (!isMember) {
+    return errorResponse('Not a group member', 403)
+  }
+
+  if (!env.CHAT_MEDIA) {
+    return errorResponse('CHAT_MEDIA bucket not configured', 500)
+  }
+
+  const fileName = request.headers.get('X-File-Name') || 'upload'
+  const providedContentType = request.headers.get('Content-Type') || ''
+  const ext = guessExtensionFromFileName(fileName)
+  const contentType = (providedContentType || defaultContentTypeForExtension(ext))
+
+  if (!isSupportedMediaType(contentType, ext)) {
+    return errorResponse('Unsupported media type. Only image/* and video/* are allowed.', 400)
+  }
+
+  const contentLengthHeader = request.headers.get('Content-Length')
+  const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null
+  if (contentLength !== null && (!Number.isFinite(contentLength) || contentLength < 0)) {
+    return errorResponse('Invalid Content-Length header', 400)
+  }
+  if (contentLength !== null && contentLength > MAX_MEDIA_BYTES) {
+    return errorResponse(`Media too large. Max ${MAX_MEDIA_BYTES} bytes`, 413)
+  }
+
+  if (!request.body) {
+    return errorResponse('Missing request body', 400)
+  }
+
+  const objectId = crypto.randomUUID()
+  const safeExt = ext || (contentType.toLowerCase().startsWith('image/') ? '.jpg' : '.mp4')
+  const objectKey = `media/${groupId}/${objectId}${safeExt}`
+
+  let uploadedBytes = 0
+  const limiter = new TransformStream({
+    transform(chunk, controller) {
+      const size = chunk?.byteLength ?? 0
+      uploadedBytes += size
+      if (uploadedBytes > MAX_MEDIA_BYTES) {
+        throw new Error('Media too large')
+      }
+      controller.enqueue(chunk)
+    },
+  })
+
+  const streamToPut = (contentLength === null)
+    ? request.body.pipeThrough(limiter)
+    : request.body
+
+  try {
+    await env.CHAT_MEDIA.put(objectKey, streamToPut, {
+      httpMetadata: {
+        contentType,
+      },
+      customMetadata: {
+        groupId: String(groupId),
+        userId: String(userId),
+        originalFileName: String(fileName),
+        uploadedAt: String(Date.now()),
+      },
+    })
+  } catch (err) {
+    const message = String(err?.message || err)
+    if (message.toLowerCase().includes('too large')) {
+      return errorResponse(`Media too large. Max ${MAX_MEDIA_BYTES} bytes`, 413)
+    }
+    throw err
+  }
+
+  return jsonResponse({
+    success: true,
+    objectKey,
+    mediaUrl: buildMediaUrl(request, env, objectKey),
+    size: (contentLength !== null ? contentLength : uploadedBytes),
+    contentType,
+  })
+}
+
+const handleMediaFetch = async (request, env, searchParams) => {
+  const objectKey = searchParams.get('key')
+  if (!objectKey) {
+    return errorResponse('Missing required key parameter', 400)
+  }
+  if (!env.CHAT_MEDIA) {
+    return errorResponse('CHAT_MEDIA bucket not configured', 500)
+  }
+
+  const isHead = request.method === 'HEAD'
+
+  // Use HEAD metadata to avoid downloading large objects just to get size/type.
+  const meta = await env.CHAT_MEDIA.head(objectKey)
+  if (!meta) {
+    return errorResponse('Media not found', 404)
+  }
+  const totalSize = meta.size
+  const contentType = meta.httpMetadata?.contentType || 'application/octet-stream'
+
+  const rangeHeader = request.headers.get('Range')
+
+  // Defaults (no range)
+  let responseStatus = 200
+  let offset = 0
+  let length = totalSize
+  let extraHeaders = {}
+
+  if (rangeHeader) {
+    // Support common single-range patterns:
+    // - bytes=START-END
+    // - bytes=START-
+    // - bytes=-SUFFIX_LEN (fetch last N bytes; important for MP4 moov-at-end)
+    const explicitMatch = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader)
+    const suffixMatch = /^bytes=-(\d+)$/.exec(rangeHeader)
+
+    let start = null
+    let end = null
+
+    if (explicitMatch) {
+      start = Number(explicitMatch[1])
+      end = explicitMatch[2] ? Number(explicitMatch[2]) : null
+      const safeEnd = end !== null ? Math.min(end, totalSize - 1) : totalSize - 1
+      if (start >= totalSize || start < 0 || safeEnd < start) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            ...corsHeaders,
+            'Content-Range': `bytes */${totalSize}`,
+            'Accept-Ranges': 'bytes',
+          },
+        })
+      }
+      offset = start
+      length = safeEnd - start + 1
+      responseStatus = 206
+      extraHeaders = {
+        'Content-Range': `bytes ${start}-${safeEnd}/${totalSize}`,
+        'Content-Length': String(length),
+        'Accept-Ranges': 'bytes',
+      }
+    } else if (suffixMatch) {
+      const suffixLen = Number(suffixMatch[1])
+      if (!Number.isFinite(suffixLen) || suffixLen <= 0) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            ...corsHeaders,
+            'Content-Range': `bytes */${totalSize}`,
+            'Accept-Ranges': 'bytes',
+          },
+        })
+      }
+      const safeLen = Math.min(suffixLen, totalSize)
+      const startPos = Math.max(totalSize - safeLen, 0)
+      const endPos = totalSize - 1
+      offset = startPos
+      length = endPos - startPos + 1
+      responseStatus = 206
+      extraHeaders = {
+        'Content-Range': `bytes ${startPos}-${endPos}/${totalSize}`,
+        'Content-Length': String(length),
+        'Accept-Ranges': 'bytes',
+      }
+    }
+  }
+
+  // HEAD requests should return headers only (no body), but with correct length/range metadata.
+  if (isHead) {
+    return new Response(null, {
+      status: responseStatus,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': contentType,
+        'Content-Length': String(responseStatus === 206 ? length : totalSize),
+        'Accept-Ranges': 'bytes',
+        ...extraHeaders,
+      },
+    })
+  }
+
+  const mediaObject = (responseStatus === 206)
+    ? await env.CHAT_MEDIA.get(objectKey, { range: { offset, length } })
+    : await env.CHAT_MEDIA.get(objectKey)
+
+  if (!mediaObject) {
+    return errorResponse('Media not found', 404)
+  }
+
+  return new Response(mediaObject.body, {
+    status: responseStatus,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': contentType,
+      'Content-Length': String(responseStatus === 206 ? length : totalSize),
+      'Accept-Ranges': 'bytes',
+      ...extraHeaders,
+    },
+  })
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
@@ -249,6 +516,14 @@ export default {
           database: 'hallo_vegvisr_chat',
           timestamp: new Date().toISOString(),
         })
+      }
+
+      if (pathname === '/media' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const response = await handleMediaFetch(request, env, searchParams)
+        if (request.method === 'HEAD') {
+          return new Response(null, { status: response.status, headers: response.headers })
+        }
+        return response
       }
 
       if (pathname === '/groups' && request.method === 'POST') {
@@ -508,6 +783,8 @@ export default {
         const email = searchParams.get('email') || ''
         const afterRaw = searchParams.get('after')
         const after = afterRaw ? Number(afterRaw) : 0
+        const beforeRaw = searchParams.get('before')
+        const before = beforeRaw ? Number(beforeRaw) : 0
         const limitRaw = searchParams.get('limit')
         const latestRaw = searchParams.get('latest')
         const latest = latestRaw === '1' || latestRaw === 'true'
@@ -520,6 +797,9 @@ export default {
         }
         if (Number.isNaN(after) || after < 0) {
           return errorResponse('Invalid after value')
+        }
+        if (Number.isNaN(before) || before < 0) {
+          return errorResponse('Invalid before value')
         }
         if (Number.isNaN(limit) || limit <= 0) {
           limit = 50
@@ -538,21 +818,50 @@ export default {
 
         let results
         if (latest) {
-          const query = `SELECT id, group_id, user_id, body, created_at,
+          // Cursor-based paging: use `before=<id>` to fetch older messages.
+          // Implementation fetches (limit+1) rows to compute has_more.
+          const pageSize = limit
+          const fetchLimit = Math.min(pageSize + 1, 201)
+          const baseSelect = `SELECT id, group_id, user_id, body, created_at,
                   message_type, audio_url, audio_duration_ms,
-                  transcript_text, transcript_lang, transcription_status
-            FROM group_messages
-            WHERE group_id = ?
+                  transcript_text, transcript_lang, transcription_status,
+                  media_url, media_object_key, media_content_type, media_size,
+                  video_thumbnail_url, video_duration_ms
+            FROM group_messages`
+
+          const where = before > 0
+            ? ` WHERE group_id = ? AND id < ?`
+            : ` WHERE group_id = ?`
+
+          const query = `${baseSelect}${where}
             ORDER BY id DESC
             LIMIT ?`
-          const data = await env.CHAT_DB.prepare(query)
-            .bind(groupId, limit)
-            .all()
-          results = (data.results || []).reverse()
+
+          const stmt = env.CHAT_DB.prepare(query)
+          const data = before > 0
+            ? await stmt.bind(groupId, before, fetchLimit).all()
+            : await stmt.bind(groupId, fetchLimit).all()
+
+          const desc = data.results || []
+          const hasMore = desc.length > pageSize
+          const sliceDesc = hasMore ? desc.slice(0, pageSize) : desc
+          results = sliceDesc.reverse()
+
+          const nextBefore = results.length > 0 ? results[0].id : null
+          return jsonResponse({
+            success: true,
+            messages: results,
+            paging: {
+              has_more: hasMore,
+              next_before: nextBefore,
+            },
+          })
         } else {
           const query = `SELECT id, group_id, user_id, body, created_at,
                   message_type, audio_url, audio_duration_ms,
-                  transcript_text, transcript_lang, transcription_status
+                  transcript_text, transcript_lang, transcription_status,
+                  media_url, media_object_key, media_content_type, media_size,
+                  video_thumbnail_url, video_duration_ms
            FROM group_messages
            WHERE group_id = ? AND id > ?
            ORDER BY id ASC
@@ -564,6 +873,12 @@ export default {
         }
 
         return jsonResponse({ success: true, messages: results })
+      }
+
+      const mediaUploadMatch = pathname.match(/^\/groups\/([^/]+)\/media$/)
+      if (mediaUploadMatch && request.method === 'POST') {
+        const groupId = mediaUploadMatch[1]
+        return handleMediaUpload(request, env, groupId, searchParams)
       }
 
       if (messagesMatch && request.method === 'POST') {
@@ -582,6 +897,16 @@ export default {
         const audioDurationMs = body.audio_duration_ms ?? null
         const transcriptText = body.transcript_text ? String(body.transcript_text) : null
         const transcriptLang = body.transcript_lang ? String(body.transcript_lang) : null
+        const mediaUrl = body.media_url ? String(body.media_url).trim() : ''
+        const mediaObjectKey = body.media_object_key ? String(body.media_object_key).trim() : ''
+        const mediaContentType = body.media_content_type
+          ? String(body.media_content_type).trim()
+          : null
+        const mediaSize = body.media_size ?? null
+        const videoThumbnailUrl = body.video_thumbnail_url
+          ? String(body.video_thumbnail_url).trim()
+          : ''
+        const videoDurationMs = body.video_duration_ms ?? null
         const transcriptionStatus = body.transcription_status
           ? String(body.transcription_status)
           : (messageType === 'voice' ? 'pending' : null)
@@ -594,6 +919,18 @@ export default {
         if (messageType === 'voice') {
           if (!audioUrl) {
             return errorResponse('audio_url required for voice messages')
+          }
+        } else if (messageType === 'image' || messageType === 'video') {
+          if (!mediaUrl) {
+            return errorResponse('media_url required for image/video messages')
+          }
+          if (messageType === 'video') {
+            if (videoDurationMs !== null) {
+              const n = Number(videoDurationMs)
+              if (Number.isNaN(n) || n < 0) {
+                return errorResponse('video_duration_ms must be a non-negative number')
+              }
+            }
           }
         } else if (!text) {
           return errorResponse('Message body required')
@@ -610,18 +947,21 @@ export default {
         }
 
         const createdAt = Date.now()
+        const storedBody = (messageType === 'image' || messageType === 'video') ? (text || '') : text
         const result = await env.CHAT_DB.prepare(
           `INSERT INTO group_messages (
              group_id, user_id, body, created_at,
              message_type, audio_url, audio_duration_ms,
-             transcript_text, transcript_lang, transcription_status
+             transcript_text, transcript_lang, transcription_status,
+             media_url, media_object_key, media_content_type, media_size,
+             video_thumbnail_url, video_duration_ms
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
           .bind(
             groupId,
             userId,
-            text,
+            storedBody,
             createdAt,
             messageType,
             audioUrl || null,
@@ -629,6 +969,12 @@ export default {
             transcriptText,
             transcriptLang,
             transcriptionStatus,
+            mediaUrl || null,
+            mediaObjectKey || null,
+            mediaContentType,
+            mediaSize,
+            (messageType === 'video' ? (videoThumbnailUrl || null) : null),
+            (messageType === 'video' ? (videoDurationMs ?? null) : null),
           )
           .run()
 
@@ -659,7 +1005,13 @@ export default {
                   ? (transcriptText && transcriptText.trim().isNotEmpty
                     ? transcriptText.trim()
                     : '🎤 Voice message')
-                  : text
+                  : (messageType === 'image'
+                    ? '📷 Photo'
+                    : (messageType === 'video'
+                      ? '🎬 Video'
+                      : storedBody
+                    )
+                  )
                 const preview =
                   previewText.length > 50 ? previewText.substring(0, 47) + '...' : previewText
                 await sendPushNotification(
@@ -688,7 +1040,7 @@ export default {
             id: result.meta.last_row_id,
             group_id: groupId,
             user_id: userId,
-            body: text,
+            body: storedBody,
             created_at: createdAt,
             message_type: messageType,
             audio_url: audioUrl || null,
@@ -696,6 +1048,12 @@ export default {
             transcript_text: transcriptText,
             transcript_lang: transcriptLang,
             transcription_status: transcriptionStatus,
+            media_url: mediaUrl || null,
+            media_object_key: mediaObjectKey || null,
+            media_content_type: mediaContentType,
+            media_size: mediaSize,
+            video_thumbnail_url: (messageType === 'video' ? (videoThumbnailUrl || null) : null),
+            video_duration_ms: (messageType === 'video' ? (videoDurationMs ?? null) : null),
           },
         }, 201)
       }

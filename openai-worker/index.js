@@ -465,9 +465,12 @@ async function handleAudio(request, env, corsHeaders) {
 
     const userKey = await getUserApiKey(env, userId, 'openai')
     const openaiKey = userKey || env.OPENAI_API_KEY;
+    const keySource = userKey ? 'user' : 'system';
     if (!openaiKey) {
       return new Response(JSON.stringify({
-        error: 'OpenAI API key not configured'
+        success: false,
+        error: 'OpenAI API key not configured',
+        key_source: 'none'
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -501,9 +504,46 @@ async function handleAudio(request, env, corsHeaders) {
       body: openaiFormData
     });
 
-    const result = await openaiResponse.text();
+    const rawText = await openaiResponse.text();
 
-    return new Response(result, {
+    // Normalize errors so downstream clients don't end up with "[object Object]".
+    if (!openaiResponse.ok) {
+      let errorMessage = rawText;
+      let errorObject = null;
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && typeof parsed === 'object') {
+          const rawErr = parsed.error;
+          if (typeof rawErr === 'string') {
+            errorMessage = rawErr;
+          } else if (rawErr && typeof rawErr === 'object') {
+            errorMessage = rawErr.message || JSON.stringify(rawErr);
+            errorObject = rawErr;
+          } else {
+            errorMessage = JSON.stringify(parsed);
+          }
+        }
+      } catch (_) {
+        // rawText is not JSON
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: errorMessage,
+          openai_error: errorObject,
+          status: openaiResponse.status,
+          key_source: keySource
+        }),
+        {
+          status: openaiResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Success: pass through OpenAI JSON
+    return new Response(rawText, {
       status: openaiResponse.status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

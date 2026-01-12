@@ -1119,6 +1119,16 @@
         <p>
           <strong>{{ error.message }}</strong>
         </p>
+        <p v-if="error.keySource" class="mb-2">
+          <strong>Key source:</strong> {{ error.keySource }}
+        </p>
+        <div
+          v-if="(error.message || '').toLowerCase().includes('exceeded your current quota')"
+          class="alert alert-warning mt-2"
+        >
+          <strong>Quota exceeded.</strong>
+          This is a billing/credits issue for the <strong>{{ error.keySource || 'active' }}</strong> OpenAI key.
+        </div>
         <div v-if="error.details" class="error-details">
           <pre>{{ error.details }}</pre>
         </div>
@@ -3305,8 +3315,10 @@ const transcribeWithWhisper = async () => {
   } catch (err) {
     console.error('Whisper transcription error:', err)
     error.value = {
-      message: 'Whisper transcription failed',
-      details: err.message,
+      message: err?.message || 'Whisper transcription failed',
+      details: err?.details || null,
+      keySource: err?.keySource || null,
+      status: err?.status || null,
     }
   } finally {
     whisperTranscribing.value = false
@@ -3344,7 +3356,19 @@ const processSingleWhisperFile = async (audioBlob, fileName) => {
       } catch {
         errorData = { error: errorText }
       }
-      throw new Error(errorData.error || `Whisper API error: ${response.status}`)
+      const rawErr = errorData?.error
+      const message =
+        typeof rawErr === 'string'
+          ? rawErr
+          : rawErr?.message
+            ? rawErr.message
+            : (rawErr != null ? JSON.stringify(rawErr) : null)
+
+      const e = new Error(message || `Whisper API error: ${response.status}`)
+      e.keySource = errorData?.key_source || null
+      e.status = errorData?.status || response.status
+      e.details = message || errorText
+      throw e
     }
 
     const result = await response.json()
@@ -3431,7 +3455,20 @@ const processWhisperInChunks = async (audioBlob, fileName, audioDuration) => {
         } catch {
           errorData = { error: errorText }
         }
-        throw new Error(errorData.error || `Whisper API error: ${response.status}`)
+
+        const rawErr = errorData?.error
+        const message =
+          typeof rawErr === 'string'
+            ? rawErr
+            : rawErr?.message
+              ? rawErr.message
+              : (rawErr != null ? JSON.stringify(rawErr) : null)
+
+        const e = new Error(message || `Whisper API error: ${response.status}`)
+        e.keySource = errorData?.key_source || null
+        e.status = errorData?.status || response.status
+        e.details = message || errorText
+        throw e
       }
 
       const result = await response.json()
