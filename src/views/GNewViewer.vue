@@ -4276,6 +4276,87 @@ const closeMobileMenu = () => {
 // Print function for the graph
 const printGraph = () => {
   try {
+    const escapeHtml = (value) => {
+      if (value === null || value === undefined) return ''
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;')
+    }
+
+    const getNodePrintHtml = (node) => {
+      const type = node?.type
+      if (type === 'markdown-image') {
+        const url = node?.label || ''
+        if (!url) return '<em>(Image node with no URL)</em>'
+        return `
+          <div style="margin-top: 10px;">
+            <img src="${escapeHtml(url)}" alt="Image" />
+            <div style="font-size: 0.85em; color: #666; margin-top: 6px;">${escapeHtml(url)}</div>
+          </div>
+        `
+      }
+
+      if (type === 'youtube') {
+        const url = node?.label || ''
+        if (!url) return '<em>(YouTube node with no URL)</em>'
+        return `
+          <div style="margin-top: 10px;">
+            <strong>YouTube:</strong>
+            <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>
+          </div>
+        `
+      }
+
+      if (type === 'app-viewer') {
+        const url = node?.label || ''
+        const info = node?.info || ''
+        return `
+          ${info ? `<div>${info}</div>` : ''}
+          ${url ? `<div style="margin-top: 10px;"><strong>App:</strong> <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a></div>` : ''}
+        `
+      }
+
+      // Default: `info` is the canonical node body in this viewer.
+      // Keep as raw HTML/markdown (matches existing storage format).
+      return node?.info || ''
+    }
+
+    const waitForImages = (doc, timeoutMs = 8000) => {
+      const images = Array.from(doc.images || [])
+      if (images.length === 0) return Promise.resolve()
+
+      return new Promise((resolve) => {
+        let remaining = images.length
+        let resolved = false
+        let timer = null
+
+        const finish = () => {
+          if (resolved) return
+          resolved = true
+          if (timer) clearTimeout(timer)
+          resolve()
+        }
+
+        const done = () => {
+          remaining -= 1
+          if (remaining <= 0) finish()
+        }
+
+        timer = setTimeout(() => finish(), timeoutMs)
+        images.forEach((img) => {
+          if (img.complete) {
+            done()
+            return
+          }
+          img.addEventListener('load', done, { once: true })
+          img.addEventListener('error', done, { once: true })
+        })
+      })
+    }
+
     // Create a print-specific window
     const printWindow = window.open('', '_blank')
 
@@ -4367,7 +4448,7 @@ const printGraph = () => {
               <div class="node">
                 <div class="node-title">${node.label || 'Untitled Node'}</div>
                 <div class="node-content">
-                  ${node.content || ''}
+                  ${getNodePrintHtml(node)}
                 </div>
                 <div class="node-meta">
                   Node ID: ${node.id}
@@ -4392,11 +4473,26 @@ const printGraph = () => {
     printWindow.document.close()
 
     // Wait for content to load, then print
-    printWindow.onload = () => {
+    printWindow.onload = async () => {
+      try {
+        await waitForImages(printWindow.document)
+      } catch {
+        // Ignore image-wait errors; still allow printing.
+      }
+
+      // Print is async in many browsers; close on afterprint to avoid truncation.
+      printWindow.onafterprint = () => {
+        try {
+          printWindow.close()
+        } catch {
+          // ignore
+        }
+      }
+
       setTimeout(() => {
+        printWindow.focus()
         printWindow.print()
-        printWindow.close()
-      }, 500)
+      }, 250)
     }
 
     console.log('Print initiated for graph:', graphTitle.value)
