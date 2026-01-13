@@ -388,6 +388,55 @@ const listPublicRecordings = async (env, tag, limit = 50, cursor = null) => {
   }
 }
 
+// List all recordings across users (superadmin only), optionally filtered by ownerEmail
+const listAllRecordings = async (env, limit = 50, cursor = null, ownerEmail = null) => {
+  try {
+    const normalizedOwner = ownerEmail ? String(ownerEmail).toLowerCase().trim() : null
+    const recordings = []
+    let listCursor = cursor || undefined
+    let listComplete = false
+
+    while (!listComplete && recordings.length < limit) {
+      const page = await env.AUDIO_PORTFOLIO.list({
+        prefix: 'audio-recording:',
+        cursor: listCursor,
+        limit: 100,
+      })
+
+      listCursor = page.cursor
+      listComplete = page.list_complete
+
+      for (const key of page.keys) {
+        if (recordings.length >= limit) break
+        const recordingData = await env.AUDIO_PORTFOLIO.get(key.name)
+        if (!recordingData) continue
+
+        const recording = JSON.parse(recordingData)
+        const keyParts = key.name.split(':')
+        const keyEmail = keyParts.length >= 3 ? keyParts[1] : null
+        const recordingEmail = recording.userEmail || recording.ownerEmail || keyEmail
+
+        if (normalizedOwner && recordingEmail?.toLowerCase() !== normalizedOwner) continue
+
+        if (!recording.userEmail && recordingEmail) {
+          recording.userEmail = recordingEmail
+        }
+
+        recordings.push(recording)
+      }
+    }
+
+    return {
+      recordings,
+      total: recordings.length,
+      cursor: listComplete ? null : listCursor,
+    }
+  } catch (error) {
+    console.error('Error listing all recordings:', error)
+    throw error
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -452,6 +501,13 @@ export default {
         const limit = parseInt(url.searchParams.get('limit') || '50')
         const offset = parseInt(url.searchParams.get('offset') || '0')
         const userRole = url.searchParams.get('userRole') || 'user' // NEW: Get user role
+
+        if (userRole === 'superadmin') {
+          const ownerEmail = url.searchParams.get('ownerEmail')
+          const cursor = url.searchParams.get('cursor')
+          const result = await listAllRecordings(env, limit, cursor, ownerEmail)
+          return createSuccessResponse(result)
+        }
 
         const result = await getUserRecordings(env, userEmail, limit, offset, userRole)
         return createSuccessResponse(result)

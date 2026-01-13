@@ -20,6 +20,7 @@ export const API_CONFIG = {
     // User management endpoints
     getUserData: '/userdata',
     updateUserData: '/userdata',
+    listUsersByRole: '/admin/users',
     uploadFile: '/upload',
     // Site configuration endpoints
     saveSiteConfig: '/site-config',
@@ -57,6 +58,8 @@ export const apiUrls = {
   // User management endpoints (use main worker)
   getUserData: (email) => getApiUrl('getUserData', { email }),
   updateUserData: () => getApiUrl('updateUserData'),
+  listUsersByRole: (roles) =>
+    getApiUrl('listUsersByRole', { roles: Array.isArray(roles) ? roles.join(',') : roles }),
   uploadFile: () => getApiUrl('uploadFile'),
 
   // Domain listing endpoint (use main worker)

@@ -20,6 +20,23 @@
                 />
               </div>
               <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
+                <div v-if="userStore.role === 'Superadmin'" class="d-flex align-items-center">
+                  <label class="mb-0 me-2">Eier:</label>
+                  <select
+                    v-model="selectedOwnerEmail"
+                    class="form-select"
+                    :disabled="showOnlyOwn"
+                  >
+                    <option value="all">Alle</option>
+                    <option
+                      v-for="ownerEmail in availableOwnerEmails"
+                      :key="ownerEmail"
+                      :value="ownerEmail"
+                    >
+                      {{ ownerEmail }}
+                    </option>
+                  </select>
+                </div>
                 <label class="mb-0">Sort:</label>
                 <select v-model="sortBy" class="form-select" @change="sortRecordings">
                   <option value="date-desc">Date (Newest First)</option>
@@ -551,9 +568,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
+import { apiUrls } from '@/config/api'
 
 // Bootstrap is imported globally in main.js and attached to window
 // No need to import it here
@@ -581,10 +599,23 @@ const editingRecordingId = ref(null)
 const editingRecording = ref(null)
 const selectedRecording = ref(null)
 const showOnlyOwn = ref(false)
+const selectedOwnerEmail = ref('all')
+const adminOwnerEmails = ref([])
 
 // Computed properties
 const filteredRecordings = computed(() => {
   let filtered = recordings.value
+
+  // Apply owner filter (Superadmin only)
+  const ownerEmail = (recording) =>
+    recording.userEmail || recording.ownerEmail || recording.metadata?.userEmail || ''
+
+  if (userStore.role === 'Superadmin') {
+    const effectiveOwnerFilter = showOnlyOwn.value ? userStore.email : selectedOwnerEmail.value
+    if (effectiveOwnerFilter && effectiveOwnerFilter !== 'all') {
+      filtered = filtered.filter((recording) => ownerEmail(recording) === effectiveOwnerFilter)
+    }
+  }
 
   // Apply category filter
   if (selectedCategory.value) {
@@ -651,6 +682,25 @@ const availableCategories = computed(() => {
   return Array.from(categories).sort()
 })
 
+const availableOwnerEmails = computed(() => {
+  const emails = new Set()
+  adminOwnerEmails.value.forEach((email) => emails.add(email))
+  recordings.value.forEach((recording) => {
+    const email =
+      recording.userEmail || recording.ownerEmail || recording.metadata?.userEmail || null
+    if (email) emails.add(email)
+  })
+  return Array.from(emails).sort()
+})
+
+watch(showOnlyOwn, (value) => {
+  if (value) {
+    selectedOwnerEmail.value = userStore.email || 'all'
+  } else if (selectedOwnerEmail.value === userStore.email) {
+    selectedOwnerEmail.value = 'all'
+  }
+})
+
 // Methods
 const fetchRecordings = async () => {
   if (!userStore.email) {
@@ -664,8 +714,7 @@ const fetchRecordings = async () => {
   try {
     // Pass user role to backend for filtering
     const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
-    const canSeeAll = isAdminUser && !(userStore.role === 'Superadmin' && showOnlyOwn.value)
-    const userRole = canSeeAll ? 'superadmin' : 'user'
+    const userRole = isAdminUser ? 'superadmin' : 'user'
 
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`,
@@ -1189,8 +1238,26 @@ const handleAudioError = (event, recording) => {
   )
 }
 
+const fetchAdminOwnerEmails = async () => {
+  if (userStore.role !== 'Superadmin') return
+
+  try {
+    const response = await fetch(apiUrls.listUsersByRole(['Superadmin', 'Admin']))
+    if (!response.ok) {
+      throw new Error(`Failed to fetch admin users: ${response.statusText}`)
+    }
+    const data = await response.json()
+    adminOwnerEmails.value = (data.users || [])
+      .map((user) => user.email)
+      .filter(Boolean)
+  } catch (err) {
+    console.error('Error fetching admin users:', err)
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
+  await fetchAdminOwnerEmails()
   await fetchRecordings()
 })
 </script>

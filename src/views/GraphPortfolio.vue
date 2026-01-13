@@ -176,6 +176,19 @@
                     </small>
                   </div>
                   <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
+                    <div v-if="userStore.role === 'Superadmin'" class="d-flex align-items-center">
+                      <label class="mb-0 me-2">Eier:</label>
+                      <select v-model="selectedOwnerEmail" class="form-select">
+                        <option value="all">Alle</option>
+                        <option
+                          v-for="ownerEmail in availableOwnerEmails"
+                          :key="ownerEmail"
+                          :value="ownerEmail"
+                        >
+                          {{ ownerEmail }}
+                        </option>
+                      </select>
+                    </div>
                     <label class="mb-0">Sort:</label>
                     <select
                       v-model="portfolioStore.sortBy"
@@ -990,6 +1003,8 @@ const isLoadingPortfolioImage = ref(false)
 const r2Images = ref([])
 const r2ImageModal = ref(null)
 const selectedImage = ref(null)
+const selectedOwnerEmail = ref('all')
+const adminOwnerEmails = ref([])
 
 // Affiliate data for badge display (metadata-based approach)
 const affiliateCache = ref(new Map()) // Cache affiliate status per graph
@@ -1016,6 +1031,16 @@ const previewUrlParams = computed(() => {
 
 // Add the allMetaAreas computed property
 const allMetaAreas = computed(() => portfolioStore.allMetaAreas)
+
+const availableOwnerEmails = computed(() => {
+  const emails = new Set()
+  adminOwnerEmails.value.forEach((email) => emails.add(email))
+  graphs.value.forEach((graph) => {
+    const owner = graph.metadata?.createdBy
+    if (owner) emails.add(owner)
+  })
+  return Array.from(emails).sort()
+})
 
 // Check vectorization status for multiple graphs
 const checkVectorizationStatus = async (graphIds) => {
@@ -1322,6 +1347,12 @@ const fetchGraphs = async () => {
 
 const filteredGraphs = computed(() => {
   let filtered = graphs.value
+  if (userStore.role === 'Superadmin' && selectedOwnerEmail.value !== 'all') {
+    const targetEmail = selectedOwnerEmail.value.toLowerCase()
+    filtered = filtered.filter(
+      (graph) => (graph.metadata?.createdBy || '').toLowerCase() === targetEmail,
+    )
+  }
   if (portfolioStore.selectedMetaArea) {
     filtered = filtered.filter((g) =>
       getMetaAreas(g.metadata?.metaArea).includes(portfolioStore.selectedMetaArea),
@@ -1510,6 +1541,23 @@ const filterGraphs = () => {
 
 const sortGraphs = () => {
   // The sorting is handled by the computed property
+}
+
+const fetchAdminOwnerEmails = async () => {
+  if (userStore.role !== 'Superadmin') return
+
+  try {
+    const response = await fetch(apiUrls.listUsersByRole(['Superadmin', 'Admin']))
+    if (!response.ok) {
+      throw new Error(`Failed to fetch admin users: ${response.statusText}`)
+    }
+    const data = await response.json()
+    adminOwnerEmails.value = (data.users || [])
+      .map((user) => user.email)
+      .filter(Boolean)
+  } catch (err) {
+    console.error('Error fetching admin users:', err)
+  }
 }
 
 const getNodeTypes = (nodes) => {
@@ -2301,7 +2349,8 @@ onUnmounted(() => {
   document.body.style.overflow = '' // Cleanup
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await fetchAdminOwnerEmails()
   fetchGraphs()
 })
 
