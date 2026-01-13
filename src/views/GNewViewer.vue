@@ -218,6 +218,13 @@
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="insertGuideTemplateAndClose"
+            class="btn btn-outline-success w-100 mb-2"
+          >
+            🧭 New Guide Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
             @click="createNewTitleNodeAndClose"
             class="btn btn-outline-secondary w-100 mb-2"
           >
@@ -484,6 +491,13 @@
             class="btn btn-outline-primary"
           >
             📝 New FullText Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="insertGuideTemplate()"
+            class="btn btn-outline-success"
+          >
+            🧭 New Guide Node
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
@@ -4574,6 +4588,11 @@ const createNewFullTextNodeAndClose = async () => {
   await createNewFullTextNode()
 }
 
+const insertGuideTemplateAndClose = async () => {
+  closeMobileMenu()
+  await insertGuideTemplate()
+}
+
 const createNewTitleNodeAndClose = async () => {
   closeMobileMenu()
   await createNewTitleNode()
@@ -4712,23 +4731,22 @@ const handleMenuItemClick = (item) => {
 
 const addTemplateAndClose = async (template) => {
   closeMobileMenu()
+  const nodeData = buildNodeFromTemplate(template)
 
-  const generateUUID = () => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      const r = (Math.random() * 16) | 0
-      const v = c == 'x' ? r : (r & 0x3) | 0x8
-      return v.toString(16)
-    })
+  // Check if we have a valid graph to add to
+  if (!knowledgeGraphStore.currentGraphId) {
+    console.error('No current graph ID set - cannot add template')
+    alert('No graph is currently loaded. Please load a graph first.')
+    return
   }
 
-  // Handle database template structure (extract from template.nodes[0])
-  let nodeData = {}
+  await handleTemplateAdded({ template, node: nodeData })
+}
 
+const buildNodeFromTemplate = (template) => {
   if (template.nodes && template.nodes.length > 0) {
-    // Database template format - extract from first node
     const templateNode = template.nodes[0]
-
-    nodeData = {
+    return {
       id: generateUUID(),
       label: templateNode.label || template.name || 'New Node',
       color: templateNode.color || '#f9f9f9',
@@ -4740,30 +4758,43 @@ const addTemplateAndClose = async (template) => {
       visible: templateNode.visible !== false,
       path: templateNode.path || null,
     }
-  } else {
-    // Fallback for legacy client-side templates
-    nodeData = {
-      id: generateUUID(),
-      label: template.label || template.name || 'New Node',
-      color: template.color || 'lightblue',
-      type: template.type || 'default',
-      info: template.content || template.info || '',
-      bibl: [],
-      imageWidth: '100%',
-      imageHeight: '100%',
-      visible: true,
-      path: null,
-    }
   }
 
-  // Check if we have a valid graph to add to
+  return {
+    id: generateUUID(),
+    label: template.label || template.name || 'New Node',
+    color: template.color || 'lightblue',
+    type: template.type || 'default',
+    info: template.content || template.info || '',
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+  }
+}
+
+const insertGuideTemplate = async () => {
   if (!knowledgeGraphStore.currentGraphId) {
-    console.error('No current graph ID set - cannot add template')
-    alert('No graph is currently loaded. Please load a graph first.')
+    statusMessage.value = 'Please load a graph first.'
     return
   }
 
-  await handleTemplateAdded({ template, node: nodeData })
+  if (!mobileTemplates.value.length) {
+    await fetchMobileTemplates()
+  }
+
+  const guideTemplate = mobileTemplates.value.find((template) =>
+    template.nodes?.some((node) => node.type === 'guide-node'),
+  )
+
+  if (!guideTemplate) {
+    statusMessage.value = 'Guide template not found in graphTemplates.'
+    return
+  }
+
+  const nodeData = buildNodeFromTemplate(guideTemplate)
+  await handleTemplateAdded({ template: guideTemplate, node: nodeData })
 }
 
 // Delete template with confirmation

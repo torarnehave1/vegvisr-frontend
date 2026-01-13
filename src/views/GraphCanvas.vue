@@ -794,6 +794,7 @@ import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewVideoNode from '@/components/GNewNodes/GNewVideoNode.vue'
 import GNewAudioVisualizerNode from '@/components/GNewNodes/GNewAudioVisualizerNode.vue'
+import GNewGuideNode from '@/components/GNewNodes/GNewGuideNode.vue'
 import NodeEditModal from '@/components/NodeEditModal.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
@@ -1269,6 +1270,21 @@ const nodeHtmlOverlays = computed(() => {
       })
     }
 
+    if (data.type === 'guide-node') {
+      overlays.push({
+        id: node.id(),
+        isSelected: node.selected(),
+        style: overlayStyle,
+        component: GNewGuideNode,
+        node: {
+          ...data,
+          id: node.id(),
+          label: data.label || '',
+          type: data.type || 'guide-node',
+        },
+      })
+    }
+
     return overlays
   }, [])
 })
@@ -1730,6 +1746,28 @@ const initializeCytoscape = (graphData) => {
           width: '200px',
           height: '150px',
           'background-image-crossorigin': 'anonymous',
+        },
+      },
+      {
+        selector: 'node[type="guide-node"]',
+        style: {
+          shape: 'round-rectangle',
+          'background-color': '#0f766e',
+          'border-width': 3,
+          'border-color': '#0f766e',
+          label: 'data(label)',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-background-color': 'rgba(15, 118, 110, 0.9)',
+          'text-background-opacity': 1,
+          'text-background-padding': '4px',
+          'font-size': '13px',
+          'font-weight': 'bold',
+          color: '#fff',
+          'text-wrap': 'wrap',
+          'text-max-width': '220px',
+          width: '720px',
+          height: '420px',
         },
       },
       {
@@ -4706,6 +4744,13 @@ onUnmounted(() => {
 }
 
 .node-html-overlay :deep(.gnew-audio-visualizer-node) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.node-html-overlay :deep(.gnew-guide-node) {
   width: 100%;
   height: 100%;
   margin: 0;
