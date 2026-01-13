@@ -37,11 +37,16 @@ async function hashContent(content) {
 // Content extraction for vectorization
 async function extractContentForVectorization(graphData) {
   const contentChunks = []
+  const resolvedGraphId =
+    graphData.id ||
+    graphData.graphId ||
+    graphData.metadata?.id ||
+    graphData.metadata?.graphId
 
   // 1. Graph-level content (metadata)
   const graphContent = {
     type: 'graph_summary',
-    graphId: graphData.id,
+    graphId: resolvedGraphId,
     content: [
       graphData.metadata?.title || '',
       graphData.metadata?.description || '',
@@ -68,7 +73,7 @@ async function extractContentForVectorization(graphData) {
         if (node.label) {
           contentChunks.push({
             type: 'node_label',
-            graphId: graphData.id,
+            graphId: resolvedGraphId,
             nodeId: node.id,
             content: node.label,
             metadata: {
@@ -82,7 +87,7 @@ async function extractContentForVectorization(graphData) {
         if (node.info) {
           contentChunks.push({
             type: 'node_content',
-            graphId: graphData.id,
+            graphId: resolvedGraphId,
             nodeId: node.id,
             content: typeof node.info === 'string' ? node.info : JSON.stringify(node.info),
             metadata: {
@@ -149,6 +154,33 @@ async function generateVectors(contentChunks, env) {
         text: chunk.content,
       })
 
+      let vector = null
+      if (embedding?.data?.[0]) {
+        vector = embedding.data[0]
+      } else if (Array.isArray(embedding?.data) && typeof embedding.data[0] === 'number') {
+        vector = embedding.data
+      } else if (embedding?.result?.data?.[0]) {
+        vector = embedding.result.data[0]
+      } else if (Array.isArray(embedding?.result?.data) && typeof embedding.result.data[0] === 'number') {
+        vector = embedding.result.data
+      } else if (Array.isArray(embedding)) {
+        vector = Array.isArray(embedding[0]) ? embedding[0] : embedding
+      }
+
+      if (!vector || !vector.length) {
+        console.error('[Vector Search] Embedding response shape:', {
+          hasData: !!embedding?.data,
+          dataIsArray: Array.isArray(embedding?.data),
+          dataFirstType: typeof embedding?.data?.[0],
+          hasResult: !!embedding?.result,
+          resultDataIsArray: Array.isArray(embedding?.result?.data),
+          resultFirstType: typeof embedding?.result?.data?.[0],
+          isArrayResponse: Array.isArray(embedding),
+          responseKeys: embedding ? Object.keys(embedding) : [],
+        })
+        throw new Error('Failed to extract embedding vector')
+      }
+
       // Create vector record with truncated ID to ensure < 64 bytes
       const vectorId = await createTruncatedVectorId(
         chunk.graphId,
@@ -157,7 +189,7 @@ async function generateVectors(contentChunks, env) {
       )
       vectors.push({
         id: vectorId,
-        values: embedding.data[0], // The actual vector (768 dimensions for BGE model)
+        values: vector, // The actual vector (768 dimensions for BGE model)
         metadata: {
           graphId: chunk.graphId,
           nodeId: chunk.nodeId,
@@ -219,6 +251,9 @@ async function handleIndexGraph(request, env) {
       }
 
       targetGraphData = await graphResponse.json()
+      if (!targetGraphData.id) {
+        targetGraphData.id = graphId
+      }
       console.log(`[Vector Search] Fetched graph with ${targetGraphData.nodes?.length || 0} nodes`)
     }
 
@@ -1081,6 +1116,9 @@ export default {
               }
 
               const fullGraph = await fullGraphResponse.json()
+              if (!fullGraph.id) {
+                fullGraph.id = graphId
+              }
               result.steps.fetch.size = JSON.stringify(fullGraph).length
               result.steps.fetch.nodeCount = fullGraph.nodes?.length || 0
 
@@ -1093,19 +1131,68 @@ export default {
 
               // Step 3: Generate vectors (if content exists)
               if (contentChunks.length > 0) {
-                const vectors = await generateVectors(contentChunks.slice(0, 1), env) // Just test one
-                result.steps.vectorization = {
-                  vectorsGenerated: vectors.length,
-                  vectorDimensions: vectors[0]?.values?.length || 0,
-                  vectorStructure: vectors[0] ? Object.keys(vectors[0]) : [],
-                  sampleVector: vectors[0]
-                    ? {
-                        id: vectors[0].id,
-                        hasValues: !!vectors[0].values,
-                        valuesLength: vectors[0].values?.length,
-                        hasMetadata: !!vectors[0].metadata,
-                      }
-                    : null,
+                const sampleText = contentChunks[0]?.content || 'test'
+                try {
+                  const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: sampleText })
+                  result.steps.embeddingTest = {
+                    hasData: !!embedding?.data,
+                    dataLength: embedding?.data?.length,
+                    firstElementLength: embedding?.data?.[0]?.length,
+                    responseKeys: embedding ? Object.keys(embedding) : [],
+                  }
+                } catch (error) {
+                  result.steps.embeddingTest = { error: error.message }
+                }
+
+                try {
+                  const vectors = await generateVectors(contentChunks.slice(0, 1), env) // Just test one
+                  result.steps.vectorization = {
+                    vectorsGenerated: vectors.length,
+                    vectorDimensions: vectors[0]?.values?.length || 0,
+                    vectorStructure: vectors[0] ? Object.keys(vectors[0]) : [],
+                    sampleVector: vectors[0]
+                      ? {
+                          id: vectors[0].id,
+                          hasValues: !!vectors[0].values,
+                          valuesLength: vectors[0].values?.length,
+                          hasMetadata: !!vectors[0].metadata,
+                        }
+                      : null,
+                  }
+                } catch (error) {
+                  result.steps.vectorization = { error: error.message }
+                }
+
+                try {
+                  const chunk = contentChunks[0]
+                  const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: chunk.content })
+                  let vector = null
+                  if (embedding?.data?.[0]) {
+                    vector = embedding.data[0]
+                  } else if (Array.isArray(embedding?.data) && typeof embedding.data[0] === 'number') {
+                    vector = embedding.data
+                  } else if (embedding?.result?.data?.[0]) {
+                    vector = embedding.result.data[0]
+                  } else if (Array.isArray(embedding?.result?.data) && typeof embedding.result.data[0] === 'number') {
+                    vector = embedding.result.data
+                  } else if (Array.isArray(embedding)) {
+                    vector = Array.isArray(embedding[0]) ? embedding[0] : embedding
+                  }
+
+                  const vectorId = await createTruncatedVectorId(
+                    chunk.graphId,
+                    chunk.type,
+                    chunk.nodeId || 'graph',
+                  )
+
+                  result.steps.vectorizationManual = {
+                    hasVector: !!vector,
+                    vectorLength: vector?.length || 0,
+                    vectorId,
+                    metadataKeys: Object.keys(chunk.metadata || {}),
+                  }
+                } catch (error) {
+                  result.steps.vectorizationManual = { error: error.message }
                 }
               }
 

@@ -124,6 +124,17 @@
             <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
               <div v-for="result in searchResults.results" :key="result.graphId" class="col">
                 <div class="card h-100 search-result-card">
+                  <div class="search-card-media" :class="{ 'has-image': getGraphImage(result) }">
+                    <img
+                      v-if="getGraphImage(result)"
+                      :src="getGraphImage(result)"
+                      :alt="getGraphTitle(result)"
+                    />
+                    <div v-else class="media-placeholder">
+                      <span class="placeholder-title">{{ getGraphTitle(result) }}</span>
+                      <span class="placeholder-subtitle">Knowledge Graph</span>
+                    </div>
+                  </div>
                   <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                       <h5 class="card-title">{{ getGraphTitle(result) }}</h5>
@@ -135,7 +146,7 @@
                       </div>
                     </div>
 
-                    <p class="card-text text-muted">{{ getGraphDescription(result) }}</p>
+                    <p class="card-text text-muted">{{ getGraphAbstract(result) }}</p>
 
                     <!-- Matched Content -->
                     <div v-if="result.matchedContent?.length" class="matched-content mb-3">
@@ -207,6 +218,7 @@ const isSearching = ref(false)
 const searchResults = ref(null)
 const searchHistory = ref([])
 const vectorizedGraphCount = ref(7) // Track vectorized graphs
+const graphDetailsById = ref({})
 
 // Initialize with route query
 onMounted(() => {
@@ -289,6 +301,7 @@ const performSearch = async () => {
     console.log('[Search] API Success Response:', data)
 
     searchResults.value = data
+    enrichResults(data.results)
 
     // Add to search history
     addToSearchHistory(searchQuery.value, data.totalResults)
@@ -340,17 +353,72 @@ const addToSearchHistory = (query, resultCount) => {
 
 // Helper functions
 const getGraphTitle = (result) => {
-  if (result.graph?.metadata?.title) {
-    return result.graph.metadata.title
-  }
+  const details = graphDetailsById.value[result.graphId] || result.graph
+  if (details?.metadata?.title) return details.metadata.title
   return `Graph ${result.graphId}`
 }
 
-const getGraphDescription = (result) => {
-  if (result.graph?.metadata?.description) {
-    return result.graph.metadata.description
+const stripMarkdown = (text) => {
+  if (!text) return ''
+  return text
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    .replace(/#+\s?/g, '')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/\[(.*?)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const getGraphAbstract = (result) => {
+  const details = graphDetailsById.value[result.graphId] || result.graph
+  const description = details?.metadata?.description
+  if (description) return description
+  const matched = result.matchedContent?.find((m) => m.snippet)
+  const matchedText = matched ? stripMarkdown(matched.snippet) : ''
+  return matchedText || 'Knowledge graph with semantic content'
+}
+
+const extractImageFromText = (text) => {
+  if (!text) return ''
+  const markdownMatch = text.match(/!\[[^\]]*\]\(([^)]+)\)/)
+  return markdownMatch ? markdownMatch[1] : ''
+}
+
+const getGraphImage = (result) => {
+  const details = graphDetailsById.value[result.graphId] || result.graph
+  if (!details?.nodes?.length) return ''
+
+  for (const node of details.nodes) {
+    if (node.path && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(node.path)) {
+      return node.path
+    }
+    const fromInfo = extractImageFromText(node.info || node.label || '')
+    if (fromInfo) return fromInfo
   }
-  return 'Knowledge graph with semantic content'
+  return ''
+}
+
+const enrichResults = async (results = []) => {
+  const pending = results
+    .map((r) => r.graphId)
+    .filter((id) => id && !graphDetailsById.value[id])
+
+  if (pending.length === 0) return
+
+  await Promise.all(
+    pending.map(async (graphId) => {
+      try {
+        const response = await fetch(
+          `https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(graphId)}`,
+        )
+        if (!response.ok) return
+        const graph = await response.json()
+        graphDetailsById.value[graphId] = graph
+      } catch (error) {
+        console.error('[Search] Failed to enrich graph:', graphId, error)
+      }
+    }),
+  )
 }
 
 const truncateText = (text, maxLength) => {
@@ -416,6 +484,45 @@ const editGraph = (graphId) => {
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+.search-card-media {
+  height: 160px;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e2e8f0, #cbd5f5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: #1f2937;
+  text-align: center;
+  padding: 12px;
+}
+
+.placeholder-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.placeholder-subtitle {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
 }
 
 .search-result-card:hover {
