@@ -1070,6 +1070,7 @@ export default {
         const userId = (body.user_id || '').trim()
         const phone = (body.phone || '').trim()
         const email = body.email ? String(body.email).trim() : ''
+        const newBody = typeof body.body === 'string' ? body.body.trim() : null
         const transcriptText = body.transcript_text ? String(body.transcript_text) : null
         const transcriptLang = body.transcript_lang ? String(body.transcript_lang) : null
         const transcriptionStatus = body.transcription_status
@@ -1082,7 +1083,7 @@ export default {
         if (!phone) {
           return errorResponse('phone required')
         }
-        if (!transcriptText && !transcriptLang && !transcriptionStatus) {
+        if (!newBody && !transcriptText && !transcriptLang && !transcriptionStatus) {
           return errorResponse('No transcript fields provided')
         }
 
@@ -1107,12 +1108,13 @@ export default {
 
         await env.CHAT_DB.prepare(
           `UPDATE group_messages
-           SET transcript_text = COALESCE(?, transcript_text),
+           SET body = COALESCE(?, body),
+               transcript_text = COALESCE(?, transcript_text),
                transcript_lang = COALESCE(?, transcript_lang),
                transcription_status = COALESCE(?, transcription_status)
            WHERE id = ? AND group_id = ?`
         )
-          .bind(transcriptText, transcriptLang, transcriptionStatus, messageId, groupId)
+          .bind(newBody, transcriptText, transcriptLang, transcriptionStatus, messageId, groupId)
           .run()
 
         const updated = await env.CHAT_DB.prepare(
@@ -1126,6 +1128,94 @@ export default {
           .first()
 
         return jsonResponse({ success: true, message: updated })
+      }
+
+      if (messageUpdateMatch && request.method === 'DELETE') {
+        const groupId = messageUpdateMatch[1]
+        const messageId = Number(messageUpdateMatch[2])
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+
+        if (!userId) {
+          return errorResponse('user_id required')
+        }
+        if (!phone) {
+          return errorResponse('phone required')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        const isMember = await ensureMember(env, groupId, userId)
+        if (!isMember) {
+          return errorResponse('Not a group member', 403)
+        }
+
+        const existing = await env.CHAT_DB.prepare(
+          `SELECT id, group_id, user_id, message_type, media_object_key
+           FROM group_messages
+           WHERE id = ? AND group_id = ?`
+        )
+          .bind(messageId, groupId)
+          .first()
+
+        if (!existing) {
+          return errorResponse('Message not found', 404)
+        }
+
+        let canDelete = String(existing.user_id) === String(userId)
+        if (!canDelete) {
+          const member = await env.CHAT_DB.prepare(
+            'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?'
+          )
+            .bind(groupId, userId)
+            .first()
+          const groupRole = member?.role || ''
+          if (groupRole === 'owner' || groupRole === 'admin') {
+            canDelete = true
+          }
+        }
+        if (!canDelete && (auth.role === 'Admin' || auth.role === 'Superadmin')) {
+          canDelete = true
+        }
+        if (!canDelete) {
+          return errorResponse('Not allowed to delete this message', 403)
+        }
+
+        // Best-effort cleanup of uploaded media from R2.
+        const objectKey = existing.media_object_key ? String(existing.media_object_key) : ''
+        if (objectKey && env.CHAT_MEDIA) {
+          ctx.waitUntil((async () => {
+            try {
+              await env.CHAT_MEDIA.delete(objectKey)
+            } catch (err) {
+              console.error('Failed to delete media object:', objectKey, err)
+            }
+          })())
+        }
+
+        await env.CHAT_DB.prepare(
+          'DELETE FROM group_messages WHERE id = ? AND group_id = ?'
+        )
+          .bind(messageId, groupId)
+          .run()
+
+        await env.CHAT_DB.prepare(
+          'UPDATE groups SET updated_at = ? WHERE id = ?'
+        )
+          .bind(Date.now(), groupId)
+          .run()
+
+        return jsonResponse({
+          success: true,
+          deleted: {
+            id: messageId,
+            group_id: groupId,
+          },
+        })
       }
 
       // POST /groups/{id}/invite - Create invite link (owner/admin only)

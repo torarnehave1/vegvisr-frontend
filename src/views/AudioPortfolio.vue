@@ -29,6 +29,16 @@
                   <option value="duration">Duration</option>
                   <option value="category">Category</option>
                 </select>
+                <div v-if="userStore.role === 'Superadmin'" class="form-check ms-2">
+                  <input
+                    id="show-only-own"
+                    v-model="showOnlyOwn"
+                    class="form-check-input"
+                    type="checkbox"
+                    @change="fetchRecordings"
+                  />
+                  <label class="form-check-label" for="show-only-own">Vis bare mine</label>
+                </div>
               </div>
             </div>
             <!-- Category Filter -->
@@ -570,6 +580,7 @@ const selectedCategory = ref(null)
 const editingRecordingId = ref(null)
 const editingRecording = ref(null)
 const selectedRecording = ref(null)
+const showOnlyOwn = ref(false)
 
 // Computed properties
 const filteredRecordings = computed(() => {
@@ -652,7 +663,9 @@ const fetchRecordings = async () => {
 
   try {
     // Pass user role to backend for filtering
-    const userRole = (userStore.role === 'Superadmin' || userStore.role === 'Admin') ? 'superadmin' : 'user'
+    const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
+    const canSeeAll = isAdminUser && !(userStore.role === 'Superadmin' && showOnlyOwn.value)
+    const userRole = canSeeAll ? 'superadmin' : 'user'
 
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`,
