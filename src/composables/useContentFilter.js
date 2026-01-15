@@ -69,6 +69,10 @@ export function useContentFilter() {
   const contentFilterMetaAreas = computed(() => {
     if (isCustomDomain.value && siteConfig.value?.contentFilter?.metaAreas) {
       const metaAreas = siteConfig.value.contentFilter.metaAreas
+      if (Array.isArray(metaAreas) && metaAreas.length === 0) {
+        console.log('[ContentFilter] Empty meta area filter, showing all content')
+        return null
+      }
       console.log('[ContentFilter] Using KV-based meta area filter:', metaAreas)
       return metaAreas
     }
