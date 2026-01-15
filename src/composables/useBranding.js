@@ -32,13 +32,12 @@ export function useBranding() {
     console.log('Using window location hostname:', hostname)
     detectedHostname.value = hostname
 
-    // Check if this is a main domain that doesn't need site config
-    // Updated: Only skip site config for the core Vegvisr domains, not custom main domains
-    const coreVegvisrDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
-    if (coreVegvisrDomains.includes(hostname)) {
-      console.log('Detected core Vegvisr domain - no site config needed:', hostname)
+    // Only skip site config for localhost; allow branding for www.vegvisr.org and vegvisr.org
+    const localDomains = ['localhost', '127.0.0.1']
+    if (localDomains.includes(hostname)) {
+      console.log('Detected local domain - no site config needed:', hostname)
     } else {
-      console.log('Detected custom domain (main or subdomain) - will fetch site config:', hostname)
+      console.log('Detected domain - will fetch site config:', hostname)
     }
 
     return hostname
@@ -53,11 +52,10 @@ export function useBranding() {
   const fetchSiteConfig = async (domain) => {
     if (!domain || loading.value) return
 
-    // Skip site config fetch ONLY for core Vegvisr domains that don't need custom configuration
-    // Updated: Allow main domains (like norsegong.com) to have custom branding
-    const coreVegvisrDomains = ['www.vegvisr.org', 'vegvisr.org', 'localhost', '127.0.0.1']
-    if (coreVegvisrDomains.includes(domain)) {
-      console.log('Skipping site config fetch for core Vegvisr domain:', domain)
+    // Skip site config fetch only for localhost
+    const localDomains = ['localhost', '127.0.0.1']
+    if (localDomains.includes(domain)) {
+      console.log('Skipping site config fetch for local domain:', domain)
       siteConfig.value = null
       return
     }
@@ -89,7 +87,9 @@ export function useBranding() {
 
   // Check if current domain has custom configuration
   const isCustomDomain = computed(() => {
-    return siteConfig.value && siteConfig.value.domain === currentDomain.value
+    if (!siteConfig.value || !currentDomain.value) return false
+    const normalize = (domain) => domain.replace(/^www\./i, '')
+    return normalize(siteConfig.value.domain) === normalize(currentDomain.value)
   })
 
   // Fetch main logo from worker

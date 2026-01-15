@@ -48,12 +48,22 @@
           <!-- Logo URL -->
           <div class="mb-3">
             <label class="form-label fw-bold">Logo URL</label>
-            <input
-              v-model="form.logo"
-              type="text"
-              class="form-control"
-              placeholder="https://example.com/logo.png"
-            />
+            <div class="input-group">
+              <input
+                v-model="form.logo"
+                type="text"
+                class="form-control"
+                placeholder="https://example.com/logo.png"
+              />
+              <button
+                class="btn btn-outline-secondary"
+                type="button"
+                @click="openImageSelector('logo')"
+                title="Select or upload logo"
+              >
+                Select
+              </button>
+            </div>
             <div v-if="form.logo" class="mt-2">
               <img :src="form.logo" alt="Logo preview" style="max-height: 60px;" @error="logoError = true" />
             </div>
@@ -62,12 +72,22 @@
           <!-- Mobile App Logo -->
           <div class="mb-3">
             <label class="form-label fw-bold">Mobile App Logo URL</label>
-            <input
-              v-model="form.mobileAppLogo"
-              type="text"
-              class="form-control"
-              placeholder="https://example.com/mobile-logo.png"
-            />
+            <div class="input-group">
+              <input
+                v-model="form.mobileAppLogo"
+                type="text"
+                class="form-control"
+                placeholder="https://example.com/mobile-logo.png"
+              />
+              <button
+                class="btn btn-outline-secondary"
+                type="button"
+                @click="openImageSelector('mobile')"
+                title="Select or upload mobile logo"
+              >
+                Select
+              </button>
+            </div>
             <small class="text-muted">Special logo for mobile app (shown with "Powered by Vegvisr")</small>
             <div v-if="form.mobileAppLogo" class="mt-2">
               <img :src="form.mobileAppLogo" alt="Mobile logo preview" style="max-height: 60px;" />
@@ -227,6 +247,18 @@
         </div>
       </div>
     </div>
+
+    <ImageSelector
+      :is-open="isImageSelectorOpen"
+      :current-image-url="imageSelectorData.url"
+      :current-image-alt="imageSelectorData.alt"
+      :image-type="imageSelectorData.type"
+      :image-context="imageSelectorData.context"
+      :node-content="imageSelectorData.nodeContent"
+      :graph-context="imageSelectorData.graphContext"
+      @close="closeImageSelector"
+      @image-replaced="handleImageReplaced"
+    />
   </div>
 </template>
 
@@ -234,6 +266,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { API_CONFIG } from '@/config/api'
+import ImageSelector from '@/components/ImageSelector.vue'
 
 const userStore = useUserStore()
 const BASE_URL = API_CONFIG.baseUrl
@@ -248,6 +281,8 @@ const logoError = ref(false)
 const userDomains = ref([])
 const phones = ref([])
 const newPhone = ref('')
+const isImageSelectorOpen = ref(false)
+const imageSelectorTarget = ref('logo')
 
 // KV Read Result - for display
 const kvReadResult = ref('')
@@ -311,6 +346,41 @@ function showMessage(msg, type = 'success') {
   message.value = msg
   messageType.value = type
   setTimeout(() => { message.value = '' }, 5000)
+}
+
+const imageSelectorData = computed(() => {
+  const target = imageSelectorTarget.value
+  const isMobile = target === 'mobile'
+  const url = isMobile ? form.value.mobileAppLogo : form.value.logo
+  const label = isMobile ? 'Mobile App Logo' : 'Logo'
+
+  return {
+    url: url || '',
+    alt: label,
+    type: isMobile ? 'mobile-logo' : 'logo',
+    context: 'branding',
+    nodeContent: '',
+    graphContext: { type: 'logo' },
+  }
+})
+
+function openImageSelector(target) {
+  imageSelectorTarget.value = target
+  isImageSelectorOpen.value = true
+}
+
+function closeImageSelector() {
+  isImageSelectorOpen.value = false
+}
+
+function handleImageReplaced(payload) {
+  const newUrl = payload?.newUrl ? String(payload.newUrl) : ''
+  if (imageSelectorTarget.value === 'mobile') {
+    form.value.mobileAppLogo = newUrl
+  } else {
+    form.value.logo = newUrl
+  }
+  closeImageSelector()
 }
 
 // Load branding from KV
@@ -417,6 +487,14 @@ async function loadUserDomains() {
   } catch (error) {
     console.error('Failed to load domains:', error)
   }
+
+  // Always include core Vegvisr domains for branding management.
+  const coreDomains = ['vegvisr.org', 'www.vegvisr.org']
+  coreDomains.forEach((domain) => {
+    if (!userDomains.value.includes(domain)) {
+      userDomains.value.push(domain)
+    }
+  })
 }
 
 // Select a domain from the list
