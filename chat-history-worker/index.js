@@ -19,6 +19,10 @@ export default {
     const { pathname } = url
 
     try {
+      if (pathname.startsWith('/session-images/') && request.method === 'GET') {
+        return await handleGetSessionImage(pathname, env)
+      }
+
       if (pathname === '/health' && request.method === 'GET') {
         return jsonResponse({
           status: 'healthy',
@@ -56,6 +60,10 @@ export default {
         return await handleListMessages(url, env, user)
       }
 
+      if (pathname === '/session-images' && request.method === 'POST') {
+        return await handleUploadSessionImage(request, env, user)
+      }
+
       // Get session counts for multiple graphs (used by GraphPortfolio)
       if (pathname === '/session-counts' && request.method === 'POST') {
         return await handleSessionCounts(request, env, user)
@@ -80,6 +88,69 @@ export default {
       return jsonResponse({ error: error.message || 'Internal Server Error' }, 500)
     }
   }
+}
+
+async function handleUploadSessionImage(request, env, user) {
+  requireUser(user)
+  if (!env.SESSION_IMAGES) {
+    throw new Error('SESSION_IMAGES bucket not configured')
+  }
+  const body = await parseJSON(request)
+  let base64Data = body.base64Data || body.imageBase64 || null
+  const mimeType = body.mimeType || 'image/png'
+  if (typeof base64Data === 'string' && base64Data.startsWith('data:')) {
+    base64Data = base64Data.split(',')[1] || null
+  }
+  if (!base64Data) {
+    throw new Error('base64Data is required')
+  }
+
+  const byteString = atob(base64Data)
+  const bytes = new Uint8Array(byteString.length)
+  for (let i = 0; i < byteString.length; i += 1) {
+    bytes[i] = byteString.charCodeAt(i)
+  }
+
+  const extensionMap = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp'
+  }
+  const extension = extensionMap[mimeType] || 'png'
+  const objectKey = `session-images/${user.userId}/${crypto.randomUUID()}.${extension}`
+  await env.SESSION_IMAGES.put(objectKey, bytes, {
+    httpMetadata: { contentType: mimeType }
+  })
+
+  const keySuffix = objectKey.replace(/^session-images\//, '')
+  const baseHost = env.SESSION_IMAGES_HOST || new URL(request.url).origin
+  const url = `${baseHost.replace(/\/$/, '')}/session-images/${keySuffix}`
+  return jsonResponse({
+    key: objectKey,
+    url,
+    mimeType
+  })
+}
+
+async function handleGetSessionImage(pathname, env) {
+  if (!env.SESSION_IMAGES) {
+    return jsonResponse({ error: 'SESSION_IMAGES bucket not configured' }, 500)
+  }
+  const keySuffix = pathname.replace('/session-images/', '')
+  if (!keySuffix) {
+    return jsonResponse({ error: 'Image key required' }, 400)
+  }
+  const objectKey = `session-images/${keySuffix}`
+  const object = await env.SESSION_IMAGES.get(objectKey)
+  if (!object) {
+    return jsonResponse({ error: 'Not Found' }, 404)
+  }
+  const headers = new Headers()
+  object.writeHttpMetadata(headers)
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable')
+  headers.set('Access-Control-Allow-Origin', '*')
+  return new Response(object.body, { headers })
 }
 
 async function handleUpsertSession(request, env, user, ctx) {
@@ -163,6 +234,8 @@ async function handleDeleteSession(sessionId, env, user, ctx) {
     throw new Error('Session id required')
   }
 
+  const imageKeys = await getSessionImageKeys(sessionId, env)
+
   // Get the session to find its graph_id before deleting
   const session = await env.DB.prepare('SELECT id, graph_id FROM chat_sessions WHERE id = ? AND user_id = ?')
     .bind(sessionId, user.userId)
@@ -176,6 +249,15 @@ async function handleDeleteSession(sessionId, env, user, ctx) {
 
   await env.DB.prepare('DELETE FROM chat_messages WHERE session_id = ?').bind(sessionId).run()
   await env.DB.prepare('DELETE FROM chat_sessions WHERE id = ?').bind(sessionId).run()
+
+  if (env.SESSION_IMAGES && imageKeys.length) {
+    const deleteTasks = imageKeys.map((key) => env.SESSION_IMAGES.delete(key))
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(Promise.all(deleteTasks))
+    } else {
+      await Promise.all(deleteTasks)
+    }
+  }
 
   // Sync chat session count to Knowledge Graph metadata
   // Use waitUntil to keep worker alive until sync completes
@@ -212,6 +294,17 @@ async function handleDeleteSessionsByGraph(graphId, env) {
     return jsonResponse({ success: true, deleted: 0, graphId })
   }
 
+  if (env.SESSION_IMAGES) {
+    const imageKeys = []
+    for (const sessionId of sessionIds) {
+      const keys = await getSessionImageKeys(sessionId, env)
+      imageKeys.push(...keys)
+    }
+    if (imageKeys.length) {
+      await Promise.all(imageKeys.map((key) => env.SESSION_IMAGES.delete(key)))
+    }
+  }
+
   // Delete all messages for these sessions
   const messagePlaceholders = sessionIds.map(() => '?').join(',')
   await env.DB.prepare(
@@ -228,6 +321,28 @@ async function handleDeleteSessionsByGraph(graphId, env) {
     deleted: sessionIds.length,
     graphId
   })
+}
+
+async function getSessionImageKeys(sessionId, env) {
+  if (!env?.DB || !sessionId) return []
+  const { results } = await env.DB.prepare(
+    'SELECT tool_metadata FROM chat_messages WHERE session_id = ? AND tool_metadata IS NOT NULL'
+  )
+    .bind(sessionId)
+    .all()
+
+  const keys = []
+  for (const row of results || []) {
+    const toolMeta = safeParseJSON(row.tool_metadata) || {}
+    const imageData = toolMeta.imageData || null
+    const url = imageData?.fullImageUrl || imageData?.previewImageUrl || ''
+    if (!url) continue
+    if (!url.includes('/session-images/')) continue
+    const suffix = url.split('/session-images/')[1]
+    if (!suffix) continue
+    keys.push(`session-images/${suffix}`)
+  }
+  return [...new Set(keys)]
 }
 
 async function handleCreateMessage(request, env, user) {

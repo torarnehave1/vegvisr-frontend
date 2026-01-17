@@ -343,9 +343,11 @@
           ></div>
           <div v-if="isImageMessage(message)" class="message-image">
             <img
-              :src="getImagePreviewUrl(message.imageData)"
+              :src="getMessageImageSrc(message)"
               alt="Generated image preview"
               class="message-image-preview"
+              @load="markImageLoaded(message)"
+              @error="markImageLoaded(message)"
             />
           </div>
           <div v-if="message.role === 'assistant'" class="message-actions">
@@ -3186,12 +3188,78 @@ const isImageMessage = (message) => {
 
 const getImagePreviewUrl = (imageData) => {
   if (!imageData) return null
-  if (imageData.previewImageUrl) return imageData.previewImageUrl
   if (imageData.base64Data) {
     const mimeType = imageData.mimeType || 'image/png'
     return `data:${mimeType};base64,${imageData.base64Data}`
   }
+  if (imageData.previewImageUrl) return imageData.previewImageUrl
   return null
+}
+
+const getFullImageUrl = (imageData) => {
+  if (!imageData) return null
+  return imageData.fullImageUrl || imageData.previewImageUrl || null
+}
+
+const imageLoadStates = ref({})
+
+const getMessageImageSrc = (message) => {
+  const preview = getImagePreviewUrl(message?.imageData)
+  const full = getFullImageUrl(message?.imageData)
+  if (!full || imageLoadStates.value[message.id]) return full || preview || null
+  return preview || full || null
+}
+
+const markImageLoaded = (message) => {
+  const preview = getImagePreviewUrl(message?.imageData)
+  const full = getFullImageUrl(message?.imageData)
+  if (full && preview && full !== preview && !imageLoadStates.value[message.id]) {
+    imageLoadStates.value = { ...imageLoadStates.value, [message.id]: true }
+  }
+}
+
+const compressBase64Image = (base64, mimeType, maxDimension = 512, quality = 0.7) =>
+  new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(null)
+        return
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/jpeg', quality)
+      const compressedBase64 = dataUrl.split(',')[1] || ''
+      resolve({ base64: compressedBase64, mimeType: 'image/jpeg' })
+    }
+    img.onerror = () => resolve(null)
+    img.src = `data:${mimeType || 'image/png'};base64,${base64}`
+  })
+
+const toBase64FromUrl = async (url) => {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status}`)
+  }
+  const blob = await response.blob()
+  const mimeType = blob.type || 'image/png'
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result.split(',')[1] || '')
+      } else {
+        reject(new Error('Unable to read image'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Unable to read image'))
+    reader.readAsDataURL(blob)
+  })
+  return { base64, mimeType }
 }
 
 const insertAsFullText = (content) => {
@@ -5383,10 +5451,47 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       throw new Error('No image data in response')
     }
 
+    let fullImageUrl = null
+    let previewBase64 = imageBase64 || null
+    let previewMimeType = 'image/png'
+    if (!previewBase64 && imageUrl) {
+      const fromUrl = await toBase64FromUrl(imageUrl)
+      previewBase64 = fromUrl.base64
+      previewMimeType = fromUrl.mimeType
+    }
+    if (previewBase64) {
+      const preview = await compressBase64Image(previewBase64, previewMimeType, 512, 0.7)
+      if (preview?.base64) {
+        previewBase64 = preview.base64
+        previewMimeType = preview.mimeType
+      }
+    }
+
+    try {
+      if (previewBase64) {
+        const uploadMimeType = imageBase64 ? 'image/png' : previewMimeType
+        const uploadResponse = await authorizedHistoryFetch('/session-images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            base64Data: imageBase64 || previewBase64,
+            mimeType: uploadMimeType,
+          }),
+        })
+        if (uploadResponse.ok) {
+          const uploadData = await uploadResponse.json().catch(() => ({}))
+          fullImageUrl = uploadData?.url || null
+        }
+      }
+    } catch (error) {
+      console.warn('Image upload failed:', error)
+    }
+
     const imageData = {
-      base64Data: imageBase64 || null,
-      previewImageUrl: imageUrl || null,
-      mimeType: 'image/png',
+      base64Data: previewBase64 || null,
+      previewImageUrl: fullImageUrl || imageUrl || null,
+      fullImageUrl: fullImageUrl || null,
+      mimeType: previewMimeType,
       prompt: cleaned,
       revisedPrompt,
       model: selectedModel,
