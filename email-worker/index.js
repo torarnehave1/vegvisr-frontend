@@ -62,7 +62,14 @@ function isValidEmail(email) {
 
 function buildMagicLink(token, redirectUrl = null, env = {}) {
   const base = redirectUrl || env.MAGIC_LINK_BASE || MAGIC_LINK_BASE
-  return `${base}?magic=${encodeURIComponent(token)}`
+  try {
+    const url = new URL(base)
+    url.searchParams.set('magic', token)
+    return url.toString()
+  } catch {
+    const separator = base.includes('?') ? '&' : '?'
+    return `${base}${separator}magic=${encodeURIComponent(token)}`
+  }
 }
 
 async function ensureMagicLinkTable(env) {
