@@ -55,6 +55,7 @@ function renderTemplate(template, variables) {
 const MAGIC_LINK_TABLE = 'login_magic_links'
 const MAGIC_LINK_EXPIRY_MINUTES = 30
 const MAGIC_LINK_BASE = 'https://www.vegvisr.org/login'
+const MAGIC_LINK_COOKIE_NAME = 'vegvisr_token'
 
 function isValidEmail(email) {
   return typeof email === 'string' && /.+@.+\..+/.test(email)
@@ -614,6 +615,29 @@ export default {
 
           await markMagicLinkUsed(env, token)
 
+          const headers = new Headers({ 'Content-Type': 'application/json' })
+          try {
+            const requestHost = url.hostname || ''
+            const cookieDomain = requestHost.endsWith('vegvisr.org')
+              ? env.MAGIC_LINK_COOKIE_DOMAIN || '.vegvisr.org'
+              : null
+            if (cookieDomain) {
+              const maxAge = MAGIC_LINK_EXPIRY_MINUTES * 60
+              const cookie = [
+                `${MAGIC_LINK_COOKIE_NAME}=${encodeURIComponent(token)}`,
+                `Domain=${cookieDomain}`,
+                'Path=/',
+                `Max-Age=${maxAge}`,
+                'SameSite=Lax',
+                'Secure',
+                'HttpOnly'
+              ].join('; ')
+              headers.set('Set-Cookie', cookie)
+            }
+          } catch (err) {
+            console.warn('Failed to set magic link cookie:', err)
+          }
+
           return addCorsHeaders(
             new Response(
               JSON.stringify({
@@ -622,7 +646,7 @@ export default {
                 expiresAt: record.expires_at,
                 redirectUrl: record.redirect_url || null,
               }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } },
+              { status: 200, headers },
             ),
           )
         } catch (error) {
