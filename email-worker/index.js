@@ -60,8 +60,8 @@ function isValidEmail(email) {
   return typeof email === 'string' && /.+@.+\..+/.test(email)
 }
 
-function buildMagicLink(token, redirectUrl = null) {
-  const base = redirectUrl || MAGIC_LINK_BASE
+function buildMagicLink(token, redirectUrl = null, env = {}) {
+  const base = redirectUrl || env.MAGIC_LINK_BASE || MAGIC_LINK_BASE
   return `${base}?magic=${encodeURIComponent(token)}`
 }
 
@@ -529,7 +529,7 @@ export default {
           const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString()
 
           await storeMagicLink(env, targetEmail, token, expiresAt, redirectUrl)
-          const magicLink = buildMagicLink(token, redirectUrl)
+          const magicLink = buildMagicLink(token, redirectUrl, env)
 
           await sendMagicLinkEmail(env, targetEmail, magicLink)
 
