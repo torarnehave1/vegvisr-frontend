@@ -238,6 +238,13 @@
             📺 New YouTube Video
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewYouTubeLiveNodeAndClose"
+            class="btn btn-outline-danger w-100 mb-2"
+          >
+            🔴 New YouTube Live
+          </button>
+          <button
             @click="openShareAndClose"
             class="btn btn-outline-success w-100 mb-2"
             :disabled="!graphData.nodes.length"
@@ -512,6 +519,13 @@
             class="btn btn-outline-danger"
           >
             📺 New YouTube Video
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewYouTubeLiveNode"
+            class="btn btn-outline-danger"
+          >
+            🔴 New YouTube Live
           </button>
           <button
             @click="openShareModal"
@@ -4603,6 +4617,11 @@ const createNewYouTubeNodeAndClose = async () => {
   await createNewYouTubeNode()
 }
 
+const createNewYouTubeLiveNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewYouTubeLiveNode()
+}
+
 // Mobile menu template system integration
 const toggleMobileCategory = (category) => {
   const index = mobileExpandedCategories.value.indexOf(category)
@@ -5279,6 +5298,54 @@ const createNewYouTubeNode = async () => {
   } catch (error) {
     console.error('❌ Error creating YouTube Video node:', error)
     statusMessage.value = `❌ Failed to create YouTube Video node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+const createNewYouTubeLiveNode = async () => {
+  console.log('🆕 Creating new YouTube Live node...')
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  const defaultIframe = `<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/live_stream?channel=UCxXZApz9QooXSnvTGMhTgbQ"
+  frameborder="0"
+  allow="autoplay; encrypted-media"
+  allowfullscreen>
+</iframe>`
+
+  const newYouTubeLiveNode = {
+    id: newNodeId,
+    label: 'YouTube Live',
+    color: '#CC0000',
+    type: 'youtube-live',
+    info: defaultIframe,
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+    position: { x: 0, y: 0 },
+  }
+
+  try {
+    await handleNodeCreated(newYouTubeLiveNode)
+    console.log('✅ New YouTube Live node created successfully:', newYouTubeLiveNode)
+  } catch (error) {
+    console.error('❌ Error creating YouTube Live node:', error)
+    statusMessage.value = `❌ Failed to create YouTube Live node: ${error.message}`
     setTimeout(() => {
       statusMessage.value = ''
     }, 5000)
