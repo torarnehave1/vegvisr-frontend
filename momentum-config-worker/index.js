@@ -74,6 +74,17 @@ export default {
       return withCors(request, jsonResponse({ success: true, config }))
     }
 
+    if (pathname === '/health' && request.method === 'GET') {
+      return withCors(
+        request,
+        jsonResponse({
+          ok: true,
+          service: 'momentum-config-worker',
+          timestamp: new Date().toISOString(),
+        }),
+      )
+    }
+
     if (pathname === '/config' && request.method === 'POST') {
       const session = await fetchSession(request, env)
       if (!session || session.role !== 'Superadmin') {
