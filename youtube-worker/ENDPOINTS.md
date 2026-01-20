@@ -135,6 +135,49 @@ Content-Type: application/json
 }
 ```
 
+### 7. Get Public Playlist Videos
+```bash
+POST https://youtube.vegvisr.org/playlist
+Content-Type: application/json
+
+{
+  "playlist_id": "PLUCNLMRSjtsVSE1HMcIfKUkLhgg1On0zz",
+  "max_results": 25,
+  "page_token": "optional_pagination_token"
+}
+```
+
+You can also pass a playlist URL instead of `playlist_id`:
+```json
+{
+  "playlist_url": "https://www.youtube.com/playlist?list=PLUCNLMRSjtsVSE1HMcIfKUkLhgg1On0zz"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "playlist_id": "PLUCNLMRSjtsVSE1HMcIfKUkLhgg1On0zz",
+  "total_results": 10,
+  "results_per_page": 25,
+  "next_page_token": "token_for_next_page",
+  "videos": [
+    {
+      "video_id": "dQw4w9WgXcQ",
+      "title": "Video Title",
+      "description": "Video description",
+      "published_at": "2023-01-01T00:00:00Z",
+      "thumbnails": { },
+      "channel_title": "Channel Name",
+      "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "embed_url": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "playlist_position": 0
+    }
+  ]
+}
+```
+
 ### 7. Update Video Metadata
 ```bash
 POST https://youtube.vegvisr.org/update-video

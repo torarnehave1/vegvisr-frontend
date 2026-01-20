@@ -883,6 +883,94 @@ export default {
       }
     }
 
+    // 9. Get playlist videos (public)
+    if (url.pathname === '/playlist' && request.method === 'POST') {
+      try {
+        const { playlist_id, playlist_url, max_results, page_token } = await request.json()
+
+        const extractPlaylistId = (value) => {
+          if (!value || typeof value !== 'string') return null
+          const trimmed = value.trim()
+          if (!trimmed) return null
+          if (trimmed.includes('list=')) {
+            try {
+              const parsed = new URL(trimmed)
+              return parsed.searchParams.get('list')
+            } catch {
+              const match = trimmed.match(/[?&]list=([^&]+)/)
+              return match ? match[1] : trimmed
+            }
+          }
+          return trimmed
+        }
+
+        const playlistId = extractPlaylistId(playlist_id || playlist_url)
+        if (!playlistId) {
+          return createResponse(JSON.stringify({ error: 'playlist_id is required' }), 400)
+        }
+
+        if (!env.YOUTUBE_API_KEY) {
+          return createResponse(JSON.stringify({ error: 'YOUTUBE_API_KEY is not configured' }), 500)
+        }
+
+        const maxResults = Number(max_results) || 25
+        let playlistItemsUrl =
+          `https://www.googleapis.com/youtube/v3/playlistItems` +
+          `?part=snippet,contentDetails` +
+          `&playlistId=${encodeURIComponent(playlistId)}` +
+          `&maxResults=${maxResults}` +
+          `&key=${env.YOUTUBE_API_KEY}`
+
+        if (page_token) {
+          playlistItemsUrl += `&pageToken=${encodeURIComponent(page_token)}`
+        }
+
+        const playlistResponse = await fetch(playlistItemsUrl)
+        const playlistData = await playlistResponse.json()
+
+        if (!playlistResponse.ok) {
+          return createResponse(
+            JSON.stringify({
+              success: false,
+              error: 'Failed to fetch playlist',
+              details: playlistData.error,
+            }),
+            playlistResponse.status,
+          )
+        }
+
+        const videos = (playlistData.items || []).map((item) => {
+          const videoId = item.contentDetails?.videoId
+          return {
+            video_id: videoId,
+            title: item.snippet?.title,
+            description: item.snippet?.description,
+            published_at: item.snippet?.publishedAt,
+            thumbnails: item.snippet?.thumbnails,
+            channel_title: item.snippet?.channelTitle,
+            video_url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+            embed_url: videoId ? `https://www.youtube.com/embed/${videoId}` : null,
+            playlist_position: item.snippet?.position,
+          }
+        })
+
+        return createResponse(
+          JSON.stringify({
+            success: true,
+            playlist_id: playlistId,
+            total_results: playlistData.pageInfo?.totalResults,
+            results_per_page: playlistData.pageInfo?.resultsPerPage,
+            next_page_token: playlistData.nextPageToken,
+            prev_page_token: playlistData.prevPageToken,
+            videos,
+          }),
+        )
+      } catch (error) {
+        console.error('Error fetching playlist videos:', error)
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
     // 10. Update video metadata (title, description, privacy, tags)
     if (url.pathname === '/update-video' && request.method === 'POST') {
       try {
