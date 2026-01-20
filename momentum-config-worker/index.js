@@ -1,6 +1,6 @@
 const CONFIG_KEY = 'momentum-config'
 const DEFAULT_CONFIG = {
-  videoId: 'LbeFGLfFygs',
+  videoId: 'Ravm34ovFRQ',
 }
 
 function jsonResponse(payload, status = 200, headers = {}) {
@@ -8,6 +8,7 @@ function jsonResponse(payload, status = 200, headers = {}) {
     status,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
       ...headers,
     },
   })
@@ -21,9 +22,11 @@ function isAllowedOrigin(origin) {
 
 function withCors(request, response) {
   const origin = request.headers.get('Origin') || ''
-  if (isAllowedOrigin(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     response.headers.set('Access-Control-Allow-Origin', origin)
     response.headers.set('Access-Control-Allow-Credentials', 'true')
+  } else if (!origin) {
+    response.headers.set('Access-Control-Allow-Origin', '*')
   }
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -46,19 +49,8 @@ async function saveConfig(env, nextConfig) {
   await env.MOMENTUM_CONFIG.put(CONFIG_KEY, JSON.stringify(nextConfig))
 }
 
-async function fetchSession(request, env) {
-  const cookie = request.headers.get('cookie') || ''
-  if (!cookie) return null
-  const response = await env.AUTH_WORKER.fetch('https://auth.vegvisr.org/auth/openauth/session', {
-    method: 'GET',
-    headers: {
-      cookie,
-    },
-  })
-  if (!response.ok) return null
-  const data = await response.json()
-  if (!data?.success || !data?.subject) return null
-  return data.subject
+function isOwnerEmail(email) {
+  return typeof email === 'string' && email.toLowerCase() === 'torarnehave@gmail.com'
 }
 
 export default {
@@ -86,16 +78,15 @@ export default {
     }
 
     if (pathname === '/config' && request.method === 'POST') {
-      const session = await fetchSession(request, env)
-      if (!session || session.role !== 'Superadmin') {
-        return withCors(request, jsonResponse({ success: false, error: 'Unauthorized' }, 401))
-      }
-
       let payload = null
       try {
         payload = await request.json()
       } catch {
         return withCors(request, jsonResponse({ success: false, error: 'Invalid JSON' }, 400))
+      }
+
+      if (!isOwnerEmail(payload?.email)) {
+        return withCors(request, jsonResponse({ success: false, error: 'Unauthorized' }, 401))
       }
 
       const videoId = typeof payload?.videoId === 'string' ? payload.videoId.trim() : ''
