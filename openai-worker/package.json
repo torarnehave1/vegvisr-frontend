@@ -1,27 +1,13 @@
 {
   "name": "openai-worker",
   "version": "1.0.0",
-  "description": "OpenAI API integration worker with support for chat, image generation, and audio transcription",
+  "description": "Generate branding JSON using OpenAI",
   "main": "index.js",
   "scripts": {
-    "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "dev": "wrangler dev"
   },
-  "keywords": [
-    "openai",
-    "gpt",
-    "dall-e",
-    "whisper",
-    "cloudflare-workers",
-    "ai",
-    "chat",
-    "image-generation",
-    "speech-recognition"
-  ],
+  "keywords": ["cloudflare", "worker", "openai", "branding", "json"],
   "author": "Vegvisr",
-  "license": "MIT",
-  "devDependencies": {
-    "wrangler": "^3.0.0"
-  }
+  "license": "MIT"
 }

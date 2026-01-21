@@ -136,6 +136,11 @@ export default {
         return await handleAudio(request, env, corsHeaders);
       }
 
+      // Branding JSON generation
+      if (pathname === '/branding/generate' && request.method === 'POST') {
+        return await handleBrandingGenerate(request, env, corsHeaders);
+      }
+
       return new Response(JSON.stringify({ error: 'Not Found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -547,6 +552,123 @@ async function handleAudio(request, env, corsHeaders) {
       status: openaiResponse.status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// Generate branding JSON
+async function handleBrandingGenerate(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const {
+      userId,
+      brandName = '',
+      appName = 'Vegvisr Connect',
+      audience = '',
+      prompt = ''
+    } = body || {};
+
+    if (!userId) {
+      return new Response(JSON.stringify({
+        error: 'userId is required'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const userKey = await getUserApiKey(env, userId, 'openai')
+    const openaiKey = userKey || env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return new Response(JSON.stringify({
+        error: 'OpenAI API key not configured'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const systemPrompt = `
+You generate branding JSON for a web app. Output ONLY valid JSON.
+The JSON must follow this structure:
+{
+  "brand": { "name": "", "logoUrl": "", "slogan": "" },
+  "theme": {
+    "background": { "base": "", "radialTop": "", "radialBottom": "" },
+    "text": { "primary": "", "muted": "", "headlineGradient": ["", ""] },
+    "card": { "bg": "", "border": "" },
+    "button": { "bgGradient": ["", ""], "text": "" }
+  },
+  "copy": {
+    "badge": "",
+    "headline": "",
+    "subheadline": "",
+    "emailLabel": "",
+    "emailPlaceholder": "",
+    "cta": ""
+  },
+  "language": { "default": "en" },
+  "layout": { "showLanguageToggle": true }
+}
+Use hex colors or rgba() for colors. Keep text short and clear.
+`;
+
+    const userMessage = `
+Brand name: ${brandName}
+App: ${appName}
+Audience: ${audience}
+User notes: ${prompt}
+`;
+
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt.trim() },
+          { role: 'user', content: userMessage.trim() }
+        ]
+      })
+    });
+
+    if (!openaiResponse.ok) {
+      const error = await openaiResponse.text();
+      return new Response(error, {
+        status: openaiResponse.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const result = await openaiResponse.json();
+    const content = result.choices?.[0]?.message?.content || '{}';
+    let branding = {};
+    try {
+      branding = JSON.parse(content);
+    } catch (error) {
+      return new Response(JSON.stringify({
+        error: 'Failed to parse branding JSON response'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true, branding }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
   } catch (error) {
     return new Response(JSON.stringify({
       error: error.message
