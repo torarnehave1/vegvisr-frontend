@@ -89,6 +89,7 @@ import GNewPasswordProtectionNode from './GNewNodes/GNewPasswordProtectionNode.v
 import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'
 import GNewAppViewerNode from './GNewNodes/GNewAppViewerNode.vue'
 import GNewGuideNode from './GNewNodes/GNewGuideNode.vue'
+import GNewHtmlNode from './GNewNodes/GNewHtmlNode.vue'
 
 // Case Study Node Types (Sprint 4-5)
 import GNewPersonProfileNode from './GNewNodes/GNewPersonProfileNode.vue'
@@ -211,6 +212,8 @@ const nodeComponents = {
   'mermaid-diagram': GNewMermaidNode,
   // App Viewer node (AI-generated HTML apps)
   'app-viewer': GNewAppViewerNode,
+  // HTML node (renders full HTML documents in an iframe)
+  'html-node': GNewHtmlNode,
   // Glitter guide node
   'guide-node': GNewGuideNode,
   // Case Study Node Types (Sprint 4-5)
