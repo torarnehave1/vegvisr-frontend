@@ -358,6 +358,14 @@
             >
               {{ isImageMessage(message) ? 'Insert Image' : insertLabel }}
             </button>
+            <button
+              v-if="!isImageMessage(message) && isHtmlMessage(message)"
+              class="btn btn-link btn-sm insert-btn"
+              type="button"
+              @click="insertAsHtml(message)"
+            >
+              Insert as HTML
+            </button>
             <!-- Case Study Node Insert Buttons -->
             <button
               v-if="hasPersonData(message)"
@@ -1129,7 +1137,15 @@ import graphContextIcon from '@/assets/graph-context.svg'
 import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
 
-const emit = defineEmits(['insert-fulltext', 'insert-fulltext-batch', 'insert-node', 'insert-network', 'insert-person-network', 'import-graph-as-cluster'])
+const emit = defineEmits([
+  'insert-fulltext',
+  'insert-fulltext-batch',
+  'insert-html',
+  'insert-node',
+  'insert-network',
+  'insert-person-network',
+  'import-graph-as-cluster'
+])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -1166,6 +1182,25 @@ const isViewerContext = computed(() => props.parentContext === 'viewer')
 // Context-aware labels
 const contextLabel = computed(() => isCanvasContext.value ? 'Canvas' : 'Graph')
 const insertLabel = computed(() => isCanvasContext.value ? 'Insert as Node' : 'Insert as Full Text')
+
+const extractHtmlDocument = (content) => {
+  if (!content || typeof content !== 'string') return null
+  const trimmed = content.trim()
+  if (!trimmed) return null
+
+  const fenceMatch = trimmed.match(/```(?:html)?\s*([\s\S]*?)```/i)
+  const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed
+
+  if (/<!doctype\s+html/i.test(candidate)) return candidate
+  if (/<html[\s>]/i.test(candidate) && /<\/html>/i.test(candidate)) return candidate
+  if (/<head[\s>]/i.test(candidate) && /<body[\s>]/i.test(candidate)) return candidate
+
+  return null
+}
+
+const isHtmlMessage = (message) => {
+  return Boolean(extractHtmlDocument(message?.content))
+}
 
 // Batch Generation Computed Properties
 const fulltextNodes = computed(() => {
@@ -3265,6 +3300,12 @@ const toBase64FromUrl = async (url) => {
 const insertAsFullText = (content) => {
   if (!content) return
   emit('insert-fulltext', content)
+}
+
+const insertAsHtml = (message) => {
+  const htmlContent = extractHtmlDocument(message?.content)
+  if (!htmlContent) return
+  emit('insert-html', htmlContent)
 }
 
 const insertGeneratedImage = async (message) => {

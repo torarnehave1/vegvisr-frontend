@@ -1596,6 +1596,7 @@
           :selection-context="grokSelectionContext"
           parent-context="viewer"
           @insert-fulltext="insertAIResponseAsFullText"
+          @insert-html="insertAIResponseAsHtml"
           @insert-fulltext-batch="handleBatchNodeInsert"
           @insert-node="handleInsertNodeFromChat"
         />
@@ -5096,6 +5097,45 @@ const createNewFullTextNode = async (content, labelOverride) => {
   }
 }
 
+// HTML Node Creation
+const createNewHtmlNode = async (content, labelOverride) => {
+  console.log('🆕 Creating new HTML node...')
+
+  const newNodeId = generateUUID()
+
+  const label = labelOverride || 'HTML Document'
+  const isEventPayload = typeof Event !== 'undefined' && content instanceof Event
+  const normalizedContent = isEventPayload ? undefined : content
+  const defaultInfo = '<!doctype html><html><head></head><body></body></html>'
+  const infoContent = typeof normalizedContent === 'string'
+    ? normalizedContent
+    : normalizedContent != null
+      ? String(normalizedContent)
+      : defaultInfo
+
+  const newHtmlNode = {
+    id: newNodeId,
+    label,
+    color: '#fff3cd',
+    type: 'html-node',
+    info: infoContent,
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: 0 },
+  }
+
+  try {
+    await handleNodeCreated(newHtmlNode)
+    console.log('✅ New HTML node created successfully:', newHtmlNode)
+  } catch (error) {
+    console.error('❌ Error creating HTML node:', error)
+    statusMessage.value = `❌ Failed to create HTML node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
 // Title Node Creation
 const createNewTitleNode = async () => {
   console.log('🆕 Creating new Title node...')
@@ -5145,6 +5185,21 @@ const insertAIResponseAsFullText = async (content) => {
     statusMessage.value = '✅ Inserted AI response into a new FullText node'
   } catch (error) {
     console.error('❌ Error inserting AI response into FullText node:', error)
+    statusMessage.value = `❌ Failed to insert AI response: ${error.message}`
+  } finally {
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 4000)
+  }
+}
+
+const insertAIResponseAsHtml = async (content) => {
+  if (!content || typeof content !== 'string') return
+  try {
+    await createNewHtmlNode(content, 'AI HTML')
+    statusMessage.value = '✅ Inserted AI response into a new HTML node'
+  } catch (error) {
+    console.error('❌ Error inserting AI response into HTML node:', error)
     statusMessage.value = `❌ Failed to insert AI response: ${error.message}`
   } finally {
     setTimeout(() => {

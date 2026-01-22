@@ -280,6 +280,7 @@
           :selection-context="aiChatSelectionContext"
           parent-context="canvas"
           @insert-fulltext="insertAIResponseAsFullText"
+          @insert-html="insertAIResponseAsHtml"
           @insert-node="insertAIResponseAsNode"
           @insert-network="insertAIResponseAsNetwork"
           @insert-person-network="insertAIResponseAsPersonNetwork"
@@ -4096,6 +4097,35 @@ const insertAIResponseAsFullText = async (content) => {
   showStatus('AI response inserted as new fulltext node', 'success')
 
   // Auto-save the graph
+  await saveGraph()
+}
+
+const insertAIResponseAsHtml = async (content) => {
+  if (!cyInstance.value) return
+
+  const newNodeId = generateUUID()
+  const extent = cyInstance.value.extent()
+  const position = {
+    x: (extent.x1 + extent.x2) / 2,
+    y: (extent.y1 + extent.y2) / 2
+  }
+
+  cyInstance.value.add({
+    data: {
+      id: newNodeId,
+      label: 'AI HTML',
+      type: 'html-node',
+      info: content,
+      color: '#fff3cd',
+      fontColor: '#000',
+      visible: true,
+      bibl: [],
+      createdAt: new Date().toISOString()
+    },
+    position: position
+  })
+
+  showStatus('AI response inserted as new HTML node', 'success')
   await saveGraph()
 }
 
