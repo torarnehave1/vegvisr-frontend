@@ -378,6 +378,15 @@ import { useUserStore } from '@/stores/userStore'
 
 const WORKER_URL = 'https://mystmkra-worker.torarnehave.workers.dev'
 const userStore = useUserStore()
+const apiToken = computed(() => userStore.emailVerificationToken || '')
+
+const buildHeaders = (extra = {}) => {
+  const headers = { ...extra }
+  if (apiToken.value) {
+    headers['X-API-Token'] = apiToken.value
+  }
+  return headers
+}
 
 // State
 const loading = ref(false)
@@ -447,7 +456,8 @@ const bulkDelete = async () => {
     const response = await fetch(`${WORKER_URL}/delete`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...buildHeaders()
       },
       body: JSON.stringify({ ids: idsToDelete })
     })
@@ -513,7 +523,8 @@ const convertSelectionToGraph = async () => {
         const response = await fetch(`${WORKER_URL}/convert-to-graph`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...buildHeaders()
           },
           body: JSON.stringify({
             documentId: docId,
@@ -589,7 +600,7 @@ const fetchDocuments = async (forceRefresh = false) => {
     if (isFiltering) {
       url += `&user_id=${encodeURIComponent(userIdFilter.value.trim())}`
     }
-    const response = await fetch(url)
+    const response = await fetch(url, { headers: buildHeaders() })
 
     if (!response.ok) {
       throw new Error('Failed to fetch documents')
@@ -617,7 +628,9 @@ const fetchDocuments = async (forceRefresh = false) => {
 // Fetch filtered count
 const fetchFilteredCount = async (userId) => {
   try {
-    const response = await fetch(`${WORKER_URL}/count?user_id=${encodeURIComponent(userId)}`)
+    const response = await fetch(`${WORKER_URL}/count?user_id=${encodeURIComponent(userId)}`, {
+      headers: buildHeaders()
+    })
     if (response.ok) {
       const data = await response.json()
       filteredTotalCount.value = data.count || 0
@@ -630,7 +643,7 @@ const fetchFilteredCount = async (userId) => {
 // Fetch total count (no filter)
 const fetchTotalCount = async () => {
   try {
-    const response = await fetch(`${WORKER_URL}/count`)
+    const response = await fetch(`${WORKER_URL}/count`, { headers: buildHeaders() })
     if (response.ok) {
       const data = await response.json()
       totalCount.value = data.count || 0
@@ -683,7 +696,7 @@ const runSearch = async () => {
 
   try {
     const url = `${WORKER_URL}/search?query=${encodeURIComponent(query)}`
-    const response = await fetch(url)
+    const response = await fetch(url, { headers: buildHeaders() })
 
     if (!response.ok) {
       throw new Error('Search failed')
@@ -705,7 +718,9 @@ const viewDocument = async (doc) => {
   currentDocument.value = null
 
   try {
-    const response = await fetch(`${WORKER_URL}/file/${doc.id}`)
+    const response = await fetch(`${WORKER_URL}/file/${doc.id}`, {
+      headers: buildHeaders()
+    })
     if (!response.ok) {
       throw new Error('Failed to load document')
     }
@@ -750,7 +765,7 @@ const analyzeDuplicates = async () => {
     } else {
       console.log('[Duplicate Analysis] Fetching all documents with content...')
     }
-    const response = await fetch(url)
+    const response = await fetch(url, { headers: buildHeaders() })
     if (!response.ok) throw new Error('Failed to fetch all documents')
 
     const data = await response.json()
