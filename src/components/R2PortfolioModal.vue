@@ -149,10 +149,53 @@
             </button>
           </div>
 
+          <!-- Filters Section -->
+          <div class="filters-section mb-3">
+            <!-- Search -->
+            <div class="filter-group">
+              <label class="filter-label">Search:</label>
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="filter-input"
+                placeholder="Search images..."
+              />
+            </div>
+
+            <!-- Year Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Year:</label>
+              <select v-model="selectedYear" class="filter-select">
+                <option value="">All Years</option>
+                <option v-for="year in availableYears" :key="year" :value="year">
+                  {{ year }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Sort Order -->
+            <div class="filter-group">
+              <label class="filter-label">Sort:</label>
+              <select v-model="sortOrder" class="filter-select">
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+                <option value="size">Size (Largest)</option>
+                <option value="size-asc">Size (Smallest)</option>
+              </select>
+            </div>
+
+            <!-- Results Count -->
+            <div class="filter-results">
+              <span class="results-count">{{ filteredImages.length }} of {{ r2Images.length }} images</span>
+            </div>
+          </div>
+
           <!-- Image Grid -->
           <div class="portfolio-grid">
             <div
-              v-for="img in r2Images"
+              v-for="img in filteredImages"
               :key="img.key"
               class="portfolio-card clickable"
               @click="selectR2Image(img)"
@@ -164,13 +207,14 @@
                 loading="lazy"
               />
               <div class="portfolio-caption">{{ img.key }}</div>
+              <div v-if="getImageDate(img)" class="portfolio-date">{{ formatDate(getImageDate(img)) }}</div>
             </div>
           </div>
         </div>
         <div class="modal-footer">
           <div class="me-auto">
             <small class="text-muted">
-              <strong>{{ r2Images.length }}</strong> images • Quality:
+              <strong>{{ filteredImages.length }}</strong> of <strong>{{ r2Images.length }}</strong> images • Quality:
               <strong>{{ outputSettings.preset }}</strong> • Size:
               <strong>{{ outputSettings.width }}×{{ outputSettings.height }}</strong>
             </small>
@@ -196,6 +240,9 @@ const emit = defineEmits(['close', 'image-selected'])
 
 // Reactive data
 const r2Images = ref([])
+const searchQuery = ref('')
+const selectedYear = ref('')
+const sortOrder = ref('newest')
 
 // Preview settings for modal display (small/fast)
 const previewSettings = ref({
@@ -215,7 +262,92 @@ const outputSettings = ref({
   originalAspectRatio: 1920 / 1080,
 })
 
+// Helper function to extract date from image key (filename)
+const getImageDate = (img) => {
+  if (!img || !img.key) return null
+
+  // Try to extract timestamp from filename (e.g., "1743532765979.png")
+  const timestampMatch = img.key.match(/^(\d{13})/)
+  if (timestampMatch) {
+    const timestamp = parseInt(timestampMatch[1])
+    if (!isNaN(timestamp)) {
+      return new Date(timestamp)
+    }
+  }
+
+  // Try shorter timestamp (10 digits - seconds)
+  const shortTimestampMatch = img.key.match(/^(\d{10})/)
+  if (shortTimestampMatch) {
+    const timestamp = parseInt(shortTimestampMatch[1]) * 1000
+    if (!isNaN(timestamp)) {
+      return new Date(timestamp)
+    }
+  }
+
+  // If image has uploaded/lastModified metadata
+  if (img.uploaded) return new Date(img.uploaded)
+  if (img.lastModified) return new Date(img.lastModified)
+
+  return null
+}
+
 // Computed properties
+const availableYears = computed(() => {
+  const years = new Set()
+  r2Images.value.forEach((img) => {
+    const date = getImageDate(img)
+    if (date && !isNaN(date.getTime())) {
+      years.add(date.getFullYear())
+    }
+  })
+  return Array.from(years).sort((a, b) => b - a) // Sort descending (newest first)
+})
+
+const filteredImages = computed(() => {
+  let result = r2Images.value
+
+  // Filter by search query
+  if (searchQuery.value.trim()) {
+    result = result.filter((img) =>
+      (img.key || '').toLowerCase().includes(searchQuery.value.toLowerCase())
+    )
+  }
+
+  // Filter by year
+  if (selectedYear.value) {
+    result = result.filter((img) => {
+      const date = getImageDate(img)
+      if (!date) return false
+      return date.getFullYear() === parseInt(selectedYear.value)
+    })
+  }
+
+  // Sort results
+  result = [...result].sort((a, b) => {
+    const dateA = getImageDate(a)
+    const dateB = getImageDate(b)
+
+    switch (sortOrder.value) {
+      case 'newest':
+        return (dateB?.getTime() || 0) - (dateA?.getTime() || 0)
+      case 'oldest':
+        return (dateA?.getTime() || 0) - (dateB?.getTime() || 0)
+      case 'name':
+        return (a.key || '').localeCompare(b.key || '')
+      case 'name-desc':
+        return (b.key || '').localeCompare(a.key || '')
+      case 'size':
+        return (b.size || 0) - (a.size || 0)
+      case 'size-asc':
+        return (a.size || 0) - (b.size || 0)
+      default:
+        return 0
+    }
+  })
+
+  return result
+})
+
 const aspectRatio = computed(() => {
   const ratio = outputSettings.value.width / outputSettings.value.height
   return `${Math.round(ratio * 47)}:47`
@@ -309,6 +441,7 @@ const selectR2Image = (img) => {
 }
 
 const closeModal = () => {
+  resetFilters()
   emit('close')
 }
 
@@ -350,6 +483,21 @@ const resetQualitySettings = () => {
     lockAspectRatio: true,
     originalAspectRatio: 1920 / 1080,
   }
+}
+
+const formatDate = (date) => {
+  if (!date || isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+const resetFilters = () => {
+  searchQuery.value = ''
+  selectedYear.value = ''
+  sortOrder.value = 'newest'
 }
 
 // Watch for modal opening to fetch images
@@ -417,5 +565,80 @@ onMounted(() => {
 
 .quality-controls {
   background-color: #f8f9fa;
+}
+
+/* Filters Section */
+.filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.filter-input {
+  padding: 6px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  color: #495057;
+  min-width: 150px;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: #6f42c1;
+  box-shadow: 0 0 0 2px rgba(111, 66, 193, 0.15);
+}
+
+.filter-select {
+  padding: 6px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  color: #495057;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #6f42c1;
+  box-shadow: 0 0 0 2px rgba(111, 66, 193, 0.15);
+}
+
+.filter-results {
+  margin-left: auto;
+}
+
+.results-count {
+  font-size: 13px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.portfolio-date {
+  font-size: 0.75em;
+  color: #6c757d;
+  padding: 2px 8px 6px;
+  text-align: center;
 }
 </style>
