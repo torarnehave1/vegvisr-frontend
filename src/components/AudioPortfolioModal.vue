@@ -33,6 +33,38 @@
           </button>
         </div>
 
+        <!-- Filters Section -->
+        <div class="filters-section">
+          <!-- Year Filter -->
+          <div class="filter-group">
+            <label class="filter-label">Year:</label>
+            <select v-model="selectedYear" class="filter-select">
+              <option value="">All Years</option>
+              <option v-for="year in availableYears" :key="year" :value="year">
+                {{ year }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Sort Order -->
+          <div class="filter-group">
+            <label class="filter-label">Sort:</label>
+            <select v-model="sortOrder" class="filter-select">
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="name">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="size">Size (Largest)</option>
+              <option value="size-asc">Size (Smallest)</option>
+            </select>
+          </div>
+
+          <!-- Results Count -->
+          <div class="filter-results">
+            <span class="results-count">{{ filteredRecordings.length }} recording{{ filteredRecordings.length !== 1 ? 's' : '' }}</span>
+          </div>
+        </div>
+
         <!-- Loading State -->
         <div v-if="loading" class="loading-state">
           <div class="spinner-border" role="status">
@@ -69,6 +101,7 @@
               <div class="recording-meta">
                 <span class="duration">🕐 {{ formatDuration(recording.estimatedDuration) }}</span>
                 <span class="file-size">📁 {{ formatFileSize(recording.fileSize) }}</span>
+                <span v-if="recording.createdAt" class="created-date">📅 {{ formatDate(recording.createdAt) }}</span>
               </div>
               <div class="recording-url">
                 <small class="text-muted">{{ recording.r2Url }}</small>
@@ -137,15 +170,65 @@ const error = ref(null)
 const searchQuery = ref('')
 const selectedRecording = ref(null)
 const modalContainer = ref(null)
+const selectedYear = ref('')
+const sortOrder = ref('newest')
 
 // Computed properties
+const availableYears = computed(() => {
+  const years = new Set()
+  recordings.value.forEach((recording) => {
+    if (recording.createdAt) {
+      const year = new Date(recording.createdAt).getFullYear()
+      if (!isNaN(year)) {
+        years.add(year)
+      }
+    }
+  })
+  return Array.from(years).sort((a, b) => b - a) // Sort descending (newest first)
+})
+
 const filteredRecordings = computed(() => {
-  if (!searchQuery.value.trim()) return recordings.value
-  return recordings.value.filter((recording) =>
-    (recording.displayName || recording.fileName || '')
-      .toLowerCase()
-      .includes(searchQuery.value.toLowerCase()),
-  )
+  let result = recordings.value
+
+  // Filter by search query
+  if (searchQuery.value.trim()) {
+    result = result.filter((recording) =>
+      (recording.displayName || recording.fileName || '')
+        .toLowerCase()
+        .includes(searchQuery.value.toLowerCase()),
+    )
+  }
+
+  // Filter by year
+  if (selectedYear.value) {
+    result = result.filter((recording) => {
+      if (!recording.createdAt) return false
+      const year = new Date(recording.createdAt).getFullYear()
+      return year === parseInt(selectedYear.value)
+    })
+  }
+
+  // Sort results
+  result = [...result].sort((a, b) => {
+    switch (sortOrder.value) {
+      case 'newest':
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+      case 'oldest':
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
+      case 'name':
+        return (a.displayName || a.fileName || '').localeCompare(b.displayName || b.fileName || '')
+      case 'name-desc':
+        return (b.displayName || b.fileName || '').localeCompare(a.displayName || a.fileName || '')
+      case 'size':
+        return (b.fileSize || 0) - (a.fileSize || 0)
+      case 'size-asc':
+        return (a.fileSize || 0) - (b.fileSize || 0)
+      default:
+        return 0
+    }
+  })
+
+  return result
 })
 
 // Methods
@@ -212,6 +295,8 @@ const handleOverlayClick = (event) => {
 const closeModal = () => {
   selectedRecording.value = null
   searchQuery.value = ''
+  selectedYear.value = ''
+  sortOrder.value = 'newest'
   error.value = null
   emit('close')
 }
@@ -229,6 +314,16 @@ const formatFileSize = (bytes) => {
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 // Watch for visibility changes to fetch recordings
@@ -370,6 +465,59 @@ onUnmounted(() => {
   top: 50%;
   transform: translateY(-50%);
   color: #6c757d;
+}
+
+/* Filters Section */
+.filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.filter-select {
+  padding: 6px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  color: #495057;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
+}
+
+.filter-results {
+  margin-left: auto;
+}
+
+.results-count {
+  font-size: 13px;
+  color: #6c757d;
+  font-weight: 500;
 }
 
 .recordings-list {
