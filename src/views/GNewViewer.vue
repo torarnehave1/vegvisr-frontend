@@ -573,6 +573,21 @@
                 </small>
               </div>
 
+              <!-- Audio URL Path Field (for audio nodes) -->
+              <div v-if="editingNode.type === 'audio'" class="form-group">
+                <label class="form-label">🎵 Audio URL (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="url"
+                  class="form-control"
+                  placeholder="Enter Audio URL (e.g., https://example.com/audio.mp3)..."
+                />
+                <small class="form-text text-muted">
+                  Enter the full URL to an audio file (MP3, WAV, OGG, etc.). This will be stored as the node's path property.
+                  <br><strong>Supported formats:</strong> MP3, WAV, OGG, M4A, AAC, FLAC, MP4, WebM
+                </small>
+              </div>
+
               <div class="form-group">
                 <label class="form-label">Node Content:</label>
                 <div class="content-tools mb-2">
