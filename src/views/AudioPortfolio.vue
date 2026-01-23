@@ -217,13 +217,13 @@
 
                     <!-- Audio Player -->
                     <div class="audio-player mt-3 mb-3">
-                      <div v-if="recording.r2Url" class="audio-container">
+                      <div v-if="recordingAudioUrl(recording)" class="audio-container">
                         <audio
                           controls
                           class="w-100"
-                          :src="recording.r2Url"
+                          :src="recordingAudioUrl(recording)"
                           @error="handleAudioError($event, recording)"
-                          @loadstart="console.log('Audio loading started for:', recording.r2Url)"
+                          @loadstart="console.log('Audio loading started for:', recordingAudioUrl(recording))"
                           @loadedmetadata="handleAudioMetadata($event, recording)"
                           @loadeddata="console.log('Audio loaded successfully for:', recording.recordingId || recording.id)"
                           preload="metadata"
@@ -233,11 +233,11 @@
                         <small class="text-muted d-block mt-1">
                           Audio URL:
                           <a
-                            :href="recording.r2Url"
+                            :href="recordingAudioUrl(recording)"
                             target="_blank"
                             class="text-truncate d-inline-block"
                             style="max-width: 200px"
-                            >{{ recording.r2Url }}</a
+                            >{{ recordingAudioUrl(recording) }}</a
                           >
                         </small>
                       </div>
@@ -345,7 +345,7 @@
                         🤖 View Analysis
                       </button>
                       <button
-                        v-if="recording.r2Url"
+                        v-if="recordingAudioUrl(recording)"
                         class="btn btn-outline-success btn-sm ms-2"
                         @click="reTranscribe(recording)"
                         title="Re-transcribe or analyze this recording"
@@ -693,6 +693,40 @@ const availableOwnerEmails = computed(() => {
   return Array.from(emails).sort()
 })
 
+const recordingAudioUrl = (recording) => {
+  if (!recording) return ''
+
+  const baseOrigin = (() => {
+    if (recording.r2Url) {
+      try {
+        return new URL(recording.r2Url).origin
+      } catch {
+        return null
+      }
+    }
+    return null
+  })()
+
+  if (recording.r2Key && baseOrigin) {
+    const encodedKey = String(recording.r2Key)
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')
+    return `${baseOrigin}/${encodedKey}`
+  }
+
+  if (recording.r2Url) return recording.r2Url
+  if (recording.r2Key) {
+    const encodedKey = String(recording.r2Key)
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')
+    return `https://audio.vegvisr.org/${encodedKey}`
+  }
+
+  return ''
+}
+
 watch(showOnlyOwn, (value) => {
   if (value) {
     selectedOwnerEmail.value = userStore.email || 'all'
@@ -714,10 +748,26 @@ const fetchRecordings = async () => {
   try {
     // Pass user role to backend for filtering
     const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
-    const userRole = isAdminUser ? 'superadmin' : 'user'
+    const userRole = isAdminUser ? 'Superadmin' : 'user'
+    const params = new URLSearchParams({
+      userEmail: userStore.email,
+      userRole,
+    })
+
+    if (isAdminUser) {
+      const ownerEmail = showOnlyOwn.value
+        ? userStore.email
+        : selectedOwnerEmail.value !== 'all'
+          ? selectedOwnerEmail.value
+          : null
+      if (ownerEmail) {
+        params.set('ownerEmail', ownerEmail)
+      }
+      params.set('limit', '500')
+    }
 
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`,
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
     )
 
     if (!response.ok) {
@@ -903,7 +953,7 @@ const togglePublicationState = async (recording) => {
           userEmail: recording.userEmail || userStore.email,
           recordingId: recording.recordingId || recording.id,
           publicationState: newState,
-          requestingUserRole: 'superadmin',
+          requestingUserRole: 'Superadmin',
         }),
       },
     )
@@ -1002,10 +1052,12 @@ const reTranscribe = (recording) => {
   console.log('=== RE-TRANSCRIBE DEBUG ===')
   console.log('Recording:', recording.displayName || recording.fileName)
   console.log('R2 URL:', recording.r2Url)
+  console.log('Resolved audio URL:', recordingAudioUrl(recording))
   console.log('Recording ID:', recording.recordingId || recording.id)
   console.log('==========================')
 
-  if (!recording.r2Url) {
+  const audioUrl = recordingAudioUrl(recording)
+  if (!audioUrl) {
     alert('Error: No audio URL available for this recording.')
     return
   }
@@ -1014,7 +1066,7 @@ const reTranscribe = (recording) => {
   router.push({
     path: '/norwegian-transcription-test',
     query: {
-      audioUrl: recording.r2Url,
+      audioUrl,
       fileName: recording.fileName || recording.displayName,
       recordingId: recording.recordingId || recording.id,
       fromPortfolio: 'true'
@@ -1206,6 +1258,7 @@ const handleAudioError = (event, recording) => {
   console.error('Error code:', event.target?.error?.code)
   console.error('Error message:', event.target?.error?.message)
   console.error('Recording r2Url:', recording.r2Url)
+  console.error('Resolved audio URL:', recordingAudioUrl(recording))
   console.error('Recording ID:', recording.recordingId || recording.id)
 
   // Provide specific error messages based on error code

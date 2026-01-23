@@ -35,6 +35,51 @@ const generateRecordingId = () => {
   return `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 }
 
+const isSuperadminRole = (role) => {
+  return (role || '').toLowerCase() === 'superadmin'
+}
+
+const addRecordingToIndex = async (env, userEmail, recordingId) => {
+  if (!userEmail || !recordingId) {
+    throw new Error('User email and recordingId are required')
+  }
+
+  const recordingKey = `audio-recording:${userEmail}:${recordingId}`
+  const recordingData = await env.AUDIO_PORTFOLIO.get(recordingKey)
+  if (!recordingData) {
+    throw new Error('Recording not found in KV')
+  }
+
+  const recording = JSON.parse(recordingData)
+  const indexKey = `audio-index:${userEmail}`
+  const userIndexRaw = await env.AUDIO_PORTFOLIO.get(indexKey)
+  let userIndex = userIndexRaw ? JSON.parse(userIndexRaw) : null
+
+  if (!userIndex) {
+    userIndex = {
+      userEmail,
+      totalRecordings: 1,
+      totalDuration: recording.duration || 0,
+      lastUpdated: new Date().toISOString(),
+      recordingIds: [recordingId],
+    }
+  } else {
+    if (!Array.isArray(userIndex.recordingIds)) {
+      userIndex.recordingIds = []
+    }
+    if (!userIndex.recordingIds.includes(recordingId)) {
+      userIndex.recordingIds.push(recordingId)
+      userIndex.totalRecordings = userIndex.recordingIds.length
+      userIndex.totalDuration = (userIndex.totalDuration || 0) + (recording.duration || 0)
+      userIndex.lastUpdated = new Date().toISOString()
+    }
+  }
+
+  await env.AUDIO_PORTFOLIO.put(indexKey, JSON.stringify(userIndex))
+
+  return { success: true, index: userIndex }
+}
+
 // Save recording metadata to portfolio
 const saveRecordingToPortfolio = async (env, recordingData) => {
   try {
@@ -159,7 +204,7 @@ const getUserRecordings = async (env, userEmail, limit = 50, offset = 0, userRol
 
         // Filter by publication state based on user role
         // Superadmin sees everything, regular users only see published
-        if (userRole === 'superadmin' || recording.publicationState === 'published') {
+        if (isSuperadminRole(userRole) || recording.publicationState === 'published') {
           recordings.push(recording)
         }
       }
@@ -502,7 +547,7 @@ export default {
         const offset = parseInt(url.searchParams.get('offset') || '0')
         const userRole = url.searchParams.get('userRole') || 'user' // NEW: Get user role
 
-        if (userRole === 'superadmin') {
+        if (isSuperadminRole(userRole)) {
           const ownerEmail = url.searchParams.get('ownerEmail')
           const cursor = url.searchParams.get('cursor')
           const result = await listAllRecordings(env, limit, cursor, ownerEmail)
@@ -576,7 +621,7 @@ export default {
         const { userEmail, recordingId, publicationState, requestingUserRole } = body
 
         // Only superadmin can change publication state
-        if (requestingUserRole !== 'superadmin') {
+        if (!isSuperadminRole(requestingUserRole)) {
           return createErrorResponse('Only superadmin can change publication state', 403)
         }
 
@@ -590,6 +635,19 @@ export default {
         }
 
         const result = await updateRecording(env, userEmail, recordingId, updates)
+        return createSuccessResponse(result)
+      }
+
+      // POST /repair-index - Add a recording to the user's index (admin maintenance)
+      if (pathname === '/repair-index' && request.method === 'POST') {
+        const body = await request.json()
+        const { userEmail, recordingId, requestingUserRole } = body
+
+        if (!isSuperadminRole(requestingUserRole)) {
+          return createErrorResponse('Only Superadmin can repair indexes', 403)
+        }
+
+        const result = await addRecordingToIndex(env, userEmail, recordingId)
         return createSuccessResponse(result)
       }
 

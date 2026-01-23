@@ -4765,7 +4765,21 @@ const addTemplateAndClose = async (template) => {
 
 const buildNodeFromTemplate = (template) => {
   if (template.nodes && template.nodes.length > 0) {
-    const templateNode = template.nodes[0]
+    let templateNode = template.nodes[0]
+    if (templateNode?.type === 'audio-portfolio-selector') {
+      templateNode = {
+        id: 'audio-node-template',
+        label: 'Audio',
+        type: 'audio',
+        color: '#f4f6f8',
+        info: 'Paste the audio URL in the path field to play it.',
+        bibl: [],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        path: '',
+      }
+    }
     return {
       id: generateUUID(),
       label: templateNode.label || template.name || 'New Node',

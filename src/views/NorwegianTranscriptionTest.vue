@@ -1986,10 +1986,19 @@ const loadPortfolioForSpeakers = async () => {
 
   try {
     // Pass user role to backend for filtering (same as AudioPortfolio.vue)
-    const userRole = (userStore.role === 'Superadmin' || userStore.role === 'Admin') ? 'superadmin' : 'user'
+    const userRole = (userStore.role === 'Superadmin' || userStore.role === 'Admin') ? 'Superadmin' : 'user'
+
+    const params = new URLSearchParams({
+      userEmail: userStore.email,
+      userRole,
+      limit: '500',
+    })
+    if (userRole === 'Superadmin') {
+      params.set('ownerEmail', userStore.email)
+    }
 
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`
     )
 
     if (!response.ok) {
@@ -2276,10 +2285,19 @@ const loadPortfolioForDiarization = async () => {
 
   try {
     // Pass user role to backend for filtering (same as AudioPortfolio.vue)
-    const userRole = (userStore.role === 'Superadmin' || userStore.role === 'Admin') ? 'superadmin' : 'user'
+    const userRole = (userStore.role === 'Superadmin' || userStore.role === 'Admin') ? 'Superadmin' : 'user'
+
+    const params = new URLSearchParams({
+      userEmail: userStore.email,
+      userRole,
+      limit: '500',
+    })
+    if (userRole === 'Superadmin') {
+      params.set('ownerEmail', userStore.email)
+    }
 
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}&userRole=${userRole}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`
     )
 
     if (!response.ok) {
