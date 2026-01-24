@@ -2796,7 +2796,8 @@ const openInfoModal = () => {
     info: node.data('info') || '',
     type: node.data('type') || 'default',
     color: node.data('color') || '#f8f9fa',
-    path: node.data('path') || ''
+    path: node.data('path') || '',
+    superadminOnly: !!node.data('superadminOnly')
   }
   contextMenu.value.show = false
   showInfoModal.value = true
@@ -2855,6 +2856,7 @@ const handleNodeSave = async (nodeData) => {
     if (nodeData.path) {
       node.data('path', nodeData.path)
     }
+    node.data('superadminOnly', !!nodeData.superadminOnly)
 
     await saveGraph()
     showStatus('Node info updated', 'success')

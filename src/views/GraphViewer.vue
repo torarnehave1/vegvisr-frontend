@@ -65,8 +65,8 @@
     <div v-if="loading" class="loading">Loading...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="graph-container">
-      <!-- Render only nodes with visible=true -->
-      <div v-for="node in graphData.nodes.filter((n) => n.visible !== false)" :key="node.id">
+      <!-- Render only nodes with visible=true and role visibility -->
+      <div v-for="node in graphData.nodes.filter(isNodeVisibleForViewer)" :key="node.id">
         <div class="node-content-inner">
           <template v-if="node.type === 'markdown-image'">
             <!-- Node Control Bar: Edit Label, Edit Info, Copy to Graph, Delete, and Reorder Controls -->
@@ -956,6 +956,12 @@ const knowledgeGraphStore = useKnowledgeGraphStore()
 const userStore = useUserStore()
 const router = useRouter()
 
+const isNodeVisibleForViewer = (node) => {
+  if (node.visible === false) return false
+  if (node.superadminOnly && userStore.role !== 'Superadmin') return false
+  return true
+}
+
 // Add branding composable for domain detection (only importing for potential future use)
 const { currentDomain, isCustomDomain } = useBranding()
 
@@ -1060,7 +1066,7 @@ const fetchGraphData = async () => {
     }
 
     // Filter visible nodes and assign default order if not set
-    const visibleNodes = uniqueNodes.filter((node) => node.visible !== false)
+    const visibleNodes = uniqueNodes.filter(isNodeVisibleForViewer)
     visibleNodes.forEach((node, index) => {
       if (!node.order) {
         node.order = index + 1
@@ -2246,7 +2252,7 @@ function saveToMystmkraFromMenu() {
     title = currentNode.value.label || 'Untitled'
     targetNode = currentNode.value
   } else {
-    const node = (graphData.value.nodes || []).find((n) => n.visible !== false)
+    const node = (graphData.value.nodes || []).find(isNodeVisibleForViewer)
     if (node && node.info) {
       content = node.info
       title = node.label || 'Untitled'
@@ -3112,12 +3118,12 @@ const handleNodeCopied = (copyInfo) => {
 
 // Computed properties for reordering
 const totalVisibleNodes = computed(() => {
-  return graphData.value.nodes.filter((node) => node.visible !== false).length
+  return graphData.value.nodes.filter(isNodeVisibleForViewer).length
 })
 
 // Reordering functions
 const getNodePosition = (node) => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForViewer)
   const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
   return sortedNodes.findIndex((n) => n.id === node.id) + 1
 }
@@ -3149,7 +3155,7 @@ const getNodeDisplayName = (node) => {
 }
 
 const moveNodeUp = async (node) => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForViewer)
   const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
   const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
 
@@ -3166,7 +3172,7 @@ const moveNodeUp = async (node) => {
 }
 
 const moveNodeDown = async (node) => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForViewer)
   const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
   const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
 
@@ -3183,7 +3189,7 @@ const moveNodeDown = async (node) => {
 }
 
 const openReorderModal = () => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForViewer)
   reorderableNodes.value = [...visibleNodes].sort((a, b) => (a.order || 0) - (b.order || 0))
   isReorderModalOpen.value = true
 }
@@ -3787,7 +3793,7 @@ const deleteNode = async (node) => {
     }
 
     // Reassign order values to maintain sequence
-    const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+    const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForViewer)
     visibleNodes.forEach((n, index) => {
       n.order = index + 1
     })

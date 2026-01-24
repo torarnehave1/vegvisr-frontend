@@ -16,6 +16,20 @@
             class="form-control"
             placeholder="Enter node title..."
           />
+          <div v-if="showSuperadminOnlyToggle" class="form-check mt-2">
+            <input
+              id="node-superadmin-only-modal"
+              class="form-check-input"
+              type="checkbox"
+              v-model="localNode.superadminOnly"
+            />
+            <label class="form-check-label" for="node-superadmin-only-modal">
+              Show only for Superadmin
+            </label>
+            <small class="form-text text-muted d-block">
+              Hidden for published/shared graphs unless the viewer is Superadmin.
+            </small>
+          </div>
         </div>
 
         <!-- YouTube URL Path Field (for youtube-video nodes) -->
@@ -195,6 +209,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
   show: {
@@ -212,6 +227,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'save', 'ai-rewrite', 'ai-challenge', 'ai-elaborate'])
+const userStore = useUserStore()
 
 // Local copy of node data
 const localNode = ref({
@@ -220,7 +236,8 @@ const localNode = ref({
   info: '',
   type: 'default',
   color: '#f8f9fa',
-  path: ''
+  path: '',
+  superadminOnly: false
 })
 
 // Text selection state
@@ -367,6 +384,11 @@ const formatElements = [
   },
 ]
 
+const showSuperadminOnlyToggle = computed(() => {
+  if (userStore.role !== 'Superadmin') return false
+  return localNode.value.type === 'fulltext' || localNode.value.type === 'html-node'
+})
+
 const canReplaceText = computed(() => {
   return findText.value.trim() !== '' && replaceText.value.trim() !== ''
 })
@@ -476,6 +498,7 @@ watch(() => props.node, (newNode) => {
       type: newNode.type || 'default',
       color: newNode.color || '#f8f9fa',
       path: newNode.path || '',
+      superadminOnly: !!newNode.superadminOnly,
       ...newNode
     }
     findText.value = ''

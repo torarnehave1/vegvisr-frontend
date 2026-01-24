@@ -234,6 +234,11 @@ const nodeComponents = {
 const nodeComponent = computed(() => {
   const nodeType = props.node.type || 'default'
 
+  if (props.node.superadminOnly && userStore.role !== 'Superadmin') {
+    console.log('🚫 Node hidden - requires Superadmin role')
+    return null
+  }
+
   // Hide audio-transcription nodes for non-Admin/Superadmin users
   if (nodeType === 'audio-transcription') {
     if (!userStore.loggedIn || !['Admin', 'Superadmin'].includes(userStore.role)) {

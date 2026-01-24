@@ -567,6 +567,23 @@
                   class="form-control"
                   placeholder="Enter node title..."
                 />
+                <div
+                  v-if="showSuperadminOnlyToggle"
+                  class="form-check mt-2"
+                >
+                  <input
+                    id="node-superadmin-only"
+                    class="form-check-input"
+                    type="checkbox"
+                    v-model="editingNode.superadminOnly"
+                  />
+                  <label class="form-check-label" for="node-superadmin-only">
+                    Show only for Superadmin
+                  </label>
+                  <small class="form-text text-muted d-block">
+                    Hidden for published/shared graphs unless the viewer is Superadmin.
+                  </small>
+                </div>
               </div>
 
               <!-- YouTube URL Path Field (for youtube-video nodes) -->
@@ -3066,6 +3083,12 @@ const draggedFromIndex = ref(null)
 const selectedColor = ref('#2c3e50')
 const showExpandedPalette = ref(false)
 
+const isNodeVisibleForUser = (node) => {
+  if (node.visible === false) return false
+  if (node.superadminOnly && userStore.role !== 'Superadmin') return false
+  return true
+}
+
 // Computed property for sorted nodes (reordering support)
 const sortedNodes = computed(() => {
   if (!graphData.value.nodes || graphData.value.nodes.length === 0) {
@@ -3073,7 +3096,7 @@ const sortedNodes = computed(() => {
   }
 
   // Filter visible nodes and sort by order property
-  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
 
   // Ensure all nodes have an order property
   visibleNodes.forEach((node, index) => {
@@ -3097,6 +3120,12 @@ const canReplaceNodeText = computed(() => {
 const canDeleteEditingNode = computed(() => {
   if (!editingNode.value?.id) return false
   return !String(editingNode.value.id).startsWith('email-template-')
+})
+
+const showSuperadminOnlyToggle = computed(() => {
+  if (userStore.role !== 'Superadmin') return false
+  const nodeType = editingNode.value?.type
+  return nodeType === 'fulltext' || nodeType === 'html-node'
 })
 
 const truncateSelectedText = computed(() => {
@@ -3832,7 +3861,8 @@ const hasGraphContext = computed(() => {
 const availableNodesForInsertion = computed(() => {
   return graphData.value.nodes.filter(
     (node) =>
-      node.visible !== false && (node.type === 'fulltext' || node.type === 'title' || !node.type),
+      isNodeVisibleForUser(node) &&
+      (node.type === 'fulltext' || node.type === 'title' || !node.type),
   )
 })
 
@@ -5793,7 +5823,7 @@ const generateQuoteSuggestions = async () => {
 
     // Extract context from graph nodes
     const graphContext = graphData.value.nodes
-      .filter((node) => node.visible !== false && node.info)
+      .filter((node) => isNodeVisibleForUser(node) && node.info)
       .map((node) => ({
         id: node.id,
         label: node.label || 'Untitled',
@@ -6305,6 +6335,7 @@ const openNodeEditModal = (node) => {
     label: node.label || '',
     info: node.info || '',
     type: node.type || 'default',
+    superadminOnly: !!node.superadminOnly,
     // Preserve any additional properties (like _emailTemplate, _emailField for virtual nodes)
     ...node
   }
@@ -6900,7 +6931,7 @@ const getFulltextNodes = () => {
   const fulltextNodes = graphData.value.nodes
     .filter(node => {
       const isTextNode = node.type === 'fulltext' || node.type === 'title'
-      const isVisible = node.visible !== false
+      const isVisible = isNodeVisibleForUser(node)
       return isTextNode && isVisible
     })
 
@@ -7408,6 +7439,7 @@ const saveNodeChanges = async () => {
         ...graphData.value.nodes[nodeIndex],
         label: editingNode.value.label,
         info: editingNode.value.info,
+        superadminOnly: !!editingNode.value.superadminOnly,
         updatedAt: new Date().toISOString(),
       }
 
@@ -7568,7 +7600,7 @@ const handleNodeDeleted = async (nodeId) => {
     graphData.value.nodes.splice(nodeIndex, 1)
 
     // Reassign order values to maintain sequence
-    const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+    const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
     visibleNodes.forEach((n, index) => {
       n.order = index + 1
     })
@@ -8748,7 +8780,7 @@ const handleEscKey = (event) => {
 // ===================================
 
 const moveNodeUp = async (node) => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
   const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
   const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
 
@@ -8765,7 +8797,7 @@ const moveNodeUp = async (node) => {
 }
 
 const moveNodeDown = async (node) => {
-  const visibleNodes = graphData.value.nodes.filter((n) => n.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
   const sortedNodes = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
   const currentIndex = sortedNodes.findIndex((n) => n.id === node.id)
 
@@ -8841,7 +8873,7 @@ const openReorderModal = () => {
   console.log('🔄 Opening reorder modal')
 
   // Prepare reorderable nodes from visible nodes
-  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
   reorderableNodes.value = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 
   // Open the modal
@@ -8922,7 +8954,7 @@ const updateNodePosition = (nodeId, newPosition) => {
 
 // Reset order to original state
 const resetOrder = () => {
-  const visibleNodes = graphData.value.nodes.filter((node) => node.visible !== false)
+  const visibleNodes = graphData.value.nodes.filter(isNodeVisibleForUser)
   reorderableNodes.value = visibleNodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 }
 
