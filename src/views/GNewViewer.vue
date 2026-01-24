@@ -544,7 +544,18 @@
           <div class="node-edit-modal">
             <div class="modal-header">
               <h4>✏️ Edit Node Content</h4>
-              <button @click="closeNodeEditModal" class="btn-close">&times;</button>
+              <div class="d-flex align-items-center gap-2">
+                <button
+                  v-if="canDeleteEditingNode"
+                  @click="deleteEditingNode"
+                  class="btn btn-sm btn-outline-danger"
+                  :disabled="savingNode"
+                  title="Delete this node"
+                >
+                  🗑️ Delete
+                </button>
+                <button @click="closeNodeEditModal" class="btn-close">&times;</button>
+              </div>
             </div>
 
             <div class="modal-body">
@@ -633,6 +644,43 @@
                   <small class="text-muted ms-2" v-if="selectedText">
                     Selected: "{{ truncateSelectedText }}"
                   </small>
+
+                  <div class="node-find-replace d-flex flex-wrap align-items-center gap-2 mt-2">
+                    <input
+                      v-model="nodeFindText"
+                      type="text"
+                      class="form-control form-control-sm"
+                      placeholder="Find in node..."
+                    />
+                    <input
+                      v-model="nodeReplaceText"
+                      type="text"
+                      class="form-control form-control-sm"
+                      placeholder="Replace with..."
+                    />
+                    <div class="form-check form-check-inline m-0">
+                      <input
+                        id="replace-node-title"
+                        class="form-check-input"
+                        type="checkbox"
+                        v-model="replaceNodeTitle"
+                      />
+                      <label class="form-check-label small" for="replace-node-title">
+                        Title
+                      </label>
+                    </div>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      type="button"
+                      @click="applyNodeFindReplace"
+                      :disabled="!canReplaceNodeText"
+                    >
+                      Replace in Node
+                    </button>
+                    <small v-if="nodeReplaceStatus" class="text-muted">
+                      {{ nodeReplaceStatus }}
+                    </small>
+                  </div>
 
                   <!-- Mobile fallback button when no text is selected but content exists -->
                   <button
@@ -2948,6 +2996,10 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+const nodeFindText = ref('')
+const nodeReplaceText = ref('')
+const nodeReplaceStatus = ref('')
+const replaceNodeTitle = ref(true)
 
 // AI Rewrite functionality
 const showAIRewriteModal = ref(false)
@@ -3036,6 +3088,15 @@ const sortedNodes = computed(() => {
 // AI Elaborate computed properties
 const hasSelectedText = computed(() => {
   return selectedText.value.trim().length > 0
+})
+
+const canReplaceNodeText = computed(() => {
+  return nodeFindText.value.trim().length > 0
+})
+
+const canDeleteEditingNode = computed(() => {
+  if (!editingNode.value?.id) return false
+  return !String(editingNode.value.id).startsWith('email-template-')
 })
 
 const truncateSelectedText = computed(() => {
@@ -6247,6 +6308,10 @@ const openNodeEditModal = (node) => {
     // Preserve any additional properties (like _emailTemplate, _emailField for virtual nodes)
     ...node
   }
+  nodeFindText.value = ''
+  nodeReplaceText.value = ''
+  nodeReplaceStatus.value = ''
+  replaceNodeTitle.value = true
   showNodeEditModal.value = true
 }
 
@@ -6254,6 +6319,10 @@ const closeNodeEditModal = () => {
   showNodeEditModal.value = false
   editingNode.value = {}
   savingNode.value = false
+  nodeFindText.value = ''
+  nodeReplaceText.value = ''
+  nodeReplaceStatus.value = ''
+  replaceNodeTitle.value = true
 }
 
 // AI Rewrite methods
@@ -6316,6 +6385,60 @@ const showMobileAITools = () => {
 
     console.log('🎯 Mobile: Selected all text for AI tools')
   }
+}
+
+const applyNodeFindReplace = () => {
+  const searchText = nodeFindText.value.trim()
+  const replacement = nodeReplaceText.value
+  const currentContent = String(editingNode.value?.info || '')
+
+  if (!searchText) return
+
+  const regex = new RegExp(searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+  const matches = currentContent.match(regex)
+  const matchCount = matches ? matches.length : 0
+
+  if (matchCount === 0) {
+    if (replaceNodeTitle.value) {
+      const currentLabel = String(editingNode.value?.label || '')
+      const labelMatches = currentLabel.match(regex)
+      const labelCount = labelMatches ? labelMatches.length : 0
+
+      if (labelCount > 0) {
+        editingNode.value.label = currentLabel.replace(regex, replacement)
+        nodeReplaceStatus.value = `Replaced ${labelCount} occurrence${labelCount === 1 ? '' : 's'} in title`
+        return
+      }
+    }
+
+    nodeReplaceStatus.value = 'No matches found'
+    return
+  }
+
+  editingNode.value.info = currentContent.replace(regex, replacement)
+  let totalMatches = matchCount
+
+  if (replaceNodeTitle.value) {
+    const currentLabel = String(editingNode.value?.label || '')
+    const labelMatches = currentLabel.match(regex)
+    const labelCount = labelMatches ? labelMatches.length : 0
+    if (labelCount > 0) {
+      editingNode.value.label = currentLabel.replace(regex, replacement)
+      totalMatches += labelCount
+    }
+  }
+
+  nodeReplaceStatus.value = `Replaced ${totalMatches} occurrence${totalMatches === 1 ? '' : 's'}`
+}
+
+const deleteEditingNode = async () => {
+  const nodeId = editingNode.value?.id
+  if (!nodeId || !canDeleteEditingNode.value) return
+
+  if (!confirm('Are you sure you want to delete this node?')) return
+
+  closeNodeEditModal()
+  await handleNodeDeleted(nodeId)
 }
 
 const openAIRewriteModal = () => {

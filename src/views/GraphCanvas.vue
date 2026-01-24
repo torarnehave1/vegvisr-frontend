@@ -796,6 +796,7 @@ import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GNewVideoNode from '@/components/GNewNodes/GNewVideoNode.vue'
 import GNewAudioVisualizerNode from '@/components/GNewNodes/GNewAudioVisualizerNode.vue'
 import GNewGuideNode from '@/components/GNewNodes/GNewGuideNode.vue'
+import GNewHtmlNode from '@/components/GNewNodes/GNewHtmlNode.vue'
 import NodeEditModal from '@/components/NodeEditModal.vue'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
@@ -1282,6 +1283,22 @@ const nodeHtmlOverlays = computed(() => {
           id: node.id(),
           label: data.label || '',
           type: data.type || 'guide-node',
+        },
+      })
+    }
+
+    if (data.type === 'html-node') {
+      overlays.push({
+        id: node.id(),
+        isSelected: node.selected(),
+        style: overlayStyle,
+        component: GNewHtmlNode,
+        node: {
+          ...data,
+          id: node.id(),
+          label: data.label || '',
+          type: data.type || 'html-node',
+          info: data.info || '',
         },
       })
     }

@@ -187,7 +187,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   overflow: hidden;
   background: #ffffff;
-  min-height: 320px;
+  min-height: 640px;
 }
 
 .html-container.fullscreen {
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
 .html-iframe {
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 640px;
   border: none;
   display: block;
 }
