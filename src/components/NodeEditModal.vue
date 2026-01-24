@@ -66,6 +66,43 @@
             <small class="text-muted ms-2" v-if="selectedText">
               Selected: "{{ truncateSelectedText }}"
             </small>
+
+            <div class="node-find-replace d-flex flex-wrap align-items-center gap-2 mt-2">
+              <input
+                v-model="findText"
+                type="text"
+                class="form-control form-control-sm"
+                placeholder="Find in node..."
+              />
+              <input
+                v-model="replaceText"
+                type="text"
+                class="form-control form-control-sm"
+                placeholder="Replace with..."
+              />
+              <div class="form-check form-check-inline m-0">
+                <input
+                  id="replace-node-title-modal"
+                  class="form-check-input"
+                  type="checkbox"
+                  v-model="replaceTitle"
+                />
+                <label class="form-check-label small" for="replace-node-title-modal">
+                  Title
+                </label>
+              </div>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                type="button"
+                @click="applyFindReplace"
+                :disabled="!canReplaceText"
+              >
+                Replace in Node
+              </button>
+              <small v-if="replaceStatus" class="text-muted">
+                {{ replaceStatus }}
+              </small>
+            </div>
           </div>
           <div class="textarea-container">
             <textarea
@@ -191,6 +228,10 @@ const selectedText = ref('')
 const selectedTextStart = ref(0)
 const selectedTextEnd = ref(0)
 const contentTextarea = ref(null)
+const findText = ref('')
+const replaceText = ref('')
+const replaceTitle = ref(true)
+const replaceStatus = ref('')
 
 // Autocomplete state
 const showAutocomplete = ref(false)
@@ -326,6 +367,33 @@ const formatElements = [
   },
 ]
 
+const canReplaceText = computed(() => {
+  return findText.value.trim() !== '' && replaceText.value.trim() !== ''
+})
+
+const escapeRegExp = (value) => {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const applyFindReplace = () => {
+  if (!canReplaceText.value) return
+  const searchText = findText.value
+  const replacement = replaceText.value
+  const regex = new RegExp(escapeRegExp(searchText), 'g')
+  const currentContent = String(localNode.value?.info || '')
+  const currentLabel = String(localNode.value?.label || '')
+
+  localNode.value.info = currentContent.replace(regex, replacement)
+  if (replaceTitle.value && currentLabel) {
+    localNode.value.label = currentLabel.replace(regex, replacement)
+  }
+
+  replaceStatus.value = '✅ Replaced'
+  setTimeout(() => {
+    replaceStatus.value = ''
+  }, 1500)
+}
+
 // Quick colors palette
 const quickColors = [
   { name: 'Light Gray', hex: '#f8f9fa' },
@@ -410,6 +478,10 @@ watch(() => props.node, (newNode) => {
       path: newNode.path || '',
       ...newNode
     }
+    findText.value = ''
+    replaceText.value = ''
+    replaceTitle.value = true
+    replaceStatus.value = ''
   }
 }, { immediate: true, deep: true })
 
@@ -421,6 +493,10 @@ watch(() => props.show, (isShowing) => {
     selectedTextEnd.value = 0
     showAutocomplete.value = false
     currentTrigger.value = ''
+    findText.value = ''
+    replaceText.value = ''
+    replaceTitle.value = true
+    replaceStatus.value = ''
   }
 })
 

@@ -3,6 +3,9 @@
     <div v-if="showControls || node.label" class="html-header">
       <h3 v-if="node.label" class="html-title">{{ node.label }}</h3>
       <div v-if="showControls" class="html-controls">
+        <button v-if="!isPreview" @click="editNode" class="btn-control" title="Edit HTML Node">
+          ✏️ Edit
+        </button>
         <button @click="toggleFullscreen" class="btn-control" title="Toggle Fullscreen">
           {{ isFullscreen ? '🗗 Exit Fullscreen' : '⛶ Fullscreen' }}
         </button>
@@ -121,6 +124,11 @@ const deleteNode = () => {
   if (confirm('Are you sure you want to delete this node?')) {
     emit('node-deleted', props.node.id)
   }
+}
+
+const editNode = () => {
+  if (!props.showControls || props.isPreview) return
+  emit('node-updated', { ...props.node, action: 'edit' })
 }
 
 watch(() => props.node.info, () => {
