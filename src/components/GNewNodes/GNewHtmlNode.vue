@@ -6,6 +6,9 @@
         <button v-if="!isPreview" @click="editNode" class="btn-control" title="Edit HTML Node">
           ✏️ Edit
         </button>
+        <button v-if="isSuperadmin" @click="publishHtml" class="btn-control" title="Publish HTML">
+          🚀 Publish
+        </button>
         <button @click="toggleFullscreen" class="btn-control" title="Toggle Fullscreen">
           {{ isFullscreen ? '🗗 Exit Fullscreen' : '⛶ Fullscreen' }}
         </button>
@@ -129,6 +132,40 @@ const deleteNode = () => {
 const editNode = () => {
   if (!props.showControls || props.isPreview) return
   emit('node-updated', { ...props.node, action: 'edit' })
+}
+
+const publishHtml = async () => {
+  if (!props.node.info) {
+    alert('No HTML content to publish.')
+    return
+  }
+
+  const savedDomain = localStorage.getItem('gnew-html-publish-domain') || ''
+  const hostname = prompt('Publish to domain (e.g., test.slowyou.training):', savedDomain)
+  if (!hostname || !hostname.trim()) return
+
+  const cleanHostname = hostname.trim().toLowerCase()
+  localStorage.setItem('gnew-html-publish-domain', cleanHostname)
+
+  try {
+    const response = await fetch('https://test.slowyou.training/__html/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostname: cleanHostname,
+        html: String(props.node.info || '')
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Publish failed (${response.status})`)
+    }
+
+    alert(`Published to https://${cleanHostname}/`)
+  } catch (error) {
+    console.error('Publish HTML error:', error)
+    alert('Publish failed. Please try again.')
+  }
 }
 
 watch(() => props.node.info, () => {
