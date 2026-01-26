@@ -162,6 +162,17 @@
               />
             </div>
 
+            <!-- Album Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Album:</label>
+              <select v-model="selectedAlbum" class="filter-select">
+                <option value="">All Albums</option>
+                <option v-for="album in albums" :key="album" :value="album">
+                  {{ album }}
+                </option>
+              </select>
+            </div>
+
             <!-- Year Filter -->
             <div class="filter-group">
               <label class="filter-label">Year:</label>
@@ -190,6 +201,9 @@
             <div class="filter-results">
               <span class="results-count">{{ filteredImages.length }} of {{ r2Images.length }} images</span>
             </div>
+          </div>
+          <div v-if="albumError" class="alert alert-warning py-2 mb-3">
+            <small>{{ albumError }}</small>
           </div>
 
           <!-- Image Grid -->
@@ -243,6 +257,9 @@ const r2Images = ref([])
 const searchQuery = ref('')
 const selectedYear = ref('')
 const sortOrder = ref('newest')
+const albums = ref([])
+const selectedAlbum = ref('')
+const albumError = ref('')
 
 // Preview settings for modal display (small/fast)
 const previewSettings = ref({
@@ -410,10 +427,37 @@ const getOutputImageUrl = (baseUrl) => {
   return baseUrl + params
 }
 
+const buildListUrl = () => {
+  const url = new URL('https://api.vegvisr.org/list-r2-images?size=small')
+  if (selectedAlbum.value) {
+    url.searchParams.set('album', selectedAlbum.value)
+  }
+  return url.toString()
+}
+
+const fetchAlbums = async () => {
+  try {
+    albumError.value = ''
+    const res = await fetch('https://api.vegvisr.org/photo-albums')
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`)
+    }
+    const data = await res.json()
+    albums.value = Array.isArray(data?.albums) ? data.albums : []
+    if (selectedAlbum.value && !albums.value.includes(selectedAlbum.value)) {
+      selectedAlbum.value = ''
+    }
+  } catch (error) {
+    console.error('❌ Error fetching albums:', error)
+    albumError.value = 'Unable to load albums right now.'
+    albums.value = []
+  }
+}
+
 const fetchR2Images = async () => {
   try {
     console.log('🖼️ Fetching R2 portfolio images...')
-    const res = await fetch('https://api.vegvisr.org/list-r2-images?size=small')
+    const res = await fetch(buildListUrl())
 
     if (!res.ok) {
       throw new Error(`HTTP error! status: ${res.status}`)
@@ -496,6 +540,7 @@ const formatDate = (date) => {
 
 const resetFilters = () => {
   searchQuery.value = ''
+  selectedAlbum.value = ''
   selectedYear.value = ''
   sortOrder.value = 'newest'
 }
@@ -505,6 +550,16 @@ watch(
   () => props.isOpen,
   (newValue) => {
     if (newValue) {
+      fetchAlbums()
+      fetchR2Images()
+    }
+  },
+)
+
+watch(
+  () => selectedAlbum.value,
+  () => {
+    if (props.isOpen) {
       fetchR2Images()
     }
   },
@@ -513,6 +568,7 @@ watch(
 // Fetch images on mount if modal is already open
 onMounted(() => {
   if (props.isOpen) {
+    fetchAlbums()
     fetchR2Images()
   }
 })
