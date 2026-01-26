@@ -1,7 +1,19 @@
 <template>
   <div class="gnew-html-node">
     <div v-if="showControls || node.label" class="html-header">
-      <h3 v-if="node.label" class="html-title">{{ node.label }}</h3>
+      <div class="html-title-wrap">
+        <h3 v-if="node.label" class="html-title">{{ node.label }}</h3>
+        <a
+          v-if="node.publishedDomain"
+          class="publish-badge"
+          :href="`https://${node.publishedDomain}`"
+          target="_blank"
+          rel="noopener"
+          title="Open published domain"
+        >
+          ✅ Published · {{ node.publishedDomain }}
+        </a>
+      </div>
       <div v-if="showControls" class="html-controls">
         <button v-if="!isPreview" @click="editNode" class="btn-control" title="Edit HTML Node">
           ✏️ Edit
@@ -148,19 +160,63 @@ const publishHtml = async () => {
   localStorage.setItem('gnew-html-publish-domain', cleanHostname)
 
   try {
+    let overwrite = false
+    try {
+      const checkRes = await fetch(
+        `https://test.slowyou.training/__html/check?hostname=${encodeURIComponent(cleanHostname)}`,
+      )
+      if (checkRes.ok) {
+        const checkData = await checkRes.json()
+        if (checkData?.exists) {
+          const confirmOverwrite = confirm(
+            `"${cleanHostname}" already has published content. Overwrite it?`,
+          )
+          if (!confirmOverwrite) return
+          overwrite = true
+        }
+      }
+    } catch {
+      // If check fails, fall back to publish attempt.
+    }
+
     const response = await fetch('https://test.slowyou.training/__html/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hostname: cleanHostname,
-        html: String(props.node.info || '')
-      })
+        html: String(props.node.info || ''),
+        overwrite
+      }),
     })
 
     if (!response.ok) {
-      throw new Error(`Publish failed (${response.status})`)
+      if (response.status === 409) {
+        const confirmOverwrite = confirm(
+          `"${cleanHostname}" already has published content. Overwrite it?`,
+        )
+        if (!confirmOverwrite) return
+        const retry = await fetch('https://test.slowyou.training/__html/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hostname: cleanHostname,
+            html: String(props.node.info || ''),
+            overwrite: true
+          }),
+        })
+        if (!retry.ok) {
+          throw new Error(`Publish failed (${retry.status})`)
+        }
+      } else {
+        throw new Error(`Publish failed (${response.status})`)
+      }
     }
 
+    emit('node-updated', {
+      ...props.node,
+      publishedDomain: cleanHostname,
+      publishedAt: new Date().toISOString(),
+    })
     alert(`Published to https://${cleanHostname}/`)
   } catch (error) {
     console.error('Publish HTML error:', error)
@@ -190,16 +246,42 @@ onBeforeUnmount(() => {
 
 .html-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.html-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .html-title {
   margin: 0;
   font-size: 1.2rem;
   font-weight: 600;
+}
+
+.publish-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e6f4ea;
+  color: #146c2e;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid #b7e1c2;
+}
+
+.publish-badge:hover {
+  background: #d7efe0;
+  color: #0f5223;
 }
 
 .html-controls {
