@@ -203,32 +203,56 @@
 
       <!-- Input Area -->
       <div class="input-area">
-        <textarea
-          ref="inputTextarea"
-          v-model="userInput"
-          @keydown.enter.ctrl.prevent="sendMessage"
-          @keydown.enter.meta.prevent="sendMessage"
-          @keydown.escape="$emit('close')"
-          placeholder="Type your code change request... (Ctrl+Enter to send)"
-          :disabled="isLoading"
-          rows="2"
-        ></textarea>
-        <div class="input-actions">
-          <button
-            v-if="conversationHistory.length > 0"
-            @click="clearConversation"
-            class="btn btn-outline-secondary clear-btn"
-            title="Clear conversation"
-          >
-            🗑️
-          </button>
-          <button
-            @click="sendMessage"
-            class="btn btn-primary send-btn"
-            :disabled="!userInput.trim() || isLoading"
-          >
-            {{ isLoading ? '...' : 'Send' }}
-          </button>
+        <!-- Image Preview -->
+        <div v-if="attachedImage" class="image-preview">
+          <img :src="attachedImage.dataUrl" :alt="attachedImage.name" class="preview-thumb" />
+          <span class="image-name">{{ attachedImage.name }}</span>
+          <button @click="removeImage" class="remove-image-btn" title="Remove image">&times;</button>
+        </div>
+        <div class="input-row">
+          <textarea
+            ref="inputTextarea"
+            v-model="userInput"
+            @keydown.enter.ctrl.prevent="sendMessage"
+            @keydown.enter.meta.prevent="sendMessage"
+            @keydown.escape="$emit('close')"
+            :placeholder="attachedImage ? 'Describe what you want to do with this image...' : 'Type your code change request... (Ctrl+Enter to send)'"
+            :disabled="isLoading"
+            rows="2"
+          ></textarea>
+          <div class="input-actions">
+            <input
+              type="file"
+              ref="imageInput"
+              accept="image/*"
+              @change="handleImageUpload"
+              style="display: none"
+            />
+            <button
+              v-if="supportsVision"
+              @click="$refs.imageInput.click()"
+              class="btn btn-outline-secondary image-btn"
+              :disabled="isLoading"
+              title="Attach image for analysis (OpenAI/Claude only)"
+            >
+              🖼️
+            </button>
+            <button
+              v-if="conversationHistory.length > 0"
+              @click="clearConversation"
+              class="btn btn-outline-secondary clear-btn"
+              title="Clear conversation"
+            >
+              🗑️
+            </button>
+            <button
+              @click="sendMessage"
+              class="btn btn-primary send-btn"
+              :disabled="(!userInput.trim() && !attachedImage) || isLoading"
+            >
+              {{ isLoading ? '...' : 'Send' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -298,6 +322,8 @@ const userInput = ref('')
 const isLoading = ref(false)
 const conversationArea = ref(null)
 const inputTextarea = ref(null)
+const imageInput = ref(null)
+const attachedImage = ref(null)
 const currentHtmlState = ref(props.htmlContent)
 
 // Computed
@@ -313,6 +339,11 @@ const providerLabel = computed(() => {
 // Track if there are unsaved changes
 const hasUnsavedChanges = computed(() => {
   return currentHtmlState.value !== props.htmlContent
+})
+
+// Check if current provider supports vision/image analysis
+const supportsVision = computed(() => {
+  return provider.value === 'openai' || provider.value === 'claude'
 })
 
 // Create a summary of the graph data for AI context
@@ -365,14 +396,8 @@ const detectedIssues = computed(() => {
   }
 
   // Check for wrong API parameter
-  if (code.includes('?id=') && code.includes('getknowgraph')) {
-    issues.push('Uses "?id=" but API expects "?graphId="')
-  }
-
-  // Check for MongoDB-style ID (24 hex chars) instead of UUID
-  const mongoIdMatch = code.match(/GRAPH_ID\s*=\s*['"]([a-f0-9]{24})['"]/i)
-  if (mongoIdMatch) {
-    issues.push(`Graph ID "${mongoIdMatch[1]}" looks like MongoDB ObjectID, should be UUID format`)
+  if (code.includes('?graphId=') && code.includes('getknowgraph')) {
+    issues.push('Uses "?graphId=" but API expects "?id="')
   }
 
   return issues
@@ -385,108 +410,47 @@ const askAboutIssues = () => {
   sendMessage()
 }
 
-// System prompt for code assistant - focused on snippets and guidance
-// Enhanced with Vegvisr Knowledge Graph API context
-const systemPrompt = `You are a code assistant helping debug and modify HTML/CSS/JavaScript code for the Vegvisr platform.
+// System prompt for code assistant - simple and focused
+const systemPrompt = `You are a code assistant for HTML/CSS/JavaScript.
 
-## VEGVISR KNOWLEDGE GRAPH API REFERENCE
+## VEGVISR KNOWLEDGE GRAPH - BASIC FACTS
 
-When working with code that fetches data from the Vegvisr Knowledge Graph API, use this reference:
+This is simple stuff:
+1. **API**: \`https://knowledge.vegvisr.org/getknowgraph?id=YOUR_GRAPH_ID\` (use \`id\`, not \`graphId\`)
+2. **Node has 3 key fields**:
+   - \`node.id\` - the node's unique ID
+   - \`node.label\` - the node's title (NOT "title")
+   - \`node.info\` - the node's content in markdown (NOT "fulltext" or "description")
+3. **Render content**: Just use \`marked(node.info)\` to convert markdown to HTML
 
-**API Endpoint:**
-\`https://knowledge.vegvisr.org/getknowgraph\`
+That's it. Load nodes, get label and info, render with marked.
 
-**Query Parameters:**
-- \`graphId\` (required) - The UUID of the graph (NOT "id")
-  Example: \`?graphId=81e55d4a-a2d1-456b-93e4-d548c7d70a2b\`
-- \`nodeId\` (optional) - Fetch a specific node by ID
-- \`nodeTitle\` (optional) - Search nodes by title
+## CLOUD STORAGE API
 
-**IMPORTANT - Graph ID Format:**
-- Graph IDs are UUIDs like: \`81e55d4a-a2d1-456b-93e4-d548c7d70a2b\`
-- NOT MongoDB ObjectIDs like: \`6784be6a1d8e9f7e4f4b5b44\`
+HTML nodes have access to persistent cloud storage. These functions are automatically available:
 
-**Node Object Structure (what the API returns):**
 \`\`\`javascript
-{
-  id: "node-uuid-here",
-  label: "Node Title",        // USE THIS (not "title")
-  info: "Node content...",    // USE THIS (not "fulltext" or "description")
-  type: "html-node",
-  x: 100,
-  y: 200
-}
+// Save data (value can be string or object)
+await saveData('user:john@example.com', { name: 'John', registered: Date.now() });
+
+// Load single key (returns null if not found)
+const user = await loadData('user:john@example.com');
+
+// Load all stored data for this node
+const allData = await loadAllData();
+// Returns: [{ key: 'user:john', value: {...} }, ...]
+
+// Delete data
+await deleteData('user:john@example.com');
 \`\`\`
 
-**COMMON MISTAKES TO CHECK:**
-1. Using \`node.title\` instead of \`node.label\`
-2. Using \`node.fulltext\` or \`node.description\` instead of \`node.info\`
-3. Using \`?id=\` instead of \`?graphId=\`
-4. Using wrong Graph ID format (MongoDB ObjectID vs UUID)
-
----
+Use prefixes for keys: \`user:\`, \`form:\`, \`config:\`, \`reg:\` etc.
+NEVER use localStorage - always use these cloud storage functions for persistent data.
 
 ## YOUR JOB
 
-1. ANALYZE the issue or request
-2. EXPLAIN what's wrong or what needs to change
-3. Give SPECIFIC code snippets (not the full document)
-4. Tell the user EXACTLY WHERE to make the change (function name, line context, or section)
-
-## RESPONSE FORMAT
-
-1. **Analysis**: What's happening and why
-2. **Solution**: What needs to change
-3. **Location**: Where in the code (e.g., "In the loadWeek() function" or "At the top where GRAPH_ID is defined")
-4. **Code snippet**: Only the relevant lines to add/modify/replace
-
-## EXAMPLE RESPONSE
-
-"**Analysis**: The code is using wrong field names. The API returns \`label\` and \`info\`, but the code uses \`title\` and \`fulltext\`.
-
-**Solution**: Change the field names to match the API response.
-
-**Location 1**: In the renderNodeContent() function
-
-**Change this**:
-\`\`\`javascript
-if (node.title) {
-  html += \`<h1>\${node.title}</h1>\`;
-}
-\`\`\`
-
-**To this**:
-\`\`\`javascript
-if (node.label) {
-  html += \`<h1>\${node.label}</h1>\`;
-}
-\`\`\`
-
-**Location 2**: Same function, a few lines below
-
-**Change this**:
-\`\`\`javascript
-if (node.fulltext) {
-  html += formatContent(node.fulltext);
-}
-\`\`\`
-
-**To this**:
-\`\`\`javascript
-if (node.info) {
-  html += formatContent(node.info);
-}
-\`\`\`"
-
-## IMPORTANT RULES
-
-- NEVER return the complete HTML document
-- Give small, focused snippets
-- Always specify the exact location
-- Check for common Vegvisr API mistakes first
-- Explain your reasoning
-- If you need more context about a specific function, ask
-- Use \`\`\`javascript or \`\`\`css or \`\`\`html for code blocks`
+Give SHORT, SPECIFIC fixes. Show "Change this" / "To this" code snippets.
+Never return the full HTML document.`
 
 // Get API endpoint based on provider (same as GrokChatPanel)
 const getEndpoint = () => {
@@ -557,10 +521,44 @@ const buildPayload = (userMessage) => {
 
   contextInfo += `Request: ${userMessage}`
 
+  // Build user content - with or without image
+  let userContent
+  if (attachedImage.value && supportsVision.value) {
+    // For vision-enabled providers, send image with text
+    if (currentProvider === 'openai') {
+      userContent = [
+        { type: 'text', text: contextInfo },
+        {
+          type: 'image_url',
+          image_url: {
+            url: attachedImage.value.dataUrl,
+            detail: 'high'
+          }
+        }
+      ]
+    } else if (currentProvider === 'claude') {
+      userContent = [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: attachedImage.value.type,
+            data: attachedImage.value.base64
+          }
+        },
+        { type: 'text', text: contextInfo }
+      ]
+    } else {
+      userContent = contextInfo
+    }
+  } else {
+    userContent = contextInfo
+  }
+
   // Build conversation messages
   const grokMessages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: contextInfo }
+    { role: 'user', content: userContent }
   ]
 
   // Add conversation history
@@ -672,7 +670,45 @@ const copyFullCode = async () => {
 const clearConversation = () => {
   if (confirm('Clear the conversation history?')) {
     conversationHistory.value = []
+    attachedImage.value = null
   }
+}
+
+// Handle image upload for vision analysis
+const handleImageUpload = (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // Validate file type
+  if (!file.type.startsWith('image/')) {
+    alert('Please select an image file')
+    return
+  }
+
+  // Validate file size (max 10MB)
+  if (file.size > 10 * 1024 * 1024) {
+    alert('Image must be smaller than 10MB')
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    attachedImage.value = {
+      name: file.name,
+      type: file.type,
+      dataUrl: e.target.result,
+      base64: e.target.result.split(',')[1] // Remove data:image/...;base64, prefix
+    }
+  }
+  reader.readAsDataURL(file)
+
+  // Reset input so same file can be selected again
+  event.target.value = ''
+}
+
+// Remove attached image
+const removeImage = () => {
+  attachedImage.value = null
 }
 
 // Parse AI response to find "Change this / To this" code replacement pairs
@@ -786,13 +822,26 @@ const saveAndClose = () => {
 // Send message to AI
 const sendMessage = async () => {
   const message = userInput.value.trim()
-  if (!message || isLoading.value) return
+  const hasImage = !!attachedImage.value
+
+  // Need either message or image
+  if (!message && !hasImage) return
+  if (isLoading.value) return
+
+  // Build user message content for display
+  let displayMessage = message || '(Analyzing attached image...)'
+  if (hasImage) {
+    displayMessage = `🖼️ [Image: ${attachedImage.value.name}]\n${message || 'Please analyze this image and suggest code changes.'}`
+  }
 
   // Add user message to history
   conversationHistory.value.push({
     role: 'user',
-    content: message
+    content: displayMessage
   })
+
+  // Clear image after sending
+  attachedImage.value = null
 
   userInput.value = ''
   isLoading.value = true
@@ -1509,10 +1558,78 @@ watch(() => props.htmlContent, (newVal) => {
 
 .input-area {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 16px 20px;
   border-top: 1px solid #e5e7eb;
   background: white;
+}
+
+.input-row {
+  display: flex;
+  gap: 12px;
+}
+
+.input-row textarea {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: none;
+  font-family: inherit;
+}
+
+/* Image Preview */
+.image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+}
+
+.preview-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+}
+
+.image-name {
+  flex: 1;
+  font-size: 13px;
+  color: #1e40af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove-image-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.remove-image-btn:hover {
+  background: #dc2626;
+}
+
+.image-btn {
+  padding: 8px 12px;
+  font-size: 16px;
 }
 
 .input-area textarea {
@@ -1525,13 +1642,13 @@ watch(() => props.htmlContent, (newVal) => {
   font-family: inherit;
 }
 
-.input-area textarea:focus {
+.input-row textarea:focus {
   outline: none;
   border-color: #6366f1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
-.input-area textarea:disabled {
+.input-row textarea:disabled {
   background: #f3f4f6;
 }
 

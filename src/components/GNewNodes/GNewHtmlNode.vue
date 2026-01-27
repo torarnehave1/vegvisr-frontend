@@ -93,6 +93,137 @@ const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
 })
 
+// Storage helper script to inject into HTML content
+const getStorageHelperScript = (nodeId) => `
+<script>
+// Cloud Storage Helper for HTML Node
+// Node ID: ${nodeId}
+(function() {
+  const NODE_ID = '${nodeId}';
+  let requestCounter = 0;
+
+  function sendToParent(action, payload) {
+    return new Promise((resolve, reject) => {
+      const requestId = 'storage_' + (++requestCounter) + '_' + Date.now();
+
+      const handler = (event) => {
+        if (event.data.type === 'CLOUD_STORAGE_RESPONSE' && event.data.requestId === requestId) {
+          window.removeEventListener('message', handler);
+          if (event.data.success) {
+            resolve(event.data.data);
+          } else {
+            reject(new Error(event.data.error || 'Request failed'));
+          }
+        }
+      };
+
+      window.addEventListener('message', handler);
+
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        reject(new Error('Storage request timeout'));
+      }, 15000);
+
+      window.parent.postMessage({
+        type: 'CLOUD_STORAGE_REQUEST',
+        requestId,
+        payload: { action, appId: NODE_ID, ...payload }
+      }, '*');
+    });
+  }
+
+  // Save data to cloud storage
+  async function saveData(key, value) {
+    try {
+      const result = await sendToParent('save', { key, value: typeof value === 'object' ? JSON.stringify(value) : String(value) });
+      return result.success !== false;
+    } catch (error) {
+      console.error('saveData error:', error);
+      return false;
+    }
+  }
+
+  // Load data from cloud storage
+  async function loadData(key) {
+    try {
+      const result = await sendToParent('load', { key });
+      if (result && result.data && result.data.value !== undefined) {
+        try {
+          return JSON.parse(result.data.value);
+        } catch {
+          return result.data.value;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('loadData error:', error);
+      return null;
+    }
+  }
+
+  // Load all data for this node
+  async function loadAllData() {
+    try {
+      const result = await sendToParent('loadAll', {});
+      if (result && result.data) {
+        return result.data.map(item => ({
+          key: item.key,
+          value: (() => { try { return JSON.parse(item.value); } catch { return item.value; } })()
+        }));
+      }
+      return [];
+    } catch (error) {
+      console.error('loadAllData error:', error);
+      return [];
+    }
+  }
+
+  // Delete data from cloud storage
+  async function deleteData(key) {
+    try {
+      const result = await sendToParent('delete', { key });
+      return result.success !== false;
+    } catch (error) {
+      console.error('deleteData error:', error);
+      return false;
+    }
+  }
+
+  // Make functions globally accessible
+  window.saveData = saveData;
+  window.loadData = loadData;
+  window.loadAllData = loadAllData;
+  window.deleteData = deleteData;
+
+  console.log('✅ Cloud Storage ready for node:', NODE_ID);
+  console.log('📦 Available: saveData(key, value), loadData(key), loadAllData(), deleteData(key)');
+})();
+</scr` + `ipt>
+`
+
+// Inject storage helpers into HTML content
+const injectStorageHelpers = (htmlContent, nodeId) => {
+  // Don't inject if already has storage functions
+  if (htmlContent.includes('window.saveData =') || htmlContent.includes('function saveData(')) {
+    return htmlContent
+  }
+
+  const storageScript = getStorageHelperScript(nodeId)
+
+  // Try to inject before </body>
+  if (htmlContent.includes('</body>')) {
+    return htmlContent.replace('</body>', storageScript + '</body>')
+  }
+
+  // Try to inject before </html>
+  if (htmlContent.includes('</html>')) {
+    return htmlContent.replace('</html>', storageScript + '</html>')
+  }
+
+  // Just append if no closing tags found
+  return htmlContent + storageScript
+}
+
 const createHtmlUrl = () => {
   if (!props.node.info) {
     htmlUrl.value = ''
@@ -103,8 +234,8 @@ const createHtmlUrl = () => {
     URL.revokeObjectURL(htmlUrl.value)
   }
 
-  const htmlContent =
-    typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  const rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   htmlUrl.value = URL.createObjectURL(blob)
 }
