@@ -2423,6 +2423,8 @@
     :html-content="editingNode.info || ''"
     :node-id="editingNode.id || ''"
     :node-label="editingNode.label || 'HTML Node'"
+    :graph-id="currentGraphId || ''"
+    :graph-data="graphData"
     @apply-changes="applyCodeAssistantChanges"
     @close="showCodeAssistant = false"
   />

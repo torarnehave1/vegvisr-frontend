@@ -37,28 +37,80 @@
         </div>
       </div>
 
+      <!-- Graph Context Indicator -->
+      <div v-if="graphContextSummary" class="graph-context-bar">
+        <span class="context-icon">📊</span>
+        <span class="context-text">
+          Graph context loaded: <strong>{{ graphContextSummary.totalNodes }} nodes</strong>
+          <span v-if="graphId" class="graph-id">({{ graphId.substring(0, 8) }}...)</span>
+        </span>
+        <button @click="showGraphContext = !showGraphContext" class="context-toggle">
+          {{ showGraphContext ? 'Hide' : 'Show' }} details
+        </button>
+      </div>
+
+      <!-- Graph Context Details (Collapsible) -->
+      <div v-if="showGraphContext && graphContextSummary" class="graph-context-details">
+        <div class="context-section">
+          <strong>Graph ID:</strong> <code>{{ graphContextSummary.graphId }}</code>
+        </div>
+        <div class="context-section">
+          <strong>Node Fields:</strong> {{ graphContextSummary.nodeFields.join(', ') }}
+        </div>
+        <div v-if="graphContextSummary.availableNodeLabels.length > 0" class="context-section">
+          <strong>Sample Labels:</strong>
+          <ul class="label-list">
+            <li v-for="label in graphContextSummary.availableNodeLabels.slice(0, 5)" :key="label">{{ label }}</li>
+          </ul>
+        </div>
+      </div>
+
       <!-- Current Code (Collapsible) -->
       <div class="code-section">
-        <button class="code-toggle" @click="showCurrentCode = !showCurrentCode">
-          <span class="toggle-icon">{{ showCurrentCode ? '▼' : '▶' }}</span>
-          Current Code ({{ lineCount }} lines)
-        </button>
+        <div class="code-header-row">
+          <button class="code-toggle" @click="showCurrentCode = !showCurrentCode">
+            <span class="toggle-icon">{{ showCurrentCode ? '▼' : '▶' }}</span>
+            Current Code ({{ lineCount }} lines)
+          </button>
+          <div class="code-actions">
+            <button @click="copyFullCode" class="btn-action" title="Copy full code">
+              📋 Copy
+            </button>
+          </div>
+        </div>
         <div v-if="showCurrentCode" class="code-display">
           <pre><code>{{ htmlContent }}</code></pre>
         </div>
       </div>
 
+      <!-- Detected Issues Banner -->
+      <div v-if="detectedIssues.length > 0 && conversationHistory.length === 0" class="detected-issues">
+        <div class="issues-header">
+          <span class="issues-icon">⚠️</span>
+          <strong>Potential issues detected:</strong>
+        </div>
+        <ul class="issues-list">
+          <li v-for="(issue, idx) in detectedIssues" :key="idx">
+            {{ issue }}
+          </li>
+        </ul>
+        <button @click="askAboutIssues" class="btn btn-sm btn-warning ask-issues-btn">
+          Ask AI to fix these issues
+        </button>
+      </div>
+
       <!-- Conversation Area -->
       <div class="conversation-area" ref="conversationArea">
         <div v-if="conversationHistory.length === 0" class="empty-state">
-          <p>Ask me to make changes to your HTML code.</p>
+          <p>Describe your issue or what you want to change. I'll analyze the code and give you specific guidance.</p>
           <p class="examples">Examples:</p>
           <ul>
+            <li>"The code doesn't find any nodes" (API field mismatch)</li>
             <li>"Add a loading spinner to the fetch function"</li>
-            <li>"Make the header sticky"</li>
-            <li>"Add dark mode support"</li>
-            <li>"Fix the responsive layout for mobile"</li>
+            <li>"The menu highlighting doesn't update correctly"</li>
+            <li>"Make the error messages more user-friendly"</li>
           </ul>
+          <p class="hint">I understand the Vegvisr Knowledge Graph API and will check for common issues automatically.</p>
         </div>
 
         <div v-for="(message, index) in conversationHistory" :key="index" class="message" :class="message.role">
@@ -67,23 +119,19 @@
             <span class="message-role">{{ message.role === 'user' ? 'You' : providerLabel }}</span>
           </div>
           <div class="message-content">
-            <!-- For assistant messages, separate explanation from code -->
+            <!-- For assistant messages, render the full markdown response -->
             <template v-if="message.role === 'assistant'">
-              <div v-if="message.explanation" class="explanation" v-html="renderMarkdown(message.explanation)"></div>
-              <div v-if="message.code" class="code-response">
-                <div class="code-header">
-                  <span>Updated HTML</span>
-                  <button
-                    v-if="message.code && index === conversationHistory.length - 1"
-                    @click="applyChanges(message.code)"
-                    class="btn btn-sm btn-success apply-btn"
-                  >
-                    ✓ Apply Changes
-                  </button>
-                </div>
-                <pre class="code-block"><code v-html="highlightChanges(message.code)"></code></pre>
+              <div class="assistant-response" v-html="renderMarkdown(message.content)"></div>
+              <!-- Show copy buttons for each code block -->
+              <div v-if="message.hasCodeSnippets" class="snippet-actions">
+                <button
+                  @click="copySnippetsToClipboard(message.content)"
+                  class="btn btn-sm btn-outline-secondary"
+                  title="Copy code snippets"
+                >
+                  📋 Copy Snippets
+                </button>
               </div>
-              <div v-if="!message.code && !message.explanation" v-html="renderMarkdown(message.content)"></div>
             </template>
             <template v-else>
               <div v-html="renderMarkdown(message.content)"></div>
@@ -107,19 +155,32 @@
       <!-- Input Area -->
       <div class="input-area">
         <textarea
+          ref="inputTextarea"
           v-model="userInput"
-          @keydown.enter.exact.prevent="sendMessage"
-          placeholder="Type your code change request..."
+          @keydown.enter.ctrl.prevent="sendMessage"
+          @keydown.enter.meta.prevent="sendMessage"
+          @keydown.escape="$emit('close')"
+          placeholder="Type your code change request... (Ctrl+Enter to send)"
           :disabled="isLoading"
           rows="2"
         ></textarea>
-        <button
-          @click="sendMessage"
-          class="btn btn-primary send-btn"
-          :disabled="!userInput.trim() || isLoading"
-        >
-          {{ isLoading ? '...' : 'Send' }}
-        </button>
+        <div class="input-actions">
+          <button
+            v-if="conversationHistory.length > 0"
+            @click="clearConversation"
+            class="btn btn-outline-secondary clear-btn"
+            title="Clear conversation"
+          >
+            🗑️
+          </button>
+          <button
+            @click="sendMessage"
+            class="btn btn-primary send-btn"
+            :disabled="!userInput.trim() || isLoading"
+          >
+            {{ isLoading ? '...' : 'Send' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -141,6 +202,14 @@ const props = defineProps({
   nodeLabel: {
     type: String,
     default: 'HTML Node'
+  },
+  graphId: {
+    type: String,
+    default: ''
+  },
+  graphData: {
+    type: Object,
+    default: () => ({ nodes: [], edges: [] })
   }
 })
 
@@ -174,10 +243,12 @@ const provider = ref('grok')
 const openaiModel = ref('gpt-5.2')
 const claudeModel = ref('claude-opus-4-5-20251101')
 const showCurrentCode = ref(false)
+const showGraphContext = ref(false)
 const conversationHistory = ref([])
 const userInput = ref('')
 const isLoading = ref(false)
 const conversationArea = ref(null)
+const inputTextarea = ref(null)
 const currentHtmlState = ref(props.htmlContent)
 
 // Computed
@@ -190,17 +261,178 @@ const providerLabel = computed(() => {
   return opt ? opt.label : 'AI'
 })
 
-// System prompt for code assistant
-const systemPrompt = `You are a code assistant helping modify HTML/CSS/JavaScript code.
-The user will ask for specific changes. Respond with:
-1. Brief explanation of what you'll change (2-3 sentences)
-2. The complete updated code (full HTML document)
+// Create a summary of the graph data for AI context
+const graphContextSummary = computed(() => {
+  if (!props.graphData || !props.graphData.nodes || props.graphData.nodes.length === 0) {
+    return null
+  }
 
-IMPORTANT:
-- Always return the COMPLETE updated HTML document, not just snippets
-- Wrap the code in \`\`\`html code fences
-- Preserve all existing functionality unless explicitly asked to remove it
-- Keep the same code style and formatting`
+  const nodes = props.graphData.nodes
+  const sampleNode = nodes[0]
+
+  // Get all unique field names from the first few nodes
+  const allFields = new Set()
+  nodes.slice(0, 5).forEach(node => {
+    Object.keys(node).forEach(key => allFields.add(key))
+  })
+
+  // Create a sample of node labels for context
+  const nodeLabels = nodes.slice(0, 10).map(n => n.label).filter(Boolean)
+
+  return {
+    graphId: props.graphId,
+    totalNodes: nodes.length,
+    nodeFields: Array.from(allFields),
+    sampleNodeStructure: sampleNode ? {
+      id: sampleNode.id,
+      label: sampleNode.label,
+      type: sampleNode.type,
+      hasInfo: !!sampleNode.info,
+      infoPreview: sampleNode.info ? sampleNode.info.substring(0, 100) + '...' : null
+    } : null,
+    availableNodeLabels: nodeLabels
+  }
+})
+
+// Detect common issues in the code
+const detectedIssues = computed(() => {
+  const issues = []
+  const code = props.htmlContent || ''
+
+  // Check for wrong field names
+  if (code.includes('node.title') && !code.includes('node.label')) {
+    issues.push('Uses "node.title" but API returns "node.label"')
+  }
+  if (code.includes('node.fulltext')) {
+    issues.push('Uses "node.fulltext" but API returns "node.info"')
+  }
+  if (code.includes('node.description') && !code.includes('node.info')) {
+    issues.push('Uses "node.description" but API returns "node.info"')
+  }
+
+  // Check for wrong API parameter
+  if (code.includes('?id=') && code.includes('getknowgraph')) {
+    issues.push('Uses "?id=" but API expects "?graphId="')
+  }
+
+  // Check for MongoDB-style ID (24 hex chars) instead of UUID
+  const mongoIdMatch = code.match(/GRAPH_ID\s*=\s*['"]([a-f0-9]{24})['"]/i)
+  if (mongoIdMatch) {
+    issues.push(`Graph ID "${mongoIdMatch[1]}" looks like MongoDB ObjectID, should be UUID format`)
+  }
+
+  return issues
+})
+
+// Auto-ask about detected issues
+const askAboutIssues = () => {
+  const issueText = detectedIssues.value.map((issue, i) => `${i + 1}. ${issue}`).join('\n')
+  userInput.value = `I have these issues in my code:\n${issueText}\n\nPlease show me exactly where to fix each one.`
+  sendMessage()
+}
+
+// System prompt for code assistant - focused on snippets and guidance
+// Enhanced with Vegvisr Knowledge Graph API context
+const systemPrompt = `You are a code assistant helping debug and modify HTML/CSS/JavaScript code for the Vegvisr platform.
+
+## VEGVISR KNOWLEDGE GRAPH API REFERENCE
+
+When working with code that fetches data from the Vegvisr Knowledge Graph API, use this reference:
+
+**API Endpoint:**
+\`https://knowledge.vegvisr.org/getknowgraph\`
+
+**Query Parameters:**
+- \`graphId\` (required) - The UUID of the graph (NOT "id")
+  Example: \`?graphId=81e55d4a-a2d1-456b-93e4-d548c7d70a2b\`
+- \`nodeId\` (optional) - Fetch a specific node by ID
+- \`nodeTitle\` (optional) - Search nodes by title
+
+**IMPORTANT - Graph ID Format:**
+- Graph IDs are UUIDs like: \`81e55d4a-a2d1-456b-93e4-d548c7d70a2b\`
+- NOT MongoDB ObjectIDs like: \`6784be6a1d8e9f7e4f4b5b44\`
+
+**Node Object Structure (what the API returns):**
+\`\`\`javascript
+{
+  id: "node-uuid-here",
+  label: "Node Title",        // USE THIS (not "title")
+  info: "Node content...",    // USE THIS (not "fulltext" or "description")
+  type: "html-node",
+  x: 100,
+  y: 200
+}
+\`\`\`
+
+**COMMON MISTAKES TO CHECK:**
+1. Using \`node.title\` instead of \`node.label\`
+2. Using \`node.fulltext\` or \`node.description\` instead of \`node.info\`
+3. Using \`?id=\` instead of \`?graphId=\`
+4. Using wrong Graph ID format (MongoDB ObjectID vs UUID)
+
+---
+
+## YOUR JOB
+
+1. ANALYZE the issue or request
+2. EXPLAIN what's wrong or what needs to change
+3. Give SPECIFIC code snippets (not the full document)
+4. Tell the user EXACTLY WHERE to make the change (function name, line context, or section)
+
+## RESPONSE FORMAT
+
+1. **Analysis**: What's happening and why
+2. **Solution**: What needs to change
+3. **Location**: Where in the code (e.g., "In the loadWeek() function" or "At the top where GRAPH_ID is defined")
+4. **Code snippet**: Only the relevant lines to add/modify/replace
+
+## EXAMPLE RESPONSE
+
+"**Analysis**: The code is using wrong field names. The API returns \`label\` and \`info\`, but the code uses \`title\` and \`fulltext\`.
+
+**Solution**: Change the field names to match the API response.
+
+**Location 1**: In the renderNodeContent() function
+
+**Change this**:
+\`\`\`javascript
+if (node.title) {
+  html += \`<h1>\${node.title}</h1>\`;
+}
+\`\`\`
+
+**To this**:
+\`\`\`javascript
+if (node.label) {
+  html += \`<h1>\${node.label}</h1>\`;
+}
+\`\`\`
+
+**Location 2**: Same function, a few lines below
+
+**Change this**:
+\`\`\`javascript
+if (node.fulltext) {
+  html += formatContent(node.fulltext);
+}
+\`\`\`
+
+**To this**:
+\`\`\`javascript
+if (node.info) {
+  html += formatContent(node.info);
+}
+\`\`\`"
+
+## IMPORTANT RULES
+
+- NEVER return the complete HTML document
+- Give small, focused snippets
+- Always specify the exact location
+- Check for common Vegvisr API mistakes first
+- Explain your reasoning
+- If you need more context about a specific function, ask
+- Use \`\`\`javascript or \`\`\`css or \`\`\`html for code blocks`
 
 // Get API endpoint based on provider (same as GrokChatPanel)
 const getEndpoint = () => {
@@ -245,10 +477,36 @@ const buildPayload = (userMessage) => {
   const currentProvider = provider.value
   const { model, maxTokens, useMaxCompletionTokens } = getModelConfig()
 
+  // Build the context with graph data if available
+  let contextInfo = `Current HTML:\n\`\`\`html\n${currentCode}\n\`\`\`\n\n`
+
+  // Add graph context if available
+  if (graphContextSummary.value) {
+    const ctx = graphContextSummary.value
+    contextInfo += `## CURRENT GRAPH CONTEXT\n\n`
+    contextInfo += `**Graph ID:** \`${ctx.graphId}\`\n`
+    contextInfo += `**Total Nodes:** ${ctx.totalNodes}\n`
+    contextInfo += `**Available Fields on Nodes:** ${ctx.nodeFields.join(', ')}\n\n`
+
+    if (ctx.sampleNodeStructure) {
+      contextInfo += `**Sample Node Structure:**\n\`\`\`json\n${JSON.stringify(ctx.sampleNodeStructure, null, 2)}\n\`\`\`\n\n`
+    }
+
+    if (ctx.availableNodeLabels.length > 0) {
+      contextInfo += `**Available Node Labels (first 10):**\n`
+      ctx.availableNodeLabels.forEach(label => {
+        contextInfo += `- "${label}"\n`
+      })
+      contextInfo += '\n'
+    }
+  }
+
+  contextInfo += `Request: ${userMessage}`
+
   // Build conversation messages
   const grokMessages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Current HTML:\n\`\`\`html\n${currentCode}\n\`\`\`\n\nRequest: ${userMessage}` }
+    { role: 'user', content: contextInfo }
   ]
 
   // Add conversation history
@@ -294,27 +552,73 @@ const buildPayload = (userMessage) => {
   return requestBody
 }
 
-// Parse AI response to extract explanation and code
+// Parse AI response - check if it contains code snippets
 const parseResponse = (responseText) => {
-  const result = {
-    explanation: '',
-    code: '',
-    fullContent: responseText
-  }
+  // Check if response contains code blocks (snippets)
+  const codeBlockRegex = /```(?:javascript|js|css|html)?\s*[\s\S]*?```/gi
+  const hasCodeSnippets = codeBlockRegex.test(responseText)
 
-  // Try to extract code block
-  const codeMatch = responseText.match(/```(?:html)?\s*([\s\S]*?)```/i)
-  if (codeMatch) {
-    result.code = codeMatch[1].trim()
-    // Everything before the code block is explanation
-    const beforeCode = responseText.substring(0, responseText.indexOf('```')).trim()
-    result.explanation = beforeCode
-  } else {
-    // No code block found, treat entire response as explanation
-    result.explanation = responseText
+  return {
+    content: responseText,
+    hasCodeSnippets
   }
+}
 
-  return result
+// Extract all code snippets from a message
+const extractCodeSnippets = (content) => {
+  const snippets = []
+  const regex = /```(?:javascript|js|css|html)?\s*([\s\S]*?)```/gi
+  let match
+  while ((match = regex.exec(content)) !== null) {
+    snippets.push(match[1].trim())
+  }
+  return snippets
+}
+
+// Copy all code snippets to clipboard
+const copySnippetsToClipboard = async (content) => {
+  const snippets = extractCodeSnippets(content)
+  if (snippets.length === 0) return
+
+  const text = snippets.join('\n\n// ---\n\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    alert('Code snippets copied to clipboard!')
+  } catch (err) {
+    console.error('Failed to copy:', err)
+    // Fallback
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
+    alert('Code snippets copied to clipboard!')
+  }
+}
+
+// Copy full HTML code to clipboard
+const copyFullCode = async () => {
+  try {
+    await navigator.clipboard.writeText(props.htmlContent)
+    alert('Full code copied to clipboard!')
+  } catch (err) {
+    console.error('Failed to copy:', err)
+    const textArea = document.createElement('textarea')
+    textArea.value = props.htmlContent
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
+    alert('Full code copied to clipboard!')
+  }
+}
+
+// Clear conversation history
+const clearConversation = () => {
+  if (confirm('Clear the conversation history?')) {
+    conversationHistory.value = []
+  }
 }
 
 // Send message to AI
@@ -377,35 +681,22 @@ const sendMessage = async () => {
     // Add assistant message to history
     conversationHistory.value.push({
       role: 'assistant',
-      content: responseText,
-      explanation: parsed.explanation,
-      code: parsed.code,
-      fullContent: responseText
+      content: parsed.content,
+      hasCodeSnippets: parsed.hasCodeSnippets
     })
-
-    // Update current HTML state if code was provided
-    if (parsed.code) {
-      currentHtmlState.value = parsed.code
-    }
 
   } catch (error) {
     console.error('Code Assistant error:', error)
     conversationHistory.value.push({
       role: 'assistant',
       content: `Error: ${error.message}. Please try again.`,
-      explanation: `Error: ${error.message}. Please try again.`,
-      code: ''
+      hasCodeSnippets: false
     })
   } finally {
     isLoading.value = false
     await nextTick()
     scrollToBottom()
   }
-}
-
-// Apply changes to the node
-const applyChanges = (code) => {
-  emit('apply-changes', code)
 }
 
 // Scroll conversation to bottom
@@ -423,32 +714,6 @@ const renderMarkdown = (text) => {
   } catch {
     return text
   }
-}
-
-// Highlight changes in code (simple line-based diff)
-const highlightChanges = (newCode) => {
-  if (!newCode) return ''
-
-  const originalLines = (props.htmlContent || '').split('\n')
-  const newLines = newCode.split('\n')
-  const originalSet = new Set(originalLines.map(l => l.trim()))
-
-  return newLines.map(line => {
-    const trimmed = line.trim()
-    const escaped = escapeHtml(line)
-    // Highlight lines that are new or modified
-    if (trimmed && !originalSet.has(trimmed)) {
-      return `<span class="line-added">${escaped}</span>`
-    }
-    return escaped
-  }).join('\n')
-}
-
-// Escape HTML for safe display
-const escapeHtml = (text) => {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
 }
 
 // Watch for content changes
@@ -550,14 +815,162 @@ watch(() => props.htmlContent, (newVal) => {
   color: #111827;
 }
 
+/* Graph Context Bar */
+.graph-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-bottom: 1px solid #10b981;
+  font-size: 13px;
+  color: #065f46;
+}
+
+.context-icon {
+  font-size: 16px;
+}
+
+.context-text {
+  flex: 1;
+}
+
+.graph-id {
+  color: #047857;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.context-toggle {
+  background: none;
+  border: 1px solid #10b981;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #065f46;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.context-toggle:hover {
+  background: #10b981;
+  color: white;
+}
+
+.graph-context-details {
+  padding: 12px 20px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #bbf7d0;
+  font-size: 13px;
+}
+
+.context-section {
+  margin-bottom: 8px;
+  color: #166534;
+}
+
+.context-section:last-child {
+  margin-bottom: 0;
+}
+
+.context-section code {
+  background: #dcfce7;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #15803d;
+}
+
+.label-list {
+  margin: 4px 0 0 20px;
+  padding: 0;
+  list-style: disc;
+}
+
+.label-list li {
+  margin: 2px 0;
+  color: #166534;
+}
+
+/* Detected Issues Banner */
+.detected-issues {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 16px 20px 0 20px;
+}
+
+.issues-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #92400e;
+}
+
+.issues-icon {
+  font-size: 18px;
+}
+
+.issues-list {
+  margin: 0 0 12px 0;
+  padding-left: 24px;
+}
+
+.issues-list li {
+  color: #78350f;
+  font-size: 14px;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.ask-issues-btn {
+  background: #f59e0b;
+  border-color: #d97706;
+  color: white;
+  font-weight: 500;
+}
+
+.ask-issues-btn:hover {
+  background: #d97706;
+  border-color: #b45309;
+}
+
 .code-section {
   border-bottom: 1px solid #e5e7eb;
 }
 
-.code-toggle {
-  width: 100%;
-  padding: 12px 20px;
+.code-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   background: #f3f4f6;
+}
+
+.code-actions {
+  padding-right: 12px;
+}
+
+.btn-action {
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-action:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.code-toggle {
+  flex: 1;
+  padding: 12px 20px;
+  background: transparent;
   border: none;
   text-align: left;
   cursor: pointer;
@@ -620,7 +1033,7 @@ watch(() => props.htmlContent, (newVal) => {
 .empty-state ul {
   list-style: none;
   padding: 0;
-  margin: 8px 0 0 0;
+  margin: 8px 0 16px 0;
 }
 
 .empty-state li {
@@ -631,6 +1044,12 @@ watch(() => props.htmlContent, (newVal) => {
   border: 1px solid #e5e7eb;
   font-size: 14px;
   color: #4b5563;
+}
+
+.empty-state .hint {
+  font-size: 13px;
+  color: #9ca3af;
+  font-style: italic;
 }
 
 .message {
@@ -672,6 +1091,63 @@ watch(() => props.htmlContent, (newVal) => {
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   margin-left: 28px;
+}
+
+/* Assistant response styling */
+.assistant-response {
+  color: #374151;
+  line-height: 1.7;
+}
+
+.assistant-response :deep(p) {
+  margin: 0 0 12px 0;
+}
+
+.assistant-response :deep(strong) {
+  color: #111827;
+}
+
+.assistant-response :deep(pre) {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+
+.assistant-response :deep(code) {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+}
+
+.assistant-response :deep(pre code) {
+  color: #d4d4d4;
+  background: none;
+  padding: 0;
+}
+
+.assistant-response :deep(:not(pre) > code) {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.assistant-response :deep(ul),
+.assistant-response :deep(ol) {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.assistant-response :deep(li) {
+  margin: 4px 0;
+}
+
+.snippet-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .explanation {
@@ -787,6 +1263,12 @@ watch(() => props.htmlContent, (newVal) => {
   background: #f3f4f6;
 }
 
+.input-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .send-btn {
   padding: 12px 24px;
   font-weight: 600;
@@ -795,6 +1277,11 @@ watch(() => props.htmlContent, (newVal) => {
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.clear-btn {
+  padding: 8px 12px;
+  font-size: 14px;
 }
 
 /* Responsive */
