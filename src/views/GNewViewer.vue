@@ -632,8 +632,21 @@
               <div class="form-group">
                 <label class="form-label">Node Content:</label>
                 <div class="content-tools mb-2">
+                  <!-- Code Assistant button for HTML nodes -->
                   <button
-                    v-if="hasSelectedText"
+                    v-if="editingNode.type === 'html-node'"
+                    @click="openCodeAssistant"
+                    class="btn btn-sm btn-outline-info me-2 ai-action-btn"
+                    type="button"
+                    title="Open Code Assistant for iterative code changes"
+                  >
+                    <i class="bi bi-code-slash"></i>
+                    <span class="d-none d-md-inline">🤖 Code Assistant</span>
+                    <span class="d-md-none">🤖 Code</span>
+                  </button>
+                  <!-- AI Rewrite button for non-HTML nodes -->
+                  <button
+                    v-if="hasSelectedText && editingNode.type !== 'html-node'"
                     @click="openAIRewriteModal"
                     class="btn btn-sm btn-outline-primary me-2 ai-action-btn"
                     type="button"
@@ -2403,6 +2416,16 @@
     @confirm="handleDeleteConfirmed"
     @cancel="handleDeleteCancelled"
   />
+
+  <!-- HTML Code Assistant Modal -->
+  <HtmlCodeAssistant
+    v-if="showCodeAssistant"
+    :html-content="editingNode.info || ''"
+    :node-id="editingNode.id || ''"
+    :node-label="editingNode.label || 'HTML Node'"
+    @apply-changes="applyCodeAssistantChanges"
+    @close="showCodeAssistant = false"
+  />
 </template>
 
 <script setup>
@@ -2429,6 +2452,7 @@ import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
 import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
+import HtmlCodeAssistant from '@/components/HtmlCodeAssistant.vue'
 
 // Props
 const props = defineProps({
@@ -3054,6 +3078,7 @@ const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
 const nodeIdCopied = ref(false)
+const showCodeAssistant = ref(false)
 const nodeFindText = ref('')
 const nodeReplaceText = ref('')
 const nodeReplaceStatus = ref('')
@@ -6431,6 +6456,16 @@ const copyNodeId = async () => {
       nodeIdCopied.value = false
     }, 2000)
   }
+}
+
+// Code Assistant for HTML nodes
+const openCodeAssistant = () => {
+  showCodeAssistant.value = true
+}
+
+const applyCodeAssistantChanges = (newHtml) => {
+  editingNode.value.info = newHtml
+  showCodeAssistant.value = false
 }
 
 // AI Rewrite methods
