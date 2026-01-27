@@ -694,6 +694,27 @@
                     >
                       Replace in Node
                     </button>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      type="button"
+                      @click="jumpToNodeMatch(-1)"
+                      :disabled="!hasNodeFindMatches"
+                      title="Previous match (Shift+Tab)"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      type="button"
+                      @click="jumpToNodeMatch(1)"
+                      :disabled="!hasNodeFindMatches"
+                      title="Next match (Tab)"
+                    >
+                      Next
+                    </button>
+                    <small v-if="nodeFindMatches.length" class="text-muted">
+                      {{ nodeFindMatchLabel }}
+                    </small>
                     <small v-if="nodeReplaceStatus" class="text-muted">
                       {{ nodeReplaceStatus }}
                     </small>
@@ -710,6 +731,11 @@
                   </button>
                 </div>
                 <div class="textarea-container">
+                  <div
+                    ref="nodeContentHighlight"
+                    class="textarea-highlight-layer"
+                    v-html="highlightedNodeContent"
+                  ></div>
                   <textarea
                     ref="nodeContentTextarea"
                     v-model="editingNode.info"
@@ -718,6 +744,7 @@
                     placeholder="Enter node content... Type [ to see available elements..."
                     @input="handleTextareaInput"
                     @keydown="handleTextareaKeydown"
+                    @scroll="syncNodeFindScroll"
                     @blur="hideAutocomplete"
                     @mouseup="handleTextSelection"
                     @keyup="handleTextSelection"
@@ -3017,6 +3044,15 @@ const nodeFindText = ref('')
 const nodeReplaceText = ref('')
 const nodeReplaceStatus = ref('')
 const replaceNodeTitle = ref(true)
+const nodeFindMatches = ref([])
+const nodeFindIndex = ref(0)
+const nodeContentHighlight = ref(null)
+
+const hasNodeFindMatches = computed(() => nodeFindMatches.value.length > 0)
+const nodeFindMatchLabel = computed(() => {
+  if (!nodeFindMatches.value.length) return ''
+  return `${nodeFindIndex.value + 1} / ${nodeFindMatches.value.length}`
+})
 
 // AI Rewrite functionality
 const showAIRewriteModal = ref(false)
@@ -6418,6 +6454,94 @@ const showMobileAITools = () => {
   }
 }
 
+const escapeHighlightHtml = (value) => {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const updateNodeFindMatches = () => {
+  const query = nodeFindText.value.trim()
+  const content = String(editingNode.value?.info || '')
+
+  if (!query) {
+    nodeFindMatches.value = []
+    nodeFindIndex.value = 0
+    return
+  }
+
+  const needle = query.toLowerCase()
+  const haystack = content.toLowerCase()
+  const matches = []
+  let cursor = 0
+
+  while (cursor < haystack.length) {
+    const found = haystack.indexOf(needle, cursor)
+    if (found === -1) break
+    matches.push({ start: found, end: found + needle.length })
+    cursor = found + Math.max(needle.length, 1)
+  }
+
+  nodeFindMatches.value = matches
+  if (!matches.length) {
+    nodeFindIndex.value = 0
+    return
+  }
+  if (nodeFindIndex.value >= matches.length) {
+    nodeFindIndex.value = 0
+  }
+}
+
+const highlightedNodeContent = computed(() => {
+  const content = String(editingNode.value?.info || '')
+  if (!nodeFindText.value.trim() || nodeFindMatches.value.length === 0) {
+    return escapeHighlightHtml(content)
+  }
+
+  let result = ''
+  let lastIndex = 0
+  nodeFindMatches.value.forEach((match, index) => {
+    result += escapeHighlightHtml(content.slice(lastIndex, match.start))
+    const isActive = index === nodeFindIndex.value
+    result += `<mark class="find-hit${isActive ? ' active' : ''}">${escapeHighlightHtml(
+      content.slice(match.start, match.end),
+    )}</mark>`
+    lastIndex = match.end
+  })
+  result += escapeHighlightHtml(content.slice(lastIndex))
+  return result
+})
+
+const syncNodeFindScroll = () => {
+  const textarea = nodeContentTextarea.value
+  const highlightLayer = nodeContentHighlight.value
+  if (!textarea || !highlightLayer) return
+  highlightLayer.scrollTop = textarea.scrollTop
+  highlightLayer.scrollLeft = textarea.scrollLeft
+}
+
+const jumpToNodeMatch = (direction) => {
+  if (!nodeFindMatches.value.length || !nodeContentTextarea.value) return
+  const count = nodeFindMatches.value.length
+  const step = direction === -1 ? -1 : 1
+  nodeFindIndex.value = (nodeFindIndex.value + step + count) % count
+  const match = nodeFindMatches.value[nodeFindIndex.value]
+
+  const textarea = nodeContentTextarea.value
+  textarea.focus()
+  textarea.setSelectionRange(match.start, match.end)
+
+  const textBefore = textarea.value.slice(0, match.start)
+  const lineCount = textBefore.split('\n').length - 1
+  const style = window.getComputedStyle(textarea)
+  const lineHeight = parseInt(style.lineHeight) || 20
+  textarea.scrollTop = Math.max(0, lineCount * lineHeight - lineHeight * 2)
+  syncNodeFindScroll()
+}
+
 const applyNodeFindReplace = () => {
   const searchText = nodeFindText.value.trim()
   const replacement = nodeReplaceText.value
@@ -6461,6 +6585,27 @@ const applyNodeFindReplace = () => {
 
   nodeReplaceStatus.value = `Replaced ${totalMatches} occurrence${totalMatches === 1 ? '' : 's'}`
 }
+
+watch(
+  () => nodeFindText.value,
+  () => {
+    nodeFindIndex.value = 0
+    updateNodeFindMatches()
+    nextTick(() => {
+      syncNodeFindScroll()
+    })
+  },
+)
+
+watch(
+  () => editingNode.value?.info,
+  () => {
+    updateNodeFindMatches()
+    nextTick(() => {
+      syncNodeFindScroll()
+    })
+  },
+)
 
 const deleteEditingNode = async () => {
   const nodeId = editingNode.value?.id
@@ -8521,34 +8666,40 @@ const handleTextareaInput = (event) => {
 }
 
 const handleTextareaKeydown = (event) => {
-  if (!showAutocomplete.value || filteredElements.value.length === 0) return
+  if (showAutocomplete.value && filteredElements.value.length > 0) {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        selectedElementIndex.value = Math.min(
+          selectedElementIndex.value + 1,
+          filteredElements.value.length - 1,
+        )
+        break
 
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      selectedElementIndex.value = Math.min(
-        selectedElementIndex.value + 1,
-        filteredElements.value.length - 1,
-      )
-      break
+      case 'ArrowUp':
+        event.preventDefault()
+        selectedElementIndex.value = Math.max(selectedElementIndex.value - 1, 0)
+        break
 
-    case 'ArrowUp':
-      event.preventDefault()
-      selectedElementIndex.value = Math.max(selectedElementIndex.value - 1, 0)
-      break
+      case 'Tab':
+      case 'Enter':
+        event.preventDefault()
+        if (filteredElements.value[selectedElementIndex.value]) {
+          insertElement(filteredElements.value[selectedElementIndex.value])
+        }
+        break
 
-    case 'Tab':
-    case 'Enter':
-      event.preventDefault()
-      if (filteredElements.value[selectedElementIndex.value]) {
-        insertElement(filteredElements.value[selectedElementIndex.value])
-      }
-      break
+      case 'Escape':
+        event.preventDefault()
+        hideAutocomplete()
+        break
+    }
+    return
+  }
 
-    case 'Escape':
-      event.preventDefault()
-      hideAutocomplete()
-      break
+  if (event.key === 'Tab' && nodeFindText.value.trim() && nodeFindMatches.value.length) {
+    event.preventDefault()
+    jumpToNodeMatch(event.shiftKey ? -1 : 1)
   }
 }
 
@@ -9785,6 +9936,39 @@ const saveAttribution = async () => {
   font-size: 14px;
   line-height: 1.5;
   resize: vertical;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+
+.textarea-container {
+  position: relative;
+}
+
+.textarea-highlight-layer {
+  position: absolute;
+  inset: 0;
+  padding: 0.375rem 0.75rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: transparent;
+  overflow: hidden;
+  pointer-events: none;
+  background: #ffffff;
+  border-radius: 0.375rem;
+}
+
+.textarea-highlight-layer .find-hit {
+  background: #ffe08a;
+  color: transparent;
+  border-radius: 3px;
+}
+
+.textarea-highlight-layer .find-hit.active {
+  background: #ffb454;
 }
 
 .edit-preview-container {
