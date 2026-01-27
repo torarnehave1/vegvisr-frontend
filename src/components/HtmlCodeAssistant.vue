@@ -146,34 +146,33 @@ const props = defineProps({
 
 const emit = defineEmits(['apply-changes', 'close'])
 
-// Provider options
+// Provider options (same as GrokChatPanel)
 const providerOptions = [
+  { value: 'grok', label: 'Grok' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'claude', label: 'Claude' },
-  { value: 'grok', label: 'Grok' },
-  { value: 'perplexity', label: 'Perplexity' },
-  { value: 'gemini', label: 'Gemini' }
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'perplexity', label: 'Perplexity' }
 ]
 
 const openaiModelOptions = [
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
+  { value: 'gpt-5.1', label: 'GPT-5.1' },
+  { value: 'gpt-5', label: 'GPT-5' },
   { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'o1', label: 'o1' },
-  { value: 'o1-mini', label: 'o1 Mini' },
-  { value: 'o3-mini', label: 'o3 Mini' }
+  { value: 'gpt-4', label: 'GPT-4' }
 ]
 
 const claudeModelOptions = [
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-  { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' }
+  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }
 ]
 
 // State
-const provider = ref('openai')
-const openaiModel = ref('gpt-4o')
-const claudeModel = ref('claude-sonnet-4-20250514')
+const provider = ref('grok')
+const openaiModel = ref('gpt-5.2')
+const claudeModel = ref('claude-opus-4-5-20251101')
 const showCurrentCode = ref(false)
 const conversationHistory = ref([])
 const userInput = ref('')
@@ -203,62 +202,96 @@ IMPORTANT:
 - Preserve all existing functionality unless explicitly asked to remove it
 - Keep the same code style and formatting`
 
-// Get API endpoint based on provider
+// Get API endpoint based on provider (same as GrokChatPanel)
 const getEndpoint = () => {
   const endpoints = {
-    grok: 'https://api.vegvisr.org/grok-ask',
-    openai: 'https://api.vegvisr.org/openai-chat',
-    claude: 'https://api.vegvisr.org/claude-chat',
-    perplexity: 'https://api.vegvisr.org/perplexity-ask',
-    gemini: 'https://api.vegvisr.org/gemini-chat'
+    grok: 'https://grok.vegvisr.org/chat',
+    openai: 'https://openai.vegvisr.org/chat',
+    claude: 'https://anthropic.vegvisr.org/chat',
+    gemini: 'https://gemini.vegvisr.org/chat',
+    perplexity: 'https://perplexity.vegvisr.org/chat'
   }
-  return endpoints[provider.value] || endpoints.openai
+  return endpoints[provider.value] || endpoints.grok
 }
 
-// Get selected model
-const getModel = () => {
-  if (provider.value === 'openai') return openaiModel.value
-  if (provider.value === 'claude') return claudeModel.value
-  return null
+// Get selected model and max tokens based on provider
+const getModelConfig = () => {
+  const currentProvider = provider.value
+
+  if (currentProvider === 'openai') {
+    const model = openaiModel.value
+    const maxTokens = model && model.startsWith('gpt-5') ? 32768 : 16384
+    return { model, maxTokens, useMaxCompletionTokens: model && model.startsWith('gpt-5') }
+  } else if (currentProvider === 'claude') {
+    const model = claudeModel.value
+    let maxTokens = 8192
+    if (model === 'claude-opus-4-5-20251101') maxTokens = 16384
+    else if (model === 'claude-sonnet-4-5-20250929') maxTokens = 64000
+    else if (model === 'claude-haiku-4-5-20251001') maxTokens = 8192
+    return { model, maxTokens, useMaxCompletionTokens: false }
+  } else if (currentProvider === 'grok') {
+    return { model: 'grok-3', maxTokens: 32000, useMaxCompletionTokens: false }
+  } else if (currentProvider === 'perplexity') {
+    return { model: 'sonar', maxTokens: 16384, useMaxCompletionTokens: false }
+  } else if (currentProvider === 'gemini') {
+    return { model: undefined, maxTokens: undefined, useMaxCompletionTokens: false }
+  }
+  return { model: 'grok-3', maxTokens: 32000, useMaxCompletionTokens: false }
 }
 
-// Build request payload based on provider
+// Build request payload based on provider (same structure as GrokChatPanel)
 const buildPayload = (userMessage) => {
   const currentCode = currentHtmlState.value
+  const currentProvider = provider.value
+  const { model, maxTokens, useMaxCompletionTokens } = getModelConfig()
 
-  // Build conversation messages for chat-based APIs
-  const messages = [
+  // Build conversation messages
+  const grokMessages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `Current HTML:\n\`\`\`html\n${currentCode}\n\`\`\`\n\nRequest: ${userMessage}` }
   ]
 
-  // Add conversation history (excluding system messages)
+  // Add conversation history
   conversationHistory.value.forEach(msg => {
     if (msg.role === 'user') {
-      messages.push({ role: 'user', content: msg.content })
+      grokMessages.push({ role: 'user', content: msg.content })
     } else if (msg.role === 'assistant') {
-      messages.push({ role: 'assistant', content: msg.fullContent || msg.content })
+      grokMessages.push({ role: 'assistant', content: msg.fullContent || msg.content })
     }
   })
 
-  // Different payload structure for different providers
-  if (provider.value === 'openai' || provider.value === 'claude') {
-    return {
-      messages,
-      model: getModel()
-    }
-  } else if (provider.value === 'gemini') {
-    return {
-      messages,
-      model: 'gemini-pro'
-    }
-  } else {
-    // Grok and Perplexity use simpler format
-    return {
-      context: systemPrompt + "\n\nCurrent HTML:\n```html\n" + currentCode + "\n```",
-      question: userMessage
+  // Build request body (same structure as GrokChatPanel)
+  let requestBody = {
+    userId: 'code-assistant',
+    temperature: 0.7,
+    stream: false
+  }
+
+  if (model) {
+    requestBody.model = model
+  }
+
+  if (typeof maxTokens === 'number') {
+    if (useMaxCompletionTokens) {
+      requestBody.max_completion_tokens = maxTokens
+    } else {
+      requestBody.max_tokens = maxTokens
     }
   }
+
+  // Claude needs system message as separate parameter
+  if (currentProvider === 'claude') {
+    const systemMsg = grokMessages.find(m => m.role === 'system')
+    const nonSystemMessages = grokMessages.filter(m => m.role !== 'system')
+    requestBody.messages = nonSystemMessages
+    if (systemMsg) {
+      requestBody.system = systemMsg.content
+    }
+  } else {
+    requestBody.messages = grokMessages
+  }
+
+  return requestBody
 }
 
 // Parse AI response to extract explanation and code
@@ -304,14 +337,14 @@ const sendMessage = async () => {
 
   try {
     const endpoint = getEndpoint()
-    const payload = buildPayload(message)
+    const requestBody = buildPayload(message)
 
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
@@ -320,14 +353,20 @@ const sendMessage = async () => {
 
     const data = await response.json()
 
-    // Extract response text based on provider response format
+    // Extract response text based on provider response format (same as GrokChatPanel)
     let responseText = ''
-    if (data.result) {
-      responseText = data.result
-    } else if (data.content) {
-      responseText = data.content
+    if (data.content) {
+      // Claude format
+      if (Array.isArray(data.content)) {
+        responseText = data.content.map(c => c.text || '').join('')
+      } else {
+        responseText = data.content
+      }
     } else if (data.choices && data.choices[0]) {
+      // OpenAI/Grok format
       responseText = data.choices[0].message?.content || data.choices[0].text || ''
+    } else if (data.result) {
+      responseText = data.result
     } else if (typeof data === 'string') {
       responseText = data
     }
