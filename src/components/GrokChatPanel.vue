@@ -1443,7 +1443,8 @@ const insertApiSnippet = (api) => {
   if (!api) return
   const signature = api.function_signature || api.function_name || api.slug
   const endpoint = api.endpoint_url || ''
-  const snippet = `API: ${api.name || api.slug}\nSignature: ${signature}${endpoint ? `\nEndpoint: ${endpoint}` : ''}\n`
+  const example = api.example_code ? `\nExample:\n${api.example_code}` : ''
+  const snippet = `API: ${api.name || api.slug}\nSignature: ${signature}${endpoint ? `\nEndpoint: ${endpoint}` : ''}${example}\n`
   userInput.value = `${userInput.value || ''}${userInput.value ? '\n\n' : ''}${snippet}`
 }
 
