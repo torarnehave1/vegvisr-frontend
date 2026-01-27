@@ -123,8 +123,31 @@
             <template v-if="message.role === 'assistant'">
               <div class="assistant-response" v-html="renderMarkdown(message.content)"></div>
 
-              <!-- Show fix buttons for code replacements -->
-              <div v-if="getCodeReplacements(message.content).length > 0" class="fix-actions">
+              <!-- Show Preview/Apply buttons when full HTML document is detected -->
+              <div v-if="extractFullHtml(message.content)" class="full-code-actions">
+                <div class="full-code-header">
+                  <span>📄 Complete HTML document detected</span>
+                </div>
+                <div class="full-code-buttons">
+                  <button
+                    @click="openPreview(extractFullHtml(message.content))"
+                    class="btn btn-info"
+                    title="Preview the fixed code in an iframe"
+                  >
+                    👁️ Preview
+                  </button>
+                  <button
+                    @click="applyFullHtml(extractFullHtml(message.content))"
+                    class="btn btn-success"
+                    title="Apply this code directly"
+                  >
+                    ✅ Apply Code
+                  </button>
+                </div>
+              </div>
+
+              <!-- Show fix buttons for code replacements (fallback for incremental fixes) -->
+              <div v-else-if="getCodeReplacements(message.content).length > 0" class="fix-actions">
                 <div class="fix-actions-header">
                   <span>{{ getCodeReplacements(message.content).length }} code change(s) found</span>
                   <button
@@ -193,6 +216,31 @@
         </div>
       </div>
 
+      <!-- Preview Modal -->
+      <div v-if="showPreview" class="preview-overlay" @click.self="closePreview">
+        <div class="preview-modal">
+          <div class="preview-header">
+            <h4>Preview Fixed Code</h4>
+            <div class="preview-actions">
+              <button @click="applyFullHtml(previewHtml)" class="btn btn-success">
+                ✅ Apply Changes
+              </button>
+              <button @click="closePreview" class="btn btn-outline-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+          <div class="preview-content">
+            <iframe
+              :srcdoc="previewHtml"
+              class="preview-iframe"
+              sandbox="allow-scripts"
+              title="Preview"
+            ></iframe>
+          </div>
+        </div>
+      </div>
+
       <!-- Changes Applied Banner -->
       <div v-if="hasUnsavedChanges" class="changes-banner">
         <span>⚡ You have unsaved changes</span>
@@ -216,7 +264,8 @@
             @keydown.enter.ctrl.prevent="sendMessage"
             @keydown.enter.meta.prevent="sendMessage"
             @keydown.escape="$emit('close')"
-            :placeholder="attachedImage ? 'Describe what you want to do with this image...' : 'Type your code change request... (Ctrl+Enter to send)'"
+            @paste="handlePaste"
+            :placeholder="getPlaceholder"
             :disabled="isLoading"
             rows="2"
           ></textarea>
@@ -325,6 +374,8 @@ const inputTextarea = ref(null)
 const imageInput = ref(null)
 const attachedImage = ref(null)
 const currentHtmlState = ref(props.htmlContent)
+const showPreview = ref(false)
+const previewHtml = ref('')
 
 // Computed
 const lineCount = computed(() => {
@@ -344,6 +395,17 @@ const hasUnsavedChanges = computed(() => {
 // Check if current provider supports vision/image analysis
 const supportsVision = computed(() => {
   return provider.value === 'openai' || provider.value === 'claude'
+})
+
+// Dynamic placeholder for input
+const getPlaceholder = computed(() => {
+  if (attachedImage.value) {
+    return 'Describe what you want to do with this image...'
+  }
+  if (supportsVision.value) {
+    return 'Type your request... (Ctrl+V to paste screenshot, Ctrl+Enter to send)'
+  }
+  return 'Type your code change request... (Ctrl+Enter to send)'
 })
 
 // Create a summary of the graph data for AI context
@@ -410,65 +472,262 @@ const askAboutIssues = () => {
   sendMessage()
 }
 
-// System prompt for code assistant - simple and focused
-const systemPrompt = `You are a code assistant for HTML/CSS/JavaScript.
+// System prompt for code assistant - fix and iterate like a real developer
+const systemPrompt = `You are a code assistant. Your job is to FIX code and return the COMPLETE working version.
 
-## VEGVISR KNOWLEDGE GRAPH - KEEP IT SIMPLE!
+## HOW YOU WORK
 
-This is BASIC stuff. Do NOT over-engineer:
+1. **Analyze** - Find what's wrong or what needs to change
+2. **Fix** - Make the changes directly
+3. **Return** - Give back the COMPLETE fixed HTML document
 
-1. **API**: \`https://knowledge.vegvisr.org/getknowgraph?id=GRAPH_ID\`
-2. **Response**: \`{ nodes: [...], edges: [...] }\`
-3. **Each node has**:
-   - \`node.id\` - unique ID
-   - \`node.label\` - the title
-   - \`node.info\` - content in markdown
-4. **Render**: \`marked(node.info)\` converts markdown to HTML
-
-## SIMPLE PATTERN FOR COURSE/MENU APPS
+## VEGVISR KNOWLEDGE GRAPH API
 
 \`\`\`javascript
-// 1. Fetch graph
-const res = await fetch('https://knowledge.vegvisr.org/getknowgraph?id=' + GRAPH_ID);
-const data = await res.json();
-const nodes = data.nodes || [];
+// Fetch: https://knowledge.vegvisr.org/getknowgraph?id=GRAPH_ID
+// Response: { nodes: [...], edges: [...] }
+// Each node: { id, label, info }  (label=title, info=markdown content)
+// Render: marked(node.info) converts markdown to HTML
+\`\`\`
 
-// 2. Build menu from node labels (filter by pattern if needed)
-const menuNodes = nodes.filter(n => n.label && n.label.includes('Uke'));
-menuNodes.forEach(n => {
-  menu.innerHTML += '<div onclick="show(\\'' + n.id + '\\')">' + n.label + '</div>';
-});
+## TOP MENU PATTERN (select node by ID, show content)
 
-// 3. Show content by node ID
-function show(id) {
-  const node = nodes.find(n => n.id === id);
-  content.innerHTML = '<h1>' + node.label + '</h1>' + marked(node.info || '');
+When user wants a menu that selects content from nodes:
+
+\`\`\`html
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></scr` + `ipt>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    #menu { display: flex; gap: 8px; padding: 16px; background: #f5f5f5; flex-wrap: wrap; }
+    .menu-item { padding: 8px 16px; background: #fff; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
+    .menu-item:hover { background: #e0e0e0; }
+    .menu-item.active { background: #007bff; color: white; border-color: #007bff; }
+    #content { padding: 20px; }
+  </style>
+</head>
+<body>
+  <div id="menu"></div>
+  <div id="content">Loading...</div>
+
+  <script>
+    const GRAPH_ID = 'YOUR-GRAPH-ID';
+    let nodes = [];
+    let currentId = null;
+
+    async function init() {
+      const res = await fetch('https://knowledge.vegvisr.org/getknowgraph?id=' + GRAPH_ID);
+      const data = await res.json();
+      nodes = data.nodes || [];
+      buildMenu();
+      if (nodes.length) show(nodes[0].id);
+    }
+
+    function buildMenu() {
+      const menu = document.getElementById('menu');
+      menu.innerHTML = '';
+      nodes.forEach(function(n) {
+        const item = document.createElement('div');
+        item.className = 'menu-item';
+        item.textContent = n.label;
+        item.onclick = function() { show(n.id); };
+        item.dataset.id = n.id;
+        menu.appendChild(item);
+      });
+    }
+
+    function show(id) {
+      currentId = id;
+      const node = nodes.find(function(n) { return n.id === id; });
+      if (!node) return;
+
+      // Update content
+      document.getElementById('content').innerHTML =
+        '<h1>' + node.label + '</h1>' + marked.parse(node.info || '');
+
+      // Update active menu item
+      document.querySelectorAll('.menu-item').forEach(function(el) {
+        el.classList.toggle('active', el.dataset.id === id);
+      });
+    }
+
+    init();
+  </scr` + `ipt>
+</body>
+</html>
+\`\`\`
+
+**Key points:**
+- Menu shows ALL nodes from the graph
+- Click uses \`node.id\` to find and display that node
+- \`node.label\` = menu text and title
+- \`node.info\` = content (rendered with marked)
+- Active state highlights current selection
+
+## RULES
+
+- NO hardcoded data arrays - menu comes from nodes
+- Use \`node.id\` to select content
+- Use \`node.label\` for titles, \`node.info\` for content
+- Use \`marked.parse()\` to render markdown
+
+## CLOUD STORAGE (for user data)
+
+\`\`\`javascript
+await saveData('key', value);
+await loadData('key');
+await loadAllData();
+await deleteData('key');
+\`\`\`
+
+## SPECIAL FORMATTING ELEMENTS (from Vegvisr)
+
+The node.info content may contain special bracket elements. When rendering these in HTML, use the following CSS:
+
+### Work Note [WNOTE]
+\`\`\`css
+.work-note {
+  background-color: #ffd580;
+  color: #333;
+  font-size: 14px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  padding: 10px;
+  margin: 10px 0;
+  border-left: 5px solid #ccc;
+  border-radius: 4px;
+}
+.work-note cite {
+  display: block;
+  text-align: right;
+  font-style: normal;
+  color: #666;
+  margin-top: 0.5em;
 }
 \`\`\`
 
-## CRITICAL RULES
-
-- **NO hardcoded week/lesson data** - get everything from node labels
-- **NO complex configuration objects** - just filter nodes by label pattern
-- **The menu items come from node.label** - not from a config array
-- **Use node.id to select content** - just find the node and render it
-- Keep it under 100 lines of JavaScript
-
-## CLOUD STORAGE (for forms/user data)
-
-\`\`\`javascript
-await saveData('key', value);   // Save
-await loadData('key');          // Load (returns null if not found)
-await loadAllData();            // Load all [{key, value}, ...]
-await deleteData('key');        // Delete
+### Fancy Quote [QUOTE]
+\`\`\`css
+.fancy-quote {
+  font-style: italic;
+  background-color: #f9f9f9;
+  border-left: 5px solid #ccc;
+  font-size: 1.2em;
+  padding: 1em;
+  margin: 1em 0;
+  color: #333;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.fancy-quote cite {
+  display: block;
+  text-align: right;
+  font-style: normal;
+  color: #666;
+  margin-top: 0.5em;
+}
 \`\`\`
 
-NEVER use localStorage - use cloud storage functions.
+### Section [SECTION]
+\`\`\`css
+.section {
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+\`\`\`
 
-## YOUR JOB
+### Fancy Title [FANCY]
+\`\`\`css
+.fancy-title {
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+  font-weight: bold;
+  border-radius: 8px;
+  overflow: hidden;
+}
+\`\`\`
 
-Give SHORT, SPECIFIC fixes. Show "Change this" / "To this" code snippets.
-Never return the full HTML document.`
+### Image Quote [IMAGEQUOTE]
+\`\`\`css
+.imagequote-element {
+  margin: 2em 0;
+  border-radius: 12px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+  background-size: cover;
+  background-position: center;
+}
+.imagequote-element::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 1;
+}
+.imagequote-content {
+  position: relative;
+  z-index: 2;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.4;
+  max-width: 80%;
+}
+.imagequote-citation {
+  position: relative;
+  z-index: 2;
+  margin-top: 1em;
+  font-size: 1rem;
+  font-style: italic;
+  opacity: 0.9;
+}
+\`\`\`
+
+**IMPORTANT**: If the user wants to display content with these special elements, include the CSS above in a \`<style>\` tag and use this parser function:
+
+\`\`\`javascript
+// Parse Vegvisr special elements in content
+function parseVegvisrElements(html) {
+  // Work notes
+  html = html.replace(/\\[WNOTE\\s*\\|([^\\]]*)\\]([\\s\\S]*?)\\[END\\s+WNOTE\\]/gi, (m, params, content) => {
+    const cited = params.match(/Cited\\s*=\\s*['"]?([^'"\\];]+)/i)?.[1] || '';
+    return \`<div class="work-note">\${marked.parse(content.trim())}\${cited ? \`<cite>— \${cited}</cite>\` : ''}</div>\`;
+  });
+  // Quotes
+  html = html.replace(/\\[QUOTE\\s*\\|([^\\]]*)\\]([\\s\\S]*?)\\[END\\s+QUOTE\\]/gi, (m, params, content) => {
+    const cited = params.match(/Cited\\s*=\\s*['"]?([^'"\\];]+)/i)?.[1] || '';
+    return \`<div class="fancy-quote">\${marked.parse(content.trim())}\${cited ? \`<cite>— \${cited}</cite>\` : ''}</div>\`;
+  });
+  // Sections
+  html = html.replace(/\\[SECTION\\s*\\|([^\\]]*)\\]([\\s\\S]*?)\\[END\\s+SECTION\\]/gi, (m, style, content) => {
+    return \`<div class="section" style="\${style}">\${marked.parse(content.trim())}</div>\`;
+  });
+  return html;
+}
+
+// Use when rendering: content.innerHTML = parseVegvisrElements(marked.parse(node.info));
+\`\`\`
+
+## RESPONSE FORMAT
+
+Return the COMPLETE fixed HTML document wrapped in \`\`\`html code fences.
+Start with a 1-2 sentence explanation of what you fixed.
+Then the full code. Nothing else.`
 
 // Get API endpoint based on provider (same as GrokChatPanel)
 const getEndpoint = () => {
@@ -645,6 +904,44 @@ const extractCodeSnippets = (content) => {
   return snippets
 }
 
+// Extract the full HTML document from AI response (looks for ```html code fence)
+const extractFullHtml = (content) => {
+  // Look specifically for HTML code blocks that appear to be complete documents
+  const htmlRegex = /```html\s*([\s\S]*?)```/gi
+  const matches = []
+  let match
+  while ((match = htmlRegex.exec(content)) !== null) {
+    const code = match[1].trim()
+    // Check if it looks like a complete HTML document
+    if (code.includes('<!DOCTYPE') || code.includes('<html') || code.includes('<head') || code.includes('<body')) {
+      matches.push(code)
+    }
+  }
+  // Return the largest match (most likely the complete document)
+  if (matches.length > 0) {
+    return matches.reduce((a, b) => a.length > b.length ? a : b)
+  }
+  return null
+}
+
+// Preview the fixed HTML in an iframe
+const openPreview = (htmlCode) => {
+  previewHtml.value = htmlCode
+  showPreview.value = true
+}
+
+// Close preview
+const closePreview = () => {
+  showPreview.value = false
+  previewHtml.value = ''
+}
+
+// Apply full HTML code from AI response
+const applyFullHtml = (htmlCode) => {
+  currentHtmlState.value = htmlCode
+  closePreview()
+}
+
 // Copy all code snippets to clipboard
 const copySnippetsToClipboard = async (content) => {
   const snippets = extractCodeSnippets(content)
@@ -722,6 +1019,42 @@ const handleImageUpload = (event) => {
 
   // Reset input so same file can be selected again
   event.target.value = ''
+}
+
+// Handle paste event for clipboard images (screenshots)
+const handlePaste = (event) => {
+  // Only handle if provider supports vision
+  if (!supportsVision.value) return
+
+  const items = event.clipboardData?.items
+  if (!items) return
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault() // Prevent pasting image as text
+
+      const file = item.getAsFile()
+      if (!file) continue
+
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Image must be smaller than 10MB')
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        attachedImage.value = {
+          name: `screenshot-${Date.now()}.png`,
+          type: file.type,
+          dataUrl: e.target.result,
+          base64: e.target.result.split(',')[1]
+        }
+      }
+      reader.readAsDataURL(file)
+      break // Only handle first image
+    }
+  }
 }
 
 // Remove attached image
@@ -1689,6 +2022,113 @@ watch(() => props.htmlContent, (newVal) => {
 .clear-btn {
   padding: 8px 12px;
   font-size: 14px;
+}
+
+/* Preview Modal */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  backdrop-filter: blur(4px);
+}
+
+.preview-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.4);
+  width: 95vw;
+  max-width: 1200px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+.preview-header h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.preview-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.preview-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Full Code Actions (when complete HTML is detected) */
+.full-code-actions {
+  margin-top: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+}
+
+.full-code-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.full-code-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.full-code-buttons .btn {
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.full-code-buttons .btn-info {
+  background: #3b82f6;
+  border-color: #2563eb;
+  color: white;
+}
+
+.full-code-buttons .btn-info:hover {
+  background: #2563eb;
+  border-color: #1d4ed8;
+}
+
+.full-code-buttons .btn-success {
+  background: #10b981;
+  border-color: #059669;
+  color: white;
+}
+
+.full-code-buttons .btn-success:hover {
+  background: #059669;
+  border-color: #047857;
 }
 
 /* Responsive */
