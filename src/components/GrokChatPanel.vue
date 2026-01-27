@@ -163,6 +163,46 @@
         <div v-else class="selection-hint">
           {{ isCanvasContext ? 'Select a node in the canvas to share it with the assistant.' : 'Highlight text in the graph to share it with the assistant.' }}
         </div>
+        <div class="context-row api-lookup-toggle">
+          <button class="btn btn-outline-secondary btn-sm" type="button" @click="toggleApiLookup">
+            🔎 API Lookup
+          </button>
+          <span v-if="apiSearchLoading" class="context-indicator">Searching...</span>
+          <span v-else-if="apiSearchError" class="context-indicator muted">{{ apiSearchError }}</span>
+        </div>
+        <div v-if="apiLookupOpen" class="api-lookup-panel">
+          <div class="api-lookup-input">
+            <input
+              v-model="apiSearchQuery"
+              type="text"
+              class="form-control form-control-sm"
+              placeholder="Search APIs (e.g., graph, album, image)"
+              @keydown.enter.prevent="runApiSearch"
+            />
+            <button class="btn btn-primary btn-sm" type="button" @click="runApiSearch" :disabled="!apiSearchQuery.trim()">
+              Search
+            </button>
+          </div>
+          <div v-if="apiSearchResults.length" class="api-lookup-results">
+            <button
+              v-for="api in apiSearchResults"
+              :key="api.slug"
+              class="api-lookup-item"
+              type="button"
+              @click="insertApiSnippet(api)"
+              :title="api.description"
+            >
+              <span class="api-lookup-icon" :style="{ color: api.color || '#6b7280' }">
+                {{ api.icon || '🔌' }}
+              </span>
+              <span class="api-lookup-name">{{ api.name }}</span>
+              <span class="api-lookup-signature">{{ api.function_signature || api.function_name }}</span>
+            </button>
+          </div>
+          <div v-else-if="apiSearchQuery.trim() && !apiSearchLoading" class="api-lookup-empty">
+            No APIs found.
+          </div>
+        </div>
         <!-- Suggested Questions based on selection -->
         <div v-if="suggestedQuestions.length > 0" class="suggested-questions">
           <div class="suggested-questions-chips">
@@ -1354,6 +1394,13 @@ const batchCurrentIndex = ref(0)
 const batchCurrentPreview = ref(null)
 const batchGenerating = ref(false)
 
+// API Lookup
+const apiLookupOpen = ref(false)
+const apiSearchQuery = ref('')
+const apiSearchResults = ref([])
+const apiSearchLoading = ref(false)
+const apiSearchError = ref('')
+
 // Proff API Function Calling Configuration
 const PROFF_API_BASE = 'https://proff-worker.torarnehave.workers.dev'
 const useProffTools = ref(true) // Enable Proff company lookup by default
@@ -1363,6 +1410,42 @@ const TOOL_TEMPLATES_ENDPOINT = 'https://knowledge.vegvisr.org/getToolTemplates'
 const canUseTemplateTools = computed(() => {
   return userStore.role === 'Superadmin' || userStore.role === 'Admin'
 })
+
+const toggleApiLookup = () => {
+  apiLookupOpen.value = !apiLookupOpen.value
+  apiSearchError.value = ''
+  if (!apiLookupOpen.value) {
+    apiSearchResults.value = []
+  }
+}
+
+const runApiSearch = async () => {
+  const query = apiSearchQuery.value.trim()
+  if (!query) return
+  apiSearchLoading.value = true
+  apiSearchError.value = ''
+  try {
+    const res = await fetch(`https://api.vegvisr.org/api/apis/search?q=${encodeURIComponent(query)}`)
+    if (!res.ok) {
+      throw new Error(`Search failed (${res.status})`)
+    }
+    const data = await res.json()
+    apiSearchResults.value = data.results || []
+  } catch (error) {
+    apiSearchResults.value = []
+    apiSearchError.value = error instanceof Error ? error.message : 'Search failed'
+  } finally {
+    apiSearchLoading.value = false
+  }
+}
+
+const insertApiSnippet = (api) => {
+  if (!api) return
+  const signature = api.function_signature || api.function_name || api.slug
+  const endpoint = api.endpoint_url || ''
+  const snippet = `API: ${api.name || api.slug}\nSignature: ${signature}${endpoint ? `\nEndpoint: ${endpoint}` : ''}\n`
+  userInput.value = `${userInput.value || ''}${userInput.value ? '\n\n' : ''}${snippet}`
+}
 
 // OpenAI-compatible tool definitions for Proff API
 const proffTools = [
@@ -6459,6 +6542,72 @@ watch(
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.api-lookup-toggle {
+  align-items: center;
+  gap: 10px;
+}
+
+.api-lookup-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.api-lookup-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.api-lookup-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.api-lookup-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.api-lookup-item:hover {
+  border-color: #cbd5f5;
+  background: #f1f5ff;
+}
+
+.api-lookup-icon {
+  font-size: 18px;
+}
+
+.api-lookup-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.api-lookup-signature {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.api-lookup-empty {
+  font-size: 12px;
+  color: #64748b;
 }
 
 .selection-context {
