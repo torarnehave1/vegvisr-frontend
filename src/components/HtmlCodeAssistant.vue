@@ -122,6 +122,47 @@
             <!-- For assistant messages, render the full markdown response -->
             <template v-if="message.role === 'assistant'">
               <div class="assistant-response" v-html="renderMarkdown(message.content)"></div>
+
+              <!-- Show fix buttons for code replacements -->
+              <div v-if="getCodeReplacements(message.content).length > 0" class="fix-actions">
+                <div class="fix-actions-header">
+                  <span>{{ getCodeReplacements(message.content).length }} code change(s) found</span>
+                  <button
+                    @click="applyAllFixes(message.content)"
+                    class="btn btn-sm btn-success fix-all-btn"
+                    title="Apply all fixes to the code"
+                  >
+                    ✅ Fix All
+                  </button>
+                </div>
+                <div
+                  v-for="(replacement, rIdx) in getCodeReplacements(message.content)"
+                  :key="rIdx"
+                  class="fix-item"
+                >
+                  <div class="fix-item-header">
+                    <span class="fix-location">{{ replacement.location || `Fix #${rIdx + 1}` }}</span>
+                    <button
+                      @click="applySingleFix(replacement)"
+                      class="btn btn-sm btn-outline-success"
+                      title="Apply this fix"
+                    >
+                      🔧 Apply Fix
+                    </button>
+                  </div>
+                  <div class="fix-preview">
+                    <div class="fix-from">
+                      <span class="fix-label">From:</span>
+                      <code>{{ replacement.from.substring(0, 60) }}{{ replacement.from.length > 60 ? '...' : '' }}</code>
+                    </div>
+                    <div class="fix-to">
+                      <span class="fix-label">To:</span>
+                      <code>{{ replacement.to.substring(0, 60) }}{{ replacement.to.length > 60 ? '...' : '' }}</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Show copy buttons for each code block -->
               <div v-if="message.hasCodeSnippets" class="snippet-actions">
                 <button
@@ -150,6 +191,14 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Changes Applied Banner -->
+      <div v-if="hasUnsavedChanges" class="changes-banner">
+        <span>⚡ You have unsaved changes</span>
+        <button @click="saveAndClose" class="btn btn-sm btn-success">
+          💾 Save & Close
+        </button>
       </div>
 
       <!-- Input Area -->
@@ -259,6 +308,11 @@ const lineCount = computed(() => {
 const providerLabel = computed(() => {
   const opt = providerOptions.find(o => o.value === provider.value)
   return opt ? opt.label : 'AI'
+})
+
+// Track if there are unsaved changes
+const hasUnsavedChanges = computed(() => {
+  return currentHtmlState.value !== props.htmlContent
 })
 
 // Create a summary of the graph data for AI context
@@ -619,6 +673,114 @@ const clearConversation = () => {
   if (confirm('Clear the conversation history?')) {
     conversationHistory.value = []
   }
+}
+
+// Parse AI response to find "Change this / To this" code replacement pairs
+const getCodeReplacements = (content) => {
+  const replacements = []
+
+  // Pattern 1: "Change this:" followed by code block, then "To this:" followed by code block
+  const pattern1 = /\*\*(?:Change this|Before)\*\*:?\s*```(?:javascript|js|html|css)?\s*([\s\S]*?)```\s*\*\*(?:To this|After)\*\*:?\s*```(?:javascript|js|html|css)?\s*([\s\S]*?)```/gi
+
+  // Pattern 2: Location headers like "**Location 1**:" or "In the function()"
+  const locationPattern = /\*\*Location\s*\d*\*\*:?\s*(?:In the\s+)?`?([^`\n]+)`?/gi
+
+  let match
+  let locations = []
+
+  // Extract locations first
+  while ((match = locationPattern.exec(content)) !== null) {
+    locations.push(match[1].trim())
+  }
+
+  // Reset and find code pairs
+  let pairIndex = 0
+  while ((match = pattern1.exec(content)) !== null) {
+    replacements.push({
+      from: match[1].trim(),
+      to: match[2].trim(),
+      location: locations[pairIndex] || null
+    })
+    pairIndex++
+  }
+
+  // If no pairs found with pattern 1, try simpler pattern
+  if (replacements.length === 0) {
+    // Look for consecutive code blocks that might be before/after
+    const codeBlocks = []
+    const blockRegex = /```(?:javascript|js|html|css)?\s*([\s\S]*?)```/gi
+    while ((match = blockRegex.exec(content)) !== null) {
+      codeBlocks.push(match[1].trim())
+    }
+
+    // Check for "Change this" or "To this" keywords near code blocks
+    const changeThisMatch = content.match(/\*\*Change this\*\*:?\s*```(?:javascript|js|html|css)?\s*([\s\S]*?)```/i)
+    const toThisMatch = content.match(/\*\*To this\*\*:?\s*```(?:javascript|js|html|css)?\s*([\s\S]*?)```/i)
+
+    if (changeThisMatch && toThisMatch) {
+      replacements.push({
+        from: changeThisMatch[1].trim(),
+        to: toThisMatch[1].trim(),
+        location: locations[0] || null
+      })
+    }
+  }
+
+  return replacements
+}
+
+// Apply a single fix to the current HTML
+const applySingleFix = (replacement) => {
+  const currentCode = currentHtmlState.value
+  const fromCode = replacement.from
+
+  // Try to find and replace the code
+  if (currentCode.includes(fromCode)) {
+    currentHtmlState.value = currentCode.replace(fromCode, replacement.to)
+    alert('Fix applied! Remember to save your changes.')
+  } else {
+    // Try with normalized whitespace
+    const normalizedFrom = fromCode.replace(/\s+/g, ' ').trim()
+    const normalizedCurrent = currentCode.replace(/\s+/g, ' ')
+
+    if (normalizedCurrent.includes(normalizedFrom)) {
+      // Find the actual position and replace
+      alert('Code found but whitespace differs. Please apply manually or copy the snippet.')
+    } else {
+      alert('Could not find the exact code to replace. The code may have already been changed, or the pattern doesn\'t match exactly.')
+    }
+  }
+}
+
+// Apply all fixes from a message
+const applyAllFixes = (content) => {
+  const replacements = getCodeReplacements(content)
+  if (replacements.length === 0) {
+    alert('No code replacements found in this message.')
+    return
+  }
+
+  let appliedCount = 0
+  let currentCode = currentHtmlState.value
+
+  for (const replacement of replacements) {
+    if (currentCode.includes(replacement.from)) {
+      currentCode = currentCode.replace(replacement.from, replacement.to)
+      appliedCount++
+    }
+  }
+
+  if (appliedCount > 0) {
+    currentHtmlState.value = currentCode
+    alert(`Applied ${appliedCount} of ${replacements.length} fixes! Click "Save & Close" to keep changes.`)
+  } else {
+    alert('Could not apply any fixes. The code patterns may not match exactly.')
+  }
+}
+
+// Save changes and close
+const saveAndClose = () => {
+  emit('apply-changes', currentHtmlState.value)
 }
 
 // Send message to AI
@@ -1144,6 +1306,98 @@ watch(() => props.htmlContent, (newVal) => {
   margin: 4px 0;
 }
 
+/* Fix Actions */
+.fix-actions {
+  margin-top: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 1px solid #10b981;
+  border-radius: 8px;
+}
+
+.fix-actions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #a7f3d0;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.fix-all-btn {
+  background: #10b981;
+  border-color: #059669;
+  font-weight: 600;
+}
+
+.fix-all-btn:hover {
+  background: #059669;
+  border-color: #047857;
+}
+
+.fix-item {
+  background: white;
+  border: 1px solid #d1fae5;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.fix-item:last-child {
+  margin-bottom: 0;
+}
+
+.fix-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.fix-location {
+  font-size: 13px;
+  color: #047857;
+  font-weight: 500;
+}
+
+.fix-preview {
+  font-size: 12px;
+}
+
+.fix-from,
+.fix-to {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.fix-label {
+  color: #6b7280;
+  min-width: 40px;
+  font-weight: 500;
+}
+
+.fix-from code {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.fix-to code {
+  background: #ecfdf5;
+  color: #059669;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
 .snippet-actions {
   margin-top: 12px;
   padding-top: 12px;
@@ -1233,6 +1487,24 @@ watch(() => props.htmlContent, (newVal) => {
     transform: scale(1);
     opacity: 1;
   }
+}
+
+/* Changes Banner */
+.changes-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-top: 1px solid #f59e0b;
+  color: #92400e;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.changes-banner .btn-success {
+  background: #10b981;
+  border-color: #059669;
 }
 
 .input-area {
