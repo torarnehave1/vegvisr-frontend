@@ -8,6 +8,10 @@
           <span class="node-label">{{ nodeLabel }}</span>
         </div>
         <div class="header-controls">
+          <label class="storage-checkbox" title="Enable cloud storage functions (saveData, loadData, etc.) for forms and user data">
+            <input type="checkbox" v-model="enableCloudStorage" />
+            <span class="checkbox-label">💾 Cloud Storage</span>
+          </label>
           <select v-model="provider" class="provider-select" title="Select AI provider">
             <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -376,6 +380,7 @@ const attachedImage = ref(null)
 const currentHtmlState = ref(props.htmlContent)
 const showPreview = ref(false)
 const previewHtml = ref('')
+const enableCloudStorage = ref(false)
 
 // Computed
 const lineCount = computed(() => {
@@ -729,6 +734,44 @@ Return the COMPLETE fixed HTML document wrapped in \`\`\`html code fences.
 Start with a 1-2 sentence explanation of what you fixed.
 Then the full code. Nothing else.`
 
+// Enhanced cloud storage prompt (added when checkbox is enabled)
+const cloudStorageEnhancedPrompt = `
+
+## 💾 CLOUD STORAGE API (IMPORTANT - USER REQUESTED THIS FEATURE)
+
+The user has EXPLICITLY enabled cloud storage. You MUST use these functions for ANY form submissions, registrations, or data persistence. NEVER use localStorage - always use the cloud storage functions.
+
+### Available Functions (AUTOMATICALLY INJECTED - DO NOT DEFINE THEM)
+
+- saveData(key, value) - Save data to cloud storage
+- loadData(key) - Load a single key from storage
+- loadAllData() - Load all stored data for this node
+- deleteData(key) - Delete data from storage
+
+### FORM SUBMISSION PATTERN (USE THIS)
+
+When creating forms with data persistence:
+
+1. Create a unique key: const key = 'type_' + email.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
+2. Save with: await saveData(key, { name, email, registeredAt: new Date().toISOString() });
+3. Handle errors with try/catch
+4. Show success/error messages to users
+
+### CRITICAL RULES
+- The saveData/loadData functions are AUTOMATICALLY INJECTED - never define them yourself
+- Always use unique keys (include timestamp or identifier)
+- Wrap storage calls in try/catch
+- Show user feedback after save operations
+`
+
+// Computed: combine base prompt with enhanced storage docs when enabled
+const getEffectiveSystemPrompt = () => {
+  if (enableCloudStorage.value) {
+    return systemPrompt + cloudStorageEnhancedPrompt
+  }
+  return systemPrompt
+}
+
 // Get API endpoint based on provider (same as GrokChatPanel)
 const getEndpoint = () => {
   const endpoints = {
@@ -834,7 +877,7 @@ const buildPayload = (userMessage) => {
 
   // Build conversation messages
   const grokMessages = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: getEffectiveSystemPrompt() },
     { role: 'user', content: userContent }
   ]
 
@@ -1344,6 +1387,36 @@ watch(() => props.htmlContent, (newVal) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.storage-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 1px solid #10b981;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #065f46;
+  transition: all 0.2s;
+}
+
+.storage-checkbox:hover {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+}
+
+.storage-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #10b981;
+  cursor: pointer;
+}
+
+.storage-checkbox .checkbox-label {
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .provider-select,
