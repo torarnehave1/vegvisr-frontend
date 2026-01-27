@@ -178,6 +178,10 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders })
     }
 
+    if (pathname === '/health' && request.method === 'GET') {
+      return createResponse(JSON.stringify({ ok: true, service: 'albums-worker' }), 200)
+    }
+
     if (pathname === '/photo-albums' && request.method === 'GET') {
       return await handleListPhotoAlbums(request, env)
     }

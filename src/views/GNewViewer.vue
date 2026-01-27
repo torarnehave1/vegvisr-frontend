@@ -558,6 +558,19 @@
               </div>
             </div>
 
+            <!-- Node ID Display -->
+            <div v-if="editingNode.id" class="node-id-display">
+              <span class="node-id-label">Node ID:</span>
+              <code class="node-id-value">{{ editingNode.id }}</code>
+              <button
+                @click="copyNodeId"
+                class="btn btn-sm btn-outline-secondary copy-node-id-btn"
+                title="Copy Node ID"
+              >
+                {{ nodeIdCopied ? '✓ Copied' : '📋 Copy' }}
+              </button>
+            </div>
+
             <div class="modal-body">
               <div class="form-group">
                 <label class="form-label">Node Title:</label>
@@ -3040,6 +3053,7 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+const nodeIdCopied = ref(false)
 const nodeFindText = ref('')
 const nodeReplaceText = ref('')
 const nodeReplaceStatus = ref('')
@@ -6390,6 +6404,33 @@ const closeNodeEditModal = () => {
   nodeReplaceText.value = ''
   nodeReplaceStatus.value = ''
   replaceNodeTitle.value = true
+  nodeIdCopied.value = false
+}
+
+// Copy Node ID to clipboard
+const copyNodeId = async () => {
+  if (!editingNode.value?.id) return
+
+  try {
+    await navigator.clipboard.writeText(editingNode.value.id)
+    nodeIdCopied.value = true
+    setTimeout(() => {
+      nodeIdCopied.value = false
+    }, 2000)
+  } catch (err) {
+    console.error('Failed to copy node ID:', err)
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea')
+    textArea.value = editingNode.value.id
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
+    nodeIdCopied.value = true
+    setTimeout(() => {
+      nodeIdCopied.value = false
+    }, 2000)
+  }
 }
 
 // AI Rewrite methods
@@ -9929,6 +9970,38 @@ const saveAttribution = async () => {
   max-height: 90vh;
   overflow-y: auto;
   position: relative;
+}
+
+/* Node ID Display Styles */
+.node-id-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  font-size: 13px;
+}
+
+.node-id-label {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.node-id-value {
+  background: #e9ecef;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  color: #495057;
+  user-select: all;
+}
+
+.copy-node-id-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  margin-left: auto;
 }
 
 .node-content-textarea {
