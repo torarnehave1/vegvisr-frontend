@@ -20,7 +20,7 @@ onMounted(() => {
 
 function handleLogout() {
   userStore.logout()
-  router.push('/') // Redirect to home page
+  window.location.href = 'https://login.vegvisr.org/'
 }
 
 function setTheme(newTheme) {

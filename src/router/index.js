@@ -551,7 +551,8 @@ router.beforeEach(async (to, from, next) => {
       const sessionOtp = typeof window !== 'undefined' && sessionStorage.getItem('phone_session_verified') === '1'
       if (!sessionEmail && !sessionOtp) {
         console.warn('[Router] No active verification session. Redirecting to login.')
-        return next({ path: '/login', query: { email: userStore.email || '' } })
+        window.location.href = 'https://login.vegvisr.org/'
+        return
       }
 
       // Check for Superadmin requirement (allow Admin and Superadmin)
@@ -570,7 +571,8 @@ router.beforeEach(async (to, from, next) => {
         'email:',
         userStore.email,
       )
-      next({ path: '/login' })
+      window.location.href = 'https://login.vegvisr.org/'
+      return
     }
   } else {
     next()

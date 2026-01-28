@@ -101,13 +101,17 @@
               Logout
             </button>
             <!-- Login Button -->
-            <RouterLink v-else class="btn btn-outline-primary me-2 btn-lg" to="/login">
+            <a
+              v-else
+              class="btn btn-outline-primary me-2 btn-lg"
+              href="https://login.vegvisr.org/"
+            >
               Login
-            </RouterLink>
+            </a>
             <!-- Register Button -->
-            <RouterLink class="btn btn-outline-success me-3 btn-lg" to="/register">
+            <a class="btn btn-outline-success me-3 btn-lg" href="https://login.vegvisr.org/">
               Sign Up
-            </RouterLink>
+            </a>
           </div>
         </div>
       </nav>
