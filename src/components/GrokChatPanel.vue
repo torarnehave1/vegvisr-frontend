@@ -5459,6 +5459,31 @@ const buildGraphContext = () => {
   return context
 }
 
+const buildGraphIdContext = () => {
+  if (!props.graphData) return null
+
+  const graphId =
+    props.graphData.id ||
+    props.graphData.graphId ||
+    props.graphData.metadata?.id ||
+    props.graphData.metadata?.graphId ||
+    props.graphData.metadata?.graph_id ||
+    null
+  const nodes = Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []
+  const sampleSize = 60
+  const nodeLines = nodes.slice(0, sampleSize).map((node) => {
+    const label = node.label || node.title || ''
+    return label ? `- ${node.id} — ${label}` : `- ${node.id}`
+  })
+  const moreCount = nodes.length > sampleSize ? `\n...and ${nodes.length - sampleSize} more nodes.` : ''
+
+  return `Current Graph ID: ${graphId || 'Unknown'}
+Node count: ${nodes.length}
+Node IDs & labels (first ${Math.min(sampleSize, nodes.length)}):
+${nodeLines.join('\n') || 'No nodes'}
+${moreCount}`
+}
+
 const buildSelectionContext = () => {
   if (!useSelectionContext.value || !hasSelectionContext.value) return null
 
@@ -5781,6 +5806,10 @@ const sendMessage = async () => {
     })
 
     const contextSections = []
+    const graphIdContext = buildGraphIdContext()
+    if (graphIdContext) {
+      contextSections.push(graphIdContext)
+    }
 
     // Add tool usage instructions when tools are enabled
     if (currentProvider === 'openai' || currentProvider === 'claude' || currentProvider === 'grok') {
