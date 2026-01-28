@@ -100,9 +100,22 @@ const getStorageHelperScript = (nodeId) => `
 // Node ID: ${nodeId}
 (function() {
   const NODE_ID = '${nodeId}';
+  const USER_API_BASE = 'https://api.vegvisr.org/api/user-app/data';
+  const STORAGE_TOKEN = window.__VEGVISR_STORAGE_TOKEN || null;
   let requestCounter = 0;
 
+  function unwrapResponse(result) {
+    if (!result) return null;
+    if (result.data && result.data.data !== undefined) return result.data.data;
+    if (result.data !== undefined) return result.data;
+    return result;
+  }
+
   function sendToParent(action, payload) {
+    if (!window.parent || window.parent === window) {
+      return Promise.reject(new Error('No parent storage bridge'));
+    }
+
     return new Promise((resolve, reject) => {
       const requestId = 'storage_' + (++requestCounter) + '_' + Date.now();
 
@@ -132,10 +145,67 @@ const getStorageHelperScript = (nodeId) => `
     });
   }
 
+  async function sendToApi(action, payload) {
+    if (!STORAGE_TOKEN) {
+      throw new Error('No storage token available');
+    }
+
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + STORAGE_TOKEN
+    };
+
+    switch (action) {
+      case 'save': {
+        const response = await fetch(\`\${USER_API_BASE}/set\`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ appId: NODE_ID, key: payload.key, value: payload.value })
+        });
+        return await response.json();
+      }
+      case 'load': {
+        const url = new URL(\`\${USER_API_BASE}/get\`);
+        url.searchParams.set('appId', NODE_ID);
+        url.searchParams.set('key', payload.key);
+        const response = await fetch(url.toString(), { headers: authHeaders });
+        return await response.json();
+      }
+      case 'loadAll': {
+        const url = new URL(\`\${USER_API_BASE}/list\`);
+        url.searchParams.set('appId', NODE_ID);
+        const response = await fetch(url.toString(), { headers: authHeaders });
+        return await response.json();
+      }
+      case 'delete': {
+        const response = await fetch(\`\${USER_API_BASE}/delete\`, {
+          method: 'DELETE',
+          headers: authHeaders,
+          body: JSON.stringify({ appId: NODE_ID, key: payload.key })
+        });
+        return await response.json();
+      }
+      default:
+        throw new Error('Unknown action: ' + action);
+    }
+  }
+
+  async function dispatchStorage(action, payload) {
+    try {
+      return await sendToParent(action, payload);
+    } catch (error) {
+      if (!STORAGE_TOKEN) {
+        throw error;
+      }
+      console.warn('Storage parent bridge unavailable, using token API:', error);
+      return await sendToApi(action, payload);
+    }
+  }
+
   // Save data to cloud storage
   async function saveData(key, value) {
     try {
-      const result = await sendToParent('save', { key, value: typeof value === 'object' ? JSON.stringify(value) : String(value) });
+      const result = await dispatchStorage('save', { key, value });
       return result.success !== false;
     } catch (error) {
       console.error('saveData error:', error);
@@ -146,12 +216,13 @@ const getStorageHelperScript = (nodeId) => `
   // Load data from cloud storage
   async function loadData(key) {
     try {
-      const result = await sendToParent('load', { key });
-      if (result && result.data && result.data.value !== undefined) {
+      const result = await dispatchStorage('load', { key });
+      const data = unwrapResponse(result);
+      if (data && data.value !== undefined) {
         try {
-          return JSON.parse(result.data.value);
+          return JSON.parse(data.value);
         } catch {
-          return result.data.value;
+          return data.value;
         }
       }
       return null;
@@ -164,9 +235,10 @@ const getStorageHelperScript = (nodeId) => `
   // Load all data for this node
   async function loadAllData() {
     try {
-      const result = await sendToParent('loadAll', {});
-      if (result && result.data) {
-        return result.data.map(item => ({
+      const result = await dispatchStorage('loadAll', {});
+      const items = unwrapResponse(result);
+      if (Array.isArray(items)) {
+        return items.map(item => ({
           key: item.key,
           value: (() => { try { return JSON.parse(item.value); } catch { return item.value; } })()
         }));
@@ -181,7 +253,7 @@ const getStorageHelperScript = (nodeId) => `
   // Delete data from cloud storage
   async function deleteData(key) {
     try {
-      const result = await sendToParent('delete', { key });
+      const result = await dispatchStorage('delete', { key });
       return result.success !== false;
     } catch (error) {
       console.error('deleteData error:', error);
@@ -202,26 +274,45 @@ const getStorageHelperScript = (nodeId) => `
 `
 
 // Inject storage helpers into HTML content
-const injectStorageHelpers = (htmlContent, nodeId) => {
-  // Don't inject if already has storage functions
-  if (htmlContent.includes('window.saveData =') || htmlContent.includes('function saveData(')) {
-    return htmlContent
+const injectStorageHelpers = (htmlContent, nodeId, publishToken = '') => {
+  const tokenScript = publishToken
+    ? `<script>window.__VEGVISR_STORAGE_TOKEN=${JSON.stringify(publishToken)};</script>`
+    : ''
+  const hasHelpers =
+    htmlContent.includes('window.saveData =') || htmlContent.includes('function saveData(')
+  const hasToken = htmlContent.includes('__VEGVISR_STORAGE_TOKEN')
+
+  if (hasHelpers) {
+    if (!tokenScript || hasToken) {
+      return htmlContent
+    }
+
+    if (htmlContent.includes('</body>')) {
+      return htmlContent.replace('</body>', tokenScript + '</body>')
+    }
+
+    if (htmlContent.includes('</html>')) {
+      return htmlContent.replace('</html>', tokenScript + '</html>')
+    }
+
+    return htmlContent + tokenScript
   }
 
   const storageScript = getStorageHelperScript(nodeId)
+  const payload = tokenScript + storageScript
 
   // Try to inject before </body>
   if (htmlContent.includes('</body>')) {
-    return htmlContent.replace('</body>', storageScript + '</body>')
+    return htmlContent.replace('</body>', payload + '</body>')
   }
 
   // Try to inject before </html>
   if (htmlContent.includes('</html>')) {
-    return htmlContent.replace('</html>', storageScript + '</html>')
+    return htmlContent.replace('</html>', payload + '</html>')
   }
 
   // Just append if no closing tags found
-  return htmlContent + storageScript
+  return htmlContent + payload
 }
 
 const createHtmlUrl = () => {
@@ -252,8 +343,8 @@ const toggleFullscreen = () => {
 
 const downloadHtml = () => {
   if (!props.node.info) return
-  const htmlContent =
-    typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  const rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -310,12 +401,39 @@ const publishHtml = async () => {
       // If check fails, fall back to publish attempt.
     }
 
+    if (!userStore.emailVerificationToken) {
+      throw new Error('Missing authentication token')
+    }
+
+    const rawHtml = String(props.node.info || '')
+    const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken
+      },
+      body: JSON.stringify({
+        appId: props.node.id,
+        ttlDays: 30
+      })
+    })
+
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to mint publish token')
+    }
+
+    const tokenData = await tokenResponse.json()
+    if (!tokenData?.token) {
+      throw new Error('Missing publish token')
+    }
+
+    const htmlContent = injectStorageHelpers(rawHtml, props.node.id, tokenData.token)
     const response = await fetch('https://test.slowyou.training/__html/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hostname: cleanHostname,
-        html: String(props.node.info || ''),
+        html: htmlContent,
         overwrite
       }),
     })
@@ -331,7 +449,7 @@ const publishHtml = async () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             hostname: cleanHostname,
-            html: String(props.node.info || ''),
+            html: htmlContent,
             overwrite: true
           }),
         })
