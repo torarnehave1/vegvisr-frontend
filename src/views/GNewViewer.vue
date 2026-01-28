@@ -672,6 +672,17 @@
                     <span class="d-md-none">{{ isChallenging ? 'Challenging...' : '🤔 Challenge' }}</span>
                   </button>
                   <button
+                    v-if="hasSelectedText && editingNode.type === 'html-node'"
+                    @click="openInlineChat"
+                    class="btn btn-sm btn-outline-success me-2 ai-action-btn"
+                    type="button"
+                    title="Open inline AI chat"
+                  >
+                    <i class="bi bi-chat-dots"></i>
+                    <span class="d-none d-md-inline">Inline Chat</span>
+                    <span class="d-md-none">💬 Chat</span>
+                  </button>
+                  <button
                     v-if="hasSelectedText"
                     @click="openElaborateModal"
                     class="btn btn-sm btn-outline-info ai-action-btn"
@@ -806,6 +817,57 @@
                       <div class="element-category">{{ element.category }}</div>
                     </div>
                   </div>
+                </div>
+                <div
+                  v-if="editingNode.type === 'html-node' && inlineChatOpen"
+                  class="inline-chat-panel"
+                >
+                  <div class="inline-chat-header">
+                    <div>
+                      <div class="inline-chat-title">Inline AI Chat</div>
+                      <div v-if="selectedText" class="inline-chat-subtitle">
+                        Selected: "{{ truncateSelectedText }}"
+                      </div>
+                    </div>
+                    <button type="button" class="btn-close" @click="closeInlineChat"></button>
+                  </div>
+                  <div class="inline-chat-messages">
+                    <div
+                      v-for="(message, idx) in inlineChatMessages"
+                      :key="idx"
+                      class="inline-chat-message"
+                      :class="message.role"
+                    >
+                      <span class="inline-chat-role">
+                        {{ message.role === 'user' ? 'You' : 'AI' }}
+                      </span>
+                      <p class="inline-chat-text">{{ message.content }}</p>
+                    </div>
+                    <div v-if="inlineChatLoading" class="inline-chat-message assistant">
+                      <span class="inline-chat-role">AI</span>
+                      <p class="inline-chat-text">Thinking...</p>
+                    </div>
+                  </div>
+                  <div class="inline-chat-input">
+                    <textarea
+                      v-model="inlineChatInput"
+                      class="form-control"
+                      rows="2"
+                      placeholder="Ask about the selected text..."
+                      @keydown.enter.exact.prevent="sendInlineChat"
+                    ></textarea>
+                    <button
+                      type="button"
+                      class="btn btn-primary"
+                      :disabled="!inlineChatInput.trim() || inlineChatLoading"
+                      @click="sendInlineChat"
+                    >
+                      Send
+                    </button>
+                  </div>
+                  <small v-if="inlineChatError" class="text-danger">
+                    {{ inlineChatError }}
+                  </small>
                 </div>
                 <small class="form-text text-muted">
                   Type <code>[</code> or <code>![</code> to see available formatted elements with
@@ -3104,6 +3166,12 @@ const rewriteInstructions = ref('')
 const rewrittenText = ref('')
 const isRewritingText = ref(false)
 const chatSelection = ref(null)
+const inlineChatOpen = ref(false)
+const inlineChatInput = ref('')
+const inlineChatMessages = ref([])
+const inlineChatLoading = ref(false)
+const inlineChatError = ref('')
+const INLINE_CHAT_MODEL = 'claude-sonnet-4-5-20250929'
 
 // AI Challenge functionality
 const showAIChallengeModal = ref(false)
@@ -6420,6 +6488,11 @@ const openNodeEditModal = (node) => {
   nodeReplaceText.value = ''
   nodeReplaceStatus.value = ''
   replaceNodeTitle.value = true
+  inlineChatOpen.value = false
+  inlineChatInput.value = ''
+  inlineChatMessages.value = []
+  inlineChatError.value = ''
+  inlineChatLoading.value = false
   showNodeEditModal.value = true
 }
 
@@ -6432,6 +6505,11 @@ const closeNodeEditModal = () => {
   nodeReplaceStatus.value = ''
   replaceNodeTitle.value = true
   nodeIdCopied.value = false
+  inlineChatOpen.value = false
+  inlineChatInput.value = ''
+  inlineChatMessages.value = []
+  inlineChatError.value = ''
+  inlineChatLoading.value = false
 }
 
 // Copy Node ID to clipboard
@@ -6487,6 +6565,9 @@ const handleTextSelection = () => {
       selectedTextStart.value = start
       selectedTextEnd.value = end
       syncChatSelectionWithNode(selectedTextValue)
+      if (editingNode.value?.type === 'html-node') {
+        inlineChatOpen.value = true
+      }
 
       console.log('🎯 Text selected:', selectedTextValue)
       console.log('🎯 hasSelectedText will be:', selectedTextValue.trim().length > 0)
@@ -6527,8 +6608,88 @@ const showMobileAITools = () => {
     selectedTextStart.value = 0
     selectedTextEnd.value = editingNode.value.info.length
     syncChatSelectionWithNode(selectedText.value)
+    if (editingNode.value?.type === 'html-node') {
+      inlineChatOpen.value = true
+    }
 
     console.log('🎯 Mobile: Selected all text for AI tools')
+  }
+}
+
+const buildInlineChatSystemPrompt = () => {
+  const parts = [
+    'You are a precise assistant helping edit an HTML node. Answer concisely and focus on the selected text.'
+  ]
+  const selection = selectedText.value.trim()
+  if (selection) {
+    parts.push(`Selected text:\n${selection}`)
+  }
+  const content = String(editingNode.value?.info || '').trim()
+  if (content) {
+    const maxLength = 6000
+    const excerpt = content.length > maxLength ? `${content.slice(0, maxLength)}...` : content
+    parts.push(`Node content (excerpt):\n${excerpt}`)
+  }
+  return parts.join('\n\n')
+}
+
+const openInlineChat = () => {
+  if (editingNode.value?.type !== 'html-node') return
+  inlineChatOpen.value = true
+}
+
+const closeInlineChat = () => {
+  inlineChatOpen.value = false
+}
+
+const sendInlineChat = async () => {
+  const prompt = inlineChatInput.value.trim()
+  if (!prompt || inlineChatLoading.value) return
+  inlineChatError.value = ''
+  inlineChatLoading.value = true
+
+  const userMessage = { role: 'user', content: prompt }
+  inlineChatMessages.value = [...inlineChatMessages.value, userMessage]
+  inlineChatInput.value = ''
+
+  try {
+    const requestBody = {
+      userId: userStore.user_id || 'node-editor',
+      model: INLINE_CHAT_MODEL,
+      temperature: 0.4,
+      max_tokens: 2048,
+      stream: false,
+      system: buildInlineChatSystemPrompt(),
+      messages: inlineChatMessages.value.map((msg) => ({
+        role: msg.role,
+        content: msg.content
+      }))
+    }
+
+    const response = await fetch('https://anthropic.vegvisr.org/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      throw new Error(`AI request failed (${response.status})`)
+    }
+
+    const data = await response.json()
+    const aiMessage = data?.content?.[0]?.text
+    if (!aiMessage) {
+      throw new Error('No response from AI')
+    }
+
+    inlineChatMessages.value = [
+      ...inlineChatMessages.value,
+      { role: 'assistant', content: aiMessage }
+    ]
+  } catch (error) {
+    inlineChatError.value = error instanceof Error ? error.message : 'Failed to send chat message.'
+  } finally {
+    inlineChatLoading.value = false
   }
 }
 
@@ -10053,6 +10214,85 @@ const saveAttribution = async () => {
 
 .textarea-container {
   position: relative;
+}
+
+.inline-chat-panel {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.inline-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.inline-chat-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.inline-chat-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.inline-chat-messages {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.inline-chat-message {
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.inline-chat-message.user {
+  background: #eef2ff;
+  align-self: flex-end;
+}
+
+.inline-chat-message.assistant {
+  background: #f3f4f6;
+  align-self: flex-start;
+}
+
+.inline-chat-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+}
+
+.inline-chat-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  color: #111827;
+}
+
+.inline-chat-input {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.inline-chat-input textarea {
+  resize: vertical;
 }
 
 .textarea-highlight-layer {
