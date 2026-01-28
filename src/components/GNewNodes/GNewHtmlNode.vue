@@ -276,7 +276,7 @@ const getStorageHelperScript = (nodeId) => `
 // Inject storage helpers into HTML content
 const injectStorageHelpers = (htmlContent, nodeId, publishToken = '') => {
   const tokenScript = publishToken
-    ? `<script>window.__VEGVISR_STORAGE_TOKEN=${JSON.stringify(publishToken)};</script>`
+    ? `<scr` + `ipt>window.__VEGVISR_STORAGE_TOKEN=${JSON.stringify(publishToken)};</scr` + `ipt>`
     : ''
   const hasHelpers =
     htmlContent.includes('window.saveData =') || htmlContent.includes('function saveData(')
