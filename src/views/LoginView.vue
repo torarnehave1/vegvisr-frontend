@@ -142,6 +142,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 
 const MAGIC_BASE = 'https://email-worker.torarnehave.workers.dev'
+const MAIN_WORKER_BASE = 'https://vegvisr-frontend.torarnehave.workers.dev'
 const email = ref('')
 const phone = ref('')
 const code = ref('')
@@ -369,7 +370,7 @@ async function handleEmailSubmit() {
   loadingEmail.value = true
   try {
     const res = await fetch(
-      `https://www.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
+      `${MAIN_WORKER_BASE}/check-email?email=${encodeURIComponent(email.value)}`,
     )
     const data = await res.json()
 
@@ -605,7 +606,7 @@ async function handleLinkedInCallback() {
 
       // Create new user via /sve2 endpoint (main-worker registration)
       const registerRes = await fetch(
-        `https://www.vegvisr.org/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
+        `${MAIN_WORKER_BASE}/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
       )
 
       if (!registerRes.ok) {

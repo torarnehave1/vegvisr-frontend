@@ -21,6 +21,8 @@
 <script>
 import { useUserStore } from '@/stores/userStore'
 
+const MAIN_WORKER_BASE = 'https://vegvisr-frontend.torarnehave.workers.dev'
+
 export default {
   name: 'UserRegistration',
   data() {
@@ -47,7 +49,7 @@ export default {
       this.errorMessage = '' // Clear error message before submission
       try {
         const response = await fetch(
-          `https://www.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
+          `${MAIN_WORKER_BASE}/sve2?email=${encodeURIComponent(this.email)}`,
           {
             method: 'GET',
             headers: {
@@ -59,13 +61,15 @@ export default {
         const data = await response.json()
         console.log('User registration response:', data)
 
-        if (data.message === 'User with this email already exists.') {
+        const message = data?.message || data?.body?.message
+
+        if (message === 'User with this email already exists.') {
           this.errorMessage = 'User with this email already exists.'
           this.emailExists = true // Set emailExists to true
         } else {
-          if (data.emailVerificationToken) {
+          if (data?.emailVerificationToken || data?.body?.emailVerificationToken) {
             const userStore = useUserStore()
-            userStore.setEmailVerificationToken(data.emailVerificationToken)
+            userStore.setEmailVerificationToken(data?.emailVerificationToken || data?.body?.emailVerificationToken)
           }
           this.successMessage =
             'IMPORTANT: Please check your email to finalize your registration. Remember to check your SPAM folder as well. The email will be sent from vegvisr.org@gmail.com. NOTE: To log in from a different device, you must click the registration link on that device again.'
@@ -86,7 +90,7 @@ export default {
       this.successMessage = ''
       this.errorMessage = '' // Clear messages before submission
       try {
-        const response = await fetch('https://www.vegvisr.org/resend-verification', {
+        const response = await fetch(`${MAIN_WORKER_BASE}/resend-verification`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -117,7 +121,7 @@ export default {
       this.successMessage = ''
       this.errorMessage = ''
       try {
-        const response = await fetch('https://www.vegvisr.org/reset-registration', {
+        const response = await fetch(`${MAIN_WORKER_BASE}/reset-registration`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
