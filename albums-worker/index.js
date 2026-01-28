@@ -32,7 +32,7 @@ const validateAuth = async (request, env) => {
 
   try {
     const userRecord = await env.vegvisr_org.prepare(
-      'SELECT user_id, Role FROM config WHERE emailVerificationToken = ?'
+      'SELECT user_id, Role, email FROM config WHERE emailVerificationToken = ?'
     ).bind(apiToken).first()
 
     if (!userRecord) {
@@ -42,6 +42,7 @@ const validateAuth = async (request, env) => {
     return {
       valid: true,
       userId: userRecord.user_id,
+      email: userRecord.email || null,
       role: userRecord.Role
     }
   } catch (error) {
@@ -62,7 +63,19 @@ const readPhotoAlbum = async (env, rawName) => {
   }
 }
 
-const buildAlbumRecord = ({ name, images, existing, createdBy }) => {
+const appendAuditEntry = (existing, entry) => {
+  const log = Array.isArray(existing?.auditLog) ? existing.auditLog : []
+  const next = [...log, entry]
+  return next.slice(-100)
+}
+
+const appendSuperadminAuditEntry = (existing, entry) => {
+  const log = Array.isArray(existing?.superadminAuditLog) ? existing.superadminAuditLog : []
+  const next = [...log, entry]
+  return next.slice(-100)
+}
+
+const buildAlbumRecord = ({ name, images, existing, createdBy, auditEntry, isSuperadmin }) => {
   const now = new Date().toISOString()
   const base = existing && typeof existing === 'object' ? existing : {}
   return {
@@ -70,7 +83,13 @@ const buildAlbumRecord = ({ name, images, existing, createdBy }) => {
     images,
     createdAt: base.createdAt || now,
     createdBy: createdBy ?? base.createdBy ?? null,
-    updatedAt: now
+    updatedAt: now,
+    lastModifiedBy: auditEntry?.actor || base.lastModifiedBy || null,
+    lastModifiedRole: auditEntry?.actorRole || base.lastModifiedRole || null,
+    lastModifiedAction: auditEntry?.action || base.lastModifiedAction || null,
+    auditLog: auditEntry ? appendAuditEntry(base, auditEntry) : base.auditLog || [],
+    superadminAuditLog:
+      auditEntry && isSuperadmin ? appendSuperadminAuditEntry(base, auditEntry) : base.superadminAuditLog || []
   }
 }
 
@@ -144,16 +163,27 @@ const handleUpsertPhotoAlbum = async (request, env) => {
   if (!name) {
     return createErrorResponse('Album name is required', 400)
   }
+  const images = Array.isArray(body?.images) ? body.images.filter(Boolean) : []
   const existing = await readPhotoAlbum(env, name)
-  if (existing?.createdBy && existing.createdBy !== auth.userId) {
+  const auditEntry = {
+    action: existing ? 'update_album' : 'create_album',
+    actor: auth.email || auth.userId,
+    actorRole: auth.role || null,
+    at: new Date().toISOString(),
+    details: {
+      imageCount: images.length
+    }
+  }
+  if (auth.role !== 'Superadmin' && existing?.createdBy && existing.createdBy !== auth.userId && existing.createdBy !== auth.email) {
     return createErrorResponse('Unauthorized to modify this album', 403)
   }
-  const images = Array.isArray(body?.images) ? body.images.filter(Boolean) : []
   const album = buildAlbumRecord({
     name,
     images,
     existing,
-    createdBy: auth.userId
+    createdBy: auth.email || auth.userId,
+    auditEntry,
+    isSuperadmin: auth.role === 'Superadmin'
   })
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)
@@ -188,14 +218,25 @@ const handleAddPhotoAlbumImages = async (request, env) => {
     return createErrorResponse('No images provided', 400)
   }
   const existing = (await readPhotoAlbum(env, name)) || { name, images: [] }
-  if (existing?.createdBy && existing.createdBy !== auth.userId) {
+  const auditEntry = {
+    action: 'add_images',
+    actor: auth.email || auth.userId,
+    actorRole: auth.role || null,
+    at: new Date().toISOString(),
+    details: {
+      added: incoming.length
+    }
+  }
+  if (auth.role !== 'Superadmin' && existing?.createdBy && existing.createdBy !== auth.userId && existing.createdBy !== auth.email) {
     return createErrorResponse('Unauthorized to modify this album', 403)
   }
   const merged = [...new Set([...(existing.images || []), ...incoming])]
   const album = buildAlbumRecord({
     name,
     images: merged,
-    existing
+    existing,
+    auditEntry,
+    isSuperadmin: auth.role === 'Superadmin'
   })
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)
@@ -233,7 +274,16 @@ const handleRemovePhotoAlbumImages = async (request, env) => {
   if (!existing) {
     return createErrorResponse('Album not found', 404)
   }
-  if (existing?.createdBy && existing.createdBy !== auth.userId) {
+  const auditEntry = {
+    action: 'remove_images',
+    actor: auth.email || auth.userId,
+    actorRole: auth.role || null,
+    at: new Date().toISOString(),
+    details: {
+      removed: incoming.length
+    }
+  }
+  if (auth.role !== 'Superadmin' && existing?.createdBy && existing.createdBy !== auth.userId && existing.createdBy !== auth.email) {
     return createErrorResponse('Unauthorized to modify this album', 403)
   }
   const toRemove = new Set(incoming)
@@ -241,7 +291,9 @@ const handleRemovePhotoAlbumImages = async (request, env) => {
   const album = buildAlbumRecord({
     name,
     images: updated,
-    existing
+    existing,
+    auditEntry,
+    isSuperadmin: auth.role === 'Superadmin'
   })
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)
@@ -263,8 +315,28 @@ const handleDeletePhotoAlbum = async (request, env) => {
     return createErrorResponse('Album name is required', 400)
   }
   const existing = await readPhotoAlbum(env, name)
-  if (existing?.createdBy && existing.createdBy !== auth.userId) {
+  if (auth.role !== 'Superadmin' && existing?.createdBy && existing.createdBy !== auth.userId && existing.createdBy !== auth.email) {
     return createErrorResponse('Unauthorized to delete this album', 403)
+  }
+  if (existing) {
+    const auditEntry = {
+      action: 'delete_album',
+      actor: auth.email || auth.userId,
+      actorRole: auth.role || null,
+      at: new Date().toISOString(),
+      details: {
+        imageCount: Array.isArray(existing.images) ? existing.images.length : 0
+      }
+    }
+    const auditPayload = buildAlbumRecord({
+      name,
+      images: existing.images || [],
+      existing,
+      createdBy: existing.createdBy,
+      auditEntry,
+      isSuperadmin: auth.role === 'Superadmin'
+    })
+    await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(auditPayload))
   }
   await env.PHOTO_ALBUMS.delete(buildAlbumKey(name))
   return createResponse(JSON.stringify({ deleted: name }), 200)

@@ -369,7 +369,7 @@ async function handleEmailSubmit() {
   loadingEmail.value = true
   try {
     const res = await fetch(
-      `https://test.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
+      `https://www.vegvisr.org/check-email?email=${encodeURIComponent(email.value)}`,
     )
     const data = await res.json()
 
@@ -433,8 +433,15 @@ async function verifyMagicToken(token) {
     sessionStorage.setItem('email_session_verified', '1')
     statusMessage.value = 'Email verified. Redirecting...'
 
-    const destination = data.redirectUrl || '/user'
-    router.replace(destination)
+    let destination = data.redirectUrl || '/user'
+    if (typeof destination === 'string' && destination.includes('login.vegvisr.org')) {
+      destination = 'https://www.vegvisr.org/login'
+    }
+    if (typeof destination === 'string' && destination.startsWith('http')) {
+      window.location.assign(destination)
+    } else {
+      router.replace(destination)
+    }
   } catch (err) {
     console.error('verifyMagicToken error:', err)
     errorMessage.value = err.message || 'Magic link verification failed. Please request a new link.'
@@ -598,7 +605,7 @@ async function handleLinkedInCallback() {
 
       // Create new user via /sve2 endpoint (main-worker registration)
       const registerRes = await fetch(
-        `https://test.vegvisr.org/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
+        `https://www.vegvisr.org/sve2?email=${encodeURIComponent(linkedInEmail)}&role=User`
       )
 
       if (!registerRes.ok) {

@@ -19,6 +19,8 @@
 </template>
 
 <script>
+import { useUserStore } from '@/stores/userStore'
+
 export default {
   name: 'UserRegistration',
   data() {
@@ -45,7 +47,7 @@ export default {
       this.errorMessage = '' // Clear error message before submission
       try {
         const response = await fetch(
-          `https://test.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
+          `https://www.vegvisr.org/sve2?email=${encodeURIComponent(this.email)}`,
           {
             method: 'GET',
             headers: {
@@ -61,6 +63,10 @@ export default {
           this.errorMessage = 'User with this email already exists.'
           this.emailExists = true // Set emailExists to true
         } else {
+          if (data.emailVerificationToken) {
+            const userStore = useUserStore()
+            userStore.setEmailVerificationToken(data.emailVerificationToken)
+          }
           this.successMessage =
             'IMPORTANT: Please check your email to finalize your registration. Remember to check your SPAM folder as well. The email will be sent from vegvisr.org@gmail.com. NOTE: To log in from a different device, you must click the registration link on that device again.'
           this.emailExists = false // Ensure emailExists is false for new registrations
@@ -80,7 +86,7 @@ export default {
       this.successMessage = ''
       this.errorMessage = '' // Clear messages before submission
       try {
-        const response = await fetch('https://test.vegvisr.org/resend-verification', {
+        const response = await fetch('https://www.vegvisr.org/resend-verification', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -111,7 +117,7 @@ export default {
       this.successMessage = ''
       this.errorMessage = ''
       try {
-        const response = await fetch('https://test.vegvisr.org/reset-registration', {
+        const response = await fetch('https://www.vegvisr.org/reset-registration', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
