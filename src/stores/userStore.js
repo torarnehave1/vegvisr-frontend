@@ -321,6 +321,13 @@ export const useUserStore = defineStore('user', {
         if (this.emailVerificationToken) {
           this.setAuthCookie(this.emailVerificationToken)
         }
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('email_session_verified', '1')
+          }
+        } catch {
+          // ignore storage errors
+        }
 
         console.log('✅ Loaded user from storage:', this.email, 'ID:', this.user_id)
         console.log('🔍 Store state after loading:', {
