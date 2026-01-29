@@ -629,6 +629,21 @@
                 </small>
               </div>
 
+              <!-- Poster URL Path Field (for html-node video overlays) -->
+              <div v-if="editingNode.type === 'html-node'" class="form-group">
+                <label class="form-label">🖼️ Video Poster URL (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="url"
+                  class="form-control"
+                  placeholder="Enter poster image URL (e.g., https://example.com/poster.jpg)..."
+                />
+                <small class="form-text text-muted">
+                  Optional. Used by published HTML apps to show a clickable video overlay before playback.
+                  <br>Store a raw image URL here (JPG, PNG, WebP).
+                </small>
+              </div>
+
               <div class="form-group">
                 <label class="form-label">Node Content:</label>
                 <div class="content-tools mb-2">
