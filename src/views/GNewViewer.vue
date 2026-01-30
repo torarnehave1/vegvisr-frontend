@@ -7852,6 +7852,10 @@ const saveNodeChanges = async () => {
           updatedNode.bibl = []
         }
       }
+      // For HTML nodes, store optional poster URL in path
+      if (editingNode.value.type === 'html-node') {
+        updatedNode.path = editingNode.value.path
+      }
 
       graphData.value.nodes[nodeIndex] = updatedNode
 
