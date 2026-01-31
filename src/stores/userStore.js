@@ -301,7 +301,7 @@ export const useUserStore = defineStore('user', {
         return false
       }
     },
-    loadUserFromStorage() {
+    async loadUserFromStorage() {
       console.log('🔄 loadUserFromStorage called')
       const storedUser = JSON.parse(localStorage.getItem('user'))
       console.log('📦 Raw localStorage data:', storedUser)
@@ -340,17 +340,57 @@ export const useUserStore = defineStore('user', {
 
         // Fetch additional data from config table (including phone)
         this.fetchUserDataFromConfig()
-      } else {
-        console.log('❌ No user data in localStorage')
-        this.email = null
-        this.role = null
-        this.user_id = null
-        this.oauth_id = null
-        this.emailVerificationToken = null
-        this.mystmkraUserId = null
-        this.branding = { mySite: null, myLogo: null }
-        this.loggedIn = false
+        return true
       }
+
+      const token = (() => {
+        if (typeof document === 'undefined') return null
+        const raw = document.cookie.split(';').map((part) => part.trim())
+        for (const part of raw) {
+          if (part.startsWith('vegvisr_token=')) {
+            return decodeURIComponent(part.split('=').slice(1).join('='))
+          }
+        }
+        return null
+      })()
+
+      if (token) {
+        try {
+          console.log('🔐 Found vegvisr_token cookie, fetching user data...')
+          const response = await fetch(apiUrls.getUserDataByToken(), {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (response.ok) {
+            const user = await response.json()
+            if (user?.email) {
+              this.setUser(user)
+              try {
+                if (typeof sessionStorage !== 'undefined') {
+                  sessionStorage.setItem('email_session_verified', '1')
+                }
+              } catch {
+                // ignore storage errors
+              }
+              return true
+            }
+          } else {
+            console.warn('❌ Token lookup failed:', response.status)
+          }
+        } catch (error) {
+          console.error('❌ Token lookup error:', error)
+        }
+      }
+
+      console.log('❌ No user data in localStorage')
+      this.email = null
+      this.role = null
+      this.user_id = null
+      this.oauth_id = null
+      this.emailVerificationToken = null
+      this.mystmkraUserId = null
+      this.branding = { mySite: null, myLogo: null }
+      this.loggedIn = false
+      return false
     },
 
     setProfileImage(url) {

@@ -22,6 +22,7 @@ export const API_CONFIG = {
     updateUserData: '/userdata',
     listUsersByRole: '/admin/users',
     uploadFile: '/upload',
+    getUserDataByToken: '/userdata-from-token',
     // Site configuration endpoints
     saveSiteConfig: '/site-config',
     getSiteConfig: '/site-config',
@@ -58,6 +59,7 @@ export const apiUrls = {
   // User management endpoints (use main worker)
   getUserData: (email) => getApiUrl('getUserData', { email }),
   updateUserData: () => getApiUrl('updateUserData'),
+  getUserDataByToken: () => getApiUrl('getUserDataByToken'),
   listUsersByRole: (roles) =>
     getApiUrl('listUsersByRole', { roles: Array.isArray(roles) ? roles.join(',') : roles }),
   uploadFile: () => getApiUrl('uploadFile'),

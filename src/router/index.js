@@ -531,7 +531,7 @@ router.beforeEach(async (to, from, next) => {
   // If store hasn't been loaded yet, load it first
   if (!userStore.loggedIn && !userStore.email) {
     console.log('[Router] Store not loaded, loading from localStorage...')
-    userStore.loadUserFromStorage()
+    await userStore.loadUserFromStorage()
 
     // Wait a bit for the store to update
     await new Promise((resolve) => setTimeout(resolve, 50))
