@@ -305,6 +305,16 @@ export const useUserStore = defineStore('user', {
       console.log('🔄 loadUserFromStorage called')
       const storedUser = JSON.parse(localStorage.getItem('user'))
       console.log('📦 Raw localStorage data:', storedUser)
+      const cookieToken = (() => {
+        if (typeof document === 'undefined') return null
+        const raw = document.cookie.split(';').map((part) => part.trim())
+        for (const part of raw) {
+          if (part.startsWith('vegvisr_token=')) {
+            return decodeURIComponent(part.split('=').slice(1).join('='))
+          }
+        }
+        return null
+      })()
 
       if (storedUser && storedUser.email) {
         this.email = storedUser.email
@@ -340,25 +350,38 @@ export const useUserStore = defineStore('user', {
 
         // Fetch additional data from config table (including phone)
         this.fetchUserDataFromConfig()
+
+        if (!this.role && cookieToken) {
+          try {
+            console.log('🔐 Role missing; fetching user data from token...')
+            const response = await fetch(apiUrls.getUserDataByToken(), {
+              headers: { Authorization: `Bearer ${cookieToken}` },
+            })
+            if (response.ok) {
+              const user = await response.json()
+              if (user?.role) {
+                this.role = user.role
+                storedUser.role = user.role
+                localStorage.setItem('user', JSON.stringify(storedUser))
+              }
+              if (user?.emailVerificationToken) {
+                this.emailVerificationToken = user.emailVerificationToken
+                storedUser.emailVerificationToken = user.emailVerificationToken
+                localStorage.setItem('user', JSON.stringify(storedUser))
+              }
+            }
+          } catch (error) {
+            console.warn('Role fetch via token failed:', error)
+          }
+        }
         return true
       }
 
-      const token = (() => {
-        if (typeof document === 'undefined') return null
-        const raw = document.cookie.split(';').map((part) => part.trim())
-        for (const part of raw) {
-          if (part.startsWith('vegvisr_token=')) {
-            return decodeURIComponent(part.split('=').slice(1).join('='))
-          }
-        }
-        return null
-      })()
-
-      if (token) {
+      if (cookieToken) {
         try {
           console.log('🔐 Found vegvisr_token cookie, fetching user data...')
           const response = await fetch(apiUrls.getUserDataByToken(), {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${cookieToken}` },
           })
           if (response.ok) {
             const user = await response.json()
