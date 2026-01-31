@@ -446,6 +446,7 @@ export const useUserStore = defineStore('user', {
           payload?.phone_verified_at ??
           payload?.profile?.phoneVerifiedAt ??
           null
+        const resolvedRole = userData?.role ?? payload?.role ?? this.role
 
         // Update the userStore with the fetched data
         if (resolvedPhone) {
@@ -454,6 +455,9 @@ export const useUserStore = defineStore('user', {
         }
         if (resolvedPhoneVerifiedAt) {
           this.phoneVerifiedAt = resolvedPhoneVerifiedAt
+        }
+        if (resolvedRole) {
+          this.role = resolvedRole
         }
         if (userData?.user_id || payload?.user_id) {
           this.user_id = userData?.user_id || payload?.user_id
@@ -466,6 +470,7 @@ export const useUserStore = defineStore('user', {
         const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
         storedUser.phone = this.phone
         storedUser.phoneVerifiedAt = this.phoneVerifiedAt
+        storedUser.role = this.role
         storedUser.user_id = this.user_id
         storedUser.emailVerificationToken = this.emailVerificationToken
         localStorage.setItem('user', JSON.stringify(storedUser))
