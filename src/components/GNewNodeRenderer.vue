@@ -214,6 +214,8 @@ const nodeComponents = {
   'app-viewer': GNewAppViewerNode,
   // HTML node (renders full HTML documents in an iframe)
   'html-node': GNewHtmlNode,
+  // JSON node (validate + render like fulltext)
+  'json-node': GNewDefaultNode,
   // Glitter guide node
   'guide-node': GNewGuideNode,
   // Case Study Node Types (Sprint 4-5)

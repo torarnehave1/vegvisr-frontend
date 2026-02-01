@@ -218,6 +218,13 @@
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewJsonNodeAndClose"
+            class="btn btn-outline-primary w-100 mb-2"
+          >
+            🧾 New JSON Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
             @click="insertGuideTemplateAndClose"
             class="btn btn-outline-success w-100 mb-2"
           >
@@ -498,6 +505,13 @@
             class="btn btn-outline-primary"
           >
             📝 New FullText Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewJsonNode()"
+            class="btn btn-outline-primary"
+          >
+            🧾 New JSON Node
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
@@ -3285,7 +3299,7 @@ const canDeleteEditingNode = computed(() => {
 const showSuperadminOnlyToggle = computed(() => {
   if (userStore.role !== 'Superadmin') return false
   const nodeType = editingNode.value?.type
-  return nodeType === 'fulltext' || nodeType === 'html-node'
+  return nodeType === 'fulltext' || nodeType === 'html-node' || nodeType === 'json-node'
 })
 
 const truncateSelectedText = computed(() => {
@@ -4501,6 +4515,7 @@ const getTemplateIcon = (type) => {
     youtube: '🎬',
     image: '��️',
     fulltext: '📄',
+    'json-node': '🧾',
     bubblechart: '🫧',
     linechart: '📈',
     gantt: '📊',
@@ -4522,6 +4537,7 @@ const getTemplateDescription = (type) => {
     youtube: 'Embed YouTube videos',
     image: 'Display images with captions',
     fulltext: 'Rich text content with formatting',
+    'json-node': 'Structured JSON content with validation',
     bubblechart: 'Multi-dimensional data visualization',
     linechart: 'Line chart for data trends',
     gantt: 'Project timeline and task management',
@@ -4867,6 +4883,11 @@ const openGraphOperationsModalAndClose = () => {
 const createNewFullTextNodeAndClose = async () => {
   closeMobileMenu()
   await createNewFullTextNode()
+}
+
+const createNewJsonNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewJsonNode()
 }
 
 const insertGuideTemplateAndClose = async () => {
@@ -5371,6 +5392,60 @@ const createNewFullTextNode = async (content, labelOverride) => {
   } catch (error) {
     console.error('❌ Error creating FullText node:', error)
     statusMessage.value = `❌ Failed to create FullText node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+// JSON Node Creation
+const createNewJsonNode = async (content, labelOverride) => {
+  console.log('🆕 Creating new JSON node...')
+
+  const newNodeId = generateUUID()
+
+  const label = labelOverride || 'New JSON Node'
+  const isEventPayload = typeof Event !== 'undefined' && content instanceof Event
+  const normalizedContent = isEventPayload ? undefined : content
+  const defaultInfo = JSON.stringify(
+    {
+      title: 'JSON Form',
+      blocks: [
+        {
+          type: 'inputs',
+          fields: [
+            { id: 'name', placeholder: 'Full name' },
+            { id: 'location', placeholder: 'Location', colSpan2: true },
+          ],
+        },
+      ],
+    },
+    null,
+    2,
+  )
+  const infoContent = typeof normalizedContent === 'string'
+    ? normalizedContent
+    : normalizedContent != null
+      ? String(normalizedContent)
+      : defaultInfo
+
+  const newJsonNode = {
+    id: newNodeId,
+    label,
+    color: '#fff3cd',
+    type: 'json-node',
+    info: infoContent,
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: 0 },
+  }
+
+  try {
+    await handleNodeCreated(newJsonNode)
+    console.log('✅ New JSON node created successfully:', newJsonNode)
+  } catch (error) {
+    console.error('❌ Error creating JSON node:', error)
+    statusMessage.value = `❌ Failed to create JSON node: ${error.message}`
     setTimeout(() => {
       statusMessage.value = ''
     }, 5000)
@@ -7780,6 +7855,26 @@ const insertImageAtCursor = () => {
   isImageSelectorOpen.value = true
 }
 
+const normalizeJsonNodeContent = (raw) => {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return { ok: false, error: 'JSON content is empty.' }
+
+  try {
+    const parsed = JSON.parse(text)
+    return { ok: true, value: JSON.stringify(parsed, null, 2) }
+  } catch (error) {
+    if (text.startsWith('{') && !text.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(text + '}')
+        return { ok: true, value: JSON.stringify(parsed, null, 2) }
+      } catch (repairError) {
+        return { ok: false, error: repairError?.message || 'Invalid JSON.' }
+      }
+    }
+    return { ok: false, error: error?.message || 'Invalid JSON.' }
+  }
+}
+
 const saveNodeChanges = async () => {
   if (!editingNode.value.id) {
     console.error('No node ID to save')
@@ -7829,6 +7924,18 @@ const saveNodeChanges = async () => {
         statusMessage.value = ''
       }, 2000)
       return
+    }
+
+    if (editingNode.value.type === 'json-node') {
+      const normalized = normalizeJsonNodeContent(editingNode.value.info)
+      if (!normalized.ok) {
+        statusMessage.value = `Invalid JSON: ${normalized.error}`
+        setTimeout(() => {
+          statusMessage.value = ''
+        }, 4000)
+        return
+      }
+      editingNode.value.info = normalized.value
     }
 
     // Update the node in the local graph data
