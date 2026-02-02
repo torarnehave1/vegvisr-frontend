@@ -8233,11 +8233,45 @@ const handleNodeDeleted = async (nodeId) => {
 
     console.log('Updated graph data after deletion:', graphData.value)
 
-    // Create updated graph data
+    // Create clean graph data for payload (remove Vue proxies)
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        info: node.info,
+        type: node.type,
+        superadminOnly: node.superadminOnly,
+        updatedAt: node.updatedAt,
+        path: node.path,
+        bibl: node.bibl,
+        x: node.x,
+        y: node.y,
+        visible: node.visible !== false,
+        position: node.position,
+        order: node.order,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
+    // Create updated graph data for local state
     const updatedGraphData = {
       ...graphData.value,
       nodes: [...graphData.value.nodes],
     }
+
+    const payloadString = JSON.stringify({
+      id: knowledgeGraphStore.currentGraphId,
+      graphData: cleanGraphData,
+      override: true,
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Delete node payload size: ${payloadSizeKB}KB`)
 
     // Save to backend
     const response = await fetch(
@@ -8245,16 +8279,14 @@ const handleNodeDeleted = async (nodeId) => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
+        body: payloadString,
       },
     )
 
     if (!response.ok) {
-      throw new Error('Failed to save graph after node deletion.')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save graph after node deletion. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
     }
 
     await response.json()
@@ -8301,11 +8333,44 @@ const handleNodeCreated = async (newNode) => {
     // Add the new node to the local graph data
     graphData.value.nodes.push(newNode)
 
-    // Create updated graph data
+    // Create clean graph data for payload (remove Vue proxies)
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        info: node.info,
+        type: node.type,
+        superadminOnly: node.superadminOnly,
+        updatedAt: node.updatedAt,
+        path: node.path,
+        bibl: node.bibl,
+        x: node.x,
+        y: node.y,
+        visible: node.visible !== false,
+        position: node.position,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
+    // Create updated graph data for local state
     const updatedGraphData = {
       ...graphData.value,
       nodes: [...graphData.value.nodes],
     }
+
+    const payloadString = JSON.stringify({
+      id: knowledgeGraphStore.currentGraphId,
+      graphData: cleanGraphData,
+      override: true,
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Create node payload size: ${payloadSizeKB}KB`)
 
     // Save to backend
     const response = await fetch(
@@ -8313,16 +8378,14 @@ const handleNodeCreated = async (newNode) => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: updatedGraphData,
-          override: true,
-        }),
+        body: payloadString,
       },
     )
 
     if (!response.ok) {
-      throw new Error('Failed to save the graph with new node.')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save the graph with new node. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
     }
 
     await response.json()
