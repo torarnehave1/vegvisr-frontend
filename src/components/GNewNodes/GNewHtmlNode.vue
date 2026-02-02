@@ -66,8 +66,10 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useUserStore } from '../../stores/userStore'
+import { useKnowledgeGraphStore } from '../../stores/knowledgeGraphStore'
 
 const userStore = useUserStore()
+const knowledgeGraphStore = useKnowledgeGraphStore()
 
 const props = defineProps({
   node: {
@@ -95,6 +97,11 @@ const isFullscreen = ref(false)
 
 const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
+})
+
+// Computed property that uses prop or falls back to store
+const effectiveGraphId = computed(() => {
+  return props.graphId || knowledgeGraphStore.currentGraphId || ''
 })
 
 // Storage helper script to inject into HTML content
@@ -332,8 +339,8 @@ const createHtmlUrl = () => {
   let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
 
   // Inject graph ID by replacing {{GRAPH_ID}} placeholder
-  if (props.graphId) {
-    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+  if (effectiveGraphId.value) {
+    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, effectiveGraphId.value)
   }
 
   const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
@@ -356,8 +363,8 @@ const downloadHtml = () => {
   let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
 
   // Inject graph ID by replacing {{GRAPH_ID}} placeholder
-  if (props.graphId) {
-    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+  if (effectiveGraphId.value) {
+    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, effectiveGraphId.value)
   }
 
   const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
@@ -424,8 +431,8 @@ const publishHtml = async () => {
     let rawHtml = String(props.node.info || '')
 
     // Inject graph ID by replacing {{GRAPH_ID}} placeholder
-    if (props.graphId) {
-      rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+    if (effectiveGraphId.value) {
+      rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, effectiveGraphId.value)
     }
     const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
       method: 'POST',

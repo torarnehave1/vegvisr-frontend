@@ -72,8 +72,10 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import { useUserStore } from '../../stores/userStore'
+import { useKnowledgeGraphStore } from '../../stores/knowledgeGraphStore'
 
 const userStore = useUserStore()
+const knowledgeGraphStore = useKnowledgeGraphStore()
 
 const props = defineProps({
   node: {
@@ -105,6 +107,11 @@ const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
 })
 
+// Computed property that uses prop or falls back to store
+const effectiveGraphId = computed(() => {
+  return props.graphId || knowledgeGraphStore.currentGraphId || ''
+})
+
 // Create blob URL from HTML content
 const createAppUrl = () => {
   if (!props.node.info) {
@@ -119,9 +126,9 @@ const createAppUrl = () => {
 
   // Inject graph ID into HTML content by replacing placeholder
   let htmlContent = props.node.info
-  if (props.graphId) {
+  if (effectiveGraphId.value) {
     // Replace {{GRAPH_ID}} placeholder with actual graph ID
-    htmlContent = htmlContent.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+    htmlContent = htmlContent.replace(/\{\{GRAPH_ID\}\}/g, effectiveGraphId.value)
   }
 
   // Create blob URL from HTML content

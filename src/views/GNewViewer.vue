@@ -1749,6 +1749,7 @@
                 :node="node"
                 :graphData="graphData"
                 :showControls="userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)"
+                :graphId="currentGraphId"
                 @node-updated="handleNodeUpdated"
                 @node-deleted="handleNodeDeleted"
                 @node-created="handleNodeCreated"

@@ -140,6 +140,7 @@
               :key="node.id"
               :node="node"
               :showControls="userStore.role === 'Superadmin'"
+              :graphId="graphStore.currentGraphId"
               @node-updated="handleNodeUpdated"
               @node-deleted="handleNodeDeleted"
               @node-created="handleNodeCreated"
