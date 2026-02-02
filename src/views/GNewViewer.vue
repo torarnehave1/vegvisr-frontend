@@ -2685,7 +2685,8 @@ const currentGraphId = computed(() => {
   return (
     props.graphId ||
     route.params.graphId ||
-    route.query.id ||
+    route.query.graphId ||  // Query param: ?graphId=xxx
+    route.query.id ||       // Alternative query param: ?id=xxx (legacy support)
     knowledgeGraphStore.currentGraphId ||
     ''
   )

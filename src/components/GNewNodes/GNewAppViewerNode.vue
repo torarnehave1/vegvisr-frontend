@@ -85,10 +85,6 @@ const props = defineProps({
   isPreview: {
     type: Boolean,
     default: false
-  },
-  graphId: {
-    type: String,
-    default: ''
   }
 })
 
@@ -107,11 +103,6 @@ const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
 })
 
-// Computed property that uses prop or falls back to store
-const effectiveGraphId = computed(() => {
-  return props.graphId || knowledgeGraphStore.currentGraphId || ''
-})
-
 // Create blob URL from HTML content
 const createAppUrl = () => {
   if (!props.node.info) {
@@ -124,11 +115,12 @@ const createAppUrl = () => {
     URL.revokeObjectURL(appUrl.value)
   }
 
-  // Inject graph ID into HTML content by replacing placeholder
+  // Inject graph ID by replacing {{GRAPH_ID}} placeholder
+  // Simply use the currentGraphId from the store - it's set when the graph is loaded
   let htmlContent = props.node.info
-  if (effectiveGraphId.value) {
-    // Replace {{GRAPH_ID}} placeholder with actual graph ID
-    htmlContent = htmlContent.replace(/\{\{GRAPH_ID\}\}/g, effectiveGraphId.value)
+  const graphId = knowledgeGraphStore.currentGraphId
+  if (graphId) {
+    htmlContent = htmlContent.replace(/\{\{GRAPH_ID\}\}/g, graphId)
   }
 
   // Create blob URL from HTML content
