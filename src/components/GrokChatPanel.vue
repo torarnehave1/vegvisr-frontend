@@ -163,6 +163,24 @@
         <div v-else class="selection-hint">
           {{ isCanvasContext ? 'Select a node in the canvas to share it with the assistant.' : 'Highlight text in the graph to share it with the assistant.' }}
         </div>
+        <div class="context-row">
+          <label class="context-toggle">
+            <input type="checkbox" v-model="useRawJsonMode" />
+            <span>📋 Raw JSON Mode</span>
+          </label>
+          <span v-if="useRawJsonMode" class="context-indicator">
+            AI can analyze raw database JSON with metadata
+          </span>
+          <button
+            v-if="props.graphData"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="showRawJsonModal = true"
+            title="View raw JSON data with metadata"
+          >
+            📊 View JSON
+          </button>
+        </div>
         <div class="context-row api-lookup-toggle">
           <button class="btn btn-outline-secondary btn-sm" type="button" @click="toggleApiLookup">
             🔎 API Lookup
@@ -1160,6 +1178,43 @@
       </div>
     </div>
   </div>
+
+  <!-- Raw JSON Viewer Modal -->
+  <div v-if="showRawJsonModal" class="modal-overlay" @click.self="showRawJsonModal = false">
+    <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3>📋 Raw JSON Data with Metadata</h3>
+        <button class="modal-close" @click="showRawJsonModal = false">×</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="buildRawJsonContext()" class="raw-json-viewer">
+          <div class="raw-json-actions">
+            <button
+              class="btn btn-primary btn-sm"
+              @click="copyRawJsonToClipboard"
+            >
+              {{ rawJsonCopyState }}
+            </button>
+            <button
+              class="btn btn-outline-secondary btn-sm"
+              @click="downloadRawJson"
+            >
+              💾 Download JSON
+            </button>
+          </div>
+          <pre class="raw-json-content"><code>{{ buildRawJsonContext().jsonString }}</code></pre>
+        </div>
+        <div v-else class="alert alert-info">
+          No graph data available to display.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="showRawJsonModal = false">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -1281,6 +1336,7 @@ const batchProgressPercent = computed(() => {
 const isCollapsed = ref(false)
 const useGraphContext = ref(true)
 const useSelectionContext = ref(false)
+const useRawJsonMode = ref(false)
 const provider = ref('grok')
 const providerOptions = [
   { value: 'grok', label: 'Grok' },
@@ -1797,6 +1853,152 @@ const templateTools = [
 ]
 
 /**
+ * Execute graph manipulation tools (save/update knowledge graphs)
+ * @param {string} toolName - The function name to call
+ * @param {object} args - The function arguments
+ * @returns {Promise<object>} - The operation result
+ */
+async function executeGraphManipulationTool(toolName, args) {
+  const userId = userStore.user_id || 'system'
+  const { useKnowledgeGraphStore } = await import('pinia')
+  const graphStore = useKnowledgeGraphStore()
+
+  try {
+    if (toolName === 'graph_save_new') {
+      // Save the current graph as a new knowledge graph
+      if (!props.graphData) {
+        throw new Error('No graph data available to save')
+      }
+
+      const graphTitle = args?.title || props.graphData?.metadata?.title || 'AI Generated Graph'
+      const graphDescription = args?.description || props.graphData?.metadata?.description || 'Created by AI analysis'
+
+      const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const newGraphData = {
+        id: newGraphId,
+        nodes: props.graphData.nodes || [],
+        edges: props.graphData.edges || [],
+        metadata: {
+          ...props.graphData.metadata,
+          title: graphTitle,
+          description: graphDescription,
+          created: new Date().toISOString(),
+          createdBy: userId,
+          version: '1.0',
+        },
+      }
+
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newGraphId,
+          graphData: newGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to save graph: ${response.status} - ${errorText}`)
+      }
+
+      const result = await response.json()
+
+      // Update the store
+      graphStore.setCurrentGraphId(newGraphId)
+      graphStore.setCurrentGraph(newGraphData)
+
+      return {
+        status: 'success',
+        graphId: newGraphId,
+        title: graphTitle,
+        message: `Graph saved as "${graphTitle}"`,
+      }
+    }
+
+    if (toolName === 'graph_update_current') {
+      // Update the current graph with new/modified data
+      const currentGraphId = props.graphData?.id || graphStore.currentGraphId
+
+      if (!currentGraphId) {
+        throw new Error('No current graph loaded. Use graph_save_new to create a new graph first.')
+      }
+
+      // Apply updates to nodes/edges if provided
+      const updatedNodes = args?.nodes || props.graphData?.nodes || []
+      const updatedEdges = args?.edges || props.graphData?.edges || []
+      const updatedMetadata = args?.metadata ? { ...props.graphData?.metadata, ...args.metadata } : props.graphData?.metadata
+
+      const updatedGraphData = {
+        id: currentGraphId,
+        nodes: updatedNodes,
+        edges: updatedEdges,
+        metadata: {
+          ...updatedMetadata,
+          updated: new Date().toISOString(),
+          updatedBy: userId,
+        },
+      }
+
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to update graph: ${response.status} - ${errorText}`)
+      }
+
+      const result = await response.json()
+
+      // Update the store
+      graphStore.setCurrentGraph(updatedGraphData)
+
+      return {
+        status: 'success',
+        graphId: currentGraphId,
+        message: `Graph updated successfully`,
+        nodesModified: updatedNodes.length,
+        edgesModified: updatedEdges.length,
+      }
+    }
+
+    if (toolName === 'graph_get_current_data') {
+      // Get the current graph data in a format suitable for manipulation
+      if (!props.graphData) {
+        throw new Error('No graph data available')
+      }
+
+      return {
+        status: 'success',
+        graphId: props.graphData?.id || 'unknown',
+        title: props.graphData?.metadata?.title || 'Untitled',
+        nodeCount: (props.graphData?.nodes || []).length,
+        edgeCount: (props.graphData?.edges || []).length,
+        sampleNodes: (props.graphData?.nodes || []).slice(0, 5).map(n => ({
+          id: n.id,
+          label: n.label,
+          type: n.type,
+        })),
+        message: 'Current graph data retrieved',
+      }
+    }
+
+    throw new Error(`Unknown graph manipulation tool: ${toolName}`)
+  } catch (error) {
+    console.error('Graph manipulation tool execution error:', error)
+    return { error: error.message, status: 'failed' }
+  }
+}
+
+/**
  * Execute a Proff API tool call
  * @param {string} toolName - The function name to call
  * @param {object} args - The function arguments
@@ -2073,6 +2275,8 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
       let result
       if (name.startsWith('graph_template_')) {
         result = await executeTemplateTool(name, args)
+      } else if (name.startsWith('graph_save_') || name.startsWith('graph_update_') || name === 'graph_get_current_data') {
+        result = await executeGraphManipulationTool(name, args)
       } else if (name.startsWith('sources_')) {
         result = await executeSourcesTool(name, args)
         if (!sourcesData) sourcesData = {}
@@ -2187,6 +2391,10 @@ const caseGraphStatus = ref('')
 const caseGraphError = ref('')
 const caseGraphCreatedId = ref(null)
 const caseGraphSourceMessage = ref(null)
+
+// Raw JSON Viewer
+const showRawJsonModal = ref(false)
+const rawJsonCopyState = ref('Copy JSON')
 
 const graphProcessingJobs = ref([])
 
@@ -2635,6 +2843,43 @@ const handleImageUpload = async (event) => {
 
 const clearUploadedImage = () => {
   uploadedImage.value = null
+}
+
+const copyRawJsonToClipboard = async () => {
+  const jsonContext = buildRawJsonContext()
+  if (jsonContext) {
+    try {
+      await navigator.clipboard.writeText(jsonContext.jsonString)
+      rawJsonCopyState.value = 'Copied!'
+      setTimeout(() => {
+        rawJsonCopyState.value = 'Copy JSON'
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy JSON:', err)
+      rawJsonCopyState.value = 'Copy failed'
+      setTimeout(() => {
+        rawJsonCopyState.value = 'Copy JSON'
+      }, 2000)
+    }
+  }
+}
+
+const downloadRawJson = () => {
+  const jsonContext = buildRawJsonContext()
+  if (jsonContext) {
+    try {
+      const element = document.createElement('a')
+      const fileName = props.graphData?.metadata?.title?.replace(/\s+/g, '_') || 'graph-data'
+      element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(jsonContext.jsonString))
+      element.setAttribute('download', `${fileName}.json`)
+      element.style.display = 'none'
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+    } catch (err) {
+      console.error('Failed to download JSON:', err)
+    }
+  }
 }
 
 // Drag and drop handlers
@@ -5499,6 +5744,35 @@ const buildSelectionContext = () => {
   }
 }
 
+const buildRawJsonContext = () => {
+  if (!useRawJsonMode.value || !props.graphData) return null
+
+  const rawData = {
+    metadata: {
+      graphId: props.graphData.id || props.graphData.graphId || props.graphData.metadata?.id || null,
+      title: props.graphData.metadata?.title || 'Untitled',
+      description: props.graphData.metadata?.description || '',
+      category: props.graphData.metadata?.category || '',
+      created: props.graphData.metadata?.created || null,
+      updated: props.graphData.metadata?.updated || null,
+      author: props.graphData.metadata?.author || '',
+      tags: props.graphData.metadata?.tags || [],
+      nodeCount: (props.graphData.nodes || []).length,
+      edgeCount: (props.graphData.edges || []).length,
+      version: props.graphData.metadata?.version || '1.0',
+      ...(props.graphData.metadata || {}), // Include all other metadata
+    },
+    nodes: props.graphData.nodes || [],
+    edges: props.graphData.edges || [],
+    raw: props.graphData, // Include the complete raw data
+  }
+
+  return {
+    json: rawData,
+    jsonString: JSON.stringify(rawData, null, 2),
+  }
+}
+
 const handleImageGeneration = async (imagePrompt, originalMessage) => {
   // Add user message showing the request
   appendChatMessage({
@@ -5878,6 +6152,39 @@ graph_template_insert({
 }`)
       }
 
+      // Always offer graph manipulation tools
+      toolSections.push(`**Graph Data Manipulation Tools** (Save/Update Knowledge Graphs):
+You can directly manipulate and persist the knowledge graph data to the database:
+- graph_get_current_data - Retrieve information about the current graph (nodes, edges, metadata)
+- graph_save_new - Save the current graph as a NEW knowledge graph with a custom title and description
+- graph_update_current - Update the current graph with modified nodes, edges, or metadata
+
+WORKFLOW FOR MODIFYING AND SAVING GRAPHS:
+1. Use graph_get_current_data to understand the current graph structure
+2. If you want to create a new version: graph_save_new with title and description
+3. If you want to modify the existing: graph_update_current with updated nodes/edges/metadata
+
+EXAMPLES:
+graph_save_new({
+  "title": "Market Analysis 2024",
+  "description": "Competitive analysis of software companies"
+})
+
+graph_update_current({
+  "metadata": {
+    "description": "Updated with latest market data"
+  },
+  "nodes": [/* modified nodes */],
+  "edges": [/* modified edges */]
+})
+
+Guidelines:
+- Always use graph_get_current_data first to understand the structure
+- When saving new graphs, provide meaningful titles and descriptions
+- When updating, include the complete nodes and edges arrays if modifying them
+- The database saves automatically after each operation
+- Store graph IDs for reference`)
+
       if (toolSections.length) {
         contextSections.push(toolSections.join('\n\n'))
       }
@@ -5938,6 +6245,30 @@ Connections (up to 30):
 ${graphContext.edges?.map(edge => `- ${edge.from} → ${edge.to}`).join('\n') || 'No connections'}
 
 Use this context to provide relevant insights and answers about the knowledge graph.`)
+      }
+    }
+
+    if (useRawJsonMode.value) {
+      const rawJsonContext = buildRawJsonContext()
+      if (rawJsonContext) {
+        contextSections.push(`**RAW JSON DATABASE EXPORT**
+
+You have access to the complete raw JSON data from the database, including all metadata and internal structure. You can analyze and answer detailed questions about:
+- The complete data schema and structure
+- Metadata information (creation date, author, version, tags, etc.)
+- How nodes and edges are organized
+- Data relationships and connections
+- Data quality and completeness
+- Custom properties and fields
+- Any structural or design patterns in the data
+
+Here is the complete raw JSON export:
+
+\`\`\`json
+${rawJsonContext.jsonString}
+\`\`\`
+
+Feel free to ask detailed analytical questions about this data structure, metadata, relationships, or any aspect of how it's organized.`)
       }
     }
 
@@ -6176,6 +6507,8 @@ Use this context to provide relevant insights and answers about the knowledge gr
             let result
             if (toolBlock.name.startsWith('graph_template_')) {
               result = await executeTemplateTool(toolBlock.name, toolBlock.input)
+            } else if (toolBlock.name.startsWith('graph_save_') || toolBlock.name.startsWith('graph_update_') || toolBlock.name === 'graph_get_current_data') {
+              result = await executeGraphManipulationTool(toolBlock.name, toolBlock.input)
             } else if (toolBlock.name.startsWith('sources_')) {
               result = await executeSourcesTool(toolBlock.name, toolBlock.input)
               // Store sources data for Case Study buttons
@@ -8305,5 +8638,41 @@ watch(
 .btn-outline-danger:hover {
   background: #dc2626;
   color: white;
+}
+
+/* Raw JSON Viewer Styles */
+.raw-json-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.raw-json-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.raw-json-content {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 1rem;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-x: auto;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre;
+  word-wrap: break-word;
+  margin: 0;
+}
+
+.raw-json-content code {
+  color: inherit;
+  font-family: inherit;
+  background: none;
 }
 </style>
