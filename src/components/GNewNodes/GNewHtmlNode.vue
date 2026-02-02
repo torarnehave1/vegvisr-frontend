@@ -81,6 +81,10 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true
+  },
+  graphId: {
+    type: String,
+    default: ''
   }
 })
 
@@ -325,7 +329,13 @@ const createHtmlUrl = () => {
     URL.revokeObjectURL(htmlUrl.value)
   }
 
-  const rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+
+  // Inject graph ID by replacing {{GRAPH_ID}} placeholder
+  if (props.graphId) {
+    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+  }
+
   const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   htmlUrl.value = URL.createObjectURL(blob)
@@ -343,7 +353,13 @@ const toggleFullscreen = () => {
 
 const downloadHtml = () => {
   if (!props.node.info) return
-  const rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+  let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
+
+  // Inject graph ID by replacing {{GRAPH_ID}} placeholder
+  if (props.graphId) {
+    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+  }
+
   const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   const url = URL.createObjectURL(blob)
@@ -405,7 +421,12 @@ const publishHtml = async () => {
       throw new Error('Missing authentication token')
     }
 
-    const rawHtml = String(props.node.info || '')
+    let rawHtml = String(props.node.info || '')
+
+    // Inject graph ID by replacing {{GRAPH_ID}} placeholder
+    if (props.graphId) {
+      rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+    }
     const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
       method: 'POST',
       headers: {

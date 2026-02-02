@@ -83,6 +83,10 @@ const props = defineProps({
   isPreview: {
     type: Boolean,
     default: false
+  },
+  graphId: {
+    type: String,
+    default: ''
   }
 })
 
@@ -113,8 +117,15 @@ const createAppUrl = () => {
     URL.revokeObjectURL(appUrl.value)
   }
 
+  // Inject graph ID into HTML content by replacing placeholder
+  let htmlContent = props.node.info
+  if (props.graphId) {
+    // Replace {{GRAPH_ID}} placeholder with actual graph ID
+    htmlContent = htmlContent.replace(/\{\{GRAPH_ID\}\}/g, props.graphId)
+  }
+
   // Create blob URL from HTML content
-  const blob = new Blob([props.node.info], { type: 'text/html' })
+  const blob = new Blob([htmlContent], { type: 'text/html' })
   appUrl.value = URL.createObjectURL(blob)
 }
 
