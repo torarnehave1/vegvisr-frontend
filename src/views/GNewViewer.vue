@@ -2606,6 +2606,42 @@ const updateChatSessionCountBeforeSave = async () => {
   }
 }
 
+// Helper to create clean graph data safe for serialization (removes Vue proxies and undefined values)
+const createCleanGraphData = () => {
+  return {
+    nodes: graphData.value.nodes.map(node => ({
+      id: node.id || undefined,
+      label: node.label || null,
+      info: node.info || null,
+      type: node.type || null,
+      superadminOnly: node.superadminOnly ?? false,
+      updatedAt: node.updatedAt || new Date().toISOString(),
+      path: node.path || null,
+      bibl: Array.isArray(node.bibl) ? node.bibl : [],
+      x: typeof node.x === 'number' ? node.x : 0,
+      y: typeof node.y === 'number' ? node.y : 0,
+      visible: node.visible !== false,
+      position: node.position || { x: 0, y: 0 },
+      order: typeof node.order === 'number' ? node.order : 0,
+      color: node.color || null,
+      imageWidth: node.imageWidth || null,
+      imageHeight: node.imageHeight || null,
+    })),
+    edges: (graphData.value.edges || []).map(edge => ({
+      id: `${edge.source}_${edge.target}`,
+      source: edge.source || undefined,
+      target: edge.target || undefined,
+      label: edge.label || null,
+    })),
+    metadata: graphData.value.metadata || {
+      title: 'Untitled Graph',
+      description: '',
+      createdBy: userStore.user_id || 'system',
+      version: 1,
+    },
+  }
+}
+
 const loading = ref(false)
 const error = ref(null)
 const statusMessage = ref('')
@@ -5996,29 +6032,7 @@ const saveImageQuote = async () => {
     console.log('API URL:', apiUrl)
 
     // Create clean graph data for payload
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(node => ({
-        id: node.id,
-        label: node.label,
-        info: node.info,
-        type: node.type,
-        superadminOnly: node.superadminOnly,
-        updatedAt: node.updatedAt,
-        path: node.path,
-        bibl: node.bibl,
-        x: node.x,
-        y: node.y,
-        visible: node.visible !== false,
-        position: node.position,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    const cleanGraphData = createCleanGraphData()
 
     const requestPayload = {
       id: knowledgeGraphStore.currentGraphId,
@@ -7663,29 +7677,7 @@ const saveGraphAfterOperation = async (nodeCount) => {
     await updateChatSessionCountBeforeSave()
 
     // Create a clean copy of graph data with only serializable properties
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(node => ({
-        id: node.id,
-        label: node.label,
-        info: node.info,
-        type: node.type,
-        superadminOnly: node.superadminOnly,
-        updatedAt: node.updatedAt,
-        path: node.path,
-        bibl: node.bibl,
-        x: node.x,
-        y: node.y,
-        visible: node.visible !== false,
-        position: node.position,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    const cleanGraphData = createCleanGraphData()
 
     const payloadString = JSON.stringify({
       id: knowledgeGraphStore.currentGraphId,
@@ -8051,29 +8043,7 @@ const saveNodeChanges = async () => {
       graphData.value.nodes[nodeIndex] = updatedNode
 
       // Create a clean copy of graph data with only serializable properties
-      const cleanGraphData = {
-        nodes: graphData.value.nodes.map(node => ({
-          id: node.id,
-          label: node.label,
-          info: node.info,
-          type: node.type,
-          superadminOnly: node.superadminOnly,
-          updatedAt: node.updatedAt,
-          path: node.path,
-          bibl: node.bibl,
-          x: node.x,
-          y: node.y,
-          visible: node.visible !== false,
-          position: node.position,
-        })),
-        edges: (graphData.value.edges || []).map(edge => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          label: edge.label,
-        })),
-        metadata: graphData.value.metadata || {},
-      }
+      const cleanGraphData = createCleanGraphData()
 
       // Debug: Log payload size
       const payloadString = JSON.stringify({
@@ -8233,31 +8203,8 @@ const handleNodeDeleted = async (nodeId) => {
 
     console.log('Updated graph data after deletion:', graphData.value)
 
-    // Create clean graph data for payload (remove Vue proxies)
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(node => ({
-        id: node.id,
-        label: node.label,
-        info: node.info,
-        type: node.type,
-        superadminOnly: node.superadminOnly,
-        updatedAt: node.updatedAt,
-        path: node.path,
-        bibl: node.bibl,
-        x: node.x,
-        y: node.y,
-        visible: node.visible !== false,
-        position: node.position,
-        order: node.order,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    // Create clean graph data for payload (remove Vue proxies and undefined values)
+    const cleanGraphData = createCleanGraphData()
 
     // Create updated graph data for local state
     const updatedGraphData = {
@@ -8333,30 +8280,8 @@ const handleNodeCreated = async (newNode) => {
     // Add the new node to the local graph data
     graphData.value.nodes.push(newNode)
 
-    // Create clean graph data for payload (remove Vue proxies)
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(node => ({
-        id: node.id,
-        label: node.label,
-        info: node.info,
-        type: node.type,
-        superadminOnly: node.superadminOnly,
-        updatedAt: node.updatedAt,
-        path: node.path,
-        bibl: node.bibl,
-        x: node.x,
-        y: node.y,
-        visible: node.visible !== false,
-        position: node.position,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    // Create clean graph data for payload (remove Vue proxies and undefined values)
+    const cleanGraphData = createCleanGraphData()
 
     // Create updated graph data for local state
     const updatedGraphData = {
@@ -9334,30 +9259,8 @@ const handleTemplateAdded = async ({ template, node }) => {
     // Add the new node to the graph data
     graphData.value.nodes.push(node)
 
-    // Create clean graph data for payload
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(n => ({
-        id: n.id,
-        label: n.label,
-        info: n.info,
-        type: n.type,
-        superadminOnly: n.superadminOnly,
-        updatedAt: n.updatedAt,
-        path: n.path,
-        bibl: n.bibl,
-        x: n.x,
-        y: n.y,
-        visible: n.visible !== false,
-        position: n.position,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    // Create clean graph data for payload (remove Vue proxies and undefined values)
+    const cleanGraphData = createCleanGraphData()
 
     // Save to backend
     const payloadString = JSON.stringify({
@@ -9556,30 +9459,7 @@ const saveNodeOrder = async () => {
     graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 
     // Create a clean copy of graph data with only serializable properties
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(node => ({
-        id: node.id,
-        label: node.label,
-        info: node.info,
-        type: node.type,
-        superadminOnly: node.superadminOnly,
-        updatedAt: node.updatedAt,
-        path: node.path,
-        bibl: node.bibl,
-        x: node.x,
-        y: node.y,
-        visible: node.visible !== false,
-        position: node.position,
-        order: node.order,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    const cleanGraphData = createCleanGraphData()
 
     // Save to backend using same API as GraphViewer
     const apiUrl = getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory')
@@ -9988,31 +9868,8 @@ const saveAttribution = async () => {
     }
     node.imageAttributions[imageUrl] = attribution
 
-    // Create clean graph data for payload
-    const cleanGraphData = {
-      nodes: graphData.value.nodes.map(n => ({
-        id: n.id,
-        label: n.label,
-        info: n.info,
-        type: n.type,
-        superadminOnly: n.superadminOnly,
-        updatedAt: n.updatedAt,
-        path: n.path,
-        bibl: n.bibl,
-        x: n.x,
-        y: n.y,
-        visible: n.visible !== false,
-        position: n.position,
-        imageAttributions: n.imageAttributions,
-      })),
-      edges: (graphData.value.edges || []).map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-      })),
-      metadata: graphData.value.metadata || {},
-    }
+    // Create clean graph data for payload (remove Vue proxies and undefined values)
+    const cleanGraphData = createCleanGraphData()
 
     // Save to backend
     const payloadString = JSON.stringify({
