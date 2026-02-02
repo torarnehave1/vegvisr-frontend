@@ -2867,7 +2867,29 @@ onMounted(() => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               id: currentGraphId.value,
-              graphData: graphData.value,
+              graphData: {
+                nodes: graphData.value.nodes.map(node => ({
+                  id: node.id,
+                  label: node.label,
+                  info: node.info,
+                  type: node.type,
+                  superadminOnly: node.superadminOnly,
+                  updatedAt: node.updatedAt,
+                  path: node.path,
+                  bibl: node.bibl,
+                  x: node.x,
+                  y: node.y,
+                  visible: node.visible !== false,
+                  position: node.position,
+                })),
+                edges: (graphData.value.edges || []).map(edge => ({
+                  id: edge.id,
+                  source: edge.source,
+                  target: edge.target,
+                  label: edge.label,
+                })),
+                metadata: graphData.value.metadata || {},
+              },
               override: true
             })
           }
@@ -5973,9 +5995,34 @@ const saveImageQuote = async () => {
     const apiUrl = getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory')
     console.log('API URL:', apiUrl)
 
+    // Create clean graph data for payload
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        info: node.info,
+        type: node.type,
+        superadminOnly: node.superadminOnly,
+        updatedAt: node.updatedAt,
+        path: node.path,
+        bibl: node.bibl,
+        x: node.x,
+        y: node.y,
+        visible: node.visible !== false,
+        position: node.position,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
     const requestPayload = {
       id: knowledgeGraphStore.currentGraphId,
-      graphData: graphData.value, // Use raw graphData.value like working examples
+      graphData: cleanGraphData,
       override: true,
     }
 
@@ -5984,10 +6031,14 @@ const saveImageQuote = async () => {
       JSON.stringify(requestPayload, null, 2).substring(0, 500) + '...',
     )
 
+    const payloadString = JSON.stringify(requestPayload)
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: IMAGEQUOTE save payload size: ${payloadSizeKB}KB`)
+
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestPayload),
+      body: payloadString,
     })
 
     console.log('API Response status:', response.status)
@@ -7611,21 +7662,52 @@ const saveGraphAfterOperation = async (nodeCount) => {
     // Update chat session count before saving
     await updateChatSessionCountBeforeSave()
 
+    // Create a clean copy of graph data with only serializable properties
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        info: node.info,
+        type: node.type,
+        superadminOnly: node.superadminOnly,
+        updatedAt: node.updatedAt,
+        path: node.path,
+        bibl: node.bibl,
+        x: node.x,
+        y: node.y,
+        visible: node.visible !== false,
+        position: node.position,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
+    const payloadString = JSON.stringify({
+      id: knowledgeGraphStore.currentGraphId,
+      graphData: cleanGraphData,
+      override: true,
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Operation save payload size: ${payloadSizeKB}KB`)
+
     const response = await fetch(
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: graphData.value,
-          override: true,
-        }),
+        body: payloadString,
       },
     )
 
     if (!response.ok) {
-      throw new Error('Failed to save the graph after operation.')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save the graph after operation. Server responded with ${response.status}`)
     }
 
     await response.json()
@@ -7968,22 +8050,54 @@ const saveNodeChanges = async () => {
 
       graphData.value.nodes[nodeIndex] = updatedNode
 
+      // Create a clean copy of graph data with only serializable properties
+      const cleanGraphData = {
+        nodes: graphData.value.nodes.map(node => ({
+          id: node.id,
+          label: node.label,
+          info: node.info,
+          type: node.type,
+          superadminOnly: node.superadminOnly,
+          updatedAt: node.updatedAt,
+          path: node.path,
+          bibl: node.bibl,
+          x: node.x,
+          y: node.y,
+          visible: node.visible !== false,
+          position: node.position,
+        })),
+        edges: (graphData.value.edges || []).map(edge => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label,
+        })),
+        metadata: graphData.value.metadata || {},
+      }
+
+      // Debug: Log payload size
+      const payloadString = JSON.stringify({
+        id: knowledgeGraphStore.currentGraphId,
+        graphData: cleanGraphData,
+        override: true,
+      })
+      const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+      console.log(`📊 GNewViewer: Payload size: ${payloadSizeKB}KB (${graphData.value.nodes.length} nodes)`)
+
       // Save to backend using the same mechanism as GraphViewer
       const response = await fetch(
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: knowledgeGraphStore.currentGraphId,
-            graphData: graphData.value,
-            override: true,
-          }),
+          body: payloadString,
         },
       )
 
       if (!response.ok) {
-        throw new Error('Failed to save the graph with updated node.')
+        const errorText = await response.text()
+        console.error(`❌ API Error (${response.status}):`, errorText)
+        throw new Error(`Failed to save the graph with updated node. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
       }
 
       await response.json()
@@ -9157,22 +9271,53 @@ const handleTemplateAdded = async ({ template, node }) => {
     // Add the new node to the graph data
     graphData.value.nodes.push(node)
 
+    // Create clean graph data for payload
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        info: n.info,
+        type: n.type,
+        superadminOnly: n.superadminOnly,
+        updatedAt: n.updatedAt,
+        path: n.path,
+        bibl: n.bibl,
+        x: n.x,
+        y: n.y,
+        visible: n.visible !== false,
+        position: n.position,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
     // Save to backend
+    const payloadString = JSON.stringify({
+      id: knowledgeGraphStore.currentGraphId,
+      graphData: cleanGraphData,
+      override: true,
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Template node save payload size: ${payloadSizeKB}KB`)
+
     const response = await fetch(
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: knowledgeGraphStore.currentGraphId,
-          graphData: graphData.value,
-          override: true,
-        }),
+        body: payloadString,
       },
     )
 
     if (!response.ok) {
-      throw new Error('Failed to save the graph with new template node.')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save the graph with new template node. Server responded with ${response.status}`)
     }
 
     await response.json()
@@ -9347,20 +9492,52 @@ const saveNodeOrder = async () => {
     // Sort main graph data
     graphData.value.nodes.sort((a, b) => (a.order || 0) - (b.order || 0))
 
+    // Create a clean copy of graph data with only serializable properties
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        info: node.info,
+        type: node.type,
+        superadminOnly: node.superadminOnly,
+        updatedAt: node.updatedAt,
+        path: node.path,
+        bibl: node.bibl,
+        x: node.x,
+        y: node.y,
+        visible: node.visible !== false,
+        position: node.position,
+        order: node.order,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
     // Save to backend using same API as GraphViewer
     const apiUrl = getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory')
+    const payloadString = JSON.stringify({
+      id: knowledgeGraphStore.currentGraphId,
+      graphData: cleanGraphData,
+      override: true,
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Node order save payload size: ${payloadSizeKB}KB`)
+
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: knowledgeGraphStore.currentGraphId,
-        graphData: graphData.value,
-        override: true,
-      }),
+      body: payloadString,
     })
 
     if (!response.ok) {
-      throw new Error('Failed to save node order.')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save node order. Server responded with ${response.status}`)
     }
 
     await response.json()
@@ -9748,19 +9925,51 @@ const saveAttribution = async () => {
     }
     node.imageAttributions[imageUrl] = attribution
 
+    // Create clean graph data for payload
+    const cleanGraphData = {
+      nodes: graphData.value.nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        info: n.info,
+        type: n.type,
+        superadminOnly: n.superadminOnly,
+        updatedAt: n.updatedAt,
+        path: n.path,
+        bibl: n.bibl,
+        x: n.x,
+        y: n.y,
+        visible: n.visible !== false,
+        position: n.position,
+        imageAttributions: n.imageAttributions,
+      })),
+      edges: (graphData.value.edges || []).map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      })),
+      metadata: graphData.value.metadata || {},
+    }
+
     // Save to backend
+    const payloadString = JSON.stringify({
+      id: currentGraphId.value,
+      graphData: cleanGraphData,
+      override: true
+    })
+    const payloadSizeKB = (payloadString.length / 1024).toFixed(2)
+    console.log(`📊 GNewViewer: Attribution save payload size: ${payloadSizeKB}KB`)
+
     const response = await fetch(getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: currentGraphId.value,
-        graphData: graphData.value,
-        override: true
-      })
+      body: payloadString
     })
 
     if (!response.ok) {
-      throw new Error('Failed to save')
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to save: Server responded with ${response.status}`)
     }
 
     statusMessage.value = 'Attribution updated successfully!'
