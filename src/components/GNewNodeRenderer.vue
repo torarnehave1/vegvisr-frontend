@@ -90,6 +90,7 @@ import GNewMermaidNode from './GNewNodes/GNewMermaidNode.vue'
 import GNewAppViewerNode from './GNewNodes/GNewAppViewerNode.vue'
 import GNewGuideNode from './GNewNodes/GNewGuideNode.vue'
 import GNewHtmlNode from './GNewNodes/GNewHtmlNode.vue'
+import GNewCssNode from './GNewNodes/GNewCssNode.vue'
 
 // Case Study Node Types (Sprint 4-5)
 import GNewPersonProfileNode from './GNewNodes/GNewPersonProfileNode.vue'
@@ -214,6 +215,8 @@ const nodeComponents = {
   'app-viewer': GNewAppViewerNode,
   // HTML node (renders full HTML documents in an iframe)
   'html-node': GNewHtmlNode,
+  // CSS node (manages stylesheets for HTML nodes)
+  'css-node': GNewCssNode,
   // JSON node (validate + render like fulltext)
   'json-node': GNewDefaultNode,
   // Glitter guide node

@@ -471,8 +471,14 @@ const handleImageUpload = async (event) => {
 
     const data = await response.json()
 
-    console.log('✅ Image uploaded successfully:', data.url)
-    emit('image-changed', data.url)
+    // Handle both single URL and array of URLs from API
+    const imageUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+    if (!imageUrl) {
+      throw new Error('API did not return an image URL')
+    }
+
+    console.log('✅ Image uploaded successfully:', imageUrl)
+    emit('image-changed', imageUrl)
     closeImageModal()
   } catch (error) {
     console.error('❌ Upload error:', error)
@@ -604,12 +610,18 @@ const processPastedImage = async (file) => {
 
     const data = await response.json()
 
+    // Handle both single URL and array of URLs from API
+    const imageUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+    if (!imageUrl) {
+      throw new Error('API did not return an image URL')
+    }
+
     pastedImage.value = {
-      url: data.url,
+      url: imageUrl,
       alt: 'Pasted image',
     }
 
-    console.log('✅ Pasted image uploaded:', data.url)
+    console.log('✅ Pasted image uploaded:', imageUrl)
   } catch (error) {
     console.error('❌ Paste error:', error)
     imageError.value = 'Failed to process pasted image: ' + error.message

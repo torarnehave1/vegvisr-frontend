@@ -30,10 +30,16 @@ export default defineConfig({
       url: 'url',
     },
   },
+  optimizeDeps: {
+    // Ensure Monaco Editor is pre-bundled
+    include: ['monaco-editor', '@monaco-editor/react'],
+  },
   build: {
     rollupOptions: {
       // Configure Rollup to handle Node.js built-in modules
       external: ['fs', 'path', 'url'],
     },
+    // Increase chunk size warning limit for Monaco Editor
+    chunkSizeWarningLimit: 1000,
   },
 })

@@ -65,7 +65,7 @@
             :key="node.id"
             :node="node"
             :graphData="graphData"
-            :showControls="false"
+            :showControls="userStore.loggedIn && ['Admin', 'Editor', 'Superadmin'].includes(userStore.role)"
             :graphId="currentGraphId"
             @node-updated="handleNodeUpdated"
             @node-deleted="handleNodeDeleted"
@@ -236,6 +236,13 @@
             class="btn btn-outline-secondary w-100 mb-2"
           >
             📋 New Title Node
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewCssNodeAndClose"
+            class="btn btn-outline-warning w-100 mb-2"
+          >
+            🎨 New CSS Node
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
@@ -796,55 +803,83 @@
                     🤖 Show AI Tools
                   </button>
                 </div>
-                <div class="textarea-container">
-                  <div
-                    ref="nodeContentHighlight"
-                    class="textarea-highlight-layer"
-                    v-html="highlightedNodeContent"
-                  ></div>
-                  <textarea
-                    ref="nodeContentTextarea"
-                    v-model="editingNode.info"
-                    class="form-control node-content-textarea"
-                    rows="20"
-                    placeholder="Enter node content... Type [ to see available elements..."
-                    @input="handleTextareaInput"
-                    @keydown="handleTextareaKeydown"
-                    @scroll="syncNodeFindScroll"
-                    @blur="hideAutocomplete"
-                    @mouseup="handleTextSelection"
-                    @keyup="handleTextSelection"
-                    @touchend="handleMobileTextSelection"
-                    @touchstart="handleMobileTextSelection"
-                  ></textarea>
+                <div class="textarea-container-wrapper">
+                  <!-- Drop zone overlay (shown during drag) -->
+                  <div v-if="isDragOver" class="drop-zone-overlay">
+                    <div class="drop-zone-content">
+                      <span class="drop-icon">📸</span>
+                      <p class="drop-text">Drop image to insert</p>
+                    </div>
+                  </div>
 
-                  <!-- Autocomplete Dropdown -->
                   <div
-                    v-if="showAutocomplete && filteredElements.length > 0"
-                    class="autocomplete-dropdown"
-                    :style="{
-                      top: autocompletePosition.top + 'px',
-                      left: autocompletePosition.left + 'px',
-                    }"
+                    class="textarea-container"
+                    @dragenter.prevent="handleDragEnter"
+                    @dragover.prevent="handleDragOver"
+                    @dragleave.prevent="handleDragLeave"
+                    @drop.prevent="handleDrop"
                   >
-                    <div class="autocomplete-header">
-                      <span class="autocomplete-title"
-                        >✨ Formatted Elements ({{ filteredElements.length }})</span
-                      >
-                      <span class="autocomplete-hint">Press Tab or Enter to insert</span>
-                    </div>
                     <div
-                      v-for="(element, index) in filteredElements"
-                      :key="element.trigger"
-                      class="autocomplete-item"
-                      :class="{ 'autocomplete-item-active': index === selectedElementIndex }"
-                      @mouseenter="selectedElementIndex = index"
-                      @click="insertElement(element)"
+                      ref="nodeContentHighlight"
+                      class="textarea-highlight-layer"
+                      v-html="highlightedNodeContent"
+                    ></div>
+                    <textarea
+                      ref="nodeContentTextarea"
+                      v-model="editingNode.info"
+                      class="form-control node-content-textarea"
+                      rows="20"
+                      placeholder="Enter node content... Type [ to see available elements..."
+                      @input="handleTextareaInput"
+                      @keydown="handleTextareaKeydown"
+                      @scroll="syncNodeFindScroll"
+                      @blur="hideAutocomplete"
+                      @mouseup="handleTextSelection"
+                      @keyup="handleTextSelection"
+                      @touchend="handleMobileTextSelection"
+                      @touchstart="handleMobileTextSelection"
+                      @paste="handleNodeContentPaste"
+                    ></textarea>
+
+                    <!-- Autocomplete Dropdown -->
+                    <div
+                      v-if="showAutocomplete && filteredElements.length > 0"
+                      class="autocomplete-dropdown"
+                      :style="{
+                        top: autocompletePosition.top + 'px',
+                        left: autocompletePosition.left + 'px',
+                      }"
                     >
-                      <div class="element-trigger">{{ element.trigger }}</div>
-                      <div class="element-description">{{ element.description }}</div>
-                      <div class="element-category">{{ element.category }}</div>
+                      <div class="autocomplete-header">
+                        <span class="autocomplete-title"
+                          >✨ Formatted Elements ({{ filteredElements.length }})</span
+                        >
+                        <span class="autocomplete-hint">Press Tab or Enter to insert</span>
+                      </div>
+                      <div
+                        v-for="(element, index) in filteredElements"
+                        :key="element.trigger"
+                        class="autocomplete-item"
+                        :class="{ 'autocomplete-item-active': index === selectedElementIndex }"
+                        @mouseenter="selectedElementIndex = index"
+                        @click="insertElement(element)"
+                      >
+                        <div class="element-trigger">{{ element.trigger }}</div>
+                        <div class="element-description">{{ element.description }}</div>
+                        <div class="element-category">{{ element.category }}</div>
+                      </div>
                     </div>
+                  </div>
+
+                  <!-- Upload progress indicator -->
+                  <div v-if="isUploadingImage" class="upload-progress">
+                    <div class="upload-spinner"></div>
+                    <span>Uploading image...</span>
+                  </div>
+
+                  <!-- Upload error message -->
+                  <div v-if="uploadError" class="upload-error">
+                    ⚠️ {{ uploadError }}
                   </div>
                 </div>
                 <div
@@ -2900,7 +2935,10 @@ onMounted(() => {
           getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-role': userStore.role || 'Superadmin',
+            },
             body: JSON.stringify({
               id: currentGraphId.value,
               graphData: {
@@ -2976,7 +3014,7 @@ onMounted(() => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'X-API-Token': apiToken
+                'x-user-role': userStore.role || 'Superadmin'
               },
               body: JSON.stringify({
                 userId,
@@ -2991,14 +3029,14 @@ onMounted(() => {
           case 'load':
             result = await fetch(
               `https://api.vegvisr.org/api/user-app/data/get?userId=${userId}&appId=${payload.appId}&key=${payload.key}`,
-              { headers: { 'X-API-Token': apiToken } }
+              { headers: { 'x-user-role': userStore.role || 'Superadmin' } }
             ).then(r => r.json())
             break
 
           case 'loadAll':
             result = await fetch(
               `https://api.vegvisr.org/api/user-app/data/list?userId=${userId}&appId=${payload.appId}`,
-              { headers: { 'X-API-Token': apiToken } }
+              { headers: { 'x-user-role': userStore.role || 'Superadmin' } }
             ).then(r => r.json())
             break
 
@@ -3007,7 +3045,7 @@ onMounted(() => {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'X-API-Token': apiToken
+                'x-user-role': userStore.role || 'Superadmin'
               },
               body: JSON.stringify({
                 userId,
@@ -3711,6 +3749,12 @@ const autocompletePosition = ref({ top: 0, left: 0 })
 const currentTrigger = ref('')
 const nodeContentTextarea = ref(null)
 const graphContentRef = ref(null)
+
+// Drag-drop and paste image upload functionality
+const isDragOver = ref(false)
+const dragCounter = ref(0)
+const isUploadingImage = ref(false)
+const uploadError = ref('')
 
 // Mobile menu functionality (starts collapsed)
 const showMobileMenu = ref(false)
@@ -5592,6 +5636,63 @@ const createNewTitleNode = async () => {
   }
 }
 
+// CSS Node Creation
+const createNewCssNode = async () => {
+  console.log('🆕 Creating new CSS node...')
+
+  const newNodeId = generateUUID()
+
+  // Create new CSS node with default content
+  const defaultCssContent = `/* CSS Node - Edit this stylesheet */
+/* This CSS will be automatically injected into HTML nodes */
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+`
+
+  const newCssNode = {
+    id: newNodeId,
+    label: 'New CSS Node',
+    color: '#fff3cd',
+    type: 'css-node',
+    info: defaultCssContent,
+    bibl: [],
+    visible: true,
+    position: { x: 0, y: 0 },
+    metadata: {
+      appliesTo: ['*'], // Apply to all HTML nodes by default
+      priority: 100,
+    },
+  }
+
+  try {
+    // Use the existing node creation handler
+    await handleNodeCreated(newCssNode)
+    console.log('✅ New CSS node created successfully:', newCssNode)
+  } catch (error) {
+    console.error('❌ Error creating CSS node:', error)
+    statusMessage.value = `❌ Failed to create CSS node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+// Wrapper to close menu after creating CSS node
+const createNewCssNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewCssNode()
+}
+
 // Insert AI response into a new FullText node (from Grok chat)
 const insertAIResponseAsFullText = async (content) => {
   if (!content || typeof content !== 'string') return
@@ -5654,7 +5755,10 @@ const handleBatchNodeInsert = async (payload) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-role': userStore.role || 'Superadmin',
+          },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -6051,7 +6155,10 @@ const saveImageQuote = async () => {
 
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': userStore.role || 'Superadmin',
+      },
       body: payloadString,
     })
 
@@ -7691,7 +7798,10 @@ const saveGraphAfterOperation = async (nodeCount) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: payloadString,
       },
     )
@@ -7889,6 +7999,150 @@ const selectQuickColor = (hex) => {
   selectedColor.value = hex
 }
 
+// Drag-drop and paste image upload handlers
+const handleDragEnter = (event) => {
+  dragCounter.value++
+  isDragOver.value = true
+}
+
+const handleDragOver = (event) => {
+  isDragOver.value = true
+}
+
+const handleDragLeave = (event) => {
+  dragCounter.value--
+  if (dragCounter.value === 0) {
+    isDragOver.value = false
+  }
+}
+
+const handleDrop = async (event) => {
+  dragCounter.value = 0
+  isDragOver.value = false
+
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return
+
+  const file = files[0]
+  if (!file.type.startsWith('image/')) {
+    uploadError.value = 'Only image files are supported.'
+    setTimeout(() => { uploadError.value = '' }, 5000)
+    return
+  }
+
+  await uploadAndInsertImage(file)
+}
+
+const handleNodeContentPaste = async (event) => {
+  const items = event.clipboardData?.items
+  if (!items) return
+
+  // Check for images in clipboard
+  for (let item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (file) {
+        await uploadAndInsertImage(file)
+        break
+      }
+    }
+  }
+}
+
+const uploadAndInsertImage = async (file) => {
+  try {
+    uploadError.value = ''
+    isUploadingImage.value = true
+
+    console.log('📤 Starting image upload for file:', file.name, 'Type:', file.type, 'Size:', file.size)
+
+    // Upload to R2 bucket via existing API
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('type', 'image')
+
+    console.log('📤 Sending upload request to: https://api.vegvisr.org/upload')
+
+    const response = await fetch('https://api.vegvisr.org/upload', {
+      method: 'POST',
+      body: formData
+    })
+
+    console.log('📥 Upload response status:', response.status, response.statusText)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Upload error response:', errorText)
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    console.log('📥 Full response data:', data)
+    console.log('📥 Response keys:', Object.keys(data))
+
+    // Handle both single URL and array of URLs
+    let imageUrl = null
+    if (data.url) {
+      imageUrl = data.url
+    } else if (data.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+      imageUrl = data.urls[0]
+    } else if (data.imageUrl) {
+      imageUrl = data.imageUrl
+    } else if (data.path) {
+      imageUrl = data.path
+    } else if (data.link) {
+      imageUrl = data.link
+    }
+
+    if (!imageUrl) {
+      console.error('❌ No image URL in response. Response structure:', data)
+      throw new Error('API did not return an image URL. Response: ' + JSON.stringify(data))
+    }
+
+    // Generate alt text from filename
+    const altText = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+
+    // Determine format based on node type
+    const isHtmlNode = editingNode.value.type === 'html-node'
+    const imageMarkdown = isHtmlNode
+      ? `<img src="${imageUrl}" alt="${altText}" style="max-width: 100%; height: auto;" />\n`
+      : `\n![${altText}|width: 300px](${imageUrl})\n`
+
+    console.log('✅ Inserting image URL:', imageUrl, 'Format:', isHtmlNode ? 'HTML' : 'Markdown')
+
+    // Insert at cursor position
+    insertAtCursorPosition(imageMarkdown)
+
+    console.log('✅ Image uploaded and inserted:', imageUrl)
+  } catch (error) {
+    console.error('❌ Image upload failed:', error)
+    uploadError.value = error.message || 'Failed to upload image. Please try again.'
+    setTimeout(() => { uploadError.value = '' }, 5000)
+  } finally {
+    isUploadingImage.value = false
+  }
+}
+
+const insertAtCursorPosition = (text) => {
+  const textarea = nodeContentTextarea.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const before = editingNode.value.info.substring(0, start)
+  const after = editingNode.value.info.substring(end)
+
+  // Insert text at cursor position
+  editingNode.value.info = before + text + after
+
+  // Update cursor position after inserted text
+  nextTick(() => {
+    textarea.selectionStart = textarea.selectionEnd = start + text.length
+    textarea.focus()
+  })
+}
+
 const insertColorAtCursor = () => {
   const textarea = nodeContentTextarea.value
   if (!textarea) return
@@ -8059,7 +8313,10 @@ const saveNodeChanges = async () => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-role': userStore.role || 'Superadmin',
+          },
           body: payloadString,
         },
       )
@@ -8096,10 +8353,105 @@ const saveNodeChanges = async () => {
   }
 }
 
+// Handle CSS extraction from HTML nodes
+const handleCssExtraction = async (payload) => {
+  console.log('🎨 Extracting CSS from HTML node:', payload)
+
+  try {
+    const { extractedCss, cssNodeName, removeInlineStyles, sourceNodeId } = payload
+    const sourceNode = graphData.value.nodes.find(n => n.id === sourceNodeId)
+
+    if (!sourceNode) {
+      throw new Error('Source HTML node not found')
+    }
+
+    // Create new CSS node
+    const newCssNodeId = generateUUID()
+    const newCssNode = {
+      id: newCssNodeId,
+      label: cssNodeName,
+      color: '#fff3cd',
+      type: 'css-node',
+      info: extractedCss,
+      bibl: [],
+      visible: true,
+      position: { x: sourceNode.x + 200, y: sourceNode.y }, // Place next to source HTML node
+      metadata: {
+        appliesTo: [sourceNodeId], // Apply to the HTML node it came from
+        priority: 10, // High priority so extracted CSS applies
+      },
+    }
+
+    // Update or remove inline styles from HTML node
+    let updatedHtmlNode = { ...sourceNode }
+    if (removeInlineStyles) {
+      // Remove inline <style> tags
+      const htmlContent = String(sourceNode.info || '')
+      updatedHtmlNode.info = htmlContent.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      console.log('✂️ Removed inline <style> tags from HTML node')
+    }
+
+    // Add both nodes to graph
+    const updatedGraphData = {
+      ...graphData.value,
+      nodes: [
+        ...graphData.value.nodes.map(n => (n.id === sourceNodeId ? updatedHtmlNode : n)),
+        newCssNode
+      ],
+    }
+
+    // Save to backend
+    const response = await fetch(
+      getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
+        body: JSON.stringify({
+          id: knowledgeGraphStore.currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to save graph after CSS extraction')
+    }
+
+    await response.json()
+
+    // Update the store and local state
+    knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
+    graphData.value = updatedGraphData
+
+    statusMessage.value = `✅ CSS extracted successfully! Created new CSS node: "${cssNodeName}"`
+    console.log('🎨 CSS extraction complete. New CSS node ID:', newCssNodeId)
+
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  } catch (error) {
+    console.error('❌ CSS extraction error:', error)
+    statusMessage.value = `❌ Failed to extract CSS: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
 // Node event handlers
 const handleNodeUpdated = async (updatedNode) => {
   if (updatedNode.action === 'edit') {
     openNodeEditModal(updatedNode)
+    return
+  }
+
+  // Handle CSS extraction
+  if (updatedNode.action === 'extract-css') {
+    await handleCssExtraction(updatedNode)
     return
   }
 
@@ -8127,7 +8479,10 @@ const handleNodeUpdated = async (updatedNode) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -8225,7 +8580,10 @@ const handleNodeDeleted = async (nodeId) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: payloadString,
       },
     )
@@ -8302,7 +8660,10 @@ const handleNodeCreated = async (newNode) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: payloadString,
       },
     )
@@ -8801,7 +9162,10 @@ const handleImageReplaced = async (replacementData) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -8932,7 +9296,10 @@ const handleGooglePhotoSelected = async (selectionData) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -9275,7 +9642,10 @@ const handleTemplateAdded = async ({ template, node }) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
         body: payloadString,
       },
     )
@@ -9473,7 +9843,10 @@ const saveNodeOrder = async () => {
 
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': userStore.role || 'Superadmin',
+      },
       body: payloadString,
     })
 
@@ -9882,7 +10255,10 @@ const saveAttribution = async () => {
 
     const response = await fetch(getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': userStore.role || 'Superadmin',
+      },
       body: payloadString
     })
 
@@ -13344,5 +13720,90 @@ const saveAttribution = async () => {
 
 .template-info {
   flex-grow: 1;
+}
+
+/* Drag-drop and paste image upload styles */
+.textarea-container-wrapper {
+  position: relative;
+}
+
+.drop-zone-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(99, 102, 241, 0.1);
+  border: 2px dashed #6366f1;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.drop-zone-content {
+  text-align: center;
+  color: #6366f1;
+}
+
+.drop-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 12px;
+  animation: bounce 1s infinite;
+}
+
+.drop-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.upload-progress {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 8px 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-size: 14px;
+  color: #374151;
+  z-index: 5;
+}
+
+.upload-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.upload-error {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 8px 16px;
+  border-radius: 8px;
+  border-left: 4px solid #ef4444;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-size: 14px;
+  color: #dc2626;
+  z-index: 5;
 }
 </style>

@@ -30,6 +30,9 @@
         <button v-if="isSuperadmin" @click="downloadHtml" class="btn-control" title="Download HTML">
           📥 Download
         </button>
+        <button @click="extractCss" class="btn-control" title="Extract inline CSS into separate CSS node">
+          🎨 Extract CSS
+        </button>
         <button @click="deleteNode" class="btn-control btn-delete" title="Delete HTML Node">
           🗑️ Delete
         </button>
@@ -83,6 +86,10 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true
+  },
+  graphData: {
+    type: Object,
+    default: () => ({ nodes: [], edges: [] })
   }
 })
 
@@ -275,6 +282,64 @@ const getStorageHelperScript = (nodeId) => `
 </scr` + `ipt>
 `
 
+// Collect CSS nodes that apply to this HTML node
+const collectCssNodes = (nodeId, graphData) => {
+  if (!graphData || !graphData.nodes) return []
+
+  // Find all CSS nodes
+  const cssNodes = graphData.nodes.filter(n => n.type === 'css-node')
+
+  // Filter by applicability: appliesTo contains this nodeId or '*' (global)
+  const applicableCss = cssNodes.filter(node => {
+    const appliesTo = node.metadata?.appliesTo || []
+    return appliesTo.includes(nodeId) || appliesTo.includes('*')
+  })
+
+  // Sort by priority (lower priority value = higher priority = loads first)
+  applicableCss.sort((a, b) =>
+    (a.metadata?.priority || 999) - (b.metadata?.priority || 999)
+  )
+
+  console.log(`🎨 Found ${applicableCss.length} applicable CSS nodes for node ${nodeId}`, applicableCss)
+  return applicableCss
+}
+
+// Inject CSS nodes as <style> tags into HTML content
+const injectCssNodes = (htmlContent, nodeId, graphData) => {
+  const cssNodes = collectCssNodes(nodeId, graphData)
+
+  if (cssNodes.length === 0) {
+    console.log('ℹ️ No CSS nodes to inject for node:', nodeId)
+    return htmlContent
+  }
+
+  // Build CSS injection HTML
+  let cssInjection = '<!-- CSS Nodes Injected by Vegvisr -->\n'
+  for (const cssNode of cssNodes) {
+    const priority = cssNode.metadata?.priority || 999
+    cssInjection += `<style data-css-node-id="${cssNode.id}" data-css-node-label="${cssNode.label}" data-css-priority="${priority}">\n`
+    cssInjection += `/* CSS Node: ${cssNode.label} (Priority: ${priority}) */\n`
+    cssInjection += cssNode.info || ''
+    cssInjection += `\n</style>\n`
+  }
+
+  console.log(`💉 Injecting ${cssNodes.length} CSS nodes into HTML`, cssInjection)
+
+  // Try to inject before </head>
+  if (htmlContent.includes('</head>')) {
+    return htmlContent.replace('</head>', cssInjection + '</head>')
+  }
+
+  // Try to inject after <head>
+  if (htmlContent.includes('<head>')) {
+    return htmlContent.replace('<head>', '<head>\n' + cssInjection)
+  }
+
+  // No head tag, inject at top
+  console.warn('⚠️ No <head> tag found in HTML, injecting CSS at top')
+  return cssInjection + htmlContent
+}
+
 // Inject storage helpers into HTML content
 const injectStorageHelpers = (htmlContent, nodeId, publishToken = '') => {
   const tokenScript = publishToken
@@ -336,7 +401,10 @@ const createHtmlUrl = () => {
     rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
   }
 
-  const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
+  // Inject CSS nodes before storage helpers
+  let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
+
+  const htmlContent = injectStorageHelpers(htmlWithCss, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   htmlUrl.value = URL.createObjectURL(blob)
 }
@@ -361,7 +429,10 @@ const downloadHtml = () => {
     rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
   }
 
-  const htmlContent = injectStorageHelpers(rawHtml, props.node.id)
+  // Inject CSS nodes before downloading (Phase 5)
+  let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
+
+  const htmlContent = injectStorageHelpers(htmlWithCss, props.node.id)
   const blob = new Blob([htmlContent], { type: 'text/html' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -383,6 +454,61 @@ const deleteNode = () => {
 const editNode = () => {
   if (!props.showControls || props.isPreview) return
   emit('node-updated', { ...props.node, action: 'edit' })
+}
+
+// Extract CSS from inline <style> tags in HTML
+const extractCssFromHtml = (htmlContent) => {
+  const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi
+  const matches = htmlContent.matchAll(styleRegex)
+  let extractedCss = ''
+
+  for (const match of matches) {
+    if (match[1]) {
+      extractedCss += match[1].trim() + '\n\n'
+    }
+  }
+
+  return extractedCss.trim()
+}
+
+// Remove inline <style> tags from HTML
+const removeInlineStyles = (htmlContent) => {
+  return htmlContent.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+}
+
+// Show extraction dialog
+const extractCss = () => {
+  if (!props.showControls || props.isPreview) return
+
+  const htmlContent = String(props.node.info || '')
+  const extractedCss = extractCssFromHtml(htmlContent)
+
+  if (!extractedCss) {
+    alert('No <style> tags found in this HTML node.')
+    return
+  }
+
+  // Show preview and ask for CSS node name
+  const cssNodeName = prompt(
+    `Found ${extractedCss.split('\n').length} lines of CSS.\n\nEnter a name for the new CSS node:`,
+    `${props.node.label || 'HTML'} Styles`
+  )
+
+  if (!cssNodeName) return // User cancelled
+
+  // Ask if user wants to remove inline styles
+  const removeStyles = confirm(
+    'Remove inline <style> tags from HTML node?\n\n(CSS will be managed separately in the new CSS node)'
+  )
+
+  // Emit event to create CSS node and optionally update HTML
+  emit('node-updated', {
+    action: 'extract-css',
+    extractedCss,
+    cssNodeName,
+    removeInlineStyles: removeStyles,
+    sourceNodeId: props.node.id
+  })
 }
 
 const publishHtml = async () => {
@@ -429,6 +555,10 @@ const publishHtml = async () => {
     if (graphId) {
       rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
     }
+
+    // Inject CSS nodes before publishing (Phase 5)
+    let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
+
     const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
       method: 'POST',
       headers: {
@@ -450,7 +580,7 @@ const publishHtml = async () => {
       throw new Error('Missing publish token')
     }
 
-    const htmlContent = injectStorageHelpers(rawHtml, props.node.id, tokenData.token)
+    const htmlContent = injectStorageHelpers(htmlWithCss, props.node.id, tokenData.token)
     const response = await fetch('https://test.slowyou.training/__html/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -499,6 +629,11 @@ const publishHtml = async () => {
 watch(() => props.node.info, () => {
   createHtmlUrl()
 })
+
+// Watch graphData changes to re-inject CSS when CSS nodes are added/updated
+watch(() => props.graphData, () => {
+  createHtmlUrl()
+}, { deep: true })
 
 onMounted(() => {
   createHtmlUrl()

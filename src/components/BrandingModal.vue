@@ -1693,10 +1693,14 @@ export default {
         }
 
         const data = await response.json()
-        this.formData.logo = data.url
+        const logoUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+        if (!logoUrl) {
+          throw new Error('API did not return an image URL')
+        }
+        this.formData.logo = logoUrl
         this.logoError = '' // Clear any previous errors
 
-        console.log('Logo uploaded successfully:', data.url)
+        console.log('Logo uploaded successfully:', logoUrl)
       } catch (error) {
         console.error('Error uploading logo:', error)
         alert('Failed to upload logo image. Please try again.')

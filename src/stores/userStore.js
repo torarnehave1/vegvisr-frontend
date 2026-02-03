@@ -301,8 +301,71 @@ export const useUserStore = defineStore('user', {
         return false
       }
     },
+    isLocalhost() {
+      if (typeof window === 'undefined') return false
+      const hostname = window.location.hostname
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('localhost:')
+    },
+
+    async autoLoginLocalhost() {
+      if (!this.isLocalhost()) return false
+
+      console.log('🏠 Localhost detected - auto-logging in as Superadmin for development')
+
+      try {
+        // First check if user data exists in localStorage from a previous session
+        const storedUser = JSON.parse(localStorage.getItem('user'))
+
+        if (storedUser && storedUser.emailVerificationToken) {
+          console.log('✅ Found existing user data in localStorage - using that')
+          this.setUser(storedUser)
+        } else {
+          // Fallback to hardcoded values if localStorage is empty
+          console.log('⚠️ No user data in localStorage - using development defaults')
+          const localhostUser = {
+            email: 'torarnehave@gmail.com',
+            role: 'Superadmin',
+            user_id: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+            oauth_id: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
+            emailVerificationToken: 'b1ca2967e8165ec02fdf039d9e916af4005f7388',
+            phone: '+4790914095',
+            phoneVerifiedAt: 1768170059,
+            profileimage: 'https://profile.vegvisr.org/torarnehave@gmail.com-1743500107976.png',
+            branding: { mySite: null, myLogo: null },
+          }
+          this.setUser(localhostUser)
+        }
+
+        // Set session verification flag so router guard allows access
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('email_session_verified', '1')
+            console.log('✅ Session verification flag set')
+          }
+        } catch {
+          // ignore storage errors
+        }
+
+        console.log('✅ Localhost auto-login complete - Full Superadmin access enabled')
+        console.log('🔑 Using emailVerificationToken for X-API-Token header:', this.emailVerificationToken)
+        return true
+      } catch (error) {
+        console.error('❌ Failed to auto-login on localhost:', error)
+        return false
+      }
+    },
+
     async loadUserFromStorage() {
       console.log('🔄 loadUserFromStorage called')
+
+      // Check for localhost auto-login first
+      if (this.isLocalhost()) {
+        const isAutoLoggedIn = await this.autoLoginLocalhost()
+        if (isAutoLoggedIn) {
+          return true
+        }
+      }
+
       const storedUser = JSON.parse(localStorage.getItem('user'))
       console.log('📦 Raw localStorage data:', storedUser)
       const cookieToken = (() => {

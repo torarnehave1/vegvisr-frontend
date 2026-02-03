@@ -931,10 +931,14 @@ export default {
         }
 
         const data = await response.json()
-        formData.value.logo = data.url
+        const logoUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+        if (!logoUrl) {
+          throw new Error('API did not return an image URL')
+        }
+        formData.value.logo = logoUrl
         logoError.value = '' // Clear any previous errors
 
-        console.log('Logo uploaded successfully:', data.url)
+        console.log('Logo uploaded successfully:', logoUrl)
       } catch (error) {
         console.error('Error uploading logo:', error)
         alert('Failed to upload logo image. Please try again.')
@@ -993,9 +997,13 @@ export default {
         }
 
         const data = await response.json()
-        formData.value.mobileAppLogo = data.url
+        const mobileLogoUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+        if (!mobileLogoUrl) {
+          throw new Error('API did not return an image URL')
+        }
+        formData.value.mobileAppLogo = mobileLogoUrl
 
-        console.log('Mobile logo uploaded successfully:', data.url)
+        console.log('Mobile logo uploaded successfully:', mobileLogoUrl)
       } catch (error) {
         console.error('Error uploading mobile logo:', error)
         alert('Failed to upload mobile logo image. Please try again.')

@@ -1062,9 +1062,15 @@ const processPastedImage = async (file) => {
 
     const uploadData = await uploadResponse.json()
 
+    // Handle both single URL and array of URLs from API
+    const imageUrl = uploadData.url || (uploadData.urls && Array.isArray(uploadData.urls) ? uploadData.urls[0] : null)
+    if (!imageUrl) {
+      throw new Error('API did not return an image URL')
+    }
+
     // Set pasted image data
     pastedImage.value = {
-      url: uploadData.url,
+      url: imageUrl,
       previewUrl: previewUrl,
       alt: 'Pasted image',
       photographer: 'User uploaded',
@@ -1257,10 +1263,16 @@ const handleImageUpload = async (event) => {
 
     const data = await response.json()
 
+    // Handle both single URL and array of URLs from API
+    const imageUrl = data.url || (data.urls && Array.isArray(data.urls) ? data.urls[0] : null)
+    if (!imageUrl) {
+      throw new Error('API did not return an image URL')
+    }
+
     // Create a selected image object from the uploaded image with EXIF data
     selectedImage.value = {
       id: 'uploaded-' + Date.now(),
-      url: data.url,
+      url: imageUrl,
       alt: file.name.replace(/\.[^/.]+$/, ''), // Remove file extension for alt text
       photographer: 'Uploaded by user',
       exifData: exifData, // Include EXIF data
@@ -1269,7 +1281,7 @@ const handleImageUpload = async (event) => {
     }
 
     // Update the URL field to show the new uploaded image URL
-    editableImageUrl.value = data.url
+    editableImageUrl.value = imageUrl
     validateImageUrl()
 
     // Clear search results since we have an uploaded image
@@ -1277,7 +1289,7 @@ const handleImageUpload = async (event) => {
     pastedImage.value = null
     pastedUrl.value = null
 
-    console.log('Image uploaded successfully:', data.url)
+    console.log('Image uploaded successfully:', imageUrl)
   } catch (err) {
     console.error('Error uploading image:', err)
     error.value = 'Failed to upload image. Please try again.'

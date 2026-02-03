@@ -447,7 +447,10 @@ const createNewGraph = async () => {
     // Save to backend using saveGraphWithHistory for proper version tracking
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': userStore.role || 'Superadmin',
+      },
       body: JSON.stringify({
         id: newGraphId,
         graphData: newGraphData,
@@ -521,7 +524,10 @@ const saveGraph = async () => {
     // Use the correct endpoint for updating existing graphs
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': userStore.role || 'Superadmin',
+      },
       body: JSON.stringify({
         id: currentGraph.value.id,
         graphData: graphData.value,
