@@ -4023,10 +4023,8 @@ const insertAsNetwork = (message) => {
 // Check if message contains Proff person data
 const hasPersonData = (message) => {
   if (!message?.proffData) {
-    console.log('hasPersonData: No proffData on message', message?.usedProffAPI)
     return false
   }
-  console.log('hasPersonData: proffData keys:', Object.keys(message.proffData))
   // Check for person data from any Proff tool
   return message.proffData.person ||
          message.proffData.persons ||
@@ -4038,7 +4036,6 @@ const hasPersonData = (message) => {
 // Check if message contains Proff company data
 const hasCompanyData = (message) => {
   if (!message?.proffData) return false
-  console.log('hasCompanyData: proffData keys:', Object.keys(message.proffData))
   return message.proffData.company ||
          message.proffData.companies ||
          message.proffData.proff_search_companies ||
@@ -4049,7 +4046,6 @@ const hasCompanyData = (message) => {
 // Check if message contains network/connection data
 const hasNetworkData = (message) => {
   if (!message?.proffData) return false
-  console.log('hasNetworkData: proffData keys:', Object.keys(message.proffData))
   return message.proffData.paths ||
          message.proffData.network ||
          message.proffData.proff_find_business_network ||
@@ -4058,7 +4054,6 @@ const hasNetworkData = (message) => {
 
 // Check if message contains news/sources data
 const hasNewsData = (message) => {
-  console.log('hasNewsData: sourcesData:', message?.sourcesData)
   return message?.sourcesData?.results?.length > 0 ||
          message?.sourcesData?.sources_search?.results?.length > 0 ||
          (message?.usedSourcesAPI && message.content?.includes('artikler'))
@@ -4067,11 +4062,8 @@ const hasNewsData = (message) => {
 // Check if message contains person data with connections (for network canvas)
 const hasPersonConnectionsData = (message) => {
   if (!message?.proffData) {
-    console.log('hasPersonConnectionsData: No proffData')
     return false
   }
-
-  console.log('hasPersonConnectionsData: proffData keys:', Object.keys(message.proffData))
 
   // Check for person details with connections array - multiple possible paths
   // Path 1: proff_get_person_details.person (nested)
@@ -4083,32 +4075,18 @@ const hasPersonConnectionsData = (message) => {
   // Path 4: First person from search results (might have connections if details were fetched)
   const personFromSearch = message.proffData.proff_search_persons?.persons?.[0]
 
-  console.log('hasPersonConnectionsData: paths checked -',
-    'fromDetails:', !!personFromDetails,
-    'detailsDirect:', !!detailsDirect,
-    'direct:', !!directPerson,
-    'fromSearch:', !!personFromSearch)
-
   // Check each path for connections
   for (const personData of [personFromDetails, detailsDirect, directPerson, personFromSearch]) {
     if (personData?.connections && Array.isArray(personData.connections) && personData.connections.length > 0) {
-      console.log('hasPersonConnectionsData: Found connections in person:', personData.name, 'count:', personData.connections.length)
       return true
     }
   }
 
   // Also check for direct connections array at root level
   if (message.proffData.connections && Array.isArray(message.proffData.connections) && message.proffData.connections.length > 0) {
-    console.log('hasPersonConnectionsData: Found direct connections array')
     return true
   }
 
-  // Check if proff_get_person_details was called and has the full result structure
-  if (message.proffData.proff_get_person_details) {
-    console.log('hasPersonConnectionsData: proff_get_person_details structure:', Object.keys(message.proffData.proff_get_person_details))
-  }
-
-  console.log('hasPersonConnectionsData: No connections found')
   return false
 }
 
