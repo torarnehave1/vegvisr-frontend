@@ -1214,6 +1214,75 @@
         </button>
       </div>
     </div>
+
+    <!-- === NEW: Graph Update Approval Modal === -->
+    <div v-if="showApprovalModal" class="approval-modal-overlay" @click.self="cancelGraphUpdate">
+      <div class="approval-modal">
+        <div class="approval-modal-header">
+          <h3>🔍 Confirm Graph Update</h3>
+          <button type="button" class="close-btn" @click="cancelGraphUpdate">&times;</button>
+        </div>
+
+        <div class="approval-modal-content">
+          <p class="approval-intro">The AI wants to make the following change to your graph:</p>
+
+          <!-- Node Being Changed -->
+          <div class="approval-node-info" v-if="pendingApproval">
+            <div class="approval-label">Node Being Updated:</div>
+            <div class="approval-value">{{ pendingApproval.nodeLabel || pendingApproval.nodeId }}</div>
+            <div class="approval-hint">(ID: {{ pendingApproval.nodeId }})</div>
+          </div>
+
+          <!-- Changes Summary -->
+          <div class="approval-changes" v-if="pendingApproval">
+            <div class="approval-label">Changes:</div>
+            <div class="approval-change-list">
+              <div v-for="(value, field) in pendingApproval.changes" :key="field" class="approval-change-item">
+                <div class="change-field">{{ field }}:</div>
+                <div class="change-detail">
+                  <div v-if="field === 'info' && typeof value === 'string' && value.length > 100" class="change-preview">
+                    <div class="change-old">
+                      <strong>Old:</strong>
+                      <div class="text-truncate">{{ pendingApproval.oldValues?.[field] || '(empty)' | truncate }}</div>
+                    </div>
+                    <div class="change-new">
+                      <strong>New:</strong>
+                      <div class="text-truncate">{{ value | truncate }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="change-inline">
+                    <span class="old-value">{{ pendingApproval.oldValues?.[field] || '(empty)' }}</span>
+                    <span class="arrow">→</span>
+                    <span class="new-value">{{ value }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI's Explanation (if provided) -->
+          <div v-if="pendingApproval?.explanation" class="approval-explanation">
+            <div class="approval-label">AI's Explanation:</div>
+            <div class="approval-text">{{ pendingApproval.explanation }}</div>
+          </div>
+        </div>
+
+        <div class="approval-modal-footer">
+          <button type="button" class="btn btn-cancel" @click="cancelGraphUpdate">
+            ❌ Don't Save
+          </button>
+          <button type="button" class="btn btn-approve" @click="approveGraphUpdate">
+            ✅ Approve & Save
+          </button>
+        </div>
+
+        <div v-if="approvalStatus" :class="['approval-status', approvalStatus.type]">
+          {{ approvalStatus.message }}
+        </div>
+      </div>
+    </div>
+    <!-- === END NEW === -->
+
   </div>
 </template>
 
@@ -1423,6 +1492,13 @@ const audioTranscriptionStatus = ref('')
 const audioChunkProgress = ref({ current: 0, total: 0 })
 const audioAutoDetect = ref(true)
 const audioLanguage = ref('no')
+
+// === NEW: Graph Update Approval Modal ===
+const showApprovalModal = ref(false)
+const pendingApproval = ref(null)
+const approvalStatus = ref(null)
+let pendingApprovalResolve = null
+// === END NEW ===
 const audioLanguageOptions = [
   { code: 'no', label: 'Norwegian' },
   { code: 'en', label: 'English' },
@@ -1985,6 +2061,49 @@ async function executeGraphManipulationTool(toolName, args) {
         },
       }
 
+      // === NEW: Show Approval Modal Before Saving ===
+      // Extract which nodes are being changed and what fields changed
+      const changedNodes = args?.nodes || [];
+      if (changedNodes.length > 0) {
+        // Build approval data from the first changed node (for focused preview)
+        const firstChangedNode = changedNodes[0];
+        const existingNode = (props.graphData?.nodes || []).find(n => n.id === firstChangedNode.id);
+
+        const changes = {};
+        const oldValues = {};
+
+        // Track which fields changed
+        Object.keys(firstChangedNode).forEach(key => {
+          if (key !== 'id' && existingNode && existingNode[key] !== firstChangedNode[key]) {
+            changes[key] = firstChangedNode[key];
+            oldValues[key] = existingNode[key];
+          }
+        });
+
+        // Show approval modal
+        pendingApproval.value = {
+          nodeId: firstChangedNode.id,
+          nodeLabel: existingNode?.label || firstChangedNode.label || 'Unknown Node',
+          changes,
+          oldValues,
+          explanation: `Updating ${changedNodes.length} node(s): ${
+            changedNodes.length === 1 ? '1 node' : `${changedNodes.length} nodes`
+          }. ${Object.keys(changes).length} field(s) being modified.`,
+          graphData: updatedGraphData,
+          graphStore,
+          userId,
+        };
+
+        showApprovalModal.value = true;
+
+        // Return a pending promise that will be resolved when user approves/rejects
+        return new Promise((resolve) => {
+          pendingApprovalResolve = resolve;
+        });
+      }
+      // === END NEW ===
+
+      // If no nodes to change, proceed with saving
       const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2926,6 +3045,92 @@ const downloadRawJson = () => {
     }
   }
 }
+
+// === NEW: Graph Update Approval Functions ===
+/**
+ * Approve and save the pending graph update
+ */
+const approveGraphUpdate = async () => {
+  if (!pendingApproval.value) return;
+
+  try {
+    approvalStatus.value = { type: 'loading', message: 'Saving approved changes...' };
+
+    const graphData = pendingApproval.value.graphData;
+    const graphStore = pendingApproval.value.graphStore;
+    const currentGraphId = graphData.id;
+
+    // Send the update to backend
+    const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentGraphId,
+        graphData: graphData,
+        override: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to update graph: ${response.status} - ${errorText}`);
+    }
+
+    // Update the store
+    graphStore.setCurrentGraph(graphData);
+
+    approvalStatus.value = { type: 'success', message: '✅ Changes saved successfully!' };
+
+    // Close modal after brief delay
+    setTimeout(() => {
+      showApprovalModal.value = false;
+      pendingApproval.value = null;
+      approvalStatus.value = null;
+
+      // Resolve the promise with success
+      if (pendingApprovalResolve) {
+        pendingApprovalResolve({
+          status: 'success',
+          graphId: currentGraphId,
+          message: 'Graph updated successfully',
+          nodesModified: graphData.nodes?.length || 0,
+        });
+        pendingApprovalResolve = null;
+      }
+    }, 1500);
+  } catch (error) {
+    console.error('Error saving approved update:', error);
+    approvalStatus.value = { type: 'error', message: `❌ Error: ${error.message}` };
+
+    // Resolve promise with error
+    if (pendingApprovalResolve) {
+      pendingApprovalResolve({
+        status: 'failed',
+        error: error.message,
+      });
+      pendingApprovalResolve = null;
+    }
+  }
+};
+
+/**
+ * Cancel and discard the pending graph update
+ */
+const cancelGraphUpdate = () => {
+  showApprovalModal.value = false;
+  pendingApproval.value = null;
+  approvalStatus.value = null;
+
+  // Resolve promise with cancellation
+  if (pendingApprovalResolve) {
+    pendingApprovalResolve({
+      status: 'cancelled',
+      message: 'Update was cancelled by user',
+    });
+    pendingApprovalResolve = null;
+  }
+};
+// === END NEW ===
 
 // Drag and drop handlers
 const handleDragEnter = (event) => {
@@ -8755,4 +8960,308 @@ watch(
   font-family: inherit;
   background: none;
 }
+
+/* === NEW: Graph Update Approval Modal Styles === */
+.approval-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.approval-modal {
+  background: #1a1a2e;
+  border: 1px solid #6366f1;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slide-up 0.3s ease-out;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.approval-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.approval-modal-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.3rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1.8rem;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #fff;
+}
+
+.approval-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.approval-intro {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.approval-node-info {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.approval-label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.approval-value {
+  color: #fff;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.approval-hint {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.approval-changes {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.approval-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approval-change-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 10px;
+}
+
+.approval-change-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.change-field {
+  color: rgba(125, 211, 252, 0.95);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+
+.change-detail {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.change-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.change-old,
+.change-new {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid rgba(248, 113, 113, 0.5);
+}
+
+.change-old strong,
+.change-new strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.change-new {
+  border-left-color: rgba(74, 222, 128, 0.5);
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.change-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.old-value,
+.new-value {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.old-value {
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.new-value {
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: rgba(74, 222, 128, 0.9);
+}
+
+.arrow {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+}
+
+.approval-explanation {
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.approval-text {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.approval-modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 20px;
+  border-top: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.approval-modal-footer .btn {
+  flex: 1;
+  padding: 12px 20px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-size: 0.95rem;
+}
+
+.btn-cancel {
+  background: rgba(248, 113, 113, 0.2);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.btn-cancel:hover {
+  background: rgba(248, 113, 113, 0.3);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+.btn-approve {
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  color: rgba(74, 222, 128, 0.9);
+}
+
+.btn-approve:hover {
+  background: rgba(74, 222, 128, 0.3);
+  border-color: rgba(74, 222, 128, 0.6);
+}
+
+.approval-status {
+  padding: 12px 20px;
+  margin: 0;
+  font-size: 0.9rem;
+  text-align: center;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.approval-status.success {
+  background: rgba(74, 222, 128, 0.15);
+  color: rgba(74, 222, 128, 0.9);
+}
+
+.approval-status.error {
+  background: rgba(248, 113, 113, 0.15);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.approval-status.loading {
+  background: rgba(99, 102, 241, 0.15);
+  color: rgba(255, 255, 255, 0.7);
+}
+/* === END NEW === */
 </style>
