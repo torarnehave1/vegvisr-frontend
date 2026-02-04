@@ -7281,23 +7281,27 @@ watch(
   align-self: flex-end;
   background: rgba(227, 242, 253, 0.95);
   border: 1px solid #90caf9;
+  color: #1f2933;
 }
 
 .message.assistant {
   align-self: flex-start;
   background: rgba(245, 245, 245, 0.95);
   border: 1px solid #e0e0e0;
+  color: #1f2933;
 }
 
 .message.error {
   align-self: center;
   background: rgba(255, 235, 238, 0.95);
   border: 1px solid #ef5350;
+  color: #1f2933;
 }
 
 .message.streaming {
   background: rgba(255, 249, 230, 0.95);
   border: 1px solid #ffd54f;
+  color: #1f2933;
 }
 
 .message-header {
@@ -7422,6 +7426,7 @@ watch(
   font-size: 0.95rem;
   line-height: 1.5;
   word-wrap: break-word;
+  color: #1f2933;
 }
 
 .message-content :deep(pre) {

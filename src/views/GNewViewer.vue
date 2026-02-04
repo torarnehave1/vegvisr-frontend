@@ -8001,15 +8001,18 @@ const selectQuickColor = (hex) => {
 
 // Drag-drop and paste image upload handlers
 const handleDragEnter = (event) => {
+  console.log('🎯 DRAG ENTER', { dataTransfer: event.dataTransfer, types: event.dataTransfer?.types })
   dragCounter.value++
   isDragOver.value = true
 }
 
 const handleDragOver = (event) => {
+  console.log('🎯 DRAG OVER')
   isDragOver.value = true
 }
 
 const handleDragLeave = (event) => {
+  console.log('🎯 DRAG LEAVE')
   dragCounter.value--
   if (dragCounter.value === 0) {
     isDragOver.value = false
@@ -8017,19 +8020,63 @@ const handleDragLeave = (event) => {
 }
 
 const handleDrop = async (event) => {
+  console.log('🎯 DROP EVENT FIRED', event)
   dragCounter.value = 0
   isDragOver.value = false
 
   const files = event.dataTransfer?.files
-  if (!files || files.length === 0) return
+  console.log('📂 Files from drop:', files, 'Length:', files?.length)
+
+  // If no files, check for text/uri-list (macOS Photos app format with R2 URLs)
+  if (!files || files.length === 0) {
+    console.log('⚠️ No files in drop event, checking for text/uri-list...')
+    const types = event.dataTransfer?.types || []
+    console.log('📋 DataTransfer types:', types)
+
+    if (types.includes('text/uri-list')) {
+      console.log('🖼️ Found text/uri-list (Photos app - R2 image URL)')
+      const urlString = event.dataTransfer?.getData('text/uri-list')
+      console.log('🔗 URL from text/uri-list:', urlString)
+
+      if (urlString) {
+        // Extract just the URL (text/uri-list may have multiple lines or extra whitespace)
+        const imageUrl = urlString.trim().split('\n')[0]
+        console.log('✅ Extracted URL:', imageUrl)
+
+        // Validate it's an image URL
+        if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(imageUrl) ||
+            imageUrl.includes('imgix') || imageUrl.includes('r2')) {
+          console.log('✅ Valid image URL, inserting directly...')
+          insertImageUrl(imageUrl)
+        } else {
+          console.log('❌ URL does not appear to be an image')
+          uploadError.value = 'URL does not appear to be an image.'
+          setTimeout(() => { uploadError.value = '' }, 5000)
+        }
+      }
+    } else {
+      console.log('⚠️ No files and no text/uri-list found')
+    }
+    return
+  }
 
   const file = files[0]
-  if (!file.type.startsWith('image/')) {
+  console.log('📄 First file:', { name: file.name, type: file.type, size: file.size })
+
+  // Check if it's an image by MIME type or file extension
+  const isImageByType = file.type.startsWith('image/')
+  const isImageByExtension = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(file.name)
+
+  console.log('🔍 Image check:', { isImageByType, isImageByExtension, fileName: file.name })
+
+  if (!isImageByType && !isImageByExtension) {
+    console.log('❌ Not an image file')
     uploadError.value = 'Only image files are supported.'
     setTimeout(() => { uploadError.value = '' }, 5000)
     return
   }
 
+  console.log('✅ Valid image file, uploading...')
   await uploadAndInsertImage(file)
 }
 
@@ -8039,6 +8086,7 @@ const handleNodeContentPaste = async (event) => {
 
   // Check for images in clipboard
   for (let item of items) {
+    // Check both MIME type and as fallback check if it's a file
     if (item.type.startsWith('image/')) {
       event.preventDefault()
       const file = item.getAsFile()
@@ -8047,6 +8095,45 @@ const handleNodeContentPaste = async (event) => {
         break
       }
     }
+  }
+
+  // If no image found by MIME type, check files directly
+  const files = event.clipboardData?.files
+  if (files && files.length > 0) {
+    const file = files[0]
+    const isImageByExtension = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(file.name)
+    if (isImageByExtension) {
+      event.preventDefault()
+      await uploadAndInsertImage(file)
+    }
+  }
+}
+
+const insertImageUrl = (imageUrl) => {
+  try {
+    console.log('🔗 Inserting R2 image URL directly:', imageUrl)
+
+    // Generate a simple filename from the URL
+    const urlParts = imageUrl.split('/')
+    const filename = urlParts[urlParts.length - 1].split('?')[0] || 'image'
+    const altText = filename.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+
+    // Determine format based on node type
+    const isHtmlNode = editingNode.value.type === 'html-node'
+    const imageMarkdown = isHtmlNode
+      ? `<img src="${imageUrl}" alt="${altText}" style="max-width: 100%; height: auto;" />\n`
+      : `\n![${altText}|width: 300px](${imageUrl})\n`
+
+    console.log('✅ Inserting URL in', isHtmlNode ? 'HTML' : 'Markdown', 'format')
+
+    // Insert at cursor position
+    insertAtCursorPosition(imageMarkdown)
+
+    console.log('✅ Image URL inserted:', imageUrl)
+  } catch (error) {
+    console.error('❌ Failed to insert image URL:', error)
+    uploadError.value = error.message || 'Failed to insert image URL.'
+    setTimeout(() => { uploadError.value = '' }, 5000)
   }
 }
 
