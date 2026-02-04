@@ -1919,14 +1919,58 @@ async function executeGraphManipulationTool(toolName, args) {
 
     if (toolName === 'graph_update_current') {
       // Update the current graph with new/modified data
+      // Supports BOTH full graph updates AND implicit partial node patching
       const currentGraphId = props.graphData?.id || graphStore.currentGraphId
 
       if (!currentGraphId) {
         throw new Error('No current graph loaded. Use graph_save_new to create a new graph first.')
       }
 
-      // Apply updates to nodes/edges if provided
-      const updatedNodes = args?.nodes || props.graphData?.nodes || []
+      // === NEW: Implicit Patching Support ===
+      // If only partial node data is provided, merge with existing nodes
+      let updatedNodes = args?.nodes || props.graphData?.nodes || []
+
+      // Detect if this is a partial node update (surgical edit)
+      const isPartialUpdate = args?.nodes && args.nodes.length > 0 &&
+        args.nodes.some(n => {
+          // A node is "partial" if it doesn't have all standard properties
+          // (has only id + some changed fields, not the complete node definition)
+          const hasId = n.id;
+          const hasLabel = 'label' in n;
+          const hasInfo = 'info' in n;
+          const hasType = 'type' in n;
+          const hasPosition = 'position' in n;
+
+          // If a node has id but is missing most fields, it's likely a partial update
+          return hasId && [hasLabel, hasInfo, hasType, hasPosition].filter(Boolean).length < 3;
+        });
+
+      if (isPartialUpdate) {
+        // Merge partial updates with existing nodes
+        const existingNodes = props.graphData?.nodes || [];
+        const updateMap = new Map(args.nodes.map(n => [n.id, n]));
+
+        updatedNodes = existingNodes.map(existingNode => {
+          const partialUpdate = updateMap.get(existingNode.id);
+          if (partialUpdate) {
+            // Surgical merge: only update specified fields
+            return {
+              ...existingNode,
+              ...partialUpdate,
+              updatedAt: new Date().toISOString(),
+              updatedBy: userId,
+            };
+          }
+          return existingNode;
+        });
+
+        console.log('✂️ Implicit node patch detected: merging partial updates with existing nodes');
+      } else {
+        // Full node replacement mode (existing behavior)
+        updatedNodes = updatedNodes.length > 0 ? updatedNodes : (props.graphData?.nodes || []);
+      }
+      // === END NEW ===
+
       const updatedEdges = args?.edges || props.graphData?.edges || []
       const updatedMetadata = args?.metadata ? { ...props.graphData?.metadata, ...args.metadata } : props.graphData?.metadata
 
@@ -1967,6 +2011,7 @@ async function executeGraphManipulationTool(toolName, args) {
         message: `Graph updated successfully`,
         nodesModified: updatedNodes.length,
         edgesModified: updatedEdges.length,
+        patchMode: isPartialUpdate,
       }
     }
 
@@ -6142,6 +6187,12 @@ WORKFLOW FOR MODIFYING AND SAVING GRAPHS:
 2. If you want to create a new version: graph_save_new with title and description
 3. If you want to modify the existing: graph_update_current with updated nodes/edges/metadata
 
+PARTIAL NODE UPDATES (Implicit Patching):
+When you're in Raw JSON Mode with a highlighted selection, you can perform surgical edits:
+- Only include the specific fields that changed (don't resend entire nodes)
+- The backend's PATCH endpoint will merge your changes with existing data
+- Example: If only "info" field changed, send only {"id": "node-id", "info": "new content"}
+
 EXAMPLES:
 graph_save_new({
   "title": "Market Analysis 2024",
@@ -6156,10 +6207,19 @@ graph_update_current({
   "edges": [/* modified edges */]
 })
 
+PARTIAL UPDATE EXAMPLE (changing only a meta tag in node info):
+graph_update_current({
+  "nodes": [{
+    "id": "node-96e477ae",
+    "info": "<meta property=\"og:site_name\" content=\"Connect Norse Gong ™\" />"
+  }]
+})
+
 Guidelines:
 - Always use graph_get_current_data first to understand the structure
 - When saving new graphs, provide meaningful titles and descriptions
-- When updating, include the complete nodes and edges arrays if modifying them
+- For partial updates: only include the fields being changed (id + changed fields)
+- The backend supports both full node replacement and surgical field updates
 - The database saves automatically after each operation
 - Store graph IDs for reference`)
 
@@ -6257,6 +6317,43 @@ Feel free to ask detailed analytical questions about this data structure, metada
     ${nodeIdLine}${selectionFocus.text}
 
     Prioritize this highlighted passage when answering the user's next question, while still considering the broader graph context.`)
+
+      // === NEW: Add implicit node patching context when Raw JSON Mode + highlighted text are both active ===
+      if (useRawJsonMode.value && selectionFocus.nodeId) {
+        contextSections.push(`**IMPLICIT NODE PATCHING MODE**
+
+You have detected that:
+1. Raw JSON Mode is enabled - you can see the complete node data and structure
+2. A specific piece of text is highlighted in node: "${selectionFocus.nodeId}"
+
+This means the user wants to modify just this highlighted portion. When they ask you to "change this to X" or "update this", you should:
+
+1. **Understand the context**: The highlighted text is from node ID "${selectionFocus.nodeId}"
+2. **Make the surgical change**: Only modify what the user specified - don't rewrite the entire node
+3. **Use graph_update_current to save**: When you've made the change, call graph_update_current with:
+   - ONLY the modified node(s) - don't send the entire graph
+   - Just the fields that changed: label, info, type, etc.
+   - Keep all other node data unchanged
+
+EXAMPLE WORKFLOW:
+User highlights: '<meta property="og:site_name" content="Norse Gong ™" />'
+User asks: "Change this to Connect Norse Gong ™"
+
+You should:
+1. Understand the user wants to replace "Norse Gong" with "Connect Norse Gong" in the meta tag
+2. Make ONLY that change in the node's info field
+3. Call graph_update_current with the updated node
+
+IMPORTANT: You should use graph_update_current to persist changes, which will automatically be sent to the backend. The backend supports partial node updates through the PATCH endpoint.
+
+Guidelines:
+- Be surgical: change only what's highlighted or requested
+- Don't reformat or restructure entire fields
+- Preserve formatting (HTML, Markdown, JSON structure) unless the user explicitly asks to change it
+- Confirm changes before saving
+- Always use graph_update_current to persist your changes to the database`)
+      }
+      // === END NEW ===
     }
 
     if (contextSections.length) {
