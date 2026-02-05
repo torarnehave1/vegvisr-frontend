@@ -22,6 +22,32 @@ const normalizeAlbumName = (rawName) => {
 
 const buildAlbumKey = (name) => `${PHOTO_ALBUM_PREFIX}${name}`
 
+const validateAuth = async (request, env) => {
+  const apiToken = request.headers.get('X-API-Token')
+  if (!apiToken) {
+    return { valid: false, error: 'Missing X-API-Token header' }
+  }
+
+  try {
+    const userRecord = await env.vegvisr_org.prepare(
+      'SELECT user_id, Role, email FROM config WHERE emailVerificationToken = ?'
+    ).bind(apiToken).first()
+
+    if (!userRecord) {
+      return { valid: false, error: 'Invalid authentication token' }
+    }
+
+    return {
+      valid: true,
+      userId: userRecord.user_id,
+      email: userRecord.email || null,
+      role: userRecord.Role
+    }
+  } catch {
+    return { valid: false, error: 'Authentication error' }
+  }
+}
+
 const readPhotoAlbum = async (env, rawName) => {
   if (!env.PHOTO_ALBUMS) return null
   const name = normalizeAlbumName(rawName)
@@ -66,6 +92,20 @@ const handleListR2Images = async (request, env) => {
     const album = await readPhotoAlbum(env, albumName)
     if (!album) {
       return createErrorResponse('Album not found', 404)
+    }
+    if (!album.isShared) {
+      const auth = await validateAuth(request, env)
+      if (!auth.valid) {
+        return createErrorResponse(auth.error, 401)
+      }
+      if (
+        auth.role !== 'Superadmin' &&
+        album.createdBy &&
+        album.createdBy !== auth.userId &&
+        album.createdBy !== auth.email
+      ) {
+        return createErrorResponse('Unauthorized to view this album', 403)
+      }
     }
     const images = (album.images || []).map((key) => ({
       key,

@@ -75,7 +75,7 @@ const appendSuperadminAuditEntry = (existing, entry) => {
   return next.slice(-100)
 }
 
-const buildAlbumRecord = ({ name, images, existing, createdBy, auditEntry, isSuperadmin }) => {
+const buildAlbumRecord = ({ name, images, existing, createdBy, auditEntry, isSuperadmin, seo, isShared }) => {
   const now = new Date().toISOString()
   const base = existing && typeof existing === 'object' ? existing : {}
   return {
@@ -83,6 +83,10 @@ const buildAlbumRecord = ({ name, images, existing, createdBy, auditEntry, isSup
     images,
     createdAt: base.createdAt || now,
     createdBy: createdBy ?? base.createdBy ?? null,
+    seoTitle: seo?.title ?? base.seoTitle ?? null,
+    seoDescription: seo?.description ?? base.seoDescription ?? null,
+    seoImageKey: seo?.imageKey ?? base.seoImageKey ?? null,
+    isShared: isShared ?? base.isShared ?? false,
     updatedAt: now,
     lastModifiedBy: auditEntry?.actor || base.lastModifiedBy || null,
     lastModifiedRole: auditEntry?.actorRole || base.lastModifiedRole || null,
@@ -109,6 +113,10 @@ const handleListPhotoAlbums = async (request, env) => {
   if (!env.PHOTO_ALBUMS) {
     return createErrorResponse('Album storage is not configured', 500)
   }
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
   const url = new URL(request.url)
   const includeMeta = url.searchParams.get('includeMeta') === '1'
   const list = await env.PHOTO_ALBUMS.list({ prefix: PHOTO_ALBUM_PREFIX })
@@ -130,6 +138,10 @@ const handleListPhotoAlbums = async (request, env) => {
 const handleGetPhotoAlbum = async (request, env) => {
   if (!env.PHOTO_ALBUMS) {
     return createErrorResponse('Album storage is not configured', 500)
+  }
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
   }
   const url = new URL(request.url)
   const name = normalizeAlbumName(url.searchParams.get('name'))
@@ -164,6 +176,12 @@ const handleUpsertPhotoAlbum = async (request, env) => {
     return createErrorResponse('Album name is required', 400)
   }
   const images = Array.isArray(body?.images) ? body.images.filter(Boolean) : []
+  const seo = {
+    title: typeof body?.seoTitle === 'string' ? body.seoTitle.trim() || null : undefined,
+    description: typeof body?.seoDescription === 'string' ? body.seoDescription.trim() || null : undefined,
+    imageKey: typeof body?.seoImageKey === 'string' ? body.seoImageKey.trim() || null : undefined
+  }
+  const isShared = typeof body?.isShared === 'boolean' ? body.isShared : undefined
   const existing = await readPhotoAlbum(env, name)
   const auditEntry = {
     action: existing ? 'update_album' : 'create_album',
@@ -183,7 +201,9 @@ const handleUpsertPhotoAlbum = async (request, env) => {
     existing,
     createdBy: auth.email || auth.userId,
     auditEntry,
-    isSuperadmin: auth.role === 'Superadmin'
+    isSuperadmin: auth.role === 'Superadmin',
+    seo,
+    isShared
   })
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)
@@ -288,12 +308,17 @@ const handleRemovePhotoAlbumImages = async (request, env) => {
   }
   const toRemove = new Set(incoming)
   const updated = (existing.images || []).filter((key) => !toRemove.has(key))
+  const updatedSeo =
+    existing?.seoImageKey && !updated.includes(existing.seoImageKey)
+      ? { imageKey: updated[0] || null }
+      : {}
   const album = buildAlbumRecord({
     name,
     images: updated,
     existing,
     auditEntry,
-    isSuperadmin: auth.role === 'Superadmin'
+    isSuperadmin: auth.role === 'Superadmin',
+    seo: updatedSeo
   })
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)

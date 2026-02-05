@@ -41,6 +41,11 @@ export default {
       return handleGraphPage(request, env, url, corsHeaders)
     }
 
+    // Route: Album share page (GET /album/{name} or /album?name=)
+    if (pathname.startsWith('/album')) {
+      return handleAlbumPage(request, env, url, corsHeaders)
+    }
+
     // Route: Health check
     if (pathname === '/health') {
       return new Response(JSON.stringify({ status: 'ok', service: 'seo-worker' }), {
@@ -250,6 +255,83 @@ async function handleGraphPage(request, env, url, corsHeaders) {
     console.log('Redirect URL:', redirectUrl)
     return Response.redirect(redirectUrl, 302)
   }
+}
+
+async function handleAlbumPage(request, _env, url, corsHeaders) {
+  const nameFromPath = url.pathname.startsWith('/album/')
+    ? url.pathname.slice('/album/'.length)
+    : ''
+  const albumName = decodeURIComponent(nameFromPath || url.searchParams.get('name') || '').trim()
+
+  if (!albumName) {
+    return new Response('Not Found', { status: 404, headers: corsHeaders })
+  }
+
+  let album = null
+  if (_env?.PHOTO_ALBUMS) {
+    const stored = await _env.PHOTO_ALBUMS.get(`album:${albumName}`)
+    if (stored) {
+      try {
+        album = JSON.parse(stored)
+      } catch {
+        album = null
+      }
+    }
+  }
+
+  if (!album) {
+    const albumRes = await fetch(
+      `https://albums.vegvisr.org/photo-album?name=${encodeURIComponent(albumName)}`
+    )
+    if (!albumRes.ok) {
+      const errorText = await albumRes.text().catch(() => '')
+      return new Response(
+        `Album lookup failed (${albumRes.status}): ${errorText || 'Album not found'}`,
+        { status: 404, headers: corsHeaders }
+      )
+    }
+    album = await albumRes.json()
+  }
+
+  if (!album?.isShared) {
+    return new Response('Album not shared', { status: 404, headers: corsHeaders })
+  }
+  const images = Array.isArray(album?.images) ? album.images : []
+  const coverKey = album?.seoImageKey || images[0] || ''
+  const baseUrl = 'https://vegvisr.imgix.net/'
+  const coverUrl = coverKey
+    ? `${baseUrl}${coverKey}?w=1200&h=630&fit=crop&auto=compress,format&q=80`
+    : `${baseUrl}default-og-image.jpg?w=1200&h=630&fit=crop&auto=compress,format&q=80`
+
+  const title = album?.seoTitle || `Album: ${albumName}`
+  const description =
+    album?.seoDescription || `${images.length} photo${images.length === 1 ? '' : 's'}`
+  const shareUrl = `https://seo.vegvisr.org/album/${encodeURIComponent(albumName)}`
+
+  const userAgent = request.headers.get('User-Agent') || ''
+  const isCrawler = detectCrawler(userAgent)
+
+  if (isCrawler) {
+    const html = generateAlbumHTML({
+      title,
+      description,
+      albumName,
+      coverUrl,
+      shareUrl,
+      imageCount: images.length,
+    })
+    return new Response(html, {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
+  }
+
+  const redirectUrl = `https://photos.vegvisr.org/share/${encodeURIComponent(albumName)}`
+  return Response.redirect(redirectUrl, 302)
 }
 
 /**
@@ -586,6 +668,66 @@ function generateStaticHTML(options) {
         <a href="https://${originDomain}/about" style="color: #667eea; text-decoration: none;">About</a>
       </p>
     </footer>
+  </div>
+</body>
+</html>`
+}
+
+function generateAlbumHTML(options) {
+  const {
+    title,
+    description,
+    albumName,
+    coverUrl,
+    shareUrl,
+    imageCount,
+  } = options
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)} | Vegvisr Photos</title>
+  <meta name="title" content="${escapeHtml(title)}">
+  <meta name="description" content="${escapeHtml(description)}">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${shareUrl}">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:image" content="${coverUrl}">
+  <meta property="og:image:secure_url" content="${coverUrl}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="${escapeHtml(title)} - Vegvisr Photos">
+  <meta property="og:site_name" content="Vegvisr Photos">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="${shareUrl}">
+  <meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${coverUrl}">
+  <meta name="twitter:image:alt" content="${escapeHtml(title)} - Vegvisr Photos">
+
+  <link rel="canonical" href="${shareUrl}">
+
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; margin: 0; padding: 24px; background: #0b1220; color: #fff; }
+    .wrap { max-width: 960px; margin: 0 auto; background: #111827; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 16px; color: rgba(255,255,255,0.7); }
+    img { width: 100%; border-radius: 14px; display: block; }
+    .meta { margin-top: 12px; font-size: 14px; color: rgba(255,255,255,0.6); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(description)}</p>
+    <img src="${coverUrl}" alt="${escapeHtml(title)} cover">
+    <div class="meta">Album: ${escapeHtml(albumName)} · ${imageCount} photos</div>
   </div>
 </body>
 </html>`
