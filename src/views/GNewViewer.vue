@@ -1859,6 +1859,7 @@
           @insert-html="insertAIResponseAsHtml"
           @insert-fulltext-batch="handleBatchNodeInsert"
           @insert-node="handleInsertNodeFromChat"
+          @graph-updated="handleGraphUpdated"
         />
       </div>
     </div>
@@ -10192,10 +10193,35 @@ const handleStatusMessage = (message) => {
   }, 3000)
 }
 
-// Handler for graph updates from GNewImageEditHandler
-const handleGraphUpdated = (updatedGraphData) => {
-  console.log('Graph updated from Image Edit Handler')
-  graphData.value = updatedGraphData
+// Handler for graph updates from GNewImageEditHandler and GrokChatPanel
+const handleGraphUpdated = (payload) => {
+  // Handle both formats: direct graphData or { graphId, graphData } from GrokChatPanel
+  const updatedGraphData = payload?.graphData || payload
+  const source = payload?.graphId ? 'AI Chat' : 'Image Edit Handler'
+
+  console.log(`🔄 Graph updated from ${source}`)
+
+  // Update local graphData
+  graphData.value = {
+    ...updatedGraphData,
+    nodes: (updatedGraphData.nodes || []).filter((node) => node.visible !== false),
+  }
+
+  // Update the store
+  knowledgeGraphStore.setCurrentGraph(graphData.value)
+
+  // Show status message for AI updates
+  if (payload?.graphId) {
+    statusMessage.value = '✅ Graph refreshed after AI update'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+  }
+
+  // Re-attach listeners after DOM update
+  nextTick(() => {
+    attachImageChangeListeners()
+  })
 }
 
 // EXIF extraction function for existing images - SIMPLE VERSION LIKE TEST
