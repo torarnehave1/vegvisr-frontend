@@ -412,7 +412,7 @@ export const useUserStore = defineStore('user', {
         })
 
         // Fetch additional data from config table (including phone)
-        this.fetchUserDataFromConfig()
+        await this.fetchUserDataFromConfig()
 
         if (!this.role && cookieToken) {
           try {
@@ -532,7 +532,8 @@ export const useUserStore = defineStore('user', {
           payload?.phone_verified_at ??
           payload?.profile?.phoneVerifiedAt ??
           null
-        const resolvedRole = userData?.role ?? payload?.role ?? this.role
+        // Prefer the role already in the store (from localStorage / login) over the config table
+        const resolvedRole = this.role || userData?.role || payload?.role || null
 
         // Update the userStore with the fetched data
         if (resolvedPhone) {
