@@ -87,6 +87,7 @@ const buildAlbumRecord = ({ name, images, existing, createdBy, auditEntry, isSup
     seoDescription: seo?.description ?? base.seoDescription ?? null,
     seoImageKey: seo?.imageKey ?? base.seoImageKey ?? null,
     isShared: isShared ?? base.isShared ?? false,
+    shareId: base.shareId ?? null,
     updatedAt: now,
     lastModifiedBy: auditEntry?.actor || base.lastModifiedBy || null,
     lastModifiedRole: auditEntry?.actorRole || base.lastModifiedRole || null,
@@ -182,6 +183,7 @@ const handleUpsertPhotoAlbum = async (request, env) => {
     imageKey: typeof body?.seoImageKey === 'string' ? body.seoImageKey.trim() || null : undefined
   }
   const isShared = typeof body?.isShared === 'boolean' ? body.isShared : undefined
+  const shouldRegenerateShareId = !!body?.regenerateShareId
   const existing = await readPhotoAlbum(env, name)
   const auditEntry = {
     action: existing ? 'update_album' : 'create_album',
@@ -205,6 +207,11 @@ const handleUpsertPhotoAlbum = async (request, env) => {
     seo,
     isShared
   })
+  if (album.isShared) {
+    if (shouldRegenerateShareId || !album.shareId) {
+      album.shareId = crypto.randomUUID()
+    }
+  }
   await env.PHOTO_ALBUMS.put(buildAlbumKey(name), JSON.stringify(album))
   return createResponse(JSON.stringify(album), 200)
 }

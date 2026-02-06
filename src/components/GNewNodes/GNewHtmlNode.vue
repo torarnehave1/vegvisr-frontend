@@ -587,7 +587,9 @@ const publishHtml = async () => {
       body: JSON.stringify({
         hostname: cleanHostname,
         html: htmlContent,
-        overwrite
+        overwrite,
+        graphId: knowledgeGraphStore.currentGraphId || '',
+        nodeId: props.node.id || ''
       }),
     })
 
@@ -603,7 +605,9 @@ const publishHtml = async () => {
           body: JSON.stringify({
             hostname: cleanHostname,
             html: htmlContent,
-            overwrite: true
+            overwrite: true,
+            graphId: knowledgeGraphStore.currentGraphId || '',
+            nodeId: props.node.id || ''
           }),
         })
         if (!retry.ok) {

@@ -258,39 +258,40 @@ async function handleGraphPage(request, env, url, corsHeaders) {
 }
 
 async function handleAlbumPage(request, _env, url, corsHeaders) {
-  const nameFromPath = url.pathname.startsWith('/album/')
+  const pathToken = url.pathname.startsWith('/album/')
     ? url.pathname.slice('/album/'.length)
     : ''
-  const albumName = decodeURIComponent(nameFromPath || url.searchParams.get('name') || '').trim()
+  const albumName = decodeURIComponent(url.searchParams.get('name') || '').trim()
+  const shareId = decodeURIComponent(pathToken || url.searchParams.get('share') || '').trim()
 
-  if (!albumName) {
+  if (!albumName && !shareId) {
     return new Response('Not Found', { status: 404, headers: corsHeaders })
   }
 
   let album = null
   if (_env?.PHOTO_ALBUMS) {
-    const stored = await _env.PHOTO_ALBUMS.get(`album:${albumName}`)
-    if (stored) {
+    const list = await _env.PHOTO_ALBUMS.list({ prefix: 'album:' })
+    for (const entry of list.keys) {
+      const stored = await _env.PHOTO_ALBUMS.get(entry.name)
+      if (!stored) continue
       try {
-        album = JSON.parse(stored)
+        const parsed = JSON.parse(stored)
+        if (shareId && parsed?.shareId === shareId) {
+          album = parsed
+          break
+        }
+        if (!shareId && albumName && parsed?.name === albumName) {
+          album = parsed
+          break
+        }
       } catch {
-        album = null
+        // ignore
       }
     }
   }
 
   if (!album) {
-    const albumRes = await fetch(
-      `https://albums.vegvisr.org/photo-album?name=${encodeURIComponent(albumName)}`
-    )
-    if (!albumRes.ok) {
-      const errorText = await albumRes.text().catch(() => '')
-      return new Response(
-        `Album lookup failed (${albumRes.status}): ${errorText || 'Album not found'}`,
-        { status: 404, headers: corsHeaders }
-      )
-    }
-    album = await albumRes.json()
+    return new Response('Album not found', { status: 404, headers: corsHeaders })
   }
 
   if (!album?.isShared) {
@@ -303,10 +304,14 @@ async function handleAlbumPage(request, _env, url, corsHeaders) {
     ? `${baseUrl}${coverKey}?w=1200&h=630&fit=crop&auto=compress,format&q=80`
     : `${baseUrl}default-og-image.jpg?w=1200&h=630&fit=crop&auto=compress,format&q=80`
 
-  const title = album?.seoTitle || `Album: ${albumName}`
+  const resolvedName = album?.name || albumName
+  const title = album?.seoTitle || `Album: ${resolvedName}`
   const description =
     album?.seoDescription || `${images.length} photo${images.length === 1 ? '' : 's'}`
-  const shareUrl = `https://seo.vegvisr.org/album/${encodeURIComponent(albumName)}`
+  const resolvedShareId = shareId || album?.shareId || ''
+  const shareUrl = resolvedShareId
+    ? `https://seo.vegvisr.org/album/${encodeURIComponent(resolvedShareId)}`
+    : `https://seo.vegvisr.org/album/${encodeURIComponent(resolvedName)}`
 
   const userAgent = request.headers.get('User-Agent') || ''
   const isCrawler = detectCrawler(userAgent)
@@ -315,7 +320,7 @@ async function handleAlbumPage(request, _env, url, corsHeaders) {
     const html = generateAlbumHTML({
       title,
       description,
-      albumName,
+      albumName: resolvedName,
       coverUrl,
       shareUrl,
       imageCount: images.length,
@@ -330,7 +335,9 @@ async function handleAlbumPage(request, _env, url, corsHeaders) {
     })
   }
 
-  const redirectUrl = `https://photos.vegvisr.org/share/${encodeURIComponent(albumName)}`
+  const redirectUrl = resolvedShareId
+    ? `https://photos.vegvisr.org/share/${encodeURIComponent(resolvedShareId)}`
+    : `https://photos.vegvisr.org/share/${encodeURIComponent(resolvedName)}`
   return Response.redirect(redirectUrl, 302)
 }
 

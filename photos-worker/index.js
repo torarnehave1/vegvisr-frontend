@@ -61,6 +61,17 @@ const readPhotoAlbum = async (env, rawName) => {
   }
 }
 
+const findAlbumByShareId = async (env, shareId) => {
+  if (!env.PHOTO_ALBUMS) return null
+  const list = await env.PHOTO_ALBUMS.list({ prefix: PHOTO_ALBUM_PREFIX })
+  for (const entry of list.keys) {
+    const name = entry.name.slice(PHOTO_ALBUM_PREFIX.length)
+    const album = await readPhotoAlbum(env, name)
+    if (album?.shareId === shareId) return album
+  }
+  return null
+}
+
 const parseTrashKey = (trashKey) => {
   const prefix = 'trash/'
   if (!trashKey.startsWith(prefix)) return { originalKey: null, deletedAt: null }
@@ -82,14 +93,17 @@ const resolveBaseUrl = (value, fallback) => {
 const handleListR2Images = async (request, env) => {
   const url = new URL(request.url)
   const albumName = url.searchParams.get('album')
+  const shareId = url.searchParams.get('share')
   const baseUrl = resolveBaseUrl(env.PHOTOS_BASE_URL, 'https://vegvisr.imgix.net/')
 
-  if (albumName && !env.PHOTO_ALBUMS) {
+  if ((albumName || shareId) && !env.PHOTO_ALBUMS) {
     return createErrorResponse('Album storage is not configured', 500)
   }
 
-  if (albumName && env.PHOTO_ALBUMS) {
-    const album = await readPhotoAlbum(env, albumName)
+  if ((albumName || shareId) && env.PHOTO_ALBUMS) {
+    const album = shareId
+      ? await findAlbumByShareId(env, shareId)
+      : await readPhotoAlbum(env, albumName)
     if (!album) {
       return createErrorResponse('Album not found', 404)
     }
