@@ -472,6 +472,26 @@ export const useUserStore = defineStore('user', {
             const user = await response.json()
             if (user?.email) {
               this.setUser(user)
+              // If role is missing from token response, fetch it directly
+              if (!this.role) {
+                try {
+                  const roleRes = await fetch(
+                    `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(this.email)}`,
+                  )
+                  if (roleRes.ok) {
+                    const roleData = await roleRes.json()
+                    if (roleData?.role) {
+                      this.role = roleData.role
+                      const stored = JSON.parse(localStorage.getItem('user') || '{}')
+                      stored.role = roleData.role
+                      localStorage.setItem('user', JSON.stringify(stored))
+                      console.log('✅ Role fetched from /get-role after cookie login:', this.role)
+                    }
+                  }
+                } catch (err) {
+                  console.warn('Role fetch via /get-role failed:', err)
+                }
+              }
               try {
                 if (typeof sessionStorage !== 'undefined') {
                   sessionStorage.setItem('email_session_verified', '1')
