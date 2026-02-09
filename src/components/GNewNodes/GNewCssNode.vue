@@ -1,21 +1,29 @@
 <template>
-  <div class="gnew-css-node">
+  <div class="gnew-css-node" :class="{ 'gnew-css-node-fullscreen': isFullscreen }">
     <!-- Header -->
     <div class="css-header">
       <div class="css-title-wrap">
         <h3 v-if="node.label" class="css-title">🎨 {{ node.label }}</h3>
         <div v-if="node.type" class="css-type-badge">CSS Node</div>
       </div>
-      <div v-if="showControls" class="css-controls">
-        <button v-if="!isEditing" @click="toggleEditMode" class="btn-control" title="Edit CSS">
-          ✏️ Edit
-        </button>
-        <button @click="exportCss" class="btn-control" title="Export CSS">
-          📥 Export
-        </button>
-        <button @click="deleteNode" class="btn-control btn-delete" title="Delete CSS Node">
-          🗑️ Delete
-        </button>
+      <div class="css-controls">
+        <div class="css-node-id" v-if="node.id">
+          <code class="node-id-value">{{ node.id }}</code>
+          <button @click="copyNodeId" class="btn-copy-id" title="Copy Node ID">
+            {{ idCopied ? '✓' : '📋' }}
+          </button>
+        </div>
+        <template v-if="showControls">
+          <button v-if="!isEditing" @click="toggleEditMode" class="btn-control" title="Edit CSS">
+            ✏️ Edit
+          </button>
+          <button @click="exportCss" class="btn-control" title="Export CSS">
+            📥 Export
+          </button>
+          <button @click="deleteNode" class="btn-control btn-delete" title="Delete CSS Node">
+            🗑️ Delete
+          </button>
+        </template>
       </div>
     </div>
 
@@ -33,6 +41,12 @@
           />
         </div>
         <div class="toolbar-actions">
+          <button @click="openSearch" class="btn-search" title="Search CSS (Ctrl+F)">
+            🔍 Search
+          </button>
+          <button @click="toggleFullscreen" class="btn-fullscreen" :title="isFullscreen ? 'Exit Fullscreen (Esc)' : 'Fullscreen'">
+            {{ isFullscreen ? '⬜ Exit Fullscreen' : '🔲 Fullscreen' }}
+          </button>
           <button @click="saveCss" class="btn-save" title="Save CSS Node">
             ✅ Save
           </button>
@@ -42,34 +56,8 @@
         </div>
       </div>
 
-      <!-- Monaco Editor or Fallback -->
-      <div v-if="!monacoError" class="monaco-editor-wrapper">
-        <div v-if="isMonacoLoading" class="monaco-loading">
-          <p>Loading CSS Editor...</p>
-        </div>
-        <Editor
-          v-show="!isMonacoLoading"
-          v-model="editingCss"
-          language="css"
-          theme="vs-dark"
-          :options="editorOptions"
-          @change="onEditorChange"
-          @mount="onEditorMount"
-          height="500px"
-          :path="`css-${node.id}.css`"
-        />
-      </div>
-
-      <!-- Fallback Text Editor (if Monaco fails to load) -->
-      <div v-else class="css-editor-fallback">
-        <p class="fallback-warning">⚠️ Monaco Editor failed to load. Using fallback text editor:</p>
-        <textarea
-          v-model="editingCss"
-          class="fallback-textarea"
-          placeholder="Enter CSS code here..."
-          @input="onEditorChange($event.target.value)"
-        ></textarea>
-      </div>
+      <!-- CodeMirror Editor -->
+      <div class="codemirror-editor-wrapper" ref="editorWrapperRef"></div>
 
       <!-- CSS Metadata Controls -->
       <div class="css-metadata-section">
@@ -166,34 +154,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import Editor from '@monaco-editor/react'
-import { useUserStore } from '../../stores/userStore'
-
-// Configure Monaco Editor to use CDN with proper worker setup
-if (typeof window !== 'undefined') {
-  const monacoPath = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.48.0/min/vs'
-
-  window.MonacoEnvironment = {
-    getWorkerUrl: (moduleId, label) => {
-      if (label === 'json') {
-        return `${monacoPath}/language/json/json.worker.js`
-      }
-      if (label === 'css' || label === 'scss' || label === 'less') {
-        return `${monacoPath}/language/css/css.worker.js`
-      }
-      if (label === 'html' || label === 'handlebars' || label === 'razor') {
-        return `${monacoPath}/language/html/html.worker.js`
-      }
-      if (label === 'typescript' || label === 'javascript') {
-        return `${monacoPath}/language/typescript/ts.worker.js`
-      }
-      return `${monacoPath}/editor/editor.worker.js`
-    }
-  }
-}
-
-const userStore = useUserStore()
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { EditorView, basicSetup } from 'codemirror'
+import { EditorState } from '@codemirror/state'
+import { css } from '@codemirror/lang-css'
+import { oneDark } from '@codemirror/theme-one-dark'
+import { openSearchPanel } from '@codemirror/search'
 
 const props = defineProps({
   node: {
@@ -210,26 +176,14 @@ const emit = defineEmits(['node-deleted', 'node-updated'])
 
 // State
 const isEditing = ref(false)
+const isFullscreen = ref(false)
 const editingCss = ref('')
 const editingLabel = ref('')
 const editingAppliesTo = ref('*')
 const editingPriority = ref(100)
-const isMonacoLoading = ref(true)
-const monacoError = ref(false)
-const loadingTimeout = ref(null)
-
-// Monaco Editor options
-const editorOptions = {
-  minimap: { enabled: false },
-  fontSize: 14,
-  lineNumbers: 'on',
-  automaticLayout: true,
-  scrollBeyondLastLine: false,
-  wordWrap: 'on',
-  tabSize: 2,
-  theme: 'vs-dark',
-  padding: { top: 10, bottom: 10 }
-}
+const editorWrapperRef = ref(null)
+const idCopied = ref(false)
+let editorView = null
 
 // Get original metadata
 const priority = computed(() => props.node.metadata?.priority ?? 100)
@@ -243,22 +197,21 @@ const appliesTo = computed(() => {
 
 // CSS Analysis
 const cssLineCount = computed(() => {
-  const css = isEditing.value ? editingCss.value : (props.node.info || '')
-  return css.split('\n').length
+  const content = isEditing.value ? editingCss.value : (props.node.info || '')
+  return content.split('\n').length
 })
 
 const cssSize = computed(() => {
-  const css = isEditing.value ? editingCss.value : (props.node.info || '')
-  const bytes = new Blob([css]).size
+  const content = isEditing.value ? editingCss.value : (props.node.info || '')
+  const bytes = new Blob([content]).size
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 })
 
 const selectorCount = computed(() => {
-  const css = isEditing.value ? editingCss.value : (props.node.info || '')
-  // Simple regex to count selectors (comma-separated)
-  const matches = css.match(/[^{}]+\s*{/g)
+  const content = isEditing.value ? editingCss.value : (props.node.info || '')
+  const matches = content.match(/[^{}]+\s*{/g)
   if (!matches) return 0
   return matches.reduce((count, match) => {
     return count + match.split(',').length
@@ -266,12 +219,47 @@ const selectorCount = computed(() => {
 })
 
 const cssPreview = computed(() => {
-  const css = props.node.info || ''
-  if (css.length > 500) {
-    return css.substring(0, 500) + '\n\n/* ... CSS truncated ... */'
+  const content = props.node.info || ''
+  if (content.length > 500) {
+    return content.substring(0, 500) + '\n\n/* ... CSS truncated ... */'
   }
-  return css
+  return content
 })
+
+// Create CodeMirror editor when entering edit mode
+function createEditor() {
+  if (!editorWrapperRef.value) return
+
+  const state = EditorState.create({
+    doc: editingCss.value,
+    extensions: [
+      basicSetup,
+      css(),
+      oneDark,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          editingCss.value = update.state.doc.toString()
+        }
+      }),
+      EditorView.theme({
+        '&': { height: '500px' },
+        '.cm-scroller': { overflow: 'auto' },
+      }),
+    ],
+  })
+
+  editorView = new EditorView({
+    state,
+    parent: editorWrapperRef.value,
+  })
+}
+
+function destroyEditor() {
+  if (editorView) {
+    editorView.destroy()
+    editorView = null
+  }
+}
 
 // Methods
 function toggleEditMode() {
@@ -281,36 +269,13 @@ function toggleEditMode() {
   editingLabel.value = props.node.label || ''
   editingAppliesTo.value = appliesTo.value
   editingPriority.value = priority.value
-}
 
-function onEditorChange(value) {
-  editingCss.value = value
-}
-
-function onEditorMount(editor) {
-  console.log('✅ Monaco Editor mounted successfully')
-  isMonacoLoading.value = false
-  monacoError.value = false
-  if (loadingTimeout.value) {
-    clearTimeout(loadingTimeout.value)
-  }
-  // Set editor focus
-  if (editor && editor.focus) {
-    editor.focus()
-  }
-}
-
-function onEditorError(error) {
-  console.error('❌ Monaco Editor error:', error)
-  monacoError.value = true
-  isMonacoLoading.value = false
-  if (loadingTimeout.value) {
-    clearTimeout(loadingTimeout.value)
-  }
+  nextTick(() => {
+    createEditor()
+  })
 }
 
 async function saveCss() {
-  // Update node data
   const updatedNode = {
     ...props.node,
     label: editingLabel.value || 'Untitled CSS',
@@ -323,23 +288,25 @@ async function saveCss() {
   }
 
   emit('node-updated', updatedNode)
+  destroyEditor()
   isEditing.value = false
 }
 
 function cancelEdit() {
+  destroyEditor()
   isEditing.value = false
 }
 
 function exportCss() {
-  const css = props.node.info || ''
-  if (!css) {
+  const content = props.node.info || ''
+  if (!content) {
     alert('No CSS content to export.')
     return
   }
 
   const filename = (props.node.label || 'css-node').replace(/\s+/g, '-') + '.css'
   const element = document.createElement('a')
-  element.setAttribute('href', 'data:text/css;charset=utf-8,' + encodeURIComponent(css))
+  element.setAttribute('href', 'data:text/css;charset=utf-8,' + encodeURIComponent(content))
   element.setAttribute('download', filename)
   element.style.display = 'none'
   document.body.appendChild(element)
@@ -354,28 +321,98 @@ function deleteNode() {
   }
 }
 
+function copyNodeId() {
+  navigator.clipboard.writeText(props.node.id).then(() => {
+    idCopied.value = true
+    setTimeout(() => { idCopied.value = false }, 2000)
+  })
+}
+
+function openSearch() {
+  if (editorView) {
+    openSearchPanel(editorView)
+  }
+}
+
+function toggleFullscreen() {
+  isFullscreen.value = !isFullscreen.value
+  if (isFullscreen.value) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
+}
+
+function handleEscKey(e) {
+  if (e.key === 'Escape' && isFullscreen.value) {
+    toggleFullscreen()
+  }
+}
+
 onMounted(() => {
-  // Set a timeout to fallback to textarea if Monaco doesn't load in 5 seconds
-  loadingTimeout.value = setTimeout(() => {
-    if (isMonacoLoading.value) {
-      console.warn('⚠️ Monaco Editor failed to load within 5 seconds. Switching to fallback editor.')
-      monacoError.value = true
-      isMonacoLoading.value = false
-    }
-  }, 5000)
+  document.addEventListener('keydown', handleEscKey)
 })
 
 onBeforeUnmount(() => {
-  // Cleanup timeout
-  if (loadingTimeout.value) {
-    clearTimeout(loadingTimeout.value)
-  }
+  destroyEditor()
+  document.removeEventListener('keydown', handleEscKey)
+  document.body.style.overflow = ''
 })
 </script>
 
 <style scoped>
 .gnew-css-node {
   margin-bottom: 20px;
+}
+
+.gnew-css-node-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #1e1e2e;
+  margin: 0;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gnew-css-node-fullscreen .css-editor-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gnew-css-node-fullscreen .css-editor-section .codemirror-editor-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gnew-css-node-fullscreen .css-editor-section .codemirror-editor-wrapper :deep(.cm-editor) {
+  height: 100%;
+}
+
+.gnew-css-node-fullscreen .css-editor-section .codemirror-editor-wrapper :deep(.cm-scroller) {
+  flex: 1;
+}
+
+.gnew-css-node-fullscreen .css-header {
+  flex-shrink: 0;
+}
+
+.gnew-css-node-fullscreen .css-editor-toolbar {
+  flex-shrink: 0;
+}
+
+.gnew-css-node-fullscreen .css-metadata-section {
+  flex-shrink: 0;
+}
+
+.gnew-css-node-fullscreen .css-stats {
+  flex-shrink: 0;
 }
 
 .css-header {
@@ -419,6 +456,40 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.css-node-id {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.node-id-value {
+  font-size: 0.7rem;
+  color: rgba(167, 139, 250, 0.7);
+  background: rgba(167, 139, 250, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-copy-id {
+  background: none;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  color: rgba(167, 139, 250, 0.7);
+  transition: all 0.2s;
+}
+
+.btn-copy-id:hover {
+  background: rgba(167, 139, 250, 0.15);
+  border-color: rgba(167, 139, 250, 0.5);
 }
 
 .btn-control {
@@ -500,6 +571,38 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.btn-search {
+  background: rgba(96, 165, 250, 0.2);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: rgba(96, 165, 250, 0.9);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-search:hover {
+  background: rgba(96, 165, 250, 0.3);
+  border-color: rgba(96, 165, 250, 0.6);
+}
+
+.btn-fullscreen {
+  background: rgba(167, 139, 250, 0.2);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: rgba(167, 139, 250, 0.9);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-fullscreen:hover {
+  background: rgba(167, 139, 250, 0.3);
+  border-color: rgba(167, 139, 250, 0.6);
+}
+
 .btn-save {
   background: rgba(74, 222, 128, 0.2);
   border: 1px solid rgba(74, 222, 128, 0.4);
@@ -532,76 +635,11 @@ onBeforeUnmount(() => {
   border-color: rgba(248, 113, 113, 0.6);
 }
 
-/* Monaco Editor Container */
-.monaco-editor-wrapper {
-  position: relative;
-  display: flex;
-  flex-direction: column;
+/* CodeMirror Editor Container */
+.codemirror-editor-wrapper {
   border: 1px solid rgba(107, 114, 128, 0.3);
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(17, 24, 39, 0.8);
-  min-height: 400px;
-  height: 500px;
-  width: 100%;
-}
-
-.monaco-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(17, 24, 39, 0.9);
-  z-index: 10;
-  border-radius: 8px;
-}
-
-.monaco-loading p {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.9rem;
-}
-
-/* Fallback CSS Editor */
-.css-editor-fallback {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border: 1px solid rgba(107, 114, 128, 0.3);
-  border-radius: 8px;
-  padding: 12px;
-  background: rgba(17, 24, 39, 0.8);
-}
-
-.fallback-warning {
-  margin: 0;
-  padding: 8px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 6px;
-  color: rgba(248, 113, 113, 0.9);
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.fallback-textarea {
-  width: 100%;
-  height: 500px;
-  padding: 12px;
-  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(107, 114, 128, 0.3);
-  border-radius: 6px;
-  color: #e5e7eb;
-  resize: vertical;
-}
-
-.fallback-textarea:focus {
-  outline: none;
-  border-color: #a78bfa;
-  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
 }
 
 /* CSS Metadata */

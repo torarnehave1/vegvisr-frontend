@@ -521,7 +521,7 @@ const publishHtml = async () => {
   const hostname = prompt('Publish to domain (e.g., test.slowyou.training):', savedDomain)
   if (!hostname || !hostname.trim()) return
 
-  const cleanHostname = hostname.trim().toLowerCase()
+  const cleanHostname = hostname.trim().toLowerCase().replace(/\/+$/, '')
   localStorage.setItem('gnew-html-publish-domain', cleanHostname)
 
   try {

@@ -529,6 +529,14 @@
                             <i class="bi bi-chat-dots"></i>
                             {{ graph.chatSessionCount }} Chat{{ graph.chatSessionCount !== 1 ? 's' : '' }}
                           </span>
+                          <span
+                            v-if="graph.metadata?.graphType"
+                            class="badge ms-2"
+                            :class="getGraphTypeBadgeClass(graph.metadata.graphType)"
+                            :title="`Graph type: ${graph.metadata.graphType}`"
+                          >
+                            {{ getGraphTypeLabel(graph.metadata.graphType) }}
+                          </span>
                         </div>
                         <div class="graph-info mt-3">
                           <small class="text-muted">
@@ -1574,6 +1582,20 @@ const getCategories = (categoryString) => {
     .filter((cat) => cat.length > 0)
 }
 
+const getGraphTypeLabel = (graphType) => {
+  const typeMap = {
+    'html-template': 'HTML Template',
+  }
+  return typeMap[graphType] || graphType
+}
+
+const getGraphTypeBadgeClass = (graphType) => {
+  const classMap = {
+    'html-template': 'bg-graph-type-html-template',
+  }
+  return classMap[graphType] || 'bg-secondary'
+}
+
 // Start editing a graph
 const startEdit = (graph) => {
   editingGraphId.value = graph.id
@@ -2466,6 +2488,21 @@ const filterByMetaArea = (area) => {
 
 .graph-meta .badge.bg-purple:hover {
   background-color: #a855f7 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.graph-meta .badge.bg-graph-type-html-template {
+  background-color: #e83e8c !important;
+  color: white !important;
+  border: 1px solid #d63384;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-meta .badge.bg-graph-type-html-template:hover {
+  background-color: #f06595 !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }

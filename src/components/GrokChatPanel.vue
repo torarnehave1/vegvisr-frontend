@@ -1957,6 +1957,23 @@ const graphTools = [
         required: ['nodes']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_node_search_replace',
+      description: 'Fast search-and-replace within a node\'s info field. Use this for simple text changes (e.g. changing a CSS color, renaming a class, updating a word) instead of sending the entire node content via graph_update_current. Much faster for surgical edits.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The ID of the node to modify' },
+          search: { type: 'string', description: 'The exact text to find in the node\'s info field' },
+          replace: { type: 'string', description: 'The replacement text' },
+          replaceAll: { type: 'boolean', description: 'Replace all occurrences (default: false)' }
+        },
+        required: ['nodeId', 'search', 'replace']
+      }
+    }
   }
 ]
 
@@ -2137,6 +2154,70 @@ async function executeGraphManipulationTool(toolName, args) {
         nodesModified: updatedNodes.length,
         edgesModified: updatedEdges.length,
         patchMode: isPartialUpdate,
+      }
+    }
+
+    if (toolName === 'graph_node_search_replace') {
+      // Fast search-and-replace within a node's info field
+      const { nodeId, search, replace, replaceAll } = args
+      if (!nodeId || !search) {
+        throw new Error('nodeId and search are required')
+      }
+      if (!props.graphData?.nodes) {
+        throw new Error('No graph data available')
+      }
+
+      const node = props.graphData.nodes.find(n => n.id === nodeId)
+      if (!node) {
+        throw new Error(`Node not found: ${nodeId}`)
+      }
+
+      const originalInfo = node.info || ''
+      if (!originalInfo.includes(search)) {
+        return {
+          status: 'not_found',
+          message: `Search text not found in node "${node.label || nodeId}". No changes made.`,
+        }
+      }
+
+      const newInfo = replaceAll
+        ? originalInfo.split(search).join(replace)
+        : originalInfo.replace(search, replace)
+
+      const occurrences = replaceAll
+        ? (originalInfo.split(search).length - 1)
+        : 1
+
+      // Apply the change to the node in graphData
+      node.info = newInfo
+
+      // Save the graph with the updated node
+      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      if (currentGraphId) {
+        const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: currentGraphId,
+            graphData: props.graphData,
+            override: true,
+          }),
+        })
+        if (!response.ok) {
+          throw new Error(`Failed to save: ${response.status}`)
+        }
+        const result = await response.json()
+        if (result?.newVersion) {
+          knowledgeGraphStore.setCurrentVersion(result.newVersion)
+        }
+      }
+
+      return {
+        status: 'success',
+        nodeId,
+        nodeLabel: node.label || nodeId,
+        occurrencesReplaced: occurrences,
+        message: `Replaced ${occurrences} occurrence(s) of "${search}" with "${replace}" in node "${node.label || nodeId}".`,
       }
     }
 
@@ -2498,7 +2579,7 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
       let result
       if (name.startsWith('graph_template_')) {
         result = await executeTemplateTool(name, args)
-      } else if (name.startsWith('graph_save_') || name.startsWith('graph_update_') || name === 'graph_get_current_data') {
+      } else if (name.startsWith('graph_save_') || name.startsWith('graph_update_') || name === 'graph_get_current_data' || name === 'graph_node_search_replace') {
         result = await executeGraphManipulationTool(name, args)
       } else if (name.startsWith('sources_')) {
         result = await executeSourcesTool(name, args)
@@ -5975,11 +6056,13 @@ const buildGraphContext = () => {
     },
     nodes: nodes?.slice(0, 20).map((node) => {
       const infoString = typeof node.info === 'string' ? node.info : String(node.info || '')
+      // CSS nodes need full content so the AI can edit styles properly
+      const maxLen = node.type === 'css-node' ? 10000 : 500
       return {
         id: node.id,
         label: node.label || node.id,
         type: node.type || 'unknown',
-        info: infoString ? infoString.substring(0, 500) : '',
+        info: infoString ? infoString.substring(0, maxLen) : '',
       }
     }) || [],
     edges: edges?.slice(0, 30).map((edge) => ({
@@ -6459,6 +6542,25 @@ You can directly manipulate and persist the knowledge graph data to the database
 - graph_get_current_data - Retrieve information about the current graph (nodes, edges, metadata)
 - graph_save_new - Save the current graph as a NEW knowledge graph with a custom title and description
 - graph_update_current - Update the current graph with modified nodes, edges, or metadata
+- graph_node_search_replace - Fast search-and-replace within a node's info field (PREFERRED for simple text changes)
+
+IMPORTANT — PREFER graph_node_search_replace FOR SIMPLE EDITS:
+When the user asks to change a color, rename a class, update a word, or make any small text change in a node, ALWAYS use graph_node_search_replace instead of graph_update_current. It is much faster because it only sends the search/replace strings instead of the entire node content. Only use graph_update_current when you need to rewrite large portions of the content.
+
+Example: "Change the title color from red to green"
+graph_node_search_replace({
+  "nodeId": "4745d030-b004-4f19-ad89-39e42e33fbd8",
+  "search": "color: red",
+  "replace": "color: green"
+})
+
+Example: "Rename all .btn classes to .button"
+graph_node_search_replace({
+  "nodeId": "4745d030-b004-4f19-ad89-39e42e33fbd8",
+  "search": ".btn",
+  "replace": ".button",
+  "replaceAll": true
+})
 
 WORKFLOW FOR MODIFYING AND SAVING GRAPHS:
 1. Use graph_get_current_data to understand the current graph structure
@@ -6555,7 +6657,12 @@ Nodes: ${graphContext.metadata?.nodeCount || 0}
 Edges: ${graphContext.metadata?.edgeCount || 0}
 
 Sample Nodes (up to 20):
-${graphContext.nodes?.map(node => `- ${node.label} (${node.type}): ${node.info || 'No info'}`).join('\n') || 'No nodes'}
+${graphContext.nodes?.map(node => {
+  if (node.type === 'css-node' && node.info) {
+    return `- ${node.label} (${node.type}):\n\`\`\`css\n${node.info}\n\`\`\``
+  }
+  return `- ${node.label} (${node.type}): ${node.info || 'No info'}`
+}).join('\n') || 'No nodes'}
 
 Connections (up to 30):
 ${graphContext.edges?.map(edge => `- ${edge.from} → ${edge.to}`).join('\n') || 'No connections'}
@@ -6861,7 +6968,7 @@ Guidelines:
             let result
             if (toolBlock.name.startsWith('graph_template_')) {
               result = await executeTemplateTool(toolBlock.name, toolBlock.input)
-            } else if (toolBlock.name.startsWith('graph_save_') || toolBlock.name.startsWith('graph_update_') || toolBlock.name === 'graph_get_current_data') {
+            } else if (toolBlock.name.startsWith('graph_save_') || toolBlock.name.startsWith('graph_update_') || toolBlock.name === 'graph_get_current_data' || toolBlock.name === 'graph_node_search_replace') {
               result = await executeGraphManipulationTool(toolBlock.name, toolBlock.input)
             } else if (toolBlock.name.startsWith('sources_')) {
               result = await executeSourcesTool(toolBlock.name, toolBlock.input)

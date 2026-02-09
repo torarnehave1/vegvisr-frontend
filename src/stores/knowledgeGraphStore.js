@@ -6,6 +6,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     title: '',
     description: '',
     createdBy: '',
+    graphType: null,
   })
   const nodes = ref([])
   const edges = ref([])
@@ -39,7 +40,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     // Preserve existing action_txt nodes
     const existingActionTxtNodes = nodes.value.filter((node) => node.data.type === 'action_txt')
 
-    graphMetadata.value = { title: '', description: '', createdBy: '' }
+    graphMetadata.value = { title: '', description: '', createdBy: '', graphType: null }
     nodes.value = [...existingActionTxtNodes] // Reset but keep action_txt nodes
     edges.value = []
     graphJson.value = '' // Reset graphJson

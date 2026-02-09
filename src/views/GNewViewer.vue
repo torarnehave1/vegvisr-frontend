@@ -458,7 +458,10 @@
             metaArea: graphMetaAreas.length > 0 ? '#' + graphMetaAreas.join(' #') : '',
             description: graphData.metadata?.description || '',
             createdBy: graphCreatedBy,
+            graphType: graphData.metadata?.graphType || null,
           }"
+          :versionHistory="versionHistory"
+          @version-selected="loadGraphVersion"
         />
 
         <!-- Status Message -->
@@ -2632,6 +2635,7 @@ const getApiEndpoint = (endpoint) => {
 
 // Reactive data
 const graphData = ref({ nodes: [], edges: [] })
+const versionHistory = ref([])
 
 // Helper to update chat session count in graphData before saving
 const updateChatSessionCountBeforeSave = async () => {
@@ -2639,6 +2643,91 @@ const updateChatSessionCountBeforeSave = async () => {
     const count = await fetchChatSessionCount(knowledgeGraphStore.currentGraphId, userStore)
     graphData.value.metadata.chatSessionCount = count
     console.log(`📊 Updated chatSessionCount to ${count} before save`)
+  }
+}
+
+// Helper to capture version from saveGraphWithHistory response
+const captureVersionFromResponse = (responseData) => {
+  if (responseData?.newVersion != null) {
+    knowledgeGraphStore.setCurrentVersion(responseData.newVersion)
+    console.log(`📌 Version updated to: ${responseData.newVersion}`)
+    fetchGraphHistory()
+  }
+}
+
+// Fetch the last 5 versions for the version dropdown
+const fetchGraphHistory = async () => {
+  if (!knowledgeGraphStore.currentGraphId) return
+  try {
+    const url = getApiEndpoint(
+      `https://knowledge.vegvisr.org/getknowgraphhistory?id=${knowledgeGraphStore.currentGraphId}`,
+    )
+    const response = await fetch(url)
+    if (response.ok) {
+      const data = await response.json()
+      const rows = Array.isArray(data.history)
+        ? data.history
+        : data.history?.results || []
+      versionHistory.value = rows.slice(0, 5).map((item) => ({
+        version: item.version,
+        timestamp: item.timestamp,
+      }))
+    } else {
+      versionHistory.value = []
+    }
+  } catch (err) {
+    console.warn('Could not fetch version history:', err)
+    versionHistory.value = []
+  }
+}
+
+// Load a specific graph version from history
+const loadGraphVersion = async (version) => {
+  if (!knowledgeGraphStore.currentGraphId) return
+  loading.value = true
+  try {
+    const url = getApiEndpoint(
+      `https://knowledge.vegvisr.org/getknowgraphversion?id=${knowledgeGraphStore.currentGraphId}&version=${version}`,
+    )
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`Failed to load version ${version}`)
+    }
+    const data = await response.json()
+
+    // Process nodes (same as loadGraph)
+    const uniqueNodes = []
+    const seenIds = new Set()
+    for (const node of data.nodes) {
+      if (!seenIds.has(node.id)) {
+        uniqueNodes.push({ ...node, visible: node.visible !== false })
+        seenIds.add(node.id)
+      }
+    }
+
+    graphData.value = {
+      ...data,
+      nodes: uniqueNodes.filter((node) => node.visible !== false),
+    }
+
+    knowledgeGraphStore.setCurrentGraph(graphData.value)
+    knowledgeGraphStore.setCurrentVersion(version)
+    knowledgeGraphStore.updateGraphFromJson(graphData.value)
+
+    statusMessage.value = `Restored version ${version}`
+    setTimeout(() => { statusMessage.value = '' }, 3000)
+
+    nextTick(() => {
+      attachImageChangeListeners()
+    })
+
+    console.log(`📌 Loaded version ${version}`)
+  } catch (err) {
+    console.error('Error loading graph version:', err)
+    statusMessage.value = `Failed to load version ${version}`
+    setTimeout(() => { statusMessage.value = '' }, 4000)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -2971,6 +3060,8 @@ onMounted(() => {
         )
 
         if (response.ok) {
+          const saveData = await response.json()
+          captureVersionFromResponse(saveData)
           console.log('✅ AI node saved to Knowledge Graph:', aiNode.id)
           // Update the knowledge graph store
           knowledgeGraphStore.updateGraphFromJson(graphData.value)
@@ -4486,6 +4577,15 @@ const loadGraph = async () => {
     // Update the store with the current graph data including metadata
     knowledgeGraphStore.setCurrentGraph(graphData.value)
 
+    // Set current version from graph metadata (version is stored by saveGraphWithHistory)
+    if (graphData.value.metadata?.version != null) {
+      knowledgeGraphStore.setCurrentVersion(graphData.value.metadata.version)
+      console.log(`📌 Current version: ${graphData.value.metadata.version}`)
+    }
+
+    // Fetch version history for the dropdown
+    fetchGraphHistory()
+
     console.log(
       `✅ Graph auto-loaded: ${graphData.value.metadata?.title || 'Untitled'} - Nodes: ${graphData.value.nodes.length}`,
     )
@@ -5772,6 +5872,8 @@ const handleBatchNodeInsert = async (payload) => {
         throw new Error('Failed to save batch nodes to backend')
       }
 
+      captureVersionFromResponse(await response.json())
+
       // Update store
       knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
 
@@ -6173,6 +6275,7 @@ const saveImageQuote = async () => {
     }
 
     const responseData = await response.json()
+    captureVersionFromResponse(responseData)
     console.log('✅ API Response data:', responseData)
 
     // Update the knowledge graph store
@@ -7813,7 +7916,7 @@ const saveGraphAfterOperation = async (nodeCount) => {
       throw new Error(`Failed to save the graph after operation. Server responded with ${response.status}`)
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update the knowledge graph store
     knowledgeGraphStore.updateGraphFromJson(graphData.value)
@@ -8415,7 +8518,7 @@ const saveNodeChanges = async () => {
         throw new Error(`Failed to save the graph with updated node. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
       }
 
-      await response.json()
+      captureVersionFromResponse(await response.json())
 
       // Update the knowledge graph store
       knowledgeGraphStore.updateGraphFromJson(graphData.value)
@@ -8509,7 +8612,7 @@ const handleCssExtraction = async (payload) => {
       throw new Error('Failed to save graph after CSS extraction')
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update the store and local state
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -8583,7 +8686,7 @@ const handleNodeUpdated = async (updatedNode) => {
       throw new Error('Failed to save graph after node update.')
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update the store
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -8682,7 +8785,7 @@ const handleNodeDeleted = async (nodeId) => {
       throw new Error(`Failed to save graph after node deletion. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update the store
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -8762,7 +8865,7 @@ const handleNodeCreated = async (newNode) => {
       throw new Error(`Failed to save the graph with new node. Server responded with ${response.status}: ${errorText.substring(0, 200)}`)
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update store
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -9272,7 +9375,7 @@ const handleImageReplaced = async (replacementData) => {
       throw new Error('Failed to save the graph with updated image.')
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     imageDebug('logApiCalls', 'Graph saved successfully', {
       message: 'Image replacement operation completed successfully',
@@ -9400,7 +9503,7 @@ const handleGooglePhotoSelected = async (selectionData) => {
       throw new Error('Failed to save the graph with Google photo.')
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update store
     knowledgeGraphStore.updateGraphFromJson(updatedGraphData)
@@ -9744,7 +9847,7 @@ const handleTemplateAdded = async ({ template, node }) => {
       throw new Error(`Failed to save the graph with new template node. Server responded with ${response.status}`)
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
 
     // Update the knowledge graph store
     knowledgeGraphStore.updateGraphFromJson(graphData.value)
@@ -9944,7 +10047,7 @@ const saveNodeOrder = async () => {
       throw new Error(`Failed to save node order. Server responded with ${response.status}`)
     }
 
-    await response.json()
+    captureVersionFromResponse(await response.json())
     knowledgeGraphStore.updateGraphFromJson(graphData.value)
 
     console.log('✅ Node order saved successfully')
@@ -10380,6 +10483,8 @@ const saveAttribution = async () => {
       console.error(`❌ API Error (${response.status}):`, errorText)
       throw new Error(`Failed to save: Server responded with ${response.status}`)
     }
+
+    captureVersionFromResponse(await response.json())
 
     statusMessage.value = 'Attribution updated successfully!'
     setTimeout(() => { statusMessage.value = '' }, 3000)

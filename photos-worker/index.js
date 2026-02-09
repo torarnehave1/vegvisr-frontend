@@ -123,7 +123,8 @@ const handleListR2Images = async (request, env) => {
     }
     const images = (album.images || []).map((key) => ({
       key,
-      url: `${baseUrl}${key}`
+      url: `${baseUrl}${key}`,
+      uploaded: null
     }))
     return createResponse(JSON.stringify({ images, album: album.name }), 200)
   }
@@ -134,7 +135,8 @@ const handleListR2Images = async (request, env) => {
     .filter((obj) => /\.(png|jpe?g|gif|webp)$/i.test(obj.key))
     .map((obj) => ({
       key: obj.key,
-      url: `${baseUrl}${obj.key}`
+      url: `${baseUrl}${obj.key}`,
+      uploaded: obj.uploaded ? obj.uploaded.toISOString() : null
     }))
 
   return createResponse(JSON.stringify({ images }), 200)
