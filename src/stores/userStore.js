@@ -414,9 +414,31 @@ export const useUserStore = defineStore('user', {
         // Fetch additional data from config table (including phone)
         await this.fetchUserDataFromConfig()
 
+        // If role is still missing, fetch it directly from /get-role
+        if (!this.role && this.email) {
+          try {
+            console.log('🔐 Role missing after config fetch; calling /get-role directly...')
+            const roleRes = await fetch(
+              `https://dashboard.vegvisr.org/get-role?email=${encodeURIComponent(this.email)}`,
+            )
+            if (roleRes.ok) {
+              const roleData = await roleRes.json()
+              if (roleData?.role) {
+                this.role = roleData.role
+                storedUser.role = roleData.role
+                localStorage.setItem('user', JSON.stringify(storedUser))
+                console.log('✅ Role fetched from /get-role:', this.role)
+              }
+            }
+          } catch (error) {
+            console.warn('Role fetch via /get-role failed:', error)
+          }
+        }
+
+        // Fallback: try fetching role from token if still missing
         if (!this.role && cookieToken) {
           try {
-            console.log('🔐 Role missing; fetching user data from token...')
+            console.log('🔐 Role still missing; trying token lookup...')
             const response = await fetch(apiUrls.getUserDataByToken(), {
               headers: { Authorization: `Bearer ${cookieToken}` },
             })
