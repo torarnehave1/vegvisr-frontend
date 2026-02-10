@@ -3,6 +3,8 @@
  * Rollback ID: phase2-email-worker-template-engine-2025-07-27
  */
 
+import PostalMime from 'postal-mime'
+
 // Middleware to add CORS headers
 function addCorsHeaders(response) {
   response.headers.set('Access-Control-Allow-Origin', '*')
@@ -49,6 +51,32 @@ function renderTemplate(template, variables) {
     subject: renderedSubject,
     body: renderedBody,
   }
+}
+
+// --- D1 config table helpers for email accounts ---
+
+async function loadUserSettings(env, userEmail) {
+  const row = await env.vegvisr_org
+    .prepare('SELECT data FROM config WHERE email = ?')
+    .bind(userEmail)
+    .first()
+  if (!row?.data) return {}
+  try {
+    return JSON.parse(row.data)
+  } catch {
+    return {}
+  }
+}
+
+async function saveUserSettings(env, userEmail, data) {
+  const dataJson = JSON.stringify(data)
+  await env.vegvisr_org
+    .prepare(
+      `INSERT INTO config (email, data) VALUES (?, ?)
+       ON CONFLICT(email) DO UPDATE SET data = ?`
+    )
+    .bind(userEmail, dataJson, dataJson)
+    .run()
 }
 
 // Magic link helpers
@@ -185,8 +213,122 @@ function generateSlowyouLink(email, role, callbackUrl) {
   return `${baseUrl}?${params.toString()}`
 }
 
-// Cloudflare Worker fetch handler
+// Cloudflare Worker handlers
 export default {
+  // Inbound email handler (Cloudflare Email Routing)
+  async email(message, env) {
+    const defaultStoreUrl = env.VEMAIL_STORE_URL || 'https://vemail-store-worker.post-e91.workers.dev'
+
+    // Look up the recipient's storeUrl from D1 account settings
+    let storeUrl = defaultStoreUrl
+    try {
+      const recipientAddr = message.to
+      const rows = await env.vegvisr_org
+        .prepare('SELECT data FROM config')
+        .all()
+      for (const row of rows.results || []) {
+        try {
+          const parsed = JSON.parse(row.data)
+          const accounts = parsed?.settings?.emailAccounts || []
+          for (const acct of accounts) {
+            const emails = [acct.email, ...(acct.aliases || [])]
+            if (emails.some((e) => e && e.toLowerCase() === recipientAddr.toLowerCase())) {
+              if (acct.storeUrl) {
+                storeUrl = acct.storeUrl
+                break
+              }
+            }
+          }
+        } catch { /* skip malformed rows */ }
+        if (storeUrl !== defaultStoreUrl) break
+      }
+    } catch (err) {
+      console.error('[email-worker email()] Store URL lookup failed, using default:', err)
+    }
+
+    try {
+      // Read raw email bytes
+      const rawBytes = await new Response(message.raw).arrayBuffer()
+      const rawUint8 = new Uint8Array(rawBytes)
+
+      // Parse with postal-mime
+      const parser = new PostalMime()
+      const parsed = await parser.parse(rawUint8)
+
+      const recipientEmail = message.to // the envelope-to address
+      const fromAddress = parsed.from?.address || message.from
+      const fromName = parsed.from?.name || ''
+      const toAddress = parsed.to?.[0]?.address || recipientEmail
+      const subject = parsed.subject || '(no subject)'
+      const textBody = parsed.text || ''
+      // When HTML is empty but text exists, wrap in <pre> so it renders in the UI
+      let htmlBody = parsed.html || ''
+      if (!htmlBody && textBody) {
+        htmlBody = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit">${textBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`
+      }
+      const snippet = textBody.slice(0, 200)
+
+      // Helper: convert Uint8Array to base64 using chunks to avoid call stack overflow
+      function uint8ToBase64(bytes) {
+        const CHUNK = 8192
+        let binary = ''
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          const chunk = bytes.subarray(i, Math.min(i + CHUNK, bytes.length))
+          binary += String.fromCharCode.apply(null, chunk)
+        }
+        return btoa(binary)
+      }
+
+      // Build attachments array for the store worker
+      const attachments = (parsed.attachments || []).map((att) => {
+        const bytes = new Uint8Array(att.content)
+        return {
+          filename: att.filename || 'attachment',
+          mimeType: att.mimeType || 'application/octet-stream',
+          sizeBytes: bytes.length,
+          contentBase64: uint8ToBase64(bytes),
+        }
+      })
+
+      // Encode raw email as base64 for storage in R2
+      const rawEmailBase64 = uint8ToBase64(rawUint8)
+
+      // Extract receivedAt from parsed Date header
+      const receivedAt = parsed.date ? new Date(parsed.date).toISOString() : undefined
+
+      // POST to vemail-store-worker
+      const storeRes = await fetch(`${storeUrl}/emails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: recipientEmail,
+          folder: 'inbox',
+          fromAddress,
+          fromName,
+          toAddress,
+          subject,
+          snippet,
+          bodyHtml: htmlBody,
+          bodyText: textBody || undefined,
+          rawEmail: rawEmailBase64,
+          messageId: parsed.messageId || null,
+          receivedAt,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        }),
+      })
+
+      if (!storeRes.ok) {
+        const errText = await storeRes.text()
+        console.error('[email-worker email()] Store error:', storeRes.status, errText)
+      } else {
+        console.log(`[email-worker email()] Stored inbound email from ${fromAddress} to ${recipientEmail}: ${subject}`)
+      }
+    } catch (err) {
+      console.error('[email-worker email()] Failed to process inbound email:', err)
+      // Don't throw — Cloudflare will retry and could loop
+    }
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url)
     const path = url.pathname
@@ -403,10 +545,45 @@ export default {
       }
 
       // Send email through slowyou.io using user-provided Gmail app password
+      // Accepts either direct credentials (authEmail + appPassword) or
+      // account lookup (userEmail + accountId) to resolve credentials from D1
       if (path === '/send-gmail-email' && method === 'POST') {
         try {
           const body = await request.json()
-          const { senderEmail, authEmail, fromEmail, appPassword, toEmail, subject, html } = body || {}
+          let { senderEmail, authEmail, fromEmail, appPassword, toEmail, subject, html } = body || {}
+          const { userEmail, accountId } = body || {}
+
+          // If userEmail + accountId provided, resolve credentials from D1
+          if (userEmail && accountId && !appPassword) {
+            const data = await loadUserSettings(env, userEmail)
+            const settings = data.settings || {}
+            const accounts = Array.isArray(settings.emailAccounts) ? settings.emailAccounts : []
+            const passwords = settings.emailAccountPasswords || {}
+
+            const account = accounts.find((a) => a.id === accountId)
+            if (!account) {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({ success: false, error: 'Account not found' }),
+                  { status: 404, headers: { 'Content-Type': 'application/json' } },
+                ),
+              )
+            }
+
+            appPassword = passwords[accountId]
+            if (!appPassword) {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({ success: false, error: 'No app password stored for this account' }),
+                  { status: 400, headers: { 'Content-Type': 'application/json' } },
+                ),
+              )
+            }
+
+            authEmail = account.email
+            senderEmail = account.email
+            if (!fromEmail) fromEmail = account.email
+          }
 
           const smtpUser = authEmail || senderEmail
 
@@ -424,7 +601,7 @@ export default {
               new Response(
                 JSON.stringify({
                   success: false,
-                  error: 'senderEmail (or authEmail), appPassword, toEmail, subject, and html are required',
+                  error: 'senderEmail (or authEmail), appPassword, toEmail, subject, and html are required. Alternatively provide userEmail + accountId.',
                 }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } },
               ),
@@ -493,6 +670,30 @@ export default {
             parsed = JSON.parse(responseText)
           } catch {
             parsed = { raw: responseText }
+          }
+
+          // Store a copy in vemail-store-worker (sent folder)
+          const storeUrl = env.VEMAIL_STORE_URL || 'https://vemail-store-worker.post-e91.workers.dev'
+          try {
+            const snippet = html ? html.replace(/<[^>]*>/g, '').slice(0, 200) : ''
+            await fetch(`${storeUrl}/emails`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userEmail: userEmail || smtpUser,
+                folder: 'sent',
+                fromAddress: fromEmail || smtpUser,
+                fromName: '',
+                toAddress: toEmail,
+                subject,
+                snippet,
+                bodyHtml: html,
+                read: 1,
+              }),
+            })
+          } catch (storeErr) {
+            console.error('[email-worker] Failed to store sent copy:', storeErr)
+            // Non-fatal — email was still sent successfully
           }
 
           return addCorsHeaders(
@@ -1222,6 +1423,229 @@ export default {
         }
       }
 
+      // ========================
+      // EMAIL ACCOUNTS (D1 storage via service binding)
+      // ========================
+
+      // GET /email-accounts?user=<email> — list accounts (metadata only, no passwords)
+      if (path === '/email-accounts' && method === 'GET') {
+        try {
+          const userEmail = url.searchParams.get('user')
+          if (!userEmail || !isValidEmail(userEmail)) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Valid user email is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          const data = await loadUserSettings(env, userEmail)
+          const settings = data.settings || {}
+          const accounts = Array.isArray(settings.emailAccounts) ? settings.emailAccounts : []
+
+          // Only return metadata — passwords are never sent to the browser
+          const safe = accounts.map((a) => ({
+            id: a.id,
+            name: a.name || '',
+            email: a.email || '',
+            aliases: Array.isArray(a.aliases) ? a.aliases : [],
+            isDefault: !!a.isDefault,
+            hasPassword: !!a.hasPassword,
+            storeUrl: a.storeUrl || '',
+          }))
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ success: true, accounts: safe }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error GET /email-accounts:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: error.message }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+      }
+
+      // POST /email-accounts — save/update an account (with optional app password)
+      if (path === '/email-accounts' && method === 'POST') {
+        try {
+          const body = await request.json()
+          const { userEmail, account, appPassword } = body
+
+          if (!userEmail || !isValidEmail(userEmail)) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'Valid userEmail is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+          if (!account?.id || !account?.email) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'account.id and account.email are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          const data = await loadUserSettings(env, userEmail)
+          if (!data.settings) data.settings = {}
+          if (!Array.isArray(data.settings.emailAccounts)) data.settings.emailAccounts = []
+          if (!data.settings.emailAccountPasswords) data.settings.emailAccountPasswords = {}
+
+          // Store password server-side if provided (never returned to client)
+          let hasPassword = !!account.hasPassword
+          if (appPassword) {
+            data.settings.emailAccountPasswords[account.id] = appPassword
+            hasPassword = true
+          }
+
+          // Upsert account metadata (password stored separately, never sent to browser)
+          const entry = {
+            id: account.id,
+            name: account.name || '',
+            email: account.email,
+            aliases: Array.isArray(account.aliases) ? account.aliases : [],
+            isDefault: !!account.isDefault,
+            hasPassword,
+            storeUrl: account.storeUrl || '',
+          }
+
+          const idx = data.settings.emailAccounts.findIndex((a) => a.id === account.id)
+          if (idx >= 0) {
+            data.settings.emailAccounts[idx] = entry
+          } else {
+            data.settings.emailAccounts.push(entry)
+          }
+
+          await saveUserSettings(env, userEmail, data)
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ success: true, account: entry }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error POST /email-accounts:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: error.message }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+      }
+
+      // DELETE /email-accounts?user=<email>&id=<accountId> — remove an account
+      if (path === '/email-accounts' && method === 'DELETE') {
+        try {
+          const userEmail = url.searchParams.get('user')
+          const accountId = url.searchParams.get('id')
+
+          if (!userEmail || !accountId) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'user and id params are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          const data = await loadUserSettings(env, userEmail)
+          if (!data.settings) data.settings = {}
+          const accounts = Array.isArray(data.settings.emailAccounts)
+            ? data.settings.emailAccounts
+            : []
+
+          data.settings.emailAccounts = accounts.filter((a) => a.id !== accountId)
+
+          // Remove stored password
+          if (data.settings.emailAccountPasswords) {
+            delete data.settings.emailAccountPasswords[accountId]
+          }
+
+          // Re-elect default if needed
+          if (
+            data.settings.emailAccounts.length > 0 &&
+            !data.settings.emailAccounts.some((a) => a.isDefault)
+          ) {
+            data.settings.emailAccounts[0].isDefault = true
+          }
+
+          await saveUserSettings(env, userEmail, data)
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ success: true }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error DELETE /email-accounts:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: error.message }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+      }
+
+      // PUT /email-accounts/sync — bulk sync account metadata (no passwords)
+      if (path === '/email-accounts/sync' && method === 'PUT') {
+        try {
+          const body = await request.json()
+          const { userEmail, accounts } = body
+
+          if (!userEmail || !Array.isArray(accounts)) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'userEmail and accounts[] are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          const data = await loadUserSettings(env, userEmail)
+          if (!data.settings) data.settings = {}
+
+          data.settings.emailAccounts = accounts.map((a) => ({
+            id: a.id,
+            name: a.name || '',
+            email: a.email || '',
+            aliases: Array.isArray(a.aliases) ? a.aliases : [],
+            isDefault: !!a.isDefault,
+            hasPassword: !!a.hasPassword,
+            storeUrl: a.storeUrl || '',
+          }))
+
+          await saveUserSettings(env, userEmail, data)
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({ success: true }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('Error PUT /email-accounts/sync:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: error.message }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+      }
+
       // Default response for unknown endpoints
       return addCorsHeaders(
         new Response(
@@ -1239,6 +1663,8 @@ export default {
               '/templates/{id} (GET)',
               '/email-templates (GET, POST)',
               '/email-templates/{id} (GET, PUT, DELETE)',
+              '/email-accounts (GET, POST, DELETE)',
+              '/email-accounts/sync (PUT)',
             ],
           }),
           {
