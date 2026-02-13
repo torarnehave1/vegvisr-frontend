@@ -1,6 +1,7 @@
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click="handleOverlayClick">
-    <div class="modal-container" @click.stop ref="modalContainer">
+  <Teleport to="body">
+    <div v-if="isVisible" class="modal-overlay" @click="handleOverlayClick">
+      <div class="modal-container" @click.stop ref="modalContainer" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h4 class="modal-title">
           <span class="modal-icon">🎤</span>
@@ -141,8 +142,9 @@
         </button>
         <button @click="closeModal" class="btn btn-secondary">Cancel</button>
       </div>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -381,11 +383,13 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 9999;
+  z-index: 120000;
   pointer-events: auto;
   backdrop-filter: blur(2px);
-  isolation: isolate;
 }
 
 .modal-container {
@@ -398,12 +402,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   pointer-events: auto;
-  position: absolute;
-  z-index: 10000;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) translateZ(0);
-  will-change: transform;
+  position: relative;
+  z-index: 120001;
 }
 
 .modal-header {
