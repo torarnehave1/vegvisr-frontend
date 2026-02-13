@@ -1979,38 +1979,17 @@
     </div>
 
     <!-- Password Verification Modal -->
-    <div v-if="showPasswordModal" class="modal-overlay">
-      <div class="password-modal" @click.stop>
-        <div class="modal-header">
-          <h3>🔒 Password Required</h3>
-        </div>
-        <div class="modal-body">
-          <p>This Knowledge Graph is password protected. Please enter the password to view the content.</p>
-          <div class="password-input-container">
-            <input
-              v-model="passwordInput"
-              type="password"
-              placeholder="Enter password"
-              class="password-input"
-              @keyup.enter="verifyPassword"
-              :disabled="passwordLoading"
-            />
-            <div v-if="passwordError" class="password-error">
-              {{ passwordError }}
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="closePasswordModal" class="btn-secondary" :disabled="passwordLoading">
-            Cancel
-          </button>
-          <button @click="verifyPassword" class="btn-primary" :disabled="passwordLoading || !passwordInput.trim()">
-            <span v-if="passwordLoading">🔄 Verifying...</span>
-            <span v-else>🔓 Unlock</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    <GraphPasswordGateModal
+      :show="showPasswordModal"
+      :password-input="passwordInput"
+      :password-error="passwordError"
+      :password-loading="passwordLoading"
+      :can-bypass="canBypassGraphPassword"
+      @update:password-input="passwordInput = $event"
+      @verify="verifyPassword"
+      @cancel="closePasswordModal"
+      @bypass="handleSuperadminBypassFromModal"
+    />
 
     <!-- AI Rewrite Modal -->
     <div v-if="showAIRewriteModal" class="modal-overlay" @click="closeAIRewriteModal">
@@ -2578,14 +2557,15 @@ import CopyNodeModal from '@/components/CopyNodeModal.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
 import GNewAdvertisementDisplay from '@/components/GNewAdvertisementDisplay.vue'
-import GNewDefaultNode from '@/components/GNewNodes/GNewDefaultNode.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
+import GraphPasswordGateModal from '@/components/GraphPasswordGateModal.vue'
 import HamburgerMenu from '@/components/HamburgerMenu.vue'
 import SocialInteractionBar from '@/components/SocialInteractionBar.vue'
 import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import HtmlCodeAssistant from '@/components/HtmlCodeAssistant.vue'
+import { useGraphPasswordGate } from '@/composables/useGraphPasswordGate'
 
 // Props
 const props = defineProps({
@@ -2604,7 +2584,7 @@ const userStore = useUserStore()
 const knowledgeGraphStore = useKnowledgeGraphStore()
 
 // Branding composable
-const { currentDomain, isCustomDomain } = useBranding()
+const { currentDomain } = useBranding()
 
 // Dynamic API endpoint configuration
 const getApiEndpoint = (endpoint) => {
@@ -2778,12 +2758,23 @@ const isTranslating = ref(false)
 const translationCache = ref({}) // Cache translations: { nodeId: { lang: translatedContent } }
 const originalNodeContents = ref({}) // Store original content before translation
 
-// Password verification state
-const showPasswordModal = ref(false)
-const passwordInput = ref('')
-const passwordError = ref('')
-const passwordLoading = ref(false)
-const isPasswordVerified = ref(false)
+// Password verification gate state/logic
+const {
+  showPasswordModal,
+  passwordInput,
+  passwordError,
+  passwordLoading,
+  canBypassGraphPassword,
+  ensureGraphAccess,
+  verifyPasswordForGraph,
+  closePasswordModal,
+  handleSuperadminBypass,
+  resetPasswordVerification,
+} = useGraphPasswordGate({
+  userStore,
+  router,
+  getApiEndpoint,
+})
 
 // Grok Chat Panel state
 const showGrokChat = ref(false)
@@ -3283,9 +3274,7 @@ watch(
     if (!isLoggedIn) {
       console.log('🔒 User logged out - clearing password verification sessions')
       userStore.clearPasswordSessions()
-      // Also reset password verification state
-      isPasswordVerified.value = false
-      showPasswordModal.value = false
+      resetPasswordVerification()
     }
   },
 )
@@ -3813,9 +3802,6 @@ const showPortfolioImageModal = ref(false)
 const portfolioImages = ref([])
 const loadingPortfolioImages = ref(false)
 
-// Template sidebar state
-const showTemplateSidebar = ref(true)
-
 // Quote suggestions functionality
 const isGeneratingQuotes = ref(false)
 const quoteSuggestions = ref([])
@@ -3852,9 +3838,6 @@ const uploadError = ref('')
 const showMobileMenu = ref(false)
 const mobileSearchQuery = ref('')
 const mobileExpandedCategories = ref([])
-
-// New hamburger menu state
-const showHamburgerMenu = ref(false)
 
 // Database templates for mobile menu
 const mobileTemplates = ref([])
@@ -4196,20 +4179,6 @@ watch(
   { immediate: true },
 )
 
-const statusText = computed(() => {
-  if (error.value) return 'Error'
-  if (loading.value) return 'Loading'
-  if (graphData.value.nodes.length > 0) return 'Loaded'
-  return 'Ready'
-})
-
-const statusClass = computed(() => {
-  if (error.value) return 'text-danger'
-  if (loading.value) return 'text-warning'
-  if (graphData.value.nodes.length > 0) return 'text-success'
-  return 'text-info'
-})
-
 // Computed property for aspect ratio
 const aspectRatio = computed(() => {
   const width = imageQualitySettings.value.width
@@ -4273,10 +4242,6 @@ const graphMetaAreas = computed(() => {
 
 const graphCreatedBy = computed(() => {
   return graphData.value.metadata?.createdBy || null
-})
-
-const hasMetadata = computed(() => {
-  return graphCategories.value.length > 0 || graphMetaAreas.value.length > 0 || graphCreatedBy.value
 })
 
 // AI Challenge computed properties
@@ -4514,6 +4479,15 @@ const clearOtherGraphPasswordSessions = (currentGraphId) => {
   }
 }
 
+const handleSuperadminBypassFromModal = async () => {
+  const graphId = knowledgeGraphStore.currentGraphId
+  if (!graphId) return
+
+  if (handleSuperadminBypass(graphId)) {
+    await loadGraph()
+  }
+}
+
 const loadGraph = async () => {
   const graphId = knowledgeGraphStore.currentGraphId
   if (!graphId) {
@@ -4538,21 +4512,8 @@ const loadGraph = async () => {
 
     const data = await response.json()
 
-    // Check if graph is password protected
-    if (data.metadata?.passwordProtected && !isPasswordVerified.value) {
-      // Check if we have a valid session for this graph
-      const sessionKey = `graph_password_verified_${graphId}`
-      const isSessionValid = sessionStorage.getItem(sessionKey) === 'true'
-
-      if (!isSessionValid) {
-        // Show password modal and return without loading graph
-        showPasswordModal.value = true
-        loading.value = false
-        return
-      } else {
-        // Session is valid, mark as verified
-        isPasswordVerified.value = true
-      }
+    if (!ensureGraphAccess(graphId, !!data.metadata?.passwordProtected)) {
+      return
     }
 
     // Process and clean data
@@ -4604,66 +4565,13 @@ const loadGraph = async () => {
 
 // Password verification functions
 const verifyPassword = async () => {
-  if (!passwordInput.value.trim()) {
-    passwordError.value = 'Please enter a password'
-    return
+  const graphId = knowledgeGraphStore.currentGraphId
+  if (!graphId) return
+
+  const isVerified = await verifyPasswordForGraph(graphId)
+  if (isVerified) {
+    await loadGraph()
   }
-
-  passwordLoading.value = true
-  passwordError.value = ''
-
-  try {
-    const graphId = knowledgeGraphStore.currentGraphId
-
-    // Get current graph data to compare password
-    const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`)
-    if (!response.ok) {
-      throw new Error('Failed to fetch graph data')
-    }
-
-    const data = await response.json()
-    const storedPasswordHash = data.metadata?.passwordHash
-
-    if (!storedPasswordHash) {
-      passwordError.value = 'This graph is not password protected'
-      return
-    }
-
-    // Simple password verification (using base64 decode for demo)
-    // In production, this should use proper bcrypt verification
-    const enteredPasswordHash = btoa(passwordInput.value)
-
-    if (enteredPasswordHash === storedPasswordHash) {
-      // Password correct
-      isPasswordVerified.value = true
-      showPasswordModal.value = false
-
-      // Store session verification
-      const sessionKey = `graph_password_verified_${graphId}`
-      sessionStorage.setItem(sessionKey, 'true')
-
-      // Clear password input
-      passwordInput.value = ''
-
-      // Load the graph
-      await loadGraph()
-    } else {
-      passwordError.value = 'Incorrect password'
-    }
-  } catch (error) {
-    console.error('Password verification error:', error)
-    passwordError.value = 'Failed to verify password. Please try again.'
-  } finally {
-    passwordLoading.value = false
-  }
-}
-
-const closePasswordModal = () => {
-  showPasswordModal.value = false
-  passwordInput.value = ''
-  passwordError.value = ''
-  // Redirect to home or show message
-  router.push('/')
 }
 
 // Mobile menu methods
@@ -5208,12 +5116,6 @@ const getCategoryIcon = (category) => {
   }
 
   return iconMap[category] || '📁'
-}
-
-// New hamburger menu methods
-const toggleHamburgerMenu = () => {
-  showHamburgerMenu.value = !showHamburgerMenu.value
-  console.log('🍔 GNewViewer: toggleHamburgerMenu called, new state:', showHamburgerMenu.value)
 }
 
 const handleMenuItemClick = (item) => {
@@ -6314,11 +6216,6 @@ const saveImageQuote = async () => {
 
 // Removed: editImageQuote and deleteImageQuote - now editing directly in nodes
 
-const handleImageQuoteExported = (exportData) => {
-  console.log('📸 IMAGEQUOTE exported:', exportData)
-  // Could add analytics or feedback here
-}
-
 // Quote suggestion methods
 const generateQuoteSuggestions = async () => {
   if (!hasGraphContext.value) {
@@ -6517,7 +6414,7 @@ const validateCreatorImageUrl = () => {
     (creatorImageUrl.value.startsWith('http://') || creatorImageUrl.value.startsWith('https://'))
 }
 
-const handleCreatorUrlPaste = (event) => {
+const handleCreatorUrlPaste = () => {
   // Allow normal paste behavior, validation will happen on input
   setTimeout(validateCreatorImageUrl, 50)
 }
@@ -8110,12 +8007,12 @@ const handleDragEnter = (event) => {
   isDragOver.value = true
 }
 
-const handleDragOver = (event) => {
+const handleDragOver = () => {
   console.log('🎯 DRAG OVER')
   isDragOver.value = true
 }
 
-const handleDragLeave = (event) => {
+const handleDragLeave = () => {
   console.log('🎯 DRAG LEAVE')
   dragCounter.value--
   if (dragCounter.value === 0) {
@@ -13197,120 +13094,6 @@ const saveAttribution = async () => {
   font-size: 0.75em;
   overflow-x: auto;
   white-space: pre-wrap;
-}
-
-/* Password Modal Styles */
-.password-modal {
-  background: white;
-  border-radius: 12px;
-  max-width: 450px;
-  width: 90vw;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideIn 0.3s ease-out;
-}
-
-.password-modal .modal-header {
-  padding: 1.5rem 2rem 0.5rem;
-  border-bottom: none;
-}
-
-.password-modal .modal-header h3 {
-  font-size: 1.5rem;
-  color: #333;
-  margin: 0;
-  text-align: center;
-}
-
-.password-modal .modal-body {
-  padding: 1rem 2rem;
-}
-
-.password-modal .modal-body p {
-  color: #666;
-  text-align: center;
-  margin-bottom: 1.5rem;
-  line-height: 1.5;
-}
-
-.password-input-container {
-  margin-bottom: 1rem;
-}
-
-.password-input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 0.2s ease;
-  background: #fafbfc;
-}
-
-.password-input:focus {
-  outline: none;
-  border-color: #0366d6;
-  background: white;
-  box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
-}
-
-.password-input:disabled {
-  background: #f1f3f4;
-  color: #6a737d;
-  cursor: not-allowed;
-}
-
-.password-error {
-  color: #d73a49;
-  font-size: 0.875rem;
-  margin-top: 0.5rem;
-  padding: 8px 12px;
-  background: #ffeef0;
-  border: 1px solid #fdb8c0;
-  border-radius: 6px;
-}
-
-.password-modal .modal-footer {
-  padding: 1rem 2rem 2rem;
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  border-top: none;
-}
-
-.password-modal .btn-secondary,
-.password-modal .btn-primary {
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-weight: 500;
-  font-size: 14px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 100px;
-}
-
-.password-modal .btn-secondary {
-  background: #f1f3f4;
-  color: #586069;
-}
-
-.password-modal .btn-secondary:hover:not(:disabled) {
-  background: #e1e4e8;
-}
-
-.password-modal .btn-primary {
-  background: #0366d6;
-  color: white;
-}
-
-.password-modal .btn-primary:hover:not(:disabled) {
-  background: #0256cc;
-}
-
-.password-modal .btn-primary:disabled,
-.password-modal .btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 @keyframes slideIn {
