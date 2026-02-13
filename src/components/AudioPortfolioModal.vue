@@ -244,8 +244,20 @@ const fetchRecordings = async () => {
   error.value = null
 
   try {
+    const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
+    const userRole = isAdminUser ? 'superadmin' : 'user'
+    const params = new URLSearchParams({
+      userEmail: userStore.email,
+      userRole,
+      limit: '500',
+    })
+
+    if (isAdminUser) {
+      params.set('ownerEmail', userStore.email)
+    }
+
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`,
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
     )
 
     if (!response.ok) {
