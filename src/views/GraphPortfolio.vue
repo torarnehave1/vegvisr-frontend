@@ -251,10 +251,17 @@
               </div>
             </div>
 
+            <div v-if="isHydratingGraphs" class="alert alert-info py-2 mt-3" role="status">
+              <small>
+                Loading portfolio details:
+                <strong>{{ loadedGraphDetailsCount }}</strong> / <strong>{{ totalGraphCount }}</strong>
+              </small>
+            </div>
+
             <!-- Simple View (GraphGallery) -->
             <GraphGallery
               v-if="portfolioStore.viewMode === 'simple'"
-              :graphs="galleryGraphs"
+              :graphs="visibleGalleryGraphs"
               :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="handleGalleryViewGraph"
               @edit-graph="editGraph"
@@ -264,7 +271,7 @@
             <!-- Table View -->
             <GraphTable
               v-if="portfolioStore.viewMode === 'table'"
-              :graphs="filteredGraphs"
+              :graphs="visibleGraphs"
               :isViewOnly="userStore.role === 'ViewOnly'"
               @view-graph="viewGraph"
               @edit-graph="editGraph"
@@ -275,7 +282,7 @@
             <div v-if="portfolioStore.viewMode === 'detailed'">
               <!-- Portfolio Grid -->
               <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
-                <div v-for="graph in filteredGraphs" :key="graph.id" class="col">
+                <div v-for="graph in visibleGraphs" :key="graph.id" class="col">
                   <div
                     class="card h-100"
                     :class="{
@@ -431,12 +438,12 @@
                         </div>
                         <!-- Add portfolio image display -->
                         <div
-                          v-if="getPortfolioImage(graph.nodes)"
+                          v-if="getPortfolioImage(graph)"
                           class="portfolio-image-container mt-2 mb-2"
                         >
                           <img
-                            :src="getPortfolioImage(graph.nodes).path"
-                            :alt="getPortfolioImage(graph.nodes).label"
+                            :src="getPortfolioImage(graph).path"
+                            :alt="getPortfolioImage(graph).label"
                             class="portfolio-image"
                             @error="() => {}"
                           />
@@ -448,7 +455,7 @@
                           <span class="badge bg-primary">
                             {{ Array.isArray(graph.nodes) ? graph.nodes.length : 0 }} Nodes
                             <small v-if="Array.isArray(graph.nodes) && graph.nodes.length > 0"
-                              >({{ getNodeTypes(graph.nodes) }})</small
+                              >({{ getNodeTypes(graph) }})</small
                             >
                           </span>
                           <span class="badge bg-secondary ms-2">
@@ -483,13 +490,13 @@
                             {{ graph.metadata?.publicationState === 'published' ? '✅ Published' : '📝 Draft' }}
                           </span>
                           <span
-                            v-if="hasAffiliate(graph.id)"
+                            v-if="hasAffiliate(graph)"
                             class="badge bg-affiliate ms-2"
-                            :title="`This graph has ${getAffiliateDeal(graph.id)?.affiliateCount} affiliate partners`"
+                            :title="`This graph has ${getAffiliateDeal(graph)?.affiliateCount} affiliate partners`"
                           >
                             <i class="bi bi-handshake"></i>
-                            {{ getAffiliateDeal(graph.id)?.affiliateCount }} Affiliate{{
-                              getAffiliateDeal(graph.id)?.affiliateCount !== 1 ? 's' : ''
+                            {{ getAffiliateDeal(graph)?.affiliateCount }} Affiliate{{
+                              getAffiliateDeal(graph)?.affiliateCount !== 1 ? 's' : ''
                             }}
                           </span>
                           <template v-if="graph.metadata?.category">
@@ -641,6 +648,13 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="shouldShowLoadMore" class="text-center mt-4">
+              <button class="btn btn-outline-primary" @click="loadMoreGraphs">
+                Load more ({{ remainingGraphCount }} remaining)
+              </button>
+            </div>
+            <div ref="loadMoreSentinel" class="load-more-sentinel" aria-hidden="true"></div>
 
             <!-- Loading State -->
             <div v-if="loading" class="text-center mt-5">
@@ -966,7 +980,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { usePortfolioStore } from '@/stores/portfolioStore'
@@ -1013,6 +1027,23 @@ const r2ImageModal = ref(null)
 const selectedImage = ref(null)
 const selectedOwnerEmail = ref('all')
 const adminOwnerEmails = ref([])
+const debouncedSearchQuery = ref('')
+const totalGraphCount = ref(0)
+const loadedGraphDetailsCount = ref(0)
+const isHydratingGraphs = ref(false)
+const visibleCount = ref(24)
+const loadMoreSentinel = ref(null)
+const graphFetchRunId = ref(0)
+const nodeInfoSearchCache = new WeakMap()
+const nodeTypeCache = new Map()
+const portfolioImageCache = new Map()
+let loadMoreObserver = null
+let searchDebounceTimer = null
+
+const INITIAL_GRAPH_LOAD_COUNT = 24
+const GRAPH_FETCH_CHUNK_SIZE = 8
+const GRAPH_VISIBLE_PAGE_SIZE = 24
+const STATUS_FETCH_CHUNK_SIZE = 120
 
 // Image Quality Settings
 const imageQualitySettings = ref({
@@ -1077,6 +1108,117 @@ const resolveGraphType = (graphType, nodes) => {
   return normalizeGraphType(graphType) || inferGraphTypeFromNodes(nodes)
 }
 
+const isPrivilegedUser = () => userStore.role === 'Superadmin' || userStore.role === 'Admin'
+
+const isGraphVisibleForCurrentUser = (graph) => {
+  if (isPrivilegedUser()) return true
+  return graph.metadata?.publicationState === 'published' || graph.metadata?.seoSlug
+}
+
+const processGraphData = (graphSummary, graphData) => {
+  const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : []
+  const edges = Array.isArray(graphData.edges) ? graphData.edges : []
+  const metadata = {
+    ...graphData.metadata,
+    title: graphData.metadata?.title || graphSummary.title || 'Untitled Graph',
+    description: graphData.metadata?.description || '',
+    createdBy: graphData.metadata?.createdBy || 'Unknown',
+    version: graphData.metadata?.version || 1,
+    updatedAt: graphData.updated_at || graphData.created_date || graphData.metadata?.updatedAt || 'Unknown',
+    category: graphData.metadata?.category || '#Uncategorized',
+    metaArea: graphData.metadata?.metaArea || '',
+    graphType: resolveGraphType(graphData.metadata?.graphType, nodes),
+    mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
+    mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
+    mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
+    publicationState:
+      graphData.metadata?.publicationState || (graphData.metadata?.seoSlug ? 'published' : 'draft'),
+    publishedAt: graphData.metadata?.publishedAt || null,
+  }
+
+  return {
+    id: graphSummary.id,
+    metadata,
+    nodes,
+    edges,
+    vectorization: {
+      isVectorized: false,
+      isVectorizing: false,
+      vectorCount: 0,
+    },
+    ambassadorStatus: {
+      hasAmbassadors: false,
+      affiliateCount: 0,
+      totalCommissions: '0.00',
+      averageRate: 0,
+      topAffiliate: null,
+    },
+    chatSessionCount: metadata.chatSessionCount || 0,
+  }
+}
+
+const fetchGraphDetails = async (graphSummary) => {
+  try {
+    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graphSummary.id))
+    if (!graphResponse.ok) return null
+    const graphData = await graphResponse.json()
+    const processedGraph = processGraphData(graphSummary, graphData)
+    return isGraphVisibleForCurrentUser(processedGraph) ? processedGraph : null
+  } catch {
+    return null
+  }
+}
+
+const fetchGraphDetailsChunk = async (chunk) => {
+  const results = await Promise.all(chunk.map((graphSummary) => fetchGraphDetails(graphSummary)))
+  return results.filter((graph) => graph !== null)
+}
+
+const chunkArray = (items, size) => {
+  const chunks = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+const hydrateStatusesForGraphIds = async (graphIds, runId) => {
+  if (!graphIds.length) return
+
+  const graphMap = new Map(graphs.value.map((graph) => [graph.id, graph]))
+  const idChunks = chunkArray(graphIds, STATUS_FETCH_CHUNK_SIZE)
+
+  for (const idChunk of idChunks) {
+    if (runId !== graphFetchRunId.value) return
+
+    const [vectorizationStatus, ambassadorStatus] = await Promise.all([
+      checkVectorizationStatus(idChunk),
+      checkAmbassadorStatus(idChunk),
+    ])
+
+    idChunk.forEach((graphId) => {
+      const graph = graphMap.get(graphId)
+      if (!graph) return
+
+      const vectorStatus = vectorizationStatus[graphId] || { isVectorized: false, vectorCount: 0 }
+      graph.vectorization = {
+        isVectorized: vectorStatus.isVectorized,
+        isVectorizing: false,
+        vectorCount: vectorStatus.vectorCount,
+      }
+
+      const ambassador = ambassadorStatus[graphId] || { hasAmbassadors: false, affiliateCount: 0 }
+      graph.ambassadorStatus = {
+        hasAmbassadors: ambassador.hasAmbassadors,
+        affiliateCount: ambassador.affiliateCount,
+        totalCommissions: ambassador.totalCommissions || '0.00',
+        averageRate: ambassador.averageRate || 0,
+        topAffiliate: ambassador.topAffiliate || null,
+      }
+    })
+  }
+}
+
 // Check vectorization status for multiple graphs
 const checkVectorizationStatus = async (graphIds) => {
   try {
@@ -1128,12 +1270,9 @@ const checkAmbassadorStatus = async (graphIds) => {
 }
 
 // Check if a graph has affiliate partners (from metadata)
-const hasAffiliate = (graphId) => {
-  // Find the graph in our data
-  const graph = filteredGraphs.value.find((g) => g.id === graphId)
+const hasAffiliate = (graph) => {
   if (!graph || !graph.metadata) return false
 
-  // Check metadata for affiliate info
   const affiliateInfo = graph.metadata.affiliates
   if (!affiliateInfo) return false
 
@@ -1141,12 +1280,11 @@ const hasAffiliate = (graphId) => {
 }
 
 // Get affiliate deal info for a graph (metadata-based)
-const getAffiliateDeal = (graphId) => {
-  const graph = filteredGraphs.value.find((g) => g.id === graphId)
+const getAffiliateDeal = (graph) => {
   if (!graph || !graph.metadata || !graph.metadata.affiliates) return null
 
   return {
-    dealName: graphId,
+    dealName: graph.id,
     affiliateCount: graph.metadata.affiliates.affiliateCount,
     hasAffiliates: graph.metadata.affiliates.hasAffiliates,
     lastUpdated: graph.metadata.affiliates.lastUpdated,
@@ -1215,143 +1353,89 @@ const vectorizeGraph = async (graph) => {
 
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
+  const runId = ++graphFetchRunId.value
   loading.value = true
   error.value = null
+  totalGraphCount.value = 0
+  loadedGraphDetailsCount.value = 0
+  isHydratingGraphs.value = false
+  visibleCount.value = GRAPH_VISIBLE_PAGE_SIZE
+  graphs.value = []
+  nodeTypeCache.clear()
+  portfolioImageCache.clear()
   try {
     const response = await fetch(apiUrls.getKnowledgeGraphs())
-    if (response.ok) {
-      const data = await response.json()
-
-      if (data.results) {
-        // Fetch complete data for each graph
-        const graphPromises = data.results.map(async (graph) => {
-          try {
-            const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
-            if (graphResponse.ok) {
-              const graphData = await graphResponse.json()
-
-              // Extract nodes and edges, ensuring they are arrays
-              const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : []
-              const edges = Array.isArray(graphData.edges) ? graphData.edges : []
-
-              // Create the processed graph object
-              return {
-                id: graph.id,
-                metadata: {
-                  // Preserve all existing metadata from the API
-                  ...graphData.metadata,
-                  // Override with specific fields that have fallbacks
-                  title: graphData.metadata?.title || graph.title || 'Untitled Graph',
-                  description: graphData.metadata?.description || '',
-                  createdBy: graphData.metadata?.createdBy || 'Unknown',
-                  version: graphData.metadata?.version || 1,
-                  updatedAt: graphData.updated_at || graphData.created_date || 'Unknown',
-                  category: graphData.metadata?.category || '#Uncategorized',
-                  metaArea: graphData.metadata?.metaArea || '',
-                  graphType: resolveGraphType(graphData.metadata?.graphType, nodes),
-                  mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
-                  mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
-                  mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
-                  // Publication State (NEW) - Auto-publish if SEO slug exists
-                  publicationState: graphData.metadata?.publicationState ||
-                                   (graphData.metadata?.seoSlug ? 'published' : 'draft'),
-                  publishedAt: graphData.metadata?.publishedAt || null,
-                },
-                nodes: nodes.map((node) => ({
-                  id: node.id,
-                  label: node.label || node.id,
-                  type: node.type || 'default',
-                  color: node.color || 'gray',
-                  info: node.info || null,
-                  position: node.position || { x: 0, y: 0 },
-                  visible: node.visible !== false,
-                  path: node.path || null,
-                  mystmkraUrl: node.mystmkraUrl || null,
-                  mystmkraDocumentId: node.mystmkraDocumentId || null,
-                })),
-                edges: edges.map((edge) => ({
-                  source: edge.source,
-                  target: edge.target,
-                  type: edge.type || 'default',
-                  label: edge.label || null,
-                })),
-              }
-            }
-            return null
-          } catch {
-            return null
-          }
-        })
-
-        // Wait for all graph data to be fetched
-        const processedGraphs = await Promise.all(graphPromises)
-        const validGraphs = processedGraphs.filter((graph) => graph !== null)
-
-        // Apply KV-based content filtering
-        graphs.value = contentFilter.filterGraphsByMetaAreas(validGraphs)
-
-        // Check vectorization status for all graphs
-        const graphIds = graphs.value.map((g) => g.id)
-        const vectorizationStatus = await checkVectorizationStatus(graphIds)
-
-        // Add vectorization status to each graph
-        graphs.value.forEach((graph) => {
-          const status = vectorizationStatus[graph.id] || { isVectorized: false, vectorCount: 0 }
-          graph.vectorization = {
-            isVectorized: status.isVectorized,
-            isVectorizing: false,
-            vectorCount: status.vectorCount,
-          }
-        })
-
-        // Check affiliate ambassador status for all graphs (NEW)
-        const ambassadorStatus = await checkAmbassadorStatus(graphIds)
-
-        // Add ambassador status to each graph (NEW)
-        graphs.value.forEach((graph) => {
-          const status = ambassadorStatus[graph.id] || { hasAmbassadors: false, affiliateCount: 0 }
-          graph.ambassadorStatus = {
-            hasAmbassadors: status.hasAmbassadors,
-            affiliateCount: status.affiliateCount,
-            totalCommissions: status.totalCommissions || '0.00',
-            averageRate: status.averageRate || 0,
-            topAffiliate: status.topAffiliate || null,
-          }
-        })
-
-        // Read chat session count from metadata (synced by chat-history-worker)
-        graphs.value.forEach((graph) => {
-          graph.chatSessionCount = graph.metadata?.chatSessionCount || 0
-        })
-
-        // Filter by publication state based on user role (NEW)
-        if (userStore.role !== 'Superadmin' && userStore.role !== 'Admin') {
-          // Regular users only see published graphs
-          // Graphs with SEO slugs are automatically considered published
-          graphs.value = graphs.value.filter(graph =>
-            graph.metadata?.publicationState === 'published' ||
-            graph.metadata?.seoSlug
-          )
-        }
-        // Superadmin and Admin see everything (no filtering needed)
-
-        // Update meta areas in the store
-        portfolioStore.updateMetaAreas(graphs.value)
-      } else {
-        graphs.value = []
-      }
-    } else {
+    if (!response.ok) {
       throw new Error('Failed to fetch knowledge graphs')
     }
-  } catch (err) {
-    error.value = err.message
-  } finally {
+
+    const data = await response.json()
+    const graphSummaries = Array.isArray(data.results) ? data.results : []
+    totalGraphCount.value = graphSummaries.length
+
+    if (!graphSummaries.length) {
+      portfolioStore.updateMetaAreas([])
+      return
+    }
+
+    const initialChunk = graphSummaries.slice(0, INITIAL_GRAPH_LOAD_COUNT)
+    const remaining = graphSummaries.slice(INITIAL_GRAPH_LOAD_COUNT)
+
+    const initialGraphs = await fetchGraphDetailsChunk(initialChunk)
+    if (runId !== graphFetchRunId.value) return
+
+    graphs.value = contentFilter.filterGraphsByMetaAreas(initialGraphs)
+    loadedGraphDetailsCount.value = initialChunk.length
+    portfolioStore.updateMetaAreas(graphs.value)
     loading.value = false
+
+    if (!remaining.length) {
+      await hydrateStatusesForGraphIds(
+        graphs.value.map((graph) => graph.id),
+        runId,
+      )
+      return
+    }
+
+    isHydratingGraphs.value = true
+    const remainingChunks = chunkArray(remaining, GRAPH_FETCH_CHUNK_SIZE)
+
+    for (const chunk of remainingChunks) {
+      if (runId !== graphFetchRunId.value) return
+
+      const chunkGraphs = await fetchGraphDetailsChunk(chunk)
+      if (runId !== graphFetchRunId.value) return
+
+      if (chunkGraphs.length) {
+        const visibleChunk = contentFilter.filterGraphsByMetaAreas(chunkGraphs)
+        graphs.value = graphs.value.concat(visibleChunk)
+      }
+
+      loadedGraphDetailsCount.value += chunk.length
+    }
+
+    if (runId !== graphFetchRunId.value) return
+
+    isHydratingGraphs.value = false
+    portfolioStore.updateMetaAreas(graphs.value)
+    await hydrateStatusesForGraphIds(
+      graphs.value.map((graph) => graph.id),
+      runId,
+    )
+  } catch (err) {
+    if (runId === graphFetchRunId.value) {
+      error.value = err.message
+    }
+  } finally {
+    if (runId === graphFetchRunId.value) {
+      loading.value = false
+      isHydratingGraphs.value = false
+    }
   }
 }
 
 const filteredGraphs = computed(() => {
-  let filtered = graphs.value
+  let filtered = [...graphs.value]
   if (userStore.role === 'Superadmin' && selectedOwnerEmail.value !== 'all') {
     const targetEmail = selectedOwnerEmail.value.toLowerCase()
     filtered = filtered.filter(
@@ -1364,8 +1448,8 @@ const filteredGraphs = computed(() => {
     )
   }
   // Apply search filter
-  if (portfolioStore.searchQuery) {
-    const query = portfolioStore.searchQuery.toLowerCase().trim()
+  if (debouncedSearchQuery.value) {
+    const query = debouncedSearchQuery.value.toLowerCase().trim()
 
     // Check for special :has-seo filter
     if (query === ':has-seo') {
@@ -1386,52 +1470,47 @@ const filteredGraphs = computed(() => {
         return normalizedMetaArea.includes(metaAreaSearch)
       })
     } else {
-      // Regular search (existing functionality)
       filtered = filtered.filter((graph) => {
         const categories = getCategories(graph.metadata?.category || '')
-        // Collect all node types as a string
-        const nodeTypes = Array.isArray(graph.nodes)
-          ? graph.nodes
-              .map((node) => node.type || '')
-              .join(' ')
-              .toLowerCase()
-          : ''
-
-        // Collect all node labels (titles) as a string
-        const nodeLabels = Array.isArray(graph.nodes)
-          ? graph.nodes
-              .map((node) => node.label || '')
-              .join(' ')
-              .toLowerCase()
-          : ''
-
-        // Collect all node info content as a string
-        const nodeInfoContent = Array.isArray(graph.nodes)
-          ? graph.nodes
-              .map((node) => {
-                // Handle different types of node.info content
-                if (typeof node.info === 'string') {
-                  return node.info
-                } else if (typeof node.info === 'object' && node.info !== null) {
-                  // For structured data (charts, etc.), convert to searchable string
-                  return JSON.stringify(node.info)
-                }
-                return ''
-              })
-              .join(' ')
-              .toLowerCase()
-          : ''
-
-        return (
+        if (
           graph.metadata?.title?.toLowerCase().includes(query) ||
           graph.metadata?.description?.toLowerCase().includes(query) ||
-          graph.metadata?.seoSlug?.toLowerCase().includes(query) || // Search by SEO slug
+          graph.metadata?.seoSlug?.toLowerCase().includes(query) ||
           categories.some((cat) => cat.toLowerCase().includes(query)) ||
-          graph.id?.toLowerCase().includes(query) ||
-          nodeTypes.includes(query) || // Enable node type search
-          nodeLabels.includes(query) || // Enable node label search
-          nodeInfoContent.includes(query) // Enable node content search
-        )
+          graph.id?.toLowerCase().includes(query)
+        ) {
+          return true
+        }
+
+        if (!Array.isArray(graph.nodes) || graph.nodes.length === 0) {
+          return false
+        }
+
+        for (const node of graph.nodes) {
+          if ((node?.type || '').toLowerCase().includes(query)) return true
+          if ((node?.label || '').toLowerCase().includes(query)) return true
+
+          const info = node?.info
+          if (typeof info === 'string') {
+            if (info.toLowerCase().includes(query)) return true
+            continue
+          }
+
+          if (info && typeof info === 'object') {
+            let cachedInfo = nodeInfoSearchCache.get(info)
+            if (cachedInfo === undefined) {
+              try {
+                cachedInfo = JSON.stringify(info).toLowerCase()
+              } catch {
+                cachedInfo = ''
+              }
+              nodeInfoSearchCache.set(info, cachedInfo)
+            }
+            if (cachedInfo.includes(query)) return true
+          }
+        }
+
+        return false
       })
     }
   }
@@ -1459,6 +1538,22 @@ const filteredGraphs = computed(() => {
     }
   })
 })
+
+const visibleGraphs = computed(() => filteredGraphs.value.slice(0, visibleCount.value))
+
+const remainingGraphCount = computed(() =>
+  Math.max(filteredGraphs.value.length - visibleGraphs.value.length, 0),
+)
+
+const shouldShowLoadMore = computed(() => remainingGraphCount.value > 0)
+
+const loadMoreGraphs = () => {
+  if (!shouldShowLoadMore.value) return
+  visibleCount.value = Math.min(
+    visibleCount.value + GRAPH_VISIBLE_PAGE_SIZE,
+    filteredGraphs.value.length,
+  )
+}
 
 const truncateText = (text) => {
   if (!text) return ''
@@ -1565,10 +1660,15 @@ const fetchAdminOwnerEmails = async () => {
   }
 }
 
-const getNodeTypes = (nodes) => {
-  if (!Array.isArray(nodes)) return ''
-  const types = new Set(nodes.map((node) => node?.type || 'default'))
-  return Array.from(types).join(', ')
+const getNodeTypes = (graph) => {
+  if (!graph || !Array.isArray(graph.nodes)) return ''
+  const cacheKey = `${graph.id}:${graph.nodes.length}`
+  if (nodeTypeCache.has(cacheKey)) return nodeTypeCache.get(cacheKey)
+
+  const types = new Set(graph.nodes.map((node) => node?.type || 'default'))
+  const summary = Array.from(types).join(', ')
+  nodeTypeCache.set(cacheKey, summary)
+  return summary
 }
 
 const getCategories = (categoryString) => {
@@ -2020,33 +2120,29 @@ const suggestDescription = async (graph) => {
   }
 }
 
-const getPortfolioImage = (nodes) => {
-  if (!Array.isArray(nodes)) return null
+const getPortfolioImage = (graph) => {
+  if (!graph || !Array.isArray(graph.nodes)) return null
+  const cacheKey = `${graph.id}:${graph.nodes.length}`
+  if (portfolioImageCache.has(cacheKey)) return portfolioImageCache.get(cacheKey)
 
-  const imageNode = nodes.find((node) => node.type === 'portfolio-image')
-  if (!imageNode) return null
-
-  // The path is directly on the node object
-  const path = imageNode.path
-  if (!path) {
+  const imageNode = graph.nodes.find((node) => node.type === 'portfolio-image')
+  if (!imageNode?.path) {
+    portfolioImageCache.set(cacheKey, null)
     return null
   }
 
-  return {
-    path,
+  const image = {
+    path: imageNode.path,
     label: imageNode.label || 'Portfolio Image',
   }
+  portfolioImageCache.set(cacheKey, image)
+  return image
 }
 
-// Compute galleryGraphs for the gallery view
-const galleryGraphs = computed(() =>
-  filteredGraphs.value.map((graph) => {
-    let image = null
-    if (Array.isArray(graph.nodes)) {
-      const imgNode = graph.nodes.find((n) => n.type === 'portfolio-image' && n.path)
-      if (imgNode) image = imgNode.path
-    }
-    if (!image) image = 'https://via.placeholder.com/180x120?text=No+Image'
+// Compute gallery cards only for currently visible graphs
+const visibleGalleryGraphs = computed(() =>
+  visibleGraphs.value.map((graph) => {
+    const image = getPortfolioImage(graph)?.path || 'https://via.placeholder.com/180x120?text=No+Image'
     return {
       id: graph.id,
       title: graph.metadata?.title || 'Untitled Graph',
@@ -2360,19 +2456,86 @@ const handleEscKey = (event) => {
   }
 }
 
+const setupLoadMoreObserver = async () => {
+  await nextTick()
+  if (loadMoreObserver) {
+    loadMoreObserver.disconnect()
+    loadMoreObserver = null
+  }
+
+  if (!loadMoreSentinel.value || !shouldShowLoadMore.value) return
+
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        loadMoreGraphs()
+      }
+    },
+    {
+      root: null,
+      rootMargin: '480px 0px',
+      threshold: 0.01,
+    },
+  )
+
+  loadMoreObserver.observe(loadMoreSentinel.value)
+}
+
+watch(
+  () => portfolioStore.searchQuery,
+  (value) => {
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+    }
+    searchDebounceTimer = setTimeout(() => {
+      debouncedSearchQuery.value = value || ''
+    }, 160)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    portfolioStore.searchQuery,
+    portfolioStore.sortBy,
+    portfolioStore.selectedMetaArea,
+    selectedOwnerEmail.value,
+    portfolioStore.viewMode,
+  ],
+  () => {
+    visibleCount.value = GRAPH_VISIBLE_PAGE_SIZE
+  },
+)
+
+watch(
+  () => [filteredGraphs.value.length, visibleCount.value, portfolioStore.viewMode, loading.value],
+  () => {
+    setupLoadMoreObserver()
+  },
+)
+
 // Add keyboard listener
 onMounted(() => {
   document.addEventListener('keydown', handleEscKey)
+  setupLoadMoreObserver()
 })
 
 onUnmounted(() => {
+  graphFetchRunId.value += 1
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+  if (loadMoreObserver) {
+    loadMoreObserver.disconnect()
+    loadMoreObserver = null
+  }
   document.removeEventListener('keydown', handleEscKey)
   document.body.style.overflow = '' // Cleanup
 })
 
 onMounted(async () => {
-  await fetchAdminOwnerEmails()
-  fetchGraphs()
+  await Promise.all([fetchAdminOwnerEmails(), fetchGraphs()])
 })
 
 const selectMetaArea = (area) => {
@@ -2418,6 +2581,11 @@ const filterByMetaArea = (area) => {
   border-radius: 4px;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.load-more-sentinel {
+  width: 100%;
+  height: 1px;
 }
 
 .graph-meta .badge {
