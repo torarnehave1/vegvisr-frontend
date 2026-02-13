@@ -716,6 +716,149 @@ export default {
         }
       }
 
+      // Send email via domain SMTP (Postfix at smtp.vegvisr.org)
+      // Routes through slowyou.io /api/smtp/send-domain-email
+      // Resolves per-user SMTP credentials from D1
+      if (path === '/send-email' && method === 'POST') {
+        try {
+          const body = await request.json()
+          let { fromEmail, toEmail, subject, html, text } = body || {}
+          const { userEmail, accountId } = body || {}
+
+          // Resolve account from D1 to get the fromEmail
+          if (userEmail && accountId) {
+            const data = await loadUserSettings(env, userEmail)
+            const settings = data.settings || {}
+            const accounts = Array.isArray(settings.emailAccounts) ? settings.emailAccounts : []
+
+            const account = accounts.find((a) => a.id === accountId)
+            if (!account) {
+              return addCorsHeaders(
+                new Response(
+                  JSON.stringify({ success: false, error: 'Account not found' }),
+                  { status: 404, headers: { 'Content-Type': 'application/json' } },
+                ),
+              )
+            }
+
+            fromEmail = fromEmail || account.email
+          }
+
+          if (!fromEmail || !toEmail || !subject || (!html && !text)) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'fromEmail, toEmail, subject, and html (or text) are required. Alternatively provide userEmail + accountId.',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          const smtpRelayUrl =
+            env.SMTP_RELAY_URL || 'https://slowyou.io/api/smtp/send-domain-email'
+          const smtpRelayToken = env.SLOWYOU_API_TOKEN
+
+          if (!smtpRelayToken) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: 'SLOWYOU_API_TOKEN not configured' }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          console.log('[email-worker /send-email] forwarding to SMTP relay', {
+            fromEmail,
+            toEmail,
+            subject,
+            htmlLength: html ? html.length : 0,
+          })
+
+          // SMTP credentials are handled server-side by slowyou.io env vars
+          const relayResponse = await fetch(smtpRelayUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${smtpRelayToken}`,
+            },
+            body: JSON.stringify({
+              from: fromEmail,
+              to: toEmail,
+              subject,
+              html: html || undefined,
+              text: text || undefined,
+            }),
+          })
+
+          const responseText = await relayResponse.text()
+
+          if (!relayResponse.ok) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({
+                  success: false,
+                  error: 'Failed to send email via SMTP relay',
+                  status: relayResponse.status,
+                  details: responseText,
+                }),
+                { status: relayResponse.status, headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+
+          let parsed
+          try {
+            parsed = JSON.parse(responseText)
+          } catch {
+            parsed = { raw: responseText }
+          }
+
+          // Store a copy in vemail-store-worker (sent folder)
+          const storeUrl = env.VEMAIL_STORE_URL || 'https://vemail-store-worker.post-e91.workers.dev'
+          try {
+            const snippet = html ? html.replace(/<[^>]*>/g, '').slice(0, 200) : (text || '').slice(0, 200)
+            await fetch(`${storeUrl}/emails`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userEmail: userEmail || fromEmail,
+                folder: 'sent',
+                fromAddress: fromEmail,
+                fromName: '',
+                toAddress: toEmail,
+                subject,
+                snippet,
+                bodyHtml: html || undefined,
+                bodyText: text || undefined,
+                read: 1,
+              }),
+            })
+          } catch (storeErr) {
+            console.error('[email-worker] Failed to store sent copy:', storeErr)
+          }
+
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({
+                success: true,
+                result: parsed,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        } catch (error) {
+          console.error('[email-worker /send-email] error:', error)
+          return addCorsHeaders(
+            new Response(
+              JSON.stringify({ success: false, error: 'Internal error', details: error.message }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+      }
+
       // Magic link login: send link to user email
       if (path === '/login/magic/send' && method === 'POST') {
         try {
@@ -1516,6 +1659,7 @@ export default {
             isDefault: !!account.isDefault,
             hasPassword,
             storeUrl: account.storeUrl || '',
+            accountType: account.accountType || 'gmail',
           }
 
           const idx = data.settings.emailAccounts.findIndex((a) => a.id === account.id)
@@ -1646,6 +1790,48 @@ export default {
         }
       }
 
+      // Manual Gmail sync endpoint (triggered by user)
+      if (path === '/gmail/sync-now' && method === 'POST') {
+        try {
+          const body = await request.json()
+          const { userEmail } = body
+
+          if (!userEmail) {
+            return addCorsHeaders(
+              new Response(JSON.stringify({ error: 'userEmail is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
+          }
+
+          console.log(`[Gmail Sync] Manual sync triggered for ${userEmail}`)
+
+          // Call the sync function
+          await syncGmailForUser(userEmail, env)
+
+          return addCorsHeaders(
+            new Response(JSON.stringify({
+              success: true,
+              message: 'Gmail sync completed successfully'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        } catch (error) {
+          console.error('[Gmail Sync] Manual sync error:', error)
+          return addCorsHeaders(
+            new Response(JSON.stringify({
+              error: error.message || 'Gmail sync failed'
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+      }
+
       // Default response for unknown endpoints
       return addCorsHeaders(
         new Response(
@@ -1689,4 +1875,237 @@ export default {
       )
     }
   },
+
+  // Scheduled handler for Gmail inbox sync (runs every 5 minutes)
+  async scheduled(event, env, ctx) {
+    console.log('[Gmail Sync] Starting scheduled sync at', new Date().toISOString())
+
+    try {
+      // For now, we need to know which users have Gmail credentials
+      // In production, we'd maintain a list of users with Gmail sync enabled
+      // For this initial implementation, we'll sync for the test user
+      const testUsers = ['torarnehave@gmail.com']
+
+      for (const userEmail of testUsers) {
+        try {
+          await syncGmailForUser(userEmail, env)
+        } catch (error) {
+          console.error(`[Gmail Sync] Error syncing for ${userEmail}:`, error)
+        }
+      }
+
+      console.log('[Gmail Sync] Completed scheduled sync')
+    } catch (error) {
+      console.error('[Gmail Sync] Scheduled sync error:', error)
+    }
+  },
+}
+
+// Helper function to sync Gmail for a single user
+function decodeGmailBodyData(encoded) {
+  if (!encoded || typeof encoded !== 'string') return ''
+  try {
+    // Gmail API body.data uses base64url
+    const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return ''
+  }
+}
+
+function isAttachmentPart(part) {
+  if (!part) return false
+  if (part.filename) return true
+  const headers = Array.isArray(part.headers) ? part.headers : []
+  const disposition = headers.find((h) => h?.name?.toLowerCase() === 'content-disposition')?.value || ''
+  return disposition.toLowerCase().includes('attachment')
+}
+
+function extractGmailBodies(payload) {
+  let bodyHtml = ''
+  let bodyText = ''
+
+  function walk(part) {
+    if (!part || isAttachmentPart(part)) return
+
+    const mimeType = (part.mimeType || '').toLowerCase()
+    const data = part.body?.data
+    if (data) {
+      const decoded = decodeGmailBodyData(data)
+      if (decoded) {
+        if (mimeType === 'text/html' && decoded.length > bodyHtml.length) {
+          bodyHtml = decoded
+        } else if (mimeType === 'text/plain' && decoded.length > bodyText.length) {
+          bodyText = decoded
+        }
+      }
+    }
+
+    if (Array.isArray(part.parts)) {
+      for (const child of part.parts) {
+        walk(child)
+      }
+    }
+  }
+
+  walk(payload)
+  return { bodyHtml, bodyText }
+}
+
+async function syncGmailForUser(userEmail, env) {
+  console.log(`[Gmail Sync] Syncing for user: ${userEmail}`)
+
+  const nowTs = Math.floor(Date.now() / 1000)
+  const userSettings = await loadUserSettings(env, userEmail)
+  if (!userSettings.settings) userSettings.settings = {}
+  if (!userSettings.settings.gmailSyncState) userSettings.settings.gmailSyncState = {}
+  const savedSyncState = userSettings.settings.gmailSyncState[userEmail] || {}
+  const hasPriorSync = Number.isFinite(savedSyncState.lastAfterTs)
+  // First sync starts "now" (small buffer) to avoid importing historical backlog.
+  const afterTs = hasPriorSync ? Math.max(0, Number(savedSyncState.lastAfterTs) - 120) : nowTs - 120
+
+  // Get Gmail credentials from auth-worker
+  const credsRes = await env.AUTH_WORKER.fetch('https://auth.vegvisr.org/gmail/get-credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email: userEmail }),
+  })
+
+  if (!credsRes.ok) {
+    console.log(`[Gmail Sync] No credentials for ${userEmail}`)
+    return
+  }
+
+  const credsData = await credsRes.json()
+  if (!credsData.success || !credsData.access_token) {
+    console.log(`[Gmail Sync] Invalid credentials for ${userEmail}`)
+    return
+  }
+
+  const accessToken = credsData.access_token
+
+  const gmailQuery = `is:unread after:${afterTs}`
+
+  // Fetch unread messages from Gmail (limited to new window from cursor)
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(gmailQuery)}&maxResults=10`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  )
+
+  if (!listRes.ok) {
+    console.error(`[Gmail Sync] Gmail API error: ${listRes.status}`)
+    return
+  }
+
+  const listData = await listRes.json()
+
+  if (!listData.messages || listData.messages.length === 0) {
+    console.log(`[Gmail Sync] No new messages for ${userEmail}`)
+    userSettings.settings.gmailSyncState[userEmail] = {
+      lastAfterTs: nowTs,
+      lastSyncAt: new Date().toISOString(),
+    }
+    await saveUserSettings(env, userEmail, userSettings)
+    return
+  }
+
+  console.log(`[Gmail Sync] Found ${listData.messages.length} unread messages for ${userEmail}`)
+
+  let maxSeenTs = afterTs
+
+  // Fetch and store each message
+  for (const msg of listData.messages) {
+    try {
+      const msgRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      )
+
+      if (!msgRes.ok) {
+        console.error(`[Gmail Sync] Failed to fetch message ${msg.id}`)
+        continue
+      }
+
+      const message = await msgRes.json()
+      const internalDateMs = Number(message.internalDate || 0)
+      if (Number.isFinite(internalDateMs) && internalDateMs > 0) {
+        const internalTs = Math.floor(internalDateMs / 1000)
+        if (internalTs > maxSeenTs) maxSeenTs = internalTs
+      }
+
+      // Parse headers
+      const headers = message.payload.headers
+      const subject = headers.find(h => h.name === 'Subject')?.value || '(no subject)'
+      const from = headers.find(h => h.name === 'From')?.value || 'unknown'
+      const to = headers.find(h => h.name === 'To')?.value || 'unknown'
+      const date = headers.find(h => h.name === 'Date')?.value || new Date().toISOString()
+
+      // Extract body recursively (handles multipart/alternative, multipart/related, etc.)
+      const { bodyHtml, bodyText } = extractGmailBodies(message.payload)
+
+      // Get user's email accounts to find storeUrl
+      const gmailAccount = userSettings.settings?.emailAccounts?.find(a => a.email === userEmail)
+
+      const storeUrl = gmailAccount?.storeUrl || env.VEMAIL_STORE_URL
+
+      // Store email in store-worker
+      const storeRes = await fetch(`${storeUrl}/emails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: userEmail,
+          folder: 'inbox',
+          fromAddress: from,
+          toAddress: to,
+          subject: subject,
+          snippet: message.snippet || '',
+          bodyHtml: bodyHtml || bodyText,
+          bodyText: bodyText,
+          messageId: message.id,
+          receivedAt: date,
+          read: 0,
+        }),
+      })
+
+      if (storeRes.ok) {
+        console.log(`[Gmail Sync] Stored message ${msg.id} for ${userEmail}`)
+
+        // Mark as read in Gmail
+        await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              removeLabelIds: ['UNREAD'],
+            }),
+          }
+        )
+      } else {
+        console.error(`[Gmail Sync] Failed to store message ${msg.id}`)
+      }
+    } catch (error) {
+      console.error(`[Gmail Sync] Error processing message ${msg.id}:`, error)
+    }
+  }
+
+  userSettings.settings.gmailSyncState[userEmail] = {
+    lastAfterTs: Math.max(nowTs, maxSeenTs),
+    lastSyncAt: new Date().toISOString(),
+  }
+  await saveUserSettings(env, userEmail, userSettings)
 }

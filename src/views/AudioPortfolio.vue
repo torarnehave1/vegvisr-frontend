@@ -81,6 +81,71 @@
                 </button>
               </div>
             </div>
+
+            <!-- Direct Audio Upload -->
+            <div class="direct-upload-card mb-3">
+              <div class="row g-2 align-items-end">
+                <div class="col-lg-4">
+                  <label class="form-label mb-1">🎵 Audio file</label>
+                  <input
+                    ref="directUploadInput"
+                    type="file"
+                    accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"
+                    class="form-control"
+                    @change="handleDirectUploadFileSelect"
+                  />
+                </div>
+                <div class="col-lg-3">
+                  <label class="form-label mb-1">Display name</label>
+                  <input
+                    v-model="directUploadDisplayName"
+                    type="text"
+                    class="form-control"
+                    placeholder="Optional title"
+                  />
+                </div>
+                <div class="col-lg-2">
+                  <label class="form-label mb-1">Category</label>
+                  <select v-model="directUploadCategory" class="form-select">
+                    <option value="other">other</option>
+                    <option value="music">music</option>
+                    <option value="podcast">podcast</option>
+                    <option value="general">general</option>
+                    <option value="Norwegian Transcription">Norwegian Transcription</option>
+                    <option value="Norwegian Transcription (Chunked)">Norwegian Transcription (Chunked)</option>
+                    <option value="Sanskrit Letter Audio">Sanskrit Letter Audio</option>
+                  </select>
+                </div>
+                <div class="col-lg-2">
+                  <label class="form-label mb-1">Tags</label>
+                  <input
+                    v-model="directUploadTags"
+                    type="text"
+                    class="form-control"
+                    placeholder="tag1,tag2"
+                  />
+                </div>
+                <div class="col-lg-1 d-grid">
+                  <button
+                    class="btn btn-primary"
+                    :disabled="!directUploadFile || directUploading || !userStore.loggedIn"
+                    @click="uploadAudioDirectly"
+                  >
+                    {{ directUploading ? '...' : 'Upload' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="directUploadFile" class="small text-muted mt-2">
+                Selected: {{ directUploadFile.name }} ({{ formatFileSize(directUploadFile.size) }})
+              </div>
+              <div v-if="directUploadMessage" class="alert alert-info mt-2 mb-0 py-2">
+                {{ directUploadMessage }}
+              </div>
+              <div v-if="directUploadError" class="alert alert-danger mt-2 mb-0 py-2">
+                {{ directUploadError }}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -601,6 +666,17 @@ const selectedRecording = ref(null)
 const showOnlyOwn = ref(false)
 const selectedOwnerEmail = ref('all')
 const adminOwnerEmails = ref([])
+const directUploadInput = ref(null)
+const directUploadFile = ref(null)
+const directUploadDisplayName = ref('')
+const directUploadCategory = ref('other')
+const directUploadTags = ref('')
+const directUploading = ref(false)
+const directUploadMessage = ref('')
+const directUploadError = ref('')
+
+const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
+const AUDIO_PORTFOLIO_WORKER_URL = 'https://audio-portfolio-worker.torarnehave.workers.dev'
 
 // Computed properties
 const filteredRecordings = computed(() => {
@@ -725,6 +801,123 @@ const recordingAudioUrl = (recording) => {
   }
 
   return ''
+}
+
+const handleDirectUploadFileSelect = (event) => {
+  const file = event.target?.files?.[0]
+  directUploadFile.value = file || null
+  directUploadError.value = ''
+  directUploadMessage.value = ''
+  if (file && !directUploadDisplayName.value) {
+    directUploadDisplayName.value = file.name.replace(/\.[^/.]+$/, '')
+  }
+}
+
+const getAudioDurationSeconds = (blob) =>
+  new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audio.addEventListener('loadedmetadata', () => {
+        const duration = Number.isFinite(audio.duration) ? Math.floor(audio.duration) : 0
+        URL.revokeObjectURL(url)
+        resolve(duration)
+      })
+      audio.addEventListener('error', () => {
+        URL.revokeObjectURL(url)
+        resolve(0)
+      })
+    } catch {
+      resolve(0)
+    }
+  })
+
+const uploadAudioDirectly = async () => {
+  if (!directUploadFile.value || !userStore.loggedIn) return
+
+  directUploading.value = true
+  directUploadError.value = ''
+  directUploadMessage.value = 'Uploading audio...'
+
+  try {
+    const file = directUploadFile.value
+    const duration = await getAudioDurationSeconds(file)
+
+    const uploadResponse = await fetch(`${NORWEGIAN_WORKER_URL}/upload`, {
+      method: 'POST',
+      headers: {
+        'X-File-Name': encodeURIComponent(file.name),
+      },
+      body: file,
+    })
+
+    if (!uploadResponse.ok) {
+      let msg = `Upload failed: ${uploadResponse.status}`
+      try {
+        const data = await uploadResponse.json()
+        msg = data.error || msg
+      } catch {
+        // ignore
+      }
+      throw new Error(msg)
+    }
+
+    const uploadResult = await uploadResponse.json()
+    const parsedTags = directUploadTags.value
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+
+    const recordingData = {
+      userEmail: userStore.email,
+      fileName: file.name,
+      displayName: directUploadDisplayName.value || file.name.replace(/\.[^/.]+$/, ''),
+      fileSize: file.size,
+      duration,
+      r2Key: uploadResult.r2Key,
+      r2Url: uploadResult.audioUrl,
+      transcriptionText: '',
+      category: directUploadCategory.value || 'other',
+      tags: ['audio-only', 'direct-upload', ...parsedTags],
+      audioFormat: file.type?.split('/')[1] || 'unknown',
+      aiService: 'none',
+      aiModel: 'none',
+      processingTime: 0,
+    }
+
+    const saveResponse = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/save-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Email': userStore.email,
+      },
+      body: JSON.stringify(recordingData),
+    })
+
+    if (!saveResponse.ok) {
+      let msg = `Save failed: ${saveResponse.status}`
+      try {
+        const data = await saveResponse.json()
+        msg = data.error || msg
+      } catch {
+        // ignore
+      }
+      throw new Error(msg)
+    }
+
+    directUploadMessage.value = '✅ Audio uploaded and saved to portfolio'
+    directUploadFile.value = null
+    directUploadDisplayName.value = ''
+    directUploadCategory.value = 'other'
+    directUploadTags.value = ''
+    if (directUploadInput.value) directUploadInput.value.value = ''
+    await fetchRecordings()
+  } catch (err) {
+    console.error('Direct upload failed:', err)
+    directUploadError.value = err.message || 'Direct upload failed'
+  } finally {
+    directUploading.value = false
+  }
 }
 
 watch(showOnlyOwn, (value) => {
@@ -1323,6 +1516,13 @@ onMounted(async () => {
 
 .search-box {
   min-width: 300px;
+}
+
+.direct-upload-card {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(0, 123, 255, 0.03);
 }
 
 .card {
