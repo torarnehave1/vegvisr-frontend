@@ -8367,19 +8367,20 @@ const saveNodeChanges = async () => {
         updatedAt: new Date().toISOString(),
       }
 
-      // For YouTube nodes, also update the path property
+      // Persist path for node types that use URL/file paths from edit modal
+      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map']
+      if (pathNodeTypes.includes(editingNode.value.type)) {
+        const normalizedPath = String(editingNode.value.path || '').trim()
+        updatedNode.path = normalizedPath || null
+      }
+
+      // For YouTube nodes, also maintain bibl URL (backward compatibility)
       if (editingNode.value.type === 'youtube-video') {
-        updatedNode.path = editingNode.value.path
-        // Also update bibl array if path is provided (backward compatibility)
-        if (editingNode.value.path && editingNode.value.path.trim()) {
-          updatedNode.bibl = [editingNode.value.path.trim()]
+        if (updatedNode.path) {
+          updatedNode.bibl = [updatedNode.path]
         } else {
           updatedNode.bibl = []
         }
-      }
-      // For HTML nodes, store optional poster URL in path
-      if (editingNode.value.type === 'html-node') {
-        updatedNode.path = editingNode.value.path
       }
 
       graphData.value.nodes[nodeIndex] = updatedNode
