@@ -1014,9 +1014,6 @@ const selectedImage = ref(null)
 const selectedOwnerEmail = ref('all')
 const adminOwnerEmails = ref([])
 
-// Affiliate data for badge display (metadata-based approach)
-const affiliateCache = ref(new Map()) // Cache affiliate status per graph
-
 // Image Quality Settings
 const imageQualitySettings = ref({
   preset: 'balanced',
@@ -1049,6 +1046,36 @@ const availableOwnerEmails = computed(() => {
   })
   return Array.from(emails).sort()
 })
+
+const GRAPH_TYPE_ALIASES = {
+  'html-template': 'html-template',
+  htmltemplate: 'html-template',
+  html_template: 'html-template',
+  'html template': 'html-template',
+}
+
+const normalizeGraphType = (graphType) => {
+  if (typeof graphType !== 'string') return null
+  const trimmed = graphType.trim()
+  if (!trimmed) return null
+  const normalizedKey = trimmed.toLowerCase()
+  return GRAPH_TYPE_ALIASES[normalizedKey] || trimmed
+}
+
+const inferGraphTypeFromNodes = (nodes) => {
+  if (!Array.isArray(nodes) || nodes.length === 0) return null
+  const nodeTypes = new Set(nodes.map((node) => String(node?.type || '').toLowerCase().trim()))
+  if (nodeTypes.has('html-node')) return 'html-template'
+  if (nodes.some((node) => typeof node?.info === 'string' && /<!doctype\s+html/i.test(node.info))) {
+    return 'html-template'
+  }
+  if (nodeTypes.has('css-node') && nodeTypes.size > 1) return 'html-template'
+  return null
+}
+
+const resolveGraphType = (graphType, nodes) => {
+  return normalizeGraphType(graphType) || inferGraphTypeFromNodes(nodes)
+}
 
 // Check vectorization status for multiple graphs
 const checkVectorizationStatus = async (graphIds) => {
@@ -1098,37 +1125,6 @@ const checkAmbassadorStatus = async (graphIds) => {
     // Failed to check ambassador status
   }
   return {}
-}
-
-// Check if a graph has affiliate partners by looking up the deal_name directly
-const checkAffiliateStatus = async (graphId) => {
-  if (affiliateCache.value.has(graphId)) {
-    return affiliateCache.value.get(graphId) || false
-  }
-
-  try {
-    const response = await fetch(
-      `https://aff-worker.torarnehave.workers.dev/check-affiliate-deal?deal_name=${encodeURIComponent(graphId)}`,
-    )
-
-    if (response.ok) {
-      const data = await response.json()
-
-      const hasAffiliates = data.success && data.hasAffiliates
-      affiliateCache.value.set(graphId, hasAffiliates)
-      return hasAffiliates
-    }
-  } catch {
-    // Failed to check affiliate status
-  }
-
-  affiliateCache.value.set(graphId, false)
-  return false
-}
-
-// Load affiliate deals to show affiliate badges (deprecated - keeping for compatibility)
-const loadAffiliateDeals = async () => {
-  // No longer needed since we check per graph
 }
 
 // Check if a graph has affiliate partners (from metadata)
@@ -1252,6 +1248,7 @@ const fetchGraphs = async () => {
                   updatedAt: graphData.updated_at || graphData.created_date || 'Unknown',
                   category: graphData.metadata?.category || '#Uncategorized',
                   metaArea: graphData.metadata?.metaArea || '',
+                  graphType: resolveGraphType(graphData.metadata?.graphType, nodes),
                   mystmkraUrl: graphData.metadata?.mystmkraUrl || null,
                   mystmkraDocumentId: graphData.metadata?.mystmkraDocumentId || null,
                   mystmkraNodeId: graphData.metadata?.mystmkraNodeId || null,
@@ -1583,17 +1580,19 @@ const getCategories = (categoryString) => {
 }
 
 const getGraphTypeLabel = (graphType) => {
+  const resolvedGraphType = normalizeGraphType(graphType)
   const typeMap = {
     'html-template': 'HTML Template',
   }
-  return typeMap[graphType] || graphType
+  return typeMap[resolvedGraphType] || resolvedGraphType || graphType
 }
 
 const getGraphTypeBadgeClass = (graphType) => {
+  const resolvedGraphType = normalizeGraphType(graphType)
   const classMap = {
     'html-template': 'bg-graph-type-html-template',
   }
-  return classMap[graphType] || 'bg-secondary'
+  return classMap[resolvedGraphType] || 'bg-secondary'
 }
 
 // Start editing a graph
