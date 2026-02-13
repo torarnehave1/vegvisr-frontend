@@ -1193,7 +1193,7 @@
     </div>
   </div>
 
-  <!-- HTML Import Modal (Phase 1: Paste HTML) -->
+  <!-- HTML Import Modal -->
   <div v-if="showHtmlImportModal" class="modal-overlay" @click.self="closeHtmlImportModal">
     <div class="html-import-modal">
       <div class="modal-header">
@@ -1203,9 +1203,24 @@
 
       <div class="modal-body">
         <p class="text-muted">
-          Paste either a full HTML page (<code>&lt;!DOCTYPE html&gt; ...</code>) or an HTML snippet.
-          Snippets are automatically wrapped into a full HTML document.
+          Import from URL (recommended) or paste a full HTML page/snippet.
+          URL import extracts external + inline CSS into a <code>css-node</code> and links it to an <code>html-node</code>.
         </p>
+
+        <div class="form-group mb-3">
+          <label for="htmlImportUrl"><strong>Source URL (optional)</strong></label>
+          <input
+            id="htmlImportUrl"
+            v-model="htmlImportUrl"
+            type="url"
+            class="form-control"
+            placeholder="https://example.com/"
+            :disabled="htmlImportSaving"
+          />
+          <div class="text-muted small mt-1">
+            If set, URL import is used. HTML textarea is fallback/manual mode.
+          </div>
+        </div>
 
         <div class="form-group mb-3">
           <label for="htmlImportTitle"><strong>Graph title</strong></label>
@@ -1275,7 +1290,7 @@
         <button
           class="btn btn-primary"
           @click="createHtmlImportGraph"
-          :disabled="htmlImportSaving || !htmlImportContent.trim() || !canCreateGraph"
+          :disabled="htmlImportSaving || (!htmlImportContent.trim() && !htmlImportUrl.trim()) || !canCreateGraph"
         >
           <span v-if="htmlImportSaving" class="spinner-border spinner-border-sm me-1"></span>
           {{ htmlImportSaving ? 'Importing...' : 'Create Graph' }}
@@ -2087,6 +2102,37 @@ const graphTools = [
         required: ['nodeId', 'search', 'replace']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_attach_css_to_html',
+      description: 'Attach or switch a css-node for an html-node by creating a styles edge in the current graph.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cssNodeId: { type: 'string', description: 'CSS node id (source)' },
+          htmlNodeId: { type: 'string', description: 'HTML node id (target)' },
+          replaceExisting: { type: 'boolean', description: 'Remove existing styles edges to this html node first (default true)' },
+        },
+        required: ['cssNodeId', 'htmlNodeId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_detach_css_from_html',
+      description: 'Detach styles edges for an html-node and/or css-node in the current graph.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cssNodeId: { type: 'string', description: 'Optional css node id filter' },
+          htmlNodeId: { type: 'string', description: 'Optional html node id filter' }
+        },
+        required: []
+      }
+    }
   }
 ]
 
@@ -2331,6 +2377,169 @@ async function executeGraphManipulationTool(toolName, args) {
         nodeLabel: node.label || nodeId,
         occurrencesReplaced: occurrences,
         message: `Replaced ${occurrences} occurrence(s) of "${search}" with "${replace}" in node "${node.label || nodeId}".`,
+      }
+    }
+
+    if (toolName === 'graph_attach_css_to_html') {
+      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      if (!currentGraphId) {
+        throw new Error('No current graph loaded.')
+      }
+      const cssNodeId = String(args?.cssNodeId || '').trim()
+      const htmlNodeId = String(args?.htmlNodeId || '').trim()
+      const replaceExisting = args?.replaceExisting !== false
+      if (!cssNodeId || !htmlNodeId) {
+        throw new Error('cssNodeId and htmlNodeId are required')
+      }
+
+      const currentGraph = props.graphData || knowledgeGraphStore.currentGraph
+      const nodes = Array.isArray(currentGraph?.nodes) ? currentGraph.nodes : []
+      const edges = Array.isArray(currentGraph?.edges) ? currentGraph.edges.slice() : []
+
+      const cssNode = nodes.find((n) => n.id === cssNodeId)
+      if (!cssNode) throw new Error(`CSS node not found: ${cssNodeId}`)
+      const htmlNode = nodes.find((n) => n.id === htmlNodeId)
+      if (!htmlNode) throw new Error(`HTML node not found: ${htmlNodeId}`)
+
+      if (cssNode.type && cssNode.type !== 'css-node') {
+        throw new Error(`Node ${cssNodeId} is type "${cssNode.type}", expected "css-node"`)
+      }
+      if (htmlNode.type && htmlNode.type !== 'html-node') {
+        throw new Error(`Node ${htmlNodeId} is type "${htmlNode.type}", expected "html-node"`)
+      }
+
+      let removedStylesEdges = 0
+      let nextEdges = edges
+      if (replaceExisting) {
+        nextEdges = nextEdges.filter((edge) => {
+          const isStyles = String(edge?.label || edge?.type || '').toLowerCase() === 'styles'
+          const matchTarget = edge?.target === htmlNodeId
+          if (isStyles && matchTarget) removedStylesEdges += 1
+          return !(isStyles && matchTarget)
+        })
+      }
+
+      const hasEdge = nextEdges.some((edge) => {
+        const isStyles = String(edge?.label || edge?.type || '').toLowerCase() === 'styles'
+        return isStyles && edge?.source === cssNodeId && edge?.target === htmlNodeId
+      })
+      if (!hasEdge) {
+        nextEdges.push({
+          id: createGraphId('edge'),
+          source: cssNodeId,
+          target: htmlNodeId,
+          type: 'styles',
+          label: 'styles',
+        })
+      }
+
+      const updatedGraphData = {
+        ...currentGraph,
+        id: currentGraphId,
+        nodes,
+        edges: nextEdges,
+        metadata: {
+          ...(currentGraph?.metadata || {}),
+          updated: new Date().toISOString(),
+          updatedBy: userId,
+        },
+      }
+
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
+        body: JSON.stringify({
+          id: currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to update graph: ${response.status} - ${errorText}`)
+      }
+      await response.json().catch(() => ({}))
+
+      knowledgeGraphStore.setCurrentGraph(updatedGraphData)
+      emit('graph-updated', { graphId: currentGraphId, graphData: updatedGraphData })
+
+      return {
+        status: 'success',
+        graphId: currentGraphId,
+        cssNodeId,
+        htmlNodeId,
+        replaceExisting,
+        removedStylesEdges,
+        createdStylesEdge: !hasEdge,
+        message: `Attached css node "${cssNodeId}" to html node "${htmlNodeId}".`,
+      }
+    }
+
+    if (toolName === 'graph_detach_css_from_html') {
+      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      if (!currentGraphId) {
+        throw new Error('No current graph loaded.')
+      }
+      const cssNodeId = String(args?.cssNodeId || '').trim()
+      const htmlNodeId = String(args?.htmlNodeId || '').trim()
+      if (!cssNodeId && !htmlNodeId) {
+        throw new Error('Provide cssNodeId and/or htmlNodeId')
+      }
+
+      const currentGraph = props.graphData || knowledgeGraphStore.currentGraph
+      const edges = Array.isArray(currentGraph?.edges) ? currentGraph.edges : []
+      const nextEdges = edges.filter((edge) => {
+        const isStyles = String(edge?.label || edge?.type || '').toLowerCase() === 'styles'
+        if (!isStyles) return true
+        if (cssNodeId && edge?.source !== cssNodeId) return true
+        if (htmlNodeId && edge?.target !== htmlNodeId) return true
+        return false
+      })
+      const removedStylesEdges = edges.length - nextEdges.length
+
+      const updatedGraphData = {
+        ...currentGraph,
+        id: currentGraphId,
+        nodes: Array.isArray(currentGraph?.nodes) ? currentGraph.nodes : [],
+        edges: nextEdges,
+        metadata: {
+          ...(currentGraph?.metadata || {}),
+          updated: new Date().toISOString(),
+          updatedBy: userId,
+        },
+      }
+
+      const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
+        body: JSON.stringify({
+          id: currentGraphId,
+          graphData: updatedGraphData,
+          override: true,
+        }),
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to update graph: ${response.status} - ${errorText}`)
+      }
+      await response.json().catch(() => ({}))
+
+      knowledgeGraphStore.setCurrentGraph(updatedGraphData)
+      emit('graph-updated', { graphId: currentGraphId, graphData: updatedGraphData })
+
+      return {
+        status: 'success',
+        graphId: currentGraphId,
+        cssNodeId: cssNodeId || null,
+        htmlNodeId: htmlNodeId || null,
+        removedStylesEdges,
+        message: `Detached ${removedStylesEdges} styles edge(s).`,
       }
     }
 
@@ -2817,6 +3026,7 @@ const rawJsonCopyState = ref('Copy JSON')
 const showHtmlImportModal = ref(false)
 const htmlImportTitle = ref('')
 const htmlImportDescription = ref('')
+const htmlImportUrl = ref('')
 const htmlImportContent = ref('')
 const htmlImportRemoveInlineStyles = ref(false)
 const htmlImportSaving = ref(false)
@@ -2826,6 +3036,7 @@ const htmlImportCreatedGraphId = ref('')
 const graphProcessingJobs = ref([])
 
 const CHAT_HISTORY_BASE_URL = 'https://api.vegvisr.org/chat-history'
+const HTML_IMPORT_WORKER_BASE = 'https://test-domain-worker.torarnehave.workers.dev'
 const RESUME_SESSION_ON_LOAD = false
 const chatSessionId = ref(null)
 const lastInitializedSessionKey = ref(null)
@@ -4697,6 +4908,7 @@ const stripInlineStyleBlocks = (htmlDocument) => {
 const resetHtmlImportState = () => {
   htmlImportTitle.value = ''
   htmlImportDescription.value = ''
+  htmlImportUrl.value = ''
   htmlImportContent.value = ''
   htmlImportRemoveInlineStyles.value = false
   htmlImportSaving.value = false
@@ -4728,10 +4940,11 @@ const createHtmlImportGraph = async () => {
 
   const title = (htmlImportTitle.value || '').trim() || `Imported HTML ${new Date().toLocaleDateString('no-NO')}`
   const description = (htmlImportDescription.value || '').trim() || 'Imported from Grok Chat panel'
-  const normalizedHtmlDocument = normalizeHtmlImportInput(htmlImportContent.value, title)
+  const sourceUrl = (htmlImportUrl.value || '').trim()
+  const normalizedHtmlDocument = sourceUrl ? null : normalizeHtmlImportInput(htmlImportContent.value, title)
 
-  if (!normalizedHtmlDocument) {
-    htmlImportError.value = 'Lim inn gyldig HTML først.'
+  if (!sourceUrl && !normalizedHtmlDocument) {
+    htmlImportError.value = 'Legg inn en URL eller lim inn gyldig HTML først.'
     return
   }
 
@@ -4740,6 +4953,55 @@ const createHtmlImportGraph = async () => {
   htmlImportCreatedGraphId.value = ''
 
   try {
+    if (sourceUrl) {
+      let parsedUrl
+      try {
+        parsedUrl = new URL(sourceUrl)
+      } catch {
+        throw new Error('Ugyldig URL.')
+      }
+      if (!/^https?:$/i.test(parsedUrl.protocol)) {
+        throw new Error('Kun http(s)-URL støttes.')
+      }
+
+      const response = await fetch(`${HTML_IMPORT_WORKER_BASE}/import-html`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: parsedUrl.toString(),
+          title,
+          description,
+          createdBy: userStore.email || userStore.user_id || 'unknown',
+          category: '#HTMLTemplate',
+          metaArea: '#Imported',
+          publicationState: 'draft',
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result?.success === false) {
+        throw new Error(result?.message || `Failed with status ${response.status}`)
+      }
+
+      const finalGraphId = result.graphId || result.id
+      if (!finalGraphId) {
+        throw new Error('Import endpoint returned no graph id.')
+      }
+
+      htmlImportCreatedGraphId.value = finalGraphId
+
+      messages.value.push({
+        role: 'assistant',
+        content: `✅ URL imported successfully and saved as graph \`${finalGraphId}\` with css-node + html-node structure.`,
+        provider: provider.value,
+        timestamp: new Date().toISOString(),
+      })
+
+      return
+    }
+
     const nowIso = new Date().toISOString()
     const graphId = createGraphId('html_graph')
     const htmlNodeId = createGraphId('html_node')
@@ -6913,6 +7175,8 @@ You can directly manipulate and persist the knowledge graph data to the database
 - graph_save_new - Save the current graph as a NEW knowledge graph with a custom title and description
 - graph_update_current - Update the current graph with modified nodes, edges, or metadata
 - graph_node_search_replace - Fast search-and-replace within a node's info field (PREFERRED for simple text changes)
+- graph_attach_css_to_html - Link a css-node to an html-node with a styles edge
+- graph_detach_css_from_html - Remove styles edges from html-node/css-node
 
 IMPORTANT — PREFER graph_node_search_replace FOR SIMPLE EDITS:
 When the user asks to change a color, rename a class, update a word, or make any small text change in a node, ALWAYS use graph_node_search_replace instead of graph_update_current. It is much faster because it only sends the search/replace strings instead of the entire node content. Only use graph_update_current when you need to rewrite large portions of the content.

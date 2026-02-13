@@ -288,11 +288,24 @@ const collectCssNodes = (nodeId, graphData) => {
 
   // Find all CSS nodes
   const cssNodes = graphData.nodes.filter(n => n.type === 'css-node')
+  const styleEdges = Array.isArray(graphData.edges)
+    ? graphData.edges.filter((edge) => {
+        const edgeType = String(edge?.label || edge?.type || '').toLowerCase()
+        return edgeType === 'styles'
+      })
+    : []
+  const cssNodeIdsFromEdges = new Set(
+    styleEdges
+      .filter((edge) => edge?.target === nodeId && edge?.source)
+      .map((edge) => edge.source)
+  )
 
-  // Filter by applicability: appliesTo contains this nodeId or '*' (global)
+  // Filter by applicability:
+  // 1) styles edge: css-node -> html-node
+  // 2) metadata.appliesTo includes this nodeId or '*'
   const applicableCss = cssNodes.filter(node => {
     const appliesTo = node.metadata?.appliesTo || []
-    return appliesTo.includes(nodeId) || appliesTo.includes('*')
+    return cssNodeIdsFromEdges.has(node.id) || appliesTo.includes(nodeId) || appliesTo.includes('*')
   })
 
   // Sort by priority (lower priority value = higher priority = loads first)
