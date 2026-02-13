@@ -188,6 +188,20 @@
           <span v-if="apiSearchLoading" class="context-indicator">Searching...</span>
           <span v-else-if="apiSearchError" class="context-indicator muted">{{ apiSearchError }}</span>
         </div>
+        <div class="context-row">
+          <button
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="openHtmlImportModal"
+            :disabled="!canCreateGraph"
+            title="Paste HTML and create a new knowledge graph"
+          >
+            📥 Import HTML
+          </button>
+          <span v-if="!canCreateGraph" class="context-indicator muted">
+            Logg inn for å opprette graf
+          </span>
+        </div>
         <div v-if="apiLookupOpen" class="api-lookup-panel">
           <div class="api-lookup-input">
             <input
@@ -1175,6 +1189,105 @@
             Avbryt
           </button>
         </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- HTML Import Modal (Phase 1: Paste HTML) -->
+  <div v-if="showHtmlImportModal" class="modal-overlay" @click.self="closeHtmlImportModal">
+    <div class="html-import-modal">
+      <div class="modal-header">
+        <h3>📥 Import HTML to Knowledge Graph</h3>
+        <button class="btn-close" @click="closeHtmlImportModal" :disabled="htmlImportSaving">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="text-muted">
+          Paste either a full HTML page (<code>&lt;!DOCTYPE html&gt; ...</code>) or an HTML snippet.
+          Snippets are automatically wrapped into a full HTML document.
+        </p>
+
+        <div class="form-group mb-3">
+          <label for="htmlImportTitle"><strong>Graph title</strong></label>
+          <input
+            id="htmlImportTitle"
+            v-model="htmlImportTitle"
+            type="text"
+            class="form-control"
+            placeholder="Imported HTML Template"
+            :disabled="htmlImportSaving"
+          />
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="htmlImportDescription"><strong>Description (optional)</strong></label>
+          <input
+            id="htmlImportDescription"
+            v-model="htmlImportDescription"
+            type="text"
+            class="form-control"
+            placeholder="Imported from Grok Chat panel"
+            :disabled="htmlImportSaving"
+          />
+        </div>
+
+        <div class="form-group mb-2">
+          <label for="htmlImportContent"><strong>HTML content</strong></label>
+          <textarea
+            id="htmlImportContent"
+            v-model="htmlImportContent"
+            class="form-control html-import-textarea"
+            rows="14"
+            placeholder="Paste full HTML document or snippet here..."
+            :disabled="htmlImportSaving"
+          ></textarea>
+        </div>
+
+        <div class="text-muted small mb-2">
+          {{ htmlImportCharacterCount }} chars ({{ htmlImportSizeKb }} KB)
+        </div>
+
+        <div class="form-check mb-3 html-import-option">
+          <input
+            id="htmlImportRemoveInlineStyles"
+            v-model="htmlImportRemoveInlineStyles"
+            class="form-check-input"
+            type="checkbox"
+            :disabled="htmlImportSaving"
+          />
+          <label class="form-check-label" for="htmlImportRemoveInlineStyles">
+            Remove inline <code>&lt;style&gt;</code> tags from HTML after extracting CSS node
+          </label>
+        </div>
+
+        <div v-if="htmlImportError" class="error-state compact">
+          <p class="error-message mb-0">{{ htmlImportError }}</p>
+        </div>
+        <div v-if="htmlImportCreatedGraphId && !htmlImportError" class="success-message compact">
+          ✅ Graph created: <code>{{ htmlImportCreatedGraphId }}</code>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="closeHtmlImportModal" :disabled="htmlImportSaving">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          @click="createHtmlImportGraph"
+          :disabled="htmlImportSaving || !htmlImportContent.trim() || !canCreateGraph"
+        >
+          <span v-if="htmlImportSaving" class="spinner-border spinner-border-sm me-1"></span>
+          {{ htmlImportSaving ? 'Importing...' : 'Create Graph' }}
+        </button>
+        <button
+          v-if="htmlImportCreatedGraphId"
+          class="btn btn-success"
+          @click="openImportedHtmlGraph"
+          :disabled="htmlImportSaving"
+        >
+          📂 Open Graph
+        </button>
       </div>
     </div>
   </div>
@@ -2700,6 +2813,16 @@ const caseGraphSourceMessage = ref(null)
 const showRawJsonModal = ref(false)
 const rawJsonCopyState = ref('Copy JSON')
 
+// HTML Import (Phase 1: paste HTML/snippet)
+const showHtmlImportModal = ref(false)
+const htmlImportTitle = ref('')
+const htmlImportDescription = ref('')
+const htmlImportContent = ref('')
+const htmlImportRemoveInlineStyles = ref(false)
+const htmlImportSaving = ref(false)
+const htmlImportError = ref('')
+const htmlImportCreatedGraphId = ref('')
+
 const graphProcessingJobs = ref([])
 
 const CHAT_HISTORY_BASE_URL = 'https://api.vegvisr.org/chat-history'
@@ -3002,6 +3125,8 @@ const userInitial = computed(() => {
 })
 
 const canCreateGraph = computed(() => Boolean(userStore.emailVerificationToken))
+const htmlImportCharacterCount = computed(() => htmlImportContent.value.length)
+const htmlImportSizeKb = computed(() => (htmlImportCharacterCount.value / 1024).toFixed(1))
 
 // Provider image support
 const providerSupportsImages = computed(() => {
@@ -4506,6 +4631,251 @@ const createGraphId = (prefix = 'graph') => {
     ? crypto.randomUUID()
     : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   return `${prefix}_${randomPart}`
+}
+
+const escapeHtmlText = (value = '') => {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const normalizeHtmlImportInput = (rawHtml, fallbackTitle = 'Imported HTML') => {
+  if (typeof rawHtml !== 'string') return null
+  const trimmed = rawHtml.trim()
+  if (!trimmed) return null
+
+  const fenceMatch = trimmed.match(/```(?:html)?\s*([\s\S]*?)```/i)
+  const candidate = (fenceMatch ? fenceMatch[1] : trimmed).trim()
+  if (!candidate) return null
+
+  const fullDocument = extractHtmlDocument(candidate)
+  if (fullDocument) {
+    return fullDocument
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtmlText(fallbackTitle || 'Imported HTML')}</title>
+</head>
+<body>
+${candidate}
+</body>
+</html>`
+}
+
+const extractInlineCssBlocks = (htmlDocument) => {
+  if (typeof htmlDocument !== 'string' || !htmlDocument.trim()) {
+    return { cssText: '', styleBlockCount: 0 }
+  }
+
+  const styleMatches = Array.from(htmlDocument.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
+  if (!styleMatches.length) {
+    return { cssText: '', styleBlockCount: 0 }
+  }
+
+  const cssChunks = styleMatches
+    .map((match) => String(match?.[1] || '').trim())
+    .filter(Boolean)
+
+  return {
+    cssText: cssChunks.join('\n\n'),
+    styleBlockCount: cssChunks.length,
+  }
+}
+
+const stripInlineStyleBlocks = (htmlDocument) => {
+  if (typeof htmlDocument !== 'string' || !htmlDocument.trim()) return htmlDocument
+  return htmlDocument.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+}
+
+const resetHtmlImportState = () => {
+  htmlImportTitle.value = ''
+  htmlImportDescription.value = ''
+  htmlImportContent.value = ''
+  htmlImportRemoveInlineStyles.value = false
+  htmlImportSaving.value = false
+  htmlImportError.value = ''
+  htmlImportCreatedGraphId.value = ''
+}
+
+const openHtmlImportModal = () => {
+  if (!canCreateGraph.value) {
+    htmlImportError.value = 'Logg inn for å opprette graf.'
+    return
+  }
+  resetHtmlImportState()
+  htmlImportTitle.value = `Imported HTML ${new Date().toLocaleDateString('no-NO')}`
+  showHtmlImportModal.value = true
+}
+
+const closeHtmlImportModal = () => {
+  if (htmlImportSaving.value) return
+  showHtmlImportModal.value = false
+  resetHtmlImportState()
+}
+
+const createHtmlImportGraph = async () => {
+  if (!canCreateGraph.value) {
+    htmlImportError.value = 'Logg inn for å opprette graf.'
+    return
+  }
+
+  const title = (htmlImportTitle.value || '').trim() || `Imported HTML ${new Date().toLocaleDateString('no-NO')}`
+  const description = (htmlImportDescription.value || '').trim() || 'Imported from Grok Chat panel'
+  const normalizedHtmlDocument = normalizeHtmlImportInput(htmlImportContent.value, title)
+
+  if (!normalizedHtmlDocument) {
+    htmlImportError.value = 'Lim inn gyldig HTML først.'
+    return
+  }
+
+  htmlImportSaving.value = true
+  htmlImportError.value = ''
+  htmlImportCreatedGraphId.value = ''
+
+  try {
+    const nowIso = new Date().toISOString()
+    const graphId = createGraphId('html_graph')
+    const htmlNodeId = createGraphId('html_node')
+    const { cssText: extractedInlineCss, styleBlockCount } = extractInlineCssBlocks(normalizedHtmlDocument)
+    const cssNodeId = extractedInlineCss ? createGraphId('css_node') : null
+    const shouldRemoveInlineStyles = Boolean(
+      htmlImportRemoveInlineStyles.value && cssNodeId && styleBlockCount > 0
+    )
+    const htmlDocument = shouldRemoveInlineStyles
+      ? stripInlineStyleBlocks(normalizedHtmlDocument)
+      : normalizedHtmlDocument
+
+    const nodes = [
+      {
+        id: htmlNodeId,
+        label: 'Imported HTML Page',
+        type: 'html-node',
+        color: '#f8f9fa',
+        info: htmlDocument,
+        bibl: [],
+        imageWidth: '100%',
+        imageHeight: '100%',
+        visible: true,
+        path: null,
+        position: { x: 100, y: 100 },
+      },
+    ]
+
+    const edges = []
+
+    if (cssNodeId) {
+      nodes.unshift({
+        id: cssNodeId,
+        label: `${title} Styles`,
+        type: 'css-node',
+        color: '#fff3cd',
+        info: extractedInlineCss,
+        bibl: [],
+        visible: true,
+        path: null,
+        position: { x: 100, y: -120 },
+        metadata: {
+          appliesTo: [htmlNodeId],
+          priority: 100,
+          source: 'inline-style',
+          extractedFrom: htmlNodeId,
+          styleBlockCount,
+          removedInlineStylesFromHtmlNode: shouldRemoveInlineStyles,
+          extractedAt: nowIso,
+        },
+      })
+
+      // Keep a styles edge so imported graphs match the documented html-template structure.
+      edges.push({
+        id: createGraphId('edge'),
+        source: cssNodeId,
+        target: htmlNodeId,
+        type: 'styles',
+        label: 'styles',
+      })
+    }
+
+    const graphData = {
+      id: graphId,
+      metadata: {
+        title,
+        description,
+        createdBy: userStore.email || userStore.user_id || 'unknown',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        publicationState: 'draft',
+        graphType: 'html-template',
+        category: '#HTMLTemplate',
+        metaArea: '#Imported',
+        source: 'GrokChatPanel',
+        version: 1,
+      },
+      nodes,
+      edges,
+    }
+
+    const response = await fetch(KNOWLEDGE_GRAPH_SAVE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken || '',
+        'x-user-role': userStore.role || '',
+      },
+      body: JSON.stringify({
+        id: graphId,
+        graphData,
+        override: true,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `Failed with status ${response.status}`)
+    }
+
+    const result = await response.json().catch(() => ({}))
+    const finalGraphId = result.graphId || result.id || graphId
+    htmlImportCreatedGraphId.value = finalGraphId
+
+    knowledgeGraphStore.setCurrentGraphId(finalGraphId)
+    knowledgeGraphStore.updateGraphFromJson({
+      nodes: graphData.nodes,
+      edges: graphData.edges,
+      metadata: graphData.metadata,
+    })
+
+    messages.value.push({
+      role: 'assistant',
+      content: `✅ HTML imported successfully and saved as graph \`${finalGraphId}\`${cssNodeId ? ` with inline CSS extracted (${styleBlockCount} style block${styleBlockCount === 1 ? '' : 's'})${shouldRemoveInlineStyles ? ' and removed from HTML node.' : '.'}` : '.'}`,
+      provider: provider.value,
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error('Failed to import HTML graph:', error)
+    htmlImportError.value = error?.message || 'Kunne ikke importere HTML.'
+  } finally {
+    htmlImportSaving.value = false
+  }
+}
+
+const openImportedHtmlGraph = () => {
+  if (!htmlImportCreatedGraphId.value) return
+  try {
+    if (typeof window !== 'undefined') {
+      window.open(`/gnew-viewer?graphId=${htmlImportCreatedGraphId.value}`, '_blank')
+      return
+    }
+    router.push(`/gnew-viewer?graphId=${htmlImportCreatedGraphId.value}`)
+  } catch (error) {
+    console.error('Failed to open imported HTML graph:', error)
+  }
 }
 
 const buildRetryMessage = (question, detail) => {
@@ -8825,6 +9195,39 @@ watch(
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.html-import-modal {
+  background: white;
+  border-radius: 12px;
+  width: 95%;
+  max-width: 900px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.html-import-textarea {
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  min-height: 260px;
+  resize: vertical;
+}
+
+.html-import-option {
+  padding: 0.5rem 0.25rem;
+}
+
+.error-state.compact {
+  text-align: left;
+  padding: 0.5rem 0;
+}
+
+.success-message.compact {
+  margin: 0.5rem 0 0;
+  color: #0f5132;
 }
 
 .batch-step {
