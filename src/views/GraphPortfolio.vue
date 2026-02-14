@@ -1254,6 +1254,35 @@ const fetchGraphDetailsChunk = async (chunk) => {
   return results.filter((graph) => graph !== null)
 }
 
+const parseGraphDateToEpoch = (value) => {
+  if (!value) return 0
+  const timestamp = Date.parse(String(value))
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+const parseTimestampFromGraphId = (graphId) => {
+  if (!graphId) return 0
+  const match = String(graphId).match(/(\d{10,})$/)
+  if (!match) return 0
+  const raw = match[1]
+  // Graph IDs usually embed ms timestamps; support seconds as fallback.
+  return raw.length >= 13 ? Number(raw.slice(0, 13)) : Number(raw) * 1000
+}
+
+const getGraphSummaryRecency = (summary) => {
+  const fromDates =
+    parseGraphDateToEpoch(summary?.updatedAt) ||
+    parseGraphDateToEpoch(summary?.updated_at) ||
+    parseGraphDateToEpoch(summary?.createdAt) ||
+    parseGraphDateToEpoch(summary?.created_date)
+
+  if (fromDates > 0) return fromDates
+  return parseTimestampFromGraphId(summary?.id)
+}
+
+const sortGraphSummariesByRecent = (summaries) =>
+  [...summaries].sort((a, b) => getGraphSummaryRecency(b) - getGraphSummaryRecency(a))
+
 const fetchGraphSummariesPage = async (offset, limit) => {
   const response = await fetch(
     apiUrls.getKnowledgeGraphSummaries({
@@ -1466,7 +1495,7 @@ const fetchGraphsLegacyFromDetails = async (runId) => {
   }
 
   const data = await response.json()
-  const graphSummaries = Array.isArray(data.results) ? data.results : []
+  const graphSummaries = sortGraphSummariesByRecent(Array.isArray(data.results) ? data.results : [])
   totalGraphCount.value = graphSummaries.length
 
   if (!graphSummaries.length) {
@@ -1528,6 +1557,20 @@ const fetchGraphs = async () => {
   graphs.value = []
   nodeTypeCache.clear()
   portfolioImageCache.clear()
+
+  // Table view can write unsupported sort keys ("title", "updatedAt") to the shared store.
+  // Reset to a supported value so newest-first ordering is always preserved on load.
+  const supportedSorts = new Set([
+    'title-asc',
+    'title-desc',
+    'date-desc',
+    'date-asc',
+    'nodes',
+    'category',
+  ])
+  if (!supportedSorts.has(portfolioStore.sortBy)) {
+    portfolioStore.sortBy = 'date-desc'
+  }
 
   try {
     let offset = 0

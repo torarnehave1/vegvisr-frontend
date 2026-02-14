@@ -5,26 +5,26 @@
         <tr>
           <th @click="setSort('title')">
             Title
-            <span v-if="portfolioStore.sortBy === 'title'">
-              {{ portfolioStore.sortDirection === 'asc' ? '▲' : '▼' }}
+            <span v-if="localSortBy === 'title'">
+              {{ localSortDirection === 'asc' ? '▲' : '▼' }}
             </span>
           </th>
           <th @click="setSort('createdBy')">
             Created By
-            <span v-if="portfolioStore.sortBy === 'createdBy'">
-              {{ portfolioStore.sortDirection === 'asc' ? '▲' : '▼' }}
+            <span v-if="localSortBy === 'createdBy'">
+              {{ localSortDirection === 'asc' ? '▲' : '▼' }}
             </span>
           </th>
           <th @click="setSort('nodes')">
             Node Count
-            <span v-if="portfolioStore.sortBy === 'nodes'">
-              {{ portfolioStore.sortDirection === 'asc' ? '▲' : '▼' }}
+            <span v-if="localSortBy === 'nodes'">
+              {{ localSortDirection === 'asc' ? '▲' : '▼' }}
             </span>
           </th>
           <th @click="setSort('updatedAt')">
             Last Updated
-            <span v-if="portfolioStore.sortBy === 'updatedAt'">
-              {{ portfolioStore.sortDirection === 'asc' ? '▲' : '▼' }}
+            <span v-if="localSortBy === 'updatedAt'">
+              {{ localSortDirection === 'asc' ? '▲' : '▼' }}
             </span>
           </th>
           <th>Actions</th>
@@ -60,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useUserStore } from '@/stores/userStore'
 
@@ -77,18 +77,16 @@ const props = defineProps({
 
 const portfolioStore = usePortfolioStore()
 const userStore = useUserStore()
-
-// Add sortDirection to the store if not present
-if (!('sortDirection' in portfolioStore)) {
-  portfolioStore.sortDirection = 'asc'
-}
+const localSortBy = ref('updatedAt')
+const localSortDirection = ref('desc')
 
 function setSort(column) {
-  if (portfolioStore.sortBy === column) {
-    portfolioStore.sortDirection = portfolioStore.sortDirection === 'asc' ? 'desc' : 'asc'
+  if (localSortBy.value === column) {
+    localSortDirection.value = localSortDirection.value === 'asc' ? 'desc' : 'asc'
   } else {
-    portfolioStore.sortBy = column
-    portfolioStore.sortDirection = 'asc'
+    localSortBy.value = column
+    // Keep "Last Updated" newest-first by default; others start ascending.
+    localSortDirection.value = column === 'updatedAt' ? 'desc' : 'asc'
   }
 }
 
@@ -127,10 +125,10 @@ const sortedGraphs = computed(() => {
     })
   }
   // Sort
-  const dir = portfolioStore.sortDirection === 'desc' ? -1 : 1
+  const dir = localSortDirection.value === 'desc' ? -1 : 1
   return filtered.slice().sort((a, b) => {
     let cmp = 0
-    switch (portfolioStore.sortBy) {
+    switch (localSortBy.value) {
       case 'title':
         cmp = (a.metadata?.title || '').localeCompare(b.metadata?.title || '')
         break
