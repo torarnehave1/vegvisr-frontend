@@ -251,13 +251,6 @@
               </div>
             </div>
 
-            <div v-if="isHydratingGraphs" class="alert alert-info py-2 mt-3" role="status">
-              <small>
-                Loading portfolio details:
-                <strong>{{ loadedGraphDetailsCount }}</strong> / <strong>{{ totalGraphCount }}</strong>
-              </small>
-            </div>
-
             <!-- Simple View (GraphGallery) -->
             <GraphGallery
               v-if="portfolioStore.viewMode === 'simple'"
@@ -1031,7 +1024,7 @@ const debouncedSearchQuery = ref('')
 const totalGraphCount = ref(0)
 const loadedGraphDetailsCount = ref(0)
 const isHydratingGraphs = ref(false)
-const visibleCount = ref(24)
+const visibleCount = ref(20)
 const loadMoreSentinel = ref(null)
 const graphFetchRunId = ref(0)
 const nodeInfoSearchCache = new WeakMap()
@@ -1040,11 +1033,11 @@ const portfolioImageCache = new Map()
 let loadMoreObserver = null
 let searchDebounceTimer = null
 
-const INITIAL_GRAPH_LOAD_COUNT = 24
+const INITIAL_GRAPH_LOAD_COUNT = 20
 const GRAPH_FETCH_CHUNK_SIZE = 8
-const GRAPH_SUMMARY_INITIAL_COUNT = 80
+const GRAPH_SUMMARY_INITIAL_COUNT = 20
 const GRAPH_SUMMARY_PAGE_SIZE = 120
-const GRAPH_VISIBLE_PAGE_SIZE = 24
+const GRAPH_VISIBLE_PAGE_SIZE = 20
 const STATUS_FETCH_CHUNK_SIZE = 120
 
 // Image Quality Settings
@@ -1276,7 +1269,9 @@ const fetchGraphSummariesPage = async (offset, limit) => {
   }
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch graph summaries: ${response.status}`)
+    const error = new Error(`Failed to fetch graph summaries: ${response.status}`)
+    error.code = 'SUMMARY_ENDPOINT_FAILED'
+    throw error
   }
 
   const data = await response.json()
@@ -1594,8 +1589,21 @@ const fetchGraphs = async () => {
       portfolioStore.updateMetaAreas([])
     }
   } catch (err) {
-    if (err?.code === 'SUMMARY_ENDPOINT_UNAVAILABLE') {
-      console.warn('[GraphPortfolio] Summary endpoint unavailable, falling back to full graph fetch.')
+    const message = String(err?.message || '')
+    const shouldFallbackToLegacy =
+      err?.code === 'SUMMARY_ENDPOINT_UNAVAILABLE' ||
+      err?.code === 'SUMMARY_ENDPOINT_FAILED' ||
+      err?.name === 'TypeError' ||
+      err?.name === 'SyntaxError' ||
+      message.includes('Failed to fetch') ||
+      message.includes('Load failed') ||
+      message.includes('NetworkError')
+
+    if (shouldFallbackToLegacy) {
+      console.warn(
+        '[GraphPortfolio] Summary fetch failed, falling back to full graph fetch.',
+        err,
+      )
       try {
         await fetchGraphsLegacyFromDetails(runId)
       } catch (legacyError) {
