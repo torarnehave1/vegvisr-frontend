@@ -13,6 +13,7 @@ export const API_CONFIG = {
   // Specific endpoints
   endpoints: {
     getKnowledgeGraphs: '/getknowgraphs',
+    getKnowledgeGraphSummaries: '/getknowgraphsummaries',
     getKnowledgeGraph: '/getknowgraph',
     saveKnowledgeGraph: '/saveknowgraph',
     updateKnowledgeGraph: '/updateknowgraph',
@@ -51,6 +52,7 @@ export function getApiUrl(endpoint, params = {}, useKnowledgeWorker = false) {
 export const apiUrls = {
   // Knowledge graph endpoints (use knowledge worker)
   getKnowledgeGraphs: () => getApiUrl('getKnowledgeGraphs', {}, true),
+  getKnowledgeGraphSummaries: (params = {}) => getApiUrl('getKnowledgeGraphSummaries', params, true),
   getKnowledgeGraph: (id) => getApiUrl('getKnowledgeGraph', { id }, true),
   saveKnowledgeGraph: () => getApiUrl('saveKnowledgeGraph', {}, true),
   updateKnowledgeGraph: () => getApiUrl('updateKnowledgeGraph', {}, true),

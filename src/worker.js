@@ -1,5 +1,5 @@
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request) {
     const url = new URL(request.url)
     const hostname = url.hostname
     console.log('Incoming request hostname:', hostname)
@@ -7,6 +7,7 @@ export default {
     // Determine the target URL based on the path
     let targetUrl
     if (
+      url.pathname.startsWith('/getknowgraphsummaries') ||
       url.pathname.startsWith('/getknowgraphs') ||
       url.pathname.startsWith('/getknowgraph') ||
       url.pathname.startsWith('/saveknowgraph') ||

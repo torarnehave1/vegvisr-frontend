@@ -453,13 +453,13 @@
                         </p>
                         <div class="graph-meta">
                           <span class="badge bg-primary">
-                            {{ Array.isArray(graph.nodes) ? graph.nodes.length : 0 }} Nodes
-                            <small v-if="Array.isArray(graph.nodes) && graph.nodes.length > 0"
+                            {{ getNodeCount(graph) }} Nodes
+                            <small v-if="getNodeCount(graph) > 0"
                               >({{ getNodeTypes(graph) }})</small
                             >
                           </span>
                           <span class="badge bg-secondary ms-2">
-                            {{ Array.isArray(graph.edges) ? graph.edges.length : 0 }} Edges
+                            {{ getEdgeCount(graph) }} Edges
                           </span>
                           <span class="badge bg-info ms-2" v-if="graph.metadata?.version">
                             v{{ graph.metadata.version }}
@@ -1042,6 +1042,8 @@ let searchDebounceTimer = null
 
 const INITIAL_GRAPH_LOAD_COUNT = 24
 const GRAPH_FETCH_CHUNK_SIZE = 8
+const GRAPH_SUMMARY_INITIAL_COUNT = 80
+const GRAPH_SUMMARY_PAGE_SIZE = 120
 const GRAPH_VISIBLE_PAGE_SIZE = 24
 const STATUS_FETCH_CHUNK_SIZE = 120
 
@@ -1115,9 +1117,80 @@ const isGraphVisibleForCurrentUser = (graph) => {
   return graph.metadata?.publicationState === 'published' || graph.metadata?.seoSlug
 }
 
+const buildSummaryNodesFromTypes = (nodeTypes) =>
+  Array.isArray(nodeTypes)
+    ? nodeTypes
+        .map((type, index) => {
+          const normalized = String(type || '').trim()
+          if (!normalized) return null
+          return {
+            id: `summary-node-type-${index}-${normalized}`,
+            type: normalized,
+            label: normalized,
+            info: null,
+            path: null,
+          }
+        })
+        .filter(Boolean)
+    : []
+
+const processGraphSummary = (summary) => {
+  const summaryNodeTypes = Array.isArray(summary?.nodeTypes) ? summary.nodeTypes : []
+  const summaryNodes = buildSummaryNodesFromTypes(summaryNodeTypes)
+  const metadata = {
+    ...summary.metadata,
+    title: summary.metadata?.title || summary.title || 'Untitled Graph',
+    description: summary.metadata?.description || '',
+    createdBy: summary.metadata?.createdBy || 'Unknown',
+    version: summary.metadata?.version || 1,
+    updatedAt: summary.updatedAt || summary.createdAt || summary.metadata?.updatedAt || 'Unknown',
+    category: summary.metadata?.category || '#Uncategorized',
+    metaArea: summary.metadata?.metaArea || '',
+    graphType: resolveGraphType(summary.metadata?.graphType, summaryNodes),
+    mystmkraUrl: summary.metadata?.mystmkraUrl || null,
+    mystmkraDocumentId: summary.metadata?.mystmkraDocumentId || null,
+    mystmkraNodeId: summary.metadata?.mystmkraNodeId || null,
+    publicationState:
+      summary.metadata?.publicationState || (summary.metadata?.seoSlug ? 'published' : 'draft'),
+    publishedAt: summary.metadata?.publishedAt || null,
+    seoSlug: summary.metadata?.seoSlug || '',
+    chatSessionCount: summary.metadata?.chatSessionCount || 0,
+    affiliates: summary.metadata?.affiliates || null,
+  }
+
+  return {
+    id: summary.id,
+    metadata,
+    nodes: summaryNodes,
+    edges: [],
+    nodeCount: Number(summary.nodeCount || 0),
+    edgeCount: Number(summary.edgeCount || 0),
+    nodeTypes: summaryNodeTypes,
+    nodeLabelsText: summary.nodeLabelsText || '',
+    portfolioImagePath: summary.portfolioImagePath || null,
+    summarySearchText: (summary.searchText || `${summaryNodeTypes.join(' ')} ${summary.nodeLabelsText || ''}`).toLowerCase(),
+    isSummaryOnly: true,
+    vectorization: {
+      isVectorized: false,
+      isVectorizing: false,
+      vectorCount: 0,
+    },
+    ambassadorStatus: {
+      hasAmbassadors: false,
+      affiliateCount: 0,
+      totalCommissions: '0.00',
+      averageRate: 0,
+      topAffiliate: null,
+    },
+    chatSessionCount: metadata.chatSessionCount || 0,
+  }
+}
+
 const processGraphData = (graphSummary, graphData) => {
   const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : []
   const edges = Array.isArray(graphData.edges) ? graphData.edges : []
+  const nodeTypes = Array.from(new Set(nodes.map((node) => String(node?.type || '').trim()).filter(Boolean)))
+  const portfolioNode = nodes.find((node) => node?.type === 'portfolio-image' && node?.path)
   const metadata = {
     ...graphData.metadata,
     title: graphData.metadata?.title || graphSummary.title || 'Untitled Graph',
@@ -1141,6 +1214,20 @@ const processGraphData = (graphSummary, graphData) => {
     metadata,
     nodes,
     edges,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    nodeTypes,
+    nodeLabelsText: nodes
+      .map((node) => String(node?.label || '').trim())
+      .filter(Boolean)
+      .slice(0, 40)
+      .join(' '),
+    portfolioImagePath: portfolioNode?.path || null,
+    summarySearchText: `${nodeTypes.join(' ')} ${nodes
+      .map((node) => String(node?.label || ''))
+      .slice(0, 40)
+      .join(' ')}`.toLowerCase(),
+    isSummaryOnly: false,
     vectorization: {
       isVectorized: false,
       isVectorizing: false,
@@ -1172,6 +1259,32 @@ const fetchGraphDetails = async (graphSummary) => {
 const fetchGraphDetailsChunk = async (chunk) => {
   const results = await Promise.all(chunk.map((graphSummary) => fetchGraphDetails(graphSummary)))
   return results.filter((graph) => graph !== null)
+}
+
+const fetchGraphSummariesPage = async (offset, limit) => {
+  const response = await fetch(
+    apiUrls.getKnowledgeGraphSummaries({
+      offset: String(offset),
+      limit: String(limit),
+    }),
+  )
+
+  if (response.status === 404) {
+    const error = new Error('Summary endpoint not available yet')
+    error.code = 'SUMMARY_ENDPOINT_UNAVAILABLE'
+    throw error
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch graph summaries: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    total: Number(data.total || 0),
+    hasMore: Boolean(data.hasMore),
+    results: Array.isArray(data.results) ? data.results : [],
+  }
 }
 
 const chunkArray = (items, size) => {
@@ -1351,6 +1464,63 @@ const vectorizeGraph = async (graph) => {
   }
 }
 
+const fetchGraphsLegacyFromDetails = async (runId) => {
+  const response = await fetch(apiUrls.getKnowledgeGraphs())
+  if (!response.ok) {
+    throw new Error('Failed to fetch knowledge graphs')
+  }
+
+  const data = await response.json()
+  const graphSummaries = Array.isArray(data.results) ? data.results : []
+  totalGraphCount.value = graphSummaries.length
+
+  if (!graphSummaries.length) {
+    portfolioStore.updateMetaAreas([])
+    return
+  }
+
+  const initialChunk = graphSummaries.slice(0, INITIAL_GRAPH_LOAD_COUNT)
+  const remaining = graphSummaries.slice(INITIAL_GRAPH_LOAD_COUNT)
+
+  const initialGraphs = await fetchGraphDetailsChunk(initialChunk)
+  if (runId !== graphFetchRunId.value) return
+
+  graphs.value = contentFilter.filterGraphsByMetaAreas(initialGraphs)
+  loadedGraphDetailsCount.value = initialChunk.length
+  portfolioStore.updateMetaAreas(graphs.value)
+  loading.value = false
+
+  if (!remaining.length) {
+    await hydrateStatusesForGraphIds(
+      graphs.value.map((graph) => graph.id),
+      runId,
+    )
+    return
+  }
+
+  isHydratingGraphs.value = true
+  const remainingChunks = chunkArray(remaining, GRAPH_FETCH_CHUNK_SIZE)
+
+  for (const chunk of remainingChunks) {
+    if (runId !== graphFetchRunId.value) return
+
+    const chunkGraphs = await fetchGraphDetailsChunk(chunk)
+    if (runId !== graphFetchRunId.value) return
+
+    if (chunkGraphs.length) {
+      const visibleChunk = contentFilter.filterGraphsByMetaAreas(chunkGraphs)
+      graphs.value = graphs.value.concat(visibleChunk)
+      portfolioStore.updateMetaAreas(graphs.value)
+    }
+
+    loadedGraphDetailsCount.value += chunk.length
+    await hydrateStatusesForGraphIds(
+      chunkGraphs.map((graph) => graph.id),
+      runId,
+    )
+  }
+}
+
 // Fetch all knowledge graphs
 const fetchGraphs = async () => {
   const runId = ++graphFetchRunId.value
@@ -1363,67 +1533,77 @@ const fetchGraphs = async () => {
   graphs.value = []
   nodeTypeCache.clear()
   portfolioImageCache.clear()
+
   try {
-    const response = await fetch(apiUrls.getKnowledgeGraphs())
-    if (!response.ok) {
-      throw new Error('Failed to fetch knowledge graphs')
-    }
+    let offset = 0
+    let total = 0
 
-    const data = await response.json()
-    const graphSummaries = Array.isArray(data.results) ? data.results : []
-    totalGraphCount.value = graphSummaries.length
+    const firstPage = await fetchGraphSummariesPage(offset, GRAPH_SUMMARY_INITIAL_COUNT)
+    total = firstPage.total
+    totalGraphCount.value = total
+    loadedGraphDetailsCount.value = firstPage.results.length
 
-    if (!graphSummaries.length) {
-      portfolioStore.updateMetaAreas([])
-      return
-    }
+    const firstBatch = firstPage.results
+      .map((summary) => processGraphSummary(summary))
+      .filter((graph) => graph && isGraphVisibleForCurrentUser(graph))
 
-    const initialChunk = graphSummaries.slice(0, INITIAL_GRAPH_LOAD_COUNT)
-    const remaining = graphSummaries.slice(INITIAL_GRAPH_LOAD_COUNT)
-
-    const initialGraphs = await fetchGraphDetailsChunk(initialChunk)
-    if (runId !== graphFetchRunId.value) return
-
-    graphs.value = contentFilter.filterGraphsByMetaAreas(initialGraphs)
-    loadedGraphDetailsCount.value = initialChunk.length
+    graphs.value = contentFilter.filterGraphsByMetaAreas(firstBatch)
     portfolioStore.updateMetaAreas(graphs.value)
     loading.value = false
 
-    if (!remaining.length) {
+    if (runId !== graphFetchRunId.value) return
+
+    if (graphs.value.length) {
       await hydrateStatusesForGraphIds(
         graphs.value.map((graph) => graph.id),
         runId,
       )
-      return
     }
 
-    isHydratingGraphs.value = true
-    const remainingChunks = chunkArray(remaining, GRAPH_FETCH_CHUNK_SIZE)
+    offset += firstPage.results.length
+    isHydratingGraphs.value = firstPage.hasMore
 
-    for (const chunk of remainingChunks) {
+    while (offset < total) {
       if (runId !== graphFetchRunId.value) return
 
-      const chunkGraphs = await fetchGraphDetailsChunk(chunk)
-      if (runId !== graphFetchRunId.value) return
+      const page = await fetchGraphSummariesPage(offset, GRAPH_SUMMARY_PAGE_SIZE)
+      const pageGraphs = page.results
+        .map((summary) => processGraphSummary(summary))
+        .filter((graph) => graph && isGraphVisibleForCurrentUser(graph))
 
-      if (chunkGraphs.length) {
-        const visibleChunk = contentFilter.filterGraphsByMetaAreas(chunkGraphs)
-        graphs.value = graphs.value.concat(visibleChunk)
+      if (pageGraphs.length) {
+        graphs.value = graphs.value.concat(contentFilter.filterGraphsByMetaAreas(pageGraphs))
+        portfolioStore.updateMetaAreas(graphs.value)
+        await hydrateStatusesForGraphIds(
+          pageGraphs.map((graph) => graph.id),
+          runId,
+        )
       }
 
-      loadedGraphDetailsCount.value += chunk.length
+      offset += page.results.length
+      loadedGraphDetailsCount.value = Math.min(offset, total)
+      isHydratingGraphs.value = page.hasMore
+      if (!page.hasMore || page.results.length === 0) {
+        break
+      }
     }
 
-    if (runId !== graphFetchRunId.value) return
-
     isHydratingGraphs.value = false
-    portfolioStore.updateMetaAreas(graphs.value)
-    await hydrateStatusesForGraphIds(
-      graphs.value.map((graph) => graph.id),
-      runId,
-    )
+
+    if (graphs.value.length === 0 && total === 0) {
+      portfolioStore.updateMetaAreas([])
+    }
   } catch (err) {
-    if (runId === graphFetchRunId.value) {
+    if (err?.code === 'SUMMARY_ENDPOINT_UNAVAILABLE') {
+      console.warn('[GraphPortfolio] Summary endpoint unavailable, falling back to full graph fetch.')
+      try {
+        await fetchGraphsLegacyFromDetails(runId)
+      } catch (legacyError) {
+        if (runId === graphFetchRunId.value) {
+          error.value = legacyError.message
+        }
+      }
+    } else if (runId === graphFetchRunId.value) {
       error.value = err.message
     }
   } finally {
@@ -1476,6 +1656,7 @@ const filteredGraphs = computed(() => {
           graph.metadata?.title?.toLowerCase().includes(query) ||
           graph.metadata?.description?.toLowerCase().includes(query) ||
           graph.metadata?.seoSlug?.toLowerCase().includes(query) ||
+          graph.summarySearchText?.includes(query) ||
           categories.some((cat) => cat.toLowerCase().includes(query)) ||
           graph.id?.toLowerCase().includes(query)
         ) {
@@ -1528,7 +1709,7 @@ const filteredGraphs = computed(() => {
       case 'date-asc':
         return new Date(a.metadata?.updatedAt || 0) - new Date(b.metadata?.updatedAt || 0)
       case 'nodes':
-        return (b.nodes?.length || 0) - (a.nodes?.length || 0)
+        return getNodeCount(b) - getNodeCount(a)
       case 'category':
         aCategories = getCategories(a.metadata?.category || '')
         bCategories = getCategories(b.metadata?.category || '')
@@ -1576,13 +1757,54 @@ const formatDate = (dateString) => {
   })
 }
 
-const viewGraph = (graph) => {
-  // Set the current graph ID in the store
-  graphStore.setCurrentGraphId(graph.id)
-  // Update the store with the graph's nodes and edges
-  graphStore.updateGraph(graph.nodes, graph.edges)
-  // Navigate to the modern graph viewer
-  router.push({ name: 'gnew-viewer', query: { graphId: graph.id } })
+const ensureFullGraphData = async (graph) => {
+  if (!graph || !graph.id) return null
+  if (!graph.isSummaryOnly) return graph
+
+  const response = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+  if (!response.ok) {
+    throw new Error(`Failed to fetch full graph data (${response.status})`)
+  }
+
+  const graphData = await response.json()
+  const fullGraph = processGraphData(
+    {
+      id: graph.id,
+      title: graph.metadata?.title || graph.title || 'Untitled Graph',
+    },
+    graphData,
+  )
+
+  fullGraph.vectorization = graph.vectorization || fullGraph.vectorization
+  fullGraph.ambassadorStatus = graph.ambassadorStatus || fullGraph.ambassadorStatus
+  fullGraph.chatSessionCount = graph.chatSessionCount || fullGraph.chatSessionCount
+
+  const index = graphs.value.findIndex((item) => item.id === graph.id)
+  if (index !== -1) {
+    graphs.value[index] = {
+      ...graphs.value[index],
+      ...fullGraph,
+    }
+    return graphs.value[index]
+  }
+
+  return fullGraph
+}
+
+const viewGraph = async (graph) => {
+  try {
+    const fullGraph = await ensureFullGraphData(graph)
+    if (!fullGraph) return
+
+    // Set the current graph ID in the store
+    graphStore.setCurrentGraphId(fullGraph.id)
+    // Update the store with the graph's nodes and edges
+    graphStore.updateGraph(fullGraph.nodes, fullGraph.edges)
+    // Navigate to the modern graph viewer
+    router.push({ name: 'gnew-viewer', query: { graphId: fullGraph.id } })
+  } catch (err) {
+    alert(`Failed to open graph: ${err.message}`)
+  }
 }
 
 const editGraph = async (graph) => {
@@ -1660,8 +1882,22 @@ const fetchAdminOwnerEmails = async () => {
   }
 }
 
+const getNodeCount = (graph) => {
+  if (Number.isFinite(graph?.nodeCount)) return graph.nodeCount
+  return Array.isArray(graph?.nodes) ? graph.nodes.length : 0
+}
+
+const getEdgeCount = (graph) => {
+  if (Number.isFinite(graph?.edgeCount)) return graph.edgeCount
+  return Array.isArray(graph?.edges) ? graph.edges.length : 0
+}
+
 const getNodeTypes = (graph) => {
-  if (!graph || !Array.isArray(graph.nodes)) return ''
+  if (!graph) return ''
+  if (Array.isArray(graph.nodeTypes) && graph.nodeTypes.length) {
+    return graph.nodeTypes.join(', ')
+  }
+  if (!Array.isArray(graph.nodes)) return ''
   const cacheKey = `${graph.id}:${graph.nodes.length}`
   if (nodeTypeCache.has(cacheKey)) return nodeTypeCache.get(cacheKey)
 
@@ -1956,8 +2192,8 @@ const updateShareContent = () => {
   if (!currentGraph.value) return
 
   const graph = currentGraph.value
-  const nodeCount = Array.isArray(graph.nodes) ? graph.nodes.length : 0
-  const edgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0
+  const nodeCount = getNodeCount(graph)
+  const edgeCount = getEdgeCount(graph)
   const categories = getCategories(graph.metadata?.category || '')
   const categoryText = categories.length > 0 ? `Categories: ${categories.join(', ')}` : ''
 
@@ -2121,7 +2357,14 @@ const suggestDescription = async (graph) => {
 }
 
 const getPortfolioImage = (graph) => {
-  if (!graph || !Array.isArray(graph.nodes)) return null
+  if (!graph) return null
+  if (graph.portfolioImagePath) {
+    return {
+      path: graph.portfolioImagePath,
+      label: graph.metadata?.title || 'Portfolio Image',
+    }
+  }
+  if (!Array.isArray(graph.nodes)) return null
   const cacheKey = `${graph.id}:${graph.nodes.length}`
   if (portfolioImageCache.has(cacheKey)) return portfolioImageCache.get(cacheKey)
 
@@ -2277,9 +2520,28 @@ const selectR2Image = (img) => {
 const insertPortfolioImage = async (imageUrl = null) => {
   try {
     isLoadingPortfolioImage.value = true
+    if (!editingGraph.value?.id) {
+      throw new Error('No graph selected for portfolio image update')
+    }
+
+    const latestResponse = await fetch(apiUrls.getKnowledgeGraph(editingGraph.value.id))
+    if (!latestResponse.ok) {
+      throw new Error('Failed to fetch latest graph before image update')
+    }
+    const latestGraph = await latestResponse.json()
+
+    const graphToUpdate = {
+      ...latestGraph,
+      metadata: {
+        ...(latestGraph.metadata || {}),
+        ...(editingGraph.value.metadata || {}),
+      },
+      nodes: Array.isArray(latestGraph.nodes) ? [...latestGraph.nodes] : [],
+      edges: Array.isArray(latestGraph.edges) ? latestGraph.edges : [],
+    }
 
     // Check if there's already a portfolio image node
-    const existingPortfolioNode = editingGraph.value.nodes?.find(
+    const existingPortfolioNode = graphToUpdate.nodes?.find(
       (node) => node.type === 'portfolio-image',
     )
 
@@ -2300,7 +2562,7 @@ const insertPortfolioImage = async (imageUrl = null) => {
         visible: true,
         path: imageUrl || 'https://vegvisr.imgix.net/tilopa01.jpg',
       }
-      editingGraph.value.nodes = [...(editingGraph.value.nodes || []), portfolioNode]
+      graphToUpdate.nodes = [...(graphToUpdate.nodes || []), portfolioNode]
     }
 
     // Update the graph
@@ -2310,8 +2572,8 @@ const insertPortfolioImage = async (imageUrl = null) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        id: editingGraph.value.id,
-        graphData: editingGraph.value,
+        id: graphToUpdate.id,
+        graphData: graphToUpdate,
       }),
     })
 
@@ -2320,11 +2582,15 @@ const insertPortfolioImage = async (imageUrl = null) => {
     }
 
     // Update the main graphs array to reflect the changes
-    const graphIndex = graphs.value.findIndex((g) => g.id === editingGraph.value.id)
+    const graphIndex = graphs.value.findIndex((g) => g.id === graphToUpdate.id)
     if (graphIndex !== -1) {
+      const fullGraph = processGraphData(
+        { id: graphToUpdate.id, title: graphToUpdate.metadata?.title || 'Untitled Graph' },
+        graphToUpdate,
+      )
       graphs.value[graphIndex] = {
         ...graphs.value[graphIndex],
-        nodes: editingGraph.value.nodes,
+        ...fullGraph,
       }
     }
 

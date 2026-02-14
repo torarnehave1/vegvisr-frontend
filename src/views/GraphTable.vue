@@ -34,7 +34,7 @@
         <tr v-for="graph in sortedGraphs" :key="graph.id">
           <td>{{ graph.metadata?.title || 'Untitled Graph' }}</td>
           <td>{{ graph.metadata?.createdBy || 'Unknown' }}</td>
-          <td>{{ Array.isArray(graph.nodes) ? graph.nodes.length : 0 }}</td>
+          <td>{{ getNodeCount(graph) }}</td>
           <td>{{ formatDate(graph.metadata?.updatedAt) }}</td>
           <td>
             <button class="btn btn-primary btn-sm" @click="$emit('view-graph', graph)">View</button>
@@ -106,6 +106,11 @@ function formatDate(dateString) {
   })
 }
 
+function getNodeCount(graph) {
+  if (Number.isFinite(graph?.nodeCount)) return graph.nodeCount
+  return Array.isArray(graph?.nodes) ? graph.nodes.length : 0
+}
+
 const sortedGraphs = computed(() => {
   let filtered = props.graphs
   // Apply search filter
@@ -133,7 +138,7 @@ const sortedGraphs = computed(() => {
         cmp = (a.metadata?.createdBy || '').localeCompare(b.metadata?.createdBy || '')
         break
       case 'nodes':
-        cmp = (b.nodes?.length || 0) - (a.nodes?.length || 0)
+        cmp = getNodeCount(b) - getNodeCount(a)
         break
       case 'updatedAt':
         cmp = new Date(b.metadata?.updatedAt || 0) - new Date(a.metadata?.updatedAt || 0)
