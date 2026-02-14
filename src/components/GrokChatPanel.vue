@@ -6731,6 +6731,45 @@ ${nodeLines.join('\n') || 'No nodes'}
 ${moreCount}`
 }
 
+const extractReferencedNodeIds = (text) => {
+  if (!text) return []
+  const matches = String(text).match(
+    /\b(html-node_[a-zA-Z0-9_-]+|css-node_[a-zA-Z0-9_-]+|node-[a-zA-Z0-9_-]+)\b/g,
+  )
+  if (!matches) return []
+  return Array.from(new Set(matches))
+}
+
+const buildReferencedNodeContext = (text) => {
+  if (!props.graphData) return null
+  const nodeIds = extractReferencedNodeIds(text)
+  if (!nodeIds.length) return null
+
+  const nodes = Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []
+  const byId = new Map(nodes.map((n) => [String(n.id || ''), n]))
+
+  const blocks = []
+  for (const nodeId of nodeIds.slice(0, 3)) {
+    const node = byId.get(nodeId)
+    if (!node) continue
+    const type = String(node.type || 'unknown')
+    const label = String(node.label || node.title || nodeId)
+    const rawInfo = typeof node.info === 'string' ? node.info : String(node.info || '')
+    const maxLen = type === 'css-node' ? 12000 : type === 'html-node' ? 20000 : 6000
+    const info = rawInfo.length > maxLen ? `${rawInfo.slice(0, maxLen)}\n<!-- truncated -->` : rawInfo
+    const fence = type === 'css-node' ? 'css' : type === 'html-node' ? 'html' : 'text'
+    blocks.push(
+      `Referenced node: ${nodeId}\nType: ${type}\nLabel: ${label}\n\n\`\`\`${fence}\n${info}\n\`\`\``,
+    )
+  }
+
+  if (!blocks.length) return null
+
+  return `**Referenced Node Context (Auto-included)**\nThe user referenced node id(s) in their prompt. Use the content below so you can make edits without asking the user to paste the node.\n\n${blocks.join(
+    '\n\n',
+  )}`
+}
+
 const buildSelectionContext = () => {
   if (!useSelectionContext.value || !hasSelectionContext.value) return null
 
@@ -7085,6 +7124,11 @@ const sendMessage = async () => {
     const graphIdContext = buildGraphIdContext()
     if (graphIdContext) {
       contextSections.push(graphIdContext)
+    }
+
+    const referencedNodeContext = buildReferencedNodeContext(userPrompt)
+    if (referencedNodeContext) {
+      contextSections.push(referencedNodeContext)
     }
 
     // Add tool usage instructions when tools are enabled
