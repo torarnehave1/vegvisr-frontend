@@ -159,6 +159,20 @@
           <span v-if="guidedBuilderActive" class="context-indicator">
             Step {{ guidedBuilderStepNumber }} / {{ guidedBuilderTotalSteps }}
           </span>
+          <button
+            v-if="guidedBuilderActive && guidedBuilderCurrentStepId === 'themePlan'"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="openGuidedThemePicker"
+          >
+            Select theme
+          </button>
+          <span
+            v-if="guidedBuilderActive && guidedBuilderAnswers.themeNodeLabel"
+            class="context-indicator"
+          >
+            Theme: {{ guidedBuilderAnswers.themeNodeLabel }}
+          </span>
         </div>
         <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
@@ -907,6 +921,62 @@
     @image-replaced="handleBackgroundImageChange"
   />
 
+  <!-- Guided Builder Theme Picker Modal -->
+  <div v-if="showGuidedThemeModal" class="modal-overlay" @click.self="closeGuidedThemeModal">
+    <div class="advanced-graph-modal guided-theme-modal">
+      <div class="modal-header">
+        <h3>🎨 Select Theme For Guided Builder</h3>
+        <button class="btn-close" @click="closeGuidedThemeModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Select one theme html-node as source style for colors, typography, and component tone.
+        </p>
+        <div v-if="!guidedBuilderThemeCandidates.length" class="error-state compact">
+          <p class="error-message mb-0">
+            No html-node themes found in this graph. Add a theme html-node or type <code>custom</code> in chat.
+          </p>
+        </div>
+        <div v-else class="guided-theme-list">
+          <label
+            v-for="item in guidedBuilderThemeCandidates"
+            :key="item.id"
+            class="guided-theme-item"
+            :class="{ selected: guidedThemeSelectionId === item.id }"
+          >
+            <input
+              type="radio"
+              name="guidedThemeSelection"
+              :value="item.id"
+              v-model="guidedThemeSelectionId"
+            />
+            <div class="guided-theme-info">
+              <div class="guided-theme-title">
+                {{ item.label }}
+                <span v-if="item.isLikelyTheme" class="guided-theme-badge">Theme</span>
+              </div>
+              <div class="guided-theme-meta">
+                <code>{{ item.id }}</code>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="closeGuidedThemeModal">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          :disabled="!guidedThemeSelectionId"
+          @click="applyGuidedThemeSelection"
+        >
+          Use selected theme
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Advanced Graph Creation Modal -->
   <div v-if="showAdvancedGraphModal" class="modal-overlay" @click.self="closeAdvancedGraphModal">
     <div class="advanced-graph-modal">
@@ -1585,18 +1655,21 @@ const useGuidedBuilder = ref(false)
 const provider = ref('grok')
 
 const GUIDED_BUILDER_STEPS = [
+  'themePlan',
   'appName',
   'appGoal',
   'menuMode',
   'leftFilterLabel',
   'topNodeIds',
   'imagePlan',
-  'themePlan',
   'saveMode',
   'confirmGenerate',
 ]
 
 const createDefaultGuidedBuilderAnswers = () => ({
+  themePlan: '',
+  themeNodeId: '',
+  themeNodeLabel: '',
   appName: '',
   appGoal: '',
   menuMode: '',
@@ -1604,7 +1677,6 @@ const createDefaultGuidedBuilderAnswers = () => ({
   topNodeIdsText: '',
   topNodeIds: [],
   imagePlan: '',
-  themePlan: '',
   saveMode: '',
   saveToGraph: false,
 })
@@ -1614,6 +1686,8 @@ const guidedBuilderStepCursor = ref(0)
 const guidedBuilderAnswers = ref(createDefaultGuidedBuilderAnswers())
 const guidedBuilderLastSummary = ref('')
 const guidedBuilderGenerationToolMode = ref('default')
+const showGuidedThemeModal = ref(false)
+const guidedThemeSelectionId = ref('')
 
 const parseYesNoAnswer = (value) => {
   const normalized = String(value || '').trim().toLowerCase()
@@ -1653,6 +1727,47 @@ const parseNodeIdList = (value) => {
   return unique
 }
 
+const isLikelyThemeHtmlNode = (node) => {
+  const label = String(node?.label || '').toLowerCase()
+  const info = String(node?.info || '').toLowerCase()
+  return (
+    label.includes('theme') ||
+    label.includes('studio') ||
+    info.includes('data-theme-id') ||
+    info.includes('data-v-theme') ||
+    info.includes('--primary') ||
+    info.includes('theme studio')
+  )
+}
+
+const guidedBuilderThemeCandidates = computed(() => {
+  const nodes = Array.isArray(props.graphData?.nodes) ? props.graphData.nodes : []
+  const htmlNodes = nodes.filter((node) => String(node?.type || '').toLowerCase() === 'html-node')
+  return htmlNodes
+    .map((node) => ({
+      id: String(node?.id || '').trim(),
+      label: String(node?.label || node?.id || 'Untitled theme node').trim(),
+      isLikelyTheme: isLikelyThemeHtmlNode(node),
+      order: Number.isFinite(Number(node?.order)) ? Number(node.order) : 9999,
+    }))
+    .filter((item) => item.id)
+    .sort((a, b) => {
+      if (a.isLikelyTheme !== b.isLikelyTheme) return a.isLikelyTheme ? -1 : 1
+      if (a.order !== b.order) return a.order - b.order
+      return a.label.localeCompare(b.label)
+    })
+})
+
+const findGuidedThemeCandidate = (value) => {
+  const needle = String(value || '').trim().toLowerCase()
+  if (!needle) return null
+  return (
+    guidedBuilderThemeCandidates.value.find((item) => item.id.toLowerCase() === needle) ||
+    guidedBuilderThemeCandidates.value.find((item) => item.label.toLowerCase() === needle) ||
+    guidedBuilderThemeCandidates.value.find((item) => item.label.toLowerCase().includes(needle))
+  )
+}
+
 const guidedBuilderShouldSkipStep = (stepId, answers) => {
   const menuMode = answers?.menuMode || ''
   if (stepId === 'leftFilterLabel') {
@@ -1665,26 +1780,26 @@ const guidedBuilderShouldSkipStep = (stepId, answers) => {
 }
 
 const getGuidedBuilderQuestion = (stepId, answers) => {
+  if (stepId === 'themePlan') {
+    return `Step 1/9. Select a theme first.\nUse the "Select theme" button, or type a theme node ID/name. Type "custom" to skip theme lock.`
+  }
   if (stepId === 'appName') {
-    return `Step 1/9. What should be the app name?`
+    return `Step 2/9. What should be the app name?`
   }
   if (stepId === 'appGoal') {
-    return `Step 2/9. What is the app for? Describe the purpose in one short paragraph.`
+    return `Step 3/9. What is the app for? Describe the purpose in one short paragraph.`
   }
   if (stepId === 'menuMode') {
-    return `Step 3/9. Which menu setup do you want?\nA) Left menu from label filter\nB) Top menu page-by-page from node IDs\nC) Both left + top\nD) No menu`
+    return `Step 4/9. Which menu setup do you want?\nA) Left menu from label filter\nB) Top menu page-by-page from node IDs\nC) Both left + top\nD) No menu`
   }
   if (stepId === 'leftFilterLabel') {
-    return `Step 4/9. Left menu rule: which label filter should be used (nodeTitle contains ...)? Example: Chapter`
+    return `Step 5/9. Left menu rule: which label filter should be used (nodeTitle contains ...)? Example: Chapter`
   }
   if (stepId === 'topNodeIds') {
-    return `Step 5/9. Top menu pages: list node IDs to use as pages (comma or newline separated).`
+    return `Step 6/9. Top menu pages: list node IDs to use as pages (comma or newline separated).`
   }
   if (stepId === 'imagePlan') {
-    return `Step 6/9. Image plan: none, album, drag-drop, or URL list? Add details if needed.`
-  }
-  if (stepId === 'themePlan') {
-    return `Step 7/9. Theme plan: theme ID/name from Theme Studio, or "custom" with color/font notes.`
+    return `Step 7/9. Image plan: none, album, drag-drop, or URL list? Add details if needed.`
   }
   if (stepId === 'saveMode') {
     return `Step 8/9. Should I save directly to the graph as a new html-node? (yes/no)`
@@ -1697,7 +1812,9 @@ const getGuidedBuilderQuestion = (stepId, answers) => {
       answers?.leftFilterLabel ? `Left filter: ${answers.leftFilterLabel}` : null,
       answers?.topNodeIds?.length ? `Top node IDs: ${answers.topNodeIds.join(', ')}` : null,
       `Images: ${answers?.imagePlan || 'none'}`,
-      `Theme: ${answers?.themePlan || 'default'}`,
+      answers?.themeNodeLabel
+        ? `Theme: ${answers.themeNodeLabel} (${answers.themeNodeId})`
+        : `Theme: ${answers?.themePlan || 'custom'}`,
       `Save to graph: ${answers?.saveToGraph ? 'yes' : 'no'}`,
     ]
       .filter(Boolean)
@@ -6889,13 +7006,25 @@ const resetGuidedBuilderState = () => {
   guidedBuilderStepCursor.value = 0
   guidedBuilderAnswers.value = createDefaultGuidedBuilderAnswers()
   guidedBuilderGenerationToolMode.value = 'default'
+  guidedThemeSelectionId.value = ''
+  showGuidedThemeModal.value = false
 }
 
 const askCurrentGuidedBuilderQuestion = () => {
   const stepId = guidedBuilderCurrentStepId.value
   if (!stepId) return
+  if (stepId === 'themePlan') {
+    const preferred =
+      guidedBuilderAnswers.value.themeNodeId ||
+      guidedBuilderThemeCandidates.value[0]?.id ||
+      ''
+    guidedThemeSelectionId.value = preferred
+  }
   const question = getGuidedBuilderQuestion(stepId, guidedBuilderAnswers.value)
   guidedBuilderAssistantMessage(`🧭 Guided Builder\n${question}`)
+  if (stepId === 'themePlan' && guidedBuilderThemeCandidates.value.length > 0) {
+    showGuidedThemeModal.value = true
+  }
 }
 
 const startGuidedBuilder = () => {
@@ -6906,6 +7035,7 @@ const startGuidedBuilder = () => {
   guidedBuilderActive.value = true
   guidedBuilderAnswers.value = createDefaultGuidedBuilderAnswers()
   guidedBuilderGenerationToolMode.value = 'default'
+  guidedThemeSelectionId.value = guidedBuilderThemeCandidates.value[0]?.id || ''
   const firstCursor = getNextGuidedBuilderCursor(0, guidedBuilderAnswers.value)
   guidedBuilderStepCursor.value = firstCursor >= 0 ? firstCursor : 0
   askCurrentGuidedBuilderQuestion()
@@ -6920,6 +7050,58 @@ const cancelGuidedBuilder = () => {
   resetGuidedBuilderState()
 }
 
+const closeGuidedThemeModal = () => {
+  showGuidedThemeModal.value = false
+}
+
+const openGuidedThemePicker = () => {
+  if (!guidedBuilderThemeCandidates.value.length) {
+    guidedBuilderAssistantMessage('No html-node themes found in this graph. Type "custom" to continue without a theme.')
+    return
+  }
+  if (!guidedThemeSelectionId.value) {
+    guidedThemeSelectionId.value = guidedBuilderThemeCandidates.value[0].id
+  }
+  showGuidedThemeModal.value = true
+}
+
+const advanceGuidedBuilderToNextStep = (answers) => {
+  showGuidedThemeModal.value = false
+  const nextCursor = getNextGuidedBuilderCursor(guidedBuilderStepCursor.value + 1, answers)
+  if (nextCursor === -1) {
+    guidedBuilderStepCursor.value = GUIDED_BUILDER_STEPS.length - 1
+  } else {
+    guidedBuilderStepCursor.value = nextCursor
+  }
+  askCurrentGuidedBuilderQuestion()
+}
+
+const applyGuidedThemeSelection = () => {
+  const selected = guidedBuilderThemeCandidates.value.find((item) => item.id === guidedThemeSelectionId.value)
+  if (!selected) return
+  if (!guidedBuilderActive.value || guidedBuilderCurrentStepId.value !== 'themePlan') {
+    showGuidedThemeModal.value = false
+    return
+  }
+
+  const answers = { ...guidedBuilderAnswers.value }
+  answers.themeNodeId = selected.id
+  answers.themeNodeLabel = selected.label
+  answers.themePlan = `selected:${selected.label} (${selected.id})`
+  guidedBuilderAnswers.value = answers
+  showGuidedThemeModal.value = false
+
+  appendChatMessage({
+    role: 'user',
+    content: `Selected theme: ${selected.label} (${selected.id})`,
+    timestamp: Date.now(),
+    provider: provider.value,
+    guidedBuilder: true,
+  })
+
+  advanceGuidedBuilderToNextStep(answers)
+}
+
 const buildGuidedBuilderSummary = (answers) => {
   const menuLine = {
     left: 'Left menu from nodeTitle filter',
@@ -6929,13 +7111,15 @@ const buildGuidedBuilderSummary = (answers) => {
   }[answers.menuMode] || answers.menuMode
 
   return [
+    answers.themeNodeLabel
+      ? `Theme: ${answers.themeNodeLabel} (${answers.themeNodeId})`
+      : `Theme: ${answers.themePlan || 'custom'}`,
     `App: ${answers.appName || 'Untitled'}`,
     `Goal: ${answers.appGoal || 'n/a'}`,
     `Menu: ${menuLine || 'n/a'}`,
     answers.leftFilterLabel ? `Left filter: ${answers.leftFilterLabel}` : null,
     answers.topNodeIds?.length ? `Top node IDs: ${answers.topNodeIds.join(', ')}` : null,
     `Images: ${answers.imagePlan || 'none'}`,
-    `Theme: ${answers.themePlan || 'default'}`,
     `Save to graph: ${answers.saveToGraph ? 'yes' : 'no'}`,
   ]
     .filter(Boolean)
@@ -6966,6 +7150,16 @@ const buildGuidedBuilderGenerationPrompt = (answers) => {
     menuInstructions.push('No left or top menu is required.')
   }
 
+  const themeInstructions = answers.themeNodeId
+    ? [
+        `Theme source node ID: ${answers.themeNodeId} (${answers.themeNodeLabel || 'selected theme'}).`,
+        `Read this node using getknowgraph(id, nodeId="${answers.themeNodeId}") and reuse its color tokens, typography, and component style language.`,
+        `Do not invent a different visual system. Keep style close to the selected theme.`,
+      ]
+    : [
+        `No locked theme node selected. Use custom theme notes: ${answers.themePlan || 'custom'}.`,
+      ]
+
   const saveInstructions = answers.saveToGraph
     ? `Save result using exactly one graph tool call:
 1. Call graph_update_current once.
@@ -6980,14 +7174,16 @@ const buildGuidedBuilderGenerationPrompt = (answers) => {
   return `Create a standalone HTML mockup page from this guided brief.
 
 Guided brief:
+- Theme: ${answers.themeNodeLabel ? `${answers.themeNodeLabel} (${answers.themeNodeId})` : answers.themePlan}
 - App name: ${answers.appName}
 - App goal: ${answers.appGoal}
 - Menu mode: ${answers.menuMode}
 - Images: ${answers.imagePlan}
-- Theme: ${answers.themePlan}
 
 Menu/data rules:
 ${menuInstructions.map((line) => `- ${line}`).join('\n')}
+- Theme rules:
+${themeInstructions.map((line) => `- ${line}`).join('\n')}
 - API endpoint: https://knowledge.vegvisr.org/getknowgraph
 - Graph ID for fetch examples: ${graphId}
 
@@ -7001,6 +7197,8 @@ Design/output rules:
 - Keep it clean, modern, and editable.
 - Include clear placeholders for menu items, hero content, and CTA.
 - Include comments showing where to swap theme/colors/images quickly.
+- Prefer CSS variables (token block) over random inline style values.
+- Keep typography and spacing consistent with the selected theme style.
 
 ${saveInstructions}`
 }
@@ -7050,8 +7248,24 @@ const applyGuidedBuilderStepAnswer = (stepId, answerText, answers) => {
   }
 
   if (stepId === 'themePlan') {
-    answers.themePlan = answerText || 'default'
-    return { ok: true }
+    const normalized = String(answerText || '').trim()
+    const candidate = findGuidedThemeCandidate(normalized)
+    if (candidate) {
+      answers.themeNodeId = candidate.id
+      answers.themeNodeLabel = candidate.label
+      answers.themePlan = `selected:${candidate.label} (${candidate.id})`
+      return { ok: true }
+    }
+    if (!normalized) {
+      return { ok: false, error: 'Select a theme from modal or type custom.' }
+    }
+    if (/^custom\b/i.test(normalized)) {
+      answers.themeNodeId = ''
+      answers.themeNodeLabel = ''
+      answers.themePlan = normalized
+      return { ok: true }
+    }
+    return { ok: false, error: 'Unknown theme. Use modal, node ID/name, or type custom.' }
   }
 
   if (stepId === 'saveMode') {
@@ -7141,14 +7355,7 @@ const handleGuidedBuilderTurn = (messageText, currentProvider) => {
     }
   }
 
-  const nextCursor = getNextGuidedBuilderCursor(guidedBuilderStepCursor.value + 1, answers)
-  if (nextCursor === -1) {
-    guidedBuilderStepCursor.value = GUIDED_BUILDER_STEPS.length - 1
-  } else {
-    guidedBuilderStepCursor.value = nextCursor
-  }
-
-  askCurrentGuidedBuilderQuestion()
+  advanceGuidedBuilderToNextStep(answers)
   return { mode: 'handled' }
 }
 
@@ -10043,6 +10250,65 @@ watch(
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.guided-theme-modal {
+  max-width: 760px;
+}
+
+.guided-theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.guided-theme-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+  padding: 0.7rem;
+  cursor: pointer;
+  background: #fff;
+}
+
+.guided-theme-item.selected {
+  border-color: #8b5cf6;
+  background: #f7f2ff;
+}
+
+.guided-theme-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.guided-theme-title {
+  font-weight: 600;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guided-theme-meta {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+
+.guided-theme-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5b21b6;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .help-text {
