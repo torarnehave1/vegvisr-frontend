@@ -70,6 +70,46 @@ async function getUserApiKey(userId, provider, env) {
   }
 }
 
+async function buildXaiErrorPayload(response) {
+  const rawText = await response.text()
+  if (!rawText) {
+    return { parsed: null, rawText: '', message: `X.AI API error: ${response.status}` }
+  }
+
+  try {
+    const parsed = JSON.parse(rawText)
+    const parsedError = parsed?.error
+    const message = (
+      parsedError?.message ||
+      (typeof parsedError === 'string' ? parsedError : '') ||
+      parsed?.message ||
+      `X.AI API error: ${response.status}`
+    )
+    return { parsed, rawText, message }
+  } catch {
+    return { parsed: null, rawText, message: rawText.slice(0, 500) || `X.AI API error: ${response.status}` }
+  }
+}
+
+async function buildXaiErrorResponse({ response, corsHeaders, endpoint, model }) {
+  const payload = await buildXaiErrorPayload(response)
+  return new Response(
+    JSON.stringify({
+      error: payload.message,
+      xai: {
+        status: response.status,
+        endpoint,
+        model,
+        details: payload.parsed || payload.rawText || null
+      }
+    }),
+    {
+      status: response.status,
+      headers: corsHeaders
+    }
+  )
+}
+
 function buildResponsesInput(messages) {
   const input = []
 
@@ -435,8 +475,12 @@ export default {
           })
 
           if (!xaiResponse.ok) {
-            const errorData = await xaiResponse.json().catch(() => ({}))
-            throw new Error(errorData.error?.message || `X.AI API error: ${xaiResponse.status}`)
+            return await buildXaiErrorResponse({
+              response: xaiResponse,
+              corsHeaders,
+              endpoint,
+              model: effectiveModel
+            })
           }
 
           const data = await xaiResponse.json()
@@ -901,14 +945,16 @@ async function handleChat(request, env, corsHeaders) {
       body: JSON.stringify(requestBody)
     })
 
-    const data = await response.json()
-
     if (!response.ok) {
-      return new Response(JSON.stringify({
-        error: 'X.AI API error',
-        details: data
-      }), { status: response.status, headers: corsHeaders })
+      return await buildXaiErrorResponse({
+        response,
+        corsHeaders,
+        endpoint: 'https://api.x.ai/v1/chat/completions',
+        model
+      })
     }
+
+    const data = await response.json()
 
     return new Response(JSON.stringify(data), {
       status: 200,

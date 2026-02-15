@@ -116,6 +116,51 @@
           </span>
         </div>
         <div class="context-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
+            <input
+              type="checkbox"
+              v-model="useGraphTools"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
+            />
+            <span>🛠️ Graph Edit Tools</span>
+          </label>
+          <span v-if="useGraphTools && (provider === 'openai' || provider === 'claude' || provider === 'grok')" class="context-indicator">
+            AI kan lese/oppdatere graf via verktøy
+          </span>
+          <span v-else-if="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'" class="context-indicator muted">
+            Kun OpenAI/Claude/Grok
+          </span>
+        </div>
+        <div class="context-row guided-builder-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
+            <input
+              type="checkbox"
+              v-model="useGuidedBuilder"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
+            />
+            <span>🧭 Guided HTML Builder</span>
+          </label>
+          <button
+            v-if="useGuidedBuilder && !guidedBuilderActive"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="startGuidedBuilder"
+          >
+            Start chain
+          </button>
+          <button
+            v-if="guidedBuilderActive"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="cancelGuidedBuilder"
+          >
+            Cancel chain
+          </button>
+          <span v-if="guidedBuilderActive" class="context-indicator">
+            Step {{ guidedBuilderStepNumber }} / {{ guidedBuilderTotalSteps }}
+          </span>
+        </div>
+        <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
             <input
               type="checkbox"
@@ -810,7 +855,7 @@
               @keydown.enter.exact.prevent="sendMessage"
               @keydown.shift.enter.exact="handleShiftEnter"
               @paste="handlePaste"
-              :placeholder="`Ask ${providerMeta(provider).label} anything about the graph...`"
+              :placeholder="chatInputPlaceholder"
               class="chat-input"
               rows="3"
               :disabled="isStreaming"
@@ -1535,7 +1580,166 @@ const isCollapsed = ref(false)
 const useGraphContext = ref(true)
 const useSelectionContext = ref(false)
 const useRawJsonMode = ref(false)
+const useGraphTools = ref(false)
+const useGuidedBuilder = ref(false)
 const provider = ref('grok')
+
+const GUIDED_BUILDER_STEPS = [
+  'appName',
+  'appGoal',
+  'menuMode',
+  'leftFilterLabel',
+  'topNodeIds',
+  'imagePlan',
+  'themePlan',
+  'saveMode',
+  'confirmGenerate',
+]
+
+const createDefaultGuidedBuilderAnswers = () => ({
+  appName: '',
+  appGoal: '',
+  menuMode: '',
+  leftFilterLabel: '',
+  topNodeIdsText: '',
+  topNodeIds: [],
+  imagePlan: '',
+  themePlan: '',
+  saveMode: '',
+  saveToGraph: false,
+})
+
+const guidedBuilderActive = ref(false)
+const guidedBuilderStepCursor = ref(0)
+const guidedBuilderAnswers = ref(createDefaultGuidedBuilderAnswers())
+const guidedBuilderLastSummary = ref('')
+const guidedBuilderGenerationToolMode = ref('default')
+
+const parseYesNoAnswer = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return null
+  if (/^(y|yes|ja|j|ok|sure|go|generate|continue|proceed)\b/.test(normalized)) return true
+  if (/^(n|no|nei|stop|cancel|ikke)\b/.test(normalized)) return false
+  return null
+}
+
+const parseMenuModeAnswer = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized.includes('both') || normalized.includes('begge')) return 'both'
+  if (normalized.includes('left') || normalized.includes('side') || normalized.includes('labe')) return 'left'
+  if (normalized.includes('top') || normalized.includes('page') || normalized.includes('nodeid')) return 'top'
+  if (normalized.includes('none') || normalized.includes('ingen')) return 'none'
+  if (normalized === 'a') return 'left'
+  if (normalized === 'b') return 'top'
+  if (normalized === 'c') return 'both'
+  if (normalized === 'd') return 'none'
+  return null
+}
+
+const parseNodeIdList = (value) => {
+  const raw = String(value || '')
+  const tokens = raw
+    .split(/[\s,\n;]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean)
+  const unique = []
+  const seen = new Set()
+  for (const token of tokens) {
+    if (seen.has(token)) continue
+    seen.add(token)
+    unique.push(token)
+  }
+  return unique
+}
+
+const guidedBuilderShouldSkipStep = (stepId, answers) => {
+  const menuMode = answers?.menuMode || ''
+  if (stepId === 'leftFilterLabel') {
+    return !(menuMode === 'left' || menuMode === 'both')
+  }
+  if (stepId === 'topNodeIds') {
+    return !(menuMode === 'top' || menuMode === 'both')
+  }
+  return false
+}
+
+const getGuidedBuilderQuestion = (stepId, answers) => {
+  if (stepId === 'appName') {
+    return `Step 1/9. What should be the app name?`
+  }
+  if (stepId === 'appGoal') {
+    return `Step 2/9. What is the app for? Describe the purpose in one short paragraph.`
+  }
+  if (stepId === 'menuMode') {
+    return `Step 3/9. Which menu setup do you want?\nA) Left menu from label filter\nB) Top menu page-by-page from node IDs\nC) Both left + top\nD) No menu`
+  }
+  if (stepId === 'leftFilterLabel') {
+    return `Step 4/9. Left menu rule: which label filter should be used (nodeTitle contains ...)? Example: Chapter`
+  }
+  if (stepId === 'topNodeIds') {
+    return `Step 5/9. Top menu pages: list node IDs to use as pages (comma or newline separated).`
+  }
+  if (stepId === 'imagePlan') {
+    return `Step 6/9. Image plan: none, album, drag-drop, or URL list? Add details if needed.`
+  }
+  if (stepId === 'themePlan') {
+    return `Step 7/9. Theme plan: theme ID/name from Theme Studio, or "custom" with color/font notes.`
+  }
+  if (stepId === 'saveMode') {
+    return `Step 8/9. Should I save directly to the graph as a new html-node? (yes/no)`
+  }
+  if (stepId === 'confirmGenerate') {
+    const summary = [
+      `App: ${answers?.appName || 'Untitled'}`,
+      `Goal: ${answers?.appGoal || 'n/a'}`,
+      `Menu: ${answers?.menuMode || 'n/a'}`,
+      answers?.leftFilterLabel ? `Left filter: ${answers.leftFilterLabel}` : null,
+      answers?.topNodeIds?.length ? `Top node IDs: ${answers.topNodeIds.join(', ')}` : null,
+      `Images: ${answers?.imagePlan || 'none'}`,
+      `Theme: ${answers?.themePlan || 'default'}`,
+      `Save to graph: ${answers?.saveToGraph ? 'yes' : 'no'}`,
+    ]
+      .filter(Boolean)
+      .join('\n- ')
+    return `Step 9/9. Confirm generation now? (yes/no)\n\n- ${summary}`
+  }
+  return 'Provide your answer for the current step.'
+}
+
+const guidedBuilderCurrentStepId = computed(() => {
+  if (!guidedBuilderActive.value) return null
+  return GUIDED_BUILDER_STEPS[guidedBuilderStepCursor.value] || null
+})
+
+const guidedBuilderVisibleStepCount = computed(() => {
+  const answers = guidedBuilderAnswers.value
+  return GUIDED_BUILDER_STEPS.filter((stepId) => !guidedBuilderShouldSkipStep(stepId, answers)).length
+})
+
+const guidedBuilderStepNumber = computed(() => {
+  if (!guidedBuilderActive.value) return 0
+  const answers = guidedBuilderAnswers.value
+  const currentStepId = guidedBuilderCurrentStepId.value
+  if (!currentStepId) return 0
+  const visibleSteps = GUIDED_BUILDER_STEPS.filter((stepId) => !guidedBuilderShouldSkipStep(stepId, answers))
+  const idx = visibleSteps.findIndex((stepId) => stepId === currentStepId)
+  return idx >= 0 ? idx + 1 : 0
+})
+
+const guidedBuilderTotalSteps = computed(() => {
+  return guidedBuilderVisibleStepCount.value
+})
+
+const chatInputPlaceholder = computed(() => {
+  if (guidedBuilderActive.value) {
+    const stepId = guidedBuilderCurrentStepId.value
+    const question = getGuidedBuilderQuestion(stepId, guidedBuilderAnswers.value)
+    const firstLine = String(question || '').split('\n')[0]
+    return firstLine || 'Answer the current guided builder step...'
+  }
+  return `Ask ${providerMeta(provider.value).label} anything about the graph...`
+})
 const providerOptions = [
   { value: 'grok', label: 'Grok' },
   { value: 'openai', label: 'OpenAI' },
@@ -2061,8 +2265,35 @@ const graphTools = [
   {
     type: 'function',
     function: {
+      name: 'graph_get_current_data',
+      description: 'Get summary information about the currently loaded graph, including graph id, node count, edge count, and sample nodes.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_save_new',
+      description: 'Save the current graph as a new graph id. Use when the user asks to clone or save a new version.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Title for the new graph' },
+          description: { type: 'string', description: 'Description for the new graph' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'graph_update_current',
-      description: 'Update the current graph with modified nodes. Supports partial updates - only send the node id and changed fields.',
+      description: 'Safely patch node fields in the current graph. Send only node id + changed fields; unchanged nodes stay untouched.',
       parameters: {
         type: 'object',
         properties: {
@@ -2080,6 +2311,10 @@ const graphTools = [
               },
               required: ['id']
             }
+          },
+          replaceAllNodes: {
+            type: 'boolean',
+            description: 'Dangerous. If true, replaces the entire node list with provided nodes. Default false.'
           }
         },
         required: ['nodes']
@@ -2209,50 +2444,60 @@ async function executeGraphManipulationTool(toolName, args) {
         throw new Error('No current graph loaded. Use graph_save_new to create a new graph first.')
       }
 
-      // === NEW: Implicit Patching Support ===
-      // If only partial node data is provided, merge with existing nodes
-      let updatedNodes = args?.nodes || props.graphData?.nodes || []
+      // Safe patch mode: never replace the whole node array unless explicitly requested.
+      // This prevents accidental full-graph replacement when the model sends only a subset.
+      const existingNodes = Array.isArray(props.graphData?.nodes) ? props.graphData.nodes : []
+      const incomingNodes = Array.isArray(args?.nodes) ? args.nodes.filter((node) => node && node.id) : []
+      const replaceAllNodes = args?.replaceAllNodes === true
+      let patchedNodeCount = 0
+      let addedNodeCount = 0
+      let updatedNodes = existingNodes
 
-      // Detect if this is a partial node update (surgical edit)
-      const isPartialUpdate = args?.nodes && args.nodes.length > 0 &&
-        args.nodes.some(n => {
-          // A node is "partial" if it doesn't have all standard properties
-          // (has only id + some changed fields, not the complete node definition)
-          const hasId = n.id;
-          const hasLabel = 'label' in n;
-          const hasInfo = 'info' in n;
-          const hasType = 'type' in n;
-          const hasPosition = 'position' in n;
+      if (replaceAllNodes && incomingNodes.length > 0) {
+        updatedNodes = incomingNodes.map((node) => ({
+          ...node,
+          updatedAt: new Date().toISOString(),
+          updatedBy: userId,
+        }))
+        patchedNodeCount = incomingNodes.length
+      } else if (incomingNodes.length > 0) {
+        const incomingById = new Map(incomingNodes.map((node) => [node.id, node]))
+        const existingById = new Map(existingNodes.map((node) => [node.id, node]))
 
-          // If a node has id but is missing most fields, it's likely a partial update
-          return hasId && [hasLabel, hasInfo, hasType, hasPosition].filter(Boolean).length < 3;
-        });
-
-      if (isPartialUpdate) {
-        // Merge partial updates with existing nodes
-        const existingNodes = props.graphData?.nodes || [];
-        const updateMap = new Map(args.nodes.map(n => [n.id, n]));
-
-        updatedNodes = existingNodes.map(existingNode => {
-          const partialUpdate = updateMap.get(existingNode.id);
-          if (partialUpdate) {
-            // Surgical merge: only update specified fields
-            return {
-              ...existingNode,
-              ...partialUpdate,
-              updatedAt: new Date().toISOString(),
-              updatedBy: userId,
-            };
+        updatedNodes = existingNodes.map((existingNode) => {
+          const patchNode = incomingById.get(existingNode.id)
+          if (!patchNode) return existingNode
+          patchedNodeCount += 1
+          return {
+            ...existingNode,
+            ...patchNode,
+            updatedAt: new Date().toISOString(),
+            updatedBy: userId,
           }
-          return existingNode;
-        });
+        })
 
-        console.log('✂️ Implicit node patch detected: merging partial updates with existing nodes');
-      } else {
-        // Full node replacement mode (existing behavior)
-        updatedNodes = updatedNodes.length > 0 ? updatedNodes : (props.graphData?.nodes || []);
+        for (const patchNode of incomingNodes) {
+          if (existingById.has(patchNode.id)) continue
+          const preparedNode =
+            patchNode.type === 'html-node' && typeof patchNode.info === 'string' && patchNode.info.trim()
+              ? {
+                  ...patchNode,
+                  info: ensureSafeMarkdownRuntimeForHtmlNode(
+                    patchNode.info,
+                    patchNode.label || 'Vegvisr HTML Template',
+                  ),
+                }
+              : patchNode
+          updatedNodes.push({
+            ...preparedNode,
+            createdAt: new Date().toISOString(),
+            createdBy: userId,
+            updatedAt: new Date().toISOString(),
+            updatedBy: userId,
+          })
+          addedNodeCount += 1
+        }
       }
-      // === END NEW ===
 
       const updatedEdges = args?.edges || props.graphData?.edges || []
       const updatedMetadata = args?.metadata ? { ...props.graphData?.metadata, ...args.metadata } : props.graphData?.metadata
@@ -2310,9 +2555,12 @@ async function executeGraphManipulationTool(toolName, args) {
         status: 'success',
         graphId: currentGraphId,
         message: `Graph updated successfully`,
-        nodesModified: updatedNodes.length,
+        nodesModified: patchedNodeCount + addedNodeCount,
+        nodesPatched: patchedNodeCount,
+        nodesAdded: addedNodeCount,
+        totalNodes: updatedNodes.length,
         edgesModified: updatedEdges.length,
-        patchMode: isPartialUpdate,
+        patchMode: !replaceAllNodes,
       }
     }
 
@@ -2788,6 +3036,11 @@ async function executeTemplateTool(toolName, args) {
         visible: overrides.visible !== undefined ? overrides.visible : (baseNode.visible ?? true),
         createdAt: new Date().toISOString(),
         createdBy: userStore.user_id || 'system',
+      }
+
+      // Enforce safe markdown runtime only for newly inserted html-node templates.
+      if (newNode.type === 'html-node' && typeof newNode.info === 'string' && newNode.info.trim()) {
+        newNode.info = ensureSafeMarkdownRuntimeForHtmlNode(newNode.info, newNode.label || 'Vegvisr HTML Template')
       }
 
       // Get current graph data
@@ -4905,6 +5158,70 @@ const stripInlineStyleBlocks = (htmlDocument) => {
   return htmlDocument.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
 }
 
+const MARKED_CDN_URL = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js'
+const DOMPURIFY_CDN_URL = 'https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js'
+const VEGVISR_MD_RUNTIME_MARKER = 'data-vegvisr-md-runtime'
+const SCRIPT_TAG_OPEN = '<scr' + 'ipt'
+const SCRIPT_TAG_CLOSE = '</scr' + 'ipt>'
+
+const ensureSafeMarkdownRuntimeForHtmlNode = (rawHtml, fallbackTitle = 'Vegvisr HTML Template') => {
+  if (typeof rawHtml !== 'string') return rawHtml
+  const trimmed = rawHtml.trim()
+  if (!trimmed) return rawHtml
+
+  const fullDocument = extractHtmlDocument(trimmed)
+  let html = fullDocument || normalizeHtmlImportInput(trimmed, fallbackTitle) || trimmed
+
+  const hasMarkedScript = /<script\b[^>]*src=["'][^"']*marked(?:\.min)?\.js[^"']*["'][^>]*>/i.test(html)
+  const hasDomPurifyScript = /<script\b[^>]*src=["'][^"']*(?:dompurify|purify)(?:\.min)?\.js[^"']*["'][^>]*>/i.test(html)
+  const hasRuntimeScript = new RegExp(`<script\\b[^>]*${VEGVISR_MD_RUNTIME_MARKER}=["']1["'][^>]*>`, 'i').test(html)
+
+  if (!hasMarkedScript) {
+    const markedTag = `  ${SCRIPT_TAG_OPEN} src="${MARKED_CDN_URL}">${SCRIPT_TAG_CLOSE}`
+    html = /<\/head>/i.test(html)
+      ? html.replace(/<\/head>/i, `${markedTag}\n</head>`)
+      : `${markedTag}\n${html}`
+  }
+
+  if (!hasDomPurifyScript) {
+    const domPurifyTag = `  ${SCRIPT_TAG_OPEN} src="${DOMPURIFY_CDN_URL}">${SCRIPT_TAG_CLOSE}`
+    html = /<\/head>/i.test(html)
+      ? html.replace(/<\/head>/i, `${domPurifyTag}\n</head>`)
+      : `${domPurifyTag}\n${html}`
+  }
+
+  if (!hasRuntimeScript) {
+    const runtimeScript = [
+      `  ${SCRIPT_TAG_OPEN} ${VEGVISR_MD_RUNTIME_MARKER}="1">`,
+      '  (function () {',
+      '    function renderMarkdown(root) {',
+      '      if (!root || !window.marked || !window.DOMPurify) return;',
+      "      var targets = root.querySelectorAll('[data-ve-markdown], [data-markdown]');",
+      '      for (var i = 0; i < targets.length; i += 1) {',
+      '        var el = targets[i];',
+      "        var source = el.getAttribute('data-ve-markdown') || el.getAttribute('data-markdown') || el.textContent || '';",
+      '        var rendered = window.marked.parse(source);',
+      '        el.innerHTML = window.DOMPurify.sanitize(rendered);',
+      '      }',
+      '    }',
+      '    if (document.readyState === "loading") {',
+      '      document.addEventListener("DOMContentLoaded", function () { renderMarkdown(document); });',
+      '    } else {',
+      '      renderMarkdown(document);',
+      '    }',
+      '    window.vegvisrRenderMarkdown = function () { renderMarkdown(document); };',
+      '  })();',
+      `  ${SCRIPT_TAG_CLOSE}`,
+    ].join('\n')
+
+    html = /<\/body>/i.test(html)
+      ? html.replace(/<\/body>/i, `${runtimeScript}\n</body>`)
+      : `${html}\n${runtimeScript}`
+  }
+
+  return html
+}
+
 const resetHtmlImportState = () => {
   htmlImportTitle.value = ''
   htmlImportDescription.value = ''
@@ -6544,6 +6861,310 @@ const appendChatMessage = (message, options = {}) => {
   persistChatMessage(message)
 }
 
+const isGuidedBuilderProviderSupported = (providerName) => {
+  return providerName === 'openai' || providerName === 'claude' || providerName === 'grok'
+}
+
+const getNextGuidedBuilderCursor = (startCursor, answers = guidedBuilderAnswers.value) => {
+  for (let cursor = startCursor; cursor < GUIDED_BUILDER_STEPS.length; cursor += 1) {
+    const stepId = GUIDED_BUILDER_STEPS[cursor]
+    if (!guidedBuilderShouldSkipStep(stepId, answers)) {
+      return cursor
+    }
+  }
+  return -1
+}
+
+const guidedBuilderAssistantMessage = (content) => {
+  appendChatMessage({
+    role: 'assistant',
+    content,
+    timestamp: Date.now(),
+    provider: provider.value,
+  })
+}
+
+const resetGuidedBuilderState = () => {
+  guidedBuilderActive.value = false
+  guidedBuilderStepCursor.value = 0
+  guidedBuilderAnswers.value = createDefaultGuidedBuilderAnswers()
+  guidedBuilderGenerationToolMode.value = 'default'
+}
+
+const askCurrentGuidedBuilderQuestion = () => {
+  const stepId = guidedBuilderCurrentStepId.value
+  if (!stepId) return
+  const question = getGuidedBuilderQuestion(stepId, guidedBuilderAnswers.value)
+  guidedBuilderAssistantMessage(`🧭 Guided Builder\n${question}`)
+}
+
+const startGuidedBuilder = () => {
+  if (!isGuidedBuilderProviderSupported(provider.value)) {
+    guidedBuilderAssistantMessage('Guided Builder supports OpenAI, Claude, or Grok only.')
+    return
+  }
+  guidedBuilderActive.value = true
+  guidedBuilderAnswers.value = createDefaultGuidedBuilderAnswers()
+  guidedBuilderGenerationToolMode.value = 'default'
+  const firstCursor = getNextGuidedBuilderCursor(0, guidedBuilderAnswers.value)
+  guidedBuilderStepCursor.value = firstCursor >= 0 ? firstCursor : 0
+  askCurrentGuidedBuilderQuestion()
+}
+
+const cancelGuidedBuilder = () => {
+  if (!guidedBuilderActive.value) {
+    resetGuidedBuilderState()
+    return
+  }
+  guidedBuilderAssistantMessage('Guided Builder canceled. No generation was run.')
+  resetGuidedBuilderState()
+}
+
+const buildGuidedBuilderSummary = (answers) => {
+  const menuLine = {
+    left: 'Left menu from nodeTitle filter',
+    top: 'Top menu from explicit node IDs',
+    both: 'Both left filter + top node IDs',
+    none: 'No menu',
+  }[answers.menuMode] || answers.menuMode
+
+  return [
+    `App: ${answers.appName || 'Untitled'}`,
+    `Goal: ${answers.appGoal || 'n/a'}`,
+    `Menu: ${menuLine || 'n/a'}`,
+    answers.leftFilterLabel ? `Left filter: ${answers.leftFilterLabel}` : null,
+    answers.topNodeIds?.length ? `Top node IDs: ${answers.topNodeIds.join(', ')}` : null,
+    `Images: ${answers.imagePlan || 'none'}`,
+    `Theme: ${answers.themePlan || 'default'}`,
+    `Save to graph: ${answers.saveToGraph ? 'yes' : 'no'}`,
+  ]
+    .filter(Boolean)
+    .join('\n- ')
+}
+
+const buildGuidedBuilderGenerationPrompt = (answers) => {
+  const graphId =
+    props.graphData?.id ||
+    props.graphData?.graphId ||
+    props.graphData?.metadata?.id ||
+    props.graphData?.metadata?.graphId ||
+    props.graphData?.metadata?.graph_id ||
+    'Unknown'
+
+  const menuInstructions = []
+  if (answers.menuMode === 'left' || answers.menuMode === 'both') {
+    menuInstructions.push(
+      `Left menu must be built from label filtering using nodeTitle contains "${answers.leftFilterLabel}". Use getknowgraph(id, nodeTitle) pattern.`,
+    )
+  }
+  if (answers.menuMode === 'top' || answers.menuMode === 'both') {
+    menuInstructions.push(
+      `Top menu must map page-by-page to these node IDs: ${answers.topNodeIds.join(', ')}. Use getknowgraph(id, nodeId) for each page.`,
+    )
+  }
+  if (answers.menuMode === 'none') {
+    menuInstructions.push('No left or top menu is required.')
+  }
+
+  const saveInstructions = answers.saveToGraph
+    ? `Save result using exactly one graph tool call:
+1. Call graph_update_current once.
+2. Add a NEW node with:
+   - id: "html-node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}"
+   - label: "${answers.appName || 'Guided Mockup'}"
+   - type: "html-node"
+   - info: full standalone HTML document.
+3. Do not rewrite unrelated nodes.`
+    : 'Do not call graph tools. Return only the final HTML in one ```html fenced block.'
+
+  return `Create a standalone HTML mockup page from this guided brief.
+
+Guided brief:
+- App name: ${answers.appName}
+- App goal: ${answers.appGoal}
+- Menu mode: ${answers.menuMode}
+- Images: ${answers.imagePlan}
+- Theme: ${answers.themePlan}
+
+Menu/data rules:
+${menuInstructions.map((line) => `- ${line}`).join('\n')}
+- API endpoint: https://knowledge.vegvisr.org/getknowgraph
+- Graph ID for fetch examples: ${graphId}
+
+Safety/runtime rules (required):
+- Include marked CDN and DOMPurify CDN scripts.
+- Render markdown only via marked.parse(...).
+- Sanitize rendered markdown with DOMPurify.sanitize(...) before setting innerHTML.
+- Use [data-ve-markdown] or [data-markdown] targets for markdown-rendered regions.
+
+Design/output rules:
+- Keep it clean, modern, and editable.
+- Include clear placeholders for menu items, hero content, and CTA.
+- Include comments showing where to swap theme/colors/images quickly.
+
+${saveInstructions}`
+}
+
+const applyGuidedBuilderStepAnswer = (stepId, answerText, answers) => {
+  if (stepId === 'appName') {
+    if (!answerText) return { ok: false, error: 'Please provide an app name.' }
+    answers.appName = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'appGoal') {
+    if (!answerText) return { ok: false, error: 'Please describe the app goal.' }
+    answers.appGoal = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'menuMode') {
+    const menuMode = parseMenuModeAnswer(answerText)
+    if (!menuMode) {
+      return {
+        ok: false,
+        error: 'Choose menu mode with A, B, C, D or write left/top/both/none.',
+      }
+    }
+    answers.menuMode = menuMode
+    return { ok: true }
+  }
+
+  if (stepId === 'leftFilterLabel') {
+    if (!answerText) return { ok: false, error: 'Provide a label filter term, e.g. Chapter.' }
+    answers.leftFilterLabel = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'topNodeIds') {
+    const nodeIds = parseNodeIdList(answerText)
+    if (!nodeIds.length) return { ok: false, error: 'Please provide at least one node ID.' }
+    answers.topNodeIdsText = answerText
+    answers.topNodeIds = nodeIds
+    return { ok: true }
+  }
+
+  if (stepId === 'imagePlan') {
+    answers.imagePlan = answerText || 'none'
+    return { ok: true }
+  }
+
+  if (stepId === 'themePlan') {
+    answers.themePlan = answerText || 'default'
+    return { ok: true }
+  }
+
+  if (stepId === 'saveMode') {
+    const yesNo = parseYesNoAnswer(answerText)
+    if (yesNo === null) return { ok: false, error: 'Answer yes or no for save mode.' }
+    answers.saveMode = yesNo ? 'yes' : 'no'
+    answers.saveToGraph = yesNo
+    return { ok: true }
+  }
+
+  if (stepId === 'confirmGenerate') {
+    const yesNo = parseYesNoAnswer(answerText)
+    if (yesNo === null) return { ok: false, error: 'Answer yes or no to confirm generation.' }
+    return { ok: true, confirmed: yesNo }
+  }
+
+  return { ok: false, error: 'Unknown guided-builder step.' }
+}
+
+const handleGuidedBuilderTurn = (messageText, currentProvider) => {
+  if (!useGuidedBuilder.value || !guidedBuilderActive.value) {
+    return { mode: 'passthrough' }
+  }
+
+  const answerText = String(messageText || '').trim()
+
+  appendChatMessage({
+    role: 'user',
+    content: answerText,
+    timestamp: Date.now(),
+    provider: currentProvider,
+    guidedBuilder: true,
+  })
+
+  userInput.value = ''
+  errorMessage.value = ''
+
+  if (/^\/?(cancel|avbryt)$/i.test(answerText)) {
+    guidedBuilderAssistantMessage('Guided Builder canceled. No generation was run.')
+    resetGuidedBuilderState()
+    return { mode: 'handled' }
+  }
+
+  const stepId = guidedBuilderCurrentStepId.value
+  if (!stepId) {
+    guidedBuilderAssistantMessage('Guided Builder has no active step. Start chain again.')
+    resetGuidedBuilderState()
+    return { mode: 'handled' }
+  }
+
+  const answers = { ...guidedBuilderAnswers.value }
+  const result = applyGuidedBuilderStepAnswer(stepId, answerText, answers)
+  if (!result.ok) {
+    guidedBuilderAssistantMessage(`Please clarify: ${result.error}`)
+    return { mode: 'handled' }
+  }
+
+  guidedBuilderAnswers.value = answers
+
+  if (stepId === 'confirmGenerate') {
+    const summary = buildGuidedBuilderSummary(answers)
+    guidedBuilderLastSummary.value = summary
+
+    if (!result.confirmed) {
+      guidedBuilderAssistantMessage(`Generation canceled.\n\nSummary kept:\n- ${summary.replace(/\n/g, '\n- ')}`)
+      resetGuidedBuilderState()
+      return { mode: 'handled' }
+    }
+
+    if (!isGuidedBuilderProviderSupported(currentProvider)) {
+      guidedBuilderAssistantMessage('Guided generation requires OpenAI, Claude, or Grok provider.')
+      resetGuidedBuilderState()
+      return { mode: 'handled' }
+    }
+
+    const generationPrompt = buildGuidedBuilderGenerationPrompt(answers)
+    const toolMode = answers.saveToGraph ? 'graph-only' : 'none'
+    guidedBuilderGenerationToolMode.value = toolMode
+    resetGuidedBuilderState()
+    guidedBuilderAssistantMessage('Generating HTML mockup now from your guided brief...')
+    return {
+      mode: 'generate',
+      prompt: generationPrompt,
+      displayMessage: `Guided generation: ${answers.appName || 'Untitled app'}`,
+      toolMode,
+      skipImageParsing: true,
+    }
+  }
+
+  const nextCursor = getNextGuidedBuilderCursor(guidedBuilderStepCursor.value + 1, answers)
+  if (nextCursor === -1) {
+    guidedBuilderStepCursor.value = GUIDED_BUILDER_STEPS.length - 1
+  } else {
+    guidedBuilderStepCursor.value = nextCursor
+  }
+
+  askCurrentGuidedBuilderQuestion()
+  return { mode: 'handled' }
+}
+
+watch(useGuidedBuilder, (enabled) => {
+  if (!enabled && guidedBuilderActive.value) {
+    resetGuidedBuilderState()
+  }
+})
+
+watch(provider, (nextProvider) => {
+  if (!isGuidedBuilderProviderSupported(nextProvider) && guidedBuilderActive.value) {
+    guidedBuilderAssistantMessage('Guided Builder paused because provider changed to one without guided support.')
+    resetGuidedBuilderState()
+  }
+})
+
 const fetchChatSessions = async () => {
   if (!canPersistHistory.value) return
   sessionsLoading.value = true
@@ -6788,9 +7409,26 @@ const buildSelectionContext = () => {
 const buildRawJsonContext = () => {
   if (!useRawJsonMode.value || !props.graphData) return null
 
+  const graphId =
+    props.graphData.id ||
+    props.graphData.graphId ||
+    props.graphData.metadata?.id ||
+    props.graphData.metadata?.graphId ||
+    props.graphData.metadata?.graph_id ||
+    null
+  const nodes = Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []
+  const edges = Array.isArray(props.graphData.edges) ? props.graphData.edges : []
+  const nodeIds = nodes.map((node) => String(node?.id || '')).filter(Boolean)
+  const nodeIndexLines = nodes.map((node) => {
+    const id = String(node?.id || '')
+    const type = String(node?.type || 'unknown')
+    const label = String(node?.label || node?.title || '')
+    return label ? `- ${id} (${type}) — ${label}` : `- ${id} (${type})`
+  })
+
   const rawData = {
     metadata: {
-      graphId: props.graphData.id || props.graphData.graphId || props.graphData.metadata?.id || null,
+      graphId,
       title: props.graphData.metadata?.title || 'Untitled',
       description: props.graphData.metadata?.description || '',
       category: props.graphData.metadata?.category || '',
@@ -6798,17 +7436,23 @@ const buildRawJsonContext = () => {
       updated: props.graphData.metadata?.updated || null,
       author: props.graphData.metadata?.author || '',
       tags: props.graphData.metadata?.tags || [],
-      nodeCount: (props.graphData.nodes || []).length,
-      edgeCount: (props.graphData.edges || []).length,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      nodeIds,
       version: props.graphData.metadata?.version || '1.0',
       ...(props.graphData.metadata || {}), // Include all other metadata
     },
-    nodes: props.graphData.nodes || [],
-    edges: props.graphData.edges || [],
+    nodes,
+    edges,
     raw: props.graphData, // Include the complete raw data
   }
 
   return {
+    graphId: graphId || 'Unknown',
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    nodeIndex: nodeIndexLines,
+    nodeIndexText: nodeIndexLines.join('\n'),
     json: rawData,
     jsonString: JSON.stringify(rawData, null, 2),
   }
@@ -6992,75 +7636,99 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
 }
 
 const sendMessage = async () => {
-  const message = userInput.value.trim()
-  if (!message || isStreaming.value) return
+  const rawMessage = userInput.value.trim()
+  if (!rawMessage || isStreaming.value) return
+
+  const currentProvider = provider.value
+  const guidedTurn = handleGuidedBuilderTurn(rawMessage, currentProvider)
+  if (guidedTurn.mode === 'handled') return
+
+  let message = rawMessage
+  let displayedUserMessage = rawMessage
+  let guidedToolModeOverride = 'default'
+  let skipImageCommandParsing = false
+
+  if (guidedTurn.mode === 'generate') {
+    message = guidedTurn.prompt || rawMessage
+    displayedUserMessage = guidedTurn.displayMessage || rawMessage
+    guidedToolModeOverride = guidedTurn.toolMode || 'default'
+    skipImageCommandParsing = Boolean(guidedTurn.skipImageParsing)
+  }
 
   const userPrompt = message
-  const currentProvider = provider.value
-  const hasImage = uploadedImage.value && currentProvider !== 'grok'
+  const hasImage = !skipImageCommandParsing && uploadedImage.value && currentProvider !== 'grok'
   const selectionFocus = buildSelectionContext()
+  const effectiveToolMode = guidedToolModeOverride || 'default'
+  const proffToolsEnabledForTurn = effectiveToolMode === 'default' && useProffTools.value
+  const sourcesToolsEnabledForTurn = effectiveToolMode === 'default' && useSourcesTools.value
+  const templateToolsEnabledForTurn = effectiveToolMode === 'default' && useTemplateTools.value && canUseTemplateTools.value
+  const graphToolsEnabledForTurn = effectiveToolMode === 'graph-only'
+    ? true
+    : (effectiveToolMode === 'none' ? false : useGraphTools.value)
 
-  // Image generation (OpenAI only): support `/image ...` plus common natural language phrasing.
-  const slashImageMatch = message.match(/^\/(image|img)\s+(.+)$/i)
-  if (slashImageMatch) {
-    if (currentProvider !== 'openai') {
-      appendChatMessage({
-        role: 'assistant',
-        content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
-        timestamp: Date.now(),
-        provider: currentProvider,
-      })
-      return
+  if (!skipImageCommandParsing) {
+    // Image generation (OpenAI only): support `/image ...` plus common natural language phrasing.
+    const slashImageMatch = message.match(/^\/(image|img)\s+(.+)$/i)
+    if (slashImageMatch) {
+      if (currentProvider !== 'openai') {
+        appendChatMessage({
+          role: 'assistant',
+          content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+          timestamp: Date.now(),
+          provider: currentProvider,
+        })
+        return
+      }
+
+      const imagePrompt = (slashImageMatch[2] || '').trim()
+      if (!imagePrompt) return
+      return await handleImageGeneration(imagePrompt, rawMessage)
     }
 
-    const imagePrompt = (slashImageMatch[2] || '').trim()
-    if (!imagePrompt) return
-    return await handleImageGeneration(imagePrompt, message)
-  }
+    // Check for natural language image generation commands (e.g. "make me an image of ...", "please generate a picture ...")
+    const normalizedForImageGen = message
+      .replace(/^\s*(please|pls)\s+/i, '')
+      .replace(/^\s*(can you|could you|would you)\s+/i, '')
+      .trim()
 
-  // Check for natural language image generation commands (e.g. "make me an image of ...", "please generate a picture ...")
-  const normalizedForImageGen = message
-    .replace(/^\s*(please|pls)\s+/i, '')
-    .replace(/^\s*(can you|could you|would you)\s+/i, '')
-    .trim()
+    const imageGenPattern = /^(create|generate|make|draw|paint|design|produce)\s+(me\s+)?(an?\s+)?(image|picture|photo|illustration|artwork)\s*(of\s+)?(.+)$/i
+    const imageGenMatch = normalizedForImageGen.match(imageGenPattern)
 
-  const imageGenPattern = /^(create|generate|make|draw|paint|design|produce)\s+(me\s+)?(an?\s+)?(image|picture|photo|illustration|artwork)\s*(of\s+)?(.+)$/i
-  const imageGenMatch = normalizedForImageGen.match(imageGenPattern)
+    if (imageGenMatch) {
+      if (currentProvider !== 'openai') {
+        appendChatMessage({
+          role: 'assistant',
+          content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+          timestamp: Date.now(),
+          provider: currentProvider,
+        })
+        return
+      }
 
-  if (imageGenMatch) {
-    if (currentProvider !== 'openai') {
-      appendChatMessage({
-        role: 'assistant',
-        content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
-        timestamp: Date.now(),
-        provider: currentProvider,
-      })
-      return
+      // Extract the prompt (last capture group)
+      const imagePrompt = (imageGenMatch[6] || '').trim()
+      if (!imagePrompt) return
+      return await handleImageGeneration(imagePrompt, rawMessage)
     }
 
-    // Extract the prompt (last capture group)
-    const imagePrompt = (imageGenMatch[6] || '').trim()
-    if (!imagePrompt) return
-    return await handleImageGeneration(imagePrompt, message)
-  }
-
-  if (currentProvider === 'openai' && openaiModel.value.startsWith('gpt-image')) {
-    if (hasImage) {
-      appendChatMessage({
-        role: 'assistant',
-        content: '🖼️ Image models cannot analyze images. Switch to a chat model (e.g. GPT-5.2) for image analysis.',
-        timestamp: Date.now(),
-        provider: currentProvider,
-      })
-      return
+    if (currentProvider === 'openai' && openaiModel.value.startsWith('gpt-image')) {
+      if (hasImage) {
+        appendChatMessage({
+          role: 'assistant',
+          content: '🖼️ Image models cannot analyze images. Switch to a chat model (e.g. GPT-5.2) for image analysis.',
+          timestamp: Date.now(),
+          provider: currentProvider,
+        })
+        return
+      }
+      return await handleImageGeneration(message, rawMessage)
     }
-    return await handleImageGeneration(message, message)
   }
 
   // Add user message
   appendChatMessage({
     role: 'user',
-    content: hasImage ? `${message} [Image attached]` : message,
+    content: hasImage ? `${displayedUserMessage} [Image attached]` : displayedUserMessage,
     timestamp: Date.now(),
     provider: currentProvider,
     hasImage,
@@ -7131,15 +7799,20 @@ const sendMessage = async () => {
       contextSections.push(referencedNodeContext)
     }
 
-    // Add tool usage instructions when tools are enabled
+    // Add tool usage instructions only for explicitly enabled tool groups
     if (currentProvider === 'openai' || currentProvider === 'claude' || currentProvider === 'grok') {
       const toolSections = []
+      const proffEnabled = proffToolsEnabledForTurn
+      const sourcesEnabled = sourcesToolsEnabledForTurn
+      const templateEnabled = templateToolsEnabledForTurn
+      const graphEnabled = graphToolsEnabledForTurn
+      const hasAnyToolMode = proffEnabled || sourcesEnabled || templateEnabled || graphEnabled
 
-      if (useProffTools.value || useSourcesTools.value) {
+      if (proffEnabled || sourcesEnabled) {
         let toolInstructions = `IMPORTANT: You have access to external data tools and YOU MUST USE THEM for any questions about Norwegian companies, people, or sources. Do NOT answer from memory - always use the tools to get real-time data.
 
 `
-        if (useProffTools.value) {
+        if (proffEnabled) {
           toolInstructions += `**Proff.no Tools** (Norwegian Business Registry - Brønnøysundregistrene):
 You MUST use these tools for ANY question about Norwegian companies or business people. Never guess - always look up!
 
@@ -7164,7 +7837,7 @@ EXAMPLES:
 
 `
         }
-        if (useSourcesTools.value) {
+        if (sourcesEnabled) {
           toolInstructions += `**Norwegian Sources Tools** (Government, Research, News):
 - sources_search - Search across Norwegian news, government, research sources (Regjeringen, SSB, NRK, etc.)
 - sources_google_news - Search Google News for breaking news and international stories
@@ -7179,7 +7852,7 @@ Use sources_search for Norwegian public sources, sources_google_news for current
         toolSections.push(toolInstructions.trim())
       }
 
-      if (useTemplateTools.value && canUseTemplateTools.value) {
+      if (templateEnabled) {
         toolSections.push(`**Graph Template Tools** (Admin only):
 Use graph_template_catalog to list approved node templates. Then call graph_template_insert with template_id and node_overrides to insert a node into the current graph. The graph is saved immediately after insertion.
 
@@ -7212,15 +7885,19 @@ graph_template_insert({
 })`)
       }
 
-      // Always offer graph manipulation tools
-      toolSections.push(`**Graph Data Manipulation Tools** (Save/Update Knowledge Graphs):
+      if (graphEnabled) {
+        toolSections.push(`**Graph Data Manipulation Tools** (Save/Update Knowledge Graphs):
 You can directly manipulate and persist the knowledge graph data to the database:
 - graph_get_current_data - Retrieve information about the current graph (nodes, edges, metadata)
 - graph_save_new - Save the current graph as a NEW knowledge graph with a custom title and description
-- graph_update_current - Update the current graph with modified nodes, edges, or metadata
+- graph_update_current - Safely patch node fields on the current graph (never replace all nodes unless replaceAllNodes=true)
 - graph_node_search_replace - Fast search-and-replace within a node's info field (PREFERRED for simple text changes)
 - graph_attach_css_to_html - Link a css-node to an html-node with a styles edge
 - graph_detach_css_from_html - Remove styles edges from html-node/css-node
+
+NEW HTML-NODE SAFETY RULE:
+For newly created html-node content, use markdown targets with [data-ve-markdown] (or [data-markdown]).
+Runtime must render with CDN marked.js and sanitize with CDN DOMPurify before setting innerHTML.
 
 IMPORTANT — PREFER graph_node_search_replace FOR SIMPLE EDITS:
 When the user asks to change a color, rename a class, update a word, or make any small text change in a node, ALWAYS use graph_node_search_replace instead of graph_update_current. It is much faster because it only sends the search/replace strings instead of the entire node content. Only use graph_update_current when you need to rewrite large portions of the content.
@@ -7277,12 +7954,18 @@ Guidelines:
 - Always use graph_get_current_data first to understand the structure
 - When saving new graphs, provide meaningful titles and descriptions
 - For partial updates: only include the fields being changed (id + changed fields)
-- The backend supports both full node replacement and surgical field updates
+- This tool is safe-patch by default and avoids accidental full-graph replacement
 - The database saves automatically after each operation
 - Store graph IDs for reference`)
+      }
 
       if (toolSections.length) {
         contextSections.push(toolSections.join('\n\n'))
+      }
+      if (!hasAnyToolMode) {
+        contextSections.push(`**Tool Mode: OFF**
+No tool groups are enabled. Answer from the provided graph context/RAW JSON only.
+Do not request tool calls unless the user explicitly asks to enable a tool group.`)
       }
     }
 
@@ -7354,6 +8037,13 @@ Use this context to provide relevant insights and answers about the knowledge gr
       if (rawJsonContext) {
         contextSections.push(`**RAW JSON DATABASE EXPORT**
 
+Graph ID: ${rawJsonContext.graphId}
+Node count: ${rawJsonContext.nodeCount}
+Edge count: ${rawJsonContext.edgeCount}
+
+Node ID index (all nodes):
+${rawJsonContext.nodeIndexText || 'No nodes'}
+
 You have access to the complete raw JSON data from the database, including all metadata and internal structure. You can analyze and answer detailed questions about:
 - The complete data schema and structure
 - Metadata information (creation date, author, version, tags, etc.)
@@ -7369,7 +8059,7 @@ Here is the complete raw JSON export:
 ${rawJsonContext.jsonString}
 \`\`\`
 
-Feel free to ask detailed analytical questions about this data structure, metadata, relationships, or any aspect of how it's organized.`)
+If tool mode is off, you must still answer directly from this RAW JSON and should not ask for tool access.`)
       }
     }
 
@@ -7382,7 +8072,7 @@ Feel free to ask detailed analytical questions about this data structure, metada
     Prioritize this highlighted passage when answering the user's next question, while still considering the broader graph context.`)
 
       // === NEW: Add implicit node patching context when Raw JSON Mode + highlighted text are both active ===
-      if (useRawJsonMode.value && selectionFocus.nodeId) {
+      if (useRawJsonMode.value && selectionFocus.nodeId && useGraphTools.value) {
         contextSections.push(`**IMPLICIT NODE PATCHING MODE**
 
 You have detected that:
@@ -7415,6 +8105,10 @@ Guidelines:
 - Preserve formatting (HTML, Markdown, JSON structure) unless the user explicitly asks to change it
 - Confirm changes before saving
 - Always use graph_update_current to persist your changes to the database`)
+      } else if (useRawJsonMode.value && selectionFocus.nodeId && !useGraphTools.value) {
+        contextSections.push(`**RAW JSON ANALYSIS MODE (NO WRITE TOOLS)**
+You can analyze the highlighted content in node "${selectionFocus.nodeId}" and propose exact changes.
+Do not call graph tools. Provide the direct replacement text/JSON in your response.`)
       }
       // === END NEW ===
     }
@@ -7488,10 +8182,10 @@ Guidelines:
 
     // Combine Proff, Sources, Template, and Graph tools
     const allTools = [
-      ...(useProffTools.value ? proffTools : []),
-      ...(useSourcesTools.value ? sourcesTools : []),
-      ...(useTemplateTools.value && canUseTemplateTools.value ? templateTools : []),
-      ...graphTools
+      ...(proffToolsEnabledForTurn ? proffTools : []),
+      ...(sourcesToolsEnabledForTurn ? sourcesTools : []),
+      ...(templateToolsEnabledForTurn ? templateTools : []),
+      ...(graphToolsEnabledForTurn ? graphTools : [])
     ]
 
     // Add tools for OpenAI/Grok function calling
