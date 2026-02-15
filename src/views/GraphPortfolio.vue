@@ -405,6 +405,20 @@
                             </li>
                           </ul>
                         </div>
+                        <div class="mb-3 form-check">
+                          <input
+                            id="theme-graph-toggle"
+                            class="form-check-input"
+                            type="checkbox"
+                            v-model="editingGraph.metadata.isThemeGraph"
+                          />
+                          <label class="form-check-label" for="theme-graph-toggle">
+                            Theme Graph
+                          </label>
+                          <div class="form-text">
+                            Mark this graph as a Theme Graph so Theme Studio can find it.
+                          </div>
+                        </div>
                         <div class="d-flex justify-content-end gap-2">
                           <button class="btn btn-secondary btn-sm" @click="cancelEdit">
                             Cancel
@@ -536,6 +550,13 @@
                             :title="`Graph type: ${graph.metadata.graphType}`"
                           >
                             {{ getGraphTypeLabel(graph.metadata.graphType) }}
+                          </span>
+                          <span
+                            v-if="graph.metadata?.isThemeGraph"
+                            class="badge bg-theme-graph ms-2"
+                            title="Theme Graph"
+                          >
+                            Theme Graph
                           </span>
                         </div>
                         <div class="graph-info mt-3">
@@ -1147,6 +1168,7 @@ const processGraphSummary = (summary) => {
       summary.metadata?.publicationState || (summary.metadata?.seoSlug ? 'published' : 'draft'),
     publishedAt: summary.metadata?.publishedAt || null,
     seoSlug: summary.metadata?.seoSlug || '',
+    isThemeGraph: summary.metadata?.isThemeGraph === true,
     chatSessionCount: summary.metadata?.chatSessionCount || 0,
     affiliates: summary.metadata?.affiliates || null,
   }
@@ -1200,6 +1222,7 @@ const processGraphData = (graphSummary, graphData) => {
     publicationState:
       graphData.metadata?.publicationState || (graphData.metadata?.seoSlug ? 'published' : 'draft'),
     publishedAt: graphData.metadata?.publishedAt || null,
+    isThemeGraph: graphData.metadata?.isThemeGraph === true,
   }
 
   return {
@@ -1986,6 +2009,10 @@ const getGraphTypeBadgeClass = (graphType) => {
 const startEdit = (graph) => {
   editingGraphId.value = graph.id
   editingGraph.value = JSON.parse(JSON.stringify(graph)) // Deep copy
+  if (!editingGraph.value.metadata) {
+    editingGraph.value.metadata = {}
+  }
+  editingGraph.value.metadata.isThemeGraph = editingGraph.value.metadata.isThemeGraph === true
 }
 
 // Cancel editing
@@ -2071,7 +2098,7 @@ const saveEdit = async (originalGraph) => {
           ...originalGraph,
           chatSessionCount: chatSessionCount, // Update top-level chatSessionCount for template
           metadata: {
-            ...editingGraph.value.metadata,
+            ...preservedMetadata,
             version: newVersion,
             updatedAt: new Date().toISOString(),
             chatSessionCount: chatSessionCount, // Also update in metadata
@@ -2989,6 +3016,13 @@ const filterByMetaArea = (area) => {
   background-color: #f06595 !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.graph-meta .badge.bg-theme-graph {
+  background-color: #0ea5a4 !important;
+  color: white !important;
+  border: 1px solid #0f766e;
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {
