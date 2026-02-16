@@ -97,10 +97,18 @@ const emit = defineEmits(['node-deleted', 'node-updated'])
 
 const htmlUrl = ref('')
 const isFullscreen = ref(false)
+const GRAPH_ID_DECLARATION_REGEX = /\b((?:const|let|var)\s+GRAPH_ID\s*=\s*)(['"`])[^'"`\r\n]*\2/g
 
 const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
 })
+
+const applyGraphIdBindings = (rawHtml, graphId) => {
+  if (typeof rawHtml !== 'string' || !graphId) return rawHtml
+  let html = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
+  html = html.replace(GRAPH_ID_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  return html
+}
 
 // Storage helper script to inject into HTML content
 const getStorageHelperScript = (nodeId) => `
@@ -407,12 +415,8 @@ const createHtmlUrl = () => {
 
   let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
 
-  // Inject graph ID by replacing {{GRAPH_ID}} placeholder
-  // Simply use the currentGraphId from the store - it's set when the graph is loaded
   const graphId = knowledgeGraphStore.currentGraphId
-  if (graphId) {
-    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
-  }
+  rawHtml = applyGraphIdBindings(rawHtml, graphId)
 
   // Inject CSS nodes before storage helpers
   let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
@@ -436,11 +440,8 @@ const downloadHtml = () => {
   if (!props.node.info) return
   let rawHtml = typeof props.node.info === 'string' ? props.node.info : String(props.node.info || '')
 
-  // Inject graph ID by replacing {{GRAPH_ID}} placeholder
   const graphId = knowledgeGraphStore.currentGraphId
-  if (graphId) {
-    rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
-  }
+  rawHtml = applyGraphIdBindings(rawHtml, graphId)
 
   // Inject CSS nodes before downloading (Phase 5)
   let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
@@ -563,11 +564,8 @@ const publishHtml = async () => {
 
     let rawHtml = String(props.node.info || '')
 
-    // Inject graph ID by replacing {{GRAPH_ID}} placeholder
     const graphId = knowledgeGraphStore.currentGraphId
-    if (graphId) {
-      rawHtml = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
-    }
+    rawHtml = applyGraphIdBindings(rawHtml, graphId)
 
     // Inject CSS nodes before publishing (Phase 5)
     let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)

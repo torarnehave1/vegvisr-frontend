@@ -2711,6 +2711,10 @@ const graphTools = [
           replaceAllNodes: {
             type: 'boolean',
             description: 'Dangerous. If true, replaces the entire node list with provided nodes. Default false.'
+          },
+          preserveExistingFulltextImages: {
+            type: 'boolean',
+            description: 'Default true. When a fulltext update removes all image references, existing image URLs are preserved automatically. Set false only when intentionally deleting images.'
           }
         },
         required: ['nodes']
@@ -2838,7 +2842,7 @@ async function executeGraphManipulationTool(toolName, args) {
 
       const clonedGraphData = {
         id: newGraphId,
-        nodes: sourceNodes.map((node) => ({ ...node })),
+        nodes: normalizeGraphHtmlNodesForGraphId(sourceNodes.map((node) => ({ ...node })), newGraphId),
         edges: sourceEdges.map((edge) => ({ ...edge })),
         metadata: {
           ...sourceMetadata,
@@ -2896,7 +2900,9 @@ async function executeGraphManipulationTool(toolName, args) {
       const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       const newGraphData = {
         id: newGraphId,
-        nodes: Array.isArray(activeGraph?.nodes) ? activeGraph.nodes.map((node) => ({ ...node })) : [],
+        nodes: Array.isArray(activeGraph?.nodes)
+          ? normalizeGraphHtmlNodesForGraphId(activeGraph.nodes.map((node) => ({ ...node })), newGraphId)
+          : [],
         edges: Array.isArray(activeGraph?.edges) ? activeGraph.edges.map((edge) => ({ ...edge })) : [],
         metadata: {
           ...activeGraph.metadata,
@@ -2952,31 +2958,71 @@ async function executeGraphManipulationTool(toolName, args) {
       const existingNodes = Array.isArray(activeGraph?.nodes) ? activeGraph.nodes : []
       const incomingNodes = Array.isArray(args?.nodes) ? args.nodes.filter((node) => node && node.id) : []
       const replaceAllNodes = args?.replaceAllNodes === true
+      const preserveExistingFulltextImages = args?.preserveExistingFulltextImages !== false
+      const existingById = new Map(existingNodes.map((node) => [node.id, node]))
       let patchedNodeCount = 0
       let addedNodeCount = 0
       let updatedNodes = existingNodes
 
       if (replaceAllNodes && incomingNodes.length > 0) {
-        updatedNodes = incomingNodes.map((node) => ({
-          ...node,
-          updatedAt: new Date().toISOString(),
-          updatedBy: userId,
-        }))
+        updatedNodes = incomingNodes.map((node) => {
+          const existingNode = existingById.get(node.id)
+          const normalizedNode = {
+            ...node,
+            ...(node.type === 'html-node' && typeof node.info === 'string' && node.info.trim()
+              ? {
+                  info: normalizeHtmlNodeInfoForGraphContext(
+                    node.info,
+                    currentGraphId,
+                    node.label || 'Vegvisr HTML Template',
+                  ),
+                }
+              : {}),
+          }
+
+          if (normalizedNode.type === 'fulltext' && typeof normalizedNode.info === 'string') {
+            normalizedNode.info = preserveFulltextImagesIfMissing(
+              existingNode?.info,
+              normalizedNode.info,
+              preserveExistingFulltextImages,
+            )
+          }
+
+          return {
+            ...normalizedNode,
+            updatedAt: new Date().toISOString(),
+            updatedBy: userId,
+          }
+        })
         patchedNodeCount = incomingNodes.length
       } else if (incomingNodes.length > 0) {
         const incomingById = new Map(incomingNodes.map((node) => [node.id, node]))
-        const existingById = new Map(existingNodes.map((node) => [node.id, node]))
 
         updatedNodes = existingNodes.map((existingNode) => {
           const patchNode = incomingById.get(existingNode.id)
           if (!patchNode) return existingNode
           patchedNodeCount += 1
-          return {
+          const mergedNode = {
             ...existingNode,
             ...patchNode,
             updatedAt: new Date().toISOString(),
             updatedBy: userId,
           }
+          if (mergedNode.type === 'html-node' && typeof mergedNode.info === 'string' && mergedNode.info.trim()) {
+            mergedNode.info = normalizeHtmlNodeInfoForGraphContext(
+              mergedNode.info,
+              currentGraphId,
+              mergedNode.label || 'Vegvisr HTML Template',
+            )
+          }
+          if (mergedNode.type === 'fulltext' && typeof mergedNode.info === 'string') {
+            mergedNode.info = preserveFulltextImagesIfMissing(
+              existingNode.info,
+              mergedNode.info,
+              preserveExistingFulltextImages,
+            )
+          }
+          return mergedNode
         })
 
         for (const patchNode of incomingNodes) {
@@ -2985,8 +3031,9 @@ async function executeGraphManipulationTool(toolName, args) {
             patchNode.type === 'html-node' && typeof patchNode.info === 'string' && patchNode.info.trim()
               ? {
                   ...patchNode,
-                  info: ensureSafeMarkdownRuntimeForHtmlNode(
+                  info: normalizeHtmlNodeInfoForGraphContext(
                     patchNode.info,
+                    currentGraphId,
                     patchNode.label || 'Vegvisr HTML Template',
                   ),
                 }
@@ -3533,6 +3580,10 @@ async function executeTemplateTool(toolName, args) {
 
       // Calculate position for new node
       const activeGraph = knowledgeGraphStore.currentGraph || props.graphData || {}
+      const currentGraphId = knowledgeGraphStore.currentGraphId || activeGraph?.id
+      if (!currentGraphId) {
+        throw new Error('No current graph loaded.')
+      }
       const existingNodes = activeGraph?.nodes || []
       const maxY = existingNodes.reduce((max, n) => Math.max(max, n.position?.y || 0), 0)
       const defaultPosition = { x: 100, y: maxY + 150 }
@@ -3550,13 +3601,11 @@ async function executeTemplateTool(toolName, args) {
 
       // Enforce safe markdown runtime only for newly inserted html-node templates.
       if (newNode.type === 'html-node' && typeof newNode.info === 'string' && newNode.info.trim()) {
-        newNode.info = ensureSafeMarkdownRuntimeForHtmlNode(newNode.info, newNode.label || 'Vegvisr HTML Template')
-      }
-
-      // Get current graph data
-      const currentGraphId = knowledgeGraphStore.currentGraphId || activeGraph?.id
-      if (!currentGraphId) {
-        throw new Error('No current graph loaded.')
+        newNode.info = normalizeHtmlNodeInfoForGraphContext(
+          newNode.info,
+          currentGraphId,
+          newNode.label || 'Vegvisr HTML Template',
+        )
       }
 
       // Add new node to existing nodes
@@ -3642,11 +3691,48 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
   let proffData = null
   let sourcesData = null
   let iterations = 0
-  const maxIterations = 5
+  const activeTools = Array.isArray(requestBody?.tools) ? requestBody.tools : []
+  const hasGraphToolsInChain = activeTools.some((tool) =>
+    isGraphManipulationToolName(tool?.function?.name || tool?.name || ''),
+  )
+  const maxIterations = hasGraphToolsInChain ? 12 : 6
+  let previousBatchSignature = ''
+  let repeatedBatchCount = 0
 
   while (iterations < maxIterations) {
     const toolCalls = currentData.choices?.[0]?.message?.tool_calls || []
     if (!toolCalls.length) break
+
+    const batchSignature = toolCalls
+      .map((toolCall) => {
+        const name = toolCall?.function?.name || 'unknown'
+        const rawArgs = toolCall?.function?.arguments
+        const argsSignature =
+          typeof rawArgs === 'string'
+            ? rawArgs.trim()
+            : JSON.stringify(rawArgs || {})
+        return `${name}:${argsSignature}`
+      })
+      .join('||')
+
+    if (batchSignature === previousBatchSignature) {
+      repeatedBatchCount += 1
+    } else {
+      previousBatchSignature = batchSignature
+      repeatedBatchCount = 0
+    }
+
+    // Break if model keeps requesting exactly the same tool call batch repeatedly.
+    if (repeatedBatchCount >= 2) {
+      return {
+        message:
+          'Tool chain stopped because the model repeated the same tool calls multiple times. Please run once more with "continue remix".',
+        usedProffAPI,
+        usedSourcesAPI,
+        proffData,
+        sourcesData,
+      }
+    }
 
     iterations += 1
     console.log('Processing tool calls:', toolCalls.map(t => t.function.name))
@@ -3717,7 +3803,10 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
 
   if (iterations >= maxIterations) {
     return {
-      message: 'Tool chain reached maximum iterations. Please try a simpler question.',
+      message:
+        hasGraphToolsInChain
+          ? 'Tool chain hit the current step budget while editing the graph. Run "continue remix" to complete remaining updates.'
+          : 'Tool chain reached maximum iterations. Please try a simpler question.',
       usedProffAPI,
       usedSourcesAPI,
       proffData,
@@ -5668,11 +5757,112 @@ const stripInlineStyleBlocks = (htmlDocument) => {
   return htmlDocument.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
 }
 
+const MARKDOWN_IMAGE_REGEX = /!\[[^\]]*]\(([^)]+)\)/g
+const HTML_IMAGE_REGEX = /<img\b[^>]*\bsrc\s*=\s*(['"])(.*?)\1[^>]*>/gi
+const PRESERVED_IMAGES_MARKER = '<!-- vegvisr-preserved-images -->'
+
+const normalizeImageUrlToken = (rawUrl) => {
+  const normalized = String(rawUrl || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+  if (!normalized || /^data:/i.test(normalized)) return ''
+  return normalized
+}
+
+const normalizeMarkdownImageTarget = (rawTarget) => {
+  let target = String(rawTarget || '').trim()
+  if (!target) return ''
+  if (target.startsWith('<') && target.endsWith('>')) {
+    target = target.slice(1, -1).trim()
+  }
+  const titleMatch = target.match(/^(\S+)\s+["'][\s\S]*["']$/)
+  if (titleMatch?.[1]) {
+    target = titleMatch[1].trim()
+  } else {
+    target = target.split(/\s+/)[0] || ''
+  }
+  return normalizeImageUrlToken(target)
+}
+
+const extractImageUrlsFromContent = (content) => {
+  if (typeof content !== 'string' || !content.trim()) return []
+  const urls = []
+  const seen = new Set()
+
+  for (const match of content.matchAll(MARKDOWN_IMAGE_REGEX)) {
+    const url = normalizeMarkdownImageTarget(match?.[1] || '')
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    urls.push(url)
+  }
+
+  for (const match of content.matchAll(HTML_IMAGE_REGEX)) {
+    const url = normalizeImageUrlToken(match?.[2] || '')
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    urls.push(url)
+  }
+
+  return urls
+}
+
+const preserveFulltextImagesIfMissing = (existingInfo, nextInfo, enabled = true) => {
+  if (!enabled) return nextInfo
+  if (typeof nextInfo !== 'string') return nextInfo
+
+  const existingImageUrls = extractImageUrlsFromContent(existingInfo)
+  if (!existingImageUrls.length) return nextInfo
+
+  const nextImageUrls = extractImageUrlsFromContent(nextInfo)
+  if (nextImageUrls.length) return nextInfo
+
+  const baseInfo = nextInfo.trimEnd()
+  const preservedImageLines = existingImageUrls.map((url, index) => `![Image ${index + 1}](${url})`)
+  return `${baseInfo}${baseInfo ? '\n\n' : ''}${PRESERVED_IMAGES_MARKER}\n${preservedImageLines.join('\n')}`
+}
+
 const MARKED_CDN_URL = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js'
 const DOMPURIFY_CDN_URL = 'https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js'
 const VEGVISR_MD_RUNTIME_MARKER = 'data-vegvisr-md-runtime'
 const SCRIPT_TAG_OPEN = '<scr' + 'ipt'
 const SCRIPT_TAG_CLOSE = '</scr' + 'ipt>'
+const GRAPH_ID_DECLARATION_REGEX = /\b((?:const|let|var)\s+GRAPH_ID\s*=\s*)(['"`])[^'"`\r\n]*\2/g
+
+const replaceGraphIdBindingsInHtml = (rawHtml, graphId) => {
+  if (typeof rawHtml !== 'string' || !graphId) return rawHtml
+  let html = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
+  html = html.replace(GRAPH_ID_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  return html
+}
+
+const normalizeHtmlNodeInfoForGraphContext = (rawHtml, graphId, fallbackTitle = 'Vegvisr HTML Template') => {
+  if (typeof rawHtml !== 'string' || !rawHtml.trim()) return rawHtml
+  const htmlWithGraphBindings = replaceGraphIdBindingsInHtml(rawHtml, graphId)
+  return ensureSafeMarkdownRuntimeForHtmlNode(htmlWithGraphBindings, fallbackTitle)
+}
+
+const normalizeGraphHtmlNodesForGraphId = (nodes, graphId) => {
+  if (!Array.isArray(nodes)) return []
+  return nodes.map((node) => {
+    if (
+      !node ||
+      node.type !== 'html-node' ||
+      typeof node.info !== 'string' ||
+      !node.info.trim()
+    ) {
+      return node
+    }
+
+    return {
+      ...node,
+      info: normalizeHtmlNodeInfoForGraphContext(
+        node.info,
+        graphId,
+        node.label || 'Vegvisr HTML Template',
+      ),
+    }
+  })
+}
 
 const ensureSafeMarkdownRuntimeForHtmlNode = (rawHtml, fallbackTitle = 'Vegvisr HTML Template') => {
   if (typeof rawHtml !== 'string') return rawHtml
@@ -7832,11 +8022,15 @@ Then continue updates on the cloned graph context.`
 2. Call graph_get_current_data and identify lesson/content nodes (fulltext + html-node app surfaces).
 3. Rewrite lesson text to the new subject, keeping pedagogic structure and progression.
 4. Apply image strategy: ${imagePlan}
+   - Keep markdown/html image references in fulltext nodes unless strategy explicitly replaces images.
 5. Apply theme/CSS strategy: ${answers.cssStrategy}
    - If css-node exists, update css-node info.
    - If needed, attach css-node to html-node via graph_attach_css_to_html.
 6. Apply access strategy: ${authPlan}
-7. Use graph_update_current with partial node updates only (id + changed fields).`
+7. Use graph_update_current with partial node updates only (id + changed fields).
+   - Include preserveExistingFulltextImages: ${answers.imageStrategy === 'keep-existing' ? 'true' : 'false'}.
+8. Tool budget: maximum 6 tool calls total.
+9. Batch changes: do one clone/save call, one read call, and one main graph_update_current call whenever possible.`
     : `Do not call graph tools. Return:
 1) A node-by-node remix plan
 2) A compact patch proposal (which nodes/fields to change)
@@ -9276,24 +9470,45 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
         // Fall back to any content in the original response
         aiMessage = data.choices?.[0]?.message?.content || `Tool execution failed: ${toolError.message}`
       }
-    } else if (currentProvider === 'claude' && data.stop_reason === 'tool_use') {
-      // Claude tool use handling - supports multi-step chains
-      console.log('Claude tool use detected, starting tool chain...')
+	    } else if (currentProvider === 'claude' && data.stop_reason === 'tool_use') {
+	      // Claude tool use handling - supports multi-step chains
+	      console.log('Claude tool use detected, starting tool chain...')
 
-      let currentData = data
-      let currentMessages = [...requestBody.messages]
-      let maxIterations = 5 // Safety limit
-      let iterations = 0
+	      let currentData = data
+	      let currentMessages = [...requestBody.messages]
+	      const activeTools = Array.isArray(requestBody?.tools) ? requestBody.tools : []
+	      const hasGraphToolsInChain = activeTools.some((tool) =>
+	        isGraphManipulationToolName(tool?.name || tool?.function?.name || ''),
+	      )
+	      let maxIterations = hasGraphToolsInChain ? 12 : 6 // Safety limit
+	      let iterations = 0
+	      let previousBatchSignature = ''
+	      let repeatedBatchCount = 0
 
-      try {
-        while (currentData.stop_reason === 'tool_use' && iterations < maxIterations) {
-          iterations++
+	      try {
+	        while (currentData.stop_reason === 'tool_use' && iterations < maxIterations) {
+	          iterations++
 
-          // Find all tool_use blocks in the response
-          const toolUseBlocks = currentData.content?.filter(c => c.type === 'tool_use') || []
-          console.log(`Claude iteration ${iterations}: ${toolUseBlocks.length} tool(s) to execute`)
+	          // Find all tool_use blocks in the response
+	          const toolUseBlocks = currentData.content?.filter(c => c.type === 'tool_use') || []
+	          console.log(`Claude iteration ${iterations}: ${toolUseBlocks.length} tool(s) to execute`)
 
-          if (toolUseBlocks.length === 0) break
+	          if (toolUseBlocks.length === 0) break
+
+	          const batchSignature = toolUseBlocks
+	            .map((toolBlock) => `${toolBlock.name}:${JSON.stringify(toolBlock.input || {})}`)
+	            .join('||')
+	          if (batchSignature === previousBatchSignature) {
+	            repeatedBatchCount += 1
+	          } else {
+	            previousBatchSignature = batchSignature
+	            repeatedBatchCount = 0
+	          }
+	          if (repeatedBatchCount >= 2) {
+	            aiMessage =
+	              'Tool chain stopped because the model repeated the same tool calls multiple times. Please run once more with "continue remix".'
+	            break
+	          }
 
           // Track which APIs are used
           if (toolUseBlocks.some(t => t.name.startsWith('proff_'))) {
@@ -9371,9 +9586,11 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
         // Extract final text response
         aiMessage = currentData.content?.find(c => c.type === 'text')?.text
 
-        if (!aiMessage && iterations >= maxIterations) {
-          aiMessage = 'Tool chain reached maximum iterations. Please try a simpler question.'
-        }
+	        if (!aiMessage && iterations >= maxIterations) {
+	          aiMessage = hasGraphToolsInChain
+	            ? 'Tool chain hit the current step budget while editing the graph. Run "continue remix" to complete remaining updates.'
+	            : 'Tool chain reached maximum iterations. Please try a simpler question.'
+	        }
 
       } catch (toolError) {
         console.error('Claude tool chain error:', toolError)
