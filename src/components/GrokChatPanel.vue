@@ -1784,6 +1784,8 @@ const GUIDED_REMIXER_STEPS = [
   'courseName',
   'courseGoal',
   'audienceLevel',
+  'nodeCount',
+  'menuFilterPattern',
   'imageStrategy',
   'cssStrategy',
   'authPayment',
@@ -1811,6 +1813,8 @@ const createDefaultGuidedRemixerAnswers = () => ({
   courseName: '',
   courseGoal: '',
   audienceLevel: '',
+  nodeCount: 8,
+  menuFilterPattern: 'Lesson #',
   imageStrategy: '',
   cssStrategy: '',
   themeNodeId: '',
@@ -1888,6 +1892,37 @@ const parseAuthPaymentAnswer = (value) => {
   if (normalized === 'b' || normalized.includes('login')) return 'login-only'
   if (normalized === 'c' || normalized.includes('payment') || normalized.includes('checkout')) return 'login-and-payment'
   return null
+}
+
+const parseGuidedRemixerNodeCount = (value) => {
+  const raw = String(value || '')
+  const match = raw.match(/\d+/)
+  if (!match) return null
+  const parsed = parseInt(match[0], 10)
+  if (!Number.isFinite(parsed)) return null
+  if (parsed < 1 || parsed > 60) return null
+  return parsed
+}
+
+const normalizeGuidedRemixerFilterPattern = (value) => {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return ''
+  if (trimmed.includes('#')) return trimmed
+  return `${trimmed.replace(/\s+$/g, '')} #`
+}
+
+const parseGuidedRemixerFilterPattern = (value) => {
+  const raw = String(value || '').trim()
+  const normalized = raw.toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'a' || normalized.includes('lesson')) return 'Lesson #'
+  if (normalized === 'b' || normalized.includes('chapter')) return 'Chapter #'
+  if (normalized === 'c' || normalized.includes('step')) return 'Step #'
+  if (normalized === 'd') return null
+
+  const custom = raw.replace(/^[dD]\s*[\)\:\-]?\s*/, '').trim()
+  const pattern = normalizeGuidedRemixerFilterPattern(custom || raw)
+  return pattern || null
 }
 
 const isLikelyThemeHtmlNode = (node) => {
@@ -2058,6 +2093,8 @@ const buildGuidedRemixerSummary = (answers) => {
     `New course: ${answers.courseName || 'Untitled'}`,
     `Course goal: ${answers.courseGoal || 'n/a'}`,
     `Audience: ${answers.audienceLevel || 'n/a'}`,
+    `Lesson nodes: ${answers.nodeCount || 'n/a'}`,
+    `Menu filter: ${answers.menuFilterPattern || 'n/a'}`,
     `Images: ${imageLine || 'n/a'}`,
     answers.themeNodeLabel ? `Theme node: ${answers.themeNodeLabel} (${answers.themeNodeId})` : null,
     `Theme/CSS: ${answers.cssStrategy || 'n/a'}`,
@@ -2071,32 +2108,38 @@ const buildGuidedRemixerSummary = (answers) => {
 const getGuidedRemixerQuestion = (stepId, answers) => {
   const currentGraphId = resolveCurrentGraphId() || 'unknown'
   if (stepId === 'sourceGraphId') {
-    return `Step 1/9. Source graph ID to remix?\nType "default" for current graph (${currentGraphId}), or paste another graph ID.`
+    return `Step 1/11. Source graph ID to remix?\nType "default" for current graph (${currentGraphId}), or paste another graph ID.`
   }
   if (stepId === 'courseName') {
-    return 'Step 2/9. What is the new course/app name?'
+    return 'Step 2/11. What is the new course/app name?'
   }
   if (stepId === 'courseGoal') {
-    return 'Step 3/9. What should this new course teach? (short paragraph)'
+    return 'Step 3/11. What should this new course teach? (short paragraph)'
   }
   if (stepId === 'audienceLevel') {
-    return 'Step 4/9. Who is this for? (example: kids 9-12, beginner adults, teacher-led class)'
+    return 'Step 4/11. Who is this for? (example: kids 9-12, beginner adults, teacher-led class)'
+  }
+  if (stepId === 'nodeCount') {
+    return 'Step 5/11. How many lesson/content nodes should be created? (1-60)'
+  }
+  if (stepId === 'menuFilterPattern') {
+    return 'Step 6/11. Menu label filter pattern?\nA) Lesson #N\nB) Chapter #N\nC) Step #N\nD) Custom pattern (must include #)'
   }
   if (stepId === 'imageStrategy') {
-    return 'Step 5/9. Image strategy?\nA) Replace existing images\nB) AI suggest new image set\nC) Keep existing images'
+    return 'Step 7/11. Image strategy?\nA) Replace existing images\nB) AI suggest new image set\nC) Keep existing images'
   }
   if (stepId === 'cssStrategy') {
-    return 'Step 6/9. Choose a theme card with "Select theme".\nYou can also type a theme node ID/name, or type "custom" to skip theme lock.'
+    return 'Step 8/11. Choose a theme card with "Select theme".\nYou can also type a theme node ID/name, or type "custom" to skip theme lock.'
   }
   if (stepId === 'authPayment') {
-    return 'Step 7/9. Access flow?\nA) None\nB) Login only\nC) Login + payment placeholders'
+    return 'Step 9/11. Access flow?\nA) None\nB) Login only\nC) Login + payment placeholders'
   }
   if (stepId === 'saveMode') {
-    return 'Step 8/9. Should I apply changes directly as a new graph now? (yes/no)'
+    return 'Step 10/11. Should I apply changes directly as a new graph now? (yes/no)'
   }
   if (stepId === 'confirmGenerate') {
     const summary = buildGuidedRemixerSummary(answers)
-    return `Step 9/9. Confirm remix generation now? (yes/no)\n\n- ${summary}`
+    return `Step 11/11. Confirm remix generation now? (yes/no)\n\n- ${summary}`
   }
   return 'Provide your answer for the current step.'
 }
@@ -2706,6 +2749,7 @@ const graphTools = [
           graphId: { type: 'string', description: 'Source graph id to clone (required).' },
           title: { type: 'string', description: 'Optional title for the cloned graph.' },
           description: { type: 'string', description: 'Optional description for the cloned graph.' },
+          regenerateNodeIds: { type: 'boolean', description: 'Optional. If true, remaps all cloned node IDs to fresh UUID values and remaps edges to match.' },
         },
         required: ['graphId']
       }
@@ -2720,7 +2764,8 @@ const graphTools = [
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Title for the new graph' },
-          description: { type: 'string', description: 'Description for the new graph' }
+          description: { type: 'string', description: 'Description for the new graph' },
+          regenerateNodeIds: { type: 'boolean', description: 'Optional. If true, remaps all node IDs to fresh UUID values and remaps edges to match.' }
         },
         required: []
       }
@@ -2866,6 +2911,7 @@ async function executeGraphManipulationTool(toolName, args) {
       if (!sourceGraphId) {
         throw new Error('graphId is required')
       }
+      const regenerateNodeIds = args?.regenerateNodeIds === true
 
       const getResponse = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(sourceGraphId)}`)
       if (!getResponse.ok) {
@@ -2880,11 +2926,19 @@ async function executeGraphManipulationTool(toolName, args) {
       const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       const graphTitle = String(args?.title || sourceMetadata?.title || 'Cloned Graph').trim()
       const graphDescription = String(args?.description || sourceMetadata?.description || `Cloned from ${sourceGraphId}`).trim()
+      let clonedNodes = sourceNodes.map((node) => ({ ...node }))
+      let clonedEdges = sourceEdges.map((edge) => ({ ...edge }))
+
+      if (regenerateNodeIds) {
+        const remapped = remapGraphNodeIdsToUUID(clonedNodes, clonedEdges)
+        clonedNodes = remapped.nodes
+        clonedEdges = remapped.edges
+      }
 
       const clonedGraphData = {
         id: newGraphId,
-        nodes: normalizeGraphHtmlNodesForGraphId(sourceNodes.map((node) => ({ ...node })), newGraphId),
-        edges: sourceEdges.map((edge) => ({ ...edge })),
+        nodes: normalizeGraphHtmlNodesForGraphId(clonedNodes, newGraphId),
+        edges: clonedEdges,
         metadata: {
           ...sourceMetadata,
           title: graphTitle,
@@ -2924,6 +2978,8 @@ async function executeGraphManipulationTool(toolName, args) {
         sourceGraphId,
         graphId: newGraphId,
         title: graphTitle,
+        regeneratedNodeIds: regenerateNodeIds,
+        remappedNodeCount: regenerateNodeIds ? clonedNodes.length : 0,
         message: `Cloned ${sourceGraphId} to ${newGraphId}.`,
       }
     }
@@ -2934,17 +2990,25 @@ async function executeGraphManipulationTool(toolName, args) {
       if (!activeGraph) {
         throw new Error('No graph data available to save')
       }
+      const regenerateNodeIds = args?.regenerateNodeIds === true
 
       const graphTitle = args?.title || activeGraph?.metadata?.title || 'AI Generated Graph'
       const graphDescription = args?.description || activeGraph?.metadata?.description || 'Created by AI analysis'
 
       const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      let clonedNodes = Array.isArray(activeGraph?.nodes) ? activeGraph.nodes.map((node) => ({ ...node })) : []
+      let clonedEdges = Array.isArray(activeGraph?.edges) ? activeGraph.edges.map((edge) => ({ ...edge })) : []
+
+      if (regenerateNodeIds) {
+        const remapped = remapGraphNodeIdsToUUID(clonedNodes, clonedEdges)
+        clonedNodes = remapped.nodes
+        clonedEdges = remapped.edges
+      }
+
       const newGraphData = {
         id: newGraphId,
-        nodes: Array.isArray(activeGraph?.nodes)
-          ? normalizeGraphHtmlNodesForGraphId(activeGraph.nodes.map((node) => ({ ...node })), newGraphId)
-          : [],
-        edges: Array.isArray(activeGraph?.edges) ? activeGraph.edges.map((edge) => ({ ...edge })) : [],
+        nodes: normalizeGraphHtmlNodesForGraphId(clonedNodes, newGraphId),
+        edges: clonedEdges,
         metadata: {
           ...activeGraph.metadata,
           title: graphTitle,
@@ -2980,6 +3044,8 @@ async function executeGraphManipulationTool(toolName, args) {
         status: 'success',
         graphId: newGraphId,
         title: graphTitle,
+        regeneratedNodeIds: regenerateNodeIds,
+        remappedNodeCount: regenerateNodeIds ? clonedNodes.length : 0,
         message: `Graph saved as "${graphTitle}"`,
       }
     }
@@ -5746,6 +5812,78 @@ const createGraphId = (prefix = 'graph') => {
   return `${prefix}_${randomPart}`
 }
 
+const createNodeUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.random() * 16 | 0
+    const value = char === 'x' ? random : ((random & 0x3) | 0x8)
+    return value.toString(16)
+  })
+}
+
+const escapeRegexToken = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const replaceNodeIdTokensInText = (rawText, idMap) => {
+  if (typeof rawText !== 'string' || !rawText || !(idMap instanceof Map) || idMap.size === 0) {
+    return rawText
+  }
+  let updated = rawText
+  for (const [oldId, newId] of idMap.entries()) {
+    if (!oldId || !newId) continue
+    updated = updated.replace(new RegExp(escapeRegexToken(oldId), 'g'), newId)
+  }
+  return updated
+}
+
+const remapGraphNodeIdsToUUID = (nodes, edges) => {
+  const safeNodes = Array.isArray(nodes) ? nodes : []
+  const safeEdges = Array.isArray(edges) ? edges : []
+  if (!safeNodes.length) {
+    return { nodes: safeNodes, edges: safeEdges, idMap: new Map() }
+  }
+
+  const idMap = new Map()
+  const remappedNodes = safeNodes.map((node) => {
+    const oldId = String(node?.id || '').trim()
+    const nextId = createNodeUUID()
+    if (oldId) {
+      idMap.set(oldId, nextId)
+    }
+    return {
+      ...node,
+      id: nextId,
+    }
+  })
+
+  const nodesWithReferenceUpdates = remappedNodes.map((node) => {
+    if (!node || typeof node.info !== 'string' || !node.info.trim()) {
+      return node
+    }
+    return {
+      ...node,
+      info: replaceNodeIdTokensInText(node.info, idMap),
+    }
+  })
+
+  const remappedEdges = safeEdges.map((edge) => {
+    const sourceId = String(edge?.source || '').trim()
+    const targetId = String(edge?.target || '').trim()
+    return {
+      ...edge,
+      source: idMap.get(sourceId) || edge?.source,
+      target: idMap.get(targetId) || edge?.target,
+    }
+  })
+
+  return {
+    nodes: nodesWithReferenceUpdates,
+    edges: remappedEdges,
+    idMap,
+  }
+}
+
 const escapeHtmlText = (value = '') => {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -8042,7 +8180,6 @@ const advanceGuidedRemixerToNextStep = () => {
 const buildGuidedRemixerGenerationPrompt = (answers) => {
   const currentGraphId = resolveCurrentGraphId() || 'Unknown'
   const sourceGraphId = answers.sourceGraphId || currentGraphId
-  const sourceMatchesCurrent = sourceGraphId === currentGraphId
   const authPlan = {
     none: 'Do not add login/payment blocks.',
     'login-only': 'Add login placeholders and gated-state copy (no backend implementation).',
@@ -8059,36 +8196,43 @@ const buildGuidedRemixerGenerationPrompt = (answers) => {
 - If css-node is missing, generate one and attach via graph_attach_css_to_html.`
     : '- No strict theme lock. Keep CSS coherent and course-friendly.'
 
-  const cloneStep = sourceMatchesCurrent
-    ? `Call graph_save_new with:
-   - title: "${answers.courseName}"
-   - description: "Remixed from ${sourceGraphId} to ${answers.courseGoal}"
-Then continue updates on the newly created graph context.`
-    : `Call graph_clone_by_id with:
+  const cloneStep = `Call graph_clone_by_id with:
    - graphId: "${sourceGraphId}"
    - title: "${answers.courseName}"
    - description: "Remixed from ${sourceGraphId} to ${answers.courseGoal}"
-Then continue updates on the cloned graph context.`
+   - regenerateNodeIds: true
+This is required so the cloned graph gets fresh UUID node IDs.`
 
   const saveInstructions = answers.saveToGraph
     ? `Execution workflow (tool mode graph-only):
 1. ${cloneStep}
-2. Call graph_get_current_data and identify lesson/content nodes (fulltext + html-node app surfaces).
-3. Rewrite lesson text to the new subject, keeping pedagogic structure and progression.
-4. Apply image strategy: ${imagePlan}
-   - Keep markdown/html image references in fulltext nodes unless strategy explicitly replaces images.
-5. Apply theme/CSS strategy: ${answers.cssStrategy}
+2. Call graph_get_current_data once on the cloned graph and identify the primary app html-node(s).
+3. Keep app structure intact. Do NOT rewrite full HTML layout.
+   - Only update GRAPH_ID bindings to the cloned graph id.
+   - Update FILTER_CONTAINS to "${answers.menuFilterPattern}".
+   - Apply image strategy: ${imagePlan}
+4. Create exactly ${answers.nodeCount} NEW fulltext lesson nodes.
+   - Each new node id MUST be a UUID.
+   - Labels must follow pattern: "${answers.menuFilterPattern}N - <lesson title>" (N starts at 1).
+   - Content must be newly authored for subject "${answers.courseGoal}" and audience "${answers.audienceLevel}".
+   - Do not paraphrase old lessons; create a freer new course narrative.
+5. Keep existing lesson/content nodes unchanged (no destructive replacement).
+6. Apply theme/CSS strategy: ${answers.cssStrategy}
    - If css-node exists, update css-node info.
    - If needed, attach css-node to html-node via graph_attach_css_to_html.
-6. Apply access strategy: ${authPlan}
-7. Use graph_update_current with partial node updates only (id + changed fields).
-   - Include preserveExistingFulltextImages: ${answers.imageStrategy === 'keep-existing' ? 'true' : 'false'}.
-8. Tool budget: maximum 6 tool calls total.
-9. Batch changes: do one clone/save call, one read call, and one main graph_update_current call whenever possible.`
+7. Apply access strategy: ${authPlan}
+8. Use one main graph_update_current call with only changed fields:
+   - updated html-node(s)
+   - newly created fulltext nodes
+   - optional css-node updates
+9. Optional extra call only if needed: graph_attach_css_to_html.
+10. Tool budget: maximum 5 tool calls total.`
     : `Do not call graph tools. Return:
 1) A node-by-node remix plan
 2) A compact patch proposal (which nodes/fields to change)
-3) Optional CSS token block for the new theme.`
+3) Exactly ${answers.nodeCount} proposed lesson nodes with UUID ids and labels using "${answers.menuFilterPattern}N"
+4) Explicit app patch plan: only GRAPH_ID + FILTER_CONTAINS + image URLs
+5) Optional CSS token block for the new theme.`
 
   return `You are a Course Graph Remixer. Transform an existing educational web-app graph into a new course while keeping functional structure.
 
@@ -8097,6 +8241,8 @@ Target brief:
 - New course/app name: ${answers.courseName}
 - New subject goal: ${answers.courseGoal}
 - Audience level: ${answers.audienceLevel}
+- Lesson node count: ${answers.nodeCount}
+- Menu filter pattern: ${answers.menuFilterPattern}
 - Image strategy: ${imagePlan}
 - Theme lock: ${answers.themeNodeLabel ? `${answers.themeNodeLabel} (${answers.themeNodeId})` : 'custom / none'}
 - Theme/CSS strategy: ${answers.cssStrategy}
@@ -8104,7 +8250,7 @@ Target brief:
 
 Critical constraints:
 - Preserve app structure and navigation logic.
-- Update only what is needed: lessons/content/images/theme/access placeholders.
+- Update only what is needed: images + GRAPH_ID + FILTER_CONTAINS + new lesson nodes + optional theme/access placeholders.
 - Keep HTML runtime safe: markdown via marked + sanitize via DOMPurify.
 - Prefer surgical updates, not full graph replacement.
 - If changing CSS architecture, keep css-node + html-node styles edge pattern.
@@ -8145,6 +8291,24 @@ const applyGuidedRemixerStepAnswer = (stepId, answerText, answers) => {
   if (stepId === 'audienceLevel') {
     if (!answerText) return { ok: false, error: 'Please define audience/level.' }
     answers.audienceLevel = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'nodeCount') {
+    const parsed = parseGuidedRemixerNodeCount(answerText)
+    if (!parsed) {
+      return { ok: false, error: 'Provide how many lesson nodes to create (1-60).' }
+    }
+    answers.nodeCount = parsed
+    return { ok: true }
+  }
+
+  if (stepId === 'menuFilterPattern') {
+    const pattern = parseGuidedRemixerFilterPattern(answerText)
+    if (!pattern) {
+      return { ok: false, error: 'Choose A/B/C or provide a custom filter pattern containing #.' }
+    }
+    answers.menuFilterPattern = pattern
     return { ok: true }
   }
 
