@@ -174,6 +174,49 @@
             Theme: {{ guidedBuilderAnswers.themeNodeLabel }}
           </span>
         </div>
+        <div class="context-row guided-builder-row">
+          <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' && provider !== 'grok' }">
+            <input
+              type="checkbox"
+              v-model="useGuidedRemixer"
+              :disabled="provider !== 'openai' && provider !== 'claude' && provider !== 'grok'"
+            />
+            <span>🧬 Guided Course Remixer</span>
+          </label>
+          <button
+            v-if="useGuidedRemixer && !guidedRemixerActive"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="startGuidedRemixer"
+          >
+            Start chain
+          </button>
+          <button
+            v-if="guidedRemixerActive"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="cancelGuidedRemixer"
+          >
+            Cancel chain
+          </button>
+          <span v-if="guidedRemixerActive" class="context-indicator">
+            Step {{ guidedRemixerStepNumber }} / {{ guidedRemixerTotalSteps }}
+          </span>
+          <button
+            v-if="guidedRemixerActive && guidedRemixerCurrentStepId === 'cssStrategy'"
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            @click="openGuidedRemixerThemePicker"
+          >
+            Select theme
+          </button>
+          <span
+            v-if="guidedRemixerActive && guidedRemixerAnswers.themeNodeLabel"
+            class="context-indicator"
+          >
+            Theme: {{ guidedRemixerAnswers.themeNodeLabel }}
+          </span>
+        </div>
         <div class="context-row">
           <label class="context-toggle" :class="{ disabled: provider !== 'openai' && provider !== 'claude' }">
             <input
@@ -977,6 +1020,65 @@
     </div>
   </div>
 
+  <!-- Guided Remixer Theme Picker Modal -->
+  <div v-if="showGuidedRemixerThemeModal" class="modal-overlay" @click.self="closeGuidedRemixerThemeModal">
+    <div class="advanced-graph-modal guided-theme-modal">
+      <div class="modal-header">
+        <h3>🧬 Select Theme For Course Remixer</h3>
+        <button class="btn-close" @click="closeGuidedRemixerThemeModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Choose a theme html-node card. The remixer will adapt CSS and visual language to this theme.
+        </p>
+        <div v-if="!guidedBuilderThemeCandidates.length" class="error-state compact">
+          <p class="error-message mb-0">
+            No html-node themes found in this graph. Type <code>custom</code> in chat to continue without theme lock.
+          </p>
+        </div>
+        <div v-else class="guided-theme-list">
+          <label
+            v-for="item in guidedBuilderThemeCandidates"
+            :key="`remixer-${item.id}`"
+            class="guided-theme-item guided-theme-item-card"
+            :class="{ selected: guidedRemixerThemeSelectionId === item.id }"
+          >
+            <input
+              type="radio"
+              name="guidedRemixerThemeSelection"
+              :value="item.id"
+              v-model="guidedRemixerThemeSelectionId"
+            />
+            <div class="guided-theme-info">
+              <div class="guided-theme-title">
+                {{ item.label }}
+                <span v-if="item.isLikelyTheme" class="guided-theme-badge">Theme</span>
+              </div>
+              <div class="guided-theme-meta">
+                <code>{{ item.id }}</code>
+              </div>
+              <div v-if="item.previewText" class="guided-theme-preview">
+                {{ item.previewText }}
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="closeGuidedRemixerThemeModal">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          :disabled="!guidedRemixerThemeSelectionId"
+          @click="applyGuidedRemixerThemeSelection"
+        >
+          Use selected theme
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Advanced Graph Creation Modal -->
   <div v-if="showAdvancedGraphModal" class="modal-overlay" @click.self="closeAdvancedGraphModal">
     <div class="advanced-graph-modal">
@@ -1652,6 +1754,7 @@ const useSelectionContext = ref(false)
 const useRawJsonMode = ref(false)
 const useGraphTools = ref(false)
 const useGuidedBuilder = ref(false)
+const useGuidedRemixer = ref(false)
 const provider = ref('grok')
 
 const GUIDED_BUILDER_STEPS = [
@@ -1662,6 +1765,18 @@ const GUIDED_BUILDER_STEPS = [
   'leftFilterLabel',
   'topNodeIds',
   'imagePlan',
+  'saveMode',
+  'confirmGenerate',
+]
+
+const GUIDED_REMIXER_STEPS = [
+  'sourceGraphId',
+  'courseName',
+  'courseGoal',
+  'audienceLevel',
+  'imageStrategy',
+  'cssStrategy',
+  'authPayment',
   'saveMode',
   'confirmGenerate',
 ]
@@ -1681,6 +1796,20 @@ const createDefaultGuidedBuilderAnswers = () => ({
   saveToGraph: false,
 })
 
+const createDefaultGuidedRemixerAnswers = () => ({
+  sourceGraphId: '',
+  courseName: '',
+  courseGoal: '',
+  audienceLevel: '',
+  imageStrategy: '',
+  cssStrategy: '',
+  themeNodeId: '',
+  themeNodeLabel: '',
+  authPayment: '',
+  saveMode: '',
+  saveToGraph: false,
+})
+
 const guidedBuilderActive = ref(false)
 const guidedBuilderStepCursor = ref(0)
 const guidedBuilderAnswers = ref(createDefaultGuidedBuilderAnswers())
@@ -1688,6 +1817,12 @@ const guidedBuilderLastSummary = ref('')
 const guidedBuilderGenerationToolMode = ref('default')
 const showGuidedThemeModal = ref(false)
 const guidedThemeSelectionId = ref('')
+const guidedRemixerActive = ref(false)
+const guidedRemixerStepCursor = ref(0)
+const guidedRemixerAnswers = ref(createDefaultGuidedRemixerAnswers())
+const guidedRemixerGenerationToolMode = ref('default')
+const showGuidedRemixerThemeModal = ref(false)
+const guidedRemixerThemeSelectionId = ref('')
 
 const parseYesNoAnswer = (value) => {
   const normalized = String(value || '').trim().toLowerCase()
@@ -1727,6 +1862,24 @@ const parseNodeIdList = (value) => {
   return unique
 }
 
+const parseImageStrategyAnswer = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'a' || normalized.includes('replace') || normalized.includes('new image')) return 'replace-existing'
+  if (normalized === 'b' || normalized.includes('unsplash') || normalized.includes('ai suggest')) return 'ai-suggest'
+  if (normalized === 'c' || normalized.includes('keep') || normalized.includes('current image')) return 'keep-existing'
+  return null
+}
+
+const parseAuthPaymentAnswer = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'a' || normalized.includes('none') || normalized.includes('no auth')) return 'none'
+  if (normalized === 'b' || normalized.includes('login')) return 'login-only'
+  if (normalized === 'c' || normalized.includes('payment') || normalized.includes('checkout')) return 'login-and-payment'
+  return null
+}
+
 const isLikelyThemeHtmlNode = (node) => {
   const label = String(node?.label || '').toLowerCase()
   const info = String(node?.info || '').toLowerCase()
@@ -1749,6 +1902,11 @@ const guidedBuilderThemeCandidates = computed(() => {
       label: String(node?.label || node?.id || 'Untitled theme node').trim(),
       isLikelyTheme: isLikelyThemeHtmlNode(node),
       order: Number.isFinite(Number(node?.order)) ? Number(node.order) : 9999,
+      previewText: String(node?.info || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 140),
     }))
     .filter((item) => item.id)
     .sort((a, b) => {
@@ -1848,12 +2006,103 @@ const guidedBuilderTotalSteps = computed(() => {
   return guidedBuilderVisibleStepCount.value
 })
 
+const resolveCurrentGraphId = () => (
+  props.graphData?.id ||
+  props.graphData?.graphId ||
+  props.graphData?.metadata?.id ||
+  props.graphData?.metadata?.graphId ||
+  props.graphData?.metadata?.graph_id ||
+  knowledgeGraphStore.currentGraphId ||
+  ''
+)
+
+const guidedRemixerCurrentStepId = computed(() => {
+  if (!guidedRemixerActive.value) return null
+  return GUIDED_REMIXER_STEPS[guidedRemixerStepCursor.value] || null
+})
+
+const guidedRemixerStepNumber = computed(() => {
+  if (!guidedRemixerActive.value) return 0
+  return guidedRemixerStepCursor.value + 1
+})
+
+const guidedRemixerTotalSteps = computed(() => {
+  return GUIDED_REMIXER_STEPS.length
+})
+
+const buildGuidedRemixerSummary = (answers) => {
+  const imageLine = {
+    'replace-existing': 'Replace existing images but keep layout',
+    'ai-suggest': 'AI suggest image set (Unsplash-style)',
+    'keep-existing': 'Keep existing images',
+  }[answers.imageStrategy] || answers.imageStrategy
+
+  const authLine = {
+    none: 'No login/payment',
+    'login-only': 'Add login flow placeholders',
+    'login-and-payment': 'Add login + payment placeholders',
+  }[answers.authPayment] || answers.authPayment
+
+  return [
+    `Source graph: ${answers.sourceGraphId || 'current graph'}`,
+    `New course: ${answers.courseName || 'Untitled'}`,
+    `Course goal: ${answers.courseGoal || 'n/a'}`,
+    `Audience: ${answers.audienceLevel || 'n/a'}`,
+    `Images: ${imageLine || 'n/a'}`,
+    answers.themeNodeLabel ? `Theme node: ${answers.themeNodeLabel} (${answers.themeNodeId})` : null,
+    `Theme/CSS: ${answers.cssStrategy || 'n/a'}`,
+    `Auth/Payment: ${authLine || 'n/a'}`,
+    `Save to graph: ${answers.saveToGraph ? 'yes' : 'no'}`,
+  ]
+    .filter(Boolean)
+    .join('\n- ')
+}
+
+const getGuidedRemixerQuestion = (stepId, answers) => {
+  const currentGraphId = resolveCurrentGraphId() || 'unknown'
+  if (stepId === 'sourceGraphId') {
+    return `Step 1/9. Source graph ID to remix?\nType "default" for current graph (${currentGraphId}), or paste another graph ID.`
+  }
+  if (stepId === 'courseName') {
+    return 'Step 2/9. What is the new course/app name?'
+  }
+  if (stepId === 'courseGoal') {
+    return 'Step 3/9. What should this new course teach? (short paragraph)'
+  }
+  if (stepId === 'audienceLevel') {
+    return 'Step 4/9. Who is this for? (example: kids 9-12, beginner adults, teacher-led class)'
+  }
+  if (stepId === 'imageStrategy') {
+    return 'Step 5/9. Image strategy?\nA) Replace existing images\nB) AI suggest new image set\nC) Keep existing images'
+  }
+  if (stepId === 'cssStrategy') {
+    return 'Step 6/9. Choose a theme card with "Select theme".\nYou can also type a theme node ID/name, or type "custom" to skip theme lock.'
+  }
+  if (stepId === 'authPayment') {
+    return 'Step 7/9. Access flow?\nA) None\nB) Login only\nC) Login + payment placeholders'
+  }
+  if (stepId === 'saveMode') {
+    return 'Step 8/9. Should I apply changes directly as a new graph now? (yes/no)'
+  }
+  if (stepId === 'confirmGenerate') {
+    const summary = buildGuidedRemixerSummary(answers)
+    return `Step 9/9. Confirm remix generation now? (yes/no)\n\n- ${summary}`
+  }
+  return 'Provide your answer for the current step.'
+}
+
 const chatInputPlaceholder = computed(() => {
   if (guidedBuilderActive.value) {
     const stepId = guidedBuilderCurrentStepId.value
     const question = getGuidedBuilderQuestion(stepId, guidedBuilderAnswers.value)
     const firstLine = String(question || '').split('\n')[0]
     return firstLine || 'Answer the current guided builder step...'
+  }
+  if (guidedRemixerActive.value) {
+    const stepId = guidedRemixerCurrentStepId.value
+    const question = getGuidedRemixerQuestion(stepId, guidedRemixerAnswers.value)
+    const firstLine = String(question || '').split('\n')[0]
+    return firstLine || 'Answer the current guided remixer step...'
   }
   return `Ask ${providerMeta(provider.value).label} anything about the graph...`
 })
@@ -2394,6 +2643,36 @@ const graphTools = [
   {
     type: 'function',
     function: {
+      name: 'graph_get_by_id',
+      description: 'Fetch summary information for any graph id from the knowledge graph API.',
+      parameters: {
+        type: 'object',
+        properties: {
+          graphId: { type: 'string', description: 'The graph id to fetch (required).' },
+        },
+        required: ['graphId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_clone_by_id',
+      description: 'Clone a source graph by id into a new graph id and switch current context to the cloned graph.',
+      parameters: {
+        type: 'object',
+        properties: {
+          graphId: { type: 'string', description: 'Source graph id to clone (required).' },
+          title: { type: 'string', description: 'Optional title for the cloned graph.' },
+          description: { type: 'string', description: 'Optional description for the cloned graph.' },
+        },
+        required: ['graphId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'graph_save_new',
       description: 'Save the current graph as a new graph id. Use when the user asks to clone or save a new version.',
       parameters: {
@@ -2497,24 +2776,130 @@ const graphTools = [
 async function executeGraphManipulationTool(toolName, args) {
   const userId = userStore.user_id || 'system'
   const graphStore = knowledgeGraphStore
+  const getActiveGraph = () => graphStore.currentGraph || props.graphData || null
+  const getActiveGraphId = () => graphStore.currentGraphId || props.graphData?.id || null
 
   try {
+    if (toolName === 'graph_get_by_id') {
+      const graphId = String(args?.graphId || '').trim()
+      if (!graphId) {
+        throw new Error('graphId is required')
+      }
+
+      const response = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(graphId)}`)
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to fetch graph ${graphId}: ${response.status} - ${errorText}`)
+      }
+      const data = await response.json()
+      const nodes = Array.isArray(data?.nodes) ? data.nodes : []
+      const edges = Array.isArray(data?.edges) ? data.edges : []
+      const nodeTypeCounts = nodes.reduce((acc, node) => {
+        const type = String(node?.type || 'unknown')
+        acc[type] = (acc[type] || 0) + 1
+        return acc
+      }, {})
+
+      return {
+        status: 'success',
+        graphId,
+        title: data?.metadata?.title || 'Untitled',
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        nodeTypeCounts,
+        sampleNodes: nodes.slice(0, 12).map((node) => ({
+          id: node.id,
+          label: node.label,
+          type: node.type,
+        })),
+        message: `Fetched graph ${graphId}.`,
+      }
+    }
+
+    if (toolName === 'graph_clone_by_id') {
+      const sourceGraphId = String(args?.graphId || '').trim()
+      if (!sourceGraphId) {
+        throw new Error('graphId is required')
+      }
+
+      const getResponse = await fetch(`https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(sourceGraphId)}`)
+      if (!getResponse.ok) {
+        const errorText = await getResponse.text()
+        throw new Error(`Failed to fetch source graph ${sourceGraphId}: ${getResponse.status} - ${errorText}`)
+      }
+      const sourceData = await getResponse.json()
+      const sourceNodes = Array.isArray(sourceData?.nodes) ? sourceData.nodes : []
+      const sourceEdges = Array.isArray(sourceData?.edges) ? sourceData.edges : []
+      const sourceMetadata = sourceData?.metadata || {}
+
+      const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const graphTitle = String(args?.title || sourceMetadata?.title || 'Cloned Graph').trim()
+      const graphDescription = String(args?.description || sourceMetadata?.description || `Cloned from ${sourceGraphId}`).trim()
+
+      const clonedGraphData = {
+        id: newGraphId,
+        nodes: sourceNodes.map((node) => ({ ...node })),
+        edges: sourceEdges.map((edge) => ({ ...edge })),
+        metadata: {
+          ...sourceMetadata,
+          title: graphTitle,
+          description: graphDescription,
+          clonedFromGraphId: sourceGraphId,
+          created: new Date().toISOString(),
+          createdBy: userId,
+          updated: new Date().toISOString(),
+          updatedBy: userId,
+        },
+      }
+
+      const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': userStore.role || 'Superadmin',
+        },
+        body: JSON.stringify({
+          id: newGraphId,
+          graphData: clonedGraphData,
+          override: true,
+        }),
+      })
+      if (!saveResponse.ok) {
+        const errorText = await saveResponse.text()
+        throw new Error(`Failed to save cloned graph: ${saveResponse.status} - ${errorText}`)
+      }
+      await saveResponse.json().catch(() => ({}))
+
+      graphStore.setCurrentGraphId(newGraphId)
+      graphStore.setCurrentGraph(clonedGraphData)
+      emit('graph-updated', { graphId: newGraphId, graphData: clonedGraphData })
+
+      return {
+        status: 'success',
+        sourceGraphId,
+        graphId: newGraphId,
+        title: graphTitle,
+        message: `Cloned ${sourceGraphId} to ${newGraphId}.`,
+      }
+    }
+
     if (toolName === 'graph_save_new') {
       // Save the current graph as a new knowledge graph
-      if (!props.graphData) {
+      const activeGraph = getActiveGraph()
+      if (!activeGraph) {
         throw new Error('No graph data available to save')
       }
 
-      const graphTitle = args?.title || props.graphData?.metadata?.title || 'AI Generated Graph'
-      const graphDescription = args?.description || props.graphData?.metadata?.description || 'Created by AI analysis'
+      const graphTitle = args?.title || activeGraph?.metadata?.title || 'AI Generated Graph'
+      const graphDescription = args?.description || activeGraph?.metadata?.description || 'Created by AI analysis'
 
       const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       const newGraphData = {
         id: newGraphId,
-        nodes: props.graphData.nodes || [],
-        edges: props.graphData.edges || [],
+        nodes: Array.isArray(activeGraph?.nodes) ? activeGraph.nodes.map((node) => ({ ...node })) : [],
+        edges: Array.isArray(activeGraph?.edges) ? activeGraph.edges.map((edge) => ({ ...edge })) : [],
         metadata: {
-          ...props.graphData.metadata,
+          ...activeGraph.metadata,
           title: graphTitle,
           description: graphDescription,
           created: new Date().toISOString(),
@@ -2555,7 +2940,8 @@ async function executeGraphManipulationTool(toolName, args) {
     if (toolName === 'graph_update_current') {
       // Update the current graph with new/modified data
       // Supports BOTH full graph updates AND implicit partial node patching
-      const currentGraphId = props.graphData?.id || graphStore.currentGraphId
+      const activeGraph = getActiveGraph()
+      const currentGraphId = getActiveGraphId()
 
       if (!currentGraphId) {
         throw new Error('No current graph loaded. Use graph_save_new to create a new graph first.')
@@ -2563,7 +2949,7 @@ async function executeGraphManipulationTool(toolName, args) {
 
       // Safe patch mode: never replace the whole node array unless explicitly requested.
       // This prevents accidental full-graph replacement when the model sends only a subset.
-      const existingNodes = Array.isArray(props.graphData?.nodes) ? props.graphData.nodes : []
+      const existingNodes = Array.isArray(activeGraph?.nodes) ? activeGraph.nodes : []
       const incomingNodes = Array.isArray(args?.nodes) ? args.nodes.filter((node) => node && node.id) : []
       const replaceAllNodes = args?.replaceAllNodes === true
       let patchedNodeCount = 0
@@ -2616,8 +3002,8 @@ async function executeGraphManipulationTool(toolName, args) {
         }
       }
 
-      const updatedEdges = args?.edges || props.graphData?.edges || []
-      const updatedMetadata = args?.metadata ? { ...props.graphData?.metadata, ...args.metadata } : props.graphData?.metadata
+      const updatedEdges = args?.edges || activeGraph?.edges || []
+      const updatedMetadata = args?.metadata ? { ...activeGraph?.metadata, ...args.metadata } : activeGraph?.metadata
 
       const updatedGraphData = {
         id: currentGraphId,
@@ -2687,11 +3073,12 @@ async function executeGraphManipulationTool(toolName, args) {
       if (!nodeId || !search) {
         throw new Error('nodeId and search are required')
       }
-      if (!props.graphData?.nodes) {
+      const activeGraph = getActiveGraph()
+      if (!activeGraph?.nodes) {
         throw new Error('No graph data available')
       }
 
-      const node = props.graphData.nodes.find(n => n.id === nodeId)
+      const node = activeGraph.nodes.find(n => n.id === nodeId)
       if (!node) {
         throw new Error(`Node not found: ${nodeId}`)
       }
@@ -2716,14 +3103,14 @@ async function executeGraphManipulationTool(toolName, args) {
       node.info = newInfo
 
       // Save the graph with the updated node
-      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      const currentGraphId = getActiveGraphId()
       if (currentGraphId) {
         const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: currentGraphId,
-            graphData: props.graphData,
+            graphData: activeGraph,
             override: true,
           }),
         })
@@ -2746,7 +3133,7 @@ async function executeGraphManipulationTool(toolName, args) {
     }
 
     if (toolName === 'graph_attach_css_to_html') {
-      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      const currentGraphId = getActiveGraphId()
       if (!currentGraphId) {
         throw new Error('No current graph loaded.')
       }
@@ -2757,7 +3144,7 @@ async function executeGraphManipulationTool(toolName, args) {
         throw new Error('cssNodeId and htmlNodeId are required')
       }
 
-      const currentGraph = props.graphData || knowledgeGraphStore.currentGraph
+      const currentGraph = getActiveGraph()
       const nodes = Array.isArray(currentGraph?.nodes) ? currentGraph.nodes : []
       const edges = Array.isArray(currentGraph?.edges) ? currentGraph.edges.slice() : []
 
@@ -2844,7 +3231,7 @@ async function executeGraphManipulationTool(toolName, args) {
     }
 
     if (toolName === 'graph_detach_css_from_html') {
-      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      const currentGraphId = getActiveGraphId()
       if (!currentGraphId) {
         throw new Error('No current graph loaded.')
       }
@@ -2854,7 +3241,7 @@ async function executeGraphManipulationTool(toolName, args) {
         throw new Error('Provide cssNodeId and/or htmlNodeId')
       }
 
-      const currentGraph = props.graphData || knowledgeGraphStore.currentGraph
+      const currentGraph = getActiveGraph()
       const edges = Array.isArray(currentGraph?.edges) ? currentGraph.edges : []
       const nextEdges = edges.filter((edge) => {
         const isStyles = String(edge?.label || edge?.type || '').toLowerCase() === 'styles'
@@ -2910,17 +3297,18 @@ async function executeGraphManipulationTool(toolName, args) {
 
     if (toolName === 'graph_get_current_data') {
       // Get the current graph data in a format suitable for manipulation
-      if (!props.graphData) {
+      const activeGraph = getActiveGraph()
+      if (!activeGraph) {
         throw new Error('No graph data available')
       }
 
       return {
         status: 'success',
-        graphId: props.graphData?.id || 'unknown',
-        title: props.graphData?.metadata?.title || 'Untitled',
-        nodeCount: (props.graphData?.nodes || []).length,
-        edgeCount: (props.graphData?.edges || []).length,
-        sampleNodes: (props.graphData?.nodes || []).slice(0, 5).map(n => ({
+        graphId: getActiveGraphId() || 'unknown',
+        title: activeGraph?.metadata?.title || 'Untitled',
+        nodeCount: (activeGraph?.nodes || []).length,
+        edgeCount: (activeGraph?.edges || []).length,
+        sampleNodes: (activeGraph?.nodes || []).slice(0, 5).map(n => ({
           id: n.id,
           label: n.label,
           type: n.type,
@@ -3144,7 +3532,8 @@ async function executeTemplateTool(toolName, args) {
       }
 
       // Calculate position for new node
-      const existingNodes = props.graphData?.nodes || []
+      const activeGraph = knowledgeGraphStore.currentGraph || props.graphData || {}
+      const existingNodes = activeGraph?.nodes || []
       const maxY = existingNodes.reduce((max, n) => Math.max(max, n.position?.y || 0), 0)
       const defaultPosition = { x: 100, y: maxY + 150 }
 
@@ -3165,21 +3554,21 @@ async function executeTemplateTool(toolName, args) {
       }
 
       // Get current graph data
-      const currentGraphId = props.graphData?.id || knowledgeGraphStore.currentGraphId
+      const currentGraphId = knowledgeGraphStore.currentGraphId || activeGraph?.id
       if (!currentGraphId) {
         throw new Error('No current graph loaded.')
       }
 
       // Add new node to existing nodes
       const updatedNodes = [...existingNodes, newNode]
-      const updatedEdges = props.graphData?.edges || []
+      const updatedEdges = activeGraph?.edges || []
 
       const updatedGraphData = {
         id: currentGraphId,
         nodes: updatedNodes,
         edges: updatedEdges,
         metadata: {
-          ...props.graphData?.metadata,
+          ...activeGraph?.metadata,
           updated: new Date().toISOString(),
           updatedBy: userStore.user_id || 'system',
         },
@@ -6996,6 +7385,12 @@ const getNextGuidedBuilderCursor = (startCursor, answers = guidedBuilderAnswers.
   return -1
 }
 
+const getNextGuidedRemixerCursor = (startCursor) => {
+  if (startCursor < 0) return 0
+  if (startCursor >= GUIDED_REMIXER_STEPS.length) return -1
+  return startCursor
+}
+
 const guidedBuilderAssistantMessage = (content) => {
   appendChatMessage({
     role: 'assistant',
@@ -7012,6 +7407,15 @@ const resetGuidedBuilderState = () => {
   guidedBuilderGenerationToolMode.value = 'default'
   guidedThemeSelectionId.value = ''
   showGuidedThemeModal.value = false
+}
+
+const resetGuidedRemixerState = () => {
+  guidedRemixerActive.value = false
+  guidedRemixerStepCursor.value = 0
+  guidedRemixerAnswers.value = createDefaultGuidedRemixerAnswers()
+  guidedRemixerGenerationToolMode.value = 'default'
+  guidedRemixerThemeSelectionId.value = ''
+  showGuidedRemixerThemeModal.value = false
 }
 
 const askCurrentGuidedBuilderQuestion = () => {
@@ -7036,6 +7440,9 @@ const startGuidedBuilder = () => {
     guidedBuilderAssistantMessage('Guided Builder supports OpenAI, Claude, or Grok only.')
     return
   }
+  if (guidedRemixerActive.value) {
+    resetGuidedRemixerState()
+  }
   guidedBuilderActive.value = true
   guidedBuilderAnswers.value = createDefaultGuidedBuilderAnswers()
   guidedBuilderGenerationToolMode.value = 'default'
@@ -7052,6 +7459,94 @@ const cancelGuidedBuilder = () => {
   }
   guidedBuilderAssistantMessage('Guided Builder canceled. No generation was run.')
   resetGuidedBuilderState()
+}
+
+const askCurrentGuidedRemixerQuestion = () => {
+  const stepId = guidedRemixerCurrentStepId.value
+  if (!stepId) return
+  if (stepId === 'cssStrategy') {
+    const preferred =
+      guidedRemixerAnswers.value.themeNodeId ||
+      guidedBuilderThemeCandidates.value[0]?.id ||
+      ''
+    guidedRemixerThemeSelectionId.value = preferred
+  }
+  const question = getGuidedRemixerQuestion(stepId, guidedRemixerAnswers.value)
+  guidedBuilderAssistantMessage(`🧬 Guided Course Remixer\n${question}`)
+  if (stepId === 'cssStrategy' && guidedBuilderThemeCandidates.value.length > 0) {
+    showGuidedRemixerThemeModal.value = true
+  }
+}
+
+const startGuidedRemixer = () => {
+  if (!isGuidedBuilderProviderSupported(provider.value)) {
+    guidedBuilderAssistantMessage('Guided Course Remixer supports OpenAI, Claude, or Grok only.')
+    return
+  }
+  if (guidedBuilderActive.value) {
+    resetGuidedBuilderState()
+  }
+  guidedRemixerActive.value = true
+  const defaultSource = resolveCurrentGraphId()
+  guidedRemixerAnswers.value = {
+    ...createDefaultGuidedRemixerAnswers(),
+    sourceGraphId: defaultSource,
+  }
+  guidedRemixerGenerationToolMode.value = 'default'
+  guidedRemixerThemeSelectionId.value = guidedBuilderThemeCandidates.value[0]?.id || ''
+  const firstCursor = getNextGuidedRemixerCursor(0)
+  guidedRemixerStepCursor.value = firstCursor >= 0 ? firstCursor : 0
+  askCurrentGuidedRemixerQuestion()
+}
+
+const cancelGuidedRemixer = () => {
+  if (!guidedRemixerActive.value) {
+    resetGuidedRemixerState()
+    return
+  }
+  guidedBuilderAssistantMessage('Guided Course Remixer canceled. No generation was run.')
+  resetGuidedRemixerState()
+}
+
+const closeGuidedRemixerThemeModal = () => {
+  showGuidedRemixerThemeModal.value = false
+}
+
+const openGuidedRemixerThemePicker = () => {
+  if (!guidedBuilderThemeCandidates.value.length) {
+    guidedBuilderAssistantMessage('No html-node themes found in this graph. Type "custom" to continue without theme lock.')
+    return
+  }
+  if (!guidedRemixerThemeSelectionId.value) {
+    guidedRemixerThemeSelectionId.value = guidedBuilderThemeCandidates.value[0].id
+  }
+  showGuidedRemixerThemeModal.value = true
+}
+
+const applyGuidedRemixerThemeSelection = () => {
+  const selected = guidedBuilderThemeCandidates.value.find((item) => item.id === guidedRemixerThemeSelectionId.value)
+  if (!selected) return
+  if (!guidedRemixerActive.value || guidedRemixerCurrentStepId.value !== 'cssStrategy') {
+    showGuidedRemixerThemeModal.value = false
+    return
+  }
+
+  const answers = { ...guidedRemixerAnswers.value }
+  answers.themeNodeId = selected.id
+  answers.themeNodeLabel = selected.label
+  answers.cssStrategy = `Theme node: ${selected.label} (${selected.id})`
+  guidedRemixerAnswers.value = answers
+  showGuidedRemixerThemeModal.value = false
+
+  appendChatMessage({
+    role: 'user',
+    content: `Selected remix theme: ${selected.label} (${selected.id})`,
+    timestamp: Date.now(),
+    provider: provider.value,
+    guidedBuilder: true,
+  })
+
+  advanceGuidedRemixerToNextStep()
 }
 
 const closeGuidedThemeModal = () => {
@@ -7289,6 +7784,256 @@ const applyGuidedBuilderStepAnswer = (stepId, answerText, answers) => {
   return { ok: false, error: 'Unknown guided-builder step.' }
 }
 
+const advanceGuidedRemixerToNextStep = () => {
+  showGuidedRemixerThemeModal.value = false
+  const nextCursor = getNextGuidedRemixerCursor(guidedRemixerStepCursor.value + 1)
+  if (nextCursor === -1) {
+    guidedRemixerStepCursor.value = GUIDED_REMIXER_STEPS.length - 1
+  } else {
+    guidedRemixerStepCursor.value = nextCursor
+  }
+  askCurrentGuidedRemixerQuestion()
+}
+
+const buildGuidedRemixerGenerationPrompt = (answers) => {
+  const currentGraphId = resolveCurrentGraphId() || 'Unknown'
+  const sourceGraphId = answers.sourceGraphId || currentGraphId
+  const sourceMatchesCurrent = sourceGraphId === currentGraphId
+  const authPlan = {
+    none: 'Do not add login/payment blocks.',
+    'login-only': 'Add login placeholders and gated-state copy (no backend implementation).',
+    'login-and-payment': 'Add login placeholders plus payment CTA/checkout placeholders (no backend implementation).',
+  }[answers.authPayment] || answers.authPayment
+  const imagePlan = {
+    'replace-existing': 'Replace current hero/content image URLs while keeping layout structure.',
+    'ai-suggest': 'Suggest and set a new coherent image set (Unsplash style URLs/placeholders).',
+    'keep-existing': 'Keep existing image URLs unchanged.',
+  }[answers.imageStrategy] || answers.imageStrategy
+  const themeLockInstructions = answers.themeNodeId
+    ? `- Use theme node ${answers.themeNodeId} as visual source of truth.
+- Read its HTML/CSS tokens first and mirror its typography, spacing rhythm, and color hierarchy.
+- If css-node is missing, generate one and attach via graph_attach_css_to_html.`
+    : '- No strict theme lock. Keep CSS coherent and course-friendly.'
+
+  const cloneStep = sourceMatchesCurrent
+    ? `Call graph_save_new with:
+   - title: "${answers.courseName}"
+   - description: "Remixed from ${sourceGraphId} to ${answers.courseGoal}"
+Then continue updates on the newly created graph context.`
+    : `Call graph_clone_by_id with:
+   - graphId: "${sourceGraphId}"
+   - title: "${answers.courseName}"
+   - description: "Remixed from ${sourceGraphId} to ${answers.courseGoal}"
+Then continue updates on the cloned graph context.`
+
+  const saveInstructions = answers.saveToGraph
+    ? `Execution workflow (tool mode graph-only):
+1. ${cloneStep}
+2. Call graph_get_current_data and identify lesson/content nodes (fulltext + html-node app surfaces).
+3. Rewrite lesson text to the new subject, keeping pedagogic structure and progression.
+4. Apply image strategy: ${imagePlan}
+5. Apply theme/CSS strategy: ${answers.cssStrategy}
+   - If css-node exists, update css-node info.
+   - If needed, attach css-node to html-node via graph_attach_css_to_html.
+6. Apply access strategy: ${authPlan}
+7. Use graph_update_current with partial node updates only (id + changed fields).`
+    : `Do not call graph tools. Return:
+1) A node-by-node remix plan
+2) A compact patch proposal (which nodes/fields to change)
+3) Optional CSS token block for the new theme.`
+
+  return `You are a Course Graph Remixer. Transform an existing educational web-app graph into a new course while keeping functional structure.
+
+Target brief:
+- Source graph ID: ${sourceGraphId}
+- New course/app name: ${answers.courseName}
+- New subject goal: ${answers.courseGoal}
+- Audience level: ${answers.audienceLevel}
+- Image strategy: ${imagePlan}
+- Theme lock: ${answers.themeNodeLabel ? `${answers.themeNodeLabel} (${answers.themeNodeId})` : 'custom / none'}
+- Theme/CSS strategy: ${answers.cssStrategy}
+- Access strategy: ${authPlan}
+
+Critical constraints:
+- Preserve app structure and navigation logic.
+- Update only what is needed: lessons/content/images/theme/access placeholders.
+- Keep HTML runtime safe: markdown via marked + sanitize via DOMPurify.
+- Prefer surgical updates, not full graph replacement.
+- If changing CSS architecture, keep css-node + html-node styles edge pattern.
+- Theme handling:
+${themeLockInstructions}
+
+Available knowledge graph API endpoint:
+- https://knowledge.vegvisr.org/getknowgraph
+- Current loaded graph ID in this session: ${currentGraphId}
+
+${saveInstructions}`
+}
+
+const applyGuidedRemixerStepAnswer = (stepId, answerText, answers) => {
+  if (stepId === 'sourceGraphId') {
+    const normalized = String(answerText || '').trim()
+    const fallback = resolveCurrentGraphId()
+    if (!normalized || /^default$/i.test(normalized) || /^current$/i.test(normalized)) {
+      answers.sourceGraphId = fallback
+      return { ok: true }
+    }
+    answers.sourceGraphId = normalized
+    return { ok: true }
+  }
+
+  if (stepId === 'courseName') {
+    if (!answerText) return { ok: false, error: 'Please provide a new course/app name.' }
+    answers.courseName = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'courseGoal') {
+    if (!answerText) return { ok: false, error: 'Please describe what the new course should teach.' }
+    answers.courseGoal = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'audienceLevel') {
+    if (!answerText) return { ok: false, error: 'Please define audience/level.' }
+    answers.audienceLevel = answerText
+    return { ok: true }
+  }
+
+  if (stepId === 'imageStrategy') {
+    const mode = parseImageStrategyAnswer(answerText)
+    if (!mode) {
+      return { ok: false, error: 'Choose image strategy with A, B, or C.' }
+    }
+    answers.imageStrategy = mode
+    return { ok: true }
+  }
+
+  if (stepId === 'cssStrategy') {
+    const normalized = String(answerText || '').trim()
+    const candidate = findGuidedThemeCandidate(normalized)
+    if (candidate) {
+      answers.themeNodeId = candidate.id
+      answers.themeNodeLabel = candidate.label
+      answers.cssStrategy = `Theme node: ${candidate.label} (${candidate.id})`
+      return { ok: true }
+    }
+    if (!normalized) {
+      return { ok: false, error: 'Use Select theme, type a theme node ID/name, or type custom.' }
+    }
+    if (/^custom\b/i.test(normalized)) {
+      answers.themeNodeId = ''
+      answers.themeNodeLabel = ''
+      answers.cssStrategy = normalized
+      return { ok: true }
+    }
+    if (!guidedBuilderThemeCandidates.value.length) {
+      answers.themeNodeId = ''
+      answers.themeNodeLabel = ''
+      answers.cssStrategy = normalized
+      return { ok: true }
+    }
+    return { ok: false, error: 'Unknown theme. Pick a theme card, type a valid node ID/name, or type custom.' }
+  }
+
+  if (stepId === 'authPayment') {
+    const mode = parseAuthPaymentAnswer(answerText)
+    if (!mode) {
+      return { ok: false, error: 'Choose access flow with A, B, or C.' }
+    }
+    answers.authPayment = mode
+    return { ok: true }
+  }
+
+  if (stepId === 'saveMode') {
+    const yesNo = parseYesNoAnswer(answerText)
+    if (yesNo === null) return { ok: false, error: 'Answer yes or no for apply mode.' }
+    answers.saveMode = yesNo ? 'yes' : 'no'
+    answers.saveToGraph = yesNo
+    return { ok: true }
+  }
+
+  if (stepId === 'confirmGenerate') {
+    const yesNo = parseYesNoAnswer(answerText)
+    if (yesNo === null) return { ok: false, error: 'Answer yes or no to confirm generation.' }
+    return { ok: true, confirmed: yesNo }
+  }
+
+  return { ok: false, error: 'Unknown guided-remixer step.' }
+}
+
+const handleGuidedRemixerTurn = (messageText, currentProvider) => {
+  if (!useGuidedRemixer.value || !guidedRemixerActive.value) {
+    return { mode: 'passthrough' }
+  }
+
+  const answerText = String(messageText || '').trim()
+
+  appendChatMessage({
+    role: 'user',
+    content: answerText,
+    timestamp: Date.now(),
+    provider: currentProvider,
+    guidedBuilder: true,
+  })
+
+  userInput.value = ''
+  errorMessage.value = ''
+
+  if (/^\/?(cancel|avbryt)$/i.test(answerText)) {
+    guidedBuilderAssistantMessage('Guided Course Remixer canceled. No generation was run.')
+    resetGuidedRemixerState()
+    return { mode: 'handled' }
+  }
+
+  const stepId = guidedRemixerCurrentStepId.value
+  if (!stepId) {
+    guidedBuilderAssistantMessage('Guided Course Remixer has no active step. Start chain again.')
+    resetGuidedRemixerState()
+    return { mode: 'handled' }
+  }
+
+  const answers = { ...guidedRemixerAnswers.value }
+  const result = applyGuidedRemixerStepAnswer(stepId, answerText, answers)
+  if (!result.ok) {
+    guidedBuilderAssistantMessage(`Please clarify: ${result.error}`)
+    return { mode: 'handled' }
+  }
+
+  guidedRemixerAnswers.value = answers
+
+  if (stepId === 'confirmGenerate') {
+    const summary = buildGuidedRemixerSummary(answers)
+    if (!result.confirmed) {
+      guidedBuilderAssistantMessage(`Remix canceled.\n\nSummary kept:\n- ${summary.replace(/\n/g, '\n- ')}`)
+      resetGuidedRemixerState()
+      return { mode: 'handled' }
+    }
+
+    if (!isGuidedBuilderProviderSupported(currentProvider)) {
+      guidedBuilderAssistantMessage('Guided remix requires OpenAI, Claude, or Grok provider.')
+      resetGuidedRemixerState()
+      return { mode: 'handled' }
+    }
+
+    const generationPrompt = buildGuidedRemixerGenerationPrompt(answers)
+    const toolMode = answers.saveToGraph ? 'graph-only' : 'none'
+    guidedRemixerGenerationToolMode.value = toolMode
+    resetGuidedRemixerState()
+    guidedBuilderAssistantMessage('Generating course remix plan now from your guided brief...')
+    return {
+      mode: 'generate',
+      prompt: generationPrompt,
+      displayMessage: `Guided remix: ${answers.courseName || 'Untitled course remix'}`,
+      toolMode,
+      skipImageParsing: true,
+    }
+  }
+
+  advanceGuidedRemixerToNextStep()
+  return { mode: 'handled' }
+}
+
 const handleGuidedBuilderTurn = (messageText, currentProvider) => {
   if (!useGuidedBuilder.value || !guidedBuilderActive.value) {
     return { mode: 'passthrough' }
@@ -7369,10 +8114,20 @@ watch(useGuidedBuilder, (enabled) => {
   }
 })
 
+watch(useGuidedRemixer, (enabled) => {
+  if (!enabled && guidedRemixerActive.value) {
+    resetGuidedRemixerState()
+  }
+})
+
 watch(provider, (nextProvider) => {
   if (!isGuidedBuilderProviderSupported(nextProvider) && guidedBuilderActive.value) {
     guidedBuilderAssistantMessage('Guided Builder paused because provider changed to one without guided support.')
     resetGuidedBuilderState()
+  }
+  if (!isGuidedBuilderProviderSupported(nextProvider) && guidedRemixerActive.value) {
+    guidedBuilderAssistantMessage('Guided Course Remixer paused because provider changed to one without guided support.')
+    resetGuidedRemixerState()
   }
 })
 
@@ -7851,7 +8606,11 @@ const sendMessage = async () => {
   if (!rawMessage || isStreaming.value) return
 
   const currentProvider = provider.value
-  const guidedTurn = handleGuidedBuilderTurn(rawMessage, currentProvider)
+  const guidedRemixerTurn = handleGuidedRemixerTurn(rawMessage, currentProvider)
+  if (guidedRemixerTurn.mode === 'handled') return
+  const guidedTurn = guidedRemixerTurn.mode === 'generate'
+    ? guidedRemixerTurn
+    : handleGuidedBuilderTurn(rawMessage, currentProvider)
   if (guidedTurn.mode === 'handled') return
 
   let message = rawMessage
@@ -8100,6 +8859,8 @@ graph_template_insert({
         toolSections.push(`**Graph Data Manipulation Tools** (Save/Update Knowledge Graphs):
 You can directly manipulate and persist the knowledge graph data to the database:
 - graph_get_current_data - Retrieve information about the current graph (nodes, edges, metadata)
+- graph_get_by_id - Retrieve summary information for a specific graph id
+- graph_clone_by_id - Clone a source graph id into a new graph context
 - graph_save_new - Save the current graph as a NEW knowledge graph with a custom title and description
 - graph_update_current - Safely patch node fields on the current graph (never replace all nodes unless replaceAllNodes=true)
 - graph_node_search_replace - Fast search-and-replace within a node's info field (PREFERRED for simple text changes)
@@ -10283,6 +11044,18 @@ watch(
   background: #f7f2ff;
 }
 
+.guided-theme-item-card {
+  position: relative;
+  min-height: 128px;
+  padding-left: 2rem;
+}
+
+.guided-theme-item-card input[type='radio'] {
+  position: absolute;
+  top: 0.9rem;
+  left: 0.8rem;
+}
+
 .guided-theme-info {
   min-width: 0;
   flex: 1;
@@ -10313,6 +11086,17 @@ watch(
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+}
+
+.guided-theme-preview {
+  margin-top: 0.45rem;
+  color: #4b5563;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .help-text {
