@@ -74,13 +74,21 @@ async function getUserApiKey(env, userId, provider) {
 }
 
 async function getGeminiApiKeyForUser(env, userId) {
-  const geminiKey = await getUserApiKey(env, userId, 'gemini')
-  if (geminiKey) return geminiKey
-  return await getUserApiKey(env, userId, 'google')
+  const providers = ['google', 'gemini']
+  for (const provider of providers) {
+    const key = await getUserApiKey(env, userId, provider)
+    if (key) return key
+  }
+  return env.GOOGLE_GEMINI_API_KEY || env.GEMINI_API_KEY || null
 }
 
 function resolveUserId(rawUserId, env) {
   const cleaned = typeof rawUserId === 'string' ? rawUserId.trim() : rawUserId
+  const placeholderIds = new Set(['system', 'anonymous', 'anon', 'guest', 'null', 'undefined'])
+  const cleanedLower = typeof cleaned === 'string' ? cleaned.toLowerCase() : ''
+  if (cleanedLower && placeholderIds.has(cleanedLower)) {
+    return env?.DEFAULT_USER_ID || null
+  }
   if (cleaned) {
     return cleaned
   }

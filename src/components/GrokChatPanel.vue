@@ -2165,6 +2165,13 @@ const isImageGenerationModelSelected = (providerName) => {
   return false
 }
 
+const getActiveUserId = () => {
+  const candidate = userStore.user_id || userStore.oauth_id || null
+  const cleaned = typeof candidate === 'string' ? candidate.trim() : candidate
+  if (!cleaned || cleaned === 'system') return null
+  return cleaned
+}
+
 const isImageMode = computed(() => {
   // This should be set by your UI logic; for now, check if userInput contains 'image'
   return userInput.value?.toLowerCase().includes('image') || false
@@ -5578,11 +5585,12 @@ Generer formatert innhold for dette elementet. Start direkte med innholdet (f.ek
 
   const endpoint = 'https://grok.vegvisr.org/chat'
 
+  const activeUserId = getActiveUserId()
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      userId: userStore.user_id || 'system',
+      ...(activeUserId ? { userId: activeUserId } : {}),
       model: 'grok-3',
       max_tokens: 4000,
       temperature: 0.7,
@@ -8715,11 +8723,12 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       return { aspect, cleaned }
     }
     const { aspect, cleaned } = extractAspectRatio(imagePrompt)
+    const activeUserId = getActiveUserId()
     let selectedModel = ''
     let size = 'auto'
     let endpoint = ''
     let requestPayload = {
-      userId: userStore.user_id || 'system',
+      ...(activeUserId ? { userId: activeUserId } : {}),
       prompt: cleaned,
       n: 1,
     }
@@ -9405,8 +9414,9 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
     }
 
     // Build request body - Claude needs system message as separate parameter
+    const activeUserId = getActiveUserId()
     let requestBody = {
-      userId: userStore.user_id || 'system',
+      ...(activeUserId ? { userId: activeUserId } : {}),
       temperature: 0.7,
       stream: false,
     }
