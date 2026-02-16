@@ -2936,6 +2936,10 @@ async function executeGraphManipulationTool(toolName, args) {
   }
 }
 
+function isGraphManipulationToolName(name) {
+  return typeof name === 'string' && name.startsWith('graph_') && !name.startsWith('graph_template_')
+}
+
 /**
  * Execute a Proff API tool call
  * @param {string} toolName - The function name to call
@@ -3271,7 +3275,7 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
       let result
       if (name.startsWith('graph_template_')) {
         result = await executeTemplateTool(name, args)
-      } else if (name.startsWith('graph_save_') || name.startsWith('graph_update_') || name === 'graph_get_current_data' || name === 'graph_node_search_replace') {
+      } else if (isGraphManipulationToolName(name)) {
         result = await executeGraphManipulationTool(name, args)
       } else if (name.startsWith('sources_')) {
         result = await executeSourcesTool(name, args)
@@ -8547,7 +8551,7 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
             let result
             if (toolBlock.name.startsWith('graph_template_')) {
               result = await executeTemplateTool(toolBlock.name, toolBlock.input)
-            } else if (toolBlock.name.startsWith('graph_save_') || toolBlock.name.startsWith('graph_update_') || toolBlock.name === 'graph_get_current_data' || toolBlock.name === 'graph_node_search_replace') {
+            } else if (isGraphManipulationToolName(toolBlock.name)) {
               result = await executeGraphManipulationTool(toolBlock.name, toolBlock.input)
             } else if (toolBlock.name.startsWith('sources_')) {
               result = await executeSourcesTool(toolBlock.name, toolBlock.input)
