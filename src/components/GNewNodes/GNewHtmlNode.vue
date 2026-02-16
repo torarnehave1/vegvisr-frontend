@@ -98,6 +98,8 @@ const emit = defineEmits(['node-deleted', 'node-updated'])
 const htmlUrl = ref('')
 const isFullscreen = ref(false)
 const GRAPH_ID_DECLARATION_REGEX = /\b((?:const|let|var)\s+GRAPH_ID\s*=\s*)(['"`])[^'"`\r\n]*\2/g
+const GRAPH_ID_ANY_DECLARATION_REGEX = /\b((?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*)(['"`])graph_[A-Za-z0-9_:-]+\2/g
+const GRAPH_ID_QUERY_PARAM_REGEX = /([?&]id=)(graph_[A-Za-z0-9_:-]+)/g
 
 const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
@@ -107,6 +109,8 @@ const applyGraphIdBindings = (rawHtml, graphId) => {
   if (typeof rawHtml !== 'string' || !graphId) return rawHtml
   let html = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
   html = html.replace(GRAPH_ID_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  html = html.replace(GRAPH_ID_ANY_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  html = html.replace(GRAPH_ID_QUERY_PARAM_REGEX, (_, prefix) => `${prefix}${graphId}`)
   return html
 }
 

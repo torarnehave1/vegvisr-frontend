@@ -23,6 +23,16 @@
           </option>
         </select>
         <select
+          v-if="provider === 'gemini'"
+          v-model="geminiModel"
+          class="model-select"
+          title="Select Gemini model"
+        >
+          <option v-for="opt in geminiModelOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <select
           v-if="provider === 'claude'"
           v-model="claudeModel"
           class="model-select"
@@ -2126,10 +2136,34 @@ const openaiImageModelOptions = [
   { value: 'gpt-image-1', label: 'GPT-Image-1 (Image Gen)' },
   { value: 'gpt-image-1-mini', label: 'GPT-Image-1 Mini (Image Gen)' }
 ]
+const openaiImageModelSet = new Set(openaiImageModelOptions.map((option) => option.value))
 const openaiModelOptions = [
   ...openaiImageModelOptions,
   ...openaiChatModelOptions,
 ]
+const geminiModel = ref('gemini-2.5-flash')
+const geminiChatModelOptions = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Chat/Text)' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Chat/Text)' },
+  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Chat/Text)' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Chat/Text)' },
+]
+const geminiImageModelOptions = [
+  { value: 'gemini-2.5-flash-image', label: 'Nano Banana (Image Gen)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro (Image Gen)' },
+]
+const geminiImageModelSet = new Set(geminiImageModelOptions.map((option) => option.value))
+const geminiModelOptions = [
+  ...geminiImageModelOptions,
+  ...geminiChatModelOptions,
+]
+const imageGenerationProviderSet = new Set(['openai', 'gemini'])
+
+const isImageGenerationModelSelected = (providerName) => {
+  if (providerName === 'openai') return openaiImageModelSet.has(openaiModel.value)
+  if (providerName === 'gemini') return geminiImageModelSet.has(geminiModel.value)
+  return false
+}
 
 const isImageMode = computed(() => {
   // This should be set by your UI logic; for now, check if userInput contains 'image'
@@ -3147,10 +3181,14 @@ async function executeGraphManipulationTool(toolName, args) {
         : 1
 
       // Apply the change to the node in graphData
-      node.info = newInfo
+      const currentGraphId = getActiveGraphId()
+      if (node.type === 'html-node' && typeof newInfo === 'string' && newInfo.trim()) {
+        node.info = replaceGraphIdBindingsInHtml(newInfo, currentGraphId)
+      } else {
+        node.info = newInfo
+      }
 
       // Save the graph with the updated node
-      const currentGraphId = getActiveGraphId()
       if (currentGraphId) {
         const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
           method: 'POST',
@@ -4087,6 +4125,9 @@ const loadChatPreferences = () => {
     if (parsed?.claudeModel && claudeModelOptions.some(opt => opt.value === parsed.claudeModel)) {
       claudeModel.value = parsed.claudeModel
     }
+    if (parsed?.geminiModel && geminiModelOptions.some(opt => opt.value === parsed.geminiModel)) {
+      geminiModel.value = parsed.geminiModel
+    }
     if (typeof parsed?.useProffTools === 'boolean') {
       useProffTools.value = parsed.useProffTools
     }
@@ -4114,6 +4155,7 @@ const persistChatPreferences = () => {
       provider: provider.value,
       openaiModel: openaiModel.value,
       claudeModel: claudeModel.value,
+      geminiModel: geminiModel.value,
       useProffTools: useProffTools.value,
       useSourcesTools: useSourcesTools.value,
       useTemplateTools: useTemplateTools.value,
@@ -4168,7 +4210,7 @@ watch(
 )
 
 watch(
-  [provider, openaiModel, claudeModel, useProffTools, useSourcesTools, useTemplateTools, useWebSearch],
+  [provider, openaiModel, claudeModel, geminiModel, useProffTools, useSourcesTools, useTemplateTools, useWebSearch],
   () => {
     persistChatPreferences()
   }
@@ -5827,11 +5869,15 @@ const VEGVISR_MD_RUNTIME_MARKER = 'data-vegvisr-md-runtime'
 const SCRIPT_TAG_OPEN = '<scr' + 'ipt'
 const SCRIPT_TAG_CLOSE = '</scr' + 'ipt>'
 const GRAPH_ID_DECLARATION_REGEX = /\b((?:const|let|var)\s+GRAPH_ID\s*=\s*)(['"`])[^'"`\r\n]*\2/g
+const GRAPH_ID_ANY_DECLARATION_REGEX = /\b((?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*)(['"`])graph_[A-Za-z0-9_:-]+\2/g
+const GRAPH_ID_QUERY_PARAM_REGEX = /([?&]id=)(graph_[A-Za-z0-9_:-]+)/g
 
 const replaceGraphIdBindingsInHtml = (rawHtml, graphId) => {
   if (typeof rawHtml !== 'string' || !graphId) return rawHtml
   let html = rawHtml.replace(/\{\{GRAPH_ID\}\}/g, graphId)
   html = html.replace(GRAPH_ID_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  html = html.replace(GRAPH_ID_ANY_DECLARATION_REGEX, (_, prefix, quote) => `${prefix}${quote}${graphId}${quote}`)
+  html = html.replace(GRAPH_ID_QUERY_PARAM_REGEX, (_, prefix) => `${prefix}${graphId}`)
   return html
 }
 
@@ -8619,12 +8665,24 @@ const buildRawJsonContext = () => {
 }
 
 const handleImageGeneration = async (imagePrompt, originalMessage) => {
+  const currentProvider = provider.value
+
+  if (!imageGenerationProviderSet.has(currentProvider)) {
+    appendChatMessage({
+      role: 'assistant',
+      content: '🖼️ Image generation is currently wired for OpenAI and Gemini only.',
+      timestamp: Date.now(),
+      provider: currentProvider,
+    })
+    return
+  }
+
   // Add user message showing the request
   appendChatMessage({
     role: 'user',
     content: originalMessage,
     timestamp: Date.now(),
-    provider: provider.value,
+    provider: currentProvider,
   })
 
   userInput.value = ''
@@ -8634,7 +8692,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
   scrollToBottom()
 
   try {
-    // 1. Generate image via OpenAI
+    // 1. Generate image via selected provider
     const validImageSizes = {
       'gpt-image-1': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
       'gpt-image-1.5': ['1024x1024', '1536x1024', '1024x1536', 'auto'],
@@ -8657,47 +8715,71 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       return { aspect, cleaned }
     }
     const { aspect, cleaned } = extractAspectRatio(imagePrompt)
-    const requestedModel = openaiModel.value.startsWith('gpt-image')
-      ? openaiModel.value
-      : 'gpt-image-1.5'
-    const supportedImageModels = new Set(['gpt-image-1.5', 'gpt-image-1', 'gpt-image-1-mini'])
-    const selectedModel = supportedImageModels.has(requestedModel) ? requestedModel : 'gpt-image-1.5'
-    const sizeByAspect = {
-      'gpt-image-1-mini': {
-        '1:1': '512x512',
-        '16:9': '768x384',
-        '9:16': '256x512',
-      },
-      'gpt-image-1': {
-        '1:1': '1024x1024',
-        '16:9': '1536x1024',
-        '9:16': '1024x1536',
-      },
-      'default': {
-        '1:1': '1024x1024',
-        '16:9': '1536x1024',
-        '9:16': '1024x1536',
-      },
+    let selectedModel = ''
+    let size = 'auto'
+    let endpoint = ''
+    let requestPayload = {
+      userId: userStore.user_id || 'system',
+      prompt: cleaned,
+      n: 1,
     }
-    const aspectSizes = sizeByAspect[selectedModel] || sizeByAspect.default
-    const requestedSize = aspectSizes[aspect] || aspectSizes['1:1']
-    const modelSizes = validImageSizes[selectedModel] || [aspectSizes['1:1']]
-    const size = modelSizes.includes(requestedSize)
-      ? requestedSize
-      : modelSizes[0]
-    const response = await fetch('https://openai.vegvisr.org/images', {
+
+    if (currentProvider === 'openai') {
+      const requestedModel = openaiImageModelSet.has(openaiModel.value)
+        ? openaiModel.value
+        : 'gpt-image-1.5'
+      selectedModel = requestedModel
+
+      const sizeByAspect = {
+        'gpt-image-1-mini': {
+          '1:1': '512x512',
+          '16:9': '768x384',
+          '9:16': '256x512',
+        },
+        'gpt-image-1': {
+          '1:1': '1024x1024',
+          '16:9': '1536x1024',
+          '9:16': '1024x1536',
+        },
+        'default': {
+          '1:1': '1024x1024',
+          '16:9': '1536x1024',
+          '9:16': '1024x1536',
+        },
+      }
+      const aspectSizes = sizeByAspect[selectedModel] || sizeByAspect.default
+      const requestedSize = aspectSizes[aspect] || aspectSizes['1:1']
+      const modelSizes = validImageSizes[selectedModel] || [aspectSizes['1:1']]
+      size = modelSizes.includes(requestedSize)
+        ? requestedSize
+        : modelSizes[0]
+
+      endpoint = 'https://openai.vegvisr.org/images'
+      requestPayload = {
+        ...requestPayload,
+        model: selectedModel,
+        size,
+        quality: 'auto',
+      }
+    } else {
+      selectedModel = geminiImageModelSet.has(geminiModel.value)
+        ? geminiModel.value
+        : (geminiImageModelOptions[0]?.value || 'gemini-2.5-flash-image')
+
+      endpoint = 'https://gemini.vegvisr.org/images'
+      requestPayload = {
+        ...requestPayload,
+        model: selectedModel,
+        response_format: 'b64_json',
+      }
+    }
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        userId: userStore.user_id || 'system',
-        model: selectedModel,
-        prompt: cleaned,
-        size,
-        quality: 'auto',
-        n: 1
-      }),
+      body: JSON.stringify(requestPayload),
     })
 
     if (!response.ok) {
@@ -8712,9 +8794,10 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
     }
 
     const data = await response.json()
-    const imageBase64 = data.data?.[0]?.b64_json
-    const imageUrl = data.data?.[0]?.url
-    const revisedPrompt = data.data?.[0]?.revised_prompt
+    const firstImagePayload = data.data?.[0] || {}
+    const imageBase64 = firstImagePayload.b64_json || null
+    const imageUrl = firstImagePayload.url || null
+    const revisedPrompt = firstImagePayload.revised_prompt || null
 
     if (!imageBase64 && !imageUrl) {
       throw new Error('No image data in response')
@@ -8722,7 +8805,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
 
     let fullImageUrl = null
     let previewBase64 = imageBase64 || null
-    let previewMimeType = 'image/png'
+    let previewMimeType = firstImagePayload.mime_type || 'image/png'
     if (!previewBase64 && imageUrl) {
       const fromUrl = await toBase64FromUrl(imageUrl)
       previewBase64 = fromUrl.base64
@@ -8774,7 +8857,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       role: 'assistant',
       content: `🖼️ ${imagePrompt}`,
       timestamp: Date.now(),
-      provider: provider.value,
+      provider: currentProvider,
       imageData,
     })
   } catch (error) {
@@ -8786,7 +8869,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       role: 'assistant',
       content: `❌ Image generation failed: ${error.message}`,
       timestamp: Date.now(),
-      provider: provider.value,
+      provider: currentProvider,
     })
   } finally {
     isStreaming.value = false
@@ -8831,13 +8914,13 @@ const sendMessage = async () => {
     : (effectiveToolMode === 'none' ? false : useGraphTools.value)
 
   if (!skipImageCommandParsing) {
-    // Image generation (OpenAI only): support `/image ...` plus common natural language phrasing.
+    // Image generation (OpenAI + Gemini): support `/image ...` plus common natural language phrasing.
     const slashImageMatch = message.match(/^\/(image|img)\s+(.+)$/i)
     if (slashImageMatch) {
-      if (currentProvider !== 'openai') {
+      if (!imageGenerationProviderSet.has(currentProvider)) {
         appendChatMessage({
           role: 'assistant',
-          content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+          content: `🖼️ Image generation is currently wired for OpenAI and Gemini only. Switch provider and try again.`,
           timestamp: Date.now(),
           provider: currentProvider,
         })
@@ -8859,10 +8942,10 @@ const sendMessage = async () => {
     const imageGenMatch = normalizedForImageGen.match(imageGenPattern)
 
     if (imageGenMatch) {
-      if (currentProvider !== 'openai') {
+      if (!imageGenerationProviderSet.has(currentProvider)) {
         appendChatMessage({
           role: 'assistant',
-          content: `🖼️ Image generation is currently only wired for OpenAI. Switch provider to OpenAI and try again.`,
+          content: `🖼️ Image generation is currently wired for OpenAI and Gemini only. Switch provider and try again.`,
           timestamp: Date.now(),
           provider: currentProvider,
         })
@@ -8875,11 +8958,11 @@ const sendMessage = async () => {
       return await handleImageGeneration(imagePrompt, rawMessage)
     }
 
-    if (currentProvider === 'openai' && openaiModel.value.startsWith('gpt-image')) {
+    if (isImageGenerationModelSelected(currentProvider)) {
       if (hasImage) {
         appendChatMessage({
           role: 'assistant',
-          content: '🖼️ Image models cannot analyze images. Switch to a chat model (e.g. GPT-5.2) for image analysis.',
+          content: '🖼️ Image models cannot analyze uploaded images. Switch to a chat/text model for image analysis.',
           timestamp: Date.now(),
           provider: currentProvider,
         })
@@ -9311,7 +9394,9 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
       }
     } else if (currentProvider === 'gemini') {
       endpoint = 'https://gemini.vegvisr.org/chat'
-      model = undefined // Let the worker pick the default Gemini model
+      model = geminiImageModelSet.has(geminiModel.value)
+        ? (geminiChatModelOptions[0]?.value || 'gemini-2.5-flash')
+        : geminiModel.value
       maxTokens = undefined
     } else if (currentProvider === 'perplexity') {
       endpoint = 'https://perplexity.vegvisr.org/chat'

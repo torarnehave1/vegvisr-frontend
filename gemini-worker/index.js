@@ -2,6 +2,7 @@
 // Converts OpenAI-style chat payloads into Gemini generateContent requests
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
 const DEFAULT_SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
   { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -72,6 +73,12 @@ async function getUserApiKey(env, userId, provider) {
   }
 }
 
+async function getGeminiApiKeyForUser(env, userId) {
+  const geminiKey = await getUserApiKey(env, userId, 'gemini')
+  if (geminiKey) return geminiKey
+  return await getUserApiKey(env, userId, 'google')
+}
+
 function resolveUserId(rawUserId, env) {
   const cleaned = typeof rawUserId === 'string' ? rawUserId.trim() : rawUserId
   if (cleaned) {
@@ -91,7 +98,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email'
     }
 
     if (request.method === 'OPTIONS') {
@@ -117,8 +124,16 @@ export default {
         return handleModels(corsHeaders)
       }
 
+      if (pathname === '/image-models' && request.method === 'GET') {
+        return handleImageModels(corsHeaders)
+      }
+
       if (pathname === '/chat' && request.method === 'POST') {
         return await handleChat(request, env, corsHeaders)
+      }
+
+      if (pathname === '/images' && request.method === 'POST') {
+        return await handleImageGeneration(request, env, corsHeaders)
       }
 
       if (pathname.match(/^\/gemini-(?:[\w.-]+)$/) && request.method === 'POST') {
@@ -207,11 +222,11 @@ async function processGeminiChat(body, env, corsHeaders) {
     })
   }
 
-  const geminiKey = await getUserApiKey(env, resolvedUserId, 'gemini')
+  const geminiKey = await getGeminiApiKeyForUser(env, resolvedUserId)
 
   if (!geminiKey) {
     return new Response(JSON.stringify({
-      error: 'Google Gemini API key not configured for this user. Please add a Gemini key.'
+      error: 'Google Gemini API key not configured for this user. Please add a Gemini/Google key.'
     }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -262,6 +277,122 @@ async function processGeminiChat(body, env, corsHeaders) {
   return new Response(JSON.stringify(formatted), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })
+}
+
+async function handleImageGeneration(request, env, corsHeaders) {
+  try {
+    const body = await request.json()
+    const {
+      userId,
+      prompt,
+      model = DEFAULT_IMAGE_MODEL,
+      response_format = 'b64_json',
+      n = 1,
+      temperature = 0.8,
+      safetySettings,
+      generationConfig = {}
+    } = body || {}
+
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return new Response(JSON.stringify({ error: 'prompt is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    if (n !== 1) {
+      return new Response(JSON.stringify({ error: 'Only n=1 is supported for Gemini image generation.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const resolvedUserId = resolveUserId(userId, env)
+    if (!resolvedUserId) {
+      return new Response(JSON.stringify({
+        error: 'userId is required to retrieve your Gemini API key and no DEFAULT_USER_ID fallback is configured'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const geminiKey = await getGeminiApiKeyForUser(env, resolvedUserId)
+    if (!geminiKey) {
+      return new Response(JSON.stringify({
+        error: 'Google Gemini API key not configured for this user. Please add a Gemini/Google key.'
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const requestBody = {
+      contents: [{ role: 'user', parts: [{ text: prompt.trim() }] }],
+      generationConfig: {
+        temperature,
+        responseModalities: ['TEXT', 'IMAGE'],
+        ...generationConfig
+      },
+      safetySettings: safetySettings || DEFAULT_SAFETY_SETTINGS
+    }
+
+    const geminiResponse = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    })
+
+    const result = await geminiResponse.json()
+    if (!geminiResponse.ok) {
+      return new Response(JSON.stringify({ error: result.error || result }), {
+        status: geminiResponse.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const parts = result?.candidates?.[0]?.content?.parts || []
+    const imageParts = parts.filter((part) => {
+      const mimeType = part?.inlineData?.mimeType || ''
+      return Boolean(part?.inlineData?.data) && mimeType.toLowerCase().startsWith('image/')
+    })
+    const textParts = parts.map((part) => part?.text).filter(Boolean)
+
+    if (!imageParts.length) {
+      return new Response(JSON.stringify({
+        error: 'Gemini response did not include image data.',
+        details: textParts.join('\n') || null
+      }), {
+        status: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const firstImage = imageParts[0]
+    const mimeType = firstImage.inlineData.mimeType || 'image/png'
+    const b64 = firstImage.inlineData.data
+    const dataUrl = `data:${mimeType};base64,${b64}`
+
+    const payload = {
+      created: Math.floor(Date.now() / 1000),
+      model,
+      data: [{
+        b64_json: b64,
+        mime_type: mimeType,
+        ...(response_format === 'url' ? { url: dataUrl } : {})
+      }],
+      text: textParts.join('\n') || null
+    }
+
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
 }
 
 function convertMessagesForGemini(messages) {
@@ -420,10 +551,38 @@ function handleModels(corsHeaders) {
         features: ['fast responses', 'multimodal'],
         description: 'Legacy speed-focused model retained for compatibility'
       }
+    ],
+    image: [
+      {
+        id: DEFAULT_IMAGE_MODEL,
+        name: 'Gemini 2.5 Flash Image',
+        max_images: 1,
+        features: ['text-to-image', 'inline image output'],
+        description: 'Gemini native image generation via generateContent responseModalities=[TEXT, IMAGE]'
+      }
     ]
   }
 
-  return new Response(JSON.stringify({ models, count: { chat: models.chat.length, total: models.chat.length } }), {
+  return new Response(JSON.stringify({
+    models,
+    count: { chat: models.chat.length, image: models.image.length, total: models.chat.length + models.image.length }
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  })
+}
+
+function handleImageModels(corsHeaders) {
+  const models = [
+    {
+      id: DEFAULT_IMAGE_MODEL,
+      name: 'Gemini 2.5 Flash Image',
+      max_images: 1,
+      response_formats: ['b64_json', 'url'],
+      features: ['text-to-image', 'inline image output']
+    }
+  ]
+
+  return new Response(JSON.stringify({ models, count: models.length }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })
 }
@@ -465,6 +624,39 @@ function handleApiDocs(corsHeaders) {
               description: 'Gemini response in OpenAI format'
             }
           }
+        }
+      },
+      '/images': {
+        post: {
+          summary: 'Generate images via Gemini',
+          description: 'Uses encrypted Gemini API key from D1 for the provided userId.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    userId: { type: 'string' },
+                    prompt: { type: 'string' },
+                    model: { type: 'string', default: DEFAULT_IMAGE_MODEL },
+                    response_format: { type: 'string', enum: ['b64_json', 'url'], default: 'b64_json' },
+                    n: { type: 'integer', default: 1 }
+                  },
+                  required: ['userId', 'prompt']
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Gemini image response with base64 data' }
+          }
+        }
+      },
+      '/image-models': {
+        get: {
+          summary: 'List Gemini image models',
+          responses: { 200: { description: 'Image model list' } }
         }
       }
     },
