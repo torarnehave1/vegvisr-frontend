@@ -1787,7 +1787,6 @@ const GUIDED_REMIXER_STEPS = [
   'nodeCount',
   'menuFilterPattern',
   'imageStrategy',
-  'cssStrategy',
   'authPayment',
   'saveMode',
   'confirmGenerate',
@@ -1816,7 +1815,6 @@ const createDefaultGuidedRemixerAnswers = () => ({
   nodeCount: 8,
   menuFilterPattern: 'Lesson #',
   imageStrategy: '',
-  cssStrategy: '',
   themeNodeId: '',
   themeNodeLabel: '',
   authPayment: '',
@@ -2096,8 +2094,6 @@ const buildGuidedRemixerSummary = (answers) => {
     `Lesson nodes: ${answers.nodeCount || 'n/a'}`,
     `Menu filter: ${answers.menuFilterPattern || 'n/a'}`,
     `Images: ${imageLine || 'n/a'}`,
-    answers.themeNodeLabel ? `Theme node: ${answers.themeNodeLabel} (${answers.themeNodeId})` : null,
-    `Theme/CSS: ${answers.cssStrategy || 'n/a'}`,
     `Auth/Payment: ${authLine || 'n/a'}`,
     `Save to graph: ${answers.saveToGraph ? 'yes' : 'no'}`,
   ]
@@ -2126,20 +2122,17 @@ const getGuidedRemixerQuestion = (stepId, answers) => {
     return 'Step 6/11. Menu label filter pattern?\nA) Lesson #N\nB) Chapter #N\nC) Step #N\nD) Custom pattern (must include #)'
   }
   if (stepId === 'imageStrategy') {
-    return 'Step 7/11. Image strategy?\nA) Replace existing images\nB) AI suggest new image set\nC) Keep existing images'
-  }
-  if (stepId === 'cssStrategy') {
-    return 'Step 8/11. Choose a theme card with "Select theme".\nYou can also type a theme node ID/name, or type "custom" to skip theme lock.'
+    return 'Step 7/10. Image strategy?\nA) Replace existing images\nB) AI suggest new image set\nC) Keep existing images'
   }
   if (stepId === 'authPayment') {
-    return 'Step 9/11. Access flow?\nA) None\nB) Login only\nC) Login + payment placeholders'
+    return 'Step 8/10. Access flow?\nA) None\nB) Login only\nC) Login + payment placeholders'
   }
   if (stepId === 'saveMode') {
-    return 'Step 10/11. Should I apply changes directly as a new graph now? (yes/no)'
+    return 'Step 9/10. Should I apply changes directly as a new graph now? (yes/no)'
   }
   if (stepId === 'confirmGenerate') {
     const summary = buildGuidedRemixerSummary(answers)
-    return `Step 11/11. Confirm remix generation now? (yes/no)\n\n- ${summary}`
+    return `Step 10/10. Confirm remix generation now? (yes/no)\n\n- ${summary}`
   }
   return 'Provide your answer for the current step.'
 }
@@ -8190,12 +8183,6 @@ const buildGuidedRemixerGenerationPrompt = (answers) => {
     'ai-suggest': 'Suggest and set a new coherent image set (Unsplash style URLs/placeholders).',
     'keep-existing': 'Keep existing image URLs unchanged.',
   }[answers.imageStrategy] || answers.imageStrategy
-  const themeLockInstructions = answers.themeNodeId
-    ? `- Use theme node ${answers.themeNodeId} as visual source of truth.
-- Read its HTML/CSS tokens first and mirror its typography, spacing rhythm, and color hierarchy.
-- If css-node is missing, generate one and attach via graph_attach_css_to_html.`
-    : '- No strict theme lock. Keep CSS coherent and course-friendly.'
-
   const cloneStep = `Call graph_clone_by_id with:
    - graphId: "${sourceGraphId}"
    - title: "${answers.courseName}"
@@ -8217,16 +8204,12 @@ This is required so the cloned graph gets fresh UUID node IDs.`
    - Content must be newly authored for subject "${answers.courseGoal}" and audience "${answers.audienceLevel}".
    - Do not paraphrase old lessons; create a freer new course narrative.
 5. Keep existing lesson/content nodes unchanged (no destructive replacement).
-6. Apply theme/CSS strategy: ${answers.cssStrategy}
-   - If css-node exists, update css-node info.
-   - If needed, attach css-node to html-node via graph_attach_css_to_html.
+6. Keep CSS intact. Do not change css-node or styles edges.
 7. Apply access strategy: ${authPlan}
 8. Use one main graph_update_current call with only changed fields:
    - updated html-node(s)
    - newly created fulltext nodes
-   - optional css-node updates
-9. Optional extra call only if needed: graph_attach_css_to_html.
-10. Tool budget: maximum 5 tool calls total.`
+9. Tool budget: maximum 5 tool calls total.`
     : `Do not call graph tools. Return:
 1) A node-by-node remix plan
 2) A compact patch proposal (which nodes/fields to change)
@@ -8244,8 +8227,6 @@ Target brief:
 - Lesson node count: ${answers.nodeCount}
 - Menu filter pattern: ${answers.menuFilterPattern}
 - Image strategy: ${imagePlan}
-- Theme lock: ${answers.themeNodeLabel ? `${answers.themeNodeLabel} (${answers.themeNodeId})` : 'custom / none'}
-- Theme/CSS strategy: ${answers.cssStrategy}
 - Access strategy: ${authPlan}
 
 Critical constraints:
@@ -8254,8 +8235,7 @@ Critical constraints:
 - Keep HTML runtime safe: markdown via marked + sanitize via DOMPurify.
 - Prefer surgical updates, not full graph replacement.
 - If changing CSS architecture, keep css-node + html-node styles edge pattern.
-- Theme handling:
-${themeLockInstructions}
+- Keep CSS intact: do not modify css-node or styles edges.
 
 Available knowledge graph API endpoint:
 - https://knowledge.vegvisr.org/getknowgraph
@@ -8319,33 +8299,6 @@ const applyGuidedRemixerStepAnswer = (stepId, answerText, answers) => {
     }
     answers.imageStrategy = mode
     return { ok: true }
-  }
-
-  if (stepId === 'cssStrategy') {
-    const normalized = String(answerText || '').trim()
-    const candidate = findGuidedThemeCandidate(normalized)
-    if (candidate) {
-      answers.themeNodeId = candidate.id
-      answers.themeNodeLabel = candidate.label
-      answers.cssStrategy = `Theme node: ${candidate.label} (${candidate.id})`
-      return { ok: true }
-    }
-    if (!normalized) {
-      return { ok: false, error: 'Use Select theme, type a theme node ID/name, or type custom.' }
-    }
-    if (/^custom\b/i.test(normalized)) {
-      answers.themeNodeId = ''
-      answers.themeNodeLabel = ''
-      answers.cssStrategy = normalized
-      return { ok: true }
-    }
-    if (!guidedBuilderThemeCandidates.value.length) {
-      answers.themeNodeId = ''
-      answers.themeNodeLabel = ''
-      answers.cssStrategy = normalized
-      return { ok: true }
-    }
-    return { ok: false, error: 'Unknown theme. Pick a theme card, type a valid node ID/name, or type custom.' }
   }
 
   if (stepId === 'authPayment') {
