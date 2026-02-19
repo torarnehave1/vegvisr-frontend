@@ -1,5 +1,5 @@
 <template>
-  <div class="gnew-mermaid-node">
+  <div ref="mermaidContainer" class="gnew-mermaid-node" :class="{ 'fullscreen-mode': isFullscreen }">
     <!-- Node Header - Following GNewDefaultNode pattern -->
     <div v-if="showControls && node.label" class="node-header">
       <div class="node-title-section">
@@ -9,6 +9,9 @@
         </div>
       </div>
       <div v-if="!isPreview" class="node-controls">
+        <button @click="toggleFullscreen" class="btn btn-sm btn-outline-secondary" :title="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen View'">
+          {{ isFullscreen ? '🗗' : '🔲' }}
+        </button>
         <button @click="editNode" class="btn btn-sm btn-outline-primary" title="Edit Node">
           ✏️
         </button>
@@ -21,6 +24,9 @@
     <!-- Title only (for non-control mode) -->
     <div v-else-if="node.label" class="node-title-row">
       <h3 class="node-title">{{ node.label }}</h3>
+      <button @click="toggleFullscreen" class="btn btn-sm btn-outline-secondary fullscreen-btn-inline" :title="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen View'">
+        {{ isFullscreen ? '🗗' : '🔲' }}
+      </button>
     </div>
 
     <!-- Mermaid Diagram -->
@@ -41,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import Mermaid from '@/components/Mermaid.vue'
 
 // Component name for debugging
@@ -76,6 +82,10 @@ const props = defineProps({
 // Emits
 const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
+// Refs
+const mermaidContainer = ref(null)
+const isFullscreen = ref(false)
+
 const nodeTypeDisplay = computed(() => 'Mermaid Diagram')
 
 const editNode = () => {
@@ -87,6 +97,51 @@ const deleteNode = () => {
     emit('node-deleted', props.node.id)
   }
 }
+
+// Fullscreen functionality
+const toggleFullscreen = async () => {
+  if (!mermaidContainer.value) return
+
+  try {
+    if (!document.fullscreenElement) {
+      // Enter fullscreen
+      await mermaidContainer.value.requestFullscreen()
+      isFullscreen.value = true
+    } else {
+      // Exit fullscreen
+      await document.exitFullscreen()
+      isFullscreen.value = false
+    }
+  } catch (err) {
+    console.error('Error toggling fullscreen:', err)
+  }
+}
+
+// Handle fullscreen change events
+const handleFullscreenChange = () => {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
+// Listen for ESC key to exit fullscreen
+const handleKeyDown = (event) => {
+  if (event.key === 'Escape' && isFullscreen.value) {
+    isFullscreen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  document.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('keydown', handleKeyDown)
+  // Exit fullscreen if still active
+  if (document.fullscreenElement === mermaidContainer.value) {
+    document.exitFullscreen()
+  }
+})
 </script>
 
 <style scoped>
@@ -143,6 +198,13 @@ const deleteNode = () => {
 /* Title row for non-control mode */
 .node-title-row {
   margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fullscreen-btn-inline {
+  margin-left: auto;
 }
 
 .mermaid-wrapper {
@@ -151,6 +213,36 @@ const deleteNode = () => {
   background: #f8f9fa;
   border-radius: 6px;
   border: 1px solid #dee2e6;
+}
+
+/* Fullscreen mode styles */
+.gnew-mermaid-node.fullscreen-mode {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: #fff;
+  padding: 2rem;
+  margin: 0;
+  overflow: auto;
+  box-shadow: none;
+}
+
+.gnew-mermaid-node.fullscreen-mode .mermaid-wrapper {
+  min-height: calc(100vh - 200px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+}
+
+.gnew-mermaid-node.fullscreen-mode .mermaid-wrapper :deep(svg) {
+  max-width: 95vw;
+  max-height: 90vh;
+  width: auto;
+  height: auto;
 }
 
 .node-bibliography {
@@ -187,6 +279,10 @@ const deleteNode = () => {
     color: #e2e8f0;
   }
 
+  .gnew-mermaid-node.fullscreen-mode {
+    background: #1a202c;
+  }
+
   .node-title {
     color: #e2e8f0;
   }
@@ -195,6 +291,10 @@ const deleteNode = () => {
   .node-bibliography {
     background: #4a5568;
     border-color: #718096;
+  }
+
+  .gnew-mermaid-node.fullscreen-mode .mermaid-wrapper {
+    background: #2d3748;
   }
 
   .node-bibliography {
