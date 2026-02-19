@@ -29,9 +29,35 @@
       </button>
     </div>
 
+    <!-- Zoom Controls -->
+    <div v-if="showControls || isFullscreen" class="zoom-controls">
+      <button @click="zoomIn" class="btn btn-sm btn-outline-secondary" title="Zoom In">🔍+</button>
+      <button @click="zoomOut" class="btn btn-sm btn-outline-secondary" title="Zoom Out">🔍-</button>
+      <button @click="resetZoom" class="btn btn-sm btn-outline-secondary" title="Reset Zoom">↺</button>
+      <span class="zoom-level">{{ Math.round(zoomLevel * 100) }}%</span>
+    </div>
+
     <!-- Mermaid Diagram -->
-    <div class="mermaid-wrapper">
-      <Mermaid :code="node.info" />
+    <div
+      ref="mermaidWrapper"
+      class="mermaid-wrapper"
+      @wheel.prevent="handleWheel"
+      @mousedown="handlePanStart"
+      @mousemove="handlePanMove"
+      @mouseup="handlePanEnd"
+      @mouseleave="handlePanEnd"
+      :style="{ cursor: isPanning ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'default') }"
+    >
+      <div
+        class="mermaid-content"
+        :style="{
+          transform: `scale(${zoomLevel}) translate(${panX}px, ${panY}px)`,
+          transformOrigin: 'center center',
+          transition: isPanning ? 'none' : 'transform 0.2s ease'
+        }"
+      >
+        <Mermaid :code="node.info" />
+      </div>
     </div>
 
     <!-- Optional Bibliography -->
@@ -84,9 +110,63 @@ const emit = defineEmits(['node-updated', 'node-deleted', 'node-created'])
 
 // Refs
 const mermaidContainer = ref(null)
+const mermaidWrapper = ref(null)
 const isFullscreen = ref(false)
 
+// Zoom and Pan state
+const zoomLevel = ref(1)
+const panX = ref(0)
+const panY = ref(0)
+const isPanning = ref(false)
+const lastPanX = ref(0)
+const lastPanY = ref(0)
+
 const nodeTypeDisplay = computed(() => 'Mermaid Diagram')
+
+// Zoom functions
+const zoomIn = () => {
+  zoomLevel.value = Math.min(zoomLevel.value + 0.2, 3) // Max 300%
+}
+
+const zoomOut = () => {
+  zoomLevel.value = Math.max(zoomLevel.value - 0.2, 0.5) // Min 50%
+}
+
+const resetZoom = () => {
+  zoomLevel.value = 1
+  panX.value = 0
+  panY.value = 0
+}
+
+// Mouse wheel zoom
+const handleWheel = (event) => {
+  const delta = event.deltaY > 0 ? -0.1 : 0.1
+  zoomLevel.value = Math.max(0.5, Math.min(3, zoomLevel.value + delta))
+}
+
+// Pan functionality
+const handlePanStart = (event) => {
+  if (zoomLevel.value > 1) {
+    isPanning.value = true
+    lastPanX.value = event.clientX
+    lastPanY.value = event.clientY
+  }
+}
+
+const handlePanMove = (event) => {
+  if (isPanning.value) {
+    const deltaX = event.clientX - lastPanX.value
+    const deltaY = event.clientY - lastPanY.value
+    panX.value += deltaX / zoomLevel.value
+    panY.value += deltaY / zoomLevel.value
+    lastPanX.value = event.clientX
+    lastPanY.value = event.clientY
+  }
+}
+
+const handlePanEnd = () => {
+  isPanning.value = false
+}
 
 const editNode = () => {
   emit('node-updated', { ...props.node, action: 'edit' })
@@ -207,12 +287,41 @@ onUnmounted(() => {
   margin-left: auto;
 }
 
+/* Zoom Controls */
+.zoom-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.zoom-level {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  padding: 0 8px;
+  min-width: 50px;
+  text-align: center;
+}
+
 .mermaid-wrapper {
   margin: 1rem 0;
   padding: 1rem;
   background: #f8f9fa;
   border-radius: 6px;
   border: 1px solid #dee2e6;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+.mermaid-content {
+  display: inline-block;
+  min-width: 100%;
 }
 
 /* Fullscreen mode styles */
@@ -284,6 +393,15 @@ onUnmounted(() => {
   }
 
   .node-title {
+    color: #e2e8f0;
+  }
+
+  .zoom-controls {
+    background: #4a5568;
+    border-color: #718096;
+  }
+
+  .zoom-level {
     color: #e2e8f0;
   }
 
