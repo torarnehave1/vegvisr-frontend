@@ -92,6 +92,11 @@ import GNewGuideNode from './GNewNodes/GNewGuideNode.vue'
 import GNewHtmlNode from './GNewNodes/GNewHtmlNode.vue'
 import GNewCssNode from './GNewNodes/GNewCssNode.vue'
 
+// Agent Builder Node Types
+import GNewAgentContractNode from './GNewNodes/GNewAgentContractNode.vue'
+import GNewAgentConfigNode from './GNewNodes/GNewAgentConfigNode.vue'
+import GNewAgentRunNode from './GNewNodes/GNewAgentRunNode.vue'
+
 // Case Study Node Types (Sprint 4-5)
 import GNewPersonProfileNode from './GNewNodes/GNewPersonProfileNode.vue'
 import GNewCompanyCardNode from './GNewNodes/GNewCompanyCardNode.vue'
@@ -217,6 +222,10 @@ const nodeComponents = {
   'html-node': GNewHtmlNode,
   // CSS node (manages stylesheets for HTML nodes)
   'css-node': GNewCssNode,
+  // Agent Builder node types
+  'agent-contract': GNewAgentContractNode,
+  'agent-config': GNewAgentConfigNode,
+  'agent-run': GNewAgentRunNode,
   // JSON node (validate + render like fulltext)
   'json-node': GNewDefaultNode,
   // Glitter guide node
