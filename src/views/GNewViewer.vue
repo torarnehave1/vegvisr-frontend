@@ -3254,9 +3254,18 @@ onMounted(() => {
     }
   }
 
+  // Handle RELOAD_GRAPH from iframes (e.g. theme picker after patching a node)
+  const handleReloadGraphMessage = (event) => {
+    if (event.data && event.data.type === 'RELOAD_GRAPH') {
+      console.log('🔄 [GNewViewer] Reload graph requested by iframe')
+      loadGraph()
+    }
+  }
+
   window.addEventListener('message', handleAINodeMessage)
   window.addEventListener('message', handleCloudStorageMessage)
   window.addEventListener('message', handleGraphContextMessage)
+  window.addEventListener('message', handleReloadGraphMessage)
 
   // Cleanup on unmount
   onUnmounted(() => {
@@ -3265,6 +3274,7 @@ onMounted(() => {
     window.removeEventListener('message', handleAINodeMessage)
     window.removeEventListener('message', handleCloudStorageMessage)
     window.removeEventListener('message', handleGraphContextMessage)
+    window.removeEventListener('message', handleReloadGraphMessage)
     stopChatResize()
     window.removeEventListener('resize', clampChatWidthToViewport)
     document.body.style.overflow = previousBodyOverflow.value || ''
