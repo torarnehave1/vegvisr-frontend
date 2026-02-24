@@ -33,6 +33,9 @@
         <button @click="extractCss" class="btn-control" title="Extract inline CSS into separate CSS node">
           🎨 Extract CSS
         </button>
+        <button v-if="isSuperadmin && upgradeAvailable" @click="upgradeHtmlNode" class="btn-control btn-upgrade" :disabled="upgrading" :title="`Upgrade template from v${nodeVersion} to v${latestVersion}`">
+          {{ upgrading ? '⏳ Upgrading...' : `⬆️ Upgrade (v${latestVersion})` }}
+        </button>
         <button @click="deleteNode" class="btn-control btn-delete" title="Delete HTML Node">
           🗑️ Delete
         </button>
@@ -97,6 +100,59 @@ const emit = defineEmits(['node-deleted', 'node-updated'])
 
 const htmlUrl = ref('')
 const isFullscreen = ref(false)
+const latestVersion = ref('')
+const upgrading = ref(false)
+
+// Detect template version from the html-node's info
+const nodeVersion = computed(() => {
+  const html = props.node?.info || ''
+  const match = html.match(/<meta\s+name="template-version"\s+content="([^"]+)"/)
+  return match ? match[1] : 'none'
+})
+
+const upgradeAvailable = computed(() => {
+  if (!latestVersion.value || !nodeVersion.value) return false
+  return latestVersion.value !== nodeVersion.value && nodeVersion.value !== 'none' || (nodeVersion.value === 'none' && latestVersion.value)
+})
+
+// Fetch latest template version on mount
+const fetchLatestVersion = async () => {
+  try {
+    const res = await fetch('https://agent.vegvisr.org/template-version')
+    if (res.ok) {
+      const data = await res.json()
+      latestVersion.value = data.version || ''
+    }
+  } catch (e) {
+    // silently fail
+  }
+}
+
+const upgradeHtmlNode = async () => {
+  const graphId = knowledgeGraphStore.currentGraphId
+  if (!graphId || !props.node?.id) return
+  if (!confirm(`Upgrade template from v${nodeVersion.value} to v${latestVersion.value}? Content nodes are preserved.`)) return
+
+  upgrading.value = true
+  try {
+    const res = await fetch('https://agent.vegvisr.org/upgrade-html-node', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graphId, nodeId: props.node.id })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Upgrade failed')
+
+    // Emit update to refresh the view
+    emit('node-updated', { ...props.node, info: undefined, action: 'upgraded', message: data.message })
+    // Force page reload to show new template
+    window.location.reload()
+  } catch (err) {
+    alert('Upgrade failed: ' + err.message)
+  } finally {
+    upgrading.value = false
+  }
+}
 const GRAPH_ID_DECLARATION_REGEX = /\b((?:const|let|var)\s+GRAPH_ID\s*=\s*)(['"`])[^'"`\r\n]*\2/g
 const GRAPH_ID_ANY_DECLARATION_REGEX = /\b((?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*)(['"`])graph_[A-Za-z0-9_:-]+\2/g
 const GRAPH_ID_QUERY_PARAM_REGEX = /([?&]id=)(graph_[A-Za-z0-9_:-]+)/g
@@ -656,6 +712,7 @@ watch(() => props.graphData, () => {
 
 onMounted(() => {
   createHtmlUrl()
+  fetchLatestVersion()
 })
 
 onBeforeUnmount(() => {
@@ -732,6 +789,16 @@ onBeforeUnmount(() => {
 .btn-delete {
   background: #ffe3e3;
   border-color: #ffa8a8;
+}
+
+.btn-upgrade {
+  background: #e8f5e9;
+  border-color: #81c784;
+  color: #2e7d32;
+}
+
+.btn-upgrade:hover {
+  background: #c8e6c9;
 }
 
 .html-container {
