@@ -2353,14 +2353,15 @@ const shareToFacebook = () => {
 const suggestTitle = async (graph) => {
   try {
     isLoadingTitle.value = true
+    const fullGraph = await ensureFullGraphData(graph)
     const response = await fetch('https://api.vegvisr.org/suggest-title', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        nodes: fullGraph.nodes,
+        edges: fullGraph.edges,
       }),
     })
 
@@ -2381,14 +2382,15 @@ const suggestTitle = async (graph) => {
 const suggestCategories = async (graph) => {
   try {
     isLoadingCategories.value = true
+    const fullGraph = await ensureFullGraphData(graph)
     const response = await fetch('https://api.vegvisr.org/suggest-categories', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        nodes: fullGraph.nodes,
+        edges: fullGraph.edges,
       }),
     })
 
@@ -2409,14 +2411,15 @@ const suggestCategories = async (graph) => {
 const suggestDescription = async (graph) => {
   try {
     isLoadingDescription.value = true
+    const fullGraph = await ensureFullGraphData(graph)
     const response = await fetch('https://api.vegvisr.org/suggest-description', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        nodes: fullGraph.nodes,
+        edges: fullGraph.edges,
       }),
     })
 
