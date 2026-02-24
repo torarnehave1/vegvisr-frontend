@@ -74,6 +74,15 @@
             </select>
             <span v-if="editingAppliesTo === '*'" class="applies-to-badge">✓ Global</span>
           </div>
+          <div v-if="editingAppliesTo === 'specific'" class="node-checklist">
+            <label v-for="hn in htmlNodes" :key="hn.id" class="node-check-item">
+              <input type="checkbox" :value="hn.id" v-model="selectedNodeIds" />
+              <span class="node-check-label">{{ hn.label || hn.id }}</span>
+              <code class="node-check-id">{{ hn.id }}</code>
+            </label>
+            <p v-if="htmlNodes.length === 0" class="no-nodes-hint">No html-nodes in this graph</p>
+            <p v-else-if="selectedNodeIds.length === 0" class="no-nodes-hint">Select at least one node</p>
+          </div>
         </div>
 
         <div class="metadata-group">
@@ -133,7 +142,7 @@
           </div>
           <div class="stat">
             <span class="label">Applied To:</span>
-            <span class="value">{{ appliesTo === '*' ? 'All HTML Nodes' : 'Specific Nodes' }}</span>
+            <span class="value">{{ appliesTo === '*' ? 'All HTML Nodes' : (node.metadata?.appliesTo?.length || 0) + ' node(s)' }}</span>
           </div>
           <div class="stat">
             <span class="label">Priority:</span>
@@ -169,6 +178,10 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true
+  },
+  graphData: {
+    type: Object,
+    default: () => ({})
   }
 })
 
@@ -181,9 +194,16 @@ const editingCss = ref('')
 const editingLabel = ref('')
 const editingAppliesTo = ref('*')
 const editingPriority = ref(100)
+const selectedNodeIds = ref([])
 const editorWrapperRef = ref(null)
 const idCopied = ref(false)
 let editorView = null
+
+// HTML nodes available for targeting
+const htmlNodes = computed(() => {
+  if (!props.graphData?.nodes) return []
+  return props.graphData.nodes.filter(n => n.type === 'html-node')
+})
 
 // Get original metadata
 const priority = computed(() => props.node.metadata?.priority ?? 100)
@@ -269,6 +289,8 @@ function toggleEditMode() {
   editingLabel.value = props.node.label || ''
   editingAppliesTo.value = appliesTo.value
   editingPriority.value = priority.value
+  const existing = props.node.metadata?.appliesTo || []
+  selectedNodeIds.value = existing.filter(id => id !== '*')
 
   nextTick(() => {
     createEditor()
@@ -282,7 +304,7 @@ async function saveCss() {
     info: editingCss.value,
     metadata: {
       ...props.node.metadata,
-      appliesTo: editingAppliesTo.value === '*' ? ['*'] : (props.node.metadata?.appliesTo || ['*']),
+      appliesTo: editingAppliesTo.value === '*' ? ['*'] : selectedNodeIds.value,
       priority: editingPriority.value
     }
   }
@@ -695,6 +717,64 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   color: rgba(74, 222, 128, 0.9);
   white-space: nowrap;
+}
+
+/* Node Checklist */
+.node-checklist {
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 6px;
+}
+
+.node-check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.node-check-item:hover {
+  background: rgba(167, 139, 250, 0.1);
+}
+
+.node-check-item input[type="checkbox"] {
+  accent-color: #a78bfa;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.node-check-label {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-check-id {
+  font-size: 0.65rem;
+  color: rgba(167, 139, 250, 0.5);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-nodes-hint {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 8px;
+  margin: 0;
 }
 
 .priority-slider {
