@@ -8368,7 +8368,7 @@ const saveNodeChanges = async () => {
       }
 
       // Persist path for node types that use URL/file paths from edit modal
-      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map']
+      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image']
       if (pathNodeTypes.includes(editingNode.value.type)) {
         const normalizedPath = String(editingNode.value.path || '').trim()
         updatedNode.path = normalizedPath || null

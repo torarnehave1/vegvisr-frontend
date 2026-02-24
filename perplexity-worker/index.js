@@ -189,9 +189,9 @@ async function handleChat(request, env, corsHeaders) {
 
   if (!PERPLEXITY_API_KEY) {
     return new Response(JSON.stringify({
-      error: 'PERPLEXITY_API_KEY not configured'
+      error: `Perplexity API key not configured for user${userId ? ` "${userId}"` : ''}. Add your Perplexity API key in user settings.`
     }), {
-      status: 500,
+      status: 403,
       headers: corsHeaders
     })
   }
@@ -225,7 +225,32 @@ async function handleChat(request, env, corsHeaders) {
       body: JSON.stringify(requestBody)
     })
 
-    const data = await response.json()
+    // Safe response parsing — Perplexity may return HTML on auth errors
+    const contentType = response.headers.get('content-type') || ''
+    const responseText = await response.text()
+
+    if (!contentType.includes('application/json')) {
+      return new Response(JSON.stringify({
+        error: `Perplexity API returned non-JSON response (${response.status}). Check that your API key is valid.`,
+        status: response.status,
+        contentType
+      }), {
+        status: 502,
+        headers: corsHeaders
+      })
+    }
+
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      return new Response(JSON.stringify({
+        error: `Failed to parse Perplexity response (${response.status}): ${responseText.substring(0, 200)}`
+      }), {
+        status: 502,
+        headers: corsHeaders
+      })
+    }
 
     if (!response.ok) {
       return new Response(JSON.stringify({

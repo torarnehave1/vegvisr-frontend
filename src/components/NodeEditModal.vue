@@ -46,6 +46,20 @@
           </small>
         </div>
 
+        <!-- Image URL Path Field (for markdown-image nodes) -->
+        <div v-if="localNode.type === 'markdown-image'" class="form-group">
+          <label class="form-label">Image URL (Path):</label>
+          <input
+            v-model="localNode.path"
+            type="url"
+            class="form-control"
+            placeholder="Enter image URL (e.g., https://images.unsplash.com/photo-...)..."
+          />
+          <small class="form-text text-muted">
+            The image URL stored as the node's path property.
+          </small>
+        </div>
+
         <!-- Node Content -->
         <div class="form-group">
           <label class="form-label">Node Content:</label>
