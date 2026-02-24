@@ -104,11 +104,17 @@ const isFullscreen = ref(false)
 const latestVersion = ref('')
 const upgrading = ref(false)
 
-// Detect template version from the html-node's info
+// Detect template version and template ID from the html-node's info
 const nodeVersion = computed(() => {
   const html = props.node?.info || ''
   const match = html.match(/<meta\s+name="template-version"\s+content="([^"]+)"/)
   return match ? match[1] : 'none'
+})
+
+const nodeTemplateId = computed(() => {
+  const html = props.node?.info || ''
+  const match = html.match(/<meta\s+name="template-id"\s+content="([^"]+)"/)
+  return match ? match[1] : 'editable-page'
 })
 
 const upgradeAvailable = computed(() => {
@@ -116,10 +122,10 @@ const upgradeAvailable = computed(() => {
   return latestVersion.value !== nodeVersion.value && nodeVersion.value !== 'none' || (nodeVersion.value === 'none' && latestVersion.value)
 })
 
-// Fetch latest template version on mount
+// Fetch latest template version on mount (template-aware)
 const fetchLatestVersion = async () => {
   try {
-    const res = await fetch('https://agent.vegvisr.org/template-version')
+    const res = await fetch(`https://agent.vegvisr.org/template-version?templateId=${nodeTemplateId.value}`)
     if (res.ok) {
       const data = await res.json()
       latestVersion.value = data.version || ''
