@@ -33,8 +33,9 @@
         <button @click="extractCss" class="btn-control" title="Extract inline CSS into separate CSS node">
           🎨 Extract CSS
         </button>
+        <span v-if="isSuperadmin" class="version-badge" :title="`Current: v${nodeVersion}, Latest: v${latestVersion || '...'}`">v{{ nodeVersion }}</span>
         <button v-if="isSuperadmin && upgradeAvailable" @click="upgradeHtmlNode" class="btn-control btn-upgrade" :disabled="upgrading" :title="`Upgrade template from v${nodeVersion} to v${latestVersion}`">
-          {{ upgrading ? '⏳ Upgrading...' : `⬆️ Upgrade (v${latestVersion})` }}
+          {{ upgrading ? 'Upgrading...' : `Upgrade to v${latestVersion}` }}
         </button>
         <button @click="deleteNode" class="btn-control btn-delete" title="Delete HTML Node">
           🗑️ Delete
@@ -789,6 +790,16 @@ onBeforeUnmount(() => {
 .btn-delete {
   background: #ffe3e3;
   border-color: #ffa8a8;
+}
+
+.version-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  color: #1565c0;
+  font-family: monospace;
 }
 
 .btn-upgrade {
