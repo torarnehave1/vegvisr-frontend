@@ -8568,6 +8568,14 @@ const handleNodeUpdated = async (updatedNode) => {
     return
   }
 
+  // Handle template upgrade — the upgrade endpoint already patched the node,
+  // just reload the graph to get the fresh data from DB
+  if (updatedNode.action === 'upgraded') {
+    console.log('🔄 GNew: Template upgraded, reloading graph')
+    await loadGraph()
+    return
+  }
+
   // Handle actual node updates (like audio path changes)
   console.log('🔄 GNew: Node Updated:', updatedNode.id, updatedNode)
 

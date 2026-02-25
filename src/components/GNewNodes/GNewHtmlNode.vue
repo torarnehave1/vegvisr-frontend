@@ -150,10 +150,8 @@ const upgradeHtmlNode = async () => {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Upgrade failed')
 
-    // Emit update to refresh the view
-    emit('node-updated', { ...props.node, info: undefined, action: 'upgraded', message: data.message })
-    // Force page reload to show new template
-    window.location.reload()
+    // Emit update — GNewViewer will reload the graph from DB to get the fresh HTML
+    emit('node-updated', { ...props.node, action: 'upgraded', message: data.message })
   } catch (err) {
     alert('Upgrade failed: ' + err.message)
   } finally {
