@@ -136,20 +136,28 @@ const fetchLatestVersion = async () => {
 }
 
 const upgradeHtmlNode = async () => {
+  // Use store graphId, fallback to URL param
   const graphId = knowledgeGraphStore.currentGraphId
-  if (!graphId || !props.node?.id) return
+    || new URLSearchParams(window.location.search).get('graphId')
+  const nodeId = props.node?.id
+  if (!graphId || !nodeId) {
+    alert('Upgrade failed: missing graphId or nodeId')
+    return
+  }
   if (!confirm(`Upgrade template from v${nodeVersion.value} to v${latestVersion.value}? Content nodes are preserved.`)) return
 
   upgrading.value = true
   try {
+    console.log('[Upgrade] graphId:', graphId, 'nodeId:', nodeId)
     const res = await fetch('https://agent.vegvisr.org/upgrade-html-node', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graphId, nodeId: props.node.id })
+      body: JSON.stringify({ graphId, nodeId })
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Upgrade failed')
 
+    console.log('[Upgrade] Success:', data.message)
     // Emit update — GNewViewer will reload the graph from DB to get the fresh HTML
     emit('node-updated', { ...props.node, action: 'upgraded', message: data.message })
   } catch (err) {
