@@ -281,11 +281,25 @@ const parseFormattedElements = (text) => {
   return finalHtml
 }
 
+// Normalize a URL or iframe embed code into a clean URL
+const normalizeVideoUrl = (raw) => {
+  if (!raw) return ''
+  let url = raw.trim()
+  // If user pasted a full <iframe> tag, extract the src attribute
+  const srcMatch = url.match(/src=["']([^"']+)["']/)
+  if (srcMatch) {
+    url = srcMatch[1]
+  }
+  // Decode HTML entities (&amp; → &)
+  url = url.replace(/&amp;/g, '&')
+  return url
+}
+
 // YouTube URL helper function
 const extractVideoId = (url) => {
   if (!url) return null
 
-  const trimmedUrl = url.trim()
+  const trimmedUrl = normalizeVideoUrl(url)
   console.log('🎬 Extracting video ID from:', trimmedUrl)
 
   const patterns = [
@@ -418,7 +432,7 @@ const videoId = computed(() => {
 
 // Detect clip parameters from embed URLs (clip= and clipt= query params)
 const clipParams = computed(() => {
-  const url = props.node.path || props.node.label || ''
+  const url = normalizeVideoUrl(props.node.path || props.node.label || '')
   const clipMatch = url.match(/[?&]clip=([^&]+)/)
   const cliptMatch = url.match(/[?&]clipt=([^&]+)/)
   if (clipMatch && cliptMatch) {
@@ -429,8 +443,8 @@ const clipParams = computed(() => {
 
 // Detect clip share URLs (youtube.com/clip/CLIP_ID) — these can't be embedded directly
 const isClipShareUrl = computed(() => {
-  const url = props.node.path || props.node.label || ''
-  return url.includes('youtube.com/clip/')
+  const url = normalizeVideoUrl(props.node.path || props.node.label || '')
+  return url.includes('youtube.com/clip/') && !clipParams.value
 })
 
 const hasInvalidUrl = computed(() => {
