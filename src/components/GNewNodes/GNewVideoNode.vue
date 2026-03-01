@@ -38,6 +38,25 @@
         ></iframe>
       </div>
 
+      <!-- Clip Share URL State (can't embed, but can link) -->
+      <div v-else-if="isClipShareUrl && !videoId" class="video-clip-state">
+        <div class="clip-icon">🎬</div>
+        <p>YouTube Clip</p>
+        <a :href="node.path || node.label" target="_blank" class="btn btn-sm btn-primary mb-2">
+          Watch Clip on YouTube ↗
+        </a>
+        <small class="text-muted d-block mt-2">
+          To embed this clip, use YouTube's Share → Embed and paste the embed URL in the path field.
+        </small>
+        <button
+          v-if="showControls && !isPreview"
+          @click="editNode"
+          class="btn btn-sm btn-outline-primary mt-2"
+        >
+          Edit Node
+        </button>
+      </div>
+
       <!-- Video Error State -->
       <div v-else-if="hasInvalidUrl" class="video-error-state">
         <div class="error-icon">📹</div>
@@ -397,7 +416,27 @@ const videoId = computed(() => {
   return id
 })
 
+// Detect clip parameters from embed URLs (clip= and clipt= query params)
+const clipParams = computed(() => {
+  const url = props.node.path || props.node.label || ''
+  const clipMatch = url.match(/[?&]clip=([^&]+)/)
+  const cliptMatch = url.match(/[?&]clipt=([^&]+)/)
+  if (clipMatch && cliptMatch) {
+    return { clip: clipMatch[1], clipt: cliptMatch[1] }
+  }
+  return null
+})
+
+// Detect clip share URLs (youtube.com/clip/CLIP_ID) — these can't be embedded directly
+const isClipShareUrl = computed(() => {
+  const url = props.node.path || props.node.label || ''
+  return url.includes('youtube.com/clip/')
+})
+
 const hasInvalidUrl = computed(() => {
+  // Clip share URLs are not invalid — they just need special handling
+  if (isClipShareUrl.value && !videoId.value) return false
+
   // Check if path contains YouTube URL but couldn't extract video ID
   if (props.node.path) {
     const url = props.node.path.trim()
@@ -418,6 +457,11 @@ const hasInvalidUrl = computed(() => {
 const embedUrl = computed(() => {
   if (!videoId.value) return null
 
+  // If clip params exist, include them in the embed URL
+  if (clipParams.value) {
+    return `https://www.youtube.com/embed/${videoId.value}?clip=${clipParams.value.clip}&clipt=${clipParams.value.clipt}&rel=0&modestbranding=1`
+  }
+
   // If path is provided, create embed URL from path
   if (props.node.path) {
     return `https://www.youtube.com/embed/${videoId.value}?rel=0&modestbranding=1`
@@ -434,6 +478,10 @@ const embedUrl = computed(() => {
 
 const youtubeUrl = computed(() => {
   if (!videoId.value) return null
+  // If it's a clip with a share URL in path, link to that
+  if (isClipShareUrl.value) {
+    return props.node.path || props.node.label
+  }
   return `https://www.youtube.com/watch?v=${videoId.value}`
 })
 
@@ -442,7 +490,7 @@ const nodeTypeClass = computed(() => {
 })
 
 const nodeTypeDisplay = computed(() => {
-  return 'YouTube Video'
+  return (clipParams.value || isClipShareUrl.value) ? 'YouTube Clip' : 'YouTube Video'
 })
 
 // Methods
@@ -556,6 +604,31 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   border-radius: 8px;
+}
+
+.video-clip-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  min-height: 200px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e8f4fd 100%);
+  border: 2px solid #007bff;
+  border-radius: 8px;
+}
+
+.clip-icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+}
+
+.video-clip-state p {
+  color: #007bff;
+  font-weight: 600;
+  margin-bottom: 12px;
+  font-size: 1.1rem;
 }
 
 .video-error-state,

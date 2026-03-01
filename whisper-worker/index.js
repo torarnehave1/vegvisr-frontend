@@ -513,12 +513,185 @@ const transcribeFromUrlWithCloudflare = async (audioBuffer, audioUrl, env) => {
   )
 }
 
+// Server-side WAV chunking — splits a WAV buffer into ~120s chunks
+const CHUNK_DURATION_SECONDS = 120
+
+const splitWavBuffer = (audioBuffer) => {
+  const view = new DataView(audioBuffer)
+
+  // Parse WAV header
+  const numChannels = view.getUint16(22, true)
+  const sampleRate = view.getUint32(24, true)
+  const bitsPerSample = view.getUint16(34, true)
+  const bytesPerSample = bitsPerSample / 8
+  const blockAlign = numChannels * bytesPerSample
+  const bytesPerSecond = sampleRate * blockAlign
+  const dataStart = 44 // Standard WAV header size
+  const dataSize = audioBuffer.byteLength - dataStart
+
+  const chunkDataBytes = CHUNK_DURATION_SECONDS * bytesPerSecond
+  // Align to block boundary
+  const alignedChunkBytes = Math.floor(chunkDataBytes / blockAlign) * blockAlign
+  const totalChunks = Math.max(Math.ceil(dataSize / alignedChunkBytes), 1)
+
+  console.log('🔪 WAV chunking:', {
+    sampleRate, numChannels, bitsPerSample,
+    totalDuration: (dataSize / bytesPerSecond).toFixed(1) + 's',
+    totalChunks,
+    chunkDuration: CHUNK_DURATION_SECONDS + 's',
+  })
+
+  const chunks = []
+  for (let i = 0; i < totalChunks; i++) {
+    const startByte = i * alignedChunkBytes
+    const endByte = Math.min(startByte + alignedChunkBytes, dataSize)
+    const chunkDataSize = endByte - startByte
+
+    // Build a new WAV: 44-byte header + chunk PCM data
+    const chunkBuffer = new ArrayBuffer(44 + chunkDataSize)
+    const chunkView = new DataView(chunkBuffer)
+    const chunkArray = new Uint8Array(chunkBuffer)
+
+    // Copy original header
+    chunkArray.set(new Uint8Array(audioBuffer, 0, 44))
+    // Fix file size field (bytes 4-7): total file size - 8
+    chunkView.setUint32(4, 36 + chunkDataSize, true)
+    // Fix data size field (bytes 40-43)
+    chunkView.setUint32(40, chunkDataSize, true)
+    // Copy PCM data
+    chunkArray.set(new Uint8Array(audioBuffer, dataStart + startByte, chunkDataSize), 44)
+
+    chunks.push({
+      buffer: chunkBuffer,
+      startTime: startByte / bytesPerSecond,
+      endTime: endByte / bytesPerSecond,
+    })
+  }
+
+  return chunks
+}
+
+const formatTimestamp = (seconds) => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// Send a single WAV chunk to OpenAI for transcription
+const transcribeChunkWithOpenAI = async (chunkBuffer, fileName, env, options) => {
+  const { model, language, temperature } = options
+  const formData = new FormData()
+  const blob = new Blob([chunkBuffer], { type: 'audio/wav' })
+  formData.append('file', blob, fileName)
+  formData.append('model', model)
+  if (language && model === 'whisper-1') formData.append('language', language)
+  formData.append('temperature', temperature || '0')
+  formData.append('response_format', 'json')
+
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText.slice(0, 200)}`)
+  }
+
+  return await response.json()
+}
+
 // OpenAI API transcription from R2
 const transcribeFromUrlWithOpenAI = async (audioBuffer, audioUrl, env, options) => {
   const { model, language, temperature } = options
 
   if (!env.OPENAI_API_KEY) {
     return createErrorResponse('OpenAI API key not configured', 500)
+  }
+
+  // Check if file needs chunking (OpenAI limit is 25MB)
+  const detectedFormat = detectAudioFormat(audioBuffer)
+  const isWav = detectedFormat.format === 'WAV'
+  const MAX_CHUNK_BYTES = 24 * 1024 * 1024 // 24MB per chunk (under OpenAI's 25MB limit)
+  const needsChunking = audioBuffer.byteLength > MAX_CHUNK_BYTES
+
+  if (needsChunking) {
+    console.log('🔪 Large file detected, using server-side chunking:', {
+      sizeMB: (audioBuffer.byteLength / 1024 / 1024).toFixed(2),
+      format: detectedFormat.format,
+      isWav,
+    })
+
+    let chunks
+    if (isWav) {
+      // WAV: split by PCM data boundaries with proper headers
+      chunks = splitWavBuffer(audioBuffer)
+    } else {
+      // Non-WAV (WebM, MP3, etc.): split by raw byte size
+      // OpenAI Whisper handles partial containers gracefully
+      const totalChunks = Math.ceil(audioBuffer.byteLength / MAX_CHUNK_BYTES)
+      chunks = []
+      for (let i = 0; i < totalChunks; i++) {
+        const startByte = i * MAX_CHUNK_BYTES
+        const endByte = Math.min(startByte + MAX_CHUNK_BYTES, audioBuffer.byteLength)
+        chunks.push({
+          buffer: audioBuffer.slice(startByte, endByte),
+          startTime: null, // Can't calculate for non-WAV
+          endTime: null,
+        })
+      }
+    }
+
+    const combinedSegments = []
+
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`🎤 Transcribing chunk ${i + 1}/${chunks.length}...`)
+      try {
+        const chunkFileName = isWav ? `chunk_${i + 1}.wav` : `chunk_${i + 1}${detectedFormat.extension}`
+        const result = await transcribeChunkWithOpenAI(
+          chunks[i].buffer,
+          chunkFileName,
+          env,
+          { model, language, temperature }
+        )
+        const text = (result.text || '').trim()
+        if (text) {
+          if (chunks[i].startTime !== null) {
+            const label = `[${formatTimestamp(chunks[i].startTime)} - ${formatTimestamp(chunks[i].endTime)}]`
+            combinedSegments.push(`${label} ${text}`)
+          } else {
+            combinedSegments.push(`[Part ${i + 1}/${chunks.length}] ${text}`)
+          }
+        }
+      } catch (err) {
+        combinedSegments.push(`[Part ${i + 1}/${chunks.length}] [Error: ${err.message}]`)
+        console.error(`Chunk ${i + 1} failed:`, err.message)
+      }
+    }
+
+    const fullText = combinedSegments.join('\n\n')
+    console.log('✅ Chunked transcription complete:', {
+      chunks: chunks.length,
+      totalLength: fullText.length,
+    })
+
+    return createResponse(
+      JSON.stringify({
+        success: true,
+        text: fullText,
+        model: model,
+        metadata: {
+          audioUrl,
+          fileSize: audioBuffer.byteLength,
+          chunks: chunks.length,
+          format: detectedFormat.format,
+          language: language,
+          processedAt: new Date().toISOString(),
+          service: 'OpenAI Direct API (chunked)',
+        },
+      })
+    )
   }
 
   console.log('🔥 Processing with OpenAI API from R2:', {
@@ -538,8 +711,7 @@ const transcribeFromUrlWithOpenAI = async (audioBuffer, audioUrl, env, options) 
   }
   const originalFileName = r2Key ? r2Key.split('/').pop() : 'audio-from-r2.wav'
 
-  // Detect actual audio format from buffer content
-  const detectedFormat = detectAudioFormat(audioBuffer)
+  // Reuse format detected above for chunking check
   const actualFileName = originalFileName.replace(/\.[^.]+$/, detectedFormat.extension)
 
   // Create FormData for multipart/form-data request with correct format
