@@ -414,3 +414,58 @@ export async function checkIfNeedsChunking(audioFile, maxSize = 30, maxDuration 
     }
   }
 }
+
+/**
+ * Trim audio to a specific time range and return a WAV blob
+ *
+ * @param {string|File|Blob} audioSource - Audio URL, File, or Blob
+ * @param {number} startSeconds - Start time in seconds
+ * @param {number} endSeconds - End time in seconds
+ * @returns {Promise<{blob: Blob, duration: number, sampleRate: number, channels: number}>}
+ */
+export async function trimAudioByTime(audioSource, startSeconds, endSeconds) {
+  let arrayBuffer
+  if (typeof audioSource === 'string') {
+    const res = await fetch(audioSource)
+    if (!res.ok) throw new Error(`Failed to fetch audio: ${res.statusText}`)
+    arrayBuffer = await res.arrayBuffer()
+  } else {
+    arrayBuffer = await audioSource.arrayBuffer()
+  }
+
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+  const sampleRate = audioBuffer.sampleRate
+  const startSample = Math.max(0, Math.floor(startSeconds * sampleRate))
+  const endSample = Math.min(Math.floor(endSeconds * sampleRate), audioBuffer.length)
+  const clipLength = endSample - startSample
+
+  if (clipLength <= 0) {
+    audioContext.close()
+    throw new Error('Invalid clip range: start must be before end')
+  }
+
+  const clipBuffer = audioContext.createBuffer(
+    audioBuffer.numberOfChannels,
+    clipLength,
+    sampleRate
+  )
+
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const source = audioBuffer.getChannelData(ch)
+    const target = clipBuffer.getChannelData(ch)
+    for (let i = 0; i < clipLength; i++) {
+      target[i] = source[startSample + i]
+    }
+  }
+
+  audioContext.close()
+
+  return {
+    blob: audioBufferToWav(clipBuffer),
+    duration: endSeconds - startSeconds,
+    sampleRate,
+    channels: audioBuffer.numberOfChannels
+  }
+}

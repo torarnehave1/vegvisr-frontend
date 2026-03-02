@@ -144,6 +144,32 @@ export default {
         return await handleImageGeneration(request, env, corsHeaders)
       }
 
+      // POST /live-config — Return Gemini API key for Live API (WebSocket) connections
+      if (pathname === '/live-config' && request.method === 'POST') {
+        try {
+          const body = await request.json().catch(() => ({}))
+          const resolvedUserId = resolveUserId(body.userId, env)
+          const geminiKey = await getGeminiApiKeyForUser(env, resolvedUserId)
+
+          if (!geminiKey) {
+            return new Response(JSON.stringify({ error: 'No Gemini API key configured' }), {
+              status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+
+          return new Response(JSON.stringify({
+            apiKey: geminiKey,
+            model: 'gemini-2.5-flash-native-audio-preview-09-2025'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        } catch (error) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+      }
+
       if (pathname.match(/^\/gemini-(?:[\w.-]+)$/) && request.method === 'POST') {
         const model = pathname.substring(1)
         return await handleModelEndpoint(request, env, corsHeaders, model)

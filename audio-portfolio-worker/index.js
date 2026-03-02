@@ -471,6 +471,9 @@ const listAllRecordings = async (env, limit = 50, cursor = null, ownerEmail = nu
       }
     }
 
+    // Sort by creation date (newest first)
+    recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+
     return {
       recordings,
       total: recordings.length,

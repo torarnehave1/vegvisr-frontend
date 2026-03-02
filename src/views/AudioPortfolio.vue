@@ -250,6 +250,15 @@
                           ✏️
                         </button>
                         <button
+                          v-if="recordingAudioUrl(recording)"
+                          class="btn btn-outline-primary"
+                          type="button"
+                          @click="clippingRecording = recording"
+                          title="Create audio clip"
+                        >
+                          &#9986;
+                        </button>
+                        <button
                           class="btn btn-outline-danger"
                           type="button"
                           @click="confirmDelete(recording)"
@@ -630,6 +639,13 @@
       </div>
     </div>
   </div>
+
+  <!-- Audio Clip Modal -->
+  <AudioClipModal
+    :recording="clippingRecording"
+    @close="clippingRecording = null"
+    @clip-saved="clippingRecording = null; fetchRecordings()"
+  />
 </template>
 
 <script setup>
@@ -637,6 +653,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { apiUrls } from '@/config/api'
+import AudioClipModal from '../components/AudioClipModal.vue'
 
 // Bootstrap is imported globally in main.js and attached to window
 // No need to import it here
@@ -674,6 +691,7 @@ const directUploadTags = ref('')
 const directUploading = ref(false)
 const directUploadMessage = ref('')
 const directUploadError = ref('')
+const clippingRecording = ref(null)
 
 const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 const AUDIO_PORTFOLIO_WORKER_URL = 'https://audio-portfolio-worker.torarnehave.workers.dev'
