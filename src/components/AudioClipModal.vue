@@ -21,77 +21,109 @@
 
           <!-- Waveform with region selection -->
           <div v-if="!loadingAudio && !loadError && waveformData.length > 0" class="waveform-section">
-            <svg
-              ref="waveformSvg"
-              :width="svgWidth"
-              :height="svgHeight"
-              :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
-              class="clip-waveform-svg"
-              @mousedown="handleWaveformClick"
-              @mousemove="handleMouseMove"
-              @mouseup="handleMouseUp"
-              @mouseleave="handleMouseUp"
+            <!-- Zoom controls -->
+            <div class="zoom-controls d-flex align-items-center justify-content-between mb-2">
+              <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-outline-secondary" @click="zoomOut" :disabled="zoomLevel <= 1">&#8722;</button>
+                <span class="zoom-label small text-muted">{{ zoomLevel.toFixed(1) }}x</span>
+                <button class="btn btn-sm btn-outline-secondary" @click="zoomIn" :disabled="zoomLevel >= 20">+</button>
+                <button v-if="zoomLevel > 1" class="btn btn-sm btn-outline-secondary ms-1" @click="resetZoom">Reset</button>
+              </div>
+              <small class="text-muted">Scroll to zoom, drag to pan</small>
+            </div>
+
+            <div
+              class="waveform-wrapper"
+              @wheel.prevent="handleWheelZoom"
             >
-              <!-- Background -->
-              <rect x="0" y="0" :width="svgWidth" :height="svgHeight" fill="#1a1a2e" rx="4" />
-
-              <!-- Center line -->
-              <line :x1="0" :y1="svgHeight / 2" :x2="svgWidth" :y2="svgHeight / 2" stroke="#4a4a6a" stroke-width="1" opacity="0.5" />
-
-              <!-- Waveform bars -->
-              <rect
-                v-for="(amp, i) in waveformData"
-                :key="'bar-' + i"
-                :x="i * (barWidth + 1)"
-                :y="(svgHeight - amp * svgHeight * 0.8) / 2"
-                :width="barWidth"
-                :height="Math.max(2, amp * svgHeight * 0.8)"
-                :fill="getBarFill(i)"
-                rx="1"
-              />
-
-              <!-- Selected region highlight -->
-              <rect
-                :x="startHandleX"
-                y="0"
-                :width="Math.max(0, endHandleX - startHandleX)"
+              <svg
+                ref="waveformSvg"
+                :width="svgWidth"
                 :height="svgHeight"
-                fill="rgba(78, 205, 196, 0.15)"
-              />
+                :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
+                class="clip-waveform-svg"
+                @mousedown="handleWaveformClick"
+                @mousemove="handleMouseMove"
+                @mouseup="handleMouseUp"
+                @mouseleave="handleMouseUp"
+              >
+                <!-- Background -->
+                <rect x="0" y="0" :width="svgWidth" :height="svgHeight" fill="#1a1a2e" rx="4" />
 
-              <!-- Start handle -->
-              <g class="handle start-handle" :transform="`translate(${startHandleX}, 0)`" style="cursor: ew-resize">
-                <line x1="0" y1="0" x2="0" :y2="svgHeight" stroke="#4ecdc4" stroke-width="3" />
-                <rect x="-6" y="0" width="12" :height="svgHeight" fill="transparent" />
-                <polygon :points="`0,0 8,12 -8,12`" fill="#4ecdc4" />
-                <polygon :points="`0,${svgHeight} 8,${svgHeight - 12} -8,${svgHeight - 12}`" fill="#4ecdc4" />
-              </g>
+                <!-- Center line -->
+                <line :x1="0" :y1="svgHeight / 2" :x2="svgWidth" :y2="svgHeight / 2" stroke="#4a4a6a" stroke-width="1" opacity="0.5" />
 
-              <!-- End handle -->
-              <g class="handle end-handle" :transform="`translate(${endHandleX}, 0)`" style="cursor: ew-resize">
-                <line x1="0" y1="0" x2="0" :y2="svgHeight" stroke="#ff6b6b" stroke-width="3" />
-                <rect x="-6" y="0" width="12" :height="svgHeight" fill="transparent" />
-                <polygon :points="`0,0 8,12 -8,12`" fill="#ff6b6b" />
-                <polygon :points="`0,${svgHeight} 8,${svgHeight - 12} -8,${svgHeight - 12}`" fill="#ff6b6b" />
-              </g>
+                <!-- Waveform bars (only visible portion) -->
+                <rect
+                  v-for="(bar, i) in visibleBars"
+                  :key="'bar-' + i"
+                  :x="bar.x"
+                  :y="(svgHeight - bar.amp * svgHeight * 0.8) / 2"
+                  :width="visibleBarWidth"
+                  :height="Math.max(2, bar.amp * svgHeight * 0.8)"
+                  :fill="bar.fill"
+                  rx="1"
+                />
 
-              <!-- Playhead -->
-              <line
-                v-if="audioDuration > 0"
-                :x1="playheadX"
-                y1="0"
-                :x2="playheadX"
-                :y2="svgHeight"
-                stroke="#ffffff"
-                stroke-width="1.5"
-                opacity="0.7"
-              />
-            </svg>
+                <!-- Selected region highlight -->
+                <rect
+                  v-if="regionVisibleX.width > 0"
+                  :x="regionVisibleX.x"
+                  y="0"
+                  :width="regionVisibleX.width"
+                  :height="svgHeight"
+                  fill="rgba(78, 205, 196, 0.15)"
+                />
+
+                <!-- Start handle (if visible) -->
+                <g v-if="startHandleVisible" class="handle start-handle" :transform="`translate(${startHandleScreenX}, 0)`" style="cursor: ew-resize">
+                  <line x1="0" y1="0" x2="0" :y2="svgHeight" stroke="#4ecdc4" stroke-width="3" />
+                  <rect x="-8" y="0" width="16" :height="svgHeight" fill="transparent" />
+                  <polygon :points="`0,0 8,12 -8,12`" fill="#4ecdc4" />
+                  <polygon :points="`0,${svgHeight} 8,${svgHeight - 12} -8,${svgHeight - 12}`" fill="#4ecdc4" />
+                </g>
+
+                <!-- End handle (if visible) -->
+                <g v-if="endHandleVisible" class="handle end-handle" :transform="`translate(${endHandleScreenX}, 0)`" style="cursor: ew-resize">
+                  <line x1="0" y1="0" x2="0" :y2="svgHeight" stroke="#ff6b6b" stroke-width="3" />
+                  <rect x="-8" y="0" width="16" :height="svgHeight" fill="transparent" />
+                  <polygon :points="`0,0 8,12 -8,12`" fill="#ff6b6b" />
+                  <polygon :points="`0,${svgHeight} 8,${svgHeight - 12} -8,${svgHeight - 12}`" fill="#ff6b6b" />
+                </g>
+
+                <!-- Playhead -->
+                <line
+                  v-if="audioDuration > 0 && playheadScreenX >= 0 && playheadScreenX <= svgWidth"
+                  :x1="playheadScreenX"
+                  y1="0"
+                  :x2="playheadScreenX"
+                  :y2="svgHeight"
+                  stroke="#ffffff"
+                  stroke-width="1.5"
+                  opacity="0.7"
+                />
+
+                <!-- Viewport indicator (minimap) when zoomed -->
+                <g v-if="zoomLevel > 1">
+                  <!-- Minimap background -->
+                  <rect :x="0" :y="svgHeight - 8" :width="svgWidth" height="8" fill="rgba(0,0,0,0.5)" />
+                  <!-- Visible region -->
+                  <rect
+                    :x="(panOffset / audioDuration) * svgWidth"
+                    :y="svgHeight - 8"
+                    :width="Math.max(4, (viewDuration / audioDuration) * svgWidth)"
+                    height="8"
+                    fill="rgba(255,255,255,0.5)"
+                    rx="2"
+                  />
+                </g>
+              </svg>
+            </div>
 
             <!-- Time labels under waveform -->
             <div class="time-labels d-flex justify-content-between mt-1">
-              <small class="text-muted">0:00</small>
-              <small class="text-muted">{{ formatTime(audioDuration) }}</small>
+              <small class="text-muted">{{ formatTime(panOffset) }}</small>
+              <small class="text-muted">{{ formatTime(panOffset + viewDuration) }}</small>
             </div>
           </div>
 
@@ -185,21 +217,27 @@ const userStore = useUserStore()
 
 // SVG dimensions
 const svgWidth = 600
-const svgHeight = 120
+const svgHeight = 140
 
 // Audio state
 const loadingAudio = ref(false)
 const loadError = ref(null)
 const audioDuration = ref(0)
-const waveformData = ref([])
+const waveformData = ref([]) // Full resolution waveform (all bars)
 const waveformSvg = ref(null)
+
+// Zoom & pan state
+const zoomLevel = ref(1)
+const panOffset = ref(0) // Start time of visible window (in seconds)
 
 // Region state
 const clipStart = ref(0)
 const clipEnd = ref(0)
 
-// Dragging state
-const dragging = ref(null) // 'start', 'end', or null
+// Dragging state: 'start', 'end', 'pan', or null
+const dragging = ref(null)
+const panDragStartX = ref(0)
+const panDragStartOffset = ref(0)
 
 // Preview state
 const previewing = ref(false)
@@ -218,32 +256,114 @@ const saveSuccess = ref(null)
 const clipName = ref('')
 const clipCategory = ref('')
 
-const barCount = 200
-const barWidth = computed(() => Math.max(1, (svgWidth / barCount) - 1))
+const barCount = 600 // Higher resolution for zoom
 
-const startHandleX = computed(() => {
-  if (audioDuration.value === 0) return 0
-  return (clipStart.value / audioDuration.value) * svgWidth
+// Duration of the visible time window
+const viewDuration = computed(() => audioDuration.value / zoomLevel.value)
+
+// Visible bar width depends on how many bars are in the visible window
+const visibleBarWidth = computed(() => {
+  const visibleCount = Math.ceil(barCount / zoomLevel.value)
+  return Math.max(1, (svgWidth / visibleCount) - 1)
 })
 
-const endHandleX = computed(() => {
-  if (audioDuration.value === 0) return svgWidth
-  return (clipEnd.value / audioDuration.value) * svgWidth
-})
+// Compute which bars are visible and their screen positions
+const visibleBars = computed(() => {
+  if (audioDuration.value === 0 || waveformData.value.length === 0) return []
 
-const playheadX = computed(() => {
-  if (audioDuration.value === 0) return 0
-  return (playheadTime.value / audioDuration.value) * svgWidth
-})
+  const startFraction = panOffset.value / audioDuration.value
+  const endFraction = (panOffset.value + viewDuration.value) / audioDuration.value
 
-function getBarFill(index) {
-  const barProgress = index / barCount
-  const startProgress = audioDuration.value > 0 ? clipStart.value / audioDuration.value : 0
-  const endProgress = audioDuration.value > 0 ? clipEnd.value / audioDuration.value : 1
-  if (barProgress >= startProgress && barProgress <= endProgress) {
-    return '#4ecdc4'
+  const startBar = Math.floor(startFraction * barCount)
+  const endBar = Math.min(Math.ceil(endFraction * barCount), barCount)
+  const visibleCount = endBar - startBar
+
+  const bw = visibleCount > 0 ? Math.max(1, (svgWidth / visibleCount) - 1) : 2
+  const gap = 1
+
+  const clipStartFrac = clipStart.value / audioDuration.value
+  const clipEndFrac = clipEnd.value / audioDuration.value
+
+  const bars = []
+  for (let i = startBar; i < endBar; i++) {
+    const localIndex = i - startBar
+    const barFraction = i / barCount
+    const inRegion = barFraction >= clipStartFrac && barFraction <= clipEndFrac
+    bars.push({
+      x: localIndex * (bw + gap),
+      amp: waveformData.value[i] || 0,
+      fill: inRegion ? '#4ecdc4' : '#2a5298'
+    })
   }
-  return '#2a5298'
+  return bars
+})
+
+// Convert a time (seconds) to screen X coordinate
+function timeToScreenX(time) {
+  if (audioDuration.value === 0 || viewDuration.value === 0) return 0
+  return ((time - panOffset.value) / viewDuration.value) * svgWidth
+}
+
+// Convert screen X to time
+function screenXToTime(x) {
+  if (audioDuration.value === 0) return 0
+  return panOffset.value + (x / svgWidth) * viewDuration.value
+}
+
+const startHandleScreenX = computed(() => timeToScreenX(clipStart.value))
+const endHandleScreenX = computed(() => timeToScreenX(clipEnd.value))
+const playheadScreenX = computed(() => timeToScreenX(playheadTime.value))
+
+const startHandleVisible = computed(() => startHandleScreenX.value >= -10 && startHandleScreenX.value <= svgWidth + 10)
+const endHandleVisible = computed(() => endHandleScreenX.value >= -10 && endHandleScreenX.value <= svgWidth + 10)
+
+const regionVisibleX = computed(() => {
+  const x1 = Math.max(0, startHandleScreenX.value)
+  const x2 = Math.min(svgWidth, endHandleScreenX.value)
+  return { x: x1, width: Math.max(0, x2 - x1) }
+})
+
+// Zoom functions
+function zoomIn() {
+  setZoom(Math.min(20, zoomLevel.value * 1.5))
+}
+
+function zoomOut() {
+  setZoom(Math.max(1, zoomLevel.value / 1.5))
+}
+
+function resetZoom() {
+  zoomLevel.value = 1
+  panOffset.value = 0
+}
+
+function setZoom(newZoom, centerTime) {
+  if (centerTime === undefined) {
+    // Default: zoom centered on the middle of the current view
+    centerTime = panOffset.value + viewDuration.value / 2
+  }
+  const oldZoom = zoomLevel.value
+  zoomLevel.value = Math.max(1, Math.min(20, newZoom))
+
+  // Adjust pan to keep centerTime in the same screen position
+  const newViewDuration = audioDuration.value / zoomLevel.value
+  panOffset.value = Math.max(0, Math.min(
+    audioDuration.value - newViewDuration,
+    centerTime - newViewDuration / 2
+  ))
+}
+
+function handleWheelZoom(event) {
+  if (audioDuration.value === 0) return
+
+  // Get the time under the cursor
+  const rect = waveformSvg.value?.getBoundingClientRect()
+  if (!rect) return
+  const svgX = ((event.clientX - rect.left) / rect.width) * svgWidth
+  const timeUnderCursor = screenXToTime(svgX)
+
+  const delta = event.deltaY < 0 ? 1.3 : 1 / 1.3
+  setZoom(zoomLevel.value * delta, timeUnderCursor)
 }
 
 function getAudioUrl() {
@@ -286,7 +406,7 @@ async function loadAudio() {
     clipStart.value = 0
     clipEnd.value = audioBuffer.duration
 
-    // Compute waveform
+    // Compute high-resolution waveform
     const channelData = audioBuffer.getChannelData(0)
     const blockSize = Math.floor(channelData.length / barCount)
     const waveform = []
@@ -314,10 +434,6 @@ async function loadAudio() {
   }
 }
 
-function xToTime(x) {
-  return Math.max(0, Math.min(audioDuration.value, (x / svgWidth) * audioDuration.value))
-}
-
 function getSvgX(event) {
   if (!waveformSvg.value) return 0
   const rect = waveformSvg.value.getBoundingClientRect()
@@ -326,21 +442,29 @@ function getSvgX(event) {
 
 function handleWaveformClick(event) {
   const x = getSvgX(event)
-  const distToStart = Math.abs(x - startHandleX.value)
-  const distToEnd = Math.abs(x - endHandleX.value)
+  const startDist = Math.abs(x - startHandleScreenX.value)
+  const endDist = Math.abs(x - endHandleScreenX.value)
 
-  // If close to a handle, start dragging it
-  if (distToStart < 15 && distToStart <= distToEnd) {
+  // If close to a handle, drag it
+  if (startDist < 15 && startHandleVisible.value && startDist <= endDist) {
     dragging.value = 'start'
-  } else if (distToEnd < 15) {
+  } else if (endDist < 15 && endHandleVisible.value) {
     dragging.value = 'end'
+  } else if (zoomLevel.value > 1 && event.shiftKey) {
+    // Shift+drag to pan when zoomed
+    dragging.value = 'pan'
+    panDragStartX.value = event.clientX
+    panDragStartOffset.value = panOffset.value
   } else {
-    // Click somewhere in the middle — move the nearest handle
+    // Click to move nearest handle
+    const time = screenXToTime(x)
+    const distToStart = Math.abs(time - clipStart.value)
+    const distToEnd = Math.abs(time - clipEnd.value)
     if (distToStart < distToEnd) {
-      clipStart.value = xToTime(x)
+      clipStart.value = Math.max(0, Math.min(time, clipEnd.value - 0.1))
       dragging.value = 'start'
     } else {
-      clipEnd.value = xToTime(x)
+      clipEnd.value = Math.min(audioDuration.value, Math.max(time, clipStart.value + 0.1))
       dragging.value = 'end'
     }
   }
@@ -348,13 +472,24 @@ function handleWaveformClick(event) {
 
 function handleMouseMove(event) {
   if (!dragging.value) return
+
+  if (dragging.value === 'pan') {
+    const rect = waveformSvg.value?.getBoundingClientRect()
+    if (!rect) return
+    const dx = event.clientX - panDragStartX.value
+    const timeDelta = -(dx / rect.width) * viewDuration.value
+    const maxPan = audioDuration.value - viewDuration.value
+    panOffset.value = Math.max(0, Math.min(maxPan, panDragStartOffset.value + timeDelta))
+    return
+  }
+
   const x = getSvgX(event)
-  const time = xToTime(x)
+  const time = screenXToTime(x)
 
   if (dragging.value === 'start') {
-    clipStart.value = Math.min(time, clipEnd.value - 0.1)
+    clipStart.value = Math.max(0, Math.min(time, clipEnd.value - 0.1))
   } else if (dragging.value === 'end') {
-    clipEnd.value = Math.max(time, clipStart.value + 0.1)
+    clipEnd.value = Math.min(audioDuration.value, Math.max(time, clipStart.value + 0.1))
   }
 }
 
@@ -501,6 +636,8 @@ watch(() => props.recording, (newVal) => {
     audioDuration.value = 0
     clipStart.value = 0
     clipEnd.value = 0
+    zoomLevel.value = 1
+    panOffset.value = 0
     saveError.value = null
     saveSuccess.value = null
     stopPreview()
@@ -544,7 +681,7 @@ onUnmounted(() => {
   background: white;
   border-radius: 12px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-  max-width: 700px;
+  max-width: 750px;
   width: 92vw;
   max-height: 85vh;
   display: flex;
@@ -595,6 +732,10 @@ onUnmounted(() => {
   border-top: 1px solid #e9ecef;
 }
 
+.waveform-wrapper {
+  position: relative;
+}
+
 .clip-waveform-svg {
   display: block;
   width: 100%;
@@ -614,6 +755,23 @@ onUnmounted(() => {
 
 .time-input {
   width: 70px;
+  text-align: center;
+  font-family: monospace;
+}
+
+.zoom-controls .btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.zoom-label {
+  min-width: 36px;
   text-align: center;
   font-family: monospace;
 }
