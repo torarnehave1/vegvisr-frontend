@@ -92,6 +92,9 @@ import GNewGuideNode from './GNewNodes/GNewGuideNode.vue'
 import GNewHtmlNode from './GNewNodes/GNewHtmlNode.vue'
 import GNewCssNode from './GNewNodes/GNewCssNode.vue'
 
+// Data Node (encrypted JSON records rendered as table)
+import GNewDataNode from './GNewNodes/GNewDataNode.vue'
+
 // Agent Builder Node Types
 import GNewAgentContractNode from './GNewNodes/GNewAgentContractNode.vue'
 import GNewAgentConfigNode from './GNewNodes/GNewAgentConfigNode.vue'
@@ -228,6 +231,8 @@ const nodeComponents = {
   'agent-run': GNewAgentRunNode,
   // JSON node (validate + render like fulltext)
   'json-node': GNewDefaultNode,
+  // Data node (encrypted JSON records as table)
+  'data-node': GNewDataNode,
   // Glitter guide node
   'guide-node': GNewGuideNode,
   // Case Study Node Types (Sprint 4-5)

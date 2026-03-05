@@ -7,7 +7,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token, x-user-role, x-user-email',
     }
 
     if (request.method === 'OPTIONS') {
@@ -507,6 +507,74 @@ export default {
         })
       } catch (error) {
         console.error('Error in /send-gmail-email proxy:', error)
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    // Admin: register a user directly (Superadmin only)
+    if (pathname === '/admin/register-user' && request.method === 'POST') {
+      try {
+        const callerRole = (request.headers.get('x-user-role') || '').trim()
+        if (callerRole !== 'Superadmin') {
+          return new Response(JSON.stringify({ error: 'Superadmin role required' }), {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const body = await request.json()
+        const email = (body.email || '').trim().toLowerCase()
+        const name = (body.name || '').trim() || null
+        const phone = (body.phone || '').trim() || null
+        const role = (body.role || 'Admin').trim()
+
+        if (!email) {
+          return new Response(JSON.stringify({ error: 'Email is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const db = env.vegvisr_org
+
+        // Check if user already exists
+        const existing = await db.prepare('SELECT email FROM config WHERE email = ?').bind(email).first()
+        if (existing) {
+          return new Response(JSON.stringify({ error: 'User with this email already exists' }), {
+            status: 409,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Generate user_id and emailVerificationToken
+        const user_id = crypto.randomUUID()
+        const emailVerificationToken = Array.from(crypto.getRandomValues(new Uint8Array(20)))
+          .map(b => b.toString(16).padStart(2, '0')).join('')
+
+        const data = JSON.stringify({ profile: { user_id, email, name, phone }, settings: {} })
+
+        await db.prepare(`
+          INSERT INTO config (user_id, email, emailVerificationToken, Role, phone, data)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(user_id, email, emailVerificationToken, role, phone, data).run()
+
+        return new Response(JSON.stringify({
+          success: true,
+          user_id,
+          email,
+          name,
+          phone,
+          role,
+          emailVerificationToken,
+        }), {
+          status: 201,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error in POST /admin/register-user:', error)
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
