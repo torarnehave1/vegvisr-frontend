@@ -204,12 +204,22 @@ async function handleChat(request, env, corsHeaders) {
     }
 
     if (system) {
-      requestBody.system = system
+      // Wrap system prompt with cache_control for prompt caching
+      // Accepts both plain string and pre-formatted array
+      if (typeof system === 'string') {
+        requestBody.system = [{
+          type: 'text',
+          text: system,
+          cache_control: { type: 'ephemeral' }
+        }]
+      } else {
+        requestBody.system = system
+      }
     }
 
     // Convert OpenAI-style tools to Anthropic format
     if (tools && Array.isArray(tools) && tools.length > 0) {
-      requestBody.tools = tools.map(tool => {
+      const convertedTools = tools.map(tool => {
         if (tool.type === 'function' && tool.function) {
           return {
             name: tool.function.name,
@@ -219,6 +229,11 @@ async function handleChat(request, env, corsHeaders) {
         }
         return tool
       })
+      // Add cache_control to the last tool for prompt caching
+      if (convertedTools.length > 0) {
+        convertedTools[convertedTools.length - 1].cache_control = { type: 'ephemeral' }
+      }
+      requestBody.tools = convertedTools
     }
 
     // Convert tool_choice to Anthropic format
@@ -238,7 +253,8 @@ async function handleChat(request, env, corsHeaders) {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31'
       },
       body: JSON.stringify(requestBody)
     })

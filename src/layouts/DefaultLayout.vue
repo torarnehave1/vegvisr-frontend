@@ -1,5 +1,8 @@
 <template>
   <div class="default-layout">
+    <!-- Ecosystem Navigation Bar -->
+    <EcosystemNav />
+
     <!-- Top Menu (Header) -->
     <header class="top-menu w-100">
       <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -164,6 +167,7 @@ import { useUserStore } from '@/stores/userStore'
 import { useRouter } from 'vue-router'
 import { useBranding } from '@/composables/useBranding'
 import { useMenuConfig } from '@/composables/useMenuConfig'
+import EcosystemNav from '@/components/EcosystemNav.vue'
 
 const userStore = useUserStore()
 const router = useRouter()

@@ -674,11 +674,21 @@ export default {
           return errorResponse('Invalid since value')
         }
 
+        // Superadmins can request archived groups with include_archived=1
+        const includeArchived = searchParams.get('include_archived') === '1'
+        const isSuperAdmin = auth.role === 'Superadmin'
+
         let query = `SELECT g.*, gm.role, gm.joined_at
            FROM groups g
            JOIN group_members gm ON g.id = gm.group_id
            WHERE gm.user_id = ?`
         const params = [userId]
+
+        // Filter out archived groups unless superadmin requests them
+        if (!(includeArchived && isSuperAdmin)) {
+          query += ' AND (g.archived_at IS NULL OR g.archived_at = 0)'
+        }
+
         if (since !== null) {
           query += ' AND g.updated_at > ?'
           params.push(since)
@@ -690,6 +700,56 @@ export default {
           .all()
 
         return jsonResponse({ success: true, groups: results })
+      }
+
+      // POST /groups/{id}/archive - Soft-delete a group (superadmin only)
+      const archiveMatch = pathname.match(/^\/groups\/([^/]+)\/archive$/)
+      if (archiveMatch && request.method === 'POST') {
+        const groupId = archiveMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') {
+          return errorResponse('Only superadmin can archive groups', 403)
+        }
+
+        await env.CHAT_DB.prepare(
+          'UPDATE groups SET archived_at = ?, archived_by = ? WHERE id = ?'
+        ).bind(Date.now(), userId, groupId).run()
+
+        return jsonResponse({ success: true })
+      }
+
+      // POST /groups/{id}/restore - Restore an archived group (superadmin only)
+      const restoreMatch = pathname.match(/^\/groups\/([^/]+)\/restore$/)
+      if (restoreMatch && request.method === 'POST') {
+        const groupId = restoreMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') {
+          return errorResponse('Only superadmin can restore groups', 403)
+        }
+
+        await env.CHAT_DB.prepare(
+          'UPDATE groups SET archived_at = NULL, archived_by = NULL WHERE id = ?'
+        ).bind(groupId).run()
+
+        return jsonResponse({ success: true })
       }
 
       const joinMatch = pathname.match(/^\/groups\/([^/]+)\/join$/)
@@ -826,7 +886,8 @@ export default {
                   message_type, audio_url, audio_duration_ms,
                   transcript_text, transcript_lang, transcription_status,
                   media_url, media_object_key, media_content_type, media_size,
-                  video_thumbnail_url, video_duration_ms
+                  video_thumbnail_url, video_duration_ms,
+                  sender_avatar_url, reply_to_id
             FROM group_messages`
 
           const where = before > 0
@@ -861,7 +922,8 @@ export default {
                   message_type, audio_url, audio_duration_ms,
                   transcript_text, transcript_lang, transcription_status,
                   media_url, media_object_key, media_content_type, media_size,
-                  video_thumbnail_url, video_duration_ms
+                  video_thumbnail_url, video_duration_ms,
+                  sender_avatar_url, reply_to_id
            FROM group_messages
            WHERE group_id = ? AND id > ?
            ORDER BY id ASC
@@ -910,6 +972,7 @@ export default {
         const transcriptionStatus = body.transcription_status
           ? String(body.transcription_status)
           : (messageType === 'voice' ? 'pending' : null)
+        const replyToId = body.reply_to_id ? Number(body.reply_to_id) : null
         if (!userId) {
           return errorResponse('user_id required')
         }
@@ -954,9 +1017,9 @@ export default {
              message_type, audio_url, audio_duration_ms,
              transcript_text, transcript_lang, transcription_status,
              media_url, media_object_key, media_content_type, media_size,
-             video_thumbnail_url, video_duration_ms
+             video_thumbnail_url, video_duration_ms, reply_to_id
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
           .bind(
             groupId,
@@ -975,6 +1038,7 @@ export default {
             mediaSize,
             (messageType === 'video' ? (videoThumbnailUrl || null) : null),
             (messageType === 'video' ? (videoDurationMs ?? null) : null),
+            replyToId,
           )
           .run()
 
@@ -983,6 +1047,62 @@ export default {
         )
           .bind(createdAt, groupId)
           .run()
+
+        // Check for bot @mentions and trigger bot responses in background
+        const botUserId = userId.startsWith('bot:') ? userId : null
+        if (!botUserId && storedBody && env.AGENT_WORKER) {
+          const botMentions = storedBody.match(/@([a-z0-9_-]+)/g) || []
+          if (botMentions.length > 0) {
+            const usernames = botMentions.map(m => m.replace('@', ''))
+            ctx.waitUntil((async () => {
+              try {
+                // Find matching bots in this group
+                const placeholders = usernames.map(() => '?').join(',')
+                const bots = await env.CHAT_DB.prepare(
+                  `SELECT cb.* FROM group_bot_members gbm
+                   JOIN chat_bots cb ON gbm.bot_id = cb.id
+                   WHERE gbm.group_id = ? AND cb.username IN (${placeholders}) AND cb.is_active = 1`
+                ).bind(groupId, ...usernames).all()
+
+                if (bots.results && bots.results.length > 0) {
+                  // Fetch recent messages for context
+                  const recentMsgs = await env.CHAT_DB.prepare(
+                    `SELECT id, group_id, user_id, body, created_at, message_type,
+                            transcript_text, transcript_lang
+                     FROM group_messages WHERE group_id = ?
+                     ORDER BY id DESC LIMIT 20`
+                  ).bind(groupId).all()
+
+                  const group = await env.CHAT_DB.prepare(
+                    'SELECT name FROM groups WHERE id = ?'
+                  ).bind(groupId).first()
+
+                  for (const bot of bots.results) {
+                    console.log(`[Bot] Triggering @${bot.username} in group ${groupId}`)
+                    await env.AGENT_WORKER.fetch('https://agent-worker/bot-respond', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        bot: bot,
+                        group_id: groupId,
+                        group_name: group?.name || 'Unknown',
+                        trigger_message: {
+                          id: result.meta.last_row_id,
+                          user_id: userId,
+                          body: storedBody,
+                          created_at: createdAt,
+                        },
+                        recent_messages: (recentMsgs.results || []).reverse(),
+                      }),
+                    })
+                  }
+                }
+              } catch (err) {
+                console.error('[Bot] Error triggering bot:', err)
+              }
+            })())
+          }
+        }
 
         // Send push notifications only if sender is Superadmin (to avoid notification spam)
         const isSuperadmin = auth.role === 'Superadmin'
@@ -1054,6 +1174,7 @@ export default {
             media_size: mediaSize,
             video_thumbnail_url: (messageType === 'video' ? (videoThumbnailUrl || null) : null),
             video_duration_ms: (messageType === 'video' ? (videoDurationMs ?? null) : null),
+            reply_to_id: replyToId,
           },
         }, 201)
       }
@@ -1437,6 +1558,682 @@ export default {
         ).bind(userId, fcmToken).run()
 
         return jsonResponse({ success: true, message: 'Device unregistered' })
+      }
+
+      // ── Polls ──────────────────────────────────────────────────────
+
+      // POST /groups/:id/polls — Create a poll (sends a 'poll' message)
+      const pollCreateMatch = pathname.match(/^\/groups\/([^/]+)\/polls$/)
+      if (pollCreateMatch && request.method === 'POST') {
+        const groupId = pollCreateMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const question = (body.question || '').trim()
+        const options = body.options // should be array of strings
+
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+        if (!question) return errorResponse('question required')
+        if (!Array.isArray(options) || options.length < 2 || options.length > 6) {
+          return errorResponse('options must be an array of 2-6 strings')
+        }
+        const cleanOptions = options.map(o => String(o).trim()).filter(Boolean)
+        if (cleanOptions.length < 2) return errorResponse('At least 2 non-empty options required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const isMember = await ensureMember(env, groupId, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        const createdAt = Date.now()
+        const pollId = crypto.randomUUID()
+
+        // Insert a message of type 'poll' — body contains poll_id::question for lookup
+        const msgResult = await env.CHAT_DB.prepare(
+          `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type)
+           VALUES (?, ?, ?, ?, 'poll')`
+        ).bind(groupId, userId, `poll::${pollId}::${question}`, createdAt).run()
+
+        const messageId = msgResult.meta.last_row_id
+
+        // Insert the poll record
+        await env.CHAT_DB.prepare(
+          `INSERT INTO polls (id, group_id, message_id, question, options, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).bind(pollId, groupId, messageId, question, JSON.stringify(cleanOptions), userId, createdAt).run()
+
+        // Update group timestamp
+        await env.CHAT_DB.prepare('UPDATE groups SET updated_at = ? WHERE id = ?')
+          .bind(createdAt, groupId).run()
+
+        return jsonResponse({
+          success: true,
+          poll: {
+            id: pollId,
+            message_id: messageId,
+            group_id: groupId,
+            question,
+            options: cleanOptions,
+            created_by: userId,
+            created_at: createdAt,
+            votes: {},
+            total_votes: 0,
+            my_vote: null,
+          },
+        })
+      }
+
+      // POST /polls/:id/vote — Vote on a poll
+      const pollVoteMatch = pathname.match(/^\/polls\/([^/]+)\/vote$/)
+      if (pollVoteMatch && request.method === 'POST') {
+        const pollId = pollVoteMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const optionIndex = body.option_index
+
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+        if (optionIndex === undefined || optionIndex === null) return errorResponse('option_index required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        // Get the poll
+        const poll = await env.CHAT_DB.prepare('SELECT * FROM polls WHERE id = ?').bind(pollId).first()
+        if (!poll) return errorResponse('Poll not found', 404)
+        if (poll.closed_at) return errorResponse('Poll is closed')
+
+        const options = JSON.parse(poll.options)
+        const idx = Number(optionIndex)
+        if (idx < 0 || idx >= options.length) return errorResponse('Invalid option_index')
+
+        const isMember = await ensureMember(env, poll.group_id, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        // Upsert vote (replace if already voted)
+        await env.CHAT_DB.prepare(
+          `INSERT INTO poll_votes (poll_id, user_id, option_index, voted_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (poll_id, user_id) DO UPDATE SET option_index = ?, voted_at = ?`
+        ).bind(pollId, userId, idx, Date.now(), idx, Date.now()).run()
+
+        // Return updated results
+        const votes = await env.CHAT_DB.prepare(
+          'SELECT option_index, COUNT(*) as cnt FROM poll_votes WHERE poll_id = ? GROUP BY option_index'
+        ).bind(pollId).all()
+
+        const voteCounts = {}
+        let totalVotes = 0
+        for (const row of (votes.results || [])) {
+          voteCounts[row.option_index] = row.cnt
+          totalVotes += row.cnt
+        }
+
+        return jsonResponse({
+          success: true,
+          poll_id: pollId,
+          my_vote: idx,
+          votes: voteCounts,
+          total_votes: totalVotes,
+        })
+      }
+
+      // GET /polls/:id — Get poll with results
+      const pollGetMatch = pathname.match(/^\/polls\/([^/]+)$/)
+      if (pollGetMatch && request.method === 'GET') {
+        const pollId = pollGetMatch[1]
+        const userId = searchParams.get('user_id')
+        const phone = searchParams.get('phone') || ''
+        const email = searchParams.get('email') || ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const poll = await env.CHAT_DB.prepare('SELECT * FROM polls WHERE id = ?').bind(pollId).first()
+        if (!poll) return errorResponse('Poll not found', 404)
+
+        const isMember = await ensureMember(env, poll.group_id, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        const options = JSON.parse(poll.options)
+
+        // Get vote counts
+        const votes = await env.CHAT_DB.prepare(
+          'SELECT option_index, COUNT(*) as cnt FROM poll_votes WHERE poll_id = ? GROUP BY option_index'
+        ).bind(pollId).all()
+
+        const voteCounts = {}
+        let totalVotes = 0
+        for (const row of (votes.results || [])) {
+          voteCounts[row.option_index] = row.cnt
+          totalVotes += row.cnt
+        }
+
+        // Get current user's vote
+        const myVote = await env.CHAT_DB.prepare(
+          'SELECT option_index FROM poll_votes WHERE poll_id = ? AND user_id = ?'
+        ).bind(pollId, userId).first()
+
+        return jsonResponse({
+          success: true,
+          poll: {
+            id: poll.id,
+            message_id: poll.message_id,
+            group_id: poll.group_id,
+            question: poll.question,
+            options,
+            created_by: poll.created_by,
+            created_at: poll.created_at,
+            closed_at: poll.closed_at,
+            votes: voteCounts,
+            total_votes: totalVotes,
+            my_vote: myVote ? myVote.option_index : null,
+          },
+        })
+      }
+
+      // GET /groups/:id/polls/unanswered — Count of polls user hasn't voted on
+      const pollUnansweredMatch = pathname.match(/^\/groups\/([^/]+)\/polls\/unanswered$/)
+      if (pollUnansweredMatch && request.method === 'GET') {
+        const groupId = pollUnansweredMatch[1]
+        const userId = searchParams.get('user_id')
+        const phone = searchParams.get('phone') || ''
+        const email = searchParams.get('email') || ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const isMember = await ensureMember(env, groupId, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        const result = await env.CHAT_DB.prepare(
+          `SELECT COUNT(*) as count FROM polls p
+           WHERE p.group_id = ? AND p.closed_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM poll_votes pv WHERE pv.poll_id = p.id AND pv.user_id = ?
+           )`
+        ).bind(groupId, userId).first()
+
+        return jsonResponse({
+          success: true,
+          group_id: groupId,
+          unanswered_count: result?.count || 0,
+        })
+      }
+
+      // POST /polls/:id/close — Close a poll (creator or superadmin)
+      const pollCloseMatch = pathname.match(/^\/polls\/([^/]+)\/close$/)
+      if (pollCloseMatch && request.method === 'POST') {
+        const pollId = pollCloseMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const poll = await env.CHAT_DB.prepare('SELECT * FROM polls WHERE id = ?').bind(pollId).first()
+        if (!poll) return errorResponse('Poll not found', 404)
+        if (poll.closed_at) return errorResponse('Poll already closed')
+
+        // Only creator or superadmin can close
+        if (poll.created_by !== userId && auth.role !== 'Superadmin') {
+          return errorResponse('Only poll creator or Superadmin can close a poll', 403)
+        }
+
+        await env.CHAT_DB.prepare(
+          'UPDATE polls SET closed_at = ? WHERE id = ?'
+        ).bind(Date.now(), pollId).run()
+
+        return jsonResponse({ success: true, poll_id: pollId, closed: true })
+      }
+
+      // ── Reactions ────────────────────────────────────────────────────
+
+      const VALID_REACTIONS = ['thumbs_up', 'heart', 'smile']
+
+      // POST /messages/:id/reactions — Toggle a reaction on a message
+      const reactionMatch = pathname.match(/^\/messages\/(\d+)\/reactions$/)
+      if (reactionMatch && request.method === 'POST') {
+        const messageId = Number(reactionMatch[1])
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const reaction = (body.reaction || '').trim()
+
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+        if (!VALID_REACTIONS.includes(reaction)) {
+          return errorResponse('reaction must be one of: thumbs_up, heart, smile')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        // Verify message exists and get group_id
+        const msg = await env.CHAT_DB.prepare(
+          'SELECT group_id FROM group_messages WHERE id = ?'
+        ).bind(messageId).first()
+        if (!msg) return errorResponse('Message not found', 404)
+
+        const isMember = await ensureMember(env, msg.group_id, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        // Toggle: if already reacted, remove; otherwise add
+        const existing = await env.CHAT_DB.prepare(
+          'SELECT 1 FROM message_reactions WHERE message_id = ? AND user_id = ? AND reaction = ?'
+        ).bind(messageId, userId, reaction).first()
+
+        if (existing) {
+          await env.CHAT_DB.prepare(
+            'DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND reaction = ?'
+          ).bind(messageId, userId, reaction).run()
+        } else {
+          await env.CHAT_DB.prepare(
+            'INSERT INTO message_reactions (message_id, user_id, reaction, created_at) VALUES (?, ?, ?, ?)'
+          ).bind(messageId, userId, reaction, Date.now()).run()
+        }
+
+        // Return updated counts for this message
+        const counts = await env.CHAT_DB.prepare(
+          'SELECT reaction, COUNT(*) as cnt FROM message_reactions WHERE message_id = ? GROUP BY reaction'
+        ).bind(messageId).all()
+
+        const reactionCounts = {}
+        for (const r of (counts.results || [])) {
+          reactionCounts[r.reaction] = r.cnt
+        }
+
+        // Get user's active reactions
+        const myReactions = await env.CHAT_DB.prepare(
+          'SELECT reaction FROM message_reactions WHERE message_id = ? AND user_id = ?'
+        ).bind(messageId, userId).all()
+        const myList = (myReactions.results || []).map(r => r.reaction)
+
+        return jsonResponse({
+          success: true,
+          message_id: messageId,
+          reactions: reactionCounts,
+          my_reactions: myList,
+          toggled: reaction,
+          added: !existing,
+        })
+      }
+
+      // GET /groups/:id/reactions — Batch-fetch reactions for recent messages
+      const groupReactionsMatch = pathname.match(/^\/groups\/([^/]+)\/reactions$/)
+      if (groupReactionsMatch && request.method === 'GET') {
+        const groupId = groupReactionsMatch[1]
+        const userId = searchParams.get('user_id')
+        const phone = searchParams.get('phone') || ''
+        const email = searchParams.get('email') || ''
+        const messageIds = searchParams.get('message_ids') // comma-separated
+
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const isMember = await ensureMember(env, groupId, userId)
+        if (!isMember) return errorResponse('Not a group member', 403)
+
+        if (!messageIds) return jsonResponse({ success: true, reactions: {} })
+
+        const ids = messageIds.split(',').map(Number).filter(n => n > 0).slice(0, 200)
+        if (ids.length === 0) return jsonResponse({ success: true, reactions: {} })
+
+        const placeholders = ids.map(() => '?').join(',')
+
+        // Get all reaction counts
+        const allCounts = await env.CHAT_DB.prepare(
+          `SELECT message_id, reaction, COUNT(*) as cnt
+           FROM message_reactions WHERE message_id IN (${placeholders})
+           GROUP BY message_id, reaction`
+        ).bind(...ids).all()
+
+        // Get user's own reactions
+        const myCounts = await env.CHAT_DB.prepare(
+          `SELECT message_id, reaction
+           FROM message_reactions WHERE message_id IN (${placeholders}) AND user_id = ?`
+        ).bind(...ids, userId).all()
+
+        // Build response: { [messageId]: { counts: {reaction: n}, mine: [reaction] } }
+        const result = {}
+        for (const row of (allCounts.results || [])) {
+          if (!result[row.message_id]) result[row.message_id] = { counts: {}, mine: [] }
+          result[row.message_id].counts[row.reaction] = row.cnt
+        }
+        for (const row of (myCounts.results || [])) {
+          if (!result[row.message_id]) result[row.message_id] = { counts: {}, mine: [] }
+          result[row.message_id].mine.push(row.reaction)
+        }
+
+        return jsonResponse({ success: true, reactions: result })
+      }
+
+      // ── Bot CRUD (Superadmin-only) ────────────────────────────────
+
+      // POST /bots — Create a bot
+      if (pathname === '/bots' && request.method === 'POST') {
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') return errorResponse('Only Superadmin can create bots', 403)
+
+        const botName = (body.name || '').trim()
+        const username = (body.username || '').trim().toLowerCase().replace(/^@/, '')
+        const systemPrompt = (body.system_prompt || '').trim()
+        const graphId = (body.graph_id || '').trim() || null
+        const avatarUrl = (body.avatar_url || '').trim() || null
+        const tools = body.tools || []
+        const model = (body.model || 'claude-haiku-4-5-20251001').trim()
+        const maxTurns = body.max_turns || 10
+        const temperature = body.temperature ?? 0.7
+
+        if (!botName) return errorResponse('Bot name required')
+        if (!username) return errorResponse('Bot username required')
+        if (!/^[a-z0-9_-]+$/.test(username)) return errorResponse('Username must be lowercase alphanumeric with - or _')
+
+        const botId = crypto.randomUUID()
+        const now = Date.now()
+
+        try {
+          await env.CHAT_DB.prepare(
+            `INSERT INTO chat_bots (id, name, username, avatar_url, system_prompt, graph_id, created_by, tools, model, max_turns, temperature, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+          ).bind(botId, botName, username, avatarUrl, systemPrompt, graphId, userId, JSON.stringify(tools), model, maxTurns, temperature, now).run()
+        } catch (err) {
+          if (String(err).includes('UNIQUE')) return errorResponse('Bot username already taken', 409)
+          throw err
+        }
+
+        return jsonResponse({
+          success: true,
+          bot: { id: botId, name: botName, username, avatar_url: avatarUrl, system_prompt: systemPrompt, graph_id: graphId, tools, model, max_turns: maxTurns, temperature, is_active: 1, created_at: now },
+        }, 201)
+      }
+
+      // GET /bots — List all bots
+      if (pathname === '/bots' && request.method === 'GET') {
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const bots = await env.CHAT_DB.prepare(
+          'SELECT * FROM chat_bots WHERE is_active = 1 ORDER BY created_at DESC'
+        ).all()
+
+        return jsonResponse({ success: true, bots: bots.results || [] })
+      }
+
+      // GET /bots/:id — Get bot details
+      const botDetailMatch = pathname.match(/^\/bots\/([^/]+)$/)
+      if (botDetailMatch && request.method === 'GET') {
+        const botId = botDetailMatch[1]
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const bot = await env.CHAT_DB.prepare('SELECT * FROM chat_bots WHERE id = ?').bind(botId).first()
+        if (!bot) return errorResponse('Bot not found', 404)
+
+        // Get groups this bot is in
+        const groups = await env.CHAT_DB.prepare(
+          `SELECT g.id, g.name, gbm.added_at FROM group_bot_members gbm
+           JOIN groups g ON gbm.group_id = g.id
+           WHERE gbm.bot_id = ?`
+        ).bind(botId).all()
+
+        return jsonResponse({ success: true, bot, groups: groups.results || [] })
+      }
+
+      // PUT /bots/:id — Update bot (Superadmin only)
+      if (botDetailMatch && request.method === 'PUT') {
+        const botId = botDetailMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') return errorResponse('Only Superadmin can update bots', 403)
+
+        const existing = await env.CHAT_DB.prepare('SELECT * FROM chat_bots WHERE id = ?').bind(botId).first()
+        if (!existing) return errorResponse('Bot not found', 404)
+
+        const name = body.name !== undefined ? String(body.name).trim() : existing.name
+        const systemPrompt = body.system_prompt !== undefined ? String(body.system_prompt) : existing.system_prompt
+        const graphId = body.graph_id !== undefined ? (String(body.graph_id).trim() || null) : existing.graph_id
+        const avatarUrl = body.avatar_url !== undefined ? (String(body.avatar_url).trim() || null) : existing.avatar_url
+        const tools = body.tools !== undefined ? JSON.stringify(body.tools) : existing.tools
+        const model = body.model !== undefined ? String(body.model).trim() : existing.model
+        const maxTurns = body.max_turns !== undefined ? body.max_turns : existing.max_turns
+        const temperature = body.temperature !== undefined ? body.temperature : existing.temperature
+        const isActive = body.is_active !== undefined ? (body.is_active ? 1 : 0) : existing.is_active
+
+        await env.CHAT_DB.prepare(
+          `UPDATE chat_bots SET name = ?, system_prompt = ?, graph_id = ?, avatar_url = ?,
+           tools = ?, model = ?, max_turns = ?, temperature = ?, is_active = ?, updated_at = ?
+           WHERE id = ?`
+        ).bind(name, systemPrompt, graphId, avatarUrl, tools, model, maxTurns, temperature, isActive, Date.now(), botId).run()
+
+        const updated = await env.CHAT_DB.prepare('SELECT * FROM chat_bots WHERE id = ?').bind(botId).first()
+        return jsonResponse({ success: true, bot: updated })
+      }
+
+      // DELETE /bots/:id — Deactivate bot (Superadmin only)
+      if (botDetailMatch && request.method === 'DELETE') {
+        const botId = botDetailMatch[1]
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') return errorResponse('Only Superadmin can delete bots', 403)
+
+        // Rename username to free the UNIQUE constraint for reuse
+        // Original username is preserved — can be restored on reactivation
+        const bot = await env.CHAT_DB.prepare('SELECT username FROM chat_bots WHERE id = ?').bind(botId).first()
+        const deletedUsername = bot ? `_deleted_${Date.now()}_${bot.username}` : `_deleted_${Date.now()}_${botId}`
+        await env.CHAT_DB.prepare(
+          'UPDATE chat_bots SET is_active = 0, username = ?, updated_at = ? WHERE id = ?'
+        ).bind(deletedUsername, Date.now(), botId).run()
+        return jsonResponse({ success: true, message: 'Bot deactivated', originalUsername: bot?.username })
+      }
+
+      // POST /groups/:groupId/bots — Add bot to group (Superadmin only)
+      const groupBotMatch = pathname.match(/^\/groups\/([^/]+)\/bots$/)
+      if (groupBotMatch && request.method === 'POST') {
+        const groupId = groupBotMatch[1]
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const userId = (body.user_id || '').trim()
+        const phone = (body.phone || '').trim()
+        const email = body.email ? String(body.email).trim() : ''
+        const botId = (body.bot_id || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+        if (!botId) return errorResponse('bot_id required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') return errorResponse('Only Superadmin can add bots to groups', 403)
+
+        // Verify group and bot exist
+        const group = await env.CHAT_DB.prepare('SELECT id, name FROM groups WHERE id = ?').bind(groupId).first()
+        if (!group) return errorResponse('Group not found', 404)
+        const bot = await env.CHAT_DB.prepare('SELECT id, name, username FROM chat_bots WHERE id = ? AND is_active = 1').bind(botId).first()
+        if (!bot) return errorResponse('Bot not found or inactive', 404)
+
+        // Check if already added
+        const existing = await env.CHAT_DB.prepare(
+          'SELECT 1 FROM group_bot_members WHERE group_id = ? AND bot_id = ?'
+        ).bind(groupId, botId).first()
+        if (existing) return jsonResponse({ success: true, already_member: true, message: `Bot @${bot.username} is already in this group` })
+
+        await env.CHAT_DB.prepare(
+          'INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?, ?, ?, ?)'
+        ).bind(groupId, botId, userId, Date.now()).run()
+
+        // Also add bot as a group member so it appears in member lists
+        const botUserId = `bot:${botId}`
+        const alreadyMember = await env.CHAT_DB.prepare(
+          'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).bind(groupId, botUserId).first()
+        if (!alreadyMember) {
+          await env.CHAT_DB.prepare(
+            `INSERT INTO group_members (group_id, user_id, role, joined_at) VALUES (?, ?, 'bot', ?)`
+          ).bind(groupId, botUserId, Date.now()).run()
+        }
+
+        return jsonResponse({
+          success: true,
+          message: `Bot @${bot.username} added to group "${group.name}"`,
+          bot: { id: bot.id, name: bot.name, username: bot.username },
+        }, 201)
+      }
+
+      // DELETE /groups/:groupId/bots/:botId — Remove bot from group (Superadmin only)
+      const groupBotRemoveMatch = pathname.match(/^\/groups\/([^/]+)\/bots\/([^/]+)$/)
+      if (groupBotRemoveMatch && request.method === 'DELETE') {
+        const groupId = groupBotRemoveMatch[1]
+        const botId = groupBotRemoveMatch[2]
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+        if (auth.role !== 'Superadmin') return errorResponse('Only Superadmin can remove bots from groups', 403)
+
+        await env.CHAT_DB.prepare('DELETE FROM group_bot_members WHERE group_id = ? AND bot_id = ?').bind(groupId, botId).run()
+        await env.CHAT_DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, `bot:${botId}`).run()
+
+        return jsonResponse({ success: true, message: 'Bot removed from group' })
+      }
+
+      // GET /groups/:groupId/bots — List bots in group
+      if (groupBotMatch && request.method === 'GET') {
+        const groupId = groupBotMatch[1]
+        const userId = (searchParams.get('user_id') || '').trim()
+        const phone = (searchParams.get('phone') || '').trim()
+        const email = (searchParams.get('email') || '').trim()
+        if (!userId || !phone) return errorResponse('user_id and phone required')
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) return errorResponse(auth.error, auth.status)
+
+        const bots = await env.CHAT_DB.prepare(
+          `SELECT cb.*, gbm.added_at, gbm.added_by
+           FROM group_bot_members gbm
+           JOIN chat_bots cb ON gbm.bot_id = cb.id
+           WHERE gbm.group_id = ? AND cb.is_active = 1`
+        ).bind(groupId).all()
+
+        return jsonResponse({ success: true, bots: bots.results || [] })
+      }
+
+      // POST /bot-message — Internal: bot posts a message (called by agent-worker)
+      if (pathname === '/bot-message' && request.method === 'POST') {
+        const body = await readJson(request)
+        if (!body) return errorResponse('Invalid JSON body')
+
+        const botId = (body.bot_id || '').trim()
+        const groupId = (body.group_id || '').trim()
+        const text = (body.body || '').trim()
+        if (!botId || !groupId || !text) return errorResponse('bot_id, group_id, and body required')
+
+        // Verify bot is in group
+        const membership = await env.CHAT_DB.prepare(
+          'SELECT 1 FROM group_bot_members WHERE group_id = ? AND bot_id = ?'
+        ).bind(groupId, botId).first()
+        if (!membership) return errorResponse('Bot is not a member of this group', 403)
+
+        const bot = await env.CHAT_DB.prepare('SELECT name, username, avatar_url FROM chat_bots WHERE id = ? AND is_active = 1').bind(botId).first()
+        if (!bot) return errorResponse('Bot not found or inactive', 404)
+
+        const botUserId = `bot:${botId}`
+        const createdAt = Date.now()
+        const result = await env.CHAT_DB.prepare(
+          `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type, sender_avatar_url)
+           VALUES (?, ?, ?, ?, 'text', ?)`
+        ).bind(groupId, botUserId, text, createdAt, bot.avatar_url || null).run()
+
+        await env.CHAT_DB.prepare('UPDATE groups SET updated_at = ? WHERE id = ?').bind(createdAt, groupId).run()
+
+        return jsonResponse({
+          success: true,
+          message: {
+            id: result.meta.last_row_id,
+            group_id: groupId,
+            user_id: botUserId,
+            body: text,
+            created_at: createdAt,
+            message_type: 'text',
+            bot_name: bot.name,
+            bot_username: bot.username,
+            sender_avatar_url: bot.avatar_url || null,
+          },
+        }, 201)
+      }
+
+      // GET /groups/:groupId/bots/check-mention?text=... — Check if message mentions a bot
+      // Used by agent-worker to check before triggering
+      const botMentionCheck = pathname.match(/^\/groups\/([^/]+)\/bots\/check-mention$/)
+      if (botMentionCheck && request.method === 'GET') {
+        const groupId = botMentionCheck[1]
+        const text = searchParams.get('text') || ''
+        const mentions = text.match(/@([a-z0-9_-]+)/g) || []
+        const usernames = mentions.map(m => m.replace('@', ''))
+
+        if (usernames.length === 0) return jsonResponse({ success: true, bots: [] })
+
+        // Find matching bots in this group
+        const placeholders = usernames.map(() => '?').join(',')
+        const bots = await env.CHAT_DB.prepare(
+          `SELECT cb.* FROM group_bot_members gbm
+           JOIN chat_bots cb ON gbm.bot_id = cb.id
+           WHERE gbm.group_id = ? AND cb.username IN (${placeholders}) AND cb.is_active = 1`
+        ).bind(groupId, ...usernames).all()
+
+        return jsonResponse({ success: true, bots: bots.results || [] })
       }
 
       return new Response('Not Found', { status: 404, headers: corsHeaders })

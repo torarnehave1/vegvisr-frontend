@@ -803,6 +803,198 @@ export default {
     }
 
     // ============================================
+    // GOOGLE CALENDAR OAUTH ENDPOINTS
+    // ============================================
+
+    // Calendar OAuth - Start flow
+    if (url.pathname === '/calendar/auth' && request.method === 'GET') {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: 'https://auth.vegvisr.org/calendar/callback',
+        response_type: 'code',
+        scope: 'email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
+        access_type: 'offline',
+        prompt: 'consent',
+      })
+      return Response.redirect(
+        `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+        302,
+      )
+    }
+
+    // Calendar OAuth callback
+    if (url.pathname === '/calendar/callback' && request.method === 'GET') {
+      const code = url.searchParams.get('code')
+      const error = url.searchParams.get('error')
+
+      if (error) {
+        const errorDescription = url.searchParams.get('error_description') || error
+        return Response.redirect(
+          `https://calendar.vegvisr.org/?calendar_auth_error=${encodeURIComponent(errorDescription)}`,
+          302,
+        )
+      }
+
+      if (!code) {
+        return Response.redirect(
+          `https://calendar.vegvisr.org/?calendar_auth_error=${encodeURIComponent('No authorization code received')}`,
+          302,
+        )
+      }
+
+      try {
+        // Exchange code for tokens
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: 'https://auth.vegvisr.org/calendar/callback',
+          }),
+        })
+
+        const tokenData = await tokenRes.json()
+
+        if (!tokenData.access_token) {
+          throw new Error(tokenData.error_description || 'Failed to get access token')
+        }
+
+        // Get user email from Google
+        const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        })
+
+        if (!userResponse.ok) {
+          throw new Error(`Failed to get user info: ${userResponse.status}`)
+        }
+
+        const userData = await userResponse.json()
+        const userEmail = userData.email
+
+        if (!userEmail) {
+          throw new Error('Could not retrieve user email from Google')
+        }
+
+        // Store credentials in KV
+        const credentials = {
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
+          stored_at: Date.now(),
+          user_email: userEmail,
+          scopes: ['calendar.events', 'calendar.readonly'],
+        }
+
+        await env.GOOGLE_CREDENTIALS.put(`calendar:${userEmail}`, JSON.stringify(credentials))
+        console.log('Stored Calendar credentials for user:', userEmail)
+
+        // Redirect back to calendar app
+        const successUrl = new URL('https://calendar.vegvisr.org/')
+        successUrl.searchParams.set('calendar_auth_success', 'true')
+        successUrl.searchParams.set('user_email', userEmail)
+
+        return Response.redirect(successUrl.toString(), 302)
+      } catch (error) {
+        return Response.redirect(
+          `https://calendar.vegvisr.org/?calendar_auth_error=${encodeURIComponent(error.message)}`,
+          302,
+        )
+      }
+    }
+
+    // Get Calendar credentials from KV
+    if (url.pathname === '/calendar/get-credentials' && request.method === 'POST') {
+      try {
+        const { user_email } = await request.json()
+
+        if (!user_email) {
+          return createResponse(JSON.stringify({ error: 'User email required' }), 400)
+        }
+
+        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(`calendar:${user_email}`)
+
+        if (!storedCredentials) {
+          return createResponse(
+            JSON.stringify({ success: false, error: 'No Calendar credentials found for user' }),
+            404,
+          )
+        }
+
+        const credentials = JSON.parse(storedCredentials)
+
+        // Check if token needs refresh (5 minutes before expiry)
+        if (credentials.expires_at <= Date.now() + 5 * 60 * 1000) {
+          if (!credentials.refresh_token) {
+            return createResponse(
+              JSON.stringify({ success: false, error: 'No refresh token available. Please re-authenticate.' }),
+              401,
+            )
+          }
+
+          const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: credentials.refresh_token,
+              grant_type: 'refresh_token',
+            }),
+          })
+
+          const refreshData = await refreshRes.json()
+
+          if (!refreshData.access_token) {
+            return createResponse(
+              JSON.stringify({ success: false, error: 'Token refresh failed. Please re-authenticate.' }),
+              401,
+            )
+          }
+
+          const updatedCredentials = {
+            ...credentials,
+            access_token: refreshData.access_token,
+            expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+          }
+
+          await env.GOOGLE_CREDENTIALS.put(`calendar:${user_email}`, JSON.stringify(updatedCredentials))
+
+          return createResponse(
+            JSON.stringify({ success: true, access_token: updatedCredentials.access_token, user_email: updatedCredentials.user_email, refreshed: true }),
+          )
+        }
+
+        return createResponse(
+          JSON.stringify({ success: true, access_token: credentials.access_token, user_email: credentials.user_email }),
+        )
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // Delete Calendar credentials from KV
+    if (url.pathname === '/calendar/delete-credentials' && request.method === 'POST') {
+      try {
+        const { user_email } = await request.json()
+
+        if (!user_email) {
+          return createResponse(JSON.stringify({ error: 'User email required' }), 400)
+        }
+
+        await env.GOOGLE_CREDENTIALS.delete(`calendar:${user_email}`)
+
+        return createResponse(
+          JSON.stringify({ success: true, message: 'Calendar credentials deleted successfully' }),
+        )
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
+    // ============================================
     // LINKEDIN OAUTH ENDPOINTS
     // ============================================
 

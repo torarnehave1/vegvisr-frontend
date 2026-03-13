@@ -408,7 +408,7 @@ function jsonResponse(data, status = 200) {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     }
   })
@@ -419,7 +419,7 @@ function handleCORS() {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Max-Age': '86400',
     }
@@ -853,7 +853,7 @@ async function handleGetProfile(request, env) {
     let row
     if (userId) {
       row = await env.VEGVISR_DB.prepare(
-        'SELECT user_id, email, phone, phone_verified_at, profile_image_url FROM config WHERE user_id = ?'
+        'SELECT user_id, email, phone, phone_verified_at, profile_image_url, display_name FROM config WHERE user_id = ?'
       ).bind(userId).first()
     } else {
       const phone = normalizePhoneNumber(phoneInput)
@@ -861,7 +861,7 @@ async function handleGetProfile(request, env) {
         return jsonResponse({ error: 'Invalid phone number format' }, 400)
       }
       row = await env.VEGVISR_DB.prepare(
-        'SELECT user_id, email, phone, phone_verified_at, profile_image_url FROM config WHERE phone = ?'
+        'SELECT user_id, email, phone, phone_verified_at, profile_image_url, display_name FROM config WHERE phone = ?'
       ).bind(phone).first()
     }
 
@@ -875,6 +875,7 @@ async function handleGetProfile(request, env) {
       email: row.email || null,
       phone: row.phone || null,
       profile_image_url: row.profile_image_url || null,
+      display_name: row.display_name || null,
       verified: !!row.phone_verified_at
     })
   } catch (error) {
@@ -894,6 +895,7 @@ async function handleUpdateProfile(request, env) {
     const phoneInput = body.phone
     const userId = body.user_id
     const profileImageUrl = body.profile_image_url
+    const displayName = body.display_name
 
     if (!phoneInput && !userId) {
       return jsonResponse({ error: 'phone or user_id is required' }, 400)
@@ -923,16 +925,24 @@ async function handleUpdateProfile(request, env) {
       return jsonResponse({ error: 'Phone not verified' }, 401)
     }
 
-    // Update profile image URL
-    await env.VEGVISR_DB.prepare(
-      'UPDATE config SET profile_image_url = ? WHERE email = ?'
-    ).bind(profileImageUrl || null, row.email).run()
+    // Update profile fields
+    if (profileImageUrl !== undefined) {
+      await env.VEGVISR_DB.prepare(
+        'UPDATE config SET profile_image_url = ? WHERE email = ?'
+      ).bind(profileImageUrl || null, row.email).run()
+    }
+    if (displayName !== undefined) {
+      await env.VEGVISR_DB.prepare(
+        'UPDATE config SET display_name = ? WHERE email = ?'
+      ).bind(displayName || null, row.email).run()
+    }
 
-    console.log(`✅ Profile updated for ${row.email}: image=${profileImageUrl ? 'set' : 'cleared'}`)
+    console.log(`✅ Profile updated for ${row.email}: image=${profileImageUrl !== undefined ? 'set' : 'unchanged'}, name=${displayName !== undefined ? displayName : 'unchanged'}`)
 
     return jsonResponse({
       success: true,
-      profile_image_url: profileImageUrl || null
+      profile_image_url: profileImageUrl !== undefined ? (profileImageUrl || null) : undefined,
+      display_name: displayName !== undefined ? (displayName || null) : undefined,
     })
   } catch (error) {
     console.error('Error in /api/auth/profile PUT:', error)
