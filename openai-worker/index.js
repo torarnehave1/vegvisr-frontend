@@ -99,6 +99,11 @@ export default {
         });
       }
 
+      // OpenAPI 3.0 JSON spec
+      if (pathname === '/openapi.json' && request.method === 'GET') {
+        return handleOpenApiJson(corsHeaders);
+      }
+
       // API Documentation
       if (pathname === '/api/docs' && request.method === 'GET') {
         return handleApiDocs(corsHeaders);
@@ -862,6 +867,618 @@ function handleModels(env, corsHeaders) {
       total: models.chat.length + models.image.length + models.audio.length
     }
   }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+// Handle /openapi.json — complete OpenAPI 3.0 specification
+function handleOpenApiJson(corsHeaders) {
+  const spec = {
+    openapi: '3.0.0',
+    info: {
+      title: 'OpenAI Worker API',
+      version: '1.0.0',
+      description: 'Proxy API for OpenAI services including chat completions (GPT-4, GPT-4o, GPT-5, GPT-5.1, GPT-5.2), image generation (DALL-E 2, DALL-E 3, GPT-Image-1, GPT-Image-1.5, GPT-Image-1 Mini), audio transcription (Whisper-1), and branding generation. Supports per-user encrypted API key retrieval from D1 database with fallback to system key.'
+    },
+    servers: [
+      {
+        url: 'https://openai.vegvisr.org',
+        description: 'Production'
+      }
+    ],
+    tags: [
+      { name: 'Meta', description: 'Health checks, model listings, and documentation' },
+      { name: 'Chat', description: 'Chat completion endpoints for GPT models' },
+      { name: 'Images', description: 'Image generation with DALL-E and GPT-Image models' },
+      { name: 'Audio', description: 'Audio transcription with Whisper' },
+      { name: 'Branding', description: 'AI-generated branding JSON' }
+    ],
+    paths: {
+      '/health': {
+        get: {
+          tags: ['Meta'],
+          summary: 'Health check',
+          description: 'Returns worker health status, name, and current timestamp.',
+          responses: {
+            200: {
+              description: 'Worker is healthy',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      status: { type: 'string', example: 'healthy' },
+                      worker: { type: 'string', example: 'openai-worker' },
+                      timestamp: { type: 'string', format: 'date-time' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/openapi.json': {
+        get: {
+          tags: ['Meta'],
+          summary: 'OpenAPI 3.0 specification',
+          description: 'Returns this OpenAPI 3.0 JSON specification documenting all endpoints.',
+          responses: {
+            200: {
+              description: 'OpenAPI spec',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/api/docs': {
+        get: {
+          tags: ['Meta'],
+          summary: 'API documentation (legacy)',
+          description: 'Returns OpenAPI-style documentation. See /openapi.json for the canonical spec.',
+          responses: {
+            200: {
+              description: 'API documentation JSON',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/models': {
+        get: {
+          tags: ['Meta'],
+          summary: 'List all available models',
+          description: 'Returns all supported chat, image, and audio models with their capabilities, supported sizes, quality levels, and features.',
+          responses: {
+            200: {
+              description: 'Models list with counts',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      models: {
+                        type: 'object',
+                        properties: {
+                          chat: { type: 'array', items: { $ref: '#/components/schemas/ChatModel' } },
+                          image: { type: 'array', items: { $ref: '#/components/schemas/ImageModel' } },
+                          audio: { type: 'array', items: { $ref: '#/components/schemas/AudioModel' } }
+                        }
+                      },
+                      count: {
+                        type: 'object',
+                        properties: {
+                          chat: { type: 'integer' },
+                          image: { type: 'integer' },
+                          audio: { type: 'integer' },
+                          total: { type: 'integer' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/chat': {
+        post: {
+          tags: ['Chat'],
+          summary: 'Chat completions (all models)',
+          description: 'Generic chat endpoint supporting all GPT models. Specify model in request body. API key retrieved from D1 using userId, falls back to system key.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ChatRequest' }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Chat completion response', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing or invalid messages array' },
+            500: { description: 'API key not configured or upstream OpenAI error' }
+          }
+        }
+      },
+      '/gpt-4o': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-4o shortcut',
+          description: 'Direct endpoint for GPT-4o (128K context, vision, function calling). Model is set automatically. Uses max_tokens.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ModelChatRequest' } } } },
+          responses: {
+            200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing messages array' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-4': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-4 shortcut',
+          description: 'Direct endpoint for GPT-4 (8K context). Model is set automatically. Uses max_tokens.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ModelChatRequest' } } } },
+          responses: {
+            200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing messages array' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-5': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-5 shortcut',
+          description: 'Direct endpoint for GPT-5 (200K context, vision). Model is set automatically. Uses max_completion_tokens (not max_tokens).',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ModelChatRequest' } } } },
+          responses: {
+            200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing messages array' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-5.1': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-5.1 shortcut',
+          description: 'Direct endpoint for GPT-5.1 (200K context). Model is set automatically. Uses max_completion_tokens (not max_tokens).',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ModelChatRequest' } } } },
+          responses: {
+            200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing messages array' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-5.2': {
+        post: {
+          tags: ['Chat'],
+          summary: 'GPT-5.2 shortcut',
+          description: 'Direct endpoint for GPT-5.2 (200K context). Model is set automatically. Uses max_completion_tokens (not max_tokens).',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ModelChatRequest' } } } },
+          responses: {
+            200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
+            400: { description: 'Missing messages array' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/images': {
+        post: {
+          tags: ['Images'],
+          summary: 'Image generation (all models)',
+          description: 'Generate images with DALL-E 2, DALL-E 3, GPT-Image-1, GPT-Image-1.5, or GPT-Image-1 Mini. Validates model-specific size constraints.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ImageRequest' }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt or invalid size for model' },
+            500: { description: 'API key not configured or upstream error' }
+          }
+        }
+      },
+      '/dall-e-3': {
+        post: {
+          tags: ['Images'],
+          summary: 'DALL-E 3 shortcut',
+          description: 'Direct endpoint for DALL-E 3 image generation. Model is set automatically. Sizes: 1024x1024, 1024x1792, 1792x1024.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageModelRequest' } } } },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/dall-e-2': {
+        post: {
+          tags: ['Images'],
+          summary: 'DALL-E 2 shortcut',
+          description: 'Direct endpoint for DALL-E 2 image generation. Model is set automatically. Sizes: 256x256, 512x512, 1024x1024.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageModelRequest' } } } },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-image-1': {
+        post: {
+          tags: ['Images'],
+          summary: 'GPT-Image-1 shortcut',
+          description: 'Direct endpoint for GPT-Image-1. Multimodal LLM with vision and image generation. Sizes: 1024x1024, 1536x1024, 1024x1536, auto.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageModelRequest' } } } },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-image-1-mini': {
+        post: {
+          tags: ['Images'],
+          summary: 'GPT-Image-1 Mini shortcut',
+          description: 'Direct endpoint for GPT-Image-1 Mini. Lightweight, fast image generation. Sizes: 1024x1024, 1536x1024, 1024x1536, auto.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageModelRequest' } } } },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-image-1.5': {
+        post: {
+          tags: ['Images'],
+          summary: 'GPT-Image-1.5 shortcut',
+          description: 'Direct endpoint for GPT-Image-1.5. High-quality image generation. Sizes: 1024x1024, 1536x1024, 1024x1536, auto.',
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageModelRequest' } } } },
+          responses: {
+            200: { description: 'Image generated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt' },
+            500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/audio': {
+        post: {
+          tags: ['Audio'],
+          summary: 'Audio transcription',
+          description: 'Transcribe audio files using Whisper-1. Supports mp3, mp4, mpeg, mpga, m4a, wav, webm. Max 25MB. Normalizes .opus to .ogg for OpenAI compatibility.',
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['file'],
+                  properties: {
+                    file: { type: 'string', format: 'binary', description: 'Audio file (mp3, mp4, mpeg, mpga, m4a, wav, webm). Max 25MB.' },
+                    model: { type: 'string', default: 'whisper-1', description: 'Transcription model' },
+                    language: { type: 'string', description: 'ISO-639-1 language code (e.g. "en", "no", "es")' },
+                    prompt: { type: 'string', description: 'Optional prompt to guide transcription style' },
+                    response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'], default: 'json' },
+                    temperature: { type: 'number', minimum: 0, maximum: 1, description: 'Sampling temperature' },
+                    userId: { type: 'string', description: 'User ID for D1 key lookup' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Transcription result',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      text: { type: 'string', description: 'Transcribed text' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Missing file in form data' },
+            401: { description: 'API key not configured (no user key and no system key)' },
+            500: { description: 'Server error' }
+          }
+        }
+      },
+      '/whisper-1': {
+        post: {
+          tags: ['Audio'],
+          summary: 'Whisper-1 shortcut',
+          description: 'Alias for /audio. Same parameters and behavior.',
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['file'],
+                  properties: {
+                    file: { type: 'string', format: 'binary' },
+                    model: { type: 'string', default: 'whisper-1' },
+                    language: { type: 'string' },
+                    prompt: { type: 'string' },
+                    response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'], default: 'json' },
+                    temperature: { type: 'number' },
+                    userId: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Transcription result', content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' } } } } } },
+            400: { description: 'Missing file' },
+            401: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/branding/generate': {
+        post: {
+          tags: ['Branding'],
+          summary: 'Generate branding JSON',
+          description: 'Uses GPT-4o-mini to generate a complete branding JSON configuration including theme colors, copy text, and layout settings for a web app.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['userId'],
+                  properties: {
+                    userId: { type: 'string', description: 'User ID for D1 API key lookup (required)' },
+                    brandName: { type: 'string', description: 'Name of the brand', default: '' },
+                    appName: { type: 'string', description: 'Name of the application', default: 'Vegvisr Connect' },
+                    audience: { type: 'string', description: 'Target audience description', default: '' },
+                    prompt: { type: 'string', description: 'Additional user instructions for branding', default: '' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Generated branding configuration',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      branding: {
+                        type: 'object',
+                        description: 'Complete branding JSON with brand, theme, copy, language, and layout sections',
+                        properties: {
+                          brand: {
+                            type: 'object',
+                            properties: {
+                              name: { type: 'string' },
+                              logoUrl: { type: 'string' },
+                              slogan: { type: 'string' }
+                            }
+                          },
+                          theme: {
+                            type: 'object',
+                            properties: {
+                              background: { type: 'object' },
+                              text: { type: 'object' },
+                              card: { type: 'object' },
+                              button: { type: 'object' }
+                            }
+                          },
+                          copy: {
+                            type: 'object',
+                            properties: {
+                              badge: { type: 'string' },
+                              headline: { type: 'string' },
+                              subheadline: { type: 'string' },
+                              emailLabel: { type: 'string' },
+                              emailPlaceholder: { type: 'string' },
+                              cta: { type: 'string' }
+                            }
+                          },
+                          language: { type: 'object', properties: { default: { type: 'string' } } },
+                          layout: { type: 'object', properties: { showLanguageToggle: { type: 'boolean' } } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Missing userId' },
+            500: { description: 'API key not configured, upstream error, or failed to parse branding JSON' }
+          }
+        }
+      }
+    },
+    components: {
+      schemas: {
+        Message: {
+          type: 'object',
+          required: ['role', 'content'],
+          properties: {
+            role: { type: 'string', enum: ['system', 'user', 'assistant'] },
+            content: { type: 'string' }
+          }
+        },
+        ChatRequest: {
+          type: 'object',
+          required: ['messages'],
+          properties: {
+            userId: { type: 'string', description: 'User ID for retrieving encrypted API key from D1. Falls back to system key if absent.' },
+            model: { type: 'string', enum: ['gpt-4o', 'gpt-4', 'gpt-5', 'gpt-5.1', 'gpt-5.2'], default: 'gpt-4o', description: 'GPT model to use' },
+            messages: { type: 'array', items: { $ref: '#/components/schemas/Message' }, description: 'Array of chat messages' },
+            temperature: { type: 'number', minimum: 0, maximum: 2, default: 0.7 },
+            max_tokens: { type: 'integer', description: 'Max tokens for GPT-4/GPT-4o. Do NOT use with GPT-5.x.' },
+            max_completion_tokens: { type: 'integer', description: 'Max completion tokens for GPT-5.x models.' },
+            top_p: { type: 'number', minimum: 0, maximum: 1, default: 1 },
+            frequency_penalty: { type: 'number', minimum: -2, maximum: 2, default: 0 },
+            presence_penalty: { type: 'number', minimum: -2, maximum: 2, default: 0 },
+            stream: { type: 'boolean', default: false, description: 'Enable streaming response' },
+            tools: { type: 'array', items: { type: 'object' }, description: 'Function calling tool definitions' },
+            tool_choice: { description: 'Function calling mode: "auto", "none", or specific function object' }
+          }
+        },
+        ModelChatRequest: {
+          type: 'object',
+          required: ['messages'],
+          description: 'Request body for model-specific shortcut endpoints. Model is set by the URL path.',
+          properties: {
+            userId: { type: 'string', description: 'User ID for D1 key lookup' },
+            messages: { type: 'array', items: { $ref: '#/components/schemas/Message' } },
+            temperature: { type: 'number', minimum: 0, maximum: 2, default: 0.7 },
+            max_tokens: { type: 'integer', description: 'For GPT-4/GPT-4o only' },
+            max_completion_tokens: { type: 'integer', description: 'For GPT-5.x only' },
+            tools: { type: 'array', items: { type: 'object' }, description: 'Function calling tool definitions' },
+            tool_choice: { description: 'Function calling mode' }
+          }
+        },
+        ChatResponse: {
+          type: 'object',
+          description: 'Standard OpenAI chat completion response (proxied directly)',
+          properties: {
+            id: { type: 'string', example: 'chatcmpl-abc123' },
+            object: { type: 'string', example: 'chat.completion' },
+            model: { type: 'string' },
+            choices: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  index: { type: 'integer' },
+                  message: {
+                    type: 'object',
+                    properties: {
+                      role: { type: 'string' },
+                      content: { type: 'string' }
+                    }
+                  },
+                  finish_reason: { type: 'string', enum: ['stop', 'length', 'tool_calls', 'content_filter'] }
+                }
+              }
+            },
+            usage: {
+              type: 'object',
+              properties: {
+                prompt_tokens: { type: 'integer' },
+                completion_tokens: { type: 'integer' },
+                total_tokens: { type: 'integer' }
+              }
+            }
+          }
+        },
+        ImageRequest: {
+          type: 'object',
+          required: ['prompt'],
+          properties: {
+            userId: { type: 'string', description: 'User ID for D1 key retrieval' },
+            model: { type: 'string', enum: ['dall-e-2', 'dall-e-3', 'gpt-image-1', 'gpt-image-1.5', 'gpt-image-1-mini'], default: 'dall-e-3' },
+            prompt: { type: 'string', maxLength: 4000 },
+            size: { type: 'string', description: 'DALL-E 2: 256x256|512x512|1024x1024. DALL-E 3: 1024x1024|1024x1792|1792x1024. GPT-Image: 1024x1024|1536x1024|1024x1536|auto.', default: '1024x1024' },
+            quality: { type: 'string', enum: ['standard', 'hd', 'low', 'medium', 'high', 'auto'], default: 'standard', description: 'DALL-E 3: standard|hd. GPT-Image: low|medium|high|auto.' },
+            n: { type: 'integer', minimum: 1, maximum: 10, default: 1, description: 'Number of images. DALL-E 3 always generates 1.' }
+          }
+        },
+        ImageModelRequest: {
+          type: 'object',
+          required: ['prompt'],
+          description: 'Request body for image model shortcut endpoints. Model is set by the URL path.',
+          properties: {
+            prompt: { type: 'string', maxLength: 4000 },
+            size: { type: 'string', default: '1024x1024' },
+            quality: { type: 'string', default: 'standard' },
+            apiKey: { type: 'string', description: 'Direct API key (alternative to userId-based lookup)' }
+          }
+        },
+        ImageResponse: {
+          type: 'object',
+          description: 'Standard OpenAI image generation response (proxied directly)',
+          properties: {
+            created: { type: 'integer' },
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  url: { type: 'string', format: 'uri' },
+                  revised_prompt: { type: 'string', description: 'Present for DALL-E 3 and GPT-Image-1' }
+                }
+              }
+            }
+          }
+        },
+        ChatModel: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            context_length: { type: 'integer' },
+            max_output_tokens: { type: 'integer' },
+            features: { type: 'array', items: { type: 'string' } },
+            description: { type: 'string' }
+          }
+        },
+        ImageModel: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            sizes: { type: 'array', items: { type: 'string' } },
+            quality: { type: 'array', items: { type: 'string' } },
+            features: { type: 'array', items: { type: 'string' } },
+            description: { type: 'string' }
+          }
+        },
+        AudioModel: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            formats: { type: 'array', items: { type: 'string' } },
+            features: { type: 'array', items: { type: 'string' } },
+            max_file_size: { type: 'string' },
+            supported_formats: { type: 'array', items: { type: 'string' } },
+            pricing: { type: 'string' },
+            description: { type: 'string' }
+          }
+        },
+        ErrorResponse: {
+          type: 'object',
+          properties: {
+            error: { type: 'string', description: 'Error message' },
+            stack: { type: 'string', description: 'Stack trace (only on 500 errors)' }
+          }
+        }
+      }
+    }
+  };
+
+  return new Response(JSON.stringify(spec, null, 2), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 }

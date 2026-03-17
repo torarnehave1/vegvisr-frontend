@@ -520,6 +520,670 @@ export default {
       })
     }
 
+    // OpenAPI 3.0 specification
+    if (pathname === '/openapi.json' && request.method === 'GET') {
+      const spec = {
+        openapi: '3.0.3',
+        info: {
+          title: 'Audio Portfolio Worker API',
+          description: 'Manages audio recording portfolios with metadata, transcriptions, publication state, and context templates. Backed by Cloudflare KV.',
+          version: '1.1.0',
+        },
+        paths: {
+          '/health': {
+            get: {
+              summary: 'Health check',
+              description: 'Returns service status, version, and KV binding status.',
+              operationId: 'healthCheck',
+              responses: {
+                '200': {
+                  description: 'Service health information',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          service: { type: 'string', example: 'audio-portfolio-worker' },
+                          status: { type: 'string', example: 'healthy' },
+                          timestamp: { type: 'string', format: 'date-time' },
+                          version: { type: 'string', example: '1.1.0' },
+                          features: { type: 'array', items: { type: 'string' } },
+                          kvBinding: { type: 'string', enum: ['connected', 'missing'] },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '/openapi.json': {
+            get: {
+              summary: 'OpenAPI specification',
+              description: 'Returns this OpenAPI 3.0 specification.',
+              operationId: 'getOpenApiSpec',
+              responses: {
+                '200': {
+                  description: 'OpenAPI 3.0 JSON specification',
+                  content: { 'application/json': { schema: { type: 'object' } } },
+                },
+              },
+            },
+          },
+          '/save-recording': {
+            post: {
+              summary: 'Save recording metadata',
+              description: 'Saves recording metadata to the portfolio and updates the user index.',
+              operationId: 'saveRecording',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/SaveRecordingRequest' },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Recording saved successfully',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          recordingId: { type: 'string' },
+                          recordingMetadata: { $ref: '#/components/schemas/RecordingMetadata' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/list-recordings': {
+            get: {
+              summary: 'List user recordings',
+              description: 'Returns recordings for a user. Superadmin role returns all recordings across users. Regular users only see published recordings.',
+              operationId: 'listRecordings',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'Email of the user whose recordings to list' },
+                { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 }, description: 'Maximum number of recordings to return' },
+                { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Number of recordings to skip (non-superadmin only)' },
+                { name: 'userRole', in: 'query', schema: { type: 'string', default: 'user' }, description: 'User role. "superadmin" returns all recordings across users.' },
+                { name: 'ownerEmail', in: 'query', schema: { type: 'string' }, description: 'Filter by owner email (superadmin only)' },
+                { name: 'cursor', in: 'query', schema: { type: 'string' }, description: 'Pagination cursor (superadmin only)' },
+              ],
+              responses: {
+                '200': {
+                  description: 'List of recordings',
+                  content: {
+                    'application/json': {
+                      schema: { $ref: '#/components/schemas/RecordingListResponse' },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/search-recordings': {
+            get: {
+              summary: 'Search recordings',
+              description: 'Searches recordings by text content across transcription, file name, display name, tags, category, and Norwegian transcription data.',
+              operationId: 'searchRecordings',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'Email of the user whose recordings to search' },
+                { name: 'query', in: 'query', required: true, schema: { type: 'string' }, description: 'Search query string' },
+                { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 }, description: 'Maximum number of results' },
+              ],
+              responses: {
+                '200': {
+                  description: 'Search results',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        allOf: [
+                          { $ref: '#/components/schemas/RecordingListResponse' },
+                          { type: 'object', properties: { query: { type: 'string' } } },
+                        ],
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/list-recordings-public': {
+            get: {
+              summary: 'List public recordings',
+              description: 'Lists published recordings across all users, optionally filtered by tag.',
+              operationId: 'listPublicRecordings',
+              parameters: [
+                { name: 'tag', in: 'query', schema: { type: 'string' }, description: 'Filter by tag (case-insensitive)' },
+                { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 }, description: 'Maximum number of recordings' },
+                { name: 'cursor', in: 'query', schema: { type: 'string' }, description: 'Pagination cursor' },
+              ],
+              responses: {
+                '200': {
+                  description: 'List of public recordings',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          recordings: { type: 'array', items: { $ref: '#/components/schemas/RecordingMetadata' } },
+                          total: { type: 'integer' },
+                          cursor: { type: 'string', nullable: true },
+                        },
+                      },
+                    },
+                  },
+                },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/delete-recording': {
+            delete: {
+              summary: 'Delete a recording',
+              description: 'Deletes a recording and updates the user index.',
+              operationId: 'deleteRecording',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'Owner email' },
+                { name: 'recordingId', in: 'query', required: true, schema: { type: 'string' }, description: 'Recording ID to delete' },
+              ],
+              responses: {
+                '200': {
+                  description: 'Recording deleted',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          deletedRecording: { $ref: '#/components/schemas/RecordingMetadata' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/update-recording': {
+            put: {
+              summary: 'Update recording metadata (PUT)',
+              description: 'Updates recording metadata using query params for identification and JSON body for updates.',
+              operationId: 'updateRecordingPut',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'Owner email' },
+                { name: 'recordingId', in: 'query', required: true, schema: { type: 'string' }, description: 'Recording ID' },
+              ],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/UpdateRecordingFields' },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Recording updated',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          updatedRecording: { $ref: '#/components/schemas/RecordingMetadata' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+            post: {
+              summary: 'Update recording metadata (POST)',
+              description: 'Updates recording metadata using JSON body for identification and updates. Supports X-User-Email header.',
+              operationId: 'updateRecordingPost',
+              parameters: [
+                { name: 'X-User-Email', in: 'header', schema: { type: 'string' }, description: 'User email (alternative to body.userEmail)' },
+              ],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        userEmail: { type: 'string' },
+                        id: { type: 'string', description: 'Recording ID (alternative: recordingId)' },
+                        recordingId: { type: 'string' },
+                        updates: { $ref: '#/components/schemas/UpdateRecordingFields' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Recording updated',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          updatedRecording: { $ref: '#/components/schemas/RecordingMetadata' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/update-publication-state': {
+            post: {
+              summary: 'Update publication state (superadmin only)',
+              description: 'Changes a recording publication state between draft and published. Requires superadmin role.',
+              operationId: 'updatePublicationState',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['userEmail', 'recordingId', 'publicationState', 'requestingUserRole'],
+                      properties: {
+                        userEmail: { type: 'string' },
+                        recordingId: { type: 'string' },
+                        publicationState: { type: 'string', enum: ['draft', 'published'] },
+                        requestingUserRole: { type: 'string', description: 'Must be "superadmin"' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Publication state updated',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          updatedRecording: { $ref: '#/components/schemas/RecordingMetadata' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '403': { description: 'Forbidden - superadmin role required', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/repair-index': {
+            post: {
+              summary: 'Repair user index (superadmin only)',
+              description: 'Adds a recording to the user index if it is missing. Admin maintenance endpoint.',
+              operationId: 'repairIndex',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['userEmail', 'recordingId', 'requestingUserRole'],
+                      properties: {
+                        userEmail: { type: 'string' },
+                        recordingId: { type: 'string' },
+                        requestingUserRole: { type: 'string', description: 'Must be "superadmin"' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Index repaired',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          index: { $ref: '#/components/schemas/UserIndex' },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '403': { description: 'Forbidden - superadmin role required', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+                '500': { $ref: '#/components/responses/InternalError' },
+              },
+            },
+          },
+          '/context-templates': {
+            get: {
+              summary: 'Get context templates',
+              description: 'Returns saved context templates for a user.',
+              operationId: 'getContextTemplates',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'User email' },
+              ],
+              responses: {
+                '200': {
+                  description: 'User context templates',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          templates: { type: 'array', items: { $ref: '#/components/schemas/ContextTemplate' } },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+              },
+            },
+            post: {
+              summary: 'Create context template',
+              description: 'Saves a new context template for a user.',
+              operationId: 'createContextTemplate',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['userEmail', 'name', 'context'],
+                      properties: {
+                        userEmail: { type: 'string' },
+                        name: { type: 'string' },
+                        context: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Template created',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          template: { $ref: '#/components/schemas/ContextTemplate' },
+                          allTemplates: {
+                            type: 'object',
+                            properties: {
+                              templates: { type: 'array', items: { $ref: '#/components/schemas/ContextTemplate' } },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+              },
+            },
+            put: {
+              summary: 'Update template last used',
+              description: 'Updates the lastUsed timestamp of a context template.',
+              operationId: 'updateContextTemplateUsage',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['userEmail', 'templateId'],
+                      properties: {
+                        userEmail: { type: 'string' },
+                        templateId: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                '200': {
+                  description: 'Template usage updated',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          template: { $ref: '#/components/schemas/ContextTemplate' },
+                          allTemplates: {
+                            type: 'object',
+                            properties: {
+                              templates: { type: 'array', items: { $ref: '#/components/schemas/ContextTemplate' } },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '404': { description: 'No templates found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+              },
+            },
+            delete: {
+              summary: 'Delete context template',
+              description: 'Deletes a context template by ID.',
+              operationId: 'deleteContextTemplate',
+              parameters: [
+                { name: 'userEmail', in: 'query', required: true, schema: { type: 'string' }, description: 'User email' },
+                { name: 'templateId', in: 'query', required: true, schema: { type: 'string' }, description: 'Template ID to delete' },
+              ],
+              responses: {
+                '200': {
+                  description: 'Template deleted',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          deleted: { type: 'string' },
+                          allTemplates: {
+                            type: 'object',
+                            properties: {
+                              templates: { type: 'array', items: { $ref: '#/components/schemas/ContextTemplate' } },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                '400': { $ref: '#/components/responses/BadRequest' },
+                '404': { description: 'No templates found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            ErrorResponse: {
+              type: 'object',
+              properties: {
+                error: { type: 'string' },
+              },
+            },
+            SaveRecordingRequest: {
+              type: 'object',
+              required: ['userEmail'],
+              properties: {
+                userEmail: { type: 'string', description: 'Owner email address' },
+                recordingId: { type: 'string', description: 'Optional custom ID; auto-generated if omitted' },
+                fileName: { type: 'string', default: 'unknown.wav' },
+                displayName: { type: 'string' },
+                r2Key: { type: 'string', nullable: true },
+                r2Url: { type: 'string', nullable: true },
+                fileSize: { type: 'integer', default: 0 },
+                duration: { type: 'number', default: 0 },
+                transcriptionText: { type: 'string' },
+                norwegianTranscription: {
+                  type: 'object',
+                  nullable: true,
+                  properties: {
+                    raw_text: { type: 'string' },
+                    improved_text: { type: 'string' },
+                  },
+                },
+                tags: { type: 'array', items: { type: 'string' }, default: [] },
+                category: { type: 'string', default: 'general' },
+                publicationState: { type: 'string', enum: ['draft', 'published'], default: 'draft' },
+                audioFormat: { type: 'string', default: 'wav' },
+                sampleRate: { type: 'integer', default: 16000 },
+                channels: { type: 'integer', default: 1 },
+                aiService: { type: 'string', default: 'openai' },
+                aiModel: { type: 'string', default: 'whisper-1' },
+                processingTime: { type: 'number', default: 0 },
+                transcriptionContext: { type: 'string', nullable: true },
+                transcriptionServer: { type: 'string', nullable: true },
+                textImprovement: { type: 'string', nullable: true },
+                cloudflareAiAvailable: { type: 'boolean', default: false },
+              },
+            },
+            RecordingMetadata: {
+              type: 'object',
+              properties: {
+                userEmail: { type: 'string' },
+                recordingId: { type: 'string' },
+                fileName: { type: 'string' },
+                displayName: { type: 'string' },
+                r2Key: { type: 'string', nullable: true },
+                r2Url: { type: 'string', nullable: true },
+                fileSize: { type: 'integer' },
+                duration: { type: 'number' },
+                transcriptionText: { type: 'string' },
+                transcriptionExcerpt: { type: 'string' },
+                norwegianTranscription: { type: 'object', nullable: true },
+                tags: { type: 'array', items: { type: 'string' } },
+                category: { type: 'string' },
+                createdAt: { type: 'string', format: 'date-time' },
+                updatedAt: { type: 'string', format: 'date-time' },
+                publicationState: { type: 'string', enum: ['draft', 'published'] },
+                publishedAt: { type: 'string', format: 'date-time', nullable: true },
+                audioFormat: { type: 'string' },
+                sampleRate: { type: 'integer' },
+                channels: { type: 'integer' },
+                aiService: { type: 'string' },
+                aiModel: { type: 'string' },
+                processingTime: { type: 'number' },
+                transcriptionContext: { type: 'string', nullable: true },
+                transcriptionServer: { type: 'string', nullable: true },
+                textImprovement: { type: 'string', nullable: true },
+                cloudflareAiAvailable: { type: 'boolean' },
+                speakerTimeline: { type: 'array', nullable: true, items: { type: 'object' } },
+                numSpeakers: { type: 'integer', nullable: true },
+                speakerNames: { type: 'object', nullable: true },
+                diarization: { type: 'object', nullable: true },
+                conversationAnalysis: { type: 'object', nullable: true },
+              },
+            },
+            UpdateRecordingFields: {
+              type: 'object',
+              description: 'Updatable recording fields',
+              properties: {
+                displayName: { type: 'string' },
+                tags: { type: 'array', items: { type: 'string' } },
+                category: { type: 'string' },
+                publicationState: { type: 'string', enum: ['draft', 'published'] },
+                publishedAt: { type: 'string', format: 'date-time', nullable: true },
+                speakerTimeline: { type: 'array', items: { type: 'object' } },
+                numSpeakers: { type: 'integer' },
+                speakerNames: { type: 'object' },
+                diarization: { type: 'object' },
+                conversationAnalysis: { type: 'object' },
+              },
+            },
+            UserIndex: {
+              type: 'object',
+              properties: {
+                userEmail: { type: 'string' },
+                totalRecordings: { type: 'integer' },
+                totalDuration: { type: 'number' },
+                lastUpdated: { type: 'string', format: 'date-time' },
+                recordingIds: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            RecordingListResponse: {
+              type: 'object',
+              properties: {
+                recordings: { type: 'array', items: { $ref: '#/components/schemas/RecordingMetadata' } },
+                total: { type: 'integer' },
+                cursor: { type: 'string', nullable: true },
+                userStats: {
+                  type: 'object',
+                  nullable: true,
+                  properties: {
+                    totalRecordings: { type: 'integer' },
+                    totalDuration: { type: 'number' },
+                    lastUpdated: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+            ContextTemplate: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                context: { type: 'string' },
+                createdAt: { type: 'string', format: 'date-time' },
+                lastUsed: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+          responses: {
+            BadRequest: {
+              description: 'Bad request',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+            InternalError: {
+              description: 'Internal server error',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+      }
+      return new Response(JSON.stringify(spec, null, 2), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders,
+        },
+      })
+    }
+
     // Check KV binding
     if (!env.AUDIO_PORTFOLIO) {
       return createErrorResponse('KV binding AUDIO_PORTFOLIO not configured', 500)

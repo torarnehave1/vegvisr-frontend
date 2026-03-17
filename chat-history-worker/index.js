@@ -47,6 +47,11 @@ export default {
         return await handleGetSession(sessionId, env, user)
       }
 
+      if (pathname.startsWith('/sessions/') && request.method === 'PATCH') {
+        const sessionId = pathname.split('/sessions/')[1]
+        return await handleRenameSession(request, sessionId, env, user)
+      }
+
       if (pathname.startsWith('/sessions/') && request.method === 'DELETE') {
         const sessionId = pathname.split('/sessions/')[1]
         return await handleDeleteSession(sessionId, env, user, ctx)
@@ -226,6 +231,20 @@ async function handleGetSession(sessionId, env, user) {
   }
 
   return jsonResponse({ session: normalizeSession(session) })
+}
+
+async function handleRenameSession(request, sessionId, env, user) {
+  requireUser(user)
+  if (!sessionId) throw new Error('Session id required')
+  const body = await parseJSON(request)
+  const title = (body.title || '').trim()
+  if (!title) return jsonResponse({ error: 'title is required' }, 400)
+
+  await env.DB.prepare('UPDATE chat_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')
+    .bind(title, sessionId, user.userId)
+    .run()
+
+  return jsonResponse({ success: true, sessionId, title })
 }
 
 async function handleDeleteSession(sessionId, env, user, ctx) {

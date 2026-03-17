@@ -204,6 +204,47 @@ async function handleInsert(db, d1, body, request) {
   return json({ success: true, _id: rowId, _created_at: createdAt }, 201, request);
 }
 
+async function handleDeleteRecords(db, d1, body, request) {
+  const { tableId, where, ids } = body;
+  if (!tableId) {
+    return json({ error: 'tableId is required' }, 400, request);
+  }
+
+  const tables = await db.select().from(appTables).where(eq(appTables.id, tableId));
+  if (tables.length === 0) {
+    return json({ error: `Table not found: ${tableId}` }, 404, request);
+  }
+  const tableMeta = tables[0];
+  const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
+  const validCols = new Set(['_id', '_created_at', ...cols.map(c => c.columnName)]);
+
+  let deleteSql = `DELETE FROM ${tableMeta.tableName}`;
+  const params = [];
+
+  if (ids && Array.isArray(ids) && ids.length > 0) {
+    // Delete by specific IDs
+    const placeholders = ids.map(() => '?').join(', ');
+    deleteSql += ` WHERE _id IN (${placeholders})`;
+    params.push(...ids);
+  } else if (where && typeof where === 'object' && Object.keys(where).length > 0) {
+    // Delete by filter
+    const conditions = [];
+    for (const [key, val] of Object.entries(where)) {
+      if (validCols.has(key)) {
+        conditions.push(`${key} = ?`);
+        params.push(val);
+      }
+    }
+    if (conditions.length > 0) {
+      deleteSql += ` WHERE ${conditions.join(' AND ')}`;
+    }
+  }
+  // No where/ids = delete all records (clear table)
+
+  const result = await d1.prepare(deleteSql).bind(...params).run();
+  return json({ success: true, deleted: result.meta?.changes ?? 0 }, 200, request);
+}
+
 async function handleQuery(db, d1, body, request) {
   const { tableId, where, orderBy, order, limit, offset } = body;
   if (!tableId) {
@@ -855,6 +896,487 @@ async function handleGetGroupMembers(env, url, request) {
   return json({ groupId: resolvedGroupId, groupName: resolvedGroupName, members, count: members.length }, 200, request);
 }
 
+// ── OpenAPI 3.0 specification ──
+
+const openApiSpec = {
+  openapi: '3.0.3',
+  info: {
+    title: 'Drizzle Worker API',
+    version: '1.0.0',
+    description: 'Cloudflare Worker providing D1 database management, app-table CRUD, and cross-database chat group operations.',
+  },
+  servers: [{ url: 'https://drizzle.vegvisr.org' }],
+  paths: {
+    '/health': {
+      get: {
+        summary: 'Health check',
+        description: 'Returns worker health status and current timestamp.',
+        responses: {
+          200: {
+            description: 'Healthy',
+            content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string' }, worker: { type: 'string' }, timestamp: { type: 'string', format: 'date-time' } } } } },
+          },
+        },
+      },
+    },
+    '/openapi.json': {
+      get: {
+        summary: 'OpenAPI specification',
+        description: 'Returns this OpenAPI 3.0 JSON specification.',
+        responses: { 200: { description: 'OpenAPI spec', content: { 'application/json': { schema: { type: 'object' } } } } },
+      },
+    },
+    '/databases': {
+      get: {
+        summary: 'List available databases',
+        description: 'Returns the list of D1 database names this worker can connect to.',
+        responses: {
+          200: {
+            description: 'Database list',
+            content: { 'application/json': { schema: { type: 'object', properties: { databases: { type: 'array', items: { type: 'string' } } } } } },
+          },
+        },
+      },
+    },
+    '/create-table': {
+      post: {
+        summary: 'Create an app table',
+        description: 'Creates a new D1 table with the specified columns and registers it in app_tables metadata.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name (default: vegvisr_org)' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['graphId', 'displayName', 'columns'],
+                properties: {
+                  graphId: { type: 'string', description: 'Associated knowledge graph ID' },
+                  displayName: { type: 'string', description: 'Human-readable table name' },
+                  columns: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['name', 'type'],
+                      properties: {
+                        name: { type: 'string', description: 'Column name (lowercase alphanumeric + underscores)' },
+                        type: { type: 'string', enum: ['text', 'integer', 'real', 'boolean', 'datetime'] },
+                        label: { type: 'string', description: 'Display label' },
+                        required: { type: 'boolean' },
+                      },
+                    },
+                  },
+                  createdBy: { type: 'string', description: 'Creator identifier' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Table created', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, tableName: { type: 'string' }, displayName: { type: 'string' }, columnCount: { type: 'integer' } } } } } },
+          400: { description: 'Validation error' },
+        },
+      },
+    },
+    '/insert': {
+      post: {
+        summary: 'Insert a record',
+        description: 'Inserts a row into the specified app table. Auto-generates _id and _created_at.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tableId', 'record'],
+                properties: {
+                  tableId: { type: 'string', description: 'The app_tables.id of the target table' },
+                  record: { type: 'object', additionalProperties: true, description: 'Key-value pairs matching column names' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Record inserted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, _id: { type: 'string' }, _created_at: { type: 'string' } } } } } },
+          400: { description: 'Validation error' },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/query': {
+      post: {
+        summary: 'Query records',
+        description: 'Queries rows from an app table with optional filtering, ordering, and pagination.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tableId'],
+                properties: {
+                  tableId: { type: 'string', description: 'The app_tables.id to query' },
+                  where: { type: 'object', additionalProperties: true, description: 'Equality filters as key-value pairs' },
+                  orderBy: { type: 'string', description: 'Column name to order by (default: _created_at)' },
+                  order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' },
+                  limit: { type: 'integer', description: 'Max rows (1-1000, default: 50)' },
+                  offset: { type: 'integer', description: 'Pagination offset (default: 0)' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Query results',
+            content: { 'application/json': { schema: { type: 'object', properties: { records: { type: 'array', items: { type: 'object' } }, total: { type: 'integer' }, limit: { type: 'integer' }, offset: { type: 'integer' }, columns: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' }, type: { type: 'string' }, required: { type: 'boolean' } } } } } } } },
+          },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/tables': {
+      get: {
+        summary: 'List app tables',
+        description: 'Lists all registered app tables, optionally filtered by graphId.',
+        parameters: [
+          { name: 'graphId', in: 'query', schema: { type: 'string' }, description: 'Filter by knowledge graph ID' },
+          { name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' },
+        ],
+        responses: {
+          200: { description: 'Table list', content: { 'application/json': { schema: { type: 'object', properties: { tables: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, graphId: { type: 'string' }, tableName: { type: 'string' }, displayName: { type: 'string' }, createdAt: { type: 'string' }, createdBy: { type: 'string' } } } } } } } },
+        },
+      },
+    },
+    '/table/{tableId}': {
+      get: {
+        summary: 'Get table schema',
+        description: 'Returns table metadata and its column definitions sorted by position.',
+        parameters: [
+          { name: 'tableId', in: 'path', required: true, schema: { type: 'string' }, description: 'The app_tables.id' },
+          { name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' },
+        ],
+        responses: {
+          200: { description: 'Table with columns', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, graphId: { type: 'string' }, tableName: { type: 'string' }, displayName: { type: 'string' }, columns: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' }, type: { type: 'string' }, required: { type: 'boolean' } } } } } } } } },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/add-column': {
+      post: {
+        summary: 'Add column to table',
+        description: 'Adds a new column to an existing app table via ALTER TABLE and registers it in metadata.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tableId', 'name', 'type'],
+                properties: {
+                  tableId: { type: 'string' },
+                  name: { type: 'string', description: 'Column name (lowercase alphanumeric + underscores)' },
+                  type: { type: 'string', enum: ['text', 'integer', 'real', 'boolean', 'datetime'] },
+                  label: { type: 'string', description: 'Display label' },
+                  required: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Column added', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, tableId: { type: 'string' }, columnName: { type: 'string' }, displayName: { type: 'string' }, columnType: { type: 'string' }, position: { type: 'integer' }, message: { type: 'string' } } } } } },
+          400: { description: 'Validation error' },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/drop-table': {
+      post: {
+        summary: 'Drop an app table',
+        description: 'Drops the D1 table and removes its metadata from app_tables and app_columns.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', required: ['tableId'], properties: { tableId: { type: 'string' } } } } },
+        },
+        responses: {
+          200: { description: 'Table dropped', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, dropped: { type: 'string' } } } } } },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/d1-tables': {
+      get: {
+        summary: 'List raw D1 tables',
+        description: 'Introspects sqlite_master to list all tables in the selected D1 database with row counts.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name (default: vegvisr_org)' }],
+        responses: {
+          200: { description: 'D1 table list', content: { 'application/json': { schema: { type: 'object', properties: { database: { type: 'string' }, tables: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, rows: { type: 'integer' } } } } } } } } },
+        },
+      },
+    },
+    '/raw-query': {
+      post: {
+        summary: 'Execute raw SQL query (read-only)',
+        description: 'Executes a raw SELECT, PRAGMA, or EXPLAIN query against the selected D1 database. Write queries are rejected.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['sql'],
+                properties: {
+                  sql: { type: 'string', description: 'SQL query (SELECT/PRAGMA/EXPLAIN only)' },
+                  database: { type: 'string', description: 'Override database in body' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Query results', content: { 'application/json': { schema: { type: 'object', properties: { columns: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'object' } }, rowCount: { type: 'integer' }, meta: { type: 'object', nullable: true } } } } } },
+          400: { description: 'SQL error or invalid query' },
+          403: { description: 'Write queries not allowed' },
+        },
+      },
+    },
+    '/chat-groups': {
+      get: {
+        summary: 'List chat groups',
+        description: 'Returns all chat groups from the CHAT_DB with id, name, created_by, graph_id, and image_url.',
+        responses: {
+          200: { description: 'Group list', content: { 'application/json': { schema: { type: 'object', properties: { groups: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, created_by: { type: 'string' }, graph_id: { type: 'string' }, image_url: { type: 'string' } } } } } } } } },
+        },
+      },
+    },
+    '/add-user-to-group': {
+      post: {
+        summary: 'Add user to chat group',
+        description: 'Looks up user by email in vegvisr_org, resolves group by ID or name, and adds the user as a member.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email'],
+                properties: {
+                  email: { type: 'string' },
+                  groupId: { type: 'string' },
+                  groupName: { type: 'string' },
+                  role: { type: 'string', description: 'Member role (default: member)' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'User added to group' },
+          400: { description: 'Missing required fields' },
+          404: { description: 'User or group not found' },
+          409: { description: 'User already a member' },
+        },
+      },
+    },
+    '/group-messages': {
+      get: {
+        summary: 'Get group messages',
+        description: 'Fetches recent messages from a chat group with user email lookup.',
+        parameters: [
+          { name: 'groupId', in: 'query', schema: { type: 'string' }, description: 'Group ID' },
+          { name: 'groupName', in: 'query', schema: { type: 'string' }, description: 'Group name (alternative to groupId)' },
+          { name: 'limit', in: 'query', schema: { type: 'integer' }, description: 'Max messages (1-100, default: 10)' },
+        ],
+        responses: {
+          200: { description: 'Messages', content: { 'application/json': { schema: { type: 'object', properties: { groupId: { type: 'string' }, groupName: { type: 'string' }, messages: { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, userId: { type: 'string' }, email: { type: 'string', nullable: true }, body: { type: 'string' }, messageType: { type: 'string' }, createdAt: { type: 'string' }, transcriptText: { type: 'string', nullable: true }, senderAvatarUrl: { type: 'string', nullable: true } } } }, count: { type: 'integer' } } } } } },
+          400: { description: 'Missing groupId or groupName' },
+          404: { description: 'Group not found' },
+        },
+      },
+    },
+    '/group-stats': {
+      get: {
+        summary: 'Get group statistics',
+        description: 'Returns message counts, member counts, last message timestamps, and creator info for all groups.',
+        responses: {
+          200: { description: 'Group stats', content: { 'application/json': { schema: { type: 'object', properties: { groups: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, messageCount: { type: 'integer' }, memberCount: { type: 'integer' }, lastMessageAt: { type: 'string', nullable: true }, createdBy: { type: 'string' }, imageUrl: { type: 'string', nullable: true } } } } } } } } },
+        },
+      },
+    },
+    '/send-group-message': {
+      post: {
+        summary: 'Send a message to a chat group',
+        description: 'Sends a text or voice message to a chat group. Validates user membership. Supports audio with transcription.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email'],
+                properties: {
+                  email: { type: 'string' },
+                  groupId: { type: 'string' },
+                  groupName: { type: 'string' },
+                  body: { type: 'string', description: 'Message text (required for text messages)' },
+                  messageType: { type: 'string', enum: ['text', 'voice'], description: 'Default: text' },
+                  audioUrl: { type: 'string', description: 'Required for voice messages' },
+                  audioDurationMs: { type: 'integer' },
+                  transcriptText: { type: 'string' },
+                  transcriptLang: { type: 'string' },
+                  senderAvatarUrl: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Message sent' },
+          400: { description: 'Validation error' },
+          403: { description: 'User not a member of the group' },
+          404: { description: 'User or group not found' },
+        },
+      },
+    },
+    '/create-chat-group': {
+      post: {
+        summary: 'Create a chat group',
+        description: 'Creates a new chat group and adds the creator as owner.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'name'],
+                properties: {
+                  email: { type: 'string', description: 'Creator email (must exist in vegvisr_org)' },
+                  name: { type: 'string', description: 'Group name (must be unique)' },
+                  graphId: { type: 'string', description: 'Optional linked knowledge graph ID' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Group created' },
+          400: { description: 'Missing required fields' },
+          404: { description: 'User not found' },
+          409: { description: 'Group name already exists' },
+        },
+      },
+    },
+    '/register-chat-bot': {
+      post: {
+        summary: 'Register a bot in a chat group',
+        description: 'Creates a bot user in the config table and adds it to a chat group with role "bot".',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['botName'],
+                properties: {
+                  graphId: { type: 'string', description: 'Knowledge graph ID for the bot' },
+                  agentId: { type: 'string', description: 'Agent ID (alternative to graphId)' },
+                  botName: { type: 'string' },
+                  groupId: { type: 'string' },
+                  groupName: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Bot registered' },
+          400: { description: 'Missing required fields' },
+          404: { description: 'Group not found' },
+          409: { description: 'Bot already in group' },
+        },
+      },
+    },
+    '/group-bots': {
+      get: {
+        summary: 'List bots in a group',
+        description: 'Returns all bot members in a chat group with their config data.',
+        parameters: [
+          { name: 'groupId', in: 'query', schema: { type: 'string' } },
+          { name: 'groupName', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Bot list', content: { 'application/json': { schema: { type: 'object', properties: { groupId: { type: 'string' }, groupName: { type: 'string' }, bots: { type: 'array', items: { type: 'object' } }, count: { type: 'integer' } } } } } },
+          400: { description: 'Missing groupId or groupName' },
+          404: { description: 'Group not found' },
+        },
+      },
+    },
+    '/unregister-chat-bot': {
+      post: {
+        summary: 'Remove a bot from a chat group',
+        description: 'Deletes the bot membership from group_members.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['groupId'],
+                properties: {
+                  groupId: { type: 'string' },
+                  agentId: { type: 'string' },
+                  botUserId: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Bot removed' },
+          400: { description: 'Missing required fields' },
+          404: { description: 'Bot not found in group' },
+        },
+      },
+    },
+    '/agent-bot-groups': {
+      get: {
+        summary: 'List groups an agent bot belongs to',
+        description: 'Returns all chat groups where the specified agent bot is a member.',
+        parameters: [
+          { name: 'agentId', in: 'query', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Group list', content: { 'application/json': { schema: { type: 'object', properties: { agentId: { type: 'string' }, botUserId: { type: 'string' }, groups: { type: 'array', items: { type: 'object', properties: { groupId: { type: 'string' }, groupName: { type: 'string' }, joinedAt: { type: 'string' } } } }, count: { type: 'integer' } } } } } },
+          400: { description: 'Missing agentId' },
+        },
+      },
+    },
+    '/group-members': {
+      get: {
+        summary: 'Get group members with profiles',
+        description: 'Returns all members (humans and bots) with profile info from the config table.',
+        parameters: [
+          { name: 'groupId', in: 'query', schema: { type: 'string' } },
+          { name: 'groupName', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Member list', content: { 'application/json': { schema: { type: 'object', properties: { groupId: { type: 'string' }, groupName: { type: 'string' }, members: { type: 'array', items: { type: 'object', properties: { userId: { type: 'string' }, email: { type: 'string', nullable: true }, name: { type: 'string', nullable: true }, role: { type: 'string' }, profileImage: { type: 'string', nullable: true }, joinedAt: { type: 'string' }, isBot: { type: 'boolean' }, botGraphId: { type: 'string', nullable: true }, agentId: { type: 'string', nullable: true } } } }, count: { type: 'integer' } } } } } },
+          400: { description: 'Missing groupId or groupName' },
+          404: { description: 'Group not found' },
+        },
+      },
+    },
+  },
+  },
+};
+
 // ── Worker entry ──
 
 export default {
@@ -872,6 +1394,16 @@ export default {
     const db = drizzle(d1);  // Drizzle ORM for typed metadata queries
 
     try {
+      // ── Health check (no DB needed) ──
+      if (request.method === 'GET' && path === '/health') {
+        return json({ status: 'healthy', worker: 'drizzle-worker', timestamp: new Date().toISOString() }, 200, request);
+      }
+
+      // ── OpenAPI spec (no DB needed) ──
+      if (request.method === 'GET' && path === '/openapi.json') {
+        return json(openApiSpec, 200, request);
+      }
+
       // Only ensure meta tables on the default DB
       if (dbParam === 'vegvisr_org') {
         await ensureMetaTables(d1);
@@ -900,6 +1432,9 @@ export default {
       }
       if (request.method === 'POST' && path === '/add-column') {
         return await handleAddColumn(db, d1, await request.json(), request);
+      }
+      if (request.method === 'POST' && path === '/delete-records') {
+        return await handleDeleteRecords(db, d1, await request.json(), request);
       }
       if (request.method === 'POST' && path === '/drop-table') {
         return await handleDropTable(db, d1, await request.json(), request);
@@ -950,7 +1485,7 @@ export default {
         return await handleGetGroupMembers(env, url, request);
       }
 
-      return json({ error: 'Not found', endpoints: ['GET /databases', 'POST /create-table', 'POST /insert', 'POST /query', 'GET /tables', 'GET /table/:id', 'POST /add-column', 'POST /drop-table', 'GET /d1-tables', 'POST /raw-query', 'GET /chat-groups', 'POST /add-user-to-group', 'POST /send-group-message', 'POST /create-chat-group', 'POST /register-chat-bot', 'GET /group-bots', 'POST /unregister-chat-bot', 'GET /agent-bot-groups', 'GET /group-members'] }, 404, request);
+      return json({ error: 'Not found', endpoints: ['GET /health', 'GET /openapi.json', 'GET /databases', 'POST /create-table', 'POST /insert', 'POST /query', 'POST /delete-records', 'GET /tables', 'GET /table/:id', 'POST /add-column', 'POST /drop-table', 'GET /d1-tables', 'POST /raw-query', 'GET /chat-groups', 'POST /add-user-to-group', 'POST /send-group-message', 'POST /create-chat-group', 'POST /register-chat-bot', 'GET /group-bots', 'POST /unregister-chat-bot', 'GET /agent-bot-groups', 'GET /group-members'] }, 404, request);
     } catch (err) {
       console.error('Drizzle worker error:', err);
       return json({ error: err.message }, 500, request);

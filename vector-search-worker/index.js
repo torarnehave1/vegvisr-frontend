@@ -806,7 +806,7 @@ async function handleAnalyzeContent(request, env) {
 
 // Main worker export
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
     const { pathname, searchParams } = url
 
@@ -1199,6 +1199,112 @@ export default {
               return createResponse(JSON.stringify(result))
             } catch (error) {
               return createErrorResponse(`Single graph test failed: ${error.message}`, 500)
+            }
+          }
+          break
+
+        case '/getSemanticMap':
+          if (request.method === 'GET') {
+            try {
+              // Cache API — serve cached response if available (5 min TTL)
+              const smCacheKey = new Request(url.origin + '/getSemanticMap', { method: 'GET' })
+              const smCache = caches.default
+              const smCached = await smCache.match(smCacheKey)
+              if (smCached) {
+                // Re-add CORS headers (cache strips them)
+                const cachedBody = await smCached.text()
+                return createResponse(cachedBody, 200, { 'X-Cache': 'HIT' })
+              }
+
+              // 1. Get all vectorized graph IDs and their vector_ids
+              const { results: embeddings } = await env.DB.prepare(
+                `SELECT graph_id, vector_id, embedding_type, content_preview
+                 FROM vector_embeddings
+                 ORDER BY graph_id`
+              ).all()
+
+              // Group vector_ids by graph
+              const graphVectors = {}
+              embeddings.forEach(e => {
+                if (!graphVectors[e.graph_id]) graphVectors[e.graph_id] = []
+                graphVectors[e.graph_id].push(e.vector_id)
+              })
+
+              const graphIds = Object.keys(graphVectors)
+              if (graphIds.length < 2) {
+                return createResponse(JSON.stringify({
+                  graphIds, edges: [], message: 'Need at least 2 vectorized graphs'
+                }))
+              }
+
+              // 2. For each graph, pick one representative vector (graph_summary type preferred)
+              const representativeVectors = {}
+              for (const row of embeddings) {
+                if (!representativeVectors[row.graph_id] || row.embedding_type === 'graph_summary') {
+                  representativeVectors[row.graph_id] = row.vector_id
+                }
+              }
+
+              // 3. For each graph, query Vectorize for nearest neighbors among other graphs
+              const edges = []
+              const seen = new Set()
+
+              for (const graphId of graphIds) {
+                const vectorId = representativeVectors[graphId]
+                try {
+                  // Get the vector by ID
+                  const vectors = await env.VECTORIZE.getByIds([vectorId])
+                  if (!vectors || vectors.length === 0) continue
+
+                  const queryVector = vectors[0].values
+                  if (!queryVector || queryVector.length === 0) continue
+
+                  // Query for similar vectors
+                  const results = await env.VECTORIZE.query(queryVector, {
+                    topK: 10,
+                    returnMetadata: 'all',
+                  })
+
+                  // Create edges to other graphs
+                  for (const match of (results.matches || [])) {
+                    const targetGraphId = match.metadata?.graphId
+                    if (!targetGraphId || targetGraphId === graphId) continue
+                    if (!graphVectors[targetGraphId]) continue
+
+                    const edgeKey = [graphId, targetGraphId].sort().join('::')
+                    if (seen.has(edgeKey)) continue
+                    seen.add(edgeKey)
+
+                    if (match.score >= 0.5) {
+                      edges.push({
+                        source: graphId,
+                        target: targetGraphId,
+                        score: Math.round(match.score * 1000) / 1000,
+                      })
+                    }
+                  }
+                } catch (err) {
+                  console.error(`[SemanticMap] Error querying vector for ${graphId}:`, err.message)
+                }
+              }
+
+              // Sort edges by score descending
+              edges.sort((a, b) => b.score - a.score)
+
+              const smBody = JSON.stringify({
+                graphIds,
+                totalGraphs: graphIds.length,
+                edges,
+                totalEdges: edges.length,
+              })
+              // Store in Cache API (5 min TTL)
+              const smResp = new Response(smBody, {
+                headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' }
+              })
+              ctx.waitUntil(smCache.put(smCacheKey, smResp.clone()))
+              return createResponse(smBody, 200, { 'X-Cache': 'MISS' })
+            } catch (error) {
+              return createErrorResponse(`Semantic map failed: ${error.message}`, 500)
             }
           }
           break

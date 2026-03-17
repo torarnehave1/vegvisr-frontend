@@ -387,6 +387,354 @@ export default {
     const pathname = url.pathname
 
     try {
+      if (pathname === '/health' && request.method === 'GET') {
+        return createResponse(JSON.stringify({
+          status: 'healthy',
+          worker: 'vegvisr-photos-worker',
+          timestamp: new Date().toISOString()
+        }), 200)
+      }
+
+      if (pathname === '/openapi.json' && request.method === 'GET') {
+        const spec = {
+          openapi: '3.0.3',
+          info: {
+            title: 'Photos Worker API',
+            version: '1.0.0',
+            description: 'Cloudflare Worker for managing photos, albums, favicons, and trash in R2 storage.'
+          },
+          paths: {
+            '/health': {
+              get: {
+                summary: 'Health check',
+                description: 'Returns the health status of the worker.',
+                responses: {
+                  '200': {
+                    description: 'Worker is healthy',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            status: { type: 'string', example: 'healthy' },
+                            worker: { type: 'string', example: 'vegvisr-photos-worker' },
+                            timestamp: { type: 'string', format: 'date-time' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/openapi.json': {
+              get: {
+                summary: 'OpenAPI specification',
+                description: 'Returns this OpenAPI 3.0 specification.',
+                responses: {
+                  '200': {
+                    description: 'OpenAPI spec',
+                    content: { 'application/json': { schema: { type: 'object' } } }
+                  }
+                }
+              }
+            },
+            '/list-r2-images': {
+              get: {
+                summary: 'List images',
+                description: 'List images from R2 storage, optionally filtered by album name or share ID. Private albums require authentication.',
+                parameters: [
+                  { name: 'album', in: 'query', required: false, schema: { type: 'string' }, description: 'Album name to filter by' },
+                  { name: 'share', in: 'query', required: false, schema: { type: 'string' }, description: 'Share ID for shared album access' }
+                ],
+                responses: {
+                  '200': {
+                    description: 'List of images',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            images: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  key: { type: 'string' },
+                                  url: { type: 'string' },
+                                  uploaded: { type: 'string', format: 'date-time', nullable: true }
+                                }
+                              }
+                            },
+                            album: { type: 'string', nullable: true }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '401': { description: 'Unauthorized — missing or invalid token' },
+                  '403': { description: 'Forbidden — not authorized for this album' },
+                  '404': { description: 'Album not found' },
+                  '500': { description: 'Album storage not configured' }
+                }
+              }
+            },
+            '/upload': {
+              post: {
+                summary: 'Upload images',
+                description: 'Upload one or more image files to R2 storage, optionally adding them to an album.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'multipart/form-data': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          file: { type: 'array', items: { type: 'string', format: 'binary' }, description: 'One or more image files' },
+                          filename: { type: 'string', description: 'Custom filename (single file upload only)' },
+                          album: { type: 'string', description: 'Album name to add uploaded images to' }
+                        },
+                        required: ['file']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Upload successful',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            urls: { type: 'array', items: { type: 'string' } },
+                            keys: { type: 'array', items: { type: 'string' } },
+                            album: { type: 'string', nullable: true }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Missing file or invalid file name' },
+                  '500': { description: 'Album storage not configured' }
+                }
+              }
+            },
+            '/upload-favicon': {
+              post: {
+                summary: 'Upload favicon',
+                description: 'Upload one or more favicon files to the FAVICONS_BUCKET.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'multipart/form-data': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          file: { type: 'array', items: { type: 'string', format: 'binary' }, description: 'One or more favicon files' },
+                          filename: { type: 'string', description: 'Custom filename (single file upload only)' }
+                        },
+                        required: ['file']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Upload successful',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            urls: { type: 'array', items: { type: 'string' } },
+                            keys: { type: 'array', items: { type: 'string' } }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Missing file or invalid file name' },
+                  '500': { description: 'Favicon storage not configured' }
+                }
+              }
+            },
+            '/favicons': {
+              get: {
+                summary: 'List favicons',
+                description: 'List favicon files from FAVICONS_BUCKET.',
+                parameters: [
+                  { name: 'prefix', in: 'query', required: false, schema: { type: 'string', default: 'favicons/' }, description: 'Key prefix to filter by' }
+                ],
+                responses: {
+                  '200': {
+                    description: 'List of favicons',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            items: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  key: { type: 'string' },
+                                  url: { type: 'string' }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '500': { description: 'Favicon storage not configured' }
+                }
+              }
+            },
+            '/delete-r2-image': {
+              delete: {
+                summary: 'Delete an image (move to trash)',
+                description: 'Soft-deletes an image by moving it to the trash/ prefix in R2 and removing it from any albums.',
+                parameters: [
+                  { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'R2 object key of the image to delete' }
+                ],
+                responses: {
+                  '200': {
+                    description: 'Image moved to trash',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            deleted: { type: 'string' },
+                            trashed: { type: 'string' },
+                            deletedAt: { type: 'string', format: 'date-time' }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Image key is required' },
+                  '404': { description: 'Image not found' }
+                }
+              }
+            },
+            '/trash/list': {
+              get: {
+                summary: 'List trashed images',
+                description: 'List all soft-deleted images in the trash/ prefix.',
+                responses: {
+                  '200': {
+                    description: 'List of trashed items',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            items: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  trashKey: { type: 'string' },
+                                  originalKey: { type: 'string', nullable: true },
+                                  deletedAt: { type: 'string', format: 'date-time', nullable: true },
+                                  url: { type: 'string' }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/trash/restore': {
+              post: {
+                summary: 'Restore a trashed image',
+                description: 'Restore an image from trash back to its original key.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          trashKey: { type: 'string', description: 'Key of the trashed object' },
+                          originalKey: { type: 'string', description: 'Original key to restore to (auto-detected if omitted)' },
+                          overwrite: { type: 'boolean', default: false, description: 'Overwrite if destination exists' }
+                        },
+                        required: ['trashKey']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Image restored',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            restored: { type: 'string' },
+                            trashed: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Invalid request — trashKey or originalKey missing' },
+                  '404': { description: 'Trash object not found' },
+                  '409': { description: 'Destination already exists (use overwrite: true)' }
+                }
+              }
+            },
+            '/trash/delete': {
+              delete: {
+                summary: 'Permanently delete a trashed image',
+                description: 'Permanently removes an image from the trash.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          trashKey: { type: 'string', description: 'Key of the trashed object to permanently delete' }
+                        },
+                        required: ['trashKey']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Image permanently deleted',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            deleted: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'trashKey is required' }
+                }
+              }
+            }
+          }
+        }
+        return createResponse(JSON.stringify(spec, null, 2), 200)
+      }
+
       if (pathname === '/list-r2-images' && request.method === 'GET') {
         return await handleListR2Images(request, env)
       }

@@ -124,7 +124,7 @@ export default {
         })
       }
 
-      if (pathname === '/api/docs' && request.method === 'GET') {
+      if ((pathname === '/api/docs' || pathname === '/openapi.json') && request.method === 'GET') {
         return handleApiDocs(corsHeaders)
       }
 
@@ -631,6 +631,31 @@ function handleApiDocs(corsHeaders) {
     },
     servers: [{ url: 'https://gemini.vegvisr.org', description: 'Production' }],
     paths: {
+      '/health': {
+        get: {
+          summary: 'Health check',
+          description: 'Returns worker health status and timestamp.',
+          responses: { 200: { description: 'Worker health status' } }
+        }
+      },
+      '/models': {
+        get: {
+          summary: 'List available chat models',
+          description: 'Returns all available Gemini chat models with context window sizes.',
+          responses: { 200: { description: 'List of chat models' } }
+        }
+      },
+      '/live-config': {
+        post: {
+          summary: 'Get Live API configuration',
+          description: 'Returns Gemini API key and model for WebSocket Live API connections. Requires userId.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object', properties: { userId: { type: 'string' }, model: { type: 'string', default: 'gemini-2.5-flash' } }, required: ['userId'] } } }
+          },
+          responses: { 200: { description: 'API key and model for Live API' } }
+        }
+      },
       '/chat': {
         post: {
           summary: 'Chat completions via Gemini',

@@ -518,6 +518,562 @@ export default {
         })
       }
 
+      if (pathname === '/openapi.json' && request.method === 'GET') {
+        const authParams = [
+          { name: 'user_id', in: 'query', required: true, schema: { type: 'string' }, description: 'Authenticated user ID' },
+          { name: 'phone', in: 'query', required: true, schema: { type: 'string' }, description: 'User phone number' },
+          { name: 'email', in: 'query', required: false, schema: { type: 'string' }, description: 'User email' },
+        ]
+        const authBodyProps = {
+          user_id: { type: 'string', description: 'Authenticated user ID' },
+          phone: { type: 'string', description: 'User phone number' },
+          email: { type: 'string', description: 'User email (optional)' },
+        }
+        const errorSchema = {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            error: { type: 'string' },
+          },
+        }
+        const successProp = { success: { type: 'boolean', example: true } }
+        const groupIdParam = { name: 'groupId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Group ID' }
+
+        const spec = {
+          openapi: '3.0.3',
+          info: {
+            title: 'Group Chat Worker API',
+            version: '1.0.0',
+            description: 'D1-backed polling chat API for Hallo Vegvisr. Provides group management, messaging, media upload, polls, reactions, invite links, push notification registration, and bot management.',
+          },
+          servers: [{ url: url.origin }],
+          paths: {
+            '/health': {
+              get: {
+                summary: 'Health check',
+                operationId: 'getHealth',
+                responses: {
+                  '200': {
+                    description: 'Service health status',
+                    content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string' }, service: { type: 'string' }, database: { type: 'string' }, timestamp: { type: 'string', format: 'date-time' } } } } },
+                  },
+                },
+              },
+            },
+            '/openapi.json': {
+              get: {
+                summary: 'OpenAPI specification',
+                operationId: 'getOpenApiSpec',
+                responses: { '200': { description: 'This OpenAPI 3.0 specification', content: { 'application/json': { schema: { type: 'object' } } } } },
+              },
+            },
+            '/media': {
+              get: {
+                summary: 'Fetch uploaded media by object key',
+                operationId: 'getMedia',
+                parameters: [
+                  { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'R2 object key for the media file' },
+                ],
+                responses: {
+                  '200': { description: 'Media file bytes', content: { '*/*': { schema: { type: 'string', format: 'binary' } } } },
+                  '206': { description: 'Partial content (range request)' },
+                  '404': { description: 'Media not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              head: {
+                summary: 'Head request for media metadata',
+                operationId: 'headMedia',
+                parameters: [
+                  { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'R2 object key for the media file' },
+                ],
+                responses: {
+                  '200': { description: 'Media metadata headers only' },
+                  '404': { description: 'Media not found' },
+                },
+              },
+            },
+            '/groups': {
+              post: {
+                summary: 'Create a new group',
+                operationId: 'createGroup',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['name', 'created_by', 'phone'], properties: { name: { type: 'string' }, created_by: { type: 'string' }, phone: { type: 'string' }, email: { type: 'string' }, graph_id: { type: 'string', nullable: true } } } } },
+                },
+                responses: {
+                  '201': { description: 'Group created', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, group: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, created_by: { type: 'string' }, graph_id: { type: 'string', nullable: true }, created_at: { type: 'integer' }, updated_at: { type: 'integer' } } } } } } } },
+                  '400': { description: 'Validation error', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              get: {
+                summary: 'List groups for a user',
+                operationId: 'listGroups',
+                parameters: [
+                  ...authParams,
+                  { name: 'since', in: 'query', required: false, schema: { type: 'integer' }, description: 'Only return groups updated after this timestamp (ms)' },
+                  { name: 'include_archived', in: 'query', required: false, schema: { type: 'string', enum: ['0', '1'] }, description: 'Include archived groups (Superadmin only)' },
+                ],
+                responses: {
+                  '200': { description: 'List of groups', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, groups: { type: 'array', items: { type: 'object' } } } } } } },
+                  '400': { description: 'Validation error', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}': {
+              put: {
+                summary: 'Update group info (owner/admin only)',
+                operationId: 'updateGroup',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, name: { type: 'string' }, image_url: { type: 'string', nullable: true }, notifications_muted: { type: 'boolean' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Group updated', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, group: { type: 'object' } } } } } },
+                  '403': { description: 'Not owner/admin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/archive': {
+              post: {
+                summary: 'Archive a group (Superadmin only)',
+                operationId: 'archiveGroup',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: authBodyProps } } },
+                },
+                responses: {
+                  '200': { description: 'Group archived', content: { 'application/json': { schema: { type: 'object', properties: successProp } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/restore': {
+              post: {
+                summary: 'Restore an archived group (Superadmin only)',
+                operationId: 'restoreGroup',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: authBodyProps } } },
+                },
+                responses: {
+                  '200': { description: 'Group restored', content: { 'application/json': { schema: { type: 'object', properties: successProp } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/join': {
+              post: {
+                summary: 'Join a group directly',
+                operationId: 'joinGroup',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, role: { type: 'string', default: 'member' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Joined successfully', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, group_id: { type: 'string' }, user_id: { type: 'string' } } } } } },
+                  '404': { description: 'Group not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/members': {
+              get: {
+                summary: 'List group members',
+                operationId: 'listGroupMembers',
+                parameters: [groupIdParam, ...authParams],
+                responses: {
+                  '200': { description: 'Member list', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, members: { type: 'array', items: { type: 'object', properties: { user_id: { type: 'string' }, role: { type: 'string' }, joined_at: { type: 'integer' } } } } } } } } },
+                  '403': { description: 'Not a group member', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/messages': {
+              get: {
+                summary: 'Get messages in a group (polling or cursor-based)',
+                operationId: 'getGroupMessages',
+                parameters: [
+                  groupIdParam,
+                  ...authParams,
+                  { name: 'after', in: 'query', required: false, schema: { type: 'integer', default: 0 }, description: 'Return messages with id > after (forward polling)' },
+                  { name: 'before', in: 'query', required: false, schema: { type: 'integer' }, description: 'Return messages with id < before (backward paging, used with latest=1)' },
+                  { name: 'limit', in: 'query', required: false, schema: { type: 'integer', default: 50, maximum: 200 }, description: 'Max messages to return' },
+                  { name: 'latest', in: 'query', required: false, schema: { type: 'string', enum: ['0', '1'] }, description: 'Use cursor-based paging (newest first, paginate with before)' },
+                ],
+                responses: {
+                  '200': { description: 'Messages', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, messages: { type: 'array', items: { type: 'object' } }, paging: { type: 'object', properties: { has_more: { type: 'boolean' }, next_before: { type: 'integer', nullable: true } }, description: 'Only present when latest=1' } } } } } },
+                  '403': { description: 'Not a group member', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              post: {
+                summary: 'Send a message to a group',
+                operationId: 'sendMessage',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, body: { type: 'string', description: 'Message text (required for type text)' }, message_type: { type: 'string', enum: ['text', 'voice', 'image', 'video'], default: 'text' }, audio_url: { type: 'string', description: 'Required for voice messages' }, audio_duration_ms: { type: 'integer', nullable: true }, transcript_text: { type: 'string', nullable: true }, transcript_lang: { type: 'string', nullable: true }, transcription_status: { type: 'string', nullable: true }, media_url: { type: 'string', description: 'Required for image/video messages' }, media_object_key: { type: 'string' }, media_content_type: { type: 'string', nullable: true }, media_size: { type: 'integer', nullable: true }, video_thumbnail_url: { type: 'string' }, video_duration_ms: { type: 'number', nullable: true }, reply_to_id: { type: 'integer', nullable: true, description: 'Message ID being replied to' } } } } },
+                },
+                responses: {
+                  '201': { description: 'Message sent', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'object' } } } } } },
+                  '400': { description: 'Validation error', content: { 'application/json': { schema: errorSchema } } },
+                  '403': { description: 'Not a group member', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/messages/{messageId}': {
+              patch: {
+                summary: 'Update a message (transcript fields or body)',
+                operationId: 'updateMessage',
+                parameters: [groupIdParam, { name: 'messageId', in: 'path', required: true, schema: { type: 'integer' }, description: 'Message ID' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, body: { type: 'string', nullable: true }, transcript_text: { type: 'string', nullable: true }, transcript_lang: { type: 'string', nullable: true }, transcription_status: { type: 'string', nullable: true } } } } },
+                },
+                responses: {
+                  '200': { description: 'Message updated', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'object' } } } } } },
+                  '404': { description: 'Message not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              delete: {
+                summary: 'Delete a message (owner, group admin, or Superadmin)',
+                operationId: 'deleteMessage',
+                parameters: [
+                  groupIdParam,
+                  { name: 'messageId', in: 'path', required: true, schema: { type: 'integer' }, description: 'Message ID' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Message deleted', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, deleted: { type: 'object', properties: { id: { type: 'integer' }, group_id: { type: 'string' } } } } } } } },
+                  '403': { description: 'Not allowed', content: { 'application/json': { schema: errorSchema } } },
+                  '404': { description: 'Message not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/media': {
+              post: {
+                summary: 'Upload media (image/video) to a group',
+                operationId: 'uploadGroupMedia',
+                parameters: [
+                  groupIdParam,
+                  { name: 'user_id', in: 'query', required: true, schema: { type: 'string' } },
+                  { name: 'phone', in: 'query', required: true, schema: { type: 'string' } },
+                  { name: 'email', in: 'query', required: false, schema: { type: 'string' } },
+                ],
+                requestBody: {
+                  required: true,
+                  content: { '*/*': { schema: { type: 'string', format: 'binary' } } },
+                  description: 'Raw media bytes. Set Content-Type header and X-File-Name header.',
+                },
+                responses: {
+                  '200': { description: 'Upload successful', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, objectKey: { type: 'string' }, mediaUrl: { type: 'string' }, size: { type: 'integer' }, contentType: { type: 'string' } } } } } },
+                  '413': { description: 'Media too large (max 200MB)', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/invite': {
+              post: {
+                summary: 'Create invite link (owner/admin only)',
+                operationId: 'createInvite',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, expires_in_days: { type: 'integer', default: 7 } } } } },
+                },
+                responses: {
+                  '201': { description: 'Invite created', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, invite: { type: 'object', properties: { code: { type: 'string' }, group_id: { type: 'string' }, invite_link: { type: 'string' }, expires_at: { type: 'integer' } } } } } } } },
+                  '403': { description: 'Not owner/admin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/invite/{code}': {
+              get: {
+                summary: 'Get invite info (no auth required)',
+                operationId: 'getInviteInfo',
+                parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' }, description: 'Invite code' }],
+                responses: {
+                  '200': { description: 'Invite details', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, invite: { type: 'object', properties: { code: { type: 'string' }, group_id: { type: 'string' }, group_name: { type: 'string' }, member_count: { type: 'integer' }, expires_at: { type: 'integer' } } } } } } } },
+                  '404': { description: 'Invalid invite code', content: { 'application/json': { schema: errorSchema } } },
+                  '410': { description: 'Invite expired', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/invite/{code}/join': {
+              post: {
+                summary: 'Join a group via invite link',
+                operationId: 'joinViaInvite',
+                parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' }, description: 'Invite code' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: authBodyProps } } },
+                },
+                responses: {
+                  '200': { description: 'Joined or already a member', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, joined: { type: 'boolean' }, already_member: { type: 'boolean' }, group_id: { type: 'string' }, group_name: { type: 'string' } } } } } },
+                  '404': { description: 'Invalid invite code', content: { 'application/json': { schema: errorSchema } } },
+                  '410': { description: 'Invite expired', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/register-device': {
+              post: {
+                summary: 'Register FCM token for push notifications',
+                operationId: 'registerDevice',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'fcm_token'], properties: { ...authBodyProps, fcm_token: { type: 'string', description: 'Firebase Cloud Messaging device token' }, platform: { type: 'string', default: 'android', description: 'Device platform (android/ios/web)' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Device registered', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'string' } } } } } },
+                },
+              },
+            },
+            '/unregister-device': {
+              post: {
+                summary: 'Remove FCM token',
+                operationId: 'unregisterDevice',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'fcm_token'], properties: { ...authBodyProps, fcm_token: { type: 'string' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Device unregistered', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'string' } } } } } },
+                },
+              },
+            },
+            '/groups/{groupId}/polls': {
+              post: {
+                summary: 'Create a poll in a group',
+                operationId: 'createPoll',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'question', 'options'], properties: { ...authBodyProps, question: { type: 'string' }, options: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 } } } } },
+                },
+                responses: {
+                  '200': { description: 'Poll created', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, poll: { type: 'object', properties: { id: { type: 'string' }, message_id: { type: 'integer' }, group_id: { type: 'string' }, question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } }, created_by: { type: 'string' }, created_at: { type: 'integer' }, votes: { type: 'object' }, total_votes: { type: 'integer' }, my_vote: { type: 'integer', nullable: true } } } } } } } },
+                  '403': { description: 'Not a group member', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/polls/unanswered': {
+              get: {
+                summary: 'Count unanswered polls for a user in a group',
+                operationId: 'getUnansweredPollCount',
+                parameters: [groupIdParam, ...authParams],
+                responses: {
+                  '200': { description: 'Unanswered poll count', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, group_id: { type: 'string' }, unanswered_count: { type: 'integer' } } } } } },
+                },
+              },
+            },
+            '/polls/{pollId}': {
+              get: {
+                summary: 'Get poll with results',
+                operationId: 'getPoll',
+                parameters: [
+                  { name: 'pollId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Poll ID' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Poll details with vote counts', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, poll: { type: 'object' } } } } } },
+                  '404': { description: 'Poll not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/polls/{pollId}/vote': {
+              post: {
+                summary: 'Vote on a poll (or change vote)',
+                operationId: 'votePoll',
+                parameters: [{ name: 'pollId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Poll ID' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'option_index'], properties: { ...authBodyProps, option_index: { type: 'integer', description: 'Zero-based index of the chosen option' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Vote recorded', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, poll_id: { type: 'string' }, my_vote: { type: 'integer' }, votes: { type: 'object' }, total_votes: { type: 'integer' } } } } } },
+                  '404': { description: 'Poll not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/polls/{pollId}/close': {
+              post: {
+                summary: 'Close a poll (creator or Superadmin)',
+                operationId: 'closePoll',
+                parameters: [{ name: 'pollId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Poll ID' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: authBodyProps } } },
+                },
+                responses: {
+                  '200': { description: 'Poll closed', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, poll_id: { type: 'string' }, closed: { type: 'boolean' } } } } } },
+                  '403': { description: 'Not creator or Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/messages/{messageId}/reactions': {
+              post: {
+                summary: 'Toggle a reaction on a message',
+                operationId: 'toggleReaction',
+                parameters: [{ name: 'messageId', in: 'path', required: true, schema: { type: 'integer' }, description: 'Message ID' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'reaction'], properties: { ...authBodyProps, reaction: { type: 'string', enum: ['thumbs_up', 'heart', 'smile'] } } } } },
+                },
+                responses: {
+                  '200': { description: 'Reaction toggled', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message_id: { type: 'integer' }, reactions: { type: 'object', description: 'Map of reaction to count' }, my_reactions: { type: 'array', items: { type: 'string' } }, toggled: { type: 'string' }, added: { type: 'boolean' } } } } } },
+                  '404': { description: 'Message not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/reactions': {
+              get: {
+                summary: 'Batch-fetch reactions for multiple messages',
+                operationId: 'getGroupReactions',
+                parameters: [
+                  groupIdParam,
+                  ...authParams,
+                  { name: 'message_ids', in: 'query', required: false, schema: { type: 'string' }, description: 'Comma-separated message IDs (max 200)' },
+                ],
+                responses: {
+                  '200': { description: 'Reactions map', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, reactions: { type: 'object', description: 'Map of messageId to { counts: {reaction: n}, mine: [reaction] }' } } } } } },
+                },
+              },
+            },
+            '/bots': {
+              post: {
+                summary: 'Create a bot (Superadmin only)',
+                operationId: 'createBot',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'name', 'username'], properties: { ...authBodyProps, name: { type: 'string' }, username: { type: 'string', pattern: '^[a-z0-9_-]+$' }, system_prompt: { type: 'string' }, graph_id: { type: 'string', nullable: true }, avatar_url: { type: 'string', nullable: true }, tools: { type: 'array', items: { type: 'object' }, default: [] }, model: { type: 'string', default: 'claude-haiku-4-5-20251001' }, max_turns: { type: 'integer', default: 10 }, temperature: { type: 'number', default: 0.7 } } } } },
+                },
+                responses: {
+                  '201': { description: 'Bot created', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bot: { type: 'object' } } } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                  '409': { description: 'Username already taken', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              get: {
+                summary: 'List all active bots',
+                operationId: 'listBots',
+                parameters: authParams,
+                responses: {
+                  '200': { description: 'Bot list', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bots: { type: 'array', items: { type: 'object' } } } } } } },
+                },
+              },
+            },
+            '/bots/{botId}': {
+              get: {
+                summary: 'Get bot details and group memberships',
+                operationId: 'getBot',
+                parameters: [
+                  { name: 'botId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Bot ID' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Bot details', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bot: { type: 'object' }, groups: { type: 'array', items: { type: 'object' } } } } } } },
+                  '404': { description: 'Bot not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              put: {
+                summary: 'Update bot (Superadmin only)',
+                operationId: 'updateBot',
+                parameters: [{ name: 'botId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Bot ID' }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone'], properties: { ...authBodyProps, name: { type: 'string' }, system_prompt: { type: 'string' }, graph_id: { type: 'string', nullable: true }, avatar_url: { type: 'string', nullable: true }, tools: { type: 'array', items: { type: 'object' } }, model: { type: 'string' }, max_turns: { type: 'integer' }, temperature: { type: 'number' }, is_active: { type: 'boolean' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Bot updated', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bot: { type: 'object' } } } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                  '404': { description: 'Bot not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              delete: {
+                summary: 'Deactivate bot (Superadmin only)',
+                operationId: 'deleteBot',
+                parameters: [
+                  { name: 'botId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Bot ID' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Bot deactivated', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'string' }, originalUsername: { type: 'string' } } } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/bots': {
+              post: {
+                summary: 'Add bot to group (Superadmin only)',
+                operationId: 'addBotToGroup',
+                parameters: [groupIdParam],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['user_id', 'phone', 'bot_id'], properties: { ...authBodyProps, bot_id: { type: 'string', description: 'Bot ID to add' } } } } },
+                },
+                responses: {
+                  '201': { description: 'Bot added to group', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'string' }, bot: { type: 'object' } } } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                  '404': { description: 'Group or bot not found', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+              get: {
+                summary: 'List bots in a group',
+                operationId: 'listGroupBots',
+                parameters: [groupIdParam, ...authParams],
+                responses: {
+                  '200': { description: 'Bots in group', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bots: { type: 'array', items: { type: 'object' } } } } } } },
+                },
+              },
+            },
+            '/groups/{groupId}/bots/{botId}': {
+              delete: {
+                summary: 'Remove bot from group (Superadmin only)',
+                operationId: 'removeBotFromGroup',
+                parameters: [
+                  groupIdParam,
+                  { name: 'botId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Bot ID' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Bot removed', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'string' } } } } } },
+                  '403': { description: 'Not Superadmin', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+            '/groups/{groupId}/bots/check-mention': {
+              get: {
+                summary: 'Check if text mentions a bot in this group',
+                operationId: 'checkBotMention',
+                parameters: [
+                  groupIdParam,
+                  { name: 'text', in: 'query', required: false, schema: { type: 'string' }, description: 'Message text to scan for @mentions' },
+                ],
+                responses: {
+                  '200': { description: 'Matching bots', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, bots: { type: 'array', items: { type: 'object' } } } } } } },
+                },
+              },
+            },
+            '/bot-message': {
+              post: {
+                summary: 'Internal: bot posts a message (called by agent-worker)',
+                operationId: 'botSendMessage',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['bot_id', 'group_id', 'body'], properties: { bot_id: { type: 'string' }, group_id: { type: 'string' }, body: { type: 'string' } } } } },
+                },
+                responses: {
+                  '201': { description: 'Bot message sent', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, message: { type: 'object' } } } } } },
+                  '403': { description: 'Bot not in group', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
+          },
+        }
+
+        return jsonResponse(spec)
+      }
+
       if (pathname === '/media' && (request.method === 'GET' || request.method === 'HEAD')) {
         const response = await handleMediaFetch(request, env, searchParams)
         if (request.method === 'HEAD') {
@@ -631,6 +1187,11 @@ export default {
           const imageUrl = body.image_url ? String(body.image_url).trim() : null
           updates.push('image_url = ?')
           values.push(imageUrl)
+        }
+
+        if (body.notifications_muted !== undefined) {
+          updates.push('notifications_muted = ?')
+          values.push(body.notifications_muted ? 1 : 0)
         }
 
         if (updates.length === 0) {
@@ -1110,11 +1671,17 @@ export default {
           console.log('[Push] Superadmin sending message, triggering push notifications')
           ctx.waitUntil((async () => {
             try {
-              // Get group name for notification
+              // Get group name and mute setting
               const group = await env.CHAT_DB.prepare(
-                'SELECT name FROM groups WHERE id = ?'
+                'SELECT name, notifications_muted FROM groups WHERE id = ?'
               ).bind(groupId).first()
               const groupName = group?.name || 'Group Chat'
+
+              // Skip push if group has notifications muted
+              if (group?.notifications_muted) {
+                console.log('[Push] Group', groupName, 'has notifications muted — skipping')
+                return
+              }
 
               // Get tokens for other members
               const tokens = await getGroupMemberTokens(env, groupId, userId)

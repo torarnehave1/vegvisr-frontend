@@ -345,9 +345,8 @@ export default {
         return addCorsHeaders(
           new Response(
             JSON.stringify({
-              status: 'ok',
+              status: 'healthy',
               worker: 'email-worker',
-              phase: '2',
               timestamp: new Date().toISOString(),
             }),
             {
@@ -355,6 +354,363 @@ export default {
               headers: { 'Content-Type': 'application/json' },
             },
           ),
+        )
+      }
+
+      // OpenAPI 3.0 specification
+      if (path === '/openapi.json' && method === 'GET') {
+        const spec = {
+          openapi: '3.0.3',
+          info: {
+            title: 'Email Worker API',
+            version: '1.0.0',
+            description: 'Cloudflare Worker for email sending, template management, magic-link auth, Gmail sync, and email account management.',
+          },
+          paths: {
+            '/health': {
+              get: {
+                summary: 'Health check',
+                description: 'Returns the health status of the email worker.',
+                responses: {
+                  '200': {
+                    description: 'Worker is healthy',
+                    content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string', example: 'healthy' }, worker: { type: 'string', example: 'email-worker' }, timestamp: { type: 'string', format: 'date-time' } } } } },
+                  },
+                },
+              },
+            },
+            '/openapi.json': {
+              get: {
+                summary: 'OpenAPI specification',
+                description: 'Returns this OpenAPI 3.0 JSON specification.',
+                responses: {
+                  '200': {
+                    description: 'OpenAPI spec',
+                    content: { 'application/json': { schema: { type: 'object' } } },
+                  },
+                },
+              },
+            },
+            '/render-template': {
+              post: {
+                summary: 'Render an email template',
+                description: 'Renders an email template by ID with the supplied variables.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['templateId'], properties: { templateId: { type: 'string', description: 'ID of the template in email_templates table' }, variables: { type: 'object', additionalProperties: { type: 'string' }, description: 'Key-value pairs to substitute in the template' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Rendered template', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, template: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string' }, language: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } } } } } } } },
+                  '400': { description: 'Missing templateId' },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Rendering error' },
+                },
+              },
+            },
+            '/generate-invitation': {
+              post: {
+                summary: 'Generate a room invitation',
+                description: 'Creates an invitation token, stores it in D1, and returns a slowyou.io registration link.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['recipientEmail', 'roomId', 'inviterName', 'inviterUserId'], properties: { recipientEmail: { type: 'string', format: 'email' }, roomId: { type: 'string' }, inviterName: { type: 'string' }, inviterUserId: { type: 'string' }, invitationMessage: { type: 'string' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Invitation created', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, invitationToken: { type: 'string' }, slowyouLink: { type: 'string' }, callbackUrl: { type: 'string' }, expiresAt: { type: 'string', format: 'date-time' } } } } } },
+                  '400': { description: 'Missing required fields' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/generate-slowyou-link': {
+              post: {
+                summary: 'Generate a slowyou.io registration link',
+                description: 'Builds a slowyou.io link for the given email, role, and callback URL.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['email', 'callbackUrl'], properties: { email: { type: 'string', format: 'email' }, role: { type: 'string', default: 'subscriber' }, callbackUrl: { type: 'string', format: 'uri' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Link generated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, slowyouLink: { type: 'string' }, email: { type: 'string' }, role: { type: 'string' } } } } } },
+                  '400': { description: 'Missing email or callbackUrl' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/send-gmail-email': {
+              post: {
+                summary: 'Send email via Gmail SMTP',
+                description: 'Sends an email through slowyou.io using user-provided Gmail app password. Supports direct credentials or D1 account lookup.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', properties: { senderEmail: { type: 'string', format: 'email' }, authEmail: { type: 'string', format: 'email', description: 'SMTP auth email (defaults to senderEmail)' }, fromEmail: { type: 'string', format: 'email', description: 'Display From address' }, appPassword: { type: 'string', description: 'Gmail app password' }, toEmail: { type: 'string', format: 'email' }, subject: { type: 'string' }, html: { type: 'string', description: 'HTML body' }, userEmail: { type: 'string', format: 'email', description: 'Alternative: look up credentials by user' }, accountId: { type: 'string', description: 'Alternative: account ID to resolve credentials' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Email sent', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, result: { type: 'object' } } } } } },
+                  '400': { description: 'Missing required fields or no app password' },
+                  '404': { description: 'Account not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/send-email': {
+              post: {
+                summary: 'Send email via domain SMTP',
+                description: 'Sends email through Postfix SMTP relay at smtp.vegvisr.org via slowyou.io. Resolves per-user SMTP credentials from D1.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', properties: { fromEmail: { type: 'string', format: 'email' }, toEmail: { type: 'string', format: 'email' }, subject: { type: 'string' }, html: { type: 'string', description: 'HTML body (required if no text)' }, text: { type: 'string', description: 'Plain text body (required if no html)' }, userEmail: { type: 'string', format: 'email', description: 'Alternative: resolve fromEmail from account' }, accountId: { type: 'string', description: 'Alternative: account ID to resolve' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Email sent', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, result: { type: 'object' } } } } } },
+                  '400': { description: 'Missing required fields' },
+                  '404': { description: 'Account not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/login/magic/send': {
+              post: {
+                summary: 'Send magic login link',
+                description: 'Generates a magic-link token, stores it in D1, and emails the link to the user.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['email'], properties: { email: { type: 'string', format: 'email' }, redirectUrl: { type: 'string', format: 'uri', description: 'URL to redirect after verification' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Magic link sent', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, email: { type: 'string' }, expiresAt: { type: 'string', format: 'date-time' } } } } } },
+                  '400': { description: 'Invalid email' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/login/magic/verify': {
+              post: {
+                summary: 'Verify magic login token (POST)',
+                description: 'Consumes a magic-link token and returns the authenticated email. Sets an HttpOnly cookie on vegvisr.org domains.',
+                requestBody: {
+                  required: false,
+                  content: { 'application/json': { schema: { type: 'object', properties: { token: { type: 'string', description: 'Magic-link token (also accepted as query param)' } } } } },
+                },
+                parameters: [{ name: 'token', in: 'query', schema: { type: 'string' }, description: 'Magic-link token' }],
+                responses: {
+                  '200': { description: 'Token verified', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, email: { type: 'string' }, expiresAt: { type: 'string' }, redirectUrl: { type: 'string', nullable: true } } } } } },
+                  '400': { description: 'Token missing' },
+                  '404': { description: 'Token not found' },
+                  '410': { description: 'Token already used or expired' },
+                  '500': { description: 'Server error' },
+                },
+              },
+              get: {
+                summary: 'Verify magic login token (GET)',
+                description: 'Same as POST but token is passed as a query parameter.',
+                parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' }, description: 'Magic-link token' }],
+                responses: {
+                  '200': { description: 'Token verified' },
+                  '400': { description: 'Token missing' },
+                  '404': { description: 'Token not found' },
+                  '410': { description: 'Token already used or expired' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/templates': {
+              get: {
+                summary: 'List active email templates',
+                description: 'Returns active email templates, optionally filtered by language and type.',
+                parameters: [
+                  { name: 'language', in: 'query', schema: { type: 'string', default: 'en' }, description: 'Language code filter' },
+                  { name: 'type', in: 'query', schema: { type: 'string' }, description: 'Template type filter' },
+                ],
+                responses: {
+                  '200': { description: 'List of templates', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, templates: { type: 'array', items: { type: 'object' } } } } } } },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/templates/{id}': {
+              get: {
+                summary: 'Get a specific active template',
+                description: 'Returns a single active email template by ID.',
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Template ID' }],
+                responses: {
+                  '200': { description: 'Template found', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, template: { type: 'object' } } } } } },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/test-main-worker': {
+              get: {
+                summary: 'Test main worker binding',
+                description: 'Calls the main worker via service binding to verify connectivity.',
+                responses: {
+                  '200': { description: 'Main worker response', content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string' }, mainWorkerResponse: { type: 'string' } } } } } },
+                  '500': { description: 'Binding call failed' },
+                },
+              },
+            },
+            '/render-and-send-template': {
+              post: {
+                summary: 'Render and send a template email',
+                description: 'Renders an email template with variables and sends it to the specified recipient.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['templateId', 'toEmail'], properties: { templateId: { type: 'string' }, toEmail: { type: 'string', format: 'email' }, variables: { type: 'object', additionalProperties: { type: 'string' } }, domain: { type: 'string', default: 'vegvisr.org' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Template rendered and sent', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, template: { type: 'object' }, email: { type: 'object' }, rendered: { type: 'object' } } } } } },
+                  '400': { description: 'Missing templateId or toEmail' },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Rendering error' },
+                },
+              },
+            },
+            '/graph-templates': {
+              get: {
+                summary: 'List graph templates',
+                description: 'Returns available graph templates from the graphTemplates table.',
+                responses: {
+                  '200': { description: 'List of graph templates', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, templates: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, variables: { type: 'string' } } } } } } } } },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/email-templates': {
+              get: {
+                summary: 'List all email templates',
+                description: 'Returns all email templates (active and inactive) from the email_templates table.',
+                responses: {
+                  '200': { description: 'List of email templates', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, templates: { type: 'array', items: { type: 'object' } } } } } } },
+                  '500': { description: 'Server error' },
+                },
+              },
+              post: {
+                summary: 'Create a new email template',
+                description: 'Creates a new email template in the email_templates table.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['template_name', 'subject', 'body'], properties: { id: { type: 'string', description: 'Optional ID (auto-generated if omitted)' }, template_name: { type: 'string' }, template_type: { type: 'string', default: 'general' }, language_code: { type: 'string', default: 'en' }, subject: { type: 'string' }, body: { type: 'string' }, variables: { type: 'string', default: '[]', description: 'JSON array of variable names' }, is_default: { type: 'integer', default: 0 }, created_by: { type: 'string', default: 'email_manager' }, is_active: { type: 'integer', default: 1 } } } } },
+                },
+                responses: {
+                  '201': { description: 'Template created', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, templateId: { type: 'string' }, meta: { type: 'object' } } } } } },
+                  '400': { description: 'Missing required fields' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/email-templates/{id}': {
+              get: {
+                summary: 'Get a single email template',
+                description: 'Returns a single email template by ID (active or inactive).',
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+                responses: {
+                  '200': { description: 'Template found', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, template: { type: 'object' } } } } } },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+              put: {
+                summary: 'Update an email template',
+                description: 'Updates all fields of an email template by ID.',
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', properties: { template_name: { type: 'string' }, template_type: { type: 'string' }, language_code: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' }, variables: { type: 'string' }, is_active: { type: 'integer' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Template updated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, meta: { type: 'object' } } } } } },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+              delete: {
+                summary: 'Delete an email template',
+                description: 'Permanently deletes an email template by ID.',
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+                responses: {
+                  '200': { description: 'Template deleted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, meta: { type: 'object' } } } } } },
+                  '404': { description: 'Template not found' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/email-accounts': {
+              get: {
+                summary: 'List email accounts for a user',
+                description: 'Returns email account metadata (no passwords) for the specified user.',
+                parameters: [{ name: 'user', in: 'query', required: true, schema: { type: 'string', format: 'email' }, description: 'User email address' }],
+                responses: {
+                  '200': { description: 'Account list', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, accounts: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, email: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, isDefault: { type: 'boolean' }, hasPassword: { type: 'boolean' }, storeUrl: { type: 'string' } } } } } } } } },
+                  '400': { description: 'Invalid user email' },
+                  '500': { description: 'Server error' },
+                },
+              },
+              post: {
+                summary: 'Create or update an email account',
+                description: 'Saves or updates an email account for a user, with optional app password stored server-side.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['userEmail', 'account'], properties: { userEmail: { type: 'string', format: 'email' }, account: { type: 'object', required: ['id', 'email'], properties: { id: { type: 'string' }, name: { type: 'string' }, email: { type: 'string', format: 'email' }, aliases: { type: 'array', items: { type: 'string' } }, isDefault: { type: 'boolean' }, storeUrl: { type: 'string' }, accountType: { type: 'string', default: 'gmail' } } }, appPassword: { type: 'string', description: 'Gmail app password (stored server-side, never returned)' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Account saved', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, account: { type: 'object' } } } } } },
+                  '400': { description: 'Missing required fields' },
+                  '500': { description: 'Server error' },
+                },
+              },
+              delete: {
+                summary: 'Delete an email account',
+                description: 'Removes an email account and its stored password for a user.',
+                parameters: [
+                  { name: 'user', in: 'query', required: true, schema: { type: 'string', format: 'email' }, description: 'User email' },
+                  { name: 'id', in: 'query', required: true, schema: { type: 'string' }, description: 'Account ID to delete' },
+                ],
+                responses: {
+                  '200': { description: 'Account deleted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } },
+                  '400': { description: 'Missing user or id' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/email-accounts/sync': {
+              put: {
+                summary: 'Bulk sync email account metadata',
+                description: 'Replaces all email account metadata for a user (no passwords affected).',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['userEmail', 'accounts'], properties: { userEmail: { type: 'string', format: 'email' }, accounts: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, email: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, isDefault: { type: 'boolean' }, hasPassword: { type: 'boolean' }, storeUrl: { type: 'string' } } } } } } } },
+                },
+                responses: {
+                  '200': { description: 'Sync complete', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } },
+                  '400': { description: 'Missing userEmail or accounts' },
+                  '500': { description: 'Server error' },
+                },
+              },
+            },
+            '/gmail/sync-now': {
+              post: {
+                summary: 'Trigger manual Gmail sync',
+                description: 'Manually triggers a Gmail inbox sync for the specified user. Fetches unread emails and stores them via vemail-store-worker.',
+                requestBody: {
+                  required: true,
+                  content: { 'application/json': { schema: { type: 'object', required: ['userEmail'], properties: { userEmail: { type: 'string', format: 'email' } } } } },
+                },
+                responses: {
+                  '200': { description: 'Sync completed', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } } } } },
+                  '400': { description: 'Missing userEmail' },
+                  '500': { description: 'Sync error' },
+                },
+              },
+            },
+          },
+        }
+
+        return addCorsHeaders(
+          new Response(JSON.stringify(spec, null, 2), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
         )
       }
 
@@ -1839,18 +2195,24 @@ export default {
             error: 'Endpoint not found',
             availableEndpoints: [
               '/health',
+              '/openapi.json',
               '/test-main-worker',
               '/render-template (POST)',
               '/render-and-send-template (POST)',
               '/graph-templates (GET)',
               '/generate-invitation (POST)',
               '/generate-slowyou-link (POST)',
+              '/send-gmail-email (POST)',
+              '/send-email (POST)',
+              '/login/magic/send (POST)',
+              '/login/magic/verify (POST, GET)',
               '/templates (GET)',
               '/templates/{id} (GET)',
               '/email-templates (GET, POST)',
               '/email-templates/{id} (GET, PUT, DELETE)',
               '/email-accounts (GET, POST, DELETE)',
               '/email-accounts/sync (PUT)',
+              '/gmail/sync-now (POST)',
             ],
           }),
           {

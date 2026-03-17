@@ -194,6 +194,375 @@ export default {
       })
     }
 
+    // OpenAPI 3.0 specification
+    if (url.pathname === '/openapi.json') {
+      const spec = {
+        openapi: '3.0.0',
+        info: {
+          title: 'Auth Worker API',
+          version: '1.0.0',
+          description: 'Centralized OAuth authentication worker for Google (Photos Picker, Gmail, Calendar) and LinkedIn services. Manages token exchange, credential storage in KV, and image proxying.',
+        },
+        servers: [{ url: 'https://auth.vegvisr.org' }],
+        paths: {
+          '/': {
+            get: {
+              summary: 'Health check (root)',
+              operationId: 'healthRoot',
+              responses: { '200': { description: 'Worker is running', content: { 'text/plain': { schema: { type: 'string', example: 'Auth worker running' } } } } },
+            },
+          },
+          '/health': {
+            get: {
+              summary: 'Health check',
+              operationId: 'health',
+              responses: { '200': { description: 'Worker is running', content: { 'text/plain': { schema: { type: 'string', example: 'Auth worker running' } } } } },
+            },
+          },
+          '/openapi.json': {
+            get: {
+              summary: 'OpenAPI specification',
+              operationId: 'getOpenApiSpec',
+              responses: { '200': { description: 'OpenAPI 3.0 JSON spec', content: { 'application/json': { schema: { type: 'object' } } } } },
+            },
+          },
+          '/auth/google/login': {
+            get: {
+              summary: 'Start Google OAuth login flow',
+              operationId: 'googleLogin',
+              description: 'Redirects to Google OAuth consent screen with openid, email, profile and Photos Picker scopes.',
+              responses: { '302': { description: 'Redirect to Google OAuth consent screen' } },
+            },
+          },
+          '/auth/google/callback': {
+            get: {
+              summary: 'Google OAuth callback',
+              operationId: 'googleCallback',
+              description: 'Handles Google OAuth callback, exchanges code for tokens, and redirects to frontend with tokens in query params.',
+              parameters: [
+                { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorization code from Google' },
+                { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Error code if user denied consent' },
+                { name: 'error_description', in: 'query', required: false, schema: { type: 'string' }, description: 'Human-readable error description' },
+              ],
+              responses: {
+                '302': { description: 'Redirect to frontend with tokens or error in query params' },
+              },
+            },
+          },
+          '/auth/google/token': {
+            post: {
+              summary: 'Exchange authorization code for tokens',
+              operationId: 'googleTokenExchange',
+              description: 'Frontend-facing endpoint to exchange a Google authorization code for access/refresh tokens.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['code'], properties: { code: { type: 'string', description: 'Google authorization code' } } } } },
+              },
+              responses: {
+                '200': { description: 'Tokens returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, access_token: { type: 'string' }, refresh_token: { type: 'string' }, expires_in: { type: 'integer' } } } } } },
+                '400': { description: 'Missing code or token exchange failed', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/picker/auth': {
+            get: {
+              summary: 'Start Google Photos Picker OAuth flow',
+              operationId: 'pickerAuth',
+              description: 'Redirects to Google OAuth for Photos Picker read-only access.',
+              responses: { '302': { description: 'Redirect to Google OAuth consent screen' } },
+            },
+          },
+          '/picker/callback': {
+            get: {
+              summary: 'Google Photos Picker OAuth callback',
+              operationId: 'pickerCallback',
+              description: 'Handles Picker OAuth callback, exchanges code for tokens, fetches user email, stores credentials in KV, and redirects to frontend.',
+              parameters: [
+                { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorization code from Google' },
+                { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Error code' },
+                { name: 'error_description', in: 'query', required: false, schema: { type: 'string' }, description: 'Error description' },
+              ],
+              responses: { '302': { description: 'Redirect to frontend with success or error' } },
+            },
+          },
+          '/picker/store-credentials': {
+            post: {
+              summary: 'Store Google Picker credentials',
+              operationId: 'pickerStoreCredentials',
+              description: 'Stores access token and API key in KV keyed by user email.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['access_token', 'user_email'], properties: { access_token: { type: 'string' }, user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials stored', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessMessage' } } } },
+                '400': { description: 'Missing required fields', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/picker/get-credentials': {
+            post: {
+              summary: 'Get Google Picker credentials',
+              operationId: 'pickerGetCredentials',
+              description: 'Retrieves stored Picker credentials from KV. Returns 410 if expired.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, api_key: { type: 'string' }, access_token: { type: 'string' }, client_id: { type: 'string' } } } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '410': { description: 'Credentials expired', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/picker/delete-credentials': {
+            post: {
+              summary: 'Delete Google Picker credentials',
+              operationId: 'pickerDeleteCredentials',
+              description: 'Deletes stored Picker credentials from KV for a user.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials deleted', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessMessage' } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/picker/proxy-image': {
+            post: {
+              summary: 'Proxy Google Photos image',
+              operationId: 'pickerProxyImage',
+              description: 'Fetches a Google Photos image using stored credentials and returns the binary image data. Avoids CORS issues for the frontend.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['baseUrl', 'user_email'], properties: { baseUrl: { type: 'string', format: 'uri', description: 'Google Photos base URL for the image' }, user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Image binary data', content: { 'image/*': { schema: { type: 'string', format: 'binary' } } } },
+                '400': { description: 'Missing required fields', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/gmail/auth': {
+            get: {
+              summary: 'Start Gmail OAuth flow',
+              operationId: 'gmailAuth',
+              description: 'Redirects to Google OAuth consent screen with Gmail read, modify, and labels scopes.',
+              responses: { '302': { description: 'Redirect to Google OAuth consent screen' } },
+            },
+          },
+          '/gmail/callback': {
+            get: {
+              summary: 'Gmail OAuth callback',
+              operationId: 'gmailCallback',
+              description: 'Handles Gmail OAuth callback, exchanges code for tokens, fetches user email, stores credentials in KV (keyed as gmail:<email>), and redirects to frontend.',
+              parameters: [
+                { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorization code from Google' },
+                { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Error code' },
+                { name: 'error_description', in: 'query', required: false, schema: { type: 'string' }, description: 'Error description' },
+              ],
+              responses: { '302': { description: 'Redirect to frontend with success or error' } },
+            },
+          },
+          '/gmail/get-credentials': {
+            post: {
+              summary: 'Get Gmail credentials',
+              operationId: 'gmailGetCredentials',
+              description: 'Retrieves Gmail credentials from KV. Automatically refreshes token if within 5 minutes of expiry.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials returned (may include refreshed: true)', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, access_token: { type: 'string' }, user_email: { type: 'string' }, refreshed: { type: 'boolean' } } } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Token refresh failed or no refresh token', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/gmail/delete-credentials': {
+            post: {
+              summary: 'Delete Gmail credentials',
+              operationId: 'gmailDeleteCredentials',
+              description: 'Deletes stored Gmail credentials from KV for a user.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials deleted', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessMessage' } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/gmail/test-fetch': {
+            post: {
+              summary: 'Fetch latest Gmail email',
+              operationId: 'gmailTestFetch',
+              description: 'Test endpoint that fetches the latest email from the user\'s Gmail inbox. Automatically refreshes token if needed.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Latest email returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, email: { type: 'object', properties: { id: { type: 'string' }, threadId: { type: 'string' }, subject: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, date: { type: 'string' }, snippet: { type: 'string' } } } } } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Token refresh failed', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/calendar/auth': {
+            get: {
+              summary: 'Start Google Calendar OAuth flow',
+              operationId: 'calendarAuth',
+              description: 'Redirects to Google OAuth consent screen with Calendar events and read-only scopes.',
+              responses: { '302': { description: 'Redirect to Google OAuth consent screen' } },
+            },
+          },
+          '/calendar/callback': {
+            get: {
+              summary: 'Google Calendar OAuth callback',
+              operationId: 'calendarCallback',
+              description: 'Handles Calendar OAuth callback, exchanges code for tokens, fetches user email, stores credentials in KV (keyed as calendar:<email>), and redirects to calendar.vegvisr.org.',
+              parameters: [
+                { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorization code from Google' },
+                { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Error code' },
+                { name: 'error_description', in: 'query', required: false, schema: { type: 'string' }, description: 'Error description' },
+              ],
+              responses: { '302': { description: 'Redirect to calendar frontend with success or error' } },
+            },
+          },
+          '/calendar/get-credentials': {
+            post: {
+              summary: 'Get Calendar credentials',
+              operationId: 'calendarGetCredentials',
+              description: 'Retrieves Calendar credentials from KV. Automatically refreshes token if within 5 minutes of expiry.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, access_token: { type: 'string' }, user_email: { type: 'string' }, refreshed: { type: 'boolean' } } } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Token refresh failed or no refresh token', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorWithSuccess' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/calendar/delete-credentials': {
+            post: {
+              summary: 'Delete Calendar credentials',
+              operationId: 'calendarDeleteCredentials',
+              description: 'Deletes stored Calendar credentials from KV for a user.',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
+              },
+              responses: {
+                '200': { description: 'Credentials deleted', content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessMessage' } } } },
+                '400': { description: 'Missing user_email', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/auth/linkedin/login': {
+            get: {
+              summary: 'Start LinkedIn OAuth login flow',
+              operationId: 'linkedinLogin',
+              description: 'Redirects to LinkedIn OAuth consent screen. Supports personal_only and return_url query params.',
+              parameters: [
+                { name: 'personal_only', in: 'query', required: false, schema: { type: 'string', enum: ['true', 'false'] }, description: 'If true, skip organization access' },
+                { name: 'return_url', in: 'query', required: false, schema: { type: 'string', format: 'uri' }, description: 'URL to redirect back to after auth (default: https://www.vegvisr.org/)' },
+              ],
+              responses: { '302': { description: 'Redirect to LinkedIn OAuth consent screen' } },
+            },
+          },
+          '/auth/linkedin/callback': {
+            get: {
+              summary: 'LinkedIn OAuth callback',
+              operationId: 'linkedinCallback',
+              description: 'Handles LinkedIn OAuth callback, exchanges code for tokens, fetches profile, stores credentials in KV, and redirects to return URL with profile data.',
+              parameters: [
+                { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorization code from LinkedIn' },
+                { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Error code' },
+                { name: 'error_description', in: 'query', required: false, schema: { type: 'string' }, description: 'Error description' },
+                { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'Base64-encoded JSON with returnUrl and personalOnly' },
+              ],
+              responses: { '302': { description: 'Redirect to return URL with tokens and profile data or error' } },
+            },
+          },
+          '/auth/linkedin/profile': {
+            get: {
+              summary: 'Get LinkedIn profile',
+              operationId: 'linkedinProfile',
+              description: 'Fetches LinkedIn user profile using a Bearer token.',
+              parameters: [
+                { name: 'Authorization', in: 'header', required: true, schema: { type: 'string' }, description: 'Bearer <access_token>' },
+              ],
+              responses: {
+                '200': { description: 'Profile returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, profile: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, givenName: { type: 'string' }, familyName: { type: 'string' }, email: { type: 'string' }, emailVerified: { type: 'boolean' }, picture: { type: 'string' }, locale: { type: 'object' } } } } } } } },
+                '401': { description: 'Missing or invalid authorization', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+          '/user/linkedin-token': {
+            get: {
+              summary: 'Get LinkedIn token for a user',
+              operationId: 'userLinkedinToken',
+              description: 'Retrieves stored LinkedIn access token and person URN from KV using x-user-email header.',
+              parameters: [
+                { name: 'x-user-email', in: 'header', required: true, schema: { type: 'string', format: 'email' }, description: 'User email to look up credentials for' },
+              ],
+              responses: {
+                '200': { description: 'Token returned', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, access_token: { type: 'string' }, linkedin_person_urn: { type: 'string' }, linkedin_organizations: { type: 'array', items: { type: 'object' } }, expires_in: { type: 'integer' } } } } } },
+                '400': { description: 'Missing x-user-email header', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'No credentials found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            Error: {
+              type: 'object',
+              properties: { error: { type: 'string' } },
+            },
+            ErrorWithSuccess: {
+              type: 'object',
+              properties: { success: { type: 'boolean', example: false }, error: { type: 'string' } },
+            },
+            SuccessMessage: {
+              type: 'object',
+              properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } },
+            },
+          },
+        },
+      }
+
+      return new Response(JSON.stringify(spec, null, 2), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      })
+    }
+
     // 5. Google Picker OAuth flow
     if (url.pathname === '/picker/auth' && request.method === 'GET') {
       const params = new URLSearchParams({

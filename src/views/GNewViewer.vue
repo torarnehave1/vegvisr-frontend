@@ -259,6 +259,20 @@
             🔴 New YouTube Live
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewCloudflareVideoNodeAndClose"
+            class="btn btn-outline-warning w-100 mb-2"
+          >
+            🎥 New Cloudflare Video
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewCloudflareLiveNodeAndClose"
+            class="btn btn-outline-warning w-100 mb-2"
+          >
+            📡 New Cloudflare Live
+          </button>
+          <button
             @click="openShareAndClose"
             class="btn btn-outline-success w-100 mb-2"
             :disabled="!graphData.nodes.length"
@@ -552,6 +566,20 @@
             🔴 New YouTube Live
           </button>
           <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewCloudflareVideoNode"
+            class="btn btn-outline-warning"
+          >
+            🎥 New Cloudflare Video
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewCloudflareLiveNode"
+            class="btn btn-outline-warning"
+          >
+            📡 New Cloudflare Live
+          </button>
+          <button
             @click="openShareModal"
             class="btn btn-outline-success"
             :disabled="!graphData.nodes.length"
@@ -621,6 +649,34 @@
                     Hidden for published/shared graphs unless the viewer is Superadmin.
                   </small>
                 </div>
+              </div>
+
+              <!-- Cloudflare Video ID/URL Path Field -->
+              <div v-if="editingNode.type === 'cloudflare-video'" class="form-group">
+                <label class="form-label">🎥 Cloudflare Stream Video ID or URL (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="text"
+                  class="form-control"
+                  placeholder="Enter video ID (e.g., 53a48c844fbf810d0a0a92c5109f9e58) or Stream URL..."
+                />
+                <small class="form-text text-muted">
+                  Enter a 32-character video ID or a Cloudflare Stream URL. This will be used to embed the video player.
+                </small>
+              </div>
+
+              <!-- Cloudflare Live Stream Path Field -->
+              <div v-if="editingNode.type === 'cloudflare-live'" class="form-group">
+                <label class="form-label">📡 Cloudflare Stream Video ID (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="text"
+                  class="form-control"
+                  placeholder="Enter video ID for playback (set after stream starts)..."
+                />
+                <small class="form-text text-muted">
+                  The playback video ID. For live inputs, this is assigned when the stream starts. RTMP credentials are stored in metadata.
+                </small>
               </div>
 
               <!-- YouTube URL Path Field (for youtube-video nodes) -->
@@ -5955,6 +6011,100 @@ const createNewYouTubeLiveNode = async () => {
   }
 }
 
+const createNewCloudflareVideoNode = async () => {
+  console.log('🆕 Creating new Cloudflare Video node...')
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  const newNode = {
+    id: newNodeId,
+    label: 'Cloudflare Video',
+    color: '#f48120',
+    type: 'cloudflare-video',
+    info: 'Edit this node to add a Cloudflare Stream video ID or URL in the path field.',
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+    position: { x: 0, y: 0 },
+  }
+
+  try {
+    await handleNodeCreated(newNode)
+    console.log('✅ New Cloudflare Video node created successfully:', newNode)
+  } catch (error) {
+    console.error('❌ Error creating Cloudflare Video node:', error)
+    statusMessage.value = `❌ Failed to create Cloudflare Video node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+const createNewCloudflareLiveNode = async () => {
+  console.log('🆕 Creating new Cloudflare Live node...')
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c == 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+
+  const newNodeId = generateUUID()
+
+  const newNode = {
+    id: newNodeId,
+    label: 'Live Stream',
+    color: '#ef4444',
+    type: 'cloudflare-live',
+    info: 'Configure this live stream node with RTMP credentials in the metadata. Set the video ID in the path field once the stream starts.',
+    bibl: [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: null,
+    position: { x: 0, y: 0 },
+    metadata: {
+      status: 'waiting',
+      liveInputId: null,
+      rtmpsUrl: null,
+      streamKey: null,
+    },
+  }
+
+  try {
+    await handleNodeCreated(newNode)
+    console.log('✅ New Cloudflare Live node created successfully:', newNode)
+  } catch (error) {
+    console.error('❌ Error creating Cloudflare Live node:', error)
+    statusMessage.value = `❌ Failed to create Cloudflare Live node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
+}
+
+const createNewCloudflareVideoNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewCloudflareVideoNode()
+}
+
+const createNewCloudflareLiveNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewCloudflareLiveNode()
+}
+
 // IMAGEQUOTE methods
 const openImageQuoteCreator = () => {
   showImageQuoteCreator.value = true
@@ -8392,7 +8542,7 @@ const saveNodeChanges = async () => {
       }
 
       // Persist path for node types that use URL/file paths from edit modal
-      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image']
+      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image', 'cloudflare-video', 'cloudflare-live']
       if (pathNodeTypes.includes(editingNode.value.type)) {
         const normalizedPath = String(editingNode.value.path || '').trim()
         updatedNode.path = normalizedPath || null
@@ -9014,6 +9164,9 @@ const getNodeTypeIcon = (type) => {
     'mermaid-diagram': '🔀',
     background: '🖼️',
     'app-viewer': '📱',
+    'cloudflare-video': '🎥',
+    'cloudflare-live': '📡',
+    'youtube-live': '🔴',
   }
   return icons[type] || '📄'
 }

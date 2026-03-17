@@ -387,6 +387,315 @@ export default {
       return createResponse(JSON.stringify({ ok: true, service: 'albums-worker' }), 200)
     }
 
+    if (pathname === '/openapi.json' && request.method === 'GET') {
+      const spec = {
+        openapi: '3.0.3',
+        info: {
+          title: 'Albums Worker API',
+          version: '1.0.0',
+          description: 'Cloudflare Worker API for managing photo albums stored in KV. All mutating endpoints require X-API-Token authentication.'
+        },
+        servers: [{ url: '/' }],
+        components: {
+          securitySchemes: {
+            ApiToken: {
+              type: 'apiKey',
+              in: 'header',
+              name: 'X-API-Token',
+              description: 'Authentication token (emailVerificationToken from config table)'
+            }
+          },
+          schemas: {
+            Error: {
+              type: 'object',
+              properties: {
+                error: { type: 'string' }
+              },
+              required: ['error']
+            },
+            AuditEntry: {
+              type: 'object',
+              properties: {
+                action: { type: 'string', enum: ['create_album', 'update_album', 'add_images', 'remove_images', 'delete_album'] },
+                actor: { type: 'string' },
+                actorRole: { type: 'string', nullable: true },
+                at: { type: 'string', format: 'date-time' },
+                details: { type: 'object' }
+              }
+            },
+            Album: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                images: { type: 'array', items: { type: 'string' } },
+                createdAt: { type: 'string', format: 'date-time' },
+                createdBy: { type: 'string', nullable: true },
+                seoTitle: { type: 'string', nullable: true },
+                seoDescription: { type: 'string', nullable: true },
+                seoImageKey: { type: 'string', nullable: true },
+                isShared: { type: 'boolean' },
+                shareId: { type: 'string', nullable: true },
+                updatedAt: { type: 'string', format: 'date-time' },
+                lastModifiedBy: { type: 'string', nullable: true },
+                lastModifiedRole: { type: 'string', nullable: true },
+                lastModifiedAction: { type: 'string', nullable: true },
+                auditLog: { type: 'array', items: { $ref: '#/components/schemas/AuditEntry' } },
+                superadminAuditLog: { type: 'array', items: { $ref: '#/components/schemas/AuditEntry' } }
+              }
+            },
+            AlbumSummary: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                createdBy: { type: 'string', nullable: true },
+                createdAt: { type: 'string', format: 'date-time', nullable: true },
+                updatedAt: { type: 'string', format: 'date-time', nullable: true }
+              }
+            }
+          }
+        },
+        paths: {
+          '/health': {
+            get: {
+              summary: 'Health check',
+              operationId: 'getHealth',
+              responses: {
+                '200': {
+                  description: 'Service is healthy',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          ok: { type: 'boolean', example: true },
+                          service: { type: 'string', example: 'albums-worker' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          '/openapi.json': {
+            get: {
+              summary: 'OpenAPI specification',
+              operationId: 'getOpenApiSpec',
+              responses: {
+                '200': {
+                  description: 'OpenAPI 3.0 JSON specification',
+                  content: { 'application/json': { schema: { type: 'object' } } }
+                }
+              }
+            }
+          },
+          '/photo-albums': {
+            get: {
+              summary: 'List all photo albums',
+              operationId: 'listPhotoAlbums',
+              security: [{ ApiToken: [] }],
+              parameters: [
+                {
+                  name: 'includeMeta',
+                  in: 'query',
+                  required: false,
+                  description: 'Set to "1" to include album metadata (createdBy, createdAt, updatedAt) for each album instead of just names',
+                  schema: { type: 'string', enum: ['0', '1'] }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'List of albums',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          albums: {
+                            type: 'array',
+                            items: {
+                              oneOf: [
+                                { type: 'string', description: 'Album name (when includeMeta is not set)' },
+                                { $ref: '#/components/schemas/AlbumSummary' }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            }
+          },
+          '/photo-album': {
+            get: {
+              summary: 'Get a single photo album by name',
+              operationId: 'getPhotoAlbum',
+              security: [{ ApiToken: [] }],
+              parameters: [
+                {
+                  name: 'name',
+                  in: 'query',
+                  required: true,
+                  description: 'Album name',
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Album record',
+                  content: { 'application/json': { schema: { $ref: '#/components/schemas/Album' } } }
+                },
+                '400': { description: 'Album name is required', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'Album not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            },
+            post: {
+              summary: 'Create or update a photo album',
+              operationId: 'upsertPhotoAlbum',
+              security: [{ ApiToken: [] }],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: {
+                        name: { type: 'string', description: 'Album name' },
+                        images: { type: 'array', items: { type: 'string' }, description: 'Array of image keys/URLs' },
+                        seoTitle: { type: 'string', nullable: true, description: 'SEO title' },
+                        seoDescription: { type: 'string', nullable: true, description: 'SEO description' },
+                        seoImageKey: { type: 'string', nullable: true, description: 'SEO image key' },
+                        isShared: { type: 'boolean', description: 'Whether the album is publicly shared' },
+                        regenerateShareId: { type: 'boolean', description: 'Force regeneration of the share UUID' }
+                      }
+                    }
+                  }
+                }
+              },
+              responses: {
+                '200': {
+                  description: 'Created or updated album',
+                  content: { 'application/json': { schema: { $ref: '#/components/schemas/Album' } } }
+                },
+                '400': { description: 'Invalid request (missing name or bad JSON)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '403': { description: 'Unauthorized to modify this album (not owner or superadmin)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            },
+            delete: {
+              summary: 'Delete a photo album',
+              operationId: 'deletePhotoAlbum',
+              security: [{ ApiToken: [] }],
+              parameters: [
+                {
+                  name: 'name',
+                  in: 'query',
+                  required: true,
+                  description: 'Album name to delete',
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Album deleted',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          deleted: { type: 'string', description: 'Name of deleted album' }
+                        }
+                      }
+                    }
+                  }
+                },
+                '400': { description: 'Album name is required', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '403': { description: 'Unauthorized to delete this album', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            }
+          },
+          '/photo-album/add': {
+            post: {
+              summary: 'Add images to an existing album (or create it)',
+              operationId: 'addPhotoAlbumImages',
+              security: [{ ApiToken: [] }],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: {
+                        name: { type: 'string', description: 'Album name' },
+                        images: { type: 'array', items: { type: 'string' }, description: 'Array of image keys to add' },
+                        image: { type: 'string', description: 'Single image key to add (alternative to images array)' }
+                      }
+                    }
+                  }
+                }
+              },
+              responses: {
+                '200': {
+                  description: 'Updated album with merged images',
+                  content: { 'application/json': { schema: { $ref: '#/components/schemas/Album' } } }
+                },
+                '400': { description: 'Invalid request (missing name, bad JSON, or no images)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '403': { description: 'Unauthorized to modify this album', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            }
+          },
+          '/photo-album/remove': {
+            post: {
+              summary: 'Remove images from an album',
+              operationId: 'removePhotoAlbumImages',
+              security: [{ ApiToken: [] }],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: {
+                        name: { type: 'string', description: 'Album name' },
+                        images: { type: 'array', items: { type: 'string' }, description: 'Array of image keys to remove' },
+                        image: { type: 'string', description: 'Single image key to remove (alternative to images array)' }
+                      }
+                    }
+                  }
+                }
+              },
+              responses: {
+                '200': {
+                  description: 'Updated album with images removed. If the removed image was the SEO image, seoImageKey is updated to the first remaining image.',
+                  content: { 'application/json': { schema: { $ref: '#/components/schemas/Album' } } }
+                },
+                '400': { description: 'Invalid request (missing name, bad JSON, or no images)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '403': { description: 'Unauthorized to modify this album', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '404': { description: 'Album not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                '500': { description: 'Album storage not configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } }
+              }
+            }
+          }
+        }
+      }
+      return createResponse(JSON.stringify(spec, null, 2), 200)
+    }
+
     if (pathname === '/photo-albums' && request.method === 'GET') {
       return await handleListPhotoAlbums(request, env)
     }
