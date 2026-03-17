@@ -33,6 +33,7 @@ const DB_MAP = {
   vegvisr_org: 'DB',
   hallo_vegvisr_chat: 'CHAT_DB',
   calendar_db: 'CALENDAR_DB',
+  agent_stats_db: 'STATS_DB',
 };
 
 function resolveD1(env, dbName) {
