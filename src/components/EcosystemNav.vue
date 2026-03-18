@@ -31,12 +31,14 @@ const iconMap = {
   photos: photosIcon,
   chat: chatIcon,
   aichat: aichatIcon,
+  contacts: 'https://favicons.vegvisr.org/favicons/1773834325586-1-1773834331342-32x32.png',
 }
 
 const apps = [
   { key: 'aichat', label: 'AI Chat', url: 'https://aichat.vegvisr.org' },
   { key: 'chat', label: 'Chat', url: 'https://chat.vegvisr.org' },
   { key: 'photos', label: 'Photos', url: 'https://photos.vegvisr.org' },
+  { key: 'contacts', label: 'Contacts', url: 'https://contacts.vegvisr.org' },
   { key: 'connect', label: 'Connect', url: 'https://connect.vegvisr.org' },
   { key: 'vemail', label: 'Email', url: 'https://vemail.vegvisr.org' },
   { key: 'legacy', label: 'Legacy', url: 'https://www.vegvisr.org/user' },
