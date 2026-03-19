@@ -169,6 +169,7 @@ async function handleChat(request, env, corsHeaders) {
     temperature = 1,
     system = null,
     userId,
+    apiKey,        // Optional: caller-supplied key (trusted service bindings only)
     tools,         // Function calling tools (OpenAI format, will be converted)
     tool_choice    // Function calling mode
   } = body
@@ -182,8 +183,8 @@ async function handleChat(request, env, corsHeaders) {
     })
   }
 
-  // Get API key from D1 database or fall back to system key
-  const userKey = await getUserApiKey(env, userId, 'anthropic')
+  // Priority: caller-supplied key (service binding) > user D1 key > system fallback
+  const userKey = apiKey || await getUserApiKey(env, userId, 'anthropic')
   const ANTHROPIC_API_KEY = userKey || env.ANTHROPIC_API_KEY
 
   if (!ANTHROPIC_API_KEY) {

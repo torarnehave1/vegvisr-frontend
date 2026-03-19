@@ -25,6 +25,16 @@ function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
 }
 
+// Returns a 403 Response if userId is provided and doesn't match the table owner.
+// Returns null if access is allowed.
+function assertOwnership(tables, userId, request) {
+  if (!userId || tables.length === 0) return null;
+  if (tables[0].graphId !== userId) {
+    return json({ error: 'Access denied: you do not own this table' }, 403, request);
+  }
+  return null;
+}
+
 const VALID_COLUMN_TYPES = ['text', 'integer', 'real', 'boolean', 'datetime'];
 
 // ── Multi-database support ──
@@ -131,7 +141,7 @@ async function handleCreateTable(db, d1, body, request) {
 }
 
 async function handleAddColumn(db, d1, body, request) {
-  const { tableId, name, type, label, required } = body;
+  const { tableId, name, type, label, required, userId } = body;
   if (!tableId || !name || !type) {
     return json({ error: 'tableId, name, and type are required' }, 400, request);
   }
@@ -147,6 +157,8 @@ async function handleAddColumn(db, d1, body, request) {
   if (tables.length === 0) {
     return json({ error: `Table not found: ${tableId}` }, 404, request);
   }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
   const tableName = tables[0].tableName;
 
   // Get current max position
@@ -172,7 +184,7 @@ async function handleAddColumn(db, d1, body, request) {
 }
 
 async function handleInsert(db, d1, body, request) {
-  const { tableId, record } = body;
+  const { tableId, record, userId } = body;
   if (!tableId || !record || typeof record !== 'object') {
     return json({ error: 'tableId and record are required' }, 400, request);
   }
@@ -181,6 +193,8 @@ async function handleInsert(db, d1, body, request) {
   if (tables.length === 0) {
     return json({ error: `Table not found: ${tableId}` }, 404, request);
   }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
   const tableMeta = tables[0];
 
   const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
@@ -205,8 +219,83 @@ async function handleInsert(db, d1, body, request) {
   return json({ success: true, _id: rowId, _created_at: createdAt }, 201, request);
 }
 
+async function handleUpdate(db, d1, body, request) {
+  const { tableId, id, record, userId } = body;
+  if (!tableId || !id || !record || typeof record !== 'object') {
+    return json({ error: 'tableId, id, and record are required' }, 400, request);
+  }
+
+  const tables = await db.select().from(appTables).where(eq(appTables.id, tableId));
+  if (tables.length === 0) {
+    return json({ error: `Table not found: ${tableId}` }, 404, request);
+  }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
+  const tableMeta = tables[0];
+
+  const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
+  const validCols = new Set(cols.map(c => c.columnName));
+
+  const sets = [];
+  const values = [];
+  for (const [key, val] of Object.entries(record)) {
+    if (validCols.has(key)) {
+      sets.push(`${key} = ?`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) {
+    return json({ error: 'No valid columns to update' }, 400, request);
+  }
+
+  values.push(id);
+  await d1.prepare(`UPDATE ${tableMeta.tableName} SET ${sets.join(', ')} WHERE _id = ?`).bind(...values).run();
+
+  return json({ success: true, _id: id }, 200, request);
+}
+
+async function handleBulkInsert(db, d1, body, request) {
+  const { tableId, records, userId } = body;
+  if (!tableId || !Array.isArray(records) || records.length === 0) {
+    return json({ error: 'tableId and records[] are required' }, 400, request);
+  }
+
+  const tables = await db.select().from(appTables).where(eq(appTables.id, tableId));
+  if (tables.length === 0) {
+    return json({ error: `Table not found: ${tableId}` }, 404, request);
+  }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
+  const tableMeta = tables[0];
+
+  const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
+  const validCols = new Set(cols.map(c => c.columnName));
+
+  const now = new Date().toISOString();
+  const insertedIds = [];
+
+  // Build batch of prepared statements
+  const statements = records.map(record => {
+    const rowId = crypto.randomUUID();
+    insertedIds.push(rowId);
+    const fields = ['_id', '_created_at'];
+    const values = [rowId, now];
+    for (const [key, val] of Object.entries(record)) {
+      if (validCols.has(key)) {
+        fields.push(key);
+        values.push(val);
+      }
+    }
+    const placeholders = fields.map(() => '?').join(', ');
+    return d1.prepare(`INSERT INTO ${tableMeta.tableName} (${fields.join(', ')}) VALUES (${placeholders})`).bind(...values);
+  });
+
+  await d1.batch(statements);
+  return json({ success: true, inserted: insertedIds.length, ids: insertedIds }, 201, request);
+}
+
 async function handleDeleteRecords(db, d1, body, request) {
-  const { tableId, where, ids } = body;
+  const { tableId, where, ids, userId } = body;
   if (!tableId) {
     return json({ error: 'tableId is required' }, 400, request);
   }
@@ -215,6 +304,8 @@ async function handleDeleteRecords(db, d1, body, request) {
   if (tables.length === 0) {
     return json({ error: `Table not found: ${tableId}` }, 404, request);
   }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
   const tableMeta = tables[0];
   const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
   const validCols = new Set(['_id', '_created_at', ...cols.map(c => c.columnName)]);
@@ -247,7 +338,7 @@ async function handleDeleteRecords(db, d1, body, request) {
 }
 
 async function handleQuery(db, d1, body, request) {
-  const { tableId, where, orderBy, order, limit, offset } = body;
+  const { tableId, where, orderBy, order, limit, offset, userId } = body;
   if (!tableId) {
     return json({ error: 'tableId is required' }, 400, request);
   }
@@ -256,6 +347,8 @@ async function handleQuery(db, d1, body, request) {
   if (tables.length === 0) {
     return json({ error: `Table not found: ${tableId}` }, 404, request);
   }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
   const tableMeta = tables[0];
 
   const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
@@ -306,7 +399,8 @@ async function handleQuery(db, d1, body, request) {
 }
 
 async function handleListTables(db, url, request) {
-  const graphId = url.searchParams.get('graphId');
+  // userId param scopes the list to that user's tables (same as graphId)
+  const graphId = url.searchParams.get('graphId') || url.searchParams.get('userId');
   let tables;
   if (graphId) {
     tables = await db.select().from(appTables).where(eq(appTables.graphId, graphId));
@@ -316,11 +410,13 @@ async function handleListTables(db, url, request) {
   return json({ tables }, 200, request);
 }
 
-async function handleGetTable(db, tableId, request) {
+async function handleGetTable(db, tableId, request, userId) {
   const tables = await db.select().from(appTables).where(eq(appTables.id, tableId));
   if (tables.length === 0) {
     return json({ error: `Table not found: ${tableId}` }, 404, request);
   }
+  const denied = assertOwnership(tables, userId, request);
+  if (denied) return denied;
   const cols = await db.select().from(appColumns).where(eq(appColumns.tableId, tableId));
   return json({
     ...tables[0],
@@ -1006,6 +1102,61 @@ const openApiSpec = {
         },
       },
     },
+    '/update': {
+      post: {
+        summary: 'Update a record',
+        description: 'Updates specific columns on a single row identified by _id.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tableId', 'id', 'record'],
+                properties: {
+                  tableId: { type: 'string', description: 'The app_tables.id of the target table' },
+                  id: { type: 'string', description: 'The _id of the row to update' },
+                  record: { type: 'object', additionalProperties: true, description: 'Columns to update' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Record updated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, _id: { type: 'string' } } } } } },
+          400: { description: 'Validation error' },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
+    '/bulk-insert': {
+      post: {
+        summary: 'Bulk insert records',
+        description: 'Inserts multiple rows into the specified app table in a single D1 batch. Auto-generates _id and _created_at for each row.',
+        parameters: [{ name: 'database', in: 'query', schema: { type: 'string' }, description: 'Target database name' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tableId', 'records'],
+                properties: {
+                  tableId: { type: 'string', description: 'The app_tables.id of the target table' },
+                  records: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Array of records to insert' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Records inserted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, inserted: { type: 'integer' }, ids: { type: 'array', items: { type: 'string' } } } } } } },
+          400: { description: 'Validation error' },
+          404: { description: 'Table not found' },
+        },
+      },
+    },
     '/query': {
       post: {
         summary: 'Query records',
@@ -1421,6 +1572,12 @@ export default {
       if (request.method === 'POST' && path === '/insert') {
         return await handleInsert(db, d1, await request.json(), request);
       }
+      if (request.method === 'POST' && path === '/bulk-insert') {
+        return await handleBulkInsert(db, d1, await request.json(), request);
+      }
+      if (request.method === 'POST' && path === '/update') {
+        return await handleUpdate(db, d1, await request.json(), request);
+      }
       if (request.method === 'POST' && path === '/query') {
         return await handleQuery(db, d1, await request.json(), request);
       }
@@ -1429,7 +1586,7 @@ export default {
       }
       if (request.method === 'GET' && path.startsWith('/table/')) {
         const tableId = path.split('/table/')[1];
-        if (tableId) return await handleGetTable(db, tableId, request);
+        if (tableId) return await handleGetTable(db, tableId, request, url.searchParams.get('userId') || undefined);
       }
       if (request.method === 'POST' && path === '/add-column') {
         return await handleAddColumn(db, d1, await request.json(), request);
