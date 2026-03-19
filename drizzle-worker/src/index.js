@@ -382,7 +382,7 @@ async function handleQuery(db, d1, body, request) {
   querySql += ` ORDER BY ${orderCol} ${orderDir}`;
 
   // Pagination
-  const lim = Math.min(Math.max(parseInt(limit) || 50, 1), 1000);
+  const lim = Math.min(Math.max(parseInt(limit) || 50, 1), 10000);
   const off = Math.max(parseInt(offset) || 0, 0);
   querySql += ` LIMIT ? OFFSET ?`;
 
@@ -1174,7 +1174,7 @@ const openApiSpec = {
                   where: { type: 'object', additionalProperties: true, description: 'Equality filters as key-value pairs' },
                   orderBy: { type: 'string', description: 'Column name to order by (default: _created_at)' },
                   order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' },
-                  limit: { type: 'integer', description: 'Max rows (1-1000, default: 50)' },
+                  limit: { type: 'integer', description: 'Max rows (1-10000, default: 50)' },
                   offset: { type: 'integer', description: 'Pagination offset (default: 0)' },
                 },
               },
