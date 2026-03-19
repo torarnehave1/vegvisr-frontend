@@ -2945,6 +2945,11 @@ const filterByMetaArea = (area) => {
   margin-bottom: 2px;
 }
 
+.card-title {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .cursor-pointer {
   cursor: pointer;
   transition: opacity 0.2s, transform 0.1s;
