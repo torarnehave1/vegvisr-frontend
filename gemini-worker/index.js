@@ -106,7 +106,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email, X-Email'
     }
 
     if (request.method === 'OPTIONS') {
@@ -361,6 +361,65 @@ async function handleImageGeneration(request, env, corsHeaders) {
       })
     }
 
+    // ── Imagen 3 uses the predict endpoint, not generateContent ──
+    if (model === 'imagen-3.0-generate-002' || model === 'imagen-3.0-fast-generate-001') {
+      const aspectRatio = generationConfig.aspectRatio || '16:9'
+      const imagenBody = {
+        instances: [{ prompt: prompt.trim() }],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio,
+          safetyFilterLevel: 'block_some',
+          personGeneration: 'allow_adult'
+        }
+      }
+
+      const imagenResponse = await fetch(
+        `${GEMINI_API_BASE}/models/${model}:predict?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(imagenBody)
+        }
+      )
+
+      const imagenResult = await imagenResponse.json()
+      if (!imagenResponse.ok) {
+        return new Response(JSON.stringify({ error: imagenResult.error || imagenResult }), {
+          status: imagenResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const prediction = imagenResult?.predictions?.[0]
+      if (!prediction?.bytesBase64Encoded) {
+        return new Response(JSON.stringify({
+          error: 'Imagen 3 response did not include image data.',
+          details: JSON.stringify(imagenResult)
+        }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const mimeType = prediction.mimeType || 'image/png'
+      const b64 = prediction.bytesBase64Encoded
+      const payload = {
+        created: Math.floor(Date.now() / 1000),
+        model,
+        data: [{
+          b64_json: b64,
+          mime_type: mimeType,
+          ...(response_format === 'url' ? { url: `data:${mimeType};base64,${b64}` } : {})
+        }],
+        text: null
+      }
+      return new Response(JSON.stringify(payload), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // ── Gemini generateContent image models (flash-image, etc.) ──
     const requestBody = {
       contents: [{ role: 'user', parts: [{ text: prompt.trim() }] }],
       generationConfig: {

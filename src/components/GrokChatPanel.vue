@@ -2187,6 +2187,7 @@ const geminiChatModelOptions = [
 const geminiImageModelOptions = [
   { value: 'gemini-2.5-flash-image', label: 'Nano Banana (Image Gen)' },
   { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro (Image Gen)' },
+  { value: 'imagen-3.0-generate-002', label: 'Imagen 3 — High Res 16:9 (1408×768)' },
 ]
 const geminiImageModelSet = new Set(geminiImageModelOptions.map((option) => option.value))
 const geminiModelOptions = [
