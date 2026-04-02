@@ -3,6 +3,13 @@
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
+const GEMINI_API_ROOT = 'https://generativelanguage.googleapis.com'
+const GEMINI_API_VERSIONS = ['v1beta', 'v1']
+const IMAGEN_MODEL_CANDIDATES = [
+  'imagen-3.0-generate-002',
+  'imagen-3.0-generate-001',
+  'imagen-3.0-fast-generate-001'
+]
 const DEFAULT_SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
   { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -96,6 +103,36 @@ function resolveUserId(rawUserId, env) {
     return env.DEFAULT_USER_ID
   }
   return null
+}
+
+async function fetchAvailableImagenPredictModels(geminiKey) {
+  const available = []
+
+  for (const version of GEMINI_API_VERSIONS) {
+    try {
+      const response = await fetch(`${GEMINI_API_ROOT}/${version}/models?key=${geminiKey}`)
+      if (!response.ok) continue
+
+      const payload = await response.json()
+      const models = payload?.models || []
+
+      for (const model of models) {
+        const fullName = model?.name || ''
+        const shortName = fullName.replace(/^models\//, '')
+        const methods = model?.supportedGenerationMethods || []
+        const supportsPredict = methods.includes('predict')
+        const isImagen = shortName.toLowerCase().includes('imagen')
+
+        if (isImagen && supportsPredict) {
+          available.push({ version, name: shortName })
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed listing Gemini models for ${version}:`, error?.message || error)
+    }
+  }
+
+  return available
 }
 
 export default {
@@ -361,9 +398,27 @@ async function handleImageGeneration(request, env, corsHeaders) {
       })
     }
 
-    // ── Imagen 3 uses the predict endpoint, not generateContent ──
-    if (model === 'imagen-3.0-generate-002' || model === 'imagen-3.0-fast-generate-001') {
+    // ── Imagen uses predict endpoint; model IDs/methods vary by key + API version ──
+    if (model.startsWith('imagen-') || IMAGEN_MODEL_CANDIDATES.includes(model)) {
       const aspectRatio = generationConfig.aspectRatio || '16:9'
+      const preferredModels = [model, ...IMAGEN_MODEL_CANDIDATES].filter((value, index, list) => value && list.indexOf(value) === index)
+      const availableImagen = await fetchAvailableImagenPredictModels(geminiKey)
+      const selected = preferredModels
+        .map((candidate) => availableImagen.find((entry) => entry.name === candidate))
+        .find(Boolean) || availableImagen[0]
+
+      if (!selected) {
+        return new Response(JSON.stringify({
+          error: 'No Imagen model with predict support is available for this API key.',
+          requested_model: model,
+          tried_models: preferredModels,
+          hint: 'Use /models on gemini-worker to inspect currently available image models for this key.'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
       const imagenBody = {
         instances: [{ prompt: prompt.trim() }],
         parameters: {
@@ -375,7 +430,7 @@ async function handleImageGeneration(request, env, corsHeaders) {
       }
 
       const imagenResponse = await fetch(
-        `${GEMINI_API_BASE}/models/${model}:predict?key=${geminiKey}`,
+        `${GEMINI_API_ROOT}/${selected.version}/models/${selected.name}:predict?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -406,7 +461,7 @@ async function handleImageGeneration(request, env, corsHeaders) {
       const b64 = prediction.bytesBase64Encoded
       const payload = {
         created: Math.floor(Date.now() / 1000),
-        model,
+        model: selected.name,
         data: [{
           b64_json: b64,
           mime_type: mimeType,
@@ -652,6 +707,13 @@ function handleModels(corsHeaders) {
         max_images: 1,
         features: ['text-to-image', 'inline image output'],
         description: 'Gemini native image generation via generateContent responseModalities=[TEXT, IMAGE]'
+      },
+      {
+        id: 'imagen-3.0-generate-002',
+        name: 'Imagen 3 (auto-resolved)',
+        max_images: 1,
+        features: ['text-to-image', 'high-resolution', 'predict endpoint'],
+        description: 'Attempts requested Imagen model first, then auto-falls back to any available Imagen predict-capable model for the current key.'
       }
     ]
   }
@@ -672,6 +734,17 @@ function handleImageModels(corsHeaders) {
       max_images: 1,
       response_formats: ['b64_json', 'url'],
       features: ['text-to-image', 'inline image output']
+    },
+    {
+      id: 'imagen-3.0-generate-002',
+      name: 'Imagen 3 (auto-resolved)',
+      max_images: 1,
+      response_formats: ['b64_json', 'url'],
+      features: ['text-to-image', 'high-resolution', 'predict endpoint', 'auto model/version fallback'],
+      generationConfig: {
+        aspectRatio: ['1:1', '4:3', '3:4', '16:9', '9:16'],
+        default: '16:9'
+      }
     }
   ]
 
