@@ -21,7 +21,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, X-API-Token, Authorization',
     }
 
     // Handle OPTIONS for CORS
@@ -75,6 +75,7 @@ async function handleGenerate(request, env, corsHeaders) {
       ogImage,
       keywords,
       graphData,
+      createdByApp,
     } = data
 
     // Detect origin domain from request headers (for reverse proxy support)
@@ -147,6 +148,7 @@ async function handleGenerate(request, env, corsHeaders) {
           ogImage,
           keywords,
           html,
+          createdByApp: createdByApp || 'gnew-viewer',
           createdAt: new Date().toISOString(),
         }
 
@@ -169,7 +171,7 @@ async function handleGenerate(request, env, corsHeaders) {
     return new Response(
       JSON.stringify({
         success: true,
-        url: `https://${originDomain}/graph/${slug}`,
+        url: `https://seo.vegvisr.org/graph/${slug}`,
         slug,
       }),
       {
@@ -197,9 +199,17 @@ async function handleGenerate(request, env, corsHeaders) {
 
 /**
  * Serve a static page or redirect to Vue app
+ * Supports explicit static modes for ingestion tools:
+ * - /graph/{slug}?static=1
+ * - /graph/{slug}/raw
  */
 async function handleGraphPage(request, env, url, corsHeaders) {
-  const slug = url.pathname.split('/graph/')[1]
+  const pathToken = url.pathname.split('/graph/')[1] || ''
+  const normalizedPath = pathToken.replace(/^\/+|\/+$/g, '')
+  const isRawRoute = normalizedPath.endsWith('/raw')
+  const slug = isRawRoute
+    ? normalizedPath.slice(0, -4).replace(/\/+$/g, '')
+    : normalizedPath
 
   if (!slug) {
     return new Response('Not Found', { status: 404, headers: corsHeaders })
@@ -233,10 +243,65 @@ async function handleGraphPage(request, env, url, corsHeaders) {
 
   // Detect if this is a crawler
   const isCrawler = detectCrawler(userAgent)
+  const forceStatic = ['1', 'true', 'yes'].includes((url.searchParams.get('static') || '').toLowerCase())
+  const shouldServeStatic = isCrawler || forceStatic || isRawRoute
   console.log('Is crawler:', isCrawler)
+  console.log('Force static mode:', forceStatic)
+  console.log('Raw route mode:', isRawRoute)
 
-  if (isCrawler) {
-    console.log('Serving static HTML to crawler')
+  if (isRawRoute) {
+    console.log('Serving raw route with full graph HTML')
+
+    // Regenerate from live graph data so /raw always reflects the latest nodes.
+    if (pageData.graphId) {
+      try {
+        const liveGraphData = await fetchLiveGraphData(pageData.graphId)
+        if (liveGraphData) {
+          const liveNodeCount = Array.isArray(liveGraphData.nodes) ? liveGraphData.nodes.length : 0
+          const rawHtml = generateStaticHTML({
+            graphId: pageData.graphId,
+            slug: pageData.slug || slug,
+            title: pageData.title,
+            description: pageData.description,
+            ogImage: pageData.ogImage,
+            keywords: pageData.keywords,
+            graphData: liveGraphData,
+            originDomain: url.hostname,
+            maxNodes: Number.POSITIVE_INFINITY,
+            maxNodeInfoLength: null,
+            includeHiddenNodes: true,
+          })
+
+          return new Response(rawHtml, {
+            status: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-store',
+              'x-seo-raw-source': 'live-graph',
+              'x-seo-raw-node-count': String(liveNodeCount),
+            },
+          })
+        }
+      } catch (error) {
+        console.error('Failed to regenerate raw HTML from live graph:', error)
+      }
+    }
+
+    // Fallback to stored static page if live regeneration fails.
+    return new Response(pageData.html, {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'x-seo-raw-source': 'kv-fallback',
+      },
+    })
+  }
+
+  if (shouldServeStatic) {
+    console.log('Serving static HTML')
     // Serve the static HTML to crawlers
     return new Response(pageData.html, {
       status: 200,
@@ -247,14 +312,39 @@ async function handleGraphPage(request, env, url, corsHeaders) {
       },
     })
   } else {
-    console.log('Redirecting regular user to Vue app')
-    // Redirect users to the Vue app with the graphId
-    // Use the current hostname (universi.no, vegvisr.org, etc.) to preserve domain
-    const currentHostname = url.hostname
-    const redirectUrl = `https://${currentHostname}/gnew-viewer?graphId=${pageData.graphId}`
+    console.log('Redirecting regular user to app')
+    // Redirect based on which app created the page
+    let redirectUrl
+    const createdByApp = pageData.createdByApp || 'gnew-viewer'
+    console.log('Page created by:', createdByApp)
+
+    if (createdByApp === 'knowledge-editor') {
+      // Knowledge-Editor: redirect to view-only mode
+      redirectUrl = `https://editor.vegvisr.org/view?graphId=${pageData.graphId}`
+    } else {
+      // GNewViewer or other: redirect to GNewViewer
+      let appDomain = 'www.vegvisr.org'
+      if (url.hostname.includes('universi.no')) {
+        appDomain = 'universi.no'
+      }
+      redirectUrl = `https://${appDomain}/gnew-viewer?graphId=${pageData.graphId}`
+    }
+
     console.log('Redirect URL:', redirectUrl)
     return Response.redirect(redirectUrl, 302)
   }
+}
+
+async function fetchLiveGraphData(graphId) {
+  const endpoint = `https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(graphId)}`
+  const response = await fetch(endpoint)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch graph ${graphId}: ${response.status}`)
+  }
+
+  const graphData = await response.json()
+  return graphData && Array.isArray(graphData.nodes) ? graphData : null
 }
 
 async function handleAlbumPage(request, _env, url, corsHeaders) {
@@ -346,6 +436,7 @@ async function handleAlbumPage(request, _env, url, corsHeaders) {
  */
 function detectCrawler(userAgent) {
   const crawlerPatterns = [
+    'NotebookLM',
     'facebookexternalhit',
     'Facebot',
     'Twitterbot',
@@ -380,10 +471,14 @@ function generateStaticHTML(options) {
     keywords,
     graphData,
     originDomain = 'www.vegvisr.org', // Default fallback
+    maxNodes = Number.POSITIVE_INFINITY,
+    maxNodeInfoLength = null,
+    includeHiddenNodes = false,
   } = options
 
-  // Use the detected origin domain (universi.no, vegvisr.org, etc.)
-  const url = `https://${originDomain}/graph/${slug}`
+  // Always use seo.vegvisr.org for the canonical graph URL
+  // The originDomain is only used for branding/siteName
+  const url = `https://seo.vegvisr.org/graph/${slug}`
   const siteName = originDomain === 'www.universi.no' || originDomain === 'universi.no'
     ? 'Universi'
     : 'Vegvisr Org'
@@ -409,10 +504,14 @@ function generateStaticHTML(options) {
   let contentHTML = ''
 
   // Generate HTML content from nodes
-  nodes.slice(0, 5).forEach(node => {
-    if (node.visible !== false) {
+  const nodesToRender = Number.isFinite(maxNodes) ? nodes.slice(0, maxNodes) : nodes
+  nodesToRender.forEach(node => {
+    if (includeHiddenNodes || node.visible !== false) {
       const nodeTitle = escapeHtml(node.label || '')
-      const nodeInfo = escapeHtml(node.info || '').substring(0, 500)
+      const escapedInfo = escapeHtml(node.info || '')
+      const nodeInfo = typeof maxNodeInfoLength === 'number'
+        ? escapedInfo.substring(0, maxNodeInfoLength)
+        : escapedInfo
 
       contentHTML += `
         <section class="graph-node">
