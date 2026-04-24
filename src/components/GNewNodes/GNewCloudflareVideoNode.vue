@@ -37,6 +37,17 @@
         ></iframe>
       </div>
 
+      <div v-else-if="directVideoUrl" class="video-embed-wrapper direct-video-wrapper">
+        <video
+          :src="directVideoUrl"
+          :title="videoTitle"
+          class="video-embed direct-video"
+          controls
+          preload="metadata"
+          playsinline
+        ></video>
+      </div>
+
       <!-- No Video State -->
       <div v-else class="video-empty-state">
         <div class="empty-icon">🎥</div>
@@ -69,6 +80,7 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 
 const CUSTOMER_SUBDOMAIN = 'customer-7tiaylt74yxtwkg8.cloudflarestream.com'
+const REALTIME_VIDEO_BASE = 'https://realtimevideos.vegvisr.org'
 
 const props = defineProps({
   node: {
@@ -139,6 +151,26 @@ const videoId = computed(() => {
 
   // Try label as last resort
   return extractVideoId(props.node.label)
+})
+
+const directVideoUrl = computed(() => {
+  const rawPath = String(props.node.path || '').trim()
+  if (!rawPath) return null
+
+  if (/\.((mp4)|(webm)|(mov)|(m4v))($|[?#])/i.test(rawPath)) {
+    if (/^https?:\/\//i.test(rawPath)) {
+      return rawPath
+    }
+
+    const normalizedPath = rawPath.replace(/^\/+/, '')
+    if (normalizedPath.startsWith('recordings/')) {
+      return `${REALTIME_VIDEO_BASE}/${normalizedPath}`
+    }
+
+    return `${REALTIME_VIDEO_BASE}/recordings/${normalizedPath}`
+  }
+
+  return null
 })
 
 const embedUrl = computed(() => {
@@ -246,6 +278,17 @@ const deleteNode = () => {
   width: 100%;
   height: 100%;
   border-radius: 8px;
+}
+
+.direct-video-wrapper {
+  padding-bottom: 0;
+  height: auto;
+}
+
+.direct-video {
+  position: static;
+  display: block;
+  height: auto;
 }
 
 .video-empty-state {

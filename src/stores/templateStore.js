@@ -261,6 +261,23 @@ export const useTemplateStore = defineStore('template', () => {
       },
     },
     {
+      id: 'video-realtime',
+      category: 'Visual Elements',
+      icon: '🎬',
+      label: 'Realtime Video',
+      description: 'Play MP4 meeting recordings from the realtimevideos bucket',
+      template: {
+        type: 'realtime-video',
+        label: 'Realtime Video',
+        info: 'Select a recording from the meeting-recordings browser or paste a recordings/... path in the node path field.',
+        color: '#e0ecff',
+        visible: true,
+        position: { x: 100, y: 100 },
+        path: null,
+        bibl: [],
+      },
+    },
+    {
       id: 'video-cloudflare-live',
       category: 'Visual Elements',
       icon: '📡',

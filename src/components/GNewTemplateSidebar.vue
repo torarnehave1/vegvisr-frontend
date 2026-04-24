@@ -298,6 +298,8 @@ const getTemplateIcon = (template) => {
   // Map template types to icons
   const iconMap = {
     youtube: '🎬',
+    'youtube-video': '🎬',
+    'realtime-video': '🎬',
     image: '🖼️',
     fulltext: '📄',
     bubblechart: '🫧',
@@ -321,6 +323,8 @@ const getTemplateDescription = (template) => {
   const node = template.nodes[0]
   const descriptions = {
     youtube: 'Embed YouTube videos',
+    'youtube-video': 'Embed YouTube videos',
+    'realtime-video': 'Play a meeting recording stored in the realtimevideos bucket',
     image: 'Display images with captions',
     fulltext: 'Rich text content with formatting',
     bubblechart: 'Multi-dimensional data visualization',

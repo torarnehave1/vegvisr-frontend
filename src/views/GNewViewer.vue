@@ -267,6 +267,13 @@
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewRealtimeVideoNodeAndClose"
+            class="btn btn-outline-primary w-100 mb-2"
+          >
+            🎬 New Realtime Video
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
             @click="createNewCloudflareLiveNodeAndClose"
             class="btn btn-outline-warning w-100 mb-2"
           >
@@ -574,6 +581,13 @@
           </button>
           <button
             v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
+            @click="createNewRealtimeVideoNode"
+            class="btn btn-outline-primary"
+          >
+            🎬 New Realtime Video
+          </button>
+          <button
+            v-if="userStore.loggedIn && userStore.role === 'Superadmin'"
             @click="createNewCloudflareLiveNode"
             class="btn btn-outline-warning"
           >
@@ -676,6 +690,30 @@
                 />
                 <small class="form-text text-muted">
                   The playback video ID. For live inputs, this is assigned when the stream starts. RTMP credentials are stored in metadata.
+                </small>
+              </div>
+
+              <div v-if="editingNode.type === 'realtime-video'" class="form-group">
+                <label class="form-label">🎬 Realtime Video Path:</label>
+                <div class="input-group">
+                  <input
+                    v-model="editingNode.path"
+                    type="text"
+                    class="form-control"
+                    placeholder="recordings/meeting-id_timestamp.mp4 or full MP4 URL..."
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary"
+                    @click="openRealtimeVideosModalForEdit"
+                  >
+                    Browse R2 Videos
+                  </button>
+                </div>
+                <small class="form-text text-muted">
+                  Use a key from the <code>meeting-recordings</code> bucket, for example
+                  <code>recordings/meeting-id_timestamp.mp4</code>. Relative paths are resolved on
+                  <code>realtimevideos.vegvisr.org</code>.
                 </small>
               </div>
 
@@ -2608,6 +2646,12 @@
     @apply-changes="applyCodeAssistantChanges"
     @close="showCodeAssistant = false"
   />
+
+  <RealtimeVideosModal
+    :isVisible="showRealtimeVideosModal"
+    @close="closeRealtimeVideosModal"
+    @video-selected="handleRealtimeVideoSelected"
+  />
 </template>
 
 <script setup>
@@ -2635,6 +2679,7 @@ import EnhancedAIButton from '@/components/EnhancedAIButton.vue'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import HtmlCodeAssistant from '@/components/HtmlCodeAssistant.vue'
+import RealtimeVideosModal from '@/components/RealtimeVideosModal.vue'
 import { useGraphPasswordGate } from '@/composables/useGraphPasswordGate'
 
 // Props
@@ -3429,6 +3474,8 @@ const newImageQuote = ref({
 const showNodeEditModal = ref(false)
 const editingNode = ref({})
 const savingNode = ref(false)
+const showRealtimeVideosModal = ref(false)
+const realtimeVideoModalMode = ref('create')
 const nodeIdCopied = ref(false)
 const showCodeAssistant = ref(false)
 const nodeFindText = ref('')
@@ -3444,6 +3491,39 @@ const nodeFindMatchLabel = computed(() => {
   if (!nodeFindMatches.value.length) return ''
   return `${nodeFindIndex.value + 1} / ${nodeFindMatches.value.length}`
 })
+
+const formatRealtimeVideoDate = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  return new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+const buildRealtimeVideoInfo = (recording) => {
+  const lines = ['Meeting recording video from the realtimevideos bucket.']
+
+  if (recording.meetingTitle) {
+    lines.push('', `Meeting: ${recording.meetingTitle}`)
+  }
+
+  if (recording.meetingId) {
+    lines.push(`Meeting ID: ${recording.meetingId}`)
+  }
+
+  const recordedAt = formatRealtimeVideoDate(recording.syncedAt || recording.uploadedAt)
+  if (recordedAt) {
+    lines.push(`Recorded: ${recordedAt}`)
+  }
+
+  return lines.join('\n')
+}
 
 // AI Rewrite functionality
 const showAIRewriteModal = ref(false)
@@ -4685,8 +4765,8 @@ const fetchMobileTemplates = async () => {
         edges: JSON.parse(template.edges || '[]'),
         category: template.category || 'General',
         type: template.type || 'general',
-        icon: getTemplateIcon(template.type),
-        description: getTemplateDescription(template.type),
+        icon: getTemplateIcon(template.type || JSON.parse(template.nodes || '[]')?.[0]?.type),
+        description: getTemplateDescription(template.type || JSON.parse(template.nodes || '[]')?.[0]?.type),
         userId: template.userId, // Include userId for "My Apps" filtering
       }))
       console.log('Mobile templates loaded:', mobileTemplates.value.length)
@@ -4706,6 +4786,8 @@ const fetchMobileTemplates = async () => {
 const getTemplateIcon = (type) => {
   const iconMap = {
     youtube: '🎬',
+    'youtube-video': '🎬',
+    'realtime-video': '🎬',
     image: '��️',
     fulltext: '📄',
     'json-node': '🧾',
@@ -4728,6 +4810,8 @@ const getTemplateIcon = (type) => {
 const getTemplateDescription = (type) => {
   const descriptions = {
     youtube: 'Embed YouTube videos',
+    'youtube-video': 'Embed YouTube videos',
+    'realtime-video': 'Play a meeting recording stored in the realtimevideos bucket',
     image: 'Display images with captions',
     fulltext: 'Rich text content with formatting',
     'json-node': 'Structured JSON content with validation',
@@ -6050,6 +6134,12 @@ const createNewCloudflareVideoNode = async () => {
   }
 }
 
+const createNewRealtimeVideoNode = async () => {
+  console.log('🆕 Opening realtime video picker...')
+  realtimeVideoModalMode.value = 'create'
+  showRealtimeVideosModal.value = true
+}
+
 const createNewCloudflareLiveNode = async () => {
   console.log('🆕 Creating new Cloudflare Live node...')
 
@@ -6098,6 +6188,11 @@ const createNewCloudflareLiveNode = async () => {
 const createNewCloudflareVideoNodeAndClose = async () => {
   closeMobileMenu()
   await createNewCloudflareVideoNode()
+}
+
+const createNewRealtimeVideoNodeAndClose = async () => {
+  closeMobileMenu()
+  await createNewRealtimeVideoNode()
 }
 
 const createNewCloudflareLiveNodeAndClose = async () => {
@@ -6937,6 +7032,7 @@ const openNodeEditModal = (node) => {
 
 const closeNodeEditModal = () => {
   showNodeEditModal.value = false
+  showRealtimeVideosModal.value = false
   editingNode.value = {}
   savingNode.value = false
   nodeFindText.value = ''
@@ -6949,6 +7045,70 @@ const closeNodeEditModal = () => {
   inlineChatMessages.value = []
   inlineChatError.value = ''
   inlineChatLoading.value = false
+}
+
+const openRealtimeVideosModalForEdit = () => {
+  realtimeVideoModalMode.value = 'edit'
+  showRealtimeVideosModal.value = true
+}
+
+const closeRealtimeVideosModal = () => {
+  showRealtimeVideosModal.value = false
+}
+
+const handleRealtimeVideoSelected = async (recording) => {
+  closeRealtimeVideosModal()
+
+  if (!recording?.path) {
+    statusMessage.value = 'No recording path was returned from the picker.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
+  if (realtimeVideoModalMode.value === 'edit' && editingNode.value?.type === 'realtime-video') {
+    editingNode.value.path = recording.path
+    if (!editingNode.value.label || editingNode.value.label === 'Realtime Video') {
+      editingNode.value.label = recording.meetingTitle || recording.title || 'Realtime Video'
+    }
+    if (!editingNode.value.info || editingNode.value.info.includes('Select a recording')) {
+      editingNode.value.info = buildRealtimeVideoInfo(recording)
+    }
+    statusMessage.value = '✅ Realtime video selected. Save the node to keep the new path.'
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    return
+  }
+
+  const newNode = {
+    id: generateUUID(),
+    label: recording.meetingTitle || recording.title || 'Realtime Video',
+    color: '#e0ecff',
+    type: 'realtime-video',
+    info: buildRealtimeVideoInfo(recording),
+    bibl: recording.url ? [recording.url] : [],
+    imageWidth: '100%',
+    imageHeight: '100%',
+    visible: true,
+    path: recording.path,
+    position: { x: 0, y: 0 },
+  }
+
+  try {
+    await handleNodeCreated(newNode)
+    statusMessage.value = `✅ ${newNode.label} added successfully!`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+  } catch (error) {
+    console.error('❌ Error creating realtime video node:', error)
+    statusMessage.value = `❌ Failed to create realtime video node: ${error.message}`
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 5000)
+  }
 }
 
 // Copy Node ID to clipboard
@@ -8542,7 +8702,7 @@ const saveNodeChanges = async () => {
       }
 
       // Persist path for node types that use URL/file paths from edit modal
-      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image', 'cloudflare-video', 'cloudflare-live']
+      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image', 'cloudflare-video', 'cloudflare-live', 'realtime-video']
       if (pathNodeTypes.includes(editingNode.value.type)) {
         const normalizedPath = String(editingNode.value.path || '').trim()
         updatedNode.path = normalizedPath || null
@@ -9165,6 +9325,7 @@ const getNodeTypeIcon = (type) => {
     background: '🖼️',
     'app-viewer': '📱',
     'cloudflare-video': '🎥',
+    'realtime-video': '🎬',
     'cloudflare-live': '📡',
     'youtube-live': '🔴',
   }

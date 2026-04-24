@@ -63,6 +63,7 @@ import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
 import GNewYoutubeLiveNode from './GNewNodes/GNewYoutubeLiveNode.vue'
 import GNewCloudflareVideoNode from './GNewNodes/GNewCloudflareVideoNode.vue'
 import GNewCloudflareLiveNode from './GNewNodes/GNewCloudflareLiveNode.vue'
+import GNewRealtimeVideoNode from './GNewNodes/GNewRealtimeVideoNode.vue'
 import GNewAudioNode from './GNewNodes/GNewAudioNode.vue'
 import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
 import GNewImageQuoteNode from './GNewNodes/GNewImageQuoteNode.vue'
@@ -180,6 +181,7 @@ const nodeComponents = {
   'youtube-live': GNewYoutubeLiveNode,
   'cloudflare-video': GNewCloudflareVideoNode,
   'cloudflare-live': GNewCloudflareLiveNode,
+  'realtime-video': GNewRealtimeVideoNode,
   audio: GNewAudioNode,
   title: GNewDefaultNode, // Use DefaultNode for full FANCY formatting support
   imagequote: GNewImageQuoteNode,
