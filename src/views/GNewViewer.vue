@@ -4768,7 +4768,9 @@ const fetchMobileTemplates = async () => {
     console.log('Raw template data:', data)
 
     if (data.results && Array.isArray(data.results)) {
-      mobileTemplates.value = data.results.map((template) => ({
+      mobileTemplates.value = data.results
+        .filter((template) => template.category !== 'Fulltext Elements')
+        .map((template) => ({
         id: template.id,
         name: template.name,
         label: template.name, // For compatibility
