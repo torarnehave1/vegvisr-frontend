@@ -51,8 +51,8 @@
       <!-- No Video State -->
       <div v-else class="video-empty-state">
         <div class="empty-icon">🎥</div>
-        <p>No Cloudflare Stream video configured</p>
-        <small class="text-muted">Set the video ID or iframe URL in the path field</small>
+        <p>No video configured</p>
+        <small class="text-muted">Set a Stream ID, Stream URL, recordings/... path, or full MP4 URL in the path field</small>
         <button v-if="showControls && !isPreview" @click="editNode" class="btn btn-sm btn-primary mt-2">
           Add Video
         </button>

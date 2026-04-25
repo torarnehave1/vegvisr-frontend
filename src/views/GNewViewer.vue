@@ -667,15 +667,26 @@
 
               <!-- Cloudflare Video ID/URL Path Field -->
               <div v-if="editingNode.type === 'cloudflare-video'" class="form-group">
-                <label class="form-label">🎥 Cloudflare Stream Video ID or URL (Path):</label>
-                <input
-                  v-model="editingNode.path"
-                  type="text"
-                  class="form-control"
-                  placeholder="Enter video ID (e.g., 53a48c844fbf810d0a0a92c5109f9e58) or Stream URL..."
-                />
+                <label class="form-label">🎥 Cloudflare Video ID, URL, or Realtime Recording Path:</label>
+                <div class="input-group">
+                  <input
+                    v-model="editingNode.path"
+                    type="text"
+                    class="form-control"
+                    placeholder="Enter Stream ID, Stream URL, recordings/... path, or full MP4 URL..."
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary"
+                    @click="openRealtimeVideosModalForEdit"
+                  >
+                    Browse R2 Videos
+                  </button>
+                </div>
                 <small class="form-text text-muted">
-                  Enter a 32-character video ID or a Cloudflare Stream URL. This will be used to embed the video player.
+                  Enter a 32-character Cloudflare Stream ID, a Stream URL, or choose a meeting recording from the
+                  <code>meeting-recordings</code> bucket. Relative recording paths are resolved on
+                  <code>realtimevideos.vegvisr.org</code>.
                 </small>
               </div>
 
@@ -6113,7 +6124,7 @@ const createNewCloudflareVideoNode = async () => {
     label: 'Cloudflare Video',
     color: '#f48120',
     type: 'cloudflare-video',
-    info: 'Edit this node to add a Cloudflare Stream video ID or URL in the path field.',
+    info: 'Edit this node to add a Cloudflare Stream video ID, Stream URL, or a realtime recording path in the path field.',
     bibl: [],
     imageWidth: '100%',
     imageHeight: '100%',
@@ -7067,12 +7078,12 @@ const handleRealtimeVideoSelected = async (recording) => {
     return
   }
 
-  if (realtimeVideoModalMode.value === 'edit' && editingNode.value?.type === 'realtime-video') {
+  if (realtimeVideoModalMode.value === 'edit' && (editingNode.value?.type === 'realtime-video' || editingNode.value?.type === 'cloudflare-video')) {
     editingNode.value.path = recording.path
-    if (!editingNode.value.label || editingNode.value.label === 'Realtime Video') {
-      editingNode.value.label = recording.meetingTitle || recording.title || 'Realtime Video'
+    if (!editingNode.value.label || editingNode.value.label === 'Realtime Video' || editingNode.value.label === 'Cloudflare Video') {
+      editingNode.value.label = recording.meetingTitle || recording.title || (editingNode.value.type === 'cloudflare-video' ? 'Cloudflare Video' : 'Realtime Video')
     }
-    if (!editingNode.value.info || editingNode.value.info.includes('Select a recording')) {
+    if (!editingNode.value.info || editingNode.value.info.includes('Select a recording') || editingNode.value.info.includes('Cloudflare Stream video ID')) {
       editingNode.value.info = buildRealtimeVideoInfo(recording)
     }
     statusMessage.value = '✅ Realtime video selected. Save the node to keep the new path.'
