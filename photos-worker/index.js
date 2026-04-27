@@ -129,8 +129,16 @@ const handleListR2Images = async (request, env) => {
     return createResponse(JSON.stringify({ images, album: album.name }), 200)
   }
 
-  const list = await env.PHOTOS_BUCKET.list()
-  const images = list.objects
+  // R2 list() returns max 1000 objects per call — paginate with cursor to get all
+  const allObjects = []
+  let cursor
+  do {
+    const listResult = await env.PHOTOS_BUCKET.list({ cursor })
+    allObjects.push(...listResult.objects)
+    cursor = listResult.truncated ? listResult.cursor : undefined
+  } while (cursor)
+
+  const images = allObjects
     .filter((obj) => !obj.key.startsWith('trash/'))
     .filter((obj) => /\.(png|jpe?g|gif|webp)$/i.test(obj.key))
     .map((obj) => ({

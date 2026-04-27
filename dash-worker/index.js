@@ -14,6 +14,24 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders })
     }
 
+    const getTokenFromRequest = () => {
+      const authHeader = request.headers.get('Authorization') || ''
+      const bearerToken = authHeader.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : null
+      const apiToken = request.headers.get('X-API-Token')
+      const cookieHeader = request.headers.get('Cookie') || ''
+      const cookieToken = cookieHeader
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('vegvisr_token='))
+        ?.split('=')
+        .slice(1)
+        .join('=')
+
+      return bearerToken || apiToken || (cookieToken ? decodeURIComponent(cookieToken) : null)
+    }
+
     if (pathname === '/' || pathname === '/health') {
       return new Response(JSON.stringify({ ok: true, service: 'vegvisr-dash-worker' }), {
         status: 200,
@@ -30,12 +48,7 @@ export default {
 
     if (pathname === '/auth/validate-token' && request.method === 'GET') {
       try {
-        const authHeader = request.headers.get('Authorization') || ''
-        const bearerToken = authHeader.startsWith('Bearer ')
-          ? authHeader.slice(7)
-          : null
-        const apiToken = request.headers.get('X-API-Token')
-        const token = bearerToken || apiToken
+        const token = getTokenFromRequest()
 
         if (!token) {
           return new Response(JSON.stringify({ valid: false, error: 'Missing token' }), {
@@ -46,7 +59,7 @@ export default {
 
         const db = env.vegvisr_org
         const user = await db
-          .prepare('SELECT email, Role FROM config WHERE emailVerificationToken = ?')
+          .prepare('SELECT email, user_id, oauth_id, Role FROM config WHERE emailVerificationToken = ?')
           .bind(token)
           .first()
 
@@ -57,13 +70,77 @@ export default {
           })
         }
 
-        return new Response(JSON.stringify({ valid: true, email: user.email, role: user.Role }), {
+        return new Response(
+          JSON.stringify({
+            valid: true,
+            email: user.email,
+            user_id: user.user_id || null,
+            oauth_id: user.oauth_id || null,
+            role: user.role || user.Role || null,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        )
+      } catch (error) {
+        console.error('Error in GET /auth/validate-token:', error)
+        return new Response(JSON.stringify({ valid: false, error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    if (pathname === '/userdata-from-token' && request.method === 'GET') {
+      try {
+        const token = getTokenFromRequest()
+        if (!token) {
+          return new Response(JSON.stringify({ error: 'Missing token' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const db = env.vegvisr_org
+        const row = await db
+          .prepare(
+            `SELECT email, user_id, oauth_id, bio, profileimage, emailVerificationToken, role, data, phone, phone_verified_at
+             FROM config
+             WHERE emailVerificationToken = ?
+             LIMIT 1;`,
+          )
+          .bind(token)
+          .first()
+
+        if (!row) {
+          return new Response(JSON.stringify({ error: 'Invalid token' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const parsedData = row.data ? JSON.parse(row.data) : {}
+        const response = {
+          email: row.email,
+          user_id: row.user_id || null,
+          oauth_id: row.oauth_id || row.user_id || null,
+          bio: row.bio || '',
+          profileimage: row.profileimage || '',
+          emailVerificationToken: row.emailVerificationToken || null,
+          role: row.role || row.Role || null,
+          phone: row.phone || null,
+          phoneVerifiedAt: row.phone_verified_at || null,
+          data: parsedData,
+        }
+
+        return new Response(JSON.stringify(response), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       } catch (error) {
-        console.error('Error in GET /auth/validate-token:', error)
-        return new Response(JSON.stringify({ valid: false, error: error.message }), {
+        console.error('Error in GET /userdata-from-token:', error)
+        return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -507,6 +584,71 @@ export default {
         })
       } catch (error) {
         console.error('Error in /send-gmail-email proxy:', error)
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    // Public: auto-register a new Realtime user (called after magic link verification)
+    // Idempotent — if user already exists, returns their existing data
+    if (pathname === '/register-realtime-user' && request.method === 'POST') {
+      try {
+        const body = await request.json()
+        const email = (body.email || '').trim().toLowerCase()
+        if (!email) {
+          return new Response(JSON.stringify({ error: 'Email is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const db = env.vegvisr_org
+
+        // Idempotent: if user already exists, return their data
+        const existing = await db
+          .prepare('SELECT user_id, email, emailVerificationToken, Role FROM config WHERE email = ?')
+          .bind(email)
+          .first()
+        if (existing) {
+          return new Response(JSON.stringify({
+            success: true,
+            created: false,
+            user_id: existing.user_id,
+            email: existing.email,
+            emailVerificationToken: existing.emailVerificationToken,
+            role: existing.Role,
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // New user — register with Role = 'Realtime'
+        const user_id = crypto.randomUUID()
+        const emailVerificationToken = Array.from(crypto.getRandomValues(new Uint8Array(20)))
+          .map(b => b.toString(16).padStart(2, '0')).join('')
+        const data = JSON.stringify({ profile: { user_id, email }, settings: {} })
+
+        await db.prepare(`
+          INSERT INTO config (user_id, email, emailVerificationToken, Role, data)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(user_id, email, emailVerificationToken, 'Realtime', data).run()
+
+        return new Response(JSON.stringify({
+          success: true,
+          created: true,
+          user_id,
+          email,
+          emailVerificationToken,
+          role: 'Realtime',
+        }), {
+          status: 201,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Error in POST /register-realtime-user:', error)
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

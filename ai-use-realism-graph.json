@@ -1,0 +1,116 @@
+{
+  "id": "graph_ai_use_realism_20260425",
+  "graphData": {
+    "metadata": {
+      "title": "The Use of AI: Hype, Reality, and System Integration",
+      "description": "A dialogue graph about the difference between simple AI explanations and the real complexity of system development, architecture, integration, governance, and value creation.",
+      "theme": "nibi",
+      "createdAt": "2026-04-25T09:31:00+02:00",
+      "updatedAt": "2026-04-25T09:31:00+02:00",
+      "version": "1.0"
+    },
+    "nodes": [
+      {
+        "id": "n-center",
+        "label": "The Use of AI",
+        "type": "fulltext",
+        "color": "#dbeafe",
+        "visible": true,
+        "position": { "x": 0, "y": 0 },
+        "info": "## The Use of AI\n\nAI is easy to talk about as a promise, but hard to use well in real systems.\n\nThis graph separates the public story of AI from the real work of building, integrating, governing, and maintaining AI inside production systems.",
+        "bibl": []
+      },
+      {
+        "id": "n-hype",
+        "label": "The Hype Layer",
+        "type": "fulltext",
+        "color": "#fde68a",
+        "visible": true,
+        "position": { "x": -420, "y": -180 },
+        "info": "## The Hype Layer\n\n- AI is often presented as if prompts alone are enough.\n- Influencers frequently describe outcomes without understanding system design.\n- Demos are confused with robust products.\n- FOMO creates pressure to adopt AI before the actual use case is clear.\n- Simplicity is over-sold because it is easier to market than complexity.",
+        "bibl": []
+      },
+      {
+        "id": "n-simple-story",
+        "label": "The Simple Story",
+        "type": "fulltext",
+        "color": "#fef3c7",
+        "visible": true,
+        "position": { "x": -760, "y": -20 },
+        "info": "## The Simple Story\n\nA simple story about AI can be useful for onboarding:\n\n- ask a model a question\n- get an answer\n- automate a task\n- speed up writing or coding\n\nThis is useful, but incomplete.",
+        "bibl": []
+      },
+      {
+        "id": "n-real-work",
+        "label": "The Real System Work",
+        "type": "fulltext",
+        "color": "#c7d2fe",
+        "visible": true,
+        "position": { "x": 420, "y": -180 },
+        "info": "## The Real System Work\n\nReal AI use means building systems that can operate over time.\n\nThat includes architecture, reliability, cost control, evaluation, security, governance, user workflow design, fallback behavior, and maintainability.",
+        "bibl": []
+      },
+      {
+        "id": "n-architecture",
+        "label": "Architecture and Integration",
+        "type": "fulltext",
+        "color": "#bfdbfe",
+        "visible": true,
+        "position": { "x": 760, "y": -20 },
+        "info": "## Architecture and Integration\n\n- model selection\n- tool orchestration\n- API contracts\n- data flow\n- authentication and authorization\n- observability\n- versioning\n- storage and retrieval\n- deployment boundaries\n- system resilience",
+        "bibl": []
+      },
+      {
+        "id": "n-risk",
+        "label": "Operational Risk",
+        "type": "fulltext",
+        "color": "#fecaca",
+        "visible": true,
+        "position": { "x": 760, "y": 220 },
+        "info": "## Operational Risk\n\nAI systems can fail in ways that look intelligent.\n\nKey risks include:\n\n- hallucinated outputs\n- wrong tool selection\n- privacy leaks\n- security mistakes\n- brittle automation\n- unclear responsibility\n- hidden cost growth\n- false confidence in generated results",
+        "bibl": []
+      },
+      {
+        "id": "n-value",
+        "label": "Where AI Actually Helps",
+        "type": "fulltext",
+        "color": "#bbf7d0",
+        "visible": true,
+        "position": { "x": 0, "y": 300 },
+        "info": "## Where AI Actually Helps\n\nAI becomes valuable when it is placed inside a clear system with real constraints.\n\nExamples:\n\n- summarizing complex material\n- transforming content between formats\n- assisting with first drafts\n- supporting search and retrieval\n- helping operators move faster inside a governed workflow\n- augmenting humans instead of pretending to replace them",
+        "bibl": []
+      },
+      {
+        "id": "n-dialogue",
+        "label": "Questions for Dialogue",
+        "type": "fulltext",
+        "color": "#f5d0fe",
+        "visible": true,
+        "position": { "x": -420, "y": 260 },
+        "info": "## Questions for Dialogue\n\n- What part of AI can be explained simply without becoming misleading?\n- What should always be described as system work rather than model magic?\n- Where does AI help human work, and where does it create new complexity?\n- What kind of architecture is required before AI is trustworthy in production?\n- How should we explain AI to non-technical people without hiding the real cost of integration?",
+        "bibl": []
+      },
+      {
+        "id": "n-visual",
+        "label": "Visual Direction",
+        "type": "fulltext",
+        "color": "#e9d5ff",
+        "visible": true,
+        "position": { "x": 420, "y": 300 },
+        "info": "## Visual Direction\n\nA simple visual could split the topic into two clear panels:\n\n### Left side: The easy public story\n\n- prompt in\n- answer out\n- speed\n- automation\n- excitement\n\n### Right side: The real production picture\n\n- architecture\n- integrations\n- governance\n- data flow\n- security\n- evaluation\n- maintenance\n- cost\n- human oversight",
+        "bibl": []
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source": "n-center", "target": "n-hype", "label": "is framed by" },
+      { "id": "e2", "source": "n-hype", "target": "n-simple-story", "label": "simplifies into" },
+      { "id": "e3", "source": "n-center", "target": "n-real-work", "label": "requires" },
+      { "id": "e4", "source": "n-real-work", "target": "n-architecture", "label": "depends on" },
+      { "id": "e5", "source": "n-real-work", "target": "n-risk", "label": "must manage" },
+      { "id": "e6", "source": "n-center", "target": "n-value", "label": "becomes useful through" },
+      { "id": "e7", "source": "n-center", "target": "n-dialogue", "label": "opens" },
+      { "id": "e8", "source": "n-center", "target": "n-visual", "label": "can be visualized as" }
+    ]
+  },
+  "override": true
+}

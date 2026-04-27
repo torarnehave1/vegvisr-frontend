@@ -53,6 +53,10 @@ function renderTemplate(template, variables) {
   }
 }
 
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
 // --- D1 config table helpers for email accounts ---
 
 async function loadUserSettings(env, userEmail) {
@@ -157,18 +161,53 @@ async function sendMagicLinkEmail(env, toEmail, magicLink) {
     throw new Error('SLOWYOU_API_TOKEN is not configured')
   }
 
-  const subject = 'Your Vegvisr login link'
-  const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
-      <h2>Sign in to Vegvisr</h2>
-      <p>Click the button below to finish signing in. This link expires in ${MAGIC_LINK_EXPIRY_MINUTES} minutes.</p>
-      <p style="text-align: center; margin: 24px 0;">
-        <a href="${magicLink}" style="background:#2563eb;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Continue to Vegvisr</a>
-      </p>
-      <p>If you did not request this, you can ignore this email.</p>
-      <p style="font-size: 12px; color: #555;">Link: ${magicLink}</p>
-    </div>
-  `
+  // Detect if this is a meeting invite by checking for meetingId in the magic link URL
+  let meetingId = null
+  try {
+    const parsedUrl = new URL(magicLink)
+    meetingId = parsedUrl.searchParams.get('meetingId')
+  } catch {
+    // Not a valid URL — fall through to generic email
+  }
+
+  let subject, html
+  if (meetingId) {
+    subject = 'You have been invited to a Vegvisr meeting'
+    html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111; max-width: 480px; margin: 0 auto;">
+        <div style="background: #0f172a; padding: 24px 32px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.5px;">📹 Meeting Invitation</h1>
+        </div>
+        <div style="background: #f8fafc; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; border-top: none;">
+          <p style="font-size: 16px; margin-top: 0;">You have been invited to join a live meeting on <strong>Vegvisr Realtime</strong>.</p>
+          <div style="background: #e0f2fe; border-left: 4px solid #0284c7; border-radius: 4px; padding: 12px 16px; margin: 20px 0;">
+            <p style="margin: 0; color: #0369a1; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Meeting ID</p>
+            <p style="margin: 4px 0 0; color: #0c4a6e; font-size: 18px; font-family: monospace; font-weight: bold; letter-spacing: 1px;">${meetingId}</p>
+          </div>
+          <p style="color: #475569;">Click the button below to join. You may be held in the waiting room until the host lets you in. This link expires in <strong>${MAGIC_LINK_EXPIRY_MINUTES} minutes</strong>.</p>
+          <p style="text-align: center; margin: 28px 0;">
+            <a href="${magicLink}" style="background:#0284c7;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;display:inline-block;font-size:16px;font-weight:600;">Join Meeting</a>
+          </p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #94a3b8; margin-bottom: 0;">If you did not expect this invitation, you can safely ignore this email.</p>
+          <p style="font-size: 12px; color: #94a3b8; margin-top: 6px;">Link: <a href="${magicLink}" style="color:#0284c7;">${magicLink}</a></p>
+        </div>
+      </div>
+    `
+  } else {
+    subject = 'Your Vegvisr login link'
+    html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+        <h2>Sign in to Vegvisr</h2>
+        <p>Click the button below to finish signing in. This link expires in ${MAGIC_LINK_EXPIRY_MINUTES} minutes.</p>
+        <p style="text-align: center; margin: 24px 0;">
+          <a href="${magicLink}" style="background:#2563eb;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Continue to Vegvisr</a>
+        </p>
+        <p>If you did not request this, you can ignore this email.</p>
+        <p style="font-size: 12px; color: #555;">Link: ${magicLink}</p>
+      </div>
+    `
+  }
 
   const slowyouUrl =
     env.SLOWYOU_SEND_EMAIL_URL || 'https://slowyou.io/api/send-email-custom-credentials'
@@ -1952,6 +1991,7 @@ export default {
             isDefault: !!a.isDefault,
             hasPassword: !!a.hasPassword,
             storeUrl: a.storeUrl || '',
+            accountType: a.accountType || 'gmail',
           }))
 
           return addCorsHeaders(
@@ -2125,6 +2165,7 @@ export default {
             isDefault: !!a.isDefault,
             hasPassword: !!a.hasPassword,
             storeUrl: a.storeUrl || '',
+            accountType: a.accountType || 'gmail',
           }))
 
           await saveUserSettings(env, userEmail, data)
@@ -2136,6 +2177,31 @@ export default {
             }),
           )
         } catch (error) {
+            if (!appPassword) {
+              const accountEmail = normalizeEmail(account.email)
+              const accountAliases = Array.isArray(account.aliases)
+                ? account.aliases.map(normalizeEmail).filter(Boolean)
+                : []
+              const migratedEntry = Object.entries(passwords).find(([storedId]) => {
+                const storedAccount = accounts.find((candidate) => candidate.id === storedId)
+                if (!storedAccount) return false
+                const storedEmail = normalizeEmail(storedAccount.email)
+                if (storedEmail && storedEmail === accountEmail) return true
+                const storedAliases = Array.isArray(storedAccount.aliases)
+                  ? storedAccount.aliases.map(normalizeEmail).filter(Boolean)
+                  : []
+                return accountAliases.some((alias) => storedAliases.includes(alias))
+              })
+              if (migratedEntry) {
+                const [storedId, migratedPassword] = migratedEntry
+                appPassword = migratedPassword
+                passwords[accountId] = migratedPassword
+                if (storedId !== accountId) {
+                  delete passwords[storedId]
+                }
+                await saveUserSettings(env, userEmail, data)
+              }
+            }
           console.error('Error PUT /email-accounts/sync:', error)
           return addCorsHeaders(
             new Response(JSON.stringify({ error: error.message }), {

@@ -775,6 +775,19 @@ ${author ? `<div class="comment-author">${author}</div>` : ''}
     },
   )
 
+  // 2b. Process inline YOUTUBE elements: ![YOUTUBE src=URL]Title[END YOUTUBE]
+  processedText = processedText.replace(
+    /!\[YOUTUBE\s+src=(.+?)\]([\s\S]*?)\[END\s+YOUTUBE\]/g,
+    (match, src, title) => {
+      const safeSrc = String(src).trim().replace(/"/g, '&quot;')
+      const safeTitle = String(title).trim().replace(/"/g, '&quot;')
+      return `<div class="youtube-embed" style="position:relative;width:100%;max-width:100%;aspect-ratio:16/9;margin:15px 0;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+<iframe src="${safeSrc}" title="${safeTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"></iframe>
+${safeTitle ? `<div class="youtube-embed-title" style="padding:8px 12px;font-size:0.9em;color:#555;background:#f8f9fa;">${safeTitle}</div>` : ''}
+</div>\n\n`
+    },
+  )
+
   // 3. Process leftside/rightside images FIRST (before sections and quotes)
   processedText = processLeftRightImages(processedText)
 

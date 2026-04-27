@@ -28,6 +28,14 @@ VERSION
 *.njsproj
 *.sln
 *.sw?
+*.doc
+*.docx
+*-xls
+*-xlsx
+*-ppt
+*-pptx
+*.py
+
 
 *.tsbuildinfo
 .wrangler/

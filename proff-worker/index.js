@@ -5,11 +5,89 @@
  * Supports user-provided API keys stored encrypted in D1 database.
  *
  * Endpoints:
- * - GET /search?query=... - Search companies by name
+ * - GET /search?... - Search companies by name and register filters
  * - GET /company/:orgNr - Get detailed company info with financials
  * - GET /health - Health check
  * - GET /api/docs - API documentation
  */
+
+const REGISTER_SEARCH_PARAM_DEFINITIONS = [
+  { name: 'query', type: 'string', description: 'Free text query. Case insensitive.' },
+  { name: 'industryCode', type: 'string', description: 'Industry/NACE code, e.g. "64.312".' },
+  { name: 'industry', type: 'string', description: 'Industry text filter.' },
+  { name: 'location', type: 'string', description: 'Location filter, e.g. county or municipality.' },
+  { name: 'companyType', type: 'array', description: 'Company type codes like AS, ANS, EP or NUF.' },
+  { name: 'filter', type: 'string', description: 'Custom filter string, e.g. "status:AKTIVT".' },
+  { name: 'sort', type: 'string', description: 'Sorting, e.g. relevance, profitDesc, revenueDesc, companyNameDesc.' },
+  { name: 'pageSize', type: 'integer', description: 'Number of results per page.' },
+  { name: 'pageNumber', type: 'integer', description: 'Page number to fetch.' },
+  { name: 'numEmployeesFrom', type: 'string', description: 'Minimum number of employees.' },
+  { name: 'numEmployeesTo', type: 'string', description: 'Maximum number of employees.' },
+  { name: 'revenueFrom', type: 'string', description: 'Minimum revenue.' },
+  { name: 'revenueTo', type: 'string', description: 'Maximum revenue.' },
+  { name: 'profitFrom', type: 'string', description: 'Minimum profit.' },
+  { name: 'profitTo', type: 'string', description: 'Maximum profit.' },
+  { name: 'establishedYearFrom', type: 'string', description: 'Earliest establishment year.' },
+  { name: 'establishedYearTo', type: 'string', description: 'Latest establishment year.' }
+]
+
+function appendSearchValue(searchParams, name, value) {
+  if (value === undefined || value === null || value === '') {
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (item !== undefined && item !== null && item !== '') {
+        searchParams.append(name, String(item))
+      }
+    }
+    return
+  }
+
+  searchParams.set(name, String(value))
+}
+
+function buildRegisterSearchParams(source) {
+  const searchParams = new URLSearchParams()
+
+  for (const param of REGISTER_SEARCH_PARAM_DEFINITIONS) {
+    if (typeof source.getAll === 'function' && param.type === 'array') {
+      appendSearchValue(searchParams, param.name, source.getAll(param.name))
+      continue
+    }
+
+    if (typeof source.get === 'function') {
+      appendSearchValue(searchParams, param.name, source.get(param.name))
+      continue
+    }
+
+    appendSearchValue(searchParams, param.name, source[param.name])
+  }
+
+  return searchParams
+}
+
+function serializeSearchCriteria(searchParams) {
+  const criteria = {}
+
+  for (const param of REGISTER_SEARCH_PARAM_DEFINITIONS) {
+    if (param.type === 'array') {
+      const values = searchParams.getAll(param.name)
+      if (values.length > 0) {
+        criteria[param.name] = values
+      }
+      continue
+    }
+
+    const value = searchParams.get(param.name)
+    if (value) {
+      criteria[param.name] = value
+    }
+  }
+
+  return criteria
+}
 
 /**
  * Decrypt an API key using AES-256-GCM
@@ -102,11 +180,12 @@ function jsonResponse(data, status = 200) {
  */
 async function handleSearch(request, env) {
   const url = new URL(request.url)
-  const query = url.searchParams.get('query')
   const userId = url.searchParams.get('userId') || request.headers.get('x-user-id')
+  const registerSearchParams = buildRegisterSearchParams(url.searchParams)
+  const query = registerSearchParams.get('query')
 
-  if (!query) {
-    return jsonResponse({ error: 'Missing query parameter' }, 400)
+  if ([...registerSearchParams.keys()].length === 0) {
+    return jsonResponse({ error: 'Missing search criteria' }, 400)
   }
 
   // Try to get user's API key first
@@ -131,11 +210,11 @@ async function handleSearch(request, env) {
     }, 401)
   }
 
-  console.log(`🏢 Proff search: "${query}"`)
+  console.log('🏢 Proff search criteria:', serializeSearchCriteria(registerSearchParams))
 
   try {
     const proffResponse = await fetch(
-      `https://api.proff.no/api/companies/register/NO?query=${encodeURIComponent(query)}`,
+      `https://api.proff.no/api/companies/register/NO?${registerSearchParams.toString()}`,
       {
         headers: {
           'Authorization': `Token ${apiKey}`
@@ -153,14 +232,24 @@ async function handleSearch(request, env) {
     }
 
     const data = await proffResponse.json()
+    const companies = data.companies || []
+    const totalResults = typeof data.numberOfHits === 'number'
+      ? data.numberOfHits
+      : companies.length
 
-    console.log(`✅ Found ${data.companies?.length || 0} companies`)
+    console.log(`✅ Found ${companies.length} companies on page, ${totalResults} total hits`)
 
     return jsonResponse({
       success: true,
-      query,
-      companies: data.companies || [],
-      totalResults: data.companies?.length || 0
+      query: query || null,
+      searchCriteria: serializeSearchCriteria(registerSearchParams),
+      companies,
+      returnedResults: companies.length,
+      totalResults,
+      correctedQuery: data.correctedQuery || null,
+      pagination: data.pagination || null,
+      sorting: data.sorting || null,
+      filterGroups: data.filterGroups || []
     })
 
   } catch (error) {
@@ -287,6 +376,128 @@ async function handleCompanyDetails(orgNr, request, env) {
     console.error('❌ Proff company details error:', error)
     return jsonResponse({
       error: 'Failed to fetch company details',
+      message: error.message
+    }, 500)
+  }
+}
+
+function extractManagingDirector(personRoles) {
+  if (!Array.isArray(personRoles)) {
+    return null
+  }
+
+  const role = personRoles.find((entry) => {
+    const haystack = [entry?.title, entry?.responsibility, entry?.titleCode]
+      .filter(Boolean)
+      .join(' ')
+    return /daglig leder|managing director|administrerende direktør|ceo/i.test(haystack)
+  })
+
+  if (!role) {
+    return null
+  }
+
+  return {
+    name: role.name || null,
+    title: role.title || role.responsibility || role.titleCode || null,
+    personId: role.personId || null
+  }
+}
+
+function extractPublicCompanyInfo(data) {
+  return {
+    name: data.name,
+    organisationNumber: data.organisationNumber,
+    companyPurpose: data.companyPurpose || null,
+    companyType: data.companyType || null,
+    companyTypeName: data.companyTypeName || null,
+    registrationDate: data.registrationDate || null,
+    establishedDate: data.establishedDate || null,
+    foundationDate: data.foundationDate || null,
+    foundationYear: data.foundationYear || null,
+    naceCategories: data.naceCategories || [],
+    sectorCode: data.sectorCode || null,
+    managingDirector: extractManagingDirector(data.personRoles),
+    phoneNumbers: data.phoneNumbers || null,
+    email: data.email || null,
+    homePage: data.homePage || null,
+    visitorAddress: data.visitorAddress || null,
+    postalAddress: data.postalAddress || null,
+    shareCapital: data.shareCapital ?? null,
+    status: data.status || null,
+    registrations: {
+      vat: {
+        registered: Boolean(data.registeredForVat),
+        description: data.registeredForVatDescription || null
+      },
+      enterpriseRegister: {
+        registered: Boolean(data.registeredAsEnterprise),
+        date: data.registrationDate || null
+      },
+      nav: {
+        registered: Boolean(data.registeredForNav)
+      },
+      voluntaryRegister: {
+        registered: Boolean(data.registeredForVoluntary)
+      },
+      taxAdministration: {
+        registered: Boolean(data.registeredForTaxAdministration)
+      },
+      prepayment: {
+        registered: Boolean(data.registeredForPrepayment),
+        date: data.registeredForPrepaymentDate || null
+      }
+    },
+    ehf: data.ehf || null
+  }
+}
+
+async function handlePublicCompanyInfo(orgNr, request, env) {
+  const url = new URL(request.url)
+  const userId = url.searchParams.get('userId') || request.headers.get('x-user-id')
+
+  if (!orgNr || !/^\d+$/.test(orgNr)) {
+    return jsonResponse({ error: 'Invalid organization number' }, 400)
+  }
+
+  let apiKey = null
+  if (userId && userId !== 'system') {
+    apiKey = await getUserApiKey(userId, 'proff', env)
+  }
+  if (!apiKey) {
+    apiKey = env.PROFF_API_TOKEN
+  }
+  if (!apiKey) {
+    return jsonResponse({ error: 'Proff API key not configured' }, 401)
+  }
+
+  try {
+    const proffResponse = await fetch(
+      `https://api.proff.no/api/companies/register/NO/${orgNr}`,
+      {
+        headers: {
+          'Authorization': `Token ${apiKey}`
+        }
+      }
+    )
+
+    if (!proffResponse.ok) {
+      const errorText = await proffResponse.text()
+      return jsonResponse({
+        error: `Proff API error: ${proffResponse.status}`,
+        details: errorText
+      }, proffResponse.status)
+    }
+
+    const data = await proffResponse.json()
+
+    return jsonResponse({
+      success: true,
+      company: extractPublicCompanyInfo(data)
+    })
+  } catch (error) {
+    return jsonResponse({
+      error: 'Failed to fetch public company info',
       message: error.message
     }, 500)
   }
@@ -782,16 +993,80 @@ function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'proff_search_companies',
-        description: 'Search for Norwegian companies by name. Returns a list of matching companies with their organization numbers. Use this first to find the org.nr before getting details.',
+        description: 'Search Norwegian registered companies with name, industry/NACE code, company type, location, and other register filters. Returns both the current page of companies and the total hit count across all pages. Use this for finding companies, filtering by industry, and answering count questions.',
         parameters: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
               description: 'Company name to search for (e.g., "Equinor", "Universi AS")'
+            },
+            industryCode: {
+              type: 'string',
+              description: 'Industry/NACE code, e.g. "64.312"'
+            },
+            industry: {
+              type: 'string',
+              description: 'Industry text filter'
+            },
+            location: {
+              type: 'string',
+              description: 'Location filter, e.g. "Oslo" or "Vestland"'
+            },
+            companyType: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Company type codes like AS, ANS, EP or NUF'
+            },
+            filter: {
+              type: 'string',
+              description: 'Custom Proff filter string, e.g. "status:AKTIVT" or "email:true"'
+            },
+            sort: {
+              type: 'string',
+              description: 'Sort order, e.g. relevance, profitDesc, revenueDesc, companyNameDesc'
+            },
+            pageSize: {
+              type: 'integer',
+              description: 'Results per page'
+            },
+            pageNumber: {
+              type: 'integer',
+              description: 'Page number'
+            },
+            numEmployeesFrom: {
+              type: 'string',
+              description: 'Minimum number of employees'
+            },
+            numEmployeesTo: {
+              type: 'string',
+              description: 'Maximum number of employees'
+            },
+            revenueFrom: {
+              type: 'string',
+              description: 'Minimum revenue'
+            },
+            revenueTo: {
+              type: 'string',
+              description: 'Maximum revenue'
+            },
+            profitFrom: {
+              type: 'string',
+              description: 'Minimum profit'
+            },
+            profitTo: {
+              type: 'string',
+              description: 'Maximum profit'
+            },
+            establishedYearFrom: {
+              type: 'string',
+              description: 'Earliest establishment year'
+            },
+            establishedYearTo: {
+              type: 'string',
+              description: 'Latest establishment year'
             }
-          },
-          required: ['query']
+          }
         }
       }
     },
@@ -817,6 +1092,23 @@ function getToolDefinitions() {
       function: {
         name: 'proff_get_company_details',
         description: 'Get company information like board members, shareholders, address, and contact details. Use this for ownership, management, or company structure questions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            orgNr: {
+              type: 'string',
+              description: 'The 9-digit Norwegian organization number'
+            }
+          },
+          required: ['orgNr']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'proff_get_public_company_info',
+        description: 'Get public foretaksinformasjon for a Norwegian company: company name, org.nr, company purpose, company type, NACE categories, managing director, phone numbers, addresses, registration flags, share capital, and status. Use this for public business information lookups.',
         parameters: {
           type: 'object',
           properties: {
@@ -920,16 +1212,73 @@ function handleApiDocs() {
       '/search': {
         get: {
           operationId: 'searchCompanies',
-          summary: 'Search companies by name',
-          description: 'Search for Norwegian companies by name in the Brønnøysund register.',
+          summary: 'Search companies with register filters',
+          description: 'Search Norwegian registered companies by name, industry/NACE code, company type, location, and other register filters.',
           parameters: [
             {
               name: 'query',
               in: 'query',
-              required: true,
+              required: false,
               schema: { type: 'string' },
               description: 'Company name or search term',
               example: 'Equinor'
+            },
+            {
+              name: 'industryCode',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Industry/NACE code',
+              example: '64.312'
+            },
+            {
+              name: 'industry',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Industry text filter'
+            },
+            {
+              name: 'location',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Location filter'
+            },
+            {
+              name: 'companyType',
+              in: 'query',
+              required: false,
+              schema: { type: 'array', items: { type: 'string' } },
+              description: 'One or more company type codes such as AS or NUF'
+            },
+            {
+              name: 'filter',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Custom Proff filter string, e.g. status:AKTIVT'
+            },
+            {
+              name: 'sort',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Sort order'
+            },
+            {
+              name: 'pageSize',
+              in: 'query',
+              required: false,
+              schema: { type: 'integer' },
+              description: 'Results per page'
+            },
+            {
+              name: 'pageNumber',
+              in: 'query',
+              required: false,
+              schema: { type: 'integer' },
+              description: 'Page number'
             },
             {
               name: 'userId',
@@ -949,6 +1298,7 @@ function handleApiDocs() {
                     properties: {
                       success: { type: 'boolean' },
                       query: { type: 'string' },
+                      searchCriteria: { type: 'object' },
                       companies: {
                         type: 'array',
                         items: {
@@ -962,6 +1312,7 @@ function handleApiDocs() {
                           }
                         }
                       },
+                      returnedResults: { type: 'integer' },
                       totalResults: { type: 'integer' }
                     }
                   }
@@ -1025,6 +1376,65 @@ function handleApiDocs() {
                                 figures: {
                                   type: 'object',
                                   description: 'Key figures: SI (revenue), DR (operating result), AARS (annual result), EBITDA, etc.'
+                                }
+                              }
+                            }
+                          },
+                          '/public-company/{orgNr}': {
+                            get: {
+                              operationId: 'getPublicCompanyInfo',
+                              summary: 'Get public company information',
+                              description: 'Retrieve public company information such as org.nr, purpose, company type, NACE, managing director, phones, addresses, registration statuses, share capital and legal status.',
+                              parameters: [
+                                {
+                                  name: 'orgNr',
+                                  in: 'path',
+                                  required: true,
+                                  schema: { type: 'string' },
+                                  description: 'Norwegian organization number (9 digits)',
+                                  example: '892545642'
+                                },
+                                {
+                                  name: 'userId',
+                                  in: 'query',
+                                  required: false,
+                                  schema: { type: 'string' },
+                                  description: 'User ID for user-specific API key'
+                                }
+                              ],
+                              responses: {
+                                '200': {
+                                  description: 'Public company information',
+                                  content: {
+                                    'application/json': {
+                                      schema: {
+                                        type: 'object',
+                                        properties: {
+                                          success: { type: 'boolean' },
+                                          company: {
+                                            type: 'object',
+                                            properties: {
+                                              name: { type: 'string' },
+                                              organisationNumber: { type: 'string' },
+                                              companyPurpose: { type: 'string' },
+                                              companyType: { type: 'string' },
+                                              companyTypeName: { type: 'string' },
+                                              registrationDate: { type: 'string' },
+                                              foundationDate: { type: 'string' },
+                                              naceCategories: { type: 'array' },
+                                              managingDirector: { type: 'object' },
+                                              phoneNumbers: { type: 'object' },
+                                              visitorAddress: { type: 'object' },
+                                              postalAddress: { type: 'object' },
+                                              shareCapital: { type: 'integer' },
+                                              status: { type: 'object' },
+                                              registrations: { type: 'object' }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -1176,6 +1586,12 @@ export default {
         return await handleCompanyDetails(orgNr, request, env)
       }
 
+      // Public company information by org number
+      if (pathname.startsWith('/public-company/') && request.method === 'GET') {
+        const orgNr = pathname.split('/')[2]
+        return await handlePublicCompanyInfo(orgNr, request, env)
+      }
+
       // 404
       return jsonResponse({
         error: 'Not Found',
@@ -1183,6 +1599,7 @@ export default {
         availableEndpoints: [
           'GET /search?query=...',
           'GET /company/:orgNr',
+          'GET /public-company/:orgNr',
           'GET /financials/:orgNr',
           'GET /persons?query=...',
           'GET /person/:personId',
