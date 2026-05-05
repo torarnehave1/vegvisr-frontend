@@ -2374,6 +2374,7 @@ const convertStylesToString = (styleObj) => {
 .node-content :deep(table td code),
 .node-content :deep(table th code) {
   background-color: #f1f3f4;
+  color: #212529;
   padding: 2px 4px;
   border-radius: 3px;
   font-size: 0.85em;

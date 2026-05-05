@@ -223,11 +223,9 @@ wrangler d1 execute vegvisr_org --remote --command "SELECT id, name, category FR
 - **vemail-vegvisr** - Email management
 
 ### Cloudflare Account
-**ALL workers are in the SAME Cloudflare account: `e91711ab7a5bf10ef92e1b2a91d52148`**
-- Do NOT assume workers are in different accounts
-- Do NOT check/verify account separation — they share one account
-- Service bindings work between ALL workers because they are co-located
-- The `account_id` in some wrangler.toml files (e.g. `5d9b2060...`) is a legacy secondary account — ignore it for service binding purposes
+**Main Cloudflare account: `5d9b2060ef095c777711a8649c24914e`** (torarnehave@gmail.com)
+- This is the primary account where all workers live
+- Service bindings work between ALL workers because they are co-located in this account
 - **Never refuse to add a service binding based on account mismatch assumptions**
 
 ### Cloudflare Workers (all same account)
