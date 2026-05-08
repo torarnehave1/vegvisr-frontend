@@ -1471,10 +1471,34 @@ export default {
         if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
 
         const key = url.searchParams.get('key')
-        if (!key) return createResponse(JSON.stringify({ error: 'key query parameter is required' }), 400)
-
         const rtkUrl = url.searchParams.get('rtk_url')
-        if (rtkUrl) return new Response(null, { status: 302, headers: { ...corsHeaders, Location: rtkUrl } })
+        if (rtkUrl) {
+          let parsedRtkUrl
+          try {
+            parsedRtkUrl = new URL(rtkUrl)
+          } catch {
+            return createResponse(JSON.stringify({ error: 'Invalid rtk_url parameter' }), 400)
+          }
+          if (parsedRtkUrl.protocol !== 'https:') return createResponse(JSON.stringify({ error: 'rtk_url must use https' }), 400)
+
+          const upstream = await fetch(parsedRtkUrl.toString())
+          if (!upstream.ok) {
+            return createResponse(JSON.stringify({ error: `RealtimeKit download failed: ${upstream.status}` }), upstream.status)
+          }
+          const upstreamType = upstream.headers.get('content-type') || 'video/mp4'
+          const contentDisposition = upstream.headers.get('content-disposition')
+          const fallbackName = parsedRtkUrl.pathname.split('/').pop() || 'recording.mp4'
+          return new Response(upstream.body, {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': upstreamType,
+              'Content-Disposition': contentDisposition || `attachment; filename="${fallbackName}"`,
+              ...(upstream.headers.get('content-length') ? { 'Content-Length': upstream.headers.get('content-length') } : {}),
+            },
+          })
+        }
+
+        if (!key) return createResponse(JSON.stringify({ error: 'key query parameter is required' }), 400)
 
         const obj = await env.MEETING_RECORDINGS.get(key)
         if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
