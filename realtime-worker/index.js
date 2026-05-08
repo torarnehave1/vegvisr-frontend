@@ -110,6 +110,22 @@ async function r2Put(bucket, key, body, contentType, metadata, accessKeyId, secr
   })
 }
 
+async function r2Head(bucket, key, accessKeyId, secretKey, accountId) {
+  const { url, headers } = await signR2Request('HEAD', bucket, key, accessKeyId, secretKey, accountId)
+  return fetch(url, {
+    method: 'HEAD',
+    headers,
+  })
+}
+
+async function r2Get(bucket, key, accessKeyId, secretKey, accountId) {
+  const { url, headers } = await signR2Request('GET', bucket, key, accessKeyId, secretKey, accountId)
+  return fetch(url, {
+    method: 'GET',
+    headers,
+  })
+}
+
 // Streaming PUT — uses S3 UNSIGNED-PAYLOAD so we don't have to buffer/hash the whole body
 // in Worker memory. Required for large files (Workers have ~128 MB memory limit).
 async function r2PutStream(bucket, key, stream, contentLength, contentType, metadata, accessKeyId, secretKey, accountId) {
@@ -987,18 +1003,31 @@ export default {
               const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1])
               for (const key of keys) {
                 let playUrl = null
+                let metadata = { title: '', labels: [], thumbnailUrl: '' }
+                let size = 0
                 try {
                   playUrl = await r2PresignGet(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, 3600)
                 } catch (presignErr) { console.error('presign failed for', key, presignErr) }
+                try {
+                  const headResp = await r2Head(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+                  if (headResp.ok) {
+                    metadata = normalizeRecordingMetadata({
+                      title: headResp.headers.get('x-amz-meta-title') || '',
+                      labels: headResp.headers.get('x-amz-meta-labels') || '',
+                      thumbnailUrl: headResp.headers.get('x-amz-meta-thumbnailurl') || '',
+                    })
+                    size = Number(headResp.headers.get('content-length') || '0') || 0
+                  }
+                } catch (headErr) { console.error('own R2 head failed for', key, headErr) }
                 recordings.push({
                   key,
                   name: key.replace('recordings/', ''),
-                  size: 0,
+                  size,
                   source: 'r2-own',
                   playUrl,
-                  title: '',
-                  labels: [],
-                  thumbnailUrl: '',
+                  title: metadata.title,
+                  labels: metadata.labels,
+                  thumbnailUrl: metadata.thumbnailUrl,
                 })
               }
             }
@@ -1483,7 +1512,6 @@ export default {
         const auth = await validateWorkerApiToken(request, env)
         if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
         if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
-        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
 
         const body = await request.json()
         const key = String(body.key || '')
@@ -1496,6 +1524,8 @@ export default {
           .slice(0, 20)
 
         if (!key) return createResponse(JSON.stringify({ error: 'key is required' }), 400)
+        const effectiveEmail = String(body.asUser || auth.email || '').trim()
+        const creds = await getUserCloudflareCredentials(effectiveEmail, env)
 
         if (thumbnailUrl) {
           let parsed
@@ -1509,11 +1539,7 @@ export default {
           }
         }
 
-        const obj = await env.MEETING_RECORDINGS.get(key)
-        if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
-
         const customMetadata = {
-          ...(obj.customMetadata || {}),
           title,
           labels: labels.join(', '),
           thumbnailUrl,
@@ -1521,10 +1547,38 @@ export default {
           updatedAt: new Date().toISOString(),
         }
 
-        await env.MEETING_RECORDINGS.put(key, obj.body, {
-          httpMetadata: obj.httpMetadata,
-          customMetadata,
-        })
+        if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
+          const getResp = await r2Get(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+          if (!getResp.ok) return createResponse(JSON.stringify({ error: 'Recording not found in user R2 bucket' }), 404)
+          const contentType = getResp.headers.get('content-type') || 'video/mp4'
+          const bodyBuffer = await getResp.arrayBuffer()
+          const putResp = await r2Put(
+            creds.r2Bucket,
+            key,
+            bodyBuffer,
+            contentType,
+            customMetadata,
+            creds.r2AccessKeyId,
+            creds.r2Secret,
+            creds.r2AccountId
+          )
+          if (!putResp.ok) {
+            const errText = await putResp.text()
+            return createResponse(JSON.stringify({ error: 'Failed to update user R2 metadata', details: errText }), 502)
+          }
+        } else {
+          if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+          const obj = await env.MEETING_RECORDINGS.get(key)
+          if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
+
+          await env.MEETING_RECORDINGS.put(key, obj.body, {
+            httpMetadata: obj.httpMetadata,
+            customMetadata: {
+              ...(obj.customMetadata || {}),
+              ...customMetadata,
+            },
+          })
+        }
 
         return createResponse(JSON.stringify({
           success: true,
