@@ -270,6 +270,16 @@ function buildManualRecordingTarget(filename, contentType) {
   }
 }
 
+function normalizeRecordingMetadata(customMetadata = {}) {
+  const title = String(customMetadata.title || '').trim()
+  const labels = String(customMetadata.labels || '')
+    .split(',')
+    .map((label) => label.trim())
+    .filter(Boolean)
+  const thumbnailUrl = String(customMetadata.thumbnailUrl || '').trim()
+  return { title, labels, thumbnailUrl }
+}
+
 async function validateWorkerApiToken(request, env) {
   const apiToken = request.headers.get('X-API-Token')
   if (!apiToken) return { valid: false, error: 'Missing X-API-Token header' }
@@ -980,7 +990,16 @@ export default {
                 try {
                   playUrl = await r2PresignGet(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, 3600)
                 } catch (presignErr) { console.error('presign failed for', key, presignErr) }
-                recordings.push({ key, name: key.replace('recordings/', ''), size: 0, source: 'r2-own', playUrl })
+                recordings.push({
+                  key,
+                  name: key.replace('recordings/', ''),
+                  size: 0,
+                  source: 'r2-own',
+                  playUrl,
+                  title: '',
+                  labels: [],
+                  thumbnailUrl: '',
+                })
               }
             }
           } catch (r2Err) { console.error('R2 own list error:', r2Err) }
@@ -990,12 +1009,38 @@ export default {
             const listed = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 200 })
             for (const obj of listed.objects || []) {
               const name = obj.key.replace('recordings/', '')
-              recordings.push({ key: obj.key, name, size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2', playUrl: `https://realtimevideos.vegvisr.org/recordings/${encodeURIComponent(name)}` })
+              const meta = normalizeRecordingMetadata(obj.customMetadata || {})
+              recordings.push({
+                key: obj.key,
+                name,
+                size: obj.size,
+                uploaded: obj.uploaded,
+                etag: obj.etag,
+                customMetadata: obj.customMetadata || {},
+                source: 'r2',
+                playUrl: `https://realtimevideos.vegvisr.org/recordings/${encodeURIComponent(name)}`,
+                title: meta.title,
+                labels: meta.labels,
+                thumbnailUrl: meta.thumbnailUrl,
+              })
             }
             const rootListed = await env.MEETING_RECORDINGS.list({ limit: 200 })
             for (const obj of rootListed.objects || []) {
               if (!obj.key.startsWith('recordings/')) {
-                recordings.push({ key: obj.key, name: obj.key, size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2', playUrl: `https://realtimevideos.vegvisr.org/${encodeURIComponent(obj.key)}` })
+                const meta = normalizeRecordingMetadata(obj.customMetadata || {})
+                recordings.push({
+                  key: obj.key,
+                  name: obj.key,
+                  size: obj.size,
+                  uploaded: obj.uploaded,
+                  etag: obj.etag,
+                  customMetadata: obj.customMetadata || {},
+                  source: 'r2',
+                  playUrl: `https://realtimevideos.vegvisr.org/${encodeURIComponent(obj.key)}`,
+                  title: meta.title,
+                  labels: meta.labels,
+                  thumbnailUrl: meta.thumbnailUrl,
+                })
               }
             }
           } catch (r2Err) { console.error('R2 list error:', r2Err) }
@@ -1428,6 +1473,69 @@ export default {
         return createResponse(JSON.stringify({ success: true, oldKey: key, newKey }))
       } catch (e) {
         console.error('Error in /realtime/recordings/rename:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/metadata ─────────────────────────────────────
+    if (pathname === '/realtime/recordings/metadata' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+
+        const body = await request.json()
+        const key = String(body.key || '')
+        const title = String(body.title || '').trim()
+        const thumbnailUrl = String(body.thumbnailUrl || '').trim()
+        const labelsInput = Array.isArray(body.labels) ? body.labels : String(body.labels || '').split(',')
+        const labels = labelsInput
+          .map((label) => String(label || '').trim())
+          .filter(Boolean)
+          .slice(0, 20)
+
+        if (!key) return createResponse(JSON.stringify({ error: 'key is required' }), 400)
+
+        if (thumbnailUrl) {
+          let parsed
+          try {
+            parsed = new URL(thumbnailUrl)
+          } catch {
+            return createResponse(JSON.stringify({ error: 'thumbnailUrl must be a valid URL' }), 400)
+          }
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            return createResponse(JSON.stringify({ error: 'thumbnailUrl must use http or https' }), 400)
+          }
+        }
+
+        const obj = await env.MEETING_RECORDINGS.get(key)
+        if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
+
+        const customMetadata = {
+          ...(obj.customMetadata || {}),
+          title,
+          labels: labels.join(', '),
+          thumbnailUrl,
+          updatedBy: auth.email || '',
+          updatedAt: new Date().toISOString(),
+        }
+
+        await env.MEETING_RECORDINGS.put(key, obj.body, {
+          httpMetadata: obj.httpMetadata,
+          customMetadata,
+        })
+
+        return createResponse(JSON.stringify({
+          success: true,
+          key,
+          title,
+          labels,
+          thumbnailUrl,
+          customMetadata,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/metadata:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
       }
     }
