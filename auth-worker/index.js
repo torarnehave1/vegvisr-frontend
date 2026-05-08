@@ -1581,6 +1581,193 @@ export default {
       }
     }
 
+    // ============================================
+    // PINTEREST OAUTH ENDPOINTS
+    // ============================================
+
+    // Pinterest Login - Start OAuth flow
+    if (url.pathname === '/auth/pinterest/login') {
+      const pinterestClientId = env.PINTEREST_CLIENT_ID
+      const redirectUri = env.PINTEREST_REDIRECT_URI
+
+      const returnUrl = url.searchParams.get('return_url') || 'https://www.vegvisr.org/'
+      const state = btoa(JSON.stringify({ returnUrl }))
+
+      // Scopes: boards:read for listing boards, pins:read/write if you later want
+      // to read or create pins directly via Pinterest API.
+      const scopes = 'boards:read,pins:read,user_accounts:read'
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: pinterestClientId,
+        redirect_uri: redirectUri,
+        state: state,
+        scope: scopes,
+      })
+
+      return Response.redirect(
+        `https://www.pinterest.com/oauth/?${params.toString()}`,
+        302,
+      )
+    }
+
+    // Pinterest Callback - Handle OAuth callback
+    if (url.pathname === '/auth/pinterest/callback') {
+      const code = url.searchParams.get('code')
+      const error = url.searchParams.get('error')
+      const errorDescription = url.searchParams.get('error_description')
+      const state = url.searchParams.get('state')
+
+      let returnUrl = 'https://www.vegvisr.org/'
+      try {
+        if (state) {
+          const stateData = JSON.parse(atob(state))
+          returnUrl = stateData.returnUrl || returnUrl
+        }
+      } catch (e) {
+        console.error('Failed to parse state:', e)
+      }
+
+      if (error) {
+        const errorMsg = errorDescription || error
+        return Response.redirect(
+          `${returnUrl}?pinterest_auth_error=${encodeURIComponent(errorMsg)}`,
+          302,
+        )
+      }
+
+      if (!code) {
+        return Response.redirect(
+          `${returnUrl}?pinterest_auth_error=${encodeURIComponent('No authorization code received')}`,
+          302,
+        )
+      }
+
+      try {
+        const pinterestClientId = env.PINTEREST_CLIENT_ID
+        const pinterestClientSecret = env.PINTEREST_CLIENT_SECRET
+        const redirectUri = env.PINTEREST_REDIRECT_URI
+
+        // Pinterest token endpoint requires HTTP Basic auth (client_id:client_secret)
+        const basicAuth = btoa(`${pinterestClientId}:${pinterestClientSecret}`)
+
+        const tokenRes = await fetch('https://api.pinterest.com/v5/oauth/token', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${basicAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: redirectUri,
+          }),
+        })
+
+        const tokenData = await tokenRes.json()
+
+        if (!tokenData.access_token) {
+          throw new Error(tokenData.error_description || tokenData.error || 'Failed to get access token')
+        }
+
+        // Fetch the Pinterest user account so we can key credentials by email-equivalent.
+        // Pinterest user_account does not return email — we use username as identifier
+        // alongside the email passed via state if available.
+        const userRes = await fetch('https://api.pinterest.com/v5/user_account', {
+          headers: { 'Authorization': `Bearer ${tokenData.access_token}` },
+        })
+        const userAccount = await userRes.json()
+
+        // Store under the Vegvisr user email if we know it (from query param), else
+        // under a pinterest:<username> key as a fallback.
+        const vegvisrEmail = url.searchParams.get('vegvisr_email')
+        const kvKey = vegvisrEmail || `pinterest:${userAccount.username || 'unknown'}`
+
+        // Merge with existing credentials if present
+        let existing = {}
+        try {
+          const raw = await env.GOOGLE_CREDENTIALS.get(kvKey)
+          if (raw) existing = JSON.parse(raw)
+        } catch (e) {
+          existing = {}
+        }
+
+        const credentials = {
+          ...existing,
+          pinterest_access_token: tokenData.access_token,
+          pinterest_refresh_token: tokenData.refresh_token,
+          pinterest_expires_in: tokenData.expires_in || 2592000,
+          pinterest_scope: tokenData.scope,
+          pinterest_user: userAccount,
+          updated_at: new Date().toISOString(),
+        }
+
+        await env.GOOGLE_CREDENTIALS.put(kvKey, JSON.stringify(credentials))
+
+        const successUrl = new URL(returnUrl)
+        successUrl.searchParams.set('pinterest_auth_success', 'true')
+        successUrl.searchParams.set('pinterest_access_token', tokenData.access_token)
+        successUrl.searchParams.set('pinterest_expires_in', String(tokenData.expires_in || 2592000))
+        if (userAccount.username) successUrl.searchParams.set('pinterest_username', userAccount.username)
+        if (userAccount.id) successUrl.searchParams.set('pinterest_id', userAccount.id)
+
+        return Response.redirect(successUrl.toString(), 302)
+      } catch (error) {
+        return Response.redirect(
+          `${returnUrl}?pinterest_auth_error=${encodeURIComponent(error.message)}`,
+          302,
+        )
+      }
+    }
+
+    // Pinterest Boards - List boards using stored token (or Bearer header)
+    if (url.pathname === '/auth/pinterest/boards' && request.method === 'GET') {
+      try {
+        let accessToken = null
+
+        const authHeader = request.headers.get('Authorization')
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          accessToken = authHeader.replace('Bearer ', '')
+        } else {
+          const userEmail = request.headers.get('x-user-email')
+          if (!userEmail) {
+            return createResponse(JSON.stringify({ error: 'Provide Authorization: Bearer <token> or x-user-email header' }), 400)
+          }
+          const raw = await env.GOOGLE_CREDENTIALS.get(userEmail)
+          if (!raw) {
+            return createResponse(JSON.stringify({ error: 'No Pinterest credentials found for user' }), 404)
+          }
+          const creds = JSON.parse(raw)
+          accessToken = creds.pinterest_access_token
+          if (!accessToken) {
+            return createResponse(JSON.stringify({ error: 'No Pinterest access token found' }), 404)
+          }
+        }
+
+        const pageSize = url.searchParams.get('page_size') || '100'
+        const bookmark = url.searchParams.get('bookmark') || ''
+        const qs = new URLSearchParams({ page_size: pageSize })
+        if (bookmark) qs.set('bookmark', bookmark)
+
+        const boardsRes = await fetch(`https://api.pinterest.com/v5/boards?${qs.toString()}`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+        })
+        const boardsData = await boardsRes.json()
+
+        if (!boardsRes.ok) {
+          return createResponse(JSON.stringify({
+            success: false,
+            status: boardsRes.status,
+            error: boardsData,
+          }), boardsRes.status)
+        }
+
+        return createResponse(JSON.stringify({ success: true, data: boardsData }))
+      } catch (error) {
+        return createResponse(JSON.stringify({ error: error.message }), 500)
+      }
+    }
+
     return new Response('Not found', {
       status: 404,
       headers: corsHeaders,

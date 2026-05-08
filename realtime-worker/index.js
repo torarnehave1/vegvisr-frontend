@@ -110,6 +110,56 @@ async function r2Put(bucket, key, body, contentType, metadata, accessKeyId, secr
   })
 }
 
+// Streaming PUT — uses S3 UNSIGNED-PAYLOAD so we don't have to buffer/hash the whole body
+// in Worker memory. Required for large files (Workers have ~128 MB memory limit).
+async function r2PutStream(bucket, key, stream, contentLength, contentType, metadata, accessKeyId, secretKey, accountId) {
+  const host = `${accountId}.r2.cloudflarestorage.com`
+  const url = `https://${host}/${bucket}/${key}`
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const timeStr = now.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z'
+  const region = 'auto'
+  const service = 's3'
+  const payloadHash = 'UNSIGNED-PAYLOAD'
+
+  const baseHeaders = {
+    'host': host,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': timeStr,
+  }
+  if (contentLength != null) baseHeaders['content-length'] = String(contentLength)
+
+  const signedHeaderKeys = Object.keys(baseHeaders).sort()
+  const signedHeaders = signedHeaderKeys.join(';')
+  const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${baseHeaders[k]}`).join('\n') + '\n'
+  const canonicalRequest = ['PUT', `/${bucket}/${key}`, '', canonicalHeaders, signedHeaders, payloadHash].join('\n')
+
+  const credentialScope = `${dateStr}/${region}/${service}/aws4_request`
+  const encoder = new TextEncoder()
+  const hashHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const stringToSign = ['AWS4-HMAC-SHA256', timeStr, credentialScope,
+    hashHex(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalRequest)))
+  ].join('\n')
+
+  const sign = async (key, data) => {
+    const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? encoder.encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    return new Uint8Array(await crypto.subtle.sign('HMAC', k, encoder.encode(data)))
+  }
+  const signingKey = await sign(await sign(await sign(await sign(encoder.encode('AWS4' + secretKey), dateStr), region), service), 'aws4_request')
+  const signature = hashHex(await crypto.subtle.sign('HMAC',
+    await crypto.subtle.importKey('raw', signingKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    encoder.encode(stringToSign)
+  ))
+
+  const headers = {
+    ...baseHeaders,
+    'content-type': contentType,
+    'Authorization': `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope},SignedHeaders=${signedHeaders},Signature=${signature}`,
+    ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`x-amz-meta-${k}`, v])),
+  }
+  return fetch(url, { method: 'PUT', headers, body: stream })
+}
+
 async function r2List(bucket, prefix, accessKeyId, secretKey, accountId) {
   const host = `${accountId}.r2.cloudflarestorage.com`
   const now = new Date()
@@ -771,37 +821,40 @@ export default {
     }
 
     // ── POST /realtime/recordings/sync ─────────────────────────────────────────
+    // Async (Option A): enqueue jobs and return immediately. The queue consumer
+    // (see queue() handler below) does the actual transfer in the background.
+    // Poll GET /realtime/recordings/sync-status?jobIds=... for progress.
     if (pathname === '/realtime/recordings/sync' && request.method === 'POST') {
       try {
         const auth = await validateWorkerApiToken(request, env)
         if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.email) return createResponse(JSON.stringify({ error: 'No email on token' }), 401)
+        if (!env.R2_SYNC_QUEUE) return createResponse(JSON.stringify({ error: 'R2_SYNC_QUEUE binding not configured' }), 500)
 
         const creds = await getUserCloudflareCredentials(auth.email, env)
         const { appId, accountId, apiToken, r2AccountId, r2Bucket, r2AccessKeyId, r2Secret } = creds
         const useOwnR2 = !!(r2AccessKeyId && r2Secret && r2Bucket && r2AccountId)
-
         if (!useOwnR2 && !env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
         if (!appId || !accountId || !apiToken) return createResponse(JSON.stringify({ error: 'RealtimeKit not configured' }), 500)
+
+        let filterIds = null
+        try { const body = await request.json(); if (body.recordingIds && Array.isArray(body.recordingIds)) filterIds = new Set(body.recordingIds) } catch {}
 
         const rtkResp = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings`,
           { headers: { Authorization: `Bearer ${apiToken}` } }
         )
         if (!rtkResp.ok) return createResponse(JSON.stringify({ error: 'Failed to fetch RealtimeKit recordings' }), 502)
-
         const rtkData = await rtkResp.json()
         const rtkRecordings = rtkData.data || []
 
-        // Restrict to meetings owned by this user
         const ownedMeetingIds = new Set()
         try {
           const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(auth.email).all()
           for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
         } catch (e) { console.error('meeting_ownership lookup failed:', e) }
 
-        let filterIds = null
-        try { const body = await request.json(); if (body.recordingIds && Array.isArray(body.recordingIds)) filterIds = new Set(body.recordingIds) } catch {}
-
+        // Build set of files that are already in R2 so we can short-circuit.
         const existingR2 = new Set()
         if (useOwnR2) {
           try {
@@ -815,40 +868,96 @@ export default {
           try {
             const prefixed = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 1000 })
             for (const obj of prefixed.objects || []) existingR2.add(obj.key.replace('recordings/', ''))
-            const root = await env.MEETING_RECORDINGS.list({ limit: 1000 })
-            for (const obj of root.objects || []) existingR2.add(obj.key)
           } catch {}
         }
 
-        const results = []
+        const jobs = []
         for (const rec of rtkRecordings) {
           if (filterIds && !filterIds.has(rec.id)) continue
           if (ownedMeetingIds.size > 0 && !ownedMeetingIds.has(rec.meeting_id)) {
-            results.push({ id: rec.id, status: 'skipped', reason: 'not owned by user' }); continue
+            jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'not owned by user' }); continue
           }
-          if (!rec.download_url) { results.push({ id: rec.id, status: 'skipped', reason: 'no download_url' }); continue }
+          if (!rec.download_url) { jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'no download_url' }); continue }
           const fileName = rec.output_file_name || `${rec.id}.mp4`
-          if (existingR2.has(fileName) || existingR2.has(`recordings/${fileName}`)) { results.push({ id: rec.id, name: fileName, status: 'already_exists' }); continue }
+          if (existingR2.has(fileName) || existingR2.has(`recordings/${fileName}`)) {
+            jobs.push({ recordingId: rec.id, name: fileName, status: 'already_exists' }); continue
+          }
+
+          // Create job row + enqueue
+          const jobId = crypto.randomUUID()
           try {
-            const dlResp = await fetch(rec.download_url)
-            if (!dlResp.ok) { results.push({ id: rec.id, name: fileName, status: 'download_failed', httpStatus: dlResp.status }); continue }
-            const r2Key = `recordings/${fileName}`
-            const metadata = { meetingId: rec.meeting_id || '', meetingTitle: rec.meeting?.title || '', duration: String(rec.recording_duration || ''), rtkRecordingId: rec.id, syncedAt: new Date().toISOString() }
-            if (useOwnR2) {
-              const videoData = await dlResp.arrayBuffer()
-              await r2Put(r2Bucket, r2Key, videoData, 'video/mp4', metadata, r2AccessKeyId, r2Secret, r2AccountId)
-            } else {
-              await env.MEETING_RECORDINGS.put(r2Key, dlResp.body, { httpMetadata: { contentType: 'video/mp4' }, customMetadata: metadata })
-            }
-            results.push({ id: rec.id, name: fileName, r2Key, status: 'synced', size: rec.file_size, r2: useOwnR2 ? 'own' : 'shared' })
-          } catch (err) { results.push({ id: rec.id, name: fileName, status: 'error', error: err.message }) }
+            await env.vegvisr_org.prepare(
+              `INSERT INTO r2_sync_jobs (job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target)
+               VALUES (?, ?, ?, ?, ?, 'queued', NULL, ?, ?)`
+            ).bind(jobId, auth.email, rec.id, rec.meeting_id || null, fileName, rec.file_size || null, useOwnR2 ? 'own' : 'shared').run()
+            await env.R2_SYNC_QUEUE.send({
+              jobId,
+              ownerEmail: auth.email,
+              recordingId: rec.id,
+              meetingId: rec.meeting_id || null,
+              meetingTitle: rec.meeting?.title || null,
+              fileName,
+              downloadUrl: rec.download_url,
+              fileSize: rec.file_size || null,
+              recordingDuration: rec.recording_duration || null,
+            })
+            jobs.push({ jobId, recordingId: rec.id, name: fileName, status: 'queued' })
+          } catch (err) {
+            jobs.push({ recordingId: rec.id, name: fileName, status: 'enqueue_failed', error: err.message })
+          }
         }
 
-        const synced = results.filter((r) => r.status === 'synced').length
-        const skipped = results.filter((r) => r.status === 'already_exists').length
-        return createResponse(JSON.stringify({ success: true, synced, skipped, total: results.length, results }))
+        const queued = jobs.filter(j => j.status === 'queued').length
+        const skipped = jobs.filter(j => j.status === 'already_exists' || j.status === 'skipped').length
+        return createResponse(JSON.stringify({ success: true, queued, skipped, total: jobs.length, jobs }))
       } catch (e) {
         console.error('Error in /realtime/recordings/sync:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── GET /realtime/recordings/sync-status ───────────────────────────────────
+    // Poll job status. Pass ?jobIds=a,b,c to get specific jobs, or no param to
+    // get the user's most recent jobs (last 50).
+    if (pathname === '/realtime/recordings/sync-status' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.email) return createResponse(JSON.stringify({ error: 'No email on token' }), 401)
+
+        const jobIdsParam = url.searchParams.get('jobIds')
+        let rows
+        if (jobIdsParam) {
+          const ids = jobIdsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 100)
+          if (ids.length === 0) return createResponse(JSON.stringify({ success: true, jobs: [] }))
+          const placeholders = ids.map(() => '?').join(',')
+          const stmt = env.vegvisr_org.prepare(
+            `SELECT job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target, created_at, updated_at
+             FROM r2_sync_jobs WHERE owner_email = ? AND job_id IN (${placeholders})`
+          ).bind(auth.email, ...ids)
+          rows = await stmt.all()
+        } else {
+          rows = await env.vegvisr_org.prepare(
+            `SELECT job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target, created_at, updated_at
+             FROM r2_sync_jobs WHERE owner_email = ? ORDER BY created_at DESC LIMIT 50`
+          ).bind(auth.email).all()
+        }
+
+        const jobs = (rows.results || []).map(r => ({
+          jobId: r.job_id,
+          recordingId: r.rtk_recording_id,
+          meetingId: r.meeting_id,
+          fileName: r.file_name,
+          status: r.status,
+          message: r.message,
+          bytesTotal: r.bytes_total,
+          r2Target: r.r2_target,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }))
+        return createResponse(JSON.stringify({ success: true, jobs }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/sync-status:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
       }
     }
@@ -1061,5 +1170,79 @@ export default {
 
     // ── 404 ────────────────────────────────────────────────────────────────────
     return createResponse(JSON.stringify({ error: 'Not found', pathname }), 404)
+  },
+
+  // ─── Cloudflare Queues consumer for r2-sync-queue ─────────────────────────
+  // Each message is one recording to copy from RealtimeKit → R2.
+  // Status is tracked in D1 r2_sync_jobs so the UI can poll progress.
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      const { jobId, ownerEmail, recordingId, meetingId, meetingTitle, fileName, downloadUrl, fileSize, recordingDuration } = msg.body || {}
+      const setStatus = async (status, message) => {
+        try {
+          await env.vegvisr_org.prepare(
+            `UPDATE r2_sync_jobs SET status = ?, message = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?`
+          ).bind(status, message || null, jobId).run()
+        } catch (e) { console.error('[r2-sync-queue] D1 update failed:', e) }
+      }
+
+      try {
+        if (!jobId || !ownerEmail || !downloadUrl || !fileName) {
+          await setStatus('failed', 'Missing required fields in queue message')
+          msg.ack()
+          continue
+        }
+        await setStatus('downloading', null)
+
+        const creds = await getUserCloudflareCredentials(ownerEmail, env)
+        const { r2AccountId, r2Bucket, r2AccessKeyId, r2Secret } = creds
+        const useOwnR2 = !!(r2AccessKeyId && r2Secret && r2Bucket && r2AccountId)
+        if (!useOwnR2 && !env.MEETING_RECORDINGS) {
+          await setStatus('failed', 'No R2 target configured for user')
+          msg.ack()
+          continue
+        }
+
+        const dlResp = await fetch(downloadUrl)
+        if (!dlResp.ok) {
+          await setStatus('failed', `download_failed http=${dlResp.status}`)
+          // Retry on 5xx, give up on 4xx
+          if (dlResp.status >= 500) msg.retry()
+          else msg.ack()
+          continue
+        }
+
+        await setStatus('uploading', null)
+        const r2Key = `recordings/${fileName}`
+        const metadata = {
+          meetingId: meetingId || '',
+          meetingTitle: meetingTitle || '',
+          duration: String(recordingDuration || ''),
+          rtkRecordingId: recordingId || '',
+          syncedAt: new Date().toISOString(),
+        }
+
+        if (useOwnR2) {
+          const contentLength = dlResp.headers.get('content-length')
+          const putResp = await r2PutStream(r2Bucket, r2Key, dlResp.body, contentLength, 'video/mp4', metadata, r2AccessKeyId, r2Secret, r2AccountId)
+          if (!putResp.ok) {
+            const errText = await putResp.text().catch(() => '')
+            await setStatus('failed', `r2_put_failed http=${putResp.status} ${errText.slice(0, 300)}`)
+            msg.retry()
+            continue
+          }
+        } else {
+          await env.MEETING_RECORDINGS.put(r2Key, dlResp.body, { httpMetadata: { contentType: 'video/mp4' }, customMetadata: metadata })
+        }
+
+        await setStatus('done', `Uploaded to ${useOwnR2 ? 'own' : 'shared'} R2 at ${r2Key}`)
+        msg.ack()
+      } catch (err) {
+        console.error('[r2-sync-queue] error:', err)
+        await setStatus('failed', err.message?.slice(0, 500) || 'unknown error')
+        // Allow Cloudflare to retry up to max_retries
+        msg.retry()
+      }
+    }
   },
 }
